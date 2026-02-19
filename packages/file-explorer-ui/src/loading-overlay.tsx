@@ -122,11 +122,12 @@ export const LoadingOverlay = ({
       return null;
     }
     const { loaded, total } = progressState;
-    const { startMs, nowMs } = etaTimes;
-    if (!(startMs && nowMs) || total === 0 || loaded < 10) {
+    const { startMs } = etaTimes;
+    if (!startMs || total === 0 || loaded < 10) {
       return null;
     }
-    const elapsedSec = (nowMs - startMs) / 1000;
+    // Use performance.now() inline for fresh elapsed time on each render
+    const elapsedSec = (performance.now() - startMs) / 1000;
     const rate = loaded / Math.max(elapsedSec, 0.001);
     if (rate <= 0) {
       return null;

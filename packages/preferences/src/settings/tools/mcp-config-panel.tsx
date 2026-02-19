@@ -117,6 +117,7 @@ function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanel
 }
 
 export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelProps) {
+  // React Compiler cannot optimize: complex async patterns with sequential awaits and value blocks in try/catch
   'use no memo';
   const [state, dispatch] = useReducer(mcpPanelReducer, initialState);
   const {

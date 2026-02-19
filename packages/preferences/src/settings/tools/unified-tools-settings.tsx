@@ -315,6 +315,7 @@ export function UnifiedToolsSettings({
   budgetManager,
   onToolsChanged,
 }: UnifiedToolsSettingsProps) {
+  // React Compiler cannot optimize: complex async patterns with sequential awaits and value blocks in try/catch
   'use no memo';
   const [dataState, dispatch] = useReducer(toolsDataReducer, initialToolsDataState);
   const _statsStateRef = useRef<ToolStats | null>(null);

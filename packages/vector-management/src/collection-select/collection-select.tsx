@@ -372,7 +372,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       cancelled = true;
     };
-  }, [db, fetchState.loading, schemaVerified, setCachedCollections]);
+  }, [db, schemaVerified, setCachedCollections]);
 
   // Reset initial fetch flag when db changes (e.g., reconnection)
   useEffect(() => {

@@ -15,7 +15,7 @@ import {
 import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
-import { useCallback, useMemo, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { CreateEmbeddingSetDialog } from './create-embedding-set-dialog';
 import { DeleteEmbeddingSetDialog } from './delete-embedding-set-dialog';
 import { formatRelativeTimeFromNow } from './format-utils';
@@ -222,17 +222,21 @@ export function ManageEmbeddingSetsDialog({
     }
   }, [db]);
 
+  // biome-ignore lint/plugin: Load sets when dialog opens — standard modal data loading for controlled open prop
+  useEffect(() => {
+    if (open) {
+      if (db) {
+        void ensureRegistry(db);
+      }
+      void loadSets();
+    }
+  }, [open, db, ensureRegistry, loadSets]);
+
   const handleDialogOpenChange = useCallback(
     (isOpen: boolean) => {
-      if (isOpen) {
-        if (db) {
-          void ensureRegistry(db);
-        }
-        void loadSets();
-      }
       onOpenChange(isOpen);
     },
-    [db, ensureRegistry, loadSets, onOpenChange]
+    [onOpenChange]
   );
 
   const handleCreateSet = () => {

@@ -280,14 +280,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
     try {
       const testResult = await electronDB.test();
-      if (testResult.success) {
-        logger.info('Database test passed:', testResult.message);
-      } else {
-        logger.warn(
-          'Database test not available or failed:',
-          new Error(`Database test failed: ${testResult.message}`)
-        );
+      if (!testResult.success) {
+        throw new Error(`Database test failed: ${testResult.message}`);
       }
+      logger.info('Database test passed:', testResult.message);
     } catch (error) {
       logger.warn('Database test not available or failed:', error);
     }

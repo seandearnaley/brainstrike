@@ -320,8 +320,6 @@ function mcpReducer(_state: McpState, action: McpAction): McpState {
       return { tools: action.tools, loading: false };
     case 'ERROR':
       return { tools: [], loading: false };
-    default:
-      return _state;
   }
 }
 

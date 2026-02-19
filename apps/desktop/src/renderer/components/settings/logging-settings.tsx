@@ -110,20 +110,21 @@ export function DesktopLoggingSettings() {
     };
 
     const fetchPreferences = async () => {
-      let caughtError = false;
-      const response = await window.logging?.getPreferences?.().catch((err: unknown) => {
-        caughtError = true;
+      try {
+        const fn = window.logging?.getPreferences;
+        if (!fn) {
+          finishWithError(new Error('Logging bridge is unavailable in this build.'));
+          return;
+        }
+        const response = await fn();
+        if (!response) {
+          finishWithError(new Error('Logging bridge is unavailable in this build.'));
+          return;
+        }
+        finishWithPayload(response);
+      } catch (err) {
         finishWithError(err);
-        return undefined;
-      });
-      if (caughtError) {
-        return;
       }
-      if (!response) {
-        finishWithError(new Error('Logging bridge is unavailable in this build.'));
-        return;
-      }
-      finishWithPayload(response);
     };
 
     void fetchPreferences();

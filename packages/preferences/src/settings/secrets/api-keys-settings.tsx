@@ -60,7 +60,6 @@ function apiKeysReducer(state: ApiKeysState, action: ApiKeysAction): ApiKeysStat
  * @platform desktop
  */
 export function ApiKeysSettings() {
-  'use no memo';
   const { toast } = useToast();
   const notifySecretsChanged = useSecretsStore((state) => state.notifySecretsChanged);
   const providerDefinitions = useMemo(() => listProviders(), []);
