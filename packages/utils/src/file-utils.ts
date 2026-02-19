@@ -8,14 +8,42 @@
  * @returns The file extension (without the dot) or empty string if no extension
  */
 export function getFileExtension(filename: string): string {
-  const lastPathSeparatorIndex = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
-  const basename =
-    lastPathSeparatorIndex === -1 ? filename : filename.slice(lastPathSeparatorIndex + 1);
-  const lastDotIndex = basename.lastIndexOf('.');
-  if (lastDotIndex <= 0) {
+  const len = filename.length;
+  if (len === 0) {
     return '';
   }
-  return basename.slice(lastDotIndex + 1).toLowerCase();
+
+  // Optimized backward scan to avoid string allocation
+  let dotIndex = -1;
+  for (let i = len - 1; i >= 0; i--) {
+    const code = filename.charCodeAt(i);
+    if (code === 46) {
+      // .
+      if (dotIndex === -1) {
+        dotIndex = i;
+      }
+    } else if (code === 47 || code === 92) {
+      // / or \
+      if (dotIndex !== -1) {
+        // If dot is immediately after separator (e.g. /.config), it's a hidden file
+        if (dotIndex === i + 1) {
+          return '';
+        }
+        return filename.slice(dotIndex + 1).toLowerCase();
+      }
+      return '';
+    }
+  }
+
+  if (dotIndex !== -1) {
+    // If dot is at start (e.g. .gitignore), it's a hidden file
+    if (dotIndex === 0) {
+      return '';
+    }
+    return filename.slice(dotIndex + 1).toLowerCase();
+  }
+
+  return '';
 }
 
 // Invariant: entries must be lowercase and must not include a leading dot.
