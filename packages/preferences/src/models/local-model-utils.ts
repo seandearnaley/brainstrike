@@ -1,4 +1,4 @@
-const LOCAL_PROVIDER_IDS = new Set(['local', 'transformers'] as const);
+const LOCAL_PROVIDER_IDS: ReadonlySet<string> = new Set(['local', 'transformers']);
 
 export interface LocalModelLike {
   providerId?: unknown;
@@ -9,7 +9,7 @@ export interface LocalModelLike {
 }
 
 export function isLocalModelProviderId(providerId: string): boolean {
-  return LOCAL_PROVIDER_IDS.has(providerId as 'local' | 'transformers');
+  return LOCAL_PROVIDER_IDS.has(providerId);
 }
 
 export function isEnabledLocalLlmModel(model: LocalModelLike): boolean {

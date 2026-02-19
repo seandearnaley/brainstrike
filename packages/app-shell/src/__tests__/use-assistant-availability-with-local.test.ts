@@ -8,22 +8,13 @@ vi.mock('../hooks/use-assistant-availability', () => ({
 }));
 
 // Mock the model registry store
-vi.mock('@brainstrike/preferences', () => ({
-  useModelRegistryStore: vi.fn(),
-  hasEnabledLocalLlmModels: (
-    models: Array<{
-      providerId?: string;
-      isEnabled?: boolean;
-      capabilities?: { type?: string } | null;
-    }>
-  ) =>
-    models.some(
-      (model) =>
-        (model.providerId === 'local' || model.providerId === 'transformers') &&
-        model.isEnabled === true &&
-        model.capabilities?.type === 'llm'
-    ),
-}));
+vi.mock('@brainstrike/preferences', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@brainstrike/preferences')>();
+  return {
+    ...real,
+    useModelRegistryStore: vi.fn(),
+  };
+});
 
 import { useModelRegistryStore } from '@brainstrike/preferences';
 import { useAssistantAvailability } from '../hooks/use-assistant-availability';

@@ -93,7 +93,7 @@ function parseCompositeModelKey(value: string | null | undefined): ParsedComposi
 
   const provider = value.slice(0, separatorIndex);
   const model = value.slice(separatorIndex + MODEL_KEY_DELIMITER.length);
-  if (!(model.length > 0 && isSupportedProvider(provider))) {
+  if (model.length === 0 || !isSupportedProvider(provider)) {
     return null;
   }
 
