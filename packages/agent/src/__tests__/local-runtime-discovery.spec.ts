@@ -113,6 +113,27 @@ describe('local-runtime-discovery', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it('treats empty OpenAI model lists as incompatible for LM Studio probes', async () => {
+    const fetchMock = vi.fn<FetchMock>().mockResolvedValue(
+      jsonResponse({
+        data: [],
+      })
+    );
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 4500,
+    });
+
+    const status = await service.probeRuntime('lmstudio', { surface: 'desktop' });
+
+    expect(status.state).toBe('incompatible');
+    if (status.state !== 'incompatible') {
+      throw new Error('Expected incompatible runtime status');
+    }
+    expect(status.message).toContain('Unexpected response shape');
+  });
+
   it('returns blocked_web for browser-localhost probes blocked under HTTPS', async () => {
     vi.stubGlobal('window', {
       location: { protocol: 'https:' },

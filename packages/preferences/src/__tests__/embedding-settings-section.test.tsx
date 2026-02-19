@@ -1,5 +1,5 @@
 import type { LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingSettings } from '../embedding/embedding-settings-section';
@@ -237,6 +237,56 @@ describe('EmbeddingSettings', () => {
 
     expect(screen.getByTestId('embedding-provider-ollama')).toBeTruthy();
     expect(screen.getByTestId('embedding-model-row-ollama-nomic-embed-text')).toBeTruthy();
+  });
+
+  it('assigns runtime default badge after alphabetical sort', () => {
+    const ollamaCatalog = runtimeCatalogWithOllamaEmbedding.ollama;
+    if (ollamaCatalog.state !== 'loaded_non_empty') {
+      throw new Error('expected loaded_non_empty ollama catalog');
+    }
+    const [baseModel] = ollamaCatalog.models;
+    if (!baseModel) {
+      throw new Error('expected at least one runtime model');
+    }
+
+    const runtimeCatalogWithOutOfOrderLabels: {
+      ollama: LocalRuntimeModelCatalogState;
+      lmstudio: LocalRuntimeModelCatalogState;
+    } = {
+      ollama: {
+        ...ollamaCatalog,
+        models: [
+          {
+            ...baseModel,
+            modelId: 'zeta-model',
+            modelKey: 'ollama::zeta-model',
+            displayName: 'Zeta Embedding',
+          },
+          {
+            ...baseModel,
+            modelId: 'alpha-model',
+            modelKey: 'ollama::alpha-model',
+            displayName: 'Alpha Embedding',
+          },
+        ],
+      },
+      lmstudio: runtimeCatalogWithOllamaEmbedding.lmstudio,
+    };
+
+    mockUseLocalRuntimeEmbeddingModelCatalog.mockReturnValue({
+      catalog: runtimeCatalogWithOutOfOrderLabels,
+      isLoading: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+    });
+
+    renderComponent();
+
+    const alphaRow = screen.getByTestId('embedding-model-row-ollama-alpha-model');
+    const zetaRow = screen.getByTestId('embedding-model-row-ollama-zeta-model');
+
+    expect(within(alphaRow).getByText('Default')).toBeTruthy();
+    expect(within(zetaRow).queryByText('Default')).toBeNull();
   });
 
   describe('Quick Start Presets', () => {

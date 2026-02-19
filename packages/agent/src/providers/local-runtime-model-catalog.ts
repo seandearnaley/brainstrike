@@ -360,7 +360,7 @@ function inferModelCapabilities(
     };
   }
 
-  if (hasChatHint && !hasEmbeddingHint) {
+  if (hasChatHint) {
     return {
       llm: true,
       embeddings: 'unsupported',
@@ -368,6 +368,8 @@ function inferModelCapabilities(
     };
   }
 
+  // Unknown model families are treated as LLM-capable and embedding-uncertain so
+  // custom names still surface and can be verified through runtime probing.
   return {
     llm: true,
     embeddings: 'needs_verification',

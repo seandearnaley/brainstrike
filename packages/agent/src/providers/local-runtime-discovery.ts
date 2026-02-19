@@ -184,7 +184,7 @@ function isOpenAiModelsPayload(payload: unknown): boolean {
     return false;
   }
   const data = payload['data'];
-  if (!Array.isArray(data)) {
+  if (!Array.isArray(data) || data.length === 0) {
     return false;
   }
   return data.every((item) => hasStringId(item));

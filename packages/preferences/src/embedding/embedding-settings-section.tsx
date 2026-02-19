@@ -275,7 +275,7 @@ function toNormalizedRuntimeProvider(
   const models = isLoadedRuntimeModelCatalogState(state)
     ? state.models
         .filter((model) => model.capabilities.embeddings !== 'unsupported')
-        .map<NormalizedEmbeddingModel>((model, index) => {
+        .map<NormalizedEmbeddingModel>((model) => {
           const knownDimensions = resolveKnownRuntimeDimensions(model);
           const dimensions = knownDimensions[0] ?? STANDARD_EMBEDDING_DIMENSION;
           const hasKnownDimensions = knownDimensions.length > 0;
@@ -300,10 +300,14 @@ function toNormalizedRuntimeProvider(
             supportsCustomDimensions: false,
             ...(hasKnownDimensions ? { availableDimensions: knownDimensions } : {}),
             ...(descriptionParts.length > 0 ? { description: descriptionParts.join(' • ') } : {}),
-            isDefault: index === 0,
+            isDefault: false,
           };
         })
         .sort((a, b) => a.label.localeCompare(b.label))
+        .map((model, index) => ({
+          ...model,
+          isDefault: index === 0,
+        }))
     : [];
 
   return {

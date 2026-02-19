@@ -94,10 +94,29 @@ const STATIC_NO_KEY_PROVIDERS = SUPPORTED_PROVIDERS.filter(
   (provider) => providerEnvKeys(provider).length === 0 && !LOCAL_RUNTIME_PROVIDERS.has(provider)
 );
 const MODEL_KEY_DELIMITER = '::' as const;
-const localRuntimeDiscoveryService = new LocalRuntimeDiscoveryService();
-const localRuntimeModelCatalogService = new LocalRuntimeModelCatalogService({
-  discoveryService: localRuntimeDiscoveryService,
-});
+
+interface LocalRuntimeServices {
+  readonly discoveryService: LocalRuntimeDiscoveryService;
+  readonly modelCatalogService: LocalRuntimeModelCatalogService;
+}
+
+let localRuntimeServices: LocalRuntimeServices | null = null;
+
+function getLocalRuntimeServices(): LocalRuntimeServices {
+  if (localRuntimeServices) {
+    return localRuntimeServices;
+  }
+
+  const discoveryService = new LocalRuntimeDiscoveryService();
+  const modelCatalogService = new LocalRuntimeModelCatalogService({
+    discoveryService,
+  });
+  localRuntimeServices = {
+    discoveryService,
+    modelCatalogService,
+  };
+  return localRuntimeServices;
+}
 
 interface ParsedCompositeModelKey {
   provider: SupportedProvider;
@@ -289,7 +308,8 @@ async function getProvidersWithSavedKeys(): Promise<readonly SupportedProvider[]
 
 async function getDetectedRuntimeProviders(): Promise<readonly SupportedProvider[]> {
   try {
-    const runtimeStatuses = await localRuntimeDiscoveryService.probeAll();
+    const { discoveryService } = getLocalRuntimeServices();
+    const runtimeStatuses = await discoveryService.probeAll();
     const detected: SupportedProvider[] = [];
 
     for (const runtimeId of Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[]) {
@@ -626,12 +646,12 @@ export const useAssistantPreferencesStore = create<Store>()(
       },
 
       getLocalRuntimeStatuses: async (options) =>
-        localRuntimeDiscoveryService.probeAll({
+        getLocalRuntimeServices().discoveryService.probeAll({
           ...(options?.force ? { force: true } : {}),
         }),
 
       getLocalRuntimeModels: async (options) =>
-        localRuntimeModelCatalogService.listAllModels({
+        getLocalRuntimeServices().modelCatalogService.listAllModels({
           ...(options?.force ? { force: true } : {}),
           ...(options?.verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
           ...(typeof options?.maxVerificationModels === 'number'
@@ -712,6 +732,11 @@ function resetStoreState() {
 export function __resetAssistantPreferencesStoreForTests() {
   try {
     resetStoreState();
+    if (localRuntimeServices) {
+      localRuntimeServices.discoveryService.clearCache();
+      localRuntimeServices.modelCatalogService.clearCache();
+      localRuntimeServices = null;
+    }
     const persistApi = (
       useAssistantPreferencesStore as unknown as {
         persist?: { clearStorage?: () => void };
