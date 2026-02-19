@@ -9,7 +9,9 @@
  */
 export function getFileExtension(filename: string): string {
   const len = filename.length;
-  if (len === 0) return '';
+  if (len === 0) {
+    return '';
+  }
 
   // Optimized loop to find extension without intermediate allocations
   for (let i = len - 1; i >= 0; i--) {
@@ -17,12 +19,16 @@ export function getFileExtension(filename: string): string {
     // check for . (46)
     if (code === 46) {
       // If dot is at start, it's a hidden file with no extension (e.g. .gitignore)
-      if (i === 0) return '';
+      if (i === 0) {
+        return '';
+      }
 
       // check if previous char is separator
       const prevCode = filename.charCodeAt(i - 1);
       // If dot follows a separator, it's a hidden file (e.g. /.gitignore)
-      if (prevCode === 47 || prevCode === 92) return '';
+      if (prevCode === 47 || prevCode === 92) {
+        return '';
+      }
 
       return filename.slice(i + 1).toLowerCase();
     }

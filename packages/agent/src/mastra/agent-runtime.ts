@@ -3,11 +3,11 @@ import { createLogger } from '@brainstrike/utils';
 import { Agent, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
-// TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
-import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import { readableStreamIterator } from '../stream/readable-stream-iterator';
+// TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
+import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../types';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
 import { collectCombinedTools } from './mcp-tool-loader';
 import {
