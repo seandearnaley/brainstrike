@@ -431,6 +431,12 @@ vi.mock('@brainstrike/agent/client', () => {
       PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS],
     getProviderModelDefinitions: (provider: string) =>
       PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS]?.models ?? [],
+    isLoadedRuntimeModelCatalogState: (
+      state: LocalRuntimeModelCatalogState | null | undefined
+    ): state is Extract<
+      LocalRuntimeModelCatalogState,
+      { state: 'loaded_non_empty' | 'stale_cached' }
+    > => Boolean(state && (state.state === 'loaded_non_empty' || state.state === 'stale_cached')),
     isSupportedProvider: (provider: string) =>
       SUPPORTED_PROVIDERS.includes(provider as keyof typeof PROVIDER_DEFINITIONS),
     supportsStandardEmbeddingDimension: (provider: string) => provider !== 'openrouter',

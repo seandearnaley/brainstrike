@@ -8,6 +8,7 @@ import {
   listProviders,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
+  type ProviderDefinition,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/agent/client';
@@ -78,7 +79,9 @@ type Store = AssistantPreferencesData & AssistantPreferencesActions;
 const STORE_NAME = 'assistant-preferences.v1' as const;
 const STORE_VERSION = 4;
 
-const SUPPORTED_PROVIDERS = listProviders().map((provider) => provider.id) as SupportedProvider[];
+const SUPPORTED_PROVIDERS = listProviders().map(
+  (provider: ProviderDefinition) => provider.id
+) as SupportedProvider[];
 const SUPPORTED_PROVIDER_SET = new Set<SupportedProvider>(SUPPORTED_PROVIDERS);
 const LOCAL_RUNTIME_PROVIDER_BY_RUNTIME: Record<LocalRuntimeId, SupportedProvider> = {
   ollama: 'ollama',
@@ -250,11 +253,11 @@ function shouldIncludeLocalRuntimeProvider(status: LocalRuntimeAvailabilityState
   switch (status.state) {
     case 'available':
     case 'stale':
+      return true;
+    case 'checking':
     case 'auth_required':
     case 'incompatible':
     case 'blocked_web':
-      return true;
-    case 'checking':
     case 'unavailable':
       return false;
     default:

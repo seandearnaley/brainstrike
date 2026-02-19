@@ -1,5 +1,5 @@
 import type { LocalRuntimeId, LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAssistantPreferencesStore } from '../stores/assistant-preferences-store';
 
 type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
@@ -45,6 +45,13 @@ export function useLocalRuntimeEmbeddingModelCatalog(
   const verifyEmbeddingDimensions = options.verifyEmbeddingDimensions ?? false;
   const maxVerificationModels = options.maxVerificationModels;
   const enabled = options.enabled ?? true;
+  const modelCatalogOptions = useMemo(
+    () => ({
+      ...(verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
+      ...(typeof maxVerificationModels === 'number' ? { maxVerificationModels } : {}),
+    }),
+    [maxVerificationModels, verifyEmbeddingDimensions]
+  );
 
   const refresh = useCallback(
     async (refreshOptions?: { force?: boolean }) => {
@@ -59,8 +66,7 @@ export function useLocalRuntimeEmbeddingModelCatalog(
       try {
         const runtimeCatalog = await getLocalRuntimeModels({
           ...(refreshOptions?.force ? { force: true } : {}),
-          ...(verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
-          ...(typeof maxVerificationModels === 'number' ? { maxVerificationModels } : {}),
+          ...modelCatalogOptions,
         });
         setRequestState({
           catalog: runtimeCatalog,
@@ -75,7 +81,7 @@ export function useLocalRuntimeEmbeddingModelCatalog(
         }));
       }
     },
-    [enabled, getLocalRuntimeModels, maxVerificationModels, verifyEmbeddingDimensions]
+    [enabled, getLocalRuntimeModels, modelCatalogOptions]
   );
 
   useEffect(() => {

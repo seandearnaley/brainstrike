@@ -1,4 +1,6 @@
 import {
+  isLoadedRuntimeModelCatalogState,
+  type LoadedRuntimeModelCatalogState,
   type LocalRuntimeId,
   type LocalRuntimeModelCatalogState,
   listProviders,
@@ -33,10 +35,6 @@ import { useModelRegistryStore } from '../stores/model-registry-store';
 
 type HostedEmbeddingProviderId = HostedProviderType;
 type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
-type LoadedRuntimeModelCatalogState = Extract<
-  LocalRuntimeModelCatalogState,
-  { state: 'loaded_non_empty' | 'stale_cached' }
->;
 
 interface ModelPreset {
   readonly id: string;
@@ -140,12 +138,13 @@ const HOSTED_EMBEDDING_PROVIDER_IDS: readonly HostedEmbeddingProviderId[] = [
 ] as const;
 
 const LOCAL_RUNTIME_PROVIDER_IDS: readonly LocalRuntimeId[] = ['ollama', 'lmstudio'] as const;
-
-function isLoadedRuntimeModelCatalogState(
-  state: LocalRuntimeModelCatalogState | undefined
-): state is LoadedRuntimeModelCatalogState {
-  return Boolean(state && (state.state === 'loaded_non_empty' || state.state === 'stale_cached'));
-}
+const LOCAL_RUNTIME_PROVIDER_METADATA: Record<
+  LocalRuntimeId,
+  { readonly displayName: string; readonly runtime: 'hosted' }
+> = {
+  ollama: HOSTED_PROVIDER_METADATA.ollama,
+  lmstudio: HOSTED_PROVIDER_METADATA.lmstudio,
+} as const;
 
 function isRuntimeHostedProvider(
   providerId: HostedEmbeddingProviderId
@@ -309,8 +308,8 @@ function toNormalizedRuntimeProvider(
 
   return {
     id: providerId,
-    displayName: HOSTED_PROVIDER_METADATA[providerId].displayName,
-    runtime: HOSTED_PROVIDER_METADATA[providerId].runtime,
+    displayName: LOCAL_RUNTIME_PROVIDER_METADATA[providerId].displayName,
+    runtime: LOCAL_RUNTIME_PROVIDER_METADATA[providerId].runtime,
     models,
   };
 }

@@ -1,4 +1,9 @@
-import type { LocalRuntimeId, LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
+import type {
+  LoadedRuntimeModelCatalogState,
+  LocalRuntimeId,
+  LocalRuntimeModelCatalogState,
+} from '@brainstrike/agent/client';
+import { isLoadedRuntimeModelCatalogState } from '@brainstrike/agent/client';
 import type { DbModel, DbProvider } from '@brainstrike/preferences';
 import { useMemo } from 'react';
 
@@ -18,10 +23,6 @@ interface AvailableProvider {
 }
 
 type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
-type LoadedRuntimeModelCatalogState = Extract<
-  LocalRuntimeModelCatalogState,
-  { state: 'loaded_non_empty' | 'stale_cached' }
->;
 
 const LOCAL_RUNTIME_PROVIDER_METADATA: Record<
   LocalRuntimeId,
@@ -30,12 +31,6 @@ const LOCAL_RUNTIME_PROVIDER_METADATA: Record<
   ollama: { name: 'Ollama', icon: null },
   lmstudio: { name: 'LM Studio', icon: null },
 } as const;
-
-function isLoadedRuntimeModelCatalogState(
-  state: LocalRuntimeModelCatalogState | undefined
-): state is LoadedRuntimeModelCatalogState {
-  return Boolean(state && (state.state === 'loaded_non_empty' || state.state === 'stale_cached'));
-}
 
 function resolveKnownDimension(
   model: LoadedRuntimeModelCatalogState['models'][number]

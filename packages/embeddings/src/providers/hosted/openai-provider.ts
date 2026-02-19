@@ -91,7 +91,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   constructor(options: OpenAIEmbeddingProviderOptions) {
     this.provider = options.provider ?? 'openai';
     this.modelId = options.modelId;
-    this.targetDimensions = options.targetDimensions || STANDARD_EMBEDDING_DIMENSION;
+    this.targetDimensions = resolveTargetDimensions(options.targetDimensions);
     this.apiKey = normalizeApiKey(options.apiKey);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.endpoint = options.endpoint ?? OPENAI_COMPATIBLE_ENDPOINTS[this.provider];
@@ -355,6 +355,16 @@ function normalizeApiKey(value: string | undefined): string | null {
     return null;
   }
   return trimmed;
+}
+
+function resolveTargetDimensions(value: number | undefined): number {
+  const targetDimensions = value ?? STANDARD_EMBEDDING_DIMENSION;
+  if (!Number.isFinite(targetDimensions) || targetDimensions <= 0) {
+    throw new Error(
+      `OpenAI-compatible embedding dimensions must be a positive number. Received: ${String(value)}`
+    );
+  }
+  return Math.floor(targetDimensions);
 }
 
 function parseRetryAfter(headerValue: string | null): number | undefined {

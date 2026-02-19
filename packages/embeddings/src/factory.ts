@@ -81,7 +81,9 @@ export class EmbeddingProviderFactory {
   static async createProvider(
     config: EmbeddingProviderConfig
   ): Promise<Result<IEmbeddingProvider, EmbeddingProviderError>> {
-    const key = EmbeddingProviderFactory.composeCacheKey(config);
+    const hostedApiKey =
+      config.runtime === 'hosted' ? await resolveHostedProviderApiKey(config.provider) : null;
+    const key = EmbeddingProviderFactory.composeCacheKey(config, hostedApiKey);
 
     // Return cached instance if exists
     const cached = EmbeddingProviderFactory.instances.get(key);
@@ -90,7 +92,7 @@ export class EmbeddingProviderFactory {
     }
 
     try {
-      const provider = await EmbeddingProviderFactory.instantiateProvider(config);
+      const provider = await EmbeddingProviderFactory.instantiateProvider(config, hostedApiKey);
 
       // Cache the instance
       EmbeddingProviderFactory.instances.set(key, provider);
@@ -124,7 +126,8 @@ export class EmbeddingProviderFactory {
    * Instantiate a provider based on configuration (extracted for complexity reduction)
    */
   private static async instantiateProvider(
-    config: EmbeddingProviderConfig
+    config: EmbeddingProviderConfig,
+    hostedApiKey: string | null = null
   ): Promise<IEmbeddingProvider> {
     switch (config.runtime) {
       case 'browser':
@@ -134,7 +137,7 @@ export class EmbeddingProviderFactory {
         );
 
       case 'hosted':
-        return EmbeddingProviderFactory.createHostedProvider(config);
+        return EmbeddingProviderFactory.createHostedProvider(config, hostedApiKey);
 
       default: {
         const _exhaustive: never = config;
@@ -147,9 +150,10 @@ export class EmbeddingProviderFactory {
    * Create a hosted provider instance (extracted for complexity reduction)
    */
   private static async createHostedProvider(
-    config: Extract<EmbeddingProviderConfig, { runtime: 'hosted' }>
+    config: Extract<EmbeddingProviderConfig, { runtime: 'hosted' }>,
+    hostedApiKey: string | null = null
   ): Promise<IEmbeddingProvider> {
-    const apiKey = await resolveHostedProviderApiKey(config.provider);
+    const apiKey = hostedApiKey ?? (await resolveHostedProviderApiKey(config.provider));
     if (hostedProviderRequiresApiKey(config.provider) && !apiKey) {
       throw new MissingApiKeyError(config.provider);
     }
@@ -336,12 +340,18 @@ export class EmbeddingProviderFactory {
     }
   }
 
-  private static composeCacheKey(config: EmbeddingProviderConfig): string {
-    const variant = EmbeddingProviderFactory.resolveVariant(config);
+  private static composeCacheKey(
+    config: EmbeddingProviderConfig,
+    hostedApiKey: string | null = null
+  ): string {
+    const variant = EmbeddingProviderFactory.resolveVariant(config, hostedApiKey);
     return `${config.provider}:${config.modelId}:${variant}`;
   }
 
-  private static resolveVariant(config: EmbeddingProviderConfig): string {
+  private static resolveVariant(
+    config: EmbeddingProviderConfig,
+    hostedApiKey: string | null = null
+  ): string {
     if (config.runtime === 'browser') {
       return config.quantization ?? 'default';
     }
@@ -363,10 +373,20 @@ export class EmbeddingProviderFactory {
       case 'lmstudio': {
         const endpoint =
           config.endpoint ?? DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS[config.provider];
-        return `${config.dimensions}:${endpoint}`;
+        const keyHash = hostedApiKey === null ? 'none' : `key_${hashVariantToken(hostedApiKey)}`;
+        return `${config.dimensions}:${endpoint}:${keyHash}`;
       }
       default:
         return 'default';
     }
   }
+}
+
+function hashVariantToken(value: string): string {
+  let hash = 2_166_136_261;
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0).toString(16);
 }

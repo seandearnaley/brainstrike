@@ -1,3 +1,11 @@
+import {
+  extractErrorMessage,
+  type FetchJsonResult,
+  fetchJsonWithTimeout,
+  isRecord,
+  sanitizeDuration,
+} from './local-runtime-utils';
+
 export const LOCAL_RUNTIME_IDS = ['ollama', 'lmstudio'] as const;
 
 export type LocalRuntimeId = (typeof LOCAL_RUNTIME_IDS)[number];
@@ -156,13 +164,6 @@ interface ProbeAllOptions extends Omit<ProbeLocalRuntimeOptions, 'signal'> {
   readonly signal?: AbortSignal;
 }
 
-interface FetchJsonResult {
-  readonly response: Response;
-  readonly payload: unknown | undefined;
-  readonly parseError: Error | null;
-  readonly latencyMs: number;
-}
-
 interface ProbeAttemptFailure {
   readonly state: LocalRuntimeFailureState;
 }
@@ -173,10 +174,6 @@ const FAILURE_PRIORITY: readonly LocalRuntimeFailureState['state'][] = [
   'incompatible',
   'unavailable',
 ];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function hasStringId(value: unknown): value is { id: string } {
   return isRecord(value) && typeof value['id'] === 'string' && value['id'].length > 0;
@@ -214,13 +211,6 @@ function isLmStudioRestModelsPayload(payload: unknown): boolean {
   return isOpenAiModelsPayload(payload);
 }
 
-function sanitizeDuration(value: number | undefined, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return fallback;
-  }
-  return Math.floor(value);
-}
-
 function resolveRuntimeSurface(defaultSurface?: LocalRuntimeSurface): LocalRuntimeSurface {
   if (defaultSurface) {
     return defaultSurface;
@@ -239,13 +229,6 @@ function resolveRuntimeSurface(defaultSurface?: LocalRuntimeSurface): LocalRunti
   }
 
   return 'web';
-}
-
-function extractErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
 }
 
 function isLikelyWebPolicyBlock(
@@ -309,54 +292,6 @@ function getFailureMessage(failure: LocalRuntimeFailureState): string | undefine
       return failure.message;
     case 'auth_required':
       return;
-  }
-}
-
-async function fetchJsonWithTimeout(
-  endpoint: string,
-  options: {
-    readonly fetchImpl: typeof fetch;
-    readonly timeoutMs: number;
-    readonly signal?: AbortSignal;
-  }
-): Promise<FetchJsonResult> {
-  const controller = new AbortController();
-  const timeoutHandle = globalThis.setTimeout(() => {
-    controller.abort(new DOMException('Request timed out', 'AbortError'));
-  }, options.timeoutMs);
-
-  const upstreamAbortHandler = () => {
-    controller.abort();
-  };
-  options.signal?.addEventListener('abort', upstreamAbortHandler);
-
-  const startedAt = Date.now();
-  try {
-    const response = await options.fetchImpl(endpoint, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      signal: controller.signal,
-    });
-    const latencyMs = Date.now() - startedAt;
-
-    if (!response.ok) {
-      return { response, payload: undefined, parseError: null, latencyMs };
-    }
-
-    try {
-      const payload = await response.json();
-      return { response, payload, parseError: null, latencyMs };
-    } catch (error) {
-      return {
-        response,
-        payload: undefined,
-        parseError: error instanceof Error ? error : new Error(String(error)),
-        latencyMs,
-      };
-    }
-  } finally {
-    globalThis.clearTimeout(timeoutHandle);
-    options.signal?.removeEventListener('abort', upstreamAbortHandler);
   }
 }
 

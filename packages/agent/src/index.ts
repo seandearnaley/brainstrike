@@ -101,7 +101,9 @@ export {
   type ProbeLocalRuntimeOptions,
 } from './providers/local-runtime-discovery';
 export {
+  isLoadedRuntimeModelCatalogState,
   type ListLocalRuntimeModelsOptions,
+  type LoadedRuntimeModelCatalogState,
   type LocalRuntimeDimensionsState,
   type LocalRuntimeEmbeddingCapability,
   type LocalRuntimeEmbeddingDimensionFailed,

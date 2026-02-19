@@ -8,6 +8,7 @@ import {
   getProviderDefaultModel,
   getProviderDefinition,
   getProviderModelDefinitions,
+  isLoadedRuntimeModelCatalogState,
   isSupportedProvider,
   type LocalRuntimeAvailabilityState,
   type LocalRuntimeId,
@@ -112,12 +113,6 @@ function isLocalRuntimeProvider(
     return false;
   }
   return LOCAL_RUNTIME_PROVIDER_IDS.includes(providerId as LocalRuntimeProviderId);
-}
-
-function isLoadedRuntimeModelCatalogState(
-  state: LocalRuntimeModelCatalogState | null | undefined
-): state is Extract<LocalRuntimeModelCatalogState, { state: 'loaded_non_empty' | 'stale_cached' }> {
-  return Boolean(state && (state.state === 'loaded_non_empty' || state.state === 'stale_cached'));
 }
 
 function toRuntimeProviderModels(

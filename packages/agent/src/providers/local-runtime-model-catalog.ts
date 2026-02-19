@@ -5,6 +5,12 @@ import {
   type LocalRuntimeSurface,
   type ProbeLocalRuntimeOptions,
 } from './local-runtime-discovery';
+import {
+  extractErrorMessage,
+  fetchJsonWithTimeout,
+  isRecord,
+  sanitizeDuration,
+} from './local-runtime-utils';
 
 export type LocalRuntimeModelSource =
   | 'openai_v1_models'
@@ -94,6 +100,17 @@ export type LocalRuntimeModelCatalogState =
   | LocalRuntimeModelsFailedState
   | LocalRuntimeModelsStaleCachedState;
 
+export type LoadedRuntimeModelCatalogState = Extract<
+  LocalRuntimeModelCatalogState,
+  { state: 'loaded_non_empty' | 'stale_cached' }
+>;
+
+export function isLoadedRuntimeModelCatalogState(
+  state: LocalRuntimeModelCatalogState | null | undefined
+): state is LoadedRuntimeModelCatalogState {
+  return Boolean(state && (state.state === 'loaded_non_empty' || state.state === 'stale_cached'));
+}
+
 export interface ListLocalRuntimeModelsOptions {
   readonly force?: boolean;
   readonly signal?: AbortSignal;
@@ -134,12 +151,6 @@ interface RuntimeModelAdapter {
   readonly embeddingProbeEndpoints: readonly string[];
 }
 
-interface FetchJsonResult {
-  readonly response: Response;
-  readonly payload: unknown | undefined;
-  readonly parseError: Error | null;
-}
-
 interface RuntimeModelSuccessSnapshot {
   readonly checkedAt: number;
   readonly endpoint: string;
@@ -174,6 +185,7 @@ const DEFAULT_FAILURE_BASE_BACKOFF_MS = 2000;
 const DEFAULT_FAILURE_MAX_BACKOFF_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 2500;
 const DEFAULT_MAX_VERIFICATION_MODELS = 4;
+const DEFAULT_DIMENSION_PROBE_TEXT = 'brainstrike dimension probe';
 
 const EMBEDDING_NAME_PATTERN =
   /(embed|embedding|text-embedding|nomic-embed|jina-embeddings|bge|e5|gte|arctic-embed|voyage)/i;
@@ -221,10 +233,6 @@ const RUNTIME_ADAPTERS: Record<LocalRuntimeId, RuntimeModelAdapter> = {
     embeddingProbeEndpoints: ['http://localhost:1234/v1/embeddings'],
   },
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function getOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
@@ -295,20 +303,6 @@ function parseLmStudioModelsPayload(payload: unknown): readonly RuntimeModelCand
   return parseOpenAiModelsPayload(payload);
 }
 
-function extractErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
-
-function sanitizeDuration(value: number | undefined, fallback: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    return fallback;
-  }
-  return Math.floor(value);
-}
-
 function sanitizeVerificationLimit(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     return DEFAULT_MAX_VERIFICATION_MODELS;
@@ -356,9 +350,11 @@ function inferModelCapabilities(
   const hasEmbeddingHint = EMBEDDING_NAME_PATTERN.test(searchable);
   const hasChatHint = CHAT_NAME_PATTERN.test(searchable);
 
-  if (hasEmbeddingHint && !hasChatHint) {
+  if (hasEmbeddingHint) {
+    // Prefer embedding classification when both patterns match so "embedding"-labeled
+    // models remain actionable for this catalog even if names also contain chat terms.
     return {
-      llm: false,
+      llm: hasChatHint,
       embeddings: 'supported',
       dimensionsKnown: { state: 'needs_verification' },
     };
@@ -410,57 +406,6 @@ function setModelFreshness(
     return model;
   }
   return { ...model, freshness };
-}
-
-async function fetchJsonWithTimeout(
-  endpoint: string,
-  options: {
-    readonly fetchImpl: typeof fetch;
-    readonly timeoutMs: number;
-    readonly signal?: AbortSignal;
-    readonly method?: 'GET' | 'POST';
-    readonly body?: string;
-  }
-): Promise<FetchJsonResult> {
-  const controller = new AbortController();
-  const timeoutHandle = globalThis.setTimeout(() => {
-    controller.abort(new DOMException('Request timed out', 'AbortError'));
-  }, options.timeoutMs);
-
-  const upstreamAbortHandler = () => {
-    controller.abort();
-  };
-  options.signal?.addEventListener('abort', upstreamAbortHandler);
-
-  try {
-    const response = await options.fetchImpl(endpoint, {
-      method: options.method ?? 'GET',
-      headers: {
-        accept: 'application/json',
-        ...(options.body ? { 'content-type': 'application/json' } : {}),
-      },
-      ...(options.body ? { body: options.body } : {}),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      return { response, payload: undefined, parseError: null };
-    }
-
-    try {
-      const payload = await response.json();
-      return { response, payload, parseError: null };
-    } catch (error) {
-      return {
-        response,
-        payload: undefined,
-        parseError: error instanceof Error ? error : new Error(String(error)),
-      };
-    }
-  } finally {
-    globalThis.clearTimeout(timeoutHandle);
-    options.signal?.removeEventListener('abort', upstreamAbortHandler);
-  }
 }
 
 export interface LocalRuntimeEmbeddingDimensionVerified {
@@ -643,7 +588,7 @@ export class LocalRuntimeModelCatalogService {
     const adapter = RUNTIME_ADAPTERS[runtime];
     const probePayload = JSON.stringify({
       model: modelId,
-      input: options.probeText ?? 'brainstrike dimension probe',
+      input: options.probeText ?? DEFAULT_DIMENSION_PROBE_TEXT,
     });
 
     const unsupportedMessages: string[] = [];
