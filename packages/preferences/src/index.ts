@@ -5,6 +5,7 @@ export * from './components/global-download-indicator';
 export * from './embedding/embedding-settings-section';
 export * from './hooks/use-database-status-sync';
 export * from './hooks/use-model-registry';
+export * from './models/local-model-utils';
 export * from './settings/models/model-registry-settings-section';
 export * from './settings/models/model-selection-page';
 export * from './settings/secrets/api-keys-settings';

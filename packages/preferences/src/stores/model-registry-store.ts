@@ -2,6 +2,7 @@ import type { IDatabase } from '@brainstrike/db';
 import { createLogger, createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { isLocalModelProviderId } from '../models/local-model-utils';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
@@ -142,7 +143,7 @@ function parseDbModel(row: RawModel): DbModel {
 }
 
 function isLocalModel(model: DbModel): boolean {
-  return model.providerId === 'transformers' || model.providerId === 'local';
+  return isLocalModelProviderId(model.providerId);
 }
 
 async function resolveDownloadedFlag(

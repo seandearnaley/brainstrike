@@ -65,6 +65,44 @@ const STORE_NAME = 'assistant-preferences.v1' as const;
 const STORE_VERSION = 4;
 
 const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFAULT_MODELS) as SupportedProvider[];
+const SUPPORTED_PROVIDER_SET = new Set<SupportedProvider>(SUPPORTED_PROVIDERS);
+const NO_KEY_PROVIDERS = SUPPORTED_PROVIDERS.filter(
+  (provider) => providerEnvKeys(provider).length === 0
+);
+const MODEL_KEY_DELIMITER = '::' as const;
+
+interface ParsedCompositeModelKey {
+  provider: SupportedProvider;
+  model: string;
+  compositeKey: string;
+}
+
+function isSupportedProvider(value: string): value is SupportedProvider {
+  return SUPPORTED_PROVIDER_SET.has(value as SupportedProvider);
+}
+
+function parseCompositeModelKey(value: string | null | undefined): ParsedCompositeModelKey | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const separatorIndex = value.indexOf(MODEL_KEY_DELIMITER);
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const provider = value.slice(0, separatorIndex);
+  const model = value.slice(separatorIndex + MODEL_KEY_DELIMITER.length);
+  if (!(model.length > 0 && isSupportedProvider(provider))) {
+    return null;
+  }
+
+  return {
+    provider,
+    model,
+    compositeKey: `${provider}${MODEL_KEY_DELIMITER}${model}`,
+  };
+}
 
 function cloneModelList(models: readonly string[] | undefined): string[] {
   return Array.isArray(models) ? [...models] : [];
@@ -146,11 +184,12 @@ function orderByProviderCanonicalList(
 ): string[] {
   const canonical = PROVIDER_MODELS[provider] ?? [];
   const input = Array.from(models);
+  const inputSet = new Set(input);
   const seen = new Set<string>();
   const ordered: string[] = [];
 
   for (const model of canonical) {
-    if (input.includes(model)) {
+    if (inputSet.has(model)) {
       ordered.push(model);
       seen.add(model);
     }
@@ -228,36 +267,31 @@ function buildMigratedSelectedModel(
 ): string | null {
   let selectedModel: string | null = null;
 
-  const baseModel = base.selectedProvider
-    ? base.modelsByProvider?.[base.selectedProvider]
-    : undefined;
-  if (base.selectedProvider && typeof baseModel === 'string') {
-    const migrated = migrateModelId(base.selectedProvider, baseModel);
-    selectedModel = `${base.selectedProvider}::${migrated}`;
+  const selectedProvider = base.selectedProvider;
+  const baseModel = selectedProvider ? base.modelsByProvider?.[selectedProvider] : undefined;
+  if (selectedProvider && typeof baseModel === 'string') {
+    const migrated = migrateModelId(selectedProvider, baseModel);
+    selectedModel = `${selectedProvider}${MODEL_KEY_DELIMITER}${migrated}`;
   } else if (typeof base.selectedModel === 'string') {
-    const [provider, model] = base.selectedModel.split('::');
-    if (provider && model && SUPPORTED_PROVIDERS.includes(provider as SupportedProvider)) {
-      const migrated = migrateModelId(provider as SupportedProvider, model);
-      selectedModel = `${provider}::${migrated}`;
+    const parsed = parseCompositeModelKey(base.selectedModel);
+    if (parsed) {
+      const migrated = migrateModelId(parsed.provider, parsed.model);
+      selectedModel = `${parsed.provider}${MODEL_KEY_DELIMITER}${migrated}`;
     }
   }
 
-  if (!selectedModel) {
+  const parsedSelected = parseCompositeModelKey(selectedModel);
+  if (!parsedSelected) {
     return null;
   }
 
-  const [provider, model] = selectedModel.split('::');
-  if (!(provider && model && SUPPORTED_PROVIDERS.includes(provider as SupportedProvider))) {
-    return null;
+  const enabledModels = enabled[parsedSelected.provider] ?? [];
+  if (enabledModels.includes(parsedSelected.model)) {
+    return parsedSelected.compositeKey;
   }
 
-  const enabledModels = enabled[provider as SupportedProvider] ?? [];
-  if (enabledModels.includes(model)) {
-    return selectedModel;
-  }
-
-  const fallback = resolvePreferredModel(provider as SupportedProvider, enabledModels);
-  return fallback ? `${provider}::${fallback}` : null;
+  const fallback = resolvePreferredModel(parsedSelected.provider, enabledModels);
+  return fallback ? `${parsedSelected.provider}${MODEL_KEY_DELIMITER}${fallback}` : null;
 }
 
 /**
@@ -352,12 +386,9 @@ function disableModelForProvider(
   }
 
   // Clear selectedModel if the currently selected model is being disabled
-  const currentComposite = state.selectedModel;
-  if (currentComposite) {
-    const [currentProvider, currentModel] = currentComposite.split('::');
-    if (currentProvider === provider && currentModel === model) {
-      updates.selectedModel = null;
-    }
+  const selected = parseCompositeModelKey(state.selectedModel);
+  if (selected?.provider === provider && selected.model === model) {
+    updates.selectedModel = null;
   }
 
   return updates;
@@ -416,16 +447,16 @@ export const useAssistantPreferencesStore = create<Store>()(
 
       setModel: (compositeKey) =>
         set((state) => {
-          const [provider, model] = compositeKey.split('::');
-          if (!(provider && model)) {
+          const parsed = parseCompositeModelKey(compositeKey);
+          if (!parsed) {
             return state;
           }
 
           // Single atomic update: selectedModel composite key + remember preference
           // The UI layer validates model enabled state against the database before calling setModel
           return {
-            selectedModel: compositeKey,
-            modelsByProvider: { ...state.modelsByProvider, [provider]: model },
+            selectedModel: parsed.compositeKey,
+            modelsByProvider: { ...state.modelsByProvider, [parsed.provider]: parsed.model },
           };
         }),
 
@@ -477,12 +508,8 @@ export const useAssistantPreferencesStore = create<Store>()(
       getSelectedModel: () => get().selectedModel,
 
       getSelectedProvider: () => {
-        const { selectedModel } = get();
-        if (!selectedModel) {
-          return null;
-        }
-        const [provider] = selectedModel.split('::');
-        return (provider as SupportedProvider) ?? null;
+        const parsed = parseCompositeModelKey(get().selectedModel);
+        return parsed?.provider ?? null;
       },
 
       getEnabledModels: (provider) => {
@@ -491,35 +518,31 @@ export const useAssistantPreferencesStore = create<Store>()(
       },
 
       getAvailableProviders: async () => {
+        if (typeof window === 'undefined') {
+          return NO_KEY_PROVIDERS;
+        }
+
+        const secretsBridge = (window as Window & { secrets?: { list?: () => Promise<string[]> } })
+          .secrets;
+        if (typeof secretsBridge?.list !== 'function') {
+          return NO_KEY_PROVIDERS;
+        }
+
         try {
-          const w = window as Window & {
-            secrets?: { list?: () => Promise<string[]> };
-          };
-
-          // Providers that don't require API keys (e.g., local browser-based models)
-          // are always available
-          const noKeyProviders = SUPPORTED_PROVIDERS.filter((p) => providerEnvKeys(p).length === 0);
-
-          if (typeof window === 'undefined' || !w.secrets?.list) {
-            // In non-browser environments, only return providers that don't need keys
-            return noKeyProviders;
-          }
-
-          const savedProviders = await w.secrets.list();
+          const savedProviders = await secretsBridge.list();
           if (!Array.isArray(savedProviders)) {
-            return noKeyProviders;
+            return NO_KEY_PROVIDERS;
           }
 
           // Include providers with saved API keys + providers that don't need keys
           const providersWithKeys = SUPPORTED_PROVIDERS.filter((p) => savedProviders.includes(p));
-          const combined = new Set([...providersWithKeys, ...noKeyProviders]);
+          const combined = new Set([...providersWithKeys, ...NO_KEY_PROVIDERS]);
 
           // Return in original order for consistency
           return SUPPORTED_PROVIDERS.filter((p) => combined.has(p));
         } catch {
           // On error, still return providers that don't need keys
-          const noKeyProviders = SUPPORTED_PROVIDERS.filter((p) => providerEnvKeys(p).length === 0);
-          return noKeyProviders;
+          return NO_KEY_PROVIDERS;
         }
       },
 

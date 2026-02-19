@@ -10,6 +10,19 @@ vi.mock('../hooks/use-assistant-availability', () => ({
 // Mock the model registry store
 vi.mock('@brainstrike/preferences', () => ({
   useModelRegistryStore: vi.fn(),
+  hasEnabledLocalLlmModels: (
+    models: Array<{
+      providerId?: string;
+      isEnabled?: boolean;
+      capabilities?: { type?: string } | null;
+    }>
+  ) =>
+    models.some(
+      (model) =>
+        (model.providerId === 'local' || model.providerId === 'transformers') &&
+        model.isEnabled === true &&
+        model.capabilities?.type === 'llm'
+    ),
 }));
 
 import { useModelRegistryStore } from '@brainstrike/preferences';
@@ -128,6 +141,28 @@ describe('useAssistantAvailabilityWithLocal', () => {
           providerId: 'local',
           isEnabled: true,
           capabilities: { type: 'embedding' }, // Not LLM
+        },
+      ],
+      hasLoaded: true,
+    } as unknown as ReturnType<typeof useModelRegistryStore>);
+
+    const { result } = renderHook(() => useAssistantAvailabilityWithLocal());
+
+    expect(result.current).toEqual({ state: 'disabled', reason: 'missing_api_key' });
+  });
+
+  it('returns disabled when model rows are malformed', () => {
+    useAssistantAvailabilityMock.mockReturnValue({
+      state: 'disabled',
+      reason: 'missing_api_key',
+    });
+    useModelRegistryStoreMock.mockReturnValue({
+      models: [
+        {
+          id: 'malformed-model',
+          providerId: 'local',
+          isEnabled: true,
+          capabilities: null,
         },
       ],
       hasLoaded: true,

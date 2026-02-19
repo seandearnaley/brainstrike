@@ -4,7 +4,7 @@ import {
   TabbedFileEditorPanel,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui';
-import { usePanelLayoutStore } from '@brainstrike/preferences';
+import { type PanelTab, usePanelLayoutStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
 import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react';
@@ -60,6 +60,15 @@ export interface RootLayoutContentProps {
   readonly embeddingQueue?: QueueAdapter | null;
 }
 
+const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
+  '/settings': 'settings',
+  '/prompts': 'prompts',
+};
+
+function resolveActiveTabForPath(path: string): PanelTab {
+  return NAV_PATH_TO_TAB[path] ?? 'explorer';
+}
+
 export function RootLayoutContent({
   homePageContent,
   settingsPageContent,
@@ -74,14 +83,7 @@ export function RootLayoutContent({
 
   const handleNavigationClick = useCallback(
     (path: string) => {
-      let tab = 'explorer';
-      if (path === '/settings') {
-        tab = 'settings';
-      } else if (path === '/prompts') {
-        tab = 'prompts';
-      }
-
-      setState({ activeTab: tab as 'explorer' | 'settings' | 'prompts' });
+      setState({ activeTab: resolveActiveTabForPath(path) });
     },
     [setState]
   );
