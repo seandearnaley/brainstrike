@@ -28,24 +28,27 @@ function renderHookHarness<T>(useHook: () => T): {
 } {
   const container = document.createElement('div');
   const root = createRoot(container);
-  let currentValue: T | undefined;
+  const store: { value: T | undefined } = { value: undefined };
+  const onCapture = (v: T) => {
+    store.value = v;
+  };
 
-  function Probe(): null {
-    currentValue = useHook();
+  function Probe({ capture }: { capture: (v: T) => void }): null {
+    capture(useHook());
     return null;
   }
 
   act(() => {
-    root.render(<Probe />);
+    root.render(<Probe capture={onCapture} />);
   });
 
   return {
     result: {
       get current(): T {
-        if (currentValue === undefined) {
+        if (store.value === undefined) {
           throw new Error('Hook result was not initialized');
         }
-        return currentValue;
+        return store.value;
       },
     },
     unmount: () => {

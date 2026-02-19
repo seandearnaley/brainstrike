@@ -377,6 +377,90 @@ function ModelRow({
   );
 }
 
+interface ModelListContentProps {
+  visibleModels: DbModel[];
+  sections: ModelSection[];
+  emptyStateMessage: string;
+  downloadedModels: Record<string, boolean>;
+  isDownloading: Record<string, boolean>;
+  downloadProgress: Record<string, number>;
+  modelCacheDir?: string | null | undefined;
+  onToggle: (modelId: string, enabled: boolean) => void;
+  onDownload: (modelId: string) => void;
+}
+
+function ModelListContent({
+  visibleModels,
+  sections,
+  emptyStateMessage,
+  downloadedModels,
+  isDownloading,
+  downloadProgress,
+  modelCacheDir,
+  onToggle,
+  onDownload,
+}: ModelListContentProps) {
+  return (
+    <ScrollArea className="h-[620px] rounded-lg border bg-muted/10">
+      <div className="space-y-6 p-4">
+        {visibleModels.length === 0 ? (
+          <div className="flex h-40 items-center justify-center text-muted-foreground text-sm">
+            {emptyStateMessage}
+          </div>
+        ) : (
+          sections.map((section) => (
+            <div className="space-y-3" key={section.id}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-semibold text-sm">{section.title}</h3>
+                  <p className="text-muted-foreground text-xs">{section.description}</p>
+                </div>
+                <Badge className="h-5 px-2 text-[10px]" variant="secondary">
+                  {section.modelsCount} models
+                </Badge>
+              </div>
+
+              <div className="space-y-4">
+                {section.groups.map((group) => (
+                  <Card className="overflow-hidden border-border/60 bg-card/70" key={group.id}>
+                    <div className="flex items-center justify-between border-border/60 border-b px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: getProviderColorSeed(group.name) }}
+                        />
+                        <span className="font-medium text-sm">{group.name}</span>
+                      </div>
+                      <Badge className="h-5 px-2 text-[10px]" variant="outline">
+                        {group.models.length}
+                      </Badge>
+                    </div>
+
+                    <div className="divide-y divide-border/60">
+                      {group.models.map((model) => (
+                        <ModelRow
+                          downloadedModels={downloadedModels}
+                          downloadProgress={downloadProgress}
+                          isDownloading={isDownloading}
+                          key={model.id}
+                          model={model}
+                          modelCacheDir={modelCacheDir ?? null}
+                          onDownload={onDownload}
+                          onToggle={onToggle}
+                        />
+                      ))}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </ScrollArea>
+  );
+}
+
 export function ModelList({
   models,
   providers,
@@ -461,10 +545,7 @@ export function ModelList({
     return visible;
   }, [activeLocal, activeRemote, localModels, remoteModels]);
 
-  const enabledVisibleCount = useMemo(
-    () => visibleModels.filter((model) => model.isEnabled).length,
-    [visibleModels]
-  );
+  const enabledVisibleCount = visibleModels.filter((model) => model.isEnabled).length;
 
   const sections = useMemo<ModelSection[]>(() => {
     const sectionList: ModelSection[] = [];
@@ -495,75 +576,12 @@ export function ModelList({
     }
   };
 
-  const emptyStateMessage = (): string => {
-    if (!(activeLocal || activeRemote)) {
-      return 'Enable Local or Remote to view models.';
-    }
-    if (normalizedSearch) {
-      return 'No models match this search yet.';
-    }
-    return 'No models available for this category yet.';
-  };
-
-  const renderListContent = () => (
-    <ScrollArea className="h-[620px] rounded-lg border bg-muted/10">
-      <div className="space-y-6 p-4">
-        {visibleModels.length === 0 ? (
-          <div className="flex h-40 items-center justify-center text-muted-foreground text-sm">
-            {emptyStateMessage()}
-          </div>
-        ) : (
-          sections.map((section) => (
-            <div className="space-y-3" key={section.id}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="font-semibold text-sm">{section.title}</h3>
-                  <p className="text-muted-foreground text-xs">{section.description}</p>
-                </div>
-                <Badge className="h-5 px-2 text-[10px]" variant="secondary">
-                  {section.modelsCount} models
-                </Badge>
-              </div>
-
-              <div className="space-y-4">
-                {section.groups.map((group) => (
-                  <Card className="overflow-hidden border-border/60 bg-card/70" key={group.id}>
-                    <div className="flex items-center justify-between border-border/60 border-b px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: getProviderColorSeed(group.name) }}
-                        />
-                        <span className="font-medium text-sm">{group.name}</span>
-                      </div>
-                      <Badge className="h-5 px-2 text-[10px]" variant="outline">
-                        {group.models.length}
-                      </Badge>
-                    </div>
-
-                    <div className="divide-y divide-border/60">
-                      {group.models.map((model) => (
-                        <ModelRow
-                          downloadedModels={downloadedModels}
-                          downloadProgress={downloadProgress}
-                          isDownloading={isDownloading}
-                          key={model.id}
-                          model={model}
-                          modelCacheDir={modelCacheDir ?? null}
-                          onDownload={onDownload}
-                          onToggle={onToggle}
-                        />
-                      ))}
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </ScrollArea>
-  );
+  const emptyStateMessage =
+    activeLocal || activeRemote
+      ? normalizedSearch
+        ? 'No models match this search yet.'
+        : 'No models available for this category yet.'
+      : 'Enable Local or Remote to view models.';
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -632,10 +650,30 @@ export function ModelList({
         </div>
 
         <TabsContent className="mt-4" value="chat">
-          {renderListContent()}
+          <ModelListContent
+            downloadedModels={downloadedModels}
+            downloadProgress={downloadProgress}
+            emptyStateMessage={emptyStateMessage}
+            isDownloading={isDownloading}
+            modelCacheDir={modelCacheDir}
+            onDownload={onDownload}
+            onToggle={onToggle}
+            sections={sections}
+            visibleModels={visibleModels}
+          />
         </TabsContent>
         <TabsContent className="mt-4" value="embedding">
-          {renderListContent()}
+          <ModelListContent
+            downloadedModels={downloadedModels}
+            downloadProgress={downloadProgress}
+            emptyStateMessage={emptyStateMessage}
+            isDownloading={isDownloading}
+            modelCacheDir={modelCacheDir}
+            onDownload={onDownload}
+            onToggle={onToggle}
+            sections={sections}
+            visibleModels={visibleModels}
+          />
         </TabsContent>
       </Tabs>
     </div>

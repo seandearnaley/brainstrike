@@ -215,27 +215,13 @@ export function ModelSelectionPage() {
       return;
     }
 
+    setIsSelectingCacheDir(true);
+
+    let selectedPath = '';
     try {
-      setIsSelectingCacheDir(true);
       const handle = await requestDirectoryAccess();
-      const selectedPath = typeof handle?.path === 'string' ? handle.path : '';
-
-      if (!selectedPath) {
-        toast({
-          title: 'No directory selected',
-          description: 'Please choose a folder to store local model files.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      setModelCacheDir(selectedPath);
-      toast({
-        title: 'Cache directory updated',
-        description: selectedPath,
-      });
-      if (db) {
-        void fetchRegistry(db);
+      if (typeof handle.path === 'string') {
+        selectedPath = handle.path;
       }
     } catch (err) {
       logger.error('Failed to select cache directory', err);
@@ -244,9 +230,29 @@ export function ModelSelectionPage() {
         description: (err as Error).message,
         variant: 'destructive',
       });
-    } finally {
       setIsSelectingCacheDir(false);
+      return;
     }
+
+    if (!selectedPath) {
+      toast({
+        title: 'No directory selected',
+        description: 'Please choose a folder to store local model files.',
+        variant: 'destructive',
+      });
+      setIsSelectingCacheDir(false);
+      return;
+    }
+
+    setModelCacheDir(selectedPath);
+    toast({
+      title: 'Cache directory updated',
+      description: selectedPath,
+    });
+    if (db) {
+      void fetchRegistry(db);
+    }
+    setIsSelectingCacheDir(false);
   };
 
   if (error) {

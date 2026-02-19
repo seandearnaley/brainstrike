@@ -10,6 +10,8 @@ import { TapestryControls } from './tapestry-controls';
 import type { DragState, FileTapestry, InteractionMode, TapestryRange } from './types';
 import { createRangeId, generateColor, getTapestryRenderMetrics } from './utils';
 
+const EMPTY_STATE_ICON = <FileX2 />;
+
 /**
  * Applies basic movement and resize deltas to range boundaries.
  */
@@ -214,16 +216,18 @@ const TapestryGroupHeader = memo<{
   isCollapsed: boolean;
   isFullySelected: boolean;
   isPartiallySelected: boolean;
-  onToggleCollapse: () => void;
-  onSelectionChange: (selected: boolean) => void;
+  onToggleGroupCollapse: (groupKey: GroupKey) => void;
+  onGroupSelectAll: (group: GroupedData<TableRowData>) => void;
+  onGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
 }>(
   ({
     group,
     isCollapsed,
     isFullySelected,
     isPartiallySelected,
-    onToggleCollapse,
-    onSelectionChange,
+    onToggleGroupCollapse,
+    onGroupSelectAll,
+    onGroupDeselectAll,
   }) => {
     const checkboxState = isPartiallySelected ? 'indeterminate' : isFullySelected;
 
@@ -234,7 +238,11 @@ const TapestryGroupHeader = memo<{
           checked={checkboxState}
           onCheckedChange={(checked) => {
             if (typeof checked === 'boolean') {
-              onSelectionChange(checked);
+              if (checked) {
+                onGroupSelectAll(group);
+              } else {
+                onGroupDeselectAll(group);
+              }
             }
           }}
           onClick={(event) => event.stopPropagation()}
@@ -243,7 +251,7 @@ const TapestryGroupHeader = memo<{
           aria-expanded={!isCollapsed}
           aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} group ${group.groupLabel}`}
           className="flex flex-1 items-center gap-2 text-left font-medium text-foreground text-sm transition-colors hover:text-primary"
-          onClick={onToggleCollapse}
+          onClick={() => onToggleGroupCollapse(group.groupKey)}
           type="button"
         >
           {isCollapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
@@ -536,7 +544,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
       <div className="flex flex-1 flex-col">
         <EmptyState
           description="Try adjusting your filters or selecting more files"
-          icon={<FileX2 />}
+          icon={EMPTY_STATE_ICON}
           title="No matching files"
         />
       </div>
@@ -625,12 +633,9 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                       isCollapsed={section.isCollapsed}
                       isFullySelected={isGroupFullySelected(section.group)}
                       isPartiallySelected={isGroupPartiallySelected(section.group)}
-                      onSelectionChange={(selected) =>
-                        selected
-                          ? onGroupSelectAll(section.group)
-                          : onGroupDeselectAll(section.group)
-                      }
-                      onToggleCollapse={() => onToggleGroupCollapse(section.group.groupKey)}
+                      onGroupDeselectAll={onGroupDeselectAll}
+                      onGroupSelectAll={onGroupSelectAll}
+                      onToggleGroupCollapse={onToggleGroupCollapse}
                     />
                   )}
                   {!section.isCollapsed && section.items.length > 0 && (

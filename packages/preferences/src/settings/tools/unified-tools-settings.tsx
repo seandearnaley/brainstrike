@@ -20,7 +20,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
 import { McpConfigPanel } from './mcp-config-panel';
@@ -91,6 +91,215 @@ function ToolsErrorFallback({ onRetry }: ToolsErrorFallbackProps) {
   );
 }
 
+interface ToolsDataState {
+  tools: ToolDisplayMetadata[];
+  mcpServers: McpServerInfo[];
+  mcpConfigInfo: McpConfigInfo | null;
+  loading: boolean;
+  error: string | null;
+  errorBoundaryKey: number;
+}
+
+type ToolsDataAction =
+  | { type: 'SET_TOOLS'; tools: ToolDisplayMetadata[] }
+  | { type: 'SET_MCP_SERVERS'; servers: McpServerInfo[] }
+  | { type: 'SET_MCP_CONFIG_INFO'; info: McpConfigInfo | null }
+  | { type: 'SET_LOADING'; loading: boolean }
+  | { type: 'SET_ERROR'; error: string | null }
+  | { type: 'RESET'; loading: boolean }
+  | { type: 'INCREMENT_BOUNDARY_KEY' };
+
+const initialToolsDataState: ToolsDataState = {
+  tools: [],
+  mcpServers: [],
+  mcpConfigInfo: null,
+  loading: true,
+  error: null,
+  errorBoundaryKey: 0,
+};
+
+function toolsDataReducer(state: ToolsDataState, action: ToolsDataAction): ToolsDataState {
+  switch (action.type) {
+    case 'SET_TOOLS':
+      return {
+        ...state,
+        tools: areToolsEqual(action.tools, state.tools) ? state.tools : action.tools,
+      };
+    case 'SET_MCP_SERVERS':
+      return { ...state, mcpServers: action.servers };
+    case 'SET_MCP_CONFIG_INFO':
+      return { ...state, mcpConfigInfo: action.info };
+    case 'SET_LOADING':
+      return { ...state, loading: action.loading };
+    case 'SET_ERROR':
+      return { ...state, error: action.error };
+    case 'RESET':
+      return {
+        ...initialToolsDataState,
+        loading: action.loading,
+        errorBoundaryKey: state.errorBoundaryKey,
+      };
+    case 'INCREMENT_BOUNDARY_KEY':
+      return { ...state, errorBoundaryKey: state.errorBoundaryKey + 1 };
+    default:
+      return state;
+  }
+}
+
+interface ToolsUiState {
+  searchQuery: string;
+  categoryFilter: ToolCategory | 'all';
+  tierFilter: ToolLoadingTier | 'all';
+  expandedToolId: string | null;
+  configAlertDismissed: boolean;
+  activeTab: 'tools' | 'mcp-config';
+}
+
+type ToolsUiAction =
+  | { type: 'SET_SEARCH_QUERY'; query: string }
+  | { type: 'SET_CATEGORY_FILTER'; category: ToolCategory | 'all' }
+  | { type: 'SET_TIER_FILTER'; tier: ToolLoadingTier | 'all' }
+  | { type: 'SET_EXPANDED_TOOL_ID'; toolId: string | null }
+  | { type: 'SET_CONFIG_ALERT_DISMISSED' }
+  | { type: 'SET_ACTIVE_TAB'; tab: 'tools' | 'mcp-config' }
+  | { type: 'RESET_FILTERS' };
+
+const initialToolsUiState: ToolsUiState = {
+  searchQuery: '',
+  categoryFilter: 'all',
+  tierFilter: 'all',
+  expandedToolId: null,
+  configAlertDismissed: false,
+  activeTab: 'tools',
+};
+
+function toolsUiReducer(state: ToolsUiState, action: ToolsUiAction): ToolsUiState {
+  switch (action.type) {
+    case 'SET_SEARCH_QUERY':
+      return { ...state, searchQuery: action.query };
+    case 'SET_CATEGORY_FILTER':
+      return { ...state, categoryFilter: action.category };
+    case 'SET_TIER_FILTER':
+      return { ...state, tierFilter: action.tier };
+    case 'SET_EXPANDED_TOOL_ID':
+      return { ...state, expandedToolId: action.toolId };
+    case 'SET_CONFIG_ALERT_DISMISSED':
+      return { ...state, configAlertDismissed: true };
+    case 'SET_ACTIVE_TAB':
+      return { ...state, activeTab: action.tab };
+    case 'RESET_FILTERS':
+      return { ...state, searchQuery: '', categoryFilter: 'all', tierFilter: 'all' };
+    default:
+      return state;
+  }
+}
+
+interface UseToolsDataManagerParams {
+  operations: UnifiedToolsSettingsProps['operations'];
+  mcpAvailable: boolean;
+  dispatch: (action: ToolsDataAction) => void;
+  statsRef: { current: ToolStats | null };
+  lastMcpErrorRef: { current: string | null };
+  liveQueryEnabled: boolean;
+  liveQuery: ReturnType<typeof usePGliteLiveQuery<ToolDisplayMetadata>>;
+}
+
+function useToolsDataManager({
+  dispatch,
+  lastMcpErrorRef,
+  liveQuery,
+  liveQueryEnabled,
+  mcpAvailable,
+  operations,
+  statsRef,
+}: UseToolsDataManagerParams) {
+  const fetchAndApplyTools = useCallback(async () => {
+    try {
+      const [toolsData, stats] = await Promise.all([operations.getTools(), operations.getStats()]);
+      statsRef.current = stats;
+      dispatch({ type: 'SET_TOOLS', tools: toolsData });
+    } catch (err) {
+      dispatch({
+        type: 'SET_ERROR',
+        error: err instanceof Error ? err.message : 'Failed to load tools',
+      });
+    }
+    dispatch({ type: 'SET_LOADING', loading: false });
+  }, [operations, statsRef, dispatch]);
+
+  const loadToolsData = useCallback(async () => {
+    dispatch({ type: 'SET_LOADING', loading: true });
+    dispatch({ type: 'SET_ERROR', error: null });
+    await fetchAndApplyTools();
+  }, [fetchAndApplyTools, dispatch]);
+
+  const loadMcpData = useCallback(async () => {
+    if (!mcpAvailable) {
+      return;
+    }
+    await Promise.resolve();
+    try {
+      if (operations.getMcpServerStatus) {
+        const servers = await operations.getMcpServerStatus();
+        dispatch({ type: 'SET_MCP_SERVERS', servers });
+      }
+      if (operations.getMcpConfigInfo) {
+        const configInfo = await operations.getMcpConfigInfo();
+        dispatch({ type: 'SET_MCP_CONFIG_INFO', info: configInfo });
+        if (configInfo) {
+          const configError = configInfo.error;
+          if (configError) {
+            lastMcpErrorRef.current = configError;
+            dispatch({ type: 'SET_ERROR', error: configError });
+            return;
+          }
+        }
+      }
+      if (lastMcpErrorRef.current) {
+        lastMcpErrorRef.current = null;
+        dispatch({ type: 'SET_ERROR', error: null });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load MCP tools';
+      lastMcpErrorRef.current = message;
+      dispatch({ type: 'SET_ERROR', error: message });
+    }
+  }, [operations, mcpAvailable, dispatch, lastMcpErrorRef]);
+
+  useEffect(() => {
+    if (liveQueryEnabled) {
+      return;
+    }
+    void fetchAndApplyTools();
+  }, [fetchAndApplyTools, liveQueryEnabled]);
+
+  useEffect(() => {
+    void loadMcpData();
+  }, [loadMcpData]);
+
+  const refreshTools = useCallback(async () => {
+    if (liveQueryEnabled) {
+      try {
+        await liveQuery.refresh();
+      } catch (err) {
+        dispatch({
+          type: 'SET_ERROR',
+          error: err instanceof Error ? err.message : 'Failed to refresh tools',
+        });
+      }
+      return;
+    }
+    await loadToolsData();
+  }, [liveQueryEnabled, liveQuery, loadToolsData, dispatch]);
+
+  const handleMcpConfigUpdated = useCallback(async () => {
+    await loadMcpData();
+    await refreshTools();
+  }, [loadMcpData, refreshTools]);
+
+  return { handleMcpConfigUpdated, loadMcpData, loadToolsData, refreshTools };
+}
+
 /**
  * Unified Tools Settings Component
  *
@@ -106,14 +315,10 @@ export function UnifiedToolsSettings({
   budgetManager,
   onToolsChanged,
 }: UnifiedToolsSettingsProps) {
-  const [toolsState, setToolsState] = useState<ToolDisplayMetadata[]>([]);
-  // Stats are loaded for future use but not currently displayed
-  const [_statsState, setStatsState] = useState<ToolStats | null>(null);
-  const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([]);
-  const [mcpConfigInfo, setMcpConfigInfo] = useState<McpConfigInfo | null>(null);
-  const [loadingState, setLoadingState] = useState(true);
-  const [errorState, setErrorState] = useState<string | null>(null);
-  const [errorBoundaryKey, setErrorBoundaryKey] = useState(0);
+  // React Compiler cannot optimize: complex async patterns with sequential awaits and value blocks in try/catch
+  'use no memo';
+  const [dataState, dispatch] = useReducer(toolsDataReducer, initialToolsDataState);
+  const _statsStateRef = useRef<ToolStats | null>(null);
   const lastMcpErrorRef = useRef<string | null>(null);
   const liveQueryConfig = operations.toolsLiveQuery;
   const liveQueryEnabled = Boolean(liveQueryConfig);
@@ -123,127 +328,42 @@ export function UnifiedToolsSettings({
     ...(liveQueryConfig?.select !== undefined ? { select: liveQueryConfig.select } : {}),
     enabled: liveQueryEnabled,
   });
-  const tools = liveQueryEnabled ? liveQuery.rows : toolsState;
-  const loading = liveQueryEnabled ? liveQuery.loading || loadingState : loadingState;
-  const error = errorState ?? (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);
+  const tools = liveQueryEnabled ? liveQuery.rows : dataState.tools;
+  const loading = liveQueryEnabled ? liveQuery.loading || dataState.loading : dataState.loading;
+  const error = dataState.error ?? (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);
+  const { mcpServers, mcpConfigInfo, errorBoundaryKey } = dataState;
 
-  // Filter state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<ToolCategory | 'all'>('all');
-  const [tierFilter, setTierFilter] = useState<ToolLoadingTier | 'all'>('all');
+  const [uiState, uiDispatch] = useReducer(toolsUiReducer, initialToolsUiState);
+  const {
+    searchQuery,
+    categoryFilter,
+    tierFilter,
+    expandedToolId,
+    configAlertDismissed,
+    activeTab,
+  } = uiState;
 
-  // Expanded tool state
-  const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
-
-  // MCP config alert dismissed state
-  const [configAlertDismissed, setConfigAlertDismissed] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tools' | 'mcp-config'>('tools');
-
-  const loadToolsData = useCallback(async () => {
-    setLoadingState(true);
-    setErrorState(null);
-    try {
-      const [toolsData, statsData] = await Promise.all([
-        operations.getTools(),
-        operations.getStats(),
-      ]);
-      setToolsState((current) => {
-        if (current.length !== toolsData.length) {
-          return toolsData;
-        }
-        if (current === toolsData) {
-          return current;
-        }
-        return areToolsEqual(toolsData, current) ? current : toolsData;
-      });
-      setStatsState(statsData);
-    } catch (err) {
-      setErrorState(err instanceof Error ? err.message : 'Failed to load tools');
-    } finally {
-      setLoadingState(false);
-    }
-  }, [operations]);
-
-  const loadMcpData = useCallback(async () => {
-    if (!mcpAvailable) {
-      return;
-    }
-
-    try {
-      if (operations.getMcpServerStatus) {
-        const servers = await operations.getMcpServerStatus();
-        setMcpServers(servers);
-      }
-
-      if (operations.getMcpConfigInfo) {
-        const configInfo = await operations.getMcpConfigInfo();
-        setMcpConfigInfo(configInfo);
-        if (configInfo?.error) {
-          lastMcpErrorRef.current = configInfo.error;
-          setErrorState(configInfo.error);
-          return;
-        }
-      }
-      if (lastMcpErrorRef.current) {
-        const previousError = lastMcpErrorRef.current;
-        lastMcpErrorRef.current = null;
-        setErrorState((current) => (current === previousError ? null : current));
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load MCP tools';
-      lastMcpErrorRef.current = message;
-      setErrorState(message);
-    }
-  }, [operations, mcpAvailable]);
-
-  useEffect(() => {
-    if (liveQueryEnabled) {
-      return;
-    }
-    void loadToolsData();
-  }, [loadToolsData, liveQueryEnabled]);
-
-  useEffect(() => {
-    void loadMcpData();
-  }, [loadMcpData]);
-
-  const refreshTools = useCallback(async () => {
-    if (liveQueryEnabled) {
-      try {
-        await liveQuery.refresh();
-      } catch (err) {
-        setErrorState(err instanceof Error ? err.message : 'Failed to refresh tools');
-      }
-      return;
-    }
-    await loadToolsData();
-  }, [liveQueryEnabled, liveQuery.refresh, loadToolsData]);
-
-  const refreshMcpData = useCallback(async () => {
-    await loadMcpData();
-  }, [loadMcpData]);
-
-  const handleMcpConfigUpdated = useCallback(async () => {
-    await refreshMcpData();
-    await refreshTools();
-  }, [refreshMcpData, refreshTools]);
+  const { handleMcpConfigUpdated, loadMcpData, loadToolsData, refreshTools } = useToolsDataManager({
+    dispatch,
+    lastMcpErrorRef,
+    liveQuery,
+    liveQueryEnabled,
+    mcpAvailable,
+    operations,
+    statsRef: _statsStateRef,
+  });
 
   const handleErrorBoundaryReset = useCallback(() => {
-    setLoadingState(!liveQueryEnabled);
-    setErrorState(null);
-    setToolsState([]);
-    setStatsState(null);
-    setMcpServers([]);
-    setMcpConfigInfo(null);
-    setExpandedToolId(null);
-    setErrorBoundaryKey((prev) => prev + 1);
+    dispatch({ type: 'RESET', loading: !liveQueryEnabled });
+    dispatch({ type: 'INCREMENT_BOUNDARY_KEY' });
+    uiDispatch({ type: 'SET_EXPANDED_TOOL_ID', toolId: null });
     if (liveQueryEnabled) {
       void liveQuery.refresh();
     } else {
       void loadToolsData();
     }
     void loadMcpData();
-  }, [liveQueryEnabled, liveQuery.refresh, loadMcpData, loadToolsData]);
+  }, [liveQueryEnabled, liveQuery, loadMcpData, loadToolsData]);
 
   const handleToggleTool = useCallback(
     async (toolId: string, currentlyEnabled: boolean) => {
@@ -254,27 +374,30 @@ export function UnifiedToolsSettings({
           await operations.enableTools([toolId]);
         }
         await refreshTools();
-        onToolsChanged?.();
       } catch (err) {
-        setErrorState(err instanceof Error ? err.message : 'Failed to toggle tool');
+        dispatch({
+          type: 'SET_ERROR',
+          error: err instanceof Error ? err.message : 'Failed to toggle tool',
+        });
+        return;
+      }
+      if (onToolsChanged) {
+        onToolsChanged();
       }
     },
     [operations, onToolsChanged, refreshTools]
   );
 
   const handleResetFilters = useCallback(() => {
-    setSearchQuery('');
-    setCategoryFilter('all');
-    setTierFilter('all');
+    uiDispatch({ type: 'RESET_FILTERS' });
   }, []);
 
   const handleRefreshMcp = useCallback(async () => {
     if (operations.refreshMcpServers) {
       await operations.refreshMcpServers();
-      await refreshMcpData();
-      await refreshTools();
+      await Promise.all([loadMcpData(), refreshTools()]);
     }
-  }, [operations, refreshMcpData, refreshTools]);
+  }, [operations, loadMcpData, refreshTools]);
 
   const handleResetMcpConfig = useCallback(async () => {
     if (operations.resetMcpConfig) {
@@ -296,15 +419,14 @@ export function UnifiedToolsSettings({
       if (result.success) {
         await handleMcpConfigUpdated();
       } else if (result.error) {
-        setErrorState(`Failed to create sample config: ${result.error}`);
+        dispatch({ type: 'SET_ERROR', error: `Failed to create sample config: ${result.error}` });
       }
     }
   }, [handleMcpConfigUpdated, operations]);
 
   const handleEnableGroup = useCallback(
     async (group: ToolGroup) => {
-      const toolIds = group.tools.map((t) => t.id);
-      await operations.enableTools(toolIds);
+      await operations.enableTools(group.tools.map((t) => t.id));
       await refreshTools();
       onToolsChanged?.();
     },
@@ -313,8 +435,7 @@ export function UnifiedToolsSettings({
 
   const handleDisableGroup = useCallback(
     async (group: ToolGroup) => {
-      const toolIds = group.tools.map((t) => t.id);
-      await operations.disableTools(toolIds);
+      await operations.disableTools(group.tools.map((t) => t.id));
       await refreshTools();
       onToolsChanged?.();
     },
@@ -323,41 +444,40 @@ export function UnifiedToolsSettings({
 
   const handleExpandTool = useCallback(
     (toolId: string) => {
-      setExpandedToolId(expandedToolId === toolId ? null : toolId);
+      uiDispatch({
+        type: 'SET_EXPANDED_TOOL_ID',
+        toolId: expandedToolId === toolId ? null : toolId,
+      });
     },
     [expandedToolId]
   );
 
   const handleDismissConfigAlert = useCallback(() => {
-    setConfigAlertDismissed(true);
+    uiDispatch({ type: 'SET_CONFIG_ALERT_DISMISSED' });
   }, []);
 
   const serverStatusMap = useMemo(() => {
     const statusMap = new Map<string, { status: McpConnectionStatus; error: string | null }>();
     for (const server of mcpServers) {
-      let status: McpConnectionStatus = 'disconnected';
-      if (server.status === 'connected') {
-        status = 'connected';
-      } else if (server.status === 'error') {
-        status = 'error';
-      }
+      const status: McpConnectionStatus =
+        server.status === 'connected'
+          ? 'connected'
+          : server.status === 'error'
+            ? 'error'
+            : 'disconnected';
       statusMap.set(server.name, { status, error: server.error ?? null });
     }
     return statusMap;
   }, [mcpServers]);
 
-  // Get MCP server status for a given server name
   const getServerStatus = useCallback(
-    (serverName: string): McpConnectionStatus => {
-      return serverStatusMap.get(serverName)?.status ?? 'disconnected';
-    },
+    (serverName: string): McpConnectionStatus =>
+      serverStatusMap.get(serverName)?.status ?? 'disconnected',
     [serverStatusMap]
   );
 
   const getServerError = useCallback(
-    (serverName: string): string | undefined => {
-      return serverStatusMap.get(serverName)?.error ?? undefined;
-    },
+    (serverName: string): string | undefined => serverStatusMap.get(serverName)?.error ?? undefined,
     [serverStatusMap]
   );
 
@@ -370,53 +490,35 @@ export function UnifiedToolsSettings({
     [tools]
   );
 
-  // Filter tools
   const filteredTools = useMemo(() => {
     const queryLower = searchQuery.trim().toLowerCase();
-    const hasQuery = queryLower.length > 0;
-
     return searchableTools
-      .filter(({ tool, searchText }) => {
-        if (categoryFilter !== 'all' && tool.category !== categoryFilter) {
-          return false;
-        }
-
-        if (tierFilter !== 'all' && tool.loadingTier !== tierFilter) {
-          return false;
-        }
-
-        if (!hasQuery) {
-          return true;
-        }
-
-        return searchText.includes(queryLower);
-      })
+      .filter(
+        ({ tool, searchText }) =>
+          (categoryFilter === 'all' || tool.category === categoryFilter) &&
+          (tierFilter === 'all' || tool.loadingTier === tierFilter) &&
+          (!queryLower || searchText.includes(queryLower))
+      )
       .map(({ tool }) => tool);
   }, [searchableTools, searchQuery, categoryFilter, tierFilter]);
 
-  // Group filtered tools
   const toolGroups = useMemo(() => groupTools(filteredTools), [filteredTools]);
 
-  // Calculate token budget
   const budgetData = useMemo(() => {
     if (!budgetManager) {
       return null;
     }
-
     const enabledTools = tools.filter((t) => t.enabled);
-    const criticalTokens = enabledTools
-      .filter((t) => t.loadingTier === 'critical')
-      .reduce((sum, t) => sum + t.estimatedTokens, 0);
-    const conditionalTokens = enabledTools
-      .filter((t) => t.loadingTier === 'conditional')
-      .reduce((sum, t) => sum + t.estimatedTokens, 0);
-
+    const tokenSum = (tier: string) =>
+      enabledTools
+        .filter((t) => t.loadingTier === tier)
+        .reduce((sum, t) => sum + t.estimatedTokens, 0);
     return {
-      criticalTokens,
-      conditionalTokens,
+      conditionalTokens: tokenSum('conditional'),
+      contextWindowSize: budgetManager.getContextResultsBudget() * 4,
+      criticalTokens: tokenSum('critical'),
       totalBudget:
         budgetManager.getCriticalToolsBudget() + budgetManager.getConditionalToolsBudget(),
-      contextWindowSize: budgetManager.getContextResultsBudget() * 4, // Approximate
     };
   }, [tools, budgetManager]);
 
@@ -424,136 +526,54 @@ export function UnifiedToolsSettings({
   const showConfigAlert =
     mcpAvailable && mcpConfigInfo && !mcpConfigInfo.exists && !configAlertDismissed;
 
-  // Default expanded accordion items - expand all groups by default
   const defaultExpandedGroups = useMemo(() => toolGroups.map((g) => g.id), [toolGroups]);
+
   const toolsPanel = (
-    <div className="space-y-4">
-      {budgetData && (
-        <TokenBudgetSummary
-          conditionalTokens={budgetData.conditionalTokens}
-          contextWindowSize={budgetData.contextWindowSize}
-          criticalTokens={budgetData.criticalTokens}
-          totalBudget={budgetData.totalBudget}
-        />
-      )}
-
-      {showConfigAlert && (
-        <McpConfigAlert
-          configInfo={mcpConfigInfo}
-          onCreateSample={operations.createSampleConfig ? handleCreateSampleConfig : undefined}
-          onDismiss={handleDismissConfigAlert}
-          onResetConfig={handleResetMcpConfig}
-          onSelectConfig={handleSelectMcpConfig}
-        />
-      )}
-
-      {hasTools && (
-        <ToolsFilterBar
-          categoryFilter={categoryFilter}
-          onCategoryChange={setCategoryFilter}
-          onReset={handleResetFilters}
-          onSearchChange={setSearchQuery}
-          onTierChange={setTierFilter}
-          searchQuery={searchQuery}
-          tierFilter={tierFilter}
-          totalCount={tools.length}
-        />
-      )}
-
-      {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm">
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <div className="py-8 text-center text-muted-foreground text-sm">Loading tools...</div>
-      )}
-
-      {!(loading || hasTools) && (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            No tools registered. Tools will appear here when the agent runtime initializes.
-          </CardContent>
-        </Card>
-      )}
-
-      {!loading && hasTools && (
-        <ErrorBoundary
-          fallback={<ToolsErrorFallback onRetry={handleErrorBoundaryReset} />}
-          key={errorBoundaryKey}
-          onReset={handleErrorBoundaryReset}
-        >
-          <ScrollArea className="max-h-[600px]">
-            <Accordion defaultValue={defaultExpandedGroups} type="multiple">
-              {toolGroups.map((group) => {
-                const serverName = group.source === 'mcp' ? group.serverName : undefined;
-                const mcpProps =
-                  serverName !== undefined
-                    ? {
-                        connectionStatus: getServerStatus(serverName),
-                        errorMessage: getServerError(serverName),
-                        ...(operations.openMcpConfig && {
-                          onOpenConfigFile: () => operations.openMcpConfig?.(),
-                        }),
-                        ...(operations.refreshMcpServers && {
-                          onRefreshConnection: handleRefreshMcp,
-                        }),
-                      }
-                    : {};
-                const description =
-                  group.source === 'native'
-                    ? 'Built-in BrainStrike tools'
-                    : `MCP server: ${serverName ?? 'unknown'}`;
-
-                return (
-                  <ToolGroupAccordion
-                    description={description}
-                    enabledCount={group.enabledCount}
-                    id={group.id}
-                    key={group.id}
-                    label={group.label}
-                    onDisableAll={() => handleDisableGroup(group)}
-                    onEnableAll={() => handleEnableGroup(group)}
-                    source={group.source}
-                    totalCount={group.tools.length}
-                    {...mcpProps}
-                  >
-                    <div className="space-y-1">
-                      {group.tools.map((tool) => (
-                        <div key={tool.id}>
-                          <ToolRow
-                            expanded={expandedToolId === tool.id}
-                            onExpand={handleExpandTool}
-                            onToggle={handleToggleTool}
-                            tool={tool}
-                          />
-                          {expandedToolId === tool.id && (
-                            <ToolRowExpanded
-                              tool={tool}
-                              {...(operations.executeToolTest !== undefined && {
-                                onExecuteTest: operations.executeToolTest,
-                              })}
-                            />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </ToolGroupAccordion>
-                );
-              })}
-            </Accordion>
-          </ScrollArea>
-        </ErrorBoundary>
-      )}
-    </div>
+    <ToolsPanelContent
+      budgetData={budgetData}
+      categoryFilter={categoryFilter}
+      defaultExpandedGroups={defaultExpandedGroups}
+      error={error}
+      errorBoundaryKey={errorBoundaryKey}
+      expandedToolId={expandedToolId}
+      getServerError={getServerError}
+      getServerStatus={getServerStatus}
+      hasTools={hasTools}
+      loading={loading}
+      mcpConfigInfo={mcpConfigInfo}
+      onCategoryChange={(category) => uiDispatch({ type: 'SET_CATEGORY_FILTER', category })}
+      onCreateSample={operations.createSampleConfig ? handleCreateSampleConfig : undefined}
+      onDisableGroup={handleDisableGroup}
+      onDismissConfigAlert={handleDismissConfigAlert}
+      onEnableGroup={handleEnableGroup}
+      onErrorBoundaryReset={handleErrorBoundaryReset}
+      onExpandTool={handleExpandTool}
+      onRefreshMcp={handleRefreshMcp}
+      onResetConfig={handleResetMcpConfig}
+      onResetFilters={handleResetFilters}
+      onSearchChange={(query) => uiDispatch({ type: 'SET_SEARCH_QUERY', query })}
+      onSelectConfig={handleSelectMcpConfig}
+      onTierChange={(tier) => uiDispatch({ type: 'SET_TIER_FILTER', tier })}
+      onToggleTool={handleToggleTool}
+      operations={operations}
+      searchQuery={searchQuery}
+      showConfigAlert={Boolean(showConfigAlert)}
+      tierFilter={tierFilter}
+      toolGroups={toolGroups}
+      totalCount={tools.length}
+    />
   );
 
   return (
     <div className="space-y-4" data-testid="unified-tools-settings">
       {mcpAvailable ? (
         <Tabs
-          onValueChange={(value) => setActiveTab(value === 'mcp-config' ? 'mcp-config' : 'tools')}
+          onValueChange={(value) =>
+            uiDispatch({
+              type: 'SET_ACTIVE_TAB',
+              tab: value === 'mcp-config' ? 'mcp-config' : 'tools',
+            })
+          }
           value={activeTab}
         >
           <TabsList className="h-9">
@@ -580,3 +600,249 @@ export function UnifiedToolsSettings({
 }
 
 export default UnifiedToolsSettings;
+
+interface ToolsPanelContentProps {
+  budgetData: {
+    criticalTokens: number;
+    conditionalTokens: number;
+    totalBudget: number;
+    contextWindowSize: number;
+  } | null;
+  showConfigAlert: boolean;
+  mcpConfigInfo: McpConfigInfo | null;
+  onCreateSample: (() => Promise<void>) | undefined;
+  onDismissConfigAlert: () => void;
+  onResetConfig: () => Promise<void>;
+  onSelectConfig: () => Promise<void>;
+  hasTools: boolean;
+  categoryFilter: ToolCategory | 'all';
+  searchQuery: string;
+  tierFilter: ToolLoadingTier | 'all';
+  onCategoryChange: (category: ToolCategory | 'all') => void;
+  onSearchChange: (query: string) => void;
+  onTierChange: (tier: ToolLoadingTier | 'all') => void;
+  onResetFilters: () => void;
+  totalCount: number;
+  error: string | null;
+  loading: boolean;
+  errorBoundaryKey: number;
+  expandedToolId: string | null;
+  defaultExpandedGroups: string[];
+  toolGroups: ToolGroup[];
+  operations: UnifiedToolsSettingsProps['operations'];
+  getServerStatus: (serverName: string) => McpConnectionStatus;
+  getServerError: (serverName: string) => string | undefined;
+  onEnableGroup: (group: ToolGroup) => void;
+  onDisableGroup: (group: ToolGroup) => void;
+  onExpandTool: (toolId: string) => void;
+  onToggleTool: (toolId: string, currentlyEnabled: boolean) => Promise<void>;
+  onRefreshMcp: () => Promise<void>;
+  onErrorBoundaryReset: () => void;
+}
+
+function ToolsPanelContent({
+  budgetData,
+  categoryFilter,
+  defaultExpandedGroups,
+  error,
+  errorBoundaryKey,
+  expandedToolId,
+  getServerError,
+  getServerStatus,
+  hasTools,
+  loading,
+  mcpConfigInfo,
+  onCategoryChange,
+  onCreateSample,
+  onDisableGroup,
+  onDismissConfigAlert,
+  onEnableGroup,
+  onErrorBoundaryReset,
+  onExpandTool,
+  onRefreshMcp,
+  onResetConfig,
+  onResetFilters,
+  onSearchChange,
+  onSelectConfig,
+  onTierChange,
+  onToggleTool,
+  operations,
+  searchQuery,
+  showConfigAlert,
+  tierFilter,
+  toolGroups,
+  totalCount,
+}: ToolsPanelContentProps) {
+  return (
+    <div className="space-y-4">
+      {budgetData && (
+        <TokenBudgetSummary
+          conditionalTokens={budgetData.conditionalTokens}
+          contextWindowSize={budgetData.contextWindowSize}
+          criticalTokens={budgetData.criticalTokens}
+          totalBudget={budgetData.totalBudget}
+        />
+      )}
+
+      {showConfigAlert && mcpConfigInfo && (
+        <McpConfigAlert
+          configInfo={mcpConfigInfo}
+          onCreateSample={onCreateSample}
+          onDismiss={onDismissConfigAlert}
+          onResetConfig={onResetConfig}
+          onSelectConfig={onSelectConfig}
+        />
+      )}
+
+      {hasTools && (
+        <ToolsFilterBar
+          categoryFilter={categoryFilter}
+          onCategoryChange={onCategoryChange}
+          onReset={onResetFilters}
+          onSearchChange={onSearchChange}
+          onTierChange={onTierChange}
+          searchQuery={searchQuery}
+          tierFilter={tierFilter}
+          totalCount={totalCount}
+        />
+      )}
+
+      {error && (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="py-8 text-center text-muted-foreground text-sm">Loading tools...</div>
+      )}
+
+      {!(loading || hasTools) && (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            No tools registered. Tools will appear here when the agent runtime initializes.
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && hasTools && (
+        <ToolsAccordionList
+          defaultExpandedGroups={defaultExpandedGroups}
+          errorBoundaryKey={errorBoundaryKey}
+          expandedToolId={expandedToolId}
+          getServerError={getServerError}
+          getServerStatus={getServerStatus}
+          onDisableGroup={onDisableGroup}
+          onEnableGroup={onEnableGroup}
+          onErrorBoundaryReset={onErrorBoundaryReset}
+          onExpandTool={onExpandTool}
+          onRefreshMcp={onRefreshMcp}
+          onToggleTool={onToggleTool}
+          operations={operations}
+          toolGroups={toolGroups}
+        />
+      )}
+    </div>
+  );
+}
+
+interface ToolsAccordionListProps {
+  toolGroups: ToolGroup[];
+  expandedToolId: string | null;
+  defaultExpandedGroups: string[];
+  errorBoundaryKey: number;
+  operations: UnifiedToolsSettingsProps['operations'];
+  getServerStatus: (serverName: string) => McpConnectionStatus;
+  getServerError: (serverName: string) => string | undefined;
+  onEnableGroup: (group: ToolGroup) => void;
+  onDisableGroup: (group: ToolGroup) => void;
+  onExpandTool: (toolId: string) => void;
+  onToggleTool: (toolId: string, currentlyEnabled: boolean) => Promise<void>;
+  onRefreshMcp: () => Promise<void>;
+  onErrorBoundaryReset: () => void;
+}
+
+function ToolsAccordionList({
+  defaultExpandedGroups,
+  errorBoundaryKey,
+  expandedToolId,
+  getServerError,
+  getServerStatus,
+  onDisableGroup,
+  onEnableGroup,
+  onErrorBoundaryReset,
+  onExpandTool,
+  onRefreshMcp,
+  onToggleTool,
+  operations,
+  toolGroups,
+}: ToolsAccordionListProps) {
+  return (
+    <ErrorBoundary
+      fallback={<ToolsErrorFallback onRetry={onErrorBoundaryReset} />}
+      key={errorBoundaryKey}
+      onReset={onErrorBoundaryReset}
+    >
+      <ScrollArea className="max-h-[600px]">
+        <Accordion defaultValue={defaultExpandedGroups} type="multiple">
+          {toolGroups.map((group) => {
+            const serverName = group.source === 'mcp' ? group.serverName : undefined;
+            const mcpProps =
+              serverName !== undefined
+                ? {
+                    connectionStatus: getServerStatus(serverName),
+                    errorMessage: getServerError(serverName),
+                    ...(operations.openMcpConfig && {
+                      onOpenConfigFile: () => operations.openMcpConfig?.(),
+                    }),
+                    ...(operations.refreshMcpServers && {
+                      onRefreshConnection: onRefreshMcp,
+                    }),
+                  }
+                : {};
+            const description =
+              group.source === 'native'
+                ? 'Built-in BrainStrike tools'
+                : `MCP server: ${serverName ?? 'unknown'}`;
+
+            return (
+              <ToolGroupAccordion
+                description={description}
+                enabledCount={group.enabledCount}
+                id={group.id}
+                key={group.id}
+                label={group.label}
+                onDisableAll={() => onDisableGroup(group)}
+                onEnableAll={() => onEnableGroup(group)}
+                source={group.source}
+                totalCount={group.tools.length}
+                {...mcpProps}
+              >
+                <div className="space-y-1">
+                  {group.tools.map((tool) => (
+                    <div key={tool.id}>
+                      <ToolRow
+                        expanded={expandedToolId === tool.id}
+                        onExpand={onExpandTool}
+                        onToggle={onToggleTool}
+                        tool={tool}
+                      />
+                      {expandedToolId === tool.id && (
+                        <ToolRowExpanded
+                          tool={tool}
+                          {...(operations.executeToolTest !== undefined && {
+                            onExecuteTest: operations.executeToolTest,
+                          })}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </ToolGroupAccordion>
+            );
+          })}
+        </Accordion>
+      </ScrollArea>
+    </ErrorBoundary>
+  );
+}

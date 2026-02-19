@@ -314,7 +314,7 @@ const RangeItem = memo(
             {hasPreviewLines ? (
               <div className="whitespace-pre font-medium font-mono text-[10px] text-foreground leading-relaxed">
                 {previewLines.map((line, i) => (
-                  <div className="flex gap-3" key={`${range.id}-line-${i}`}>
+                  <div className="flex gap-3" key={`${range.id}-line-${previewStartLine + i}`}>
                     <span className="w-6 select-none text-right text-muted-foreground/50 opacity-50">
                       {previewStartLine + i}
                     </span>
@@ -479,12 +479,15 @@ export const Minimap = memo(
                   if (line.isEmpty) {
                     return null;
                   }
+                  // Use line position as part of the key — structure is a fixed positional array
+                  // tied to file content (not reordered), so line index is the stable identifier.
+                  const lineKey = `${file.id}-ln${i}-w${line.width}-d${line.indent}`;
                   return (
                     <rect
                       className="text-muted-foreground/40"
                       fill="currentColor"
                       height={lineThickness}
-                      key={`${file.id}-struct-${i}`}
+                      key={lineKey}
                       width={`${line.width}%`}
                       x={`${line.indent * 5}%`}
                       y={i * lineScale}

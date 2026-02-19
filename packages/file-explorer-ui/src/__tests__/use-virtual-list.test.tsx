@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import type React from 'react';
 import { useLayoutEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVirtualList } from '../use-virtual-list';
@@ -28,9 +29,9 @@ function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestCompone
         if (element) {
           Object.defineProperty(element, 'clientHeight', { configurable: true, value: 50 });
         }
-        if (containerRef) {
-          (containerRef as { current: HTMLDivElement | null }).current = element;
-        }
+        // Assign through the ref object's mutable current property
+        const mutableRef = containerRef as React.MutableRefObject<HTMLDivElement | null>;
+        mutableRef.current = element;
       }}
     />
   );

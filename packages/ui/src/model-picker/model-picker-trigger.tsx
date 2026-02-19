@@ -5,7 +5,7 @@ import { cn } from '../lib/utils';
 import { useTheme } from '../theme-provider';
 import type { TriggerRenderProps } from './types';
 import { getProviderColor } from './utils/provider-colors';
-import { getProviderIcon } from './utils/provider-icons';
+import { ProviderIcon } from './utils/provider-icons';
 
 export const ModelPickerTrigger = React.forwardRef<
   HTMLButtonElement,
@@ -33,13 +33,14 @@ export const ModelPickerTrigger = React.forwardRef<
       : [];
 
   const firstModel = selectedModels[0];
-  const Icon = firstModel ? getProviderIcon(firstModel.providerId) : null;
   const providerColor = firstModel
     ? getProviderColor(firstModel.providerId, resolvedTheme)
     : undefined;
 
   return (
     <Button
+      aria-controls="model-picker-listbox"
+      aria-expanded={false}
       className={cn('w-full justify-between', className)}
       disabled={disabled}
       ref={ref}
@@ -50,7 +51,11 @@ export const ModelPickerTrigger = React.forwardRef<
       <div className="flex items-center gap-2 truncate">
         {firstModel ? (
           <>
-            {Icon && <Icon className="h-4 w-4 shrink-0" style={{ color: providerColor }} />}
+            <ProviderIcon
+              className="h-4 w-4 shrink-0"
+              providerId={firstModel.providerId}
+              style={{ color: providerColor }}
+            />
             <span className="truncate">
               {firstModel.name}
               {selectedModels.length > 1 && (

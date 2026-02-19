@@ -149,12 +149,12 @@ export function SemanticSearchProvider({
         logger.info('Search completed', { resultCount: results.length });
         setSearchResults(results);
         setHasSearched(true);
+        setIsSearching(false);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.error('Search failed', { error: message });
         setError(message);
         setSearchResults([]);
-      } finally {
         setIsSearching(false);
       }
     },

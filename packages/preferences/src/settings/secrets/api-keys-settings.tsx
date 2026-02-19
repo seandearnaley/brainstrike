@@ -14,12 +14,43 @@ import {
   SelectValue,
   useToast,
 } from '@brainstrike/ui';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useReducer } from 'react';
 import { useSecretsStore } from '../../stores/secrets-store';
 
 interface ProviderOption {
   id: string;
   name: string;
+}
+
+interface ApiKeysState {
+  rawProvider: string;
+  apiKey: string;
+  providersWithSecrets: string[];
+  busy: boolean;
+}
+
+type ApiKeysAction =
+  | { type: 'SET_PROVIDER'; provider: string }
+  | { type: 'SET_API_KEY'; key: string }
+  | { type: 'SET_PROVIDERS_WITH_SECRETS'; providers: string[] }
+  | { type: 'SET_BUSY'; busy: boolean }
+  | { type: 'SAVE_SUCCESS' };
+
+function apiKeysReducer(state: ApiKeysState, action: ApiKeysAction): ApiKeysState {
+  switch (action.type) {
+    case 'SET_PROVIDER':
+      return { ...state, rawProvider: action.provider };
+    case 'SET_API_KEY':
+      return { ...state, apiKey: action.key };
+    case 'SET_PROVIDERS_WITH_SECRETS':
+      return { ...state, providersWithSecrets: action.providers };
+    case 'SET_BUSY':
+      return { ...state, busy: action.busy };
+    case 'SAVE_SUCCESS':
+      return { ...state, apiKey: '', busy: false };
+    default:
+      return state;
+  }
 }
 
 /**
@@ -41,10 +72,13 @@ export function ApiKeysSettings() {
     [providerDefinitions]
   );
 
-  const [rawProvider, setRawProvider] = useState<string>(providerOptions[0]?.id ?? 'openai');
-  const [apiKey, setApiKey] = useState('');
-  const [providersWithSecrets, setProvidersWithSecrets] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [state, dispatch] = useReducer(apiKeysReducer, {
+    rawProvider: providerOptions[0]?.id ?? 'openai',
+    apiKey: '',
+    providersWithSecrets: [],
+    busy: false,
+  });
+  const { rawProvider, apiKey, providersWithSecrets, busy } = state;
 
   // Derive effective provider - always valid even if options change
   const provider = useMemo(() => {
@@ -64,19 +98,28 @@ export function ApiKeysSettings() {
   }, [provider]);
 
   const refreshProviders = useCallback(async () => {
-    try {
-      const storedProviders = await window.secrets?.listStored?.();
-      if (Array.isArray(storedProviders)) {
-        setProvidersWithSecrets(storedProviders);
-        return;
+    const listStored = window.secrets?.listStored;
+    const listFn = window.secrets?.list;
+    if (listStored) {
+      try {
+        const storedProviders = await listStored();
+        if (Array.isArray(storedProviders)) {
+          dispatch({ type: 'SET_PROVIDERS_WITH_SECRETS', providers: storedProviders });
+          return;
+        }
+      } catch {
+        // ignored
       }
-
-      const list = await window.secrets?.list?.();
-      if (Array.isArray(list)) {
-        setProvidersWithSecrets(list);
+    }
+    if (listFn) {
+      try {
+        const providers = await listFn();
+        if (Array.isArray(providers)) {
+          dispatch({ type: 'SET_PROVIDERS_WITH_SECRETS', providers });
+        }
+      } catch {
+        // ignored
       }
-    } catch {
-      // ignored
     }
   }, []);
 
@@ -85,43 +128,56 @@ export function ApiKeysSettings() {
   }, [refreshProviders]);
 
   const handleSave = useCallback(async () => {
-    if (!apiKey.trim()) {
+    const trimmedKey = apiKey.trim();
+    if (!trimmedKey) {
       return;
     }
-    setBusy(true);
-    try {
-      const res = await window.secrets?.saveKey?.(provider, apiKey.trim());
-      if (res && typeof res === 'object' && 'ok' in res) {
-        const result = res as { ok: false; error: 'encryption_unavailable' | 'unknown_error' };
-        if (result.ok === false) {
-          const code = result.error;
-          toast({
-            title: 'Failed to save key',
-            description:
-              code === 'encryption_unavailable'
-                ? 'OS keychain encryption is unavailable on this system.'
-                : 'Unknown error occurred while saving the key.',
-            variant: 'destructive',
-          });
-        }
-      }
-      setApiKey('');
-      await refreshProviders();
-      notifySecretsChanged();
-    } finally {
-      setBusy(false);
+    const saveKey = window.secrets?.saveKey;
+    dispatch({ type: 'SET_BUSY', busy: true });
+    if (!saveKey) {
+      dispatch({ type: 'SET_BUSY', busy: false });
+      return;
     }
+    let saveResult: unknown;
+    try {
+      saveResult = await saveKey(provider, trimmedKey);
+    } catch {
+      // Errors are handled by the OS keychain, ignore
+      dispatch({ type: 'SET_BUSY', busy: false });
+      return;
+    }
+    if (saveResult !== null && saveResult !== undefined && typeof saveResult === 'object') {
+      const resultObj = saveResult as { ok?: boolean; error?: string };
+      if (resultObj.ok === false) {
+        const code = resultObj.error;
+        toast({
+          title: 'Failed to save key',
+          description:
+            code === 'encryption_unavailable'
+              ? 'OS keychain encryption is unavailable on this system.'
+              : 'Unknown error occurred while saving the key.',
+          variant: 'destructive',
+        });
+      }
+    }
+    dispatch({ type: 'SAVE_SUCCESS' });
+    await refreshProviders();
+    notifySecretsChanged();
   }, [apiKey, provider, refreshProviders, toast, notifySecretsChanged]);
 
   const handleDelete = useCallback(async () => {
-    setBusy(true);
-    try {
-      await window.secrets?.deleteKey?.(provider);
-      await refreshProviders();
-      notifySecretsChanged();
-    } finally {
-      setBusy(false);
+    const deleteKey = window.secrets?.deleteKey;
+    dispatch({ type: 'SET_BUSY', busy: true });
+    if (deleteKey) {
+      try {
+        await deleteKey(provider);
+      } catch {
+        // Errors are handled at OS level, ignore
+      }
     }
+    await refreshProviders();
+    notifySecretsChanged();
+    dispatch({ type: 'SET_BUSY', busy: false });
   }, [provider, refreshProviders, notifySecretsChanged]);
 
   const providerId = useId();
@@ -137,7 +193,10 @@ export function ApiKeysSettings() {
           <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-3">
             <div className="space-y-1">
               <Label htmlFor={providerId}>Provider</Label>
-              <Select onValueChange={(value) => setRawProvider(value)} value={provider}>
+              <Select
+                onValueChange={(value) => dispatch({ type: 'SET_PROVIDER', provider: value })}
+                value={provider}
+              >
                 <SelectTrigger data-testid="llm-provider" id={providerId}>
                   <SelectValue placeholder="Select provider" />
                 </SelectTrigger>
@@ -156,7 +215,9 @@ export function ApiKeysSettings() {
               <Input
                 data-testid="llm-api-key"
                 id={apiKeyId}
-                onChange={(event) => setApiKey(event.currentTarget.value)}
+                onChange={(event) =>
+                  dispatch({ type: 'SET_API_KEY', key: event.currentTarget.value })
+                }
                 placeholder={`Enter ${selectedProviderName} API key`}
                 type="password"
                 value={apiKey}

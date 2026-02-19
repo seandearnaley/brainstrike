@@ -2,7 +2,7 @@ import { cn, Input, ThemeSettings } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
 import { ChevronRight, Key, Palette, Search, Settings, Sigma } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
@@ -204,38 +204,36 @@ export function SettingsPageContent({
     };
   }, [categories]);
 
-  useEffect(() => {
+  // Derive the effective active category — no effects needed for state correction
+  const effectiveActiveCategoryId = useMemo(() => {
     if (!categories.length) {
-      setActiveCategoryId(null);
-      return;
+      return null;
     }
-
-    const exists = categories.some((category) => category.id === activeCategoryId);
-
-    if (!exists) {
-      setActiveCategoryId(selectInitialCategory(categories, defaultCategoryId));
+    if (
+      activeCategoryId &&
+      categories.some((category) => category.id === activeCategoryId) &&
+      filteredCategories.some((category) => category.id === activeCategoryId)
+    ) {
+      return activeCategoryId;
     }
-  }, [categories, defaultCategoryId, activeCategoryId]);
-
-  useEffect(() => {
-    if (!filteredCategories.length) {
-      return;
+    if (filteredCategories.length > 0) {
+      return filteredCategories[0]?.id ?? null;
     }
+    return selectInitialCategory(categories, defaultCategoryId);
+  }, [categories, defaultCategoryId, filteredCategories, activeCategoryId]);
 
-    const currentExists = filteredCategories.some((category) => category.id === activeCategoryId);
-    if (!currentExists) {
-      setActiveCategoryId(filteredCategories[0]?.id ?? null);
+  // Sync hash when effective category changes, but not on every render
+  const prevEffectiveCategoryRef = useRef<string | null>(null);
+  if (prevEffectiveCategoryRef.current !== effectiveActiveCategoryId) {
+    prevEffectiveCategoryRef.current = effectiveActiveCategoryId;
+    if (effectiveActiveCategoryId) {
+      updateHash(effectiveActiveCategoryId);
     }
-  }, [filteredCategories, activeCategoryId]);
+  }
 
-  useEffect(() => {
-    if (!activeCategoryId) {
-      return;
-    }
-    updateHash(activeCategoryId);
-  }, [activeCategoryId]);
-
-  const activeCategory = filteredCategories.find((category) => category.id === activeCategoryId);
+  const activeCategory = filteredCategories.find(
+    (category) => category.id === effectiveActiveCategoryId
+  );
 
   return (
     <div className="h-full overflow-hidden">
@@ -276,7 +274,7 @@ export function SettingsPageContent({
             {filteredCategories.length ? (
               filteredCategories.map((category) => {
                 const Icon = category.icon;
-                const isActive = category.id === activeCategoryId;
+                const isActive = category.id === effectiveActiveCategoryId;
 
                 return (
                   <button

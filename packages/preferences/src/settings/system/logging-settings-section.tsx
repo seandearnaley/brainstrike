@@ -18,7 +18,7 @@ import {
 } from '@brainstrike/ui';
 import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
 import { FolderOpen, RefreshCw } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 import { useLoggingPreferencesStore } from '../../stores/logging-preferences-store';
 import { type LogSourceAdapter, LogViewer } from './log-viewer-components/log-viewer';
 
@@ -105,6 +105,7 @@ export function LoggingSettingsSection({
           setPreferences(result);
         }
       } catch (error) {
+        setIsSyncing(false);
         const message = error instanceof Error ? error.message : String(error);
         toast({
           title: 'Failed to update logging preferences',
@@ -112,9 +113,8 @@ export function LoggingSettingsSection({
           variant: 'destructive',
         });
         throw error;
-      } finally {
-        setIsSyncing(false);
       }
+      setIsSyncing(false);
     },
     [onCommitPreferences, setPreferences, toast]
   );
@@ -178,10 +178,11 @@ export function LoggingSettingsSection({
     if (!onSelectLogDestination) {
       return;
     }
+    setIsSyncing(true);
     try {
-      setIsSyncing(true);
       const selected = await onSelectLogDestination();
       if (!selected) {
+        setIsSyncing(false);
         return;
       }
       await applyNestedUpdates({ destination: selected, enabled: true });
@@ -192,9 +193,8 @@ export function LoggingSettingsSection({
         description: message,
         variant: 'destructive',
       });
-    } finally {
-      setIsSyncing(false);
     }
+    setIsSyncing(false);
   }, [applyNestedUpdates, onSelectLogDestination, toast]);
 
   const handleOpenDestination = useCallback(async () => {
@@ -232,9 +232,8 @@ export function LoggingSettingsSection({
         description: error instanceof Error ? error.message : 'Unknown error occurred.',
         variant: 'destructive',
       });
-    } finally {
-      setIsSyncing(false);
     }
+    setIsSyncing(false);
   }, [commitPreferences, onResetPreferences, resetPreferences, setPreferences, toast]);
 
   const fileDestinationLabel = useMemo(
@@ -245,256 +244,322 @@ export function LoggingSettingsSection({
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>General Logging</CardTitle>
-          <CardDescription>
-            Control verbosity and console output for application logs.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="log-level">Global Log Level</Label>
-              <Select
-                disabled={pending}
-                onValueChange={(value) => applyUpdates({ level: value as LogLevel })}
-                value={preferences.level}
-              >
-                <SelectTrigger id="log-level">
-                  <SelectValue placeholder="Select level" />
-                </SelectTrigger>
-                <SelectContent>{logLevelItems}</SelectContent>
-              </Select>
-              <p className="text-muted-foreground text-xs">
-                Controls which log messages are emitted at all. Lower numbers capture more detail.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="console-level">Console Output Level</Label>
-              <Select
-                disabled={pending || !preferences.consoleEnabled}
-                onValueChange={(value) => applyUpdates({ consoleLevel: value as LogLevel })}
-                value={preferences.consoleLevel}
-              >
-                <SelectTrigger id="console-level">
-                  <SelectValue placeholder="Select level" />
-                </SelectTrigger>
-                <SelectContent>{logLevelItems}</SelectContent>
-              </Select>
-              <p className="text-muted-foreground text-xs">
-                Determines which messages appear in the developer console or terminal output.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
-              <div>
-                <Label className="flex items-center gap-2" htmlFor="console-enabled">
-                  Console Logging
-                </Label>
-                <p className="text-muted-foreground text-xs">
-                  Enable or disable writing structured logs to the console output.
-                </p>
-              </div>
-              <Switch
-                checked={preferences.consoleEnabled}
-                disabled={pending}
-                id="console-enabled"
-                onCheckedChange={(checked) => applyUpdates({ consoleEnabled: checked })}
-              />
-            </div>
-
-            <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
-              <div>
-                <Label className="flex items-center gap-2" htmlFor="include-timestamp">
-                  Include Timestamp
-                </Label>
-                <p className="text-muted-foreground text-xs">
-                  Adds ISO timestamps to every log entry for easier correlation.
-                </p>
-              </div>
-              <Switch
-                checked={preferences.includeTimestamp}
-                disabled={pending}
-                id="include-timestamp"
-                onCheckedChange={(checked) => applyUpdates({ includeTimestamp: checked })}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
+      <GeneralLoggingCard
+        applyUpdates={applyUpdates}
+        logLevelItems={logLevelItems}
+        pending={pending}
+        preferences={preferences}
+      />
       {runtime === 'electron-renderer' ? (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <CardTitle>File Logging</CardTitle>
-              {preferences.file.enabled ? (
-                <Badge variant="secondary">enabled</Badge>
-              ) : (
-                <Badge variant="outline">disabled</Badge>
-              )}
-            </div>
-            <CardDescription>
-              Persist structured logs to a file for long-running debugging sessions and support
-              bundles.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {fileCapabilities?.reason ? (
-              <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-amber-900 text-xs dark:text-amber-200">
-                {fileCapabilities.reason}
-              </div>
-            ) : null}
-
-            <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
-              <div>
-                <Label htmlFor="file-enabled">Enable File Logging</Label>
-                <p className="text-muted-foreground text-xs">
-                  Creates or appends to a structured log file on disk.
-                </p>
-              </div>
-              <Switch
-                checked={preferences.file.enabled}
-                disabled={pending || fileCapabilities?.fileLoggingSupported === false}
-                id="file-enabled"
-                onCheckedChange={(checked) => applyNestedUpdates({ enabled: checked })}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Destination</Label>
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-                <div className="flex-1 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm">
-                  <div className="font-medium text-muted-foreground">
-                    {fileDestinationLabel.label}
-                  </div>
-                  {fileDestinationLabel.hint ? (
-                    <div className="text-muted-foreground/80 text-xs">
-                      {fileDestinationLabel.hint}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    disabled={
-                      pending ||
-                      !fileCapabilities?.canSelectDestination ||
-                      fileCapabilities?.fileLoggingSupported === false
-                    }
-                    onClick={handleSelectDestination}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    Choose…
-                  </Button>
-                  <Button
-                    disabled={!preferences.file.destination}
-                    onClick={handleOpenDestination}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <FolderOpen aria-hidden="true" className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="file-level">File Log Level</Label>
-                <Select
-                  disabled={pending || !preferences.file.enabled}
-                  onValueChange={(value) => applyNestedUpdates({ level: value as LogLevel })}
-                  value={preferences.file.level}
-                >
-                  <SelectTrigger id="file-level">
-                    <SelectValue placeholder="Select level" />
-                  </SelectTrigger>
-                  <SelectContent>{logLevelItems}</SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
-                <div>
-                  <Label htmlFor="file-append">Append Mode</Label>
-                  <p className="text-muted-foreground text-xs">Keep history between sessions.</p>
-                </div>
-                <Switch
-                  checked={preferences.file.append}
-                  disabled={pending || !preferences.file.enabled}
-                  id="file-append"
-                  onCheckedChange={(checked) => applyNestedUpdates({ append: checked })}
-                />
-              </div>
-              <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
-                <div>
-                  <Label htmlFor="file-mkdir">Auto-create Folders</Label>
-                  <p className="text-muted-foreground text-xs">
-                    Create missing directories as needed.
-                  </p>
-                </div>
-                <Switch
-                  checked={preferences.file.mkdir}
-                  disabled={pending || !preferences.file.enabled}
-                  id="file-mkdir"
-                  onCheckedChange={(checked) => applyNestedUpdates({ mkdir: checked })}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <FileLoggingCard
+          applyNestedUpdates={applyNestedUpdates}
+          fileCapabilities={fileCapabilities}
+          fileDestinationLabel={fileDestinationLabel}
+          logLevelItems={logLevelItems}
+          onOpenDestination={handleOpenDestination}
+          onSelectDestination={handleSelectDestination}
+          pending={pending}
+          preferences={preferences}
+        />
       ) : null}
+      <AdvancedLoggingCard
+        onRedactChange={handleRedactChange}
+        onReset={handleReset}
+        pending={pending}
+        preferences={preferences}
+      />
+      <LogViewer logSource={logSource} toast={toast} />
+    </div>
+  );
+}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Advanced</CardTitle>
-          <CardDescription>
-            Configure structured logging safeguards and sensitive field redaction.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+interface GeneralLoggingCardProps {
+  pending: boolean;
+  preferences: LoggingPreferences;
+  logLevelItems: ReactNode;
+  applyUpdates: (updates: Partial<LoggingPreferences>) => Promise<void>;
+}
+
+function GeneralLoggingCard({
+  applyUpdates,
+  logLevelItems,
+  pending,
+  preferences,
+}: GeneralLoggingCardProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>General Logging</CardTitle>
+        <CardDescription>
+          Control verbosity and console output for application logs.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="redact-paths">Redacted Fields</Label>
-            <Input
+            <Label htmlFor="log-level">Global Log Level</Label>
+            <Select
               disabled={pending}
-              id="redact-paths"
-              onChange={(event) => handleRedactChange(event.target.value)}
-              placeholder="apiKey, password, token"
-              value={preferences.redactPaths.join(', ')}
-            />
+              onValueChange={(value) => applyUpdates({ level: value as LogLevel })}
+              value={preferences.level}
+            >
+              <SelectTrigger id="log-level">
+                <SelectValue placeholder="Select level" />
+              </SelectTrigger>
+              <SelectContent>{logLevelItems}</SelectContent>
+            </Select>
             <p className="text-muted-foreground text-xs">
-              Comma-separated list of keys to redact from structured logs in addition to built-in
-              defaults.
+              Controls which log messages are emitted at all. Lower numbers capture more detail.
             </p>
           </div>
 
-          <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+          <div className="space-y-2">
+            <Label htmlFor="console-level">Console Output Level</Label>
+            <Select
+              disabled={pending || !preferences.consoleEnabled}
+              onValueChange={(value) => applyUpdates({ consoleLevel: value as LogLevel })}
+              value={preferences.consoleLevel}
+            >
+              <SelectTrigger id="console-level">
+                <SelectValue placeholder="Select level" />
+              </SelectTrigger>
+              <SelectContent>{logLevelItems}</SelectContent>
+            </Select>
+            <p className="text-muted-foreground text-xs">
+              Determines which messages appear in the developer console or terminal output.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
             <div>
-              <div className="font-medium text-sm">Restore Defaults</div>
+              <Label className="flex items-center gap-2" htmlFor="console-enabled">
+                Console Logging
+              </Label>
               <p className="text-muted-foreground text-xs">
-                Reset all logging preferences to their recommended defaults.
+                Enable or disable writing structured logs to the console output.
               </p>
             </div>
-            <Button
+            <Switch
+              checked={preferences.consoleEnabled}
               disabled={pending}
-              onClick={handleReset}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <RefreshCw aria-hidden="true" className="mr-2 h-4 w-4" />
-              Reset
-            </Button>
+              id="console-enabled"
+              onCheckedChange={(checked) => applyUpdates({ consoleEnabled: checked })}
+            />
           </div>
-        </CardContent>
-      </Card>
-      <LogViewer logSource={logSource} toast={toast} />
-    </div>
+
+          <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+            <div>
+              <Label className="flex items-center gap-2" htmlFor="include-timestamp">
+                Include Timestamp
+              </Label>
+              <p className="text-muted-foreground text-xs">
+                Adds ISO timestamps to every log entry for easier correlation.
+              </p>
+            </div>
+            <Switch
+              checked={preferences.includeTimestamp}
+              disabled={pending}
+              id="include-timestamp"
+              onCheckedChange={(checked) => applyUpdates({ includeTimestamp: checked })}
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface FileLoggingCardProps {
+  pending: boolean;
+  preferences: LoggingPreferences;
+  logLevelItems: ReactNode;
+  fileCapabilities: FileCapabilities | undefined;
+  fileDestinationLabel: { label: string; hint?: string };
+  onSelectDestination: () => Promise<void>;
+  onOpenDestination: () => Promise<void>;
+  applyNestedUpdates: (updates: Partial<LoggingPreferences['file']>) => Promise<void>;
+}
+
+function FileLoggingCard({
+  applyNestedUpdates,
+  fileCapabilities,
+  fileDestinationLabel,
+  logLevelItems,
+  onOpenDestination,
+  onSelectDestination,
+  pending,
+  preferences,
+}: FileLoggingCardProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CardTitle>File Logging</CardTitle>
+          {preferences.file.enabled ? (
+            <Badge variant="secondary">enabled</Badge>
+          ) : (
+            <Badge variant="outline">disabled</Badge>
+          )}
+        </div>
+        <CardDescription>
+          Persist structured logs to a file for long-running debugging sessions and support bundles.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {fileCapabilities?.reason ? (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-amber-900 text-xs dark:text-amber-200">
+            {fileCapabilities.reason}
+          </div>
+        ) : null}
+
+        <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+          <div>
+            <Label htmlFor="file-enabled">Enable File Logging</Label>
+            <p className="text-muted-foreground text-xs">
+              Creates or appends to a structured log file on disk.
+            </p>
+          </div>
+          <Switch
+            checked={preferences.file.enabled}
+            disabled={pending || fileCapabilities?.fileLoggingSupported === false}
+            id="file-enabled"
+            onCheckedChange={(checked) => applyNestedUpdates({ enabled: checked })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Destination</Label>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+            <div className="flex-1 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm">
+              <div className="font-medium text-muted-foreground">{fileDestinationLabel.label}</div>
+              {fileDestinationLabel.hint ? (
+                <div className="text-muted-foreground/80 text-xs">{fileDestinationLabel.hint}</div>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                disabled={
+                  pending ||
+                  !fileCapabilities?.canSelectDestination ||
+                  fileCapabilities?.fileLoggingSupported === false
+                }
+                onClick={onSelectDestination}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Choose…
+              </Button>
+              <Button
+                disabled={!preferences.file.destination}
+                onClick={onOpenDestination}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <FolderOpen aria-hidden="true" className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="file-level">File Log Level</Label>
+            <Select
+              disabled={pending || !preferences.file.enabled}
+              onValueChange={(value) => applyNestedUpdates({ level: value as LogLevel })}
+              value={preferences.file.level}
+            >
+              <SelectTrigger id="file-level">
+                <SelectValue placeholder="Select level" />
+              </SelectTrigger>
+              <SelectContent>{logLevelItems}</SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+            <div>
+              <Label htmlFor="file-append">Append Mode</Label>
+              <p className="text-muted-foreground text-xs">Keep history between sessions.</p>
+            </div>
+            <Switch
+              checked={preferences.file.append}
+              disabled={pending || !preferences.file.enabled}
+              id="file-append"
+              onCheckedChange={(checked) => applyNestedUpdates({ append: checked })}
+            />
+          </div>
+          <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+            <div>
+              <Label htmlFor="file-mkdir">Auto-create Folders</Label>
+              <p className="text-muted-foreground text-xs">Create missing directories as needed.</p>
+            </div>
+            <Switch
+              checked={preferences.file.mkdir}
+              disabled={pending || !preferences.file.enabled}
+              id="file-mkdir"
+              onCheckedChange={(checked) => applyNestedUpdates({ mkdir: checked })}
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface AdvancedLoggingCardProps {
+  pending: boolean;
+  preferences: LoggingPreferences;
+  onRedactChange: (value: string) => Promise<void>;
+  onReset: () => Promise<void>;
+}
+
+function AdvancedLoggingCard({
+  onRedactChange,
+  onReset,
+  pending,
+  preferences,
+}: AdvancedLoggingCardProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Advanced</CardTitle>
+        <CardDescription>
+          Configure structured logging safeguards and sensitive field redaction.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-2">
+          <Label htmlFor="redact-paths">Redacted Fields</Label>
+          <Input
+            disabled={pending}
+            id="redact-paths"
+            onChange={(event) => onRedactChange(event.target.value)}
+            placeholder="apiKey, password, token"
+            value={preferences.redactPaths.join(', ')}
+          />
+          <p className="text-muted-foreground text-xs">
+            Comma-separated list of keys to redact from structured logs in addition to built-in
+            defaults.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+          <div>
+            <div className="font-medium text-sm">Restore Defaults</div>
+            <p className="text-muted-foreground text-xs">
+              Reset all logging preferences to their recommended defaults.
+            </p>
+          </div>
+          <Button disabled={pending} onClick={onReset} size="sm" type="button" variant="outline">
+            <RefreshCw aria-hidden="true" className="mr-2 h-4 w-4" />
+            Reset
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

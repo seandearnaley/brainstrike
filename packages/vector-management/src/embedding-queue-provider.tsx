@@ -39,6 +39,125 @@ interface QueueMetrics {
   readonly windowErrorCount: number;
 }
 
+function removeProgressEntry(
+  progress: Record<string, ProgressSnapshot>,
+  id: string
+): Record<string, ProgressSnapshot> {
+  if (!(id in progress)) {
+    return progress;
+  }
+  const next: Record<string, ProgressSnapshot> = {};
+  for (const key of Object.keys(progress)) {
+    if (key !== id) {
+      next[key] = progress[key] as ProgressSnapshot;
+    }
+  }
+  return next;
+}
+
+function rethrow(error: unknown): never {
+  throw error;
+}
+
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return 'Unknown error';
+}
+
+type RecordFailureFn = (jobId: string, message: string | null) => void;
+type RecordEnqueueFn = () => void;
+type RecordSuccessFn = () => void;
+type UpdateMetricsFn = (updater: (prev: QueueMetrics) => QueueMetrics) => void;
+type ListenersSet = Set<(event: QueueProgressEvent | QueueErrorEvent) => void>;
+
+class InstrumentedQueueAdapter implements QueueAdapter {
+  readonly #base: QueueAdapter;
+  readonly #listeners: ListenersSet;
+  readonly #recordEnqueue: RecordEnqueueFn;
+  readonly #recordSuccess: RecordSuccessFn;
+  readonly #recordFailure: RecordFailureFn;
+  readonly #updateMetrics: UpdateMetricsFn;
+
+  constructor(
+    base: QueueAdapter,
+    listeners: ListenersSet,
+    recordEnqueue: RecordEnqueueFn,
+    recordSuccess: RecordSuccessFn,
+    recordFailure: RecordFailureFn,
+    updateMetrics: UpdateMetricsFn
+  ) {
+    this.#base = base;
+    this.#listeners = listeners;
+    this.#recordEnqueue = recordEnqueue;
+    this.#recordSuccess = recordSuccess;
+    this.#recordFailure = recordFailure;
+    this.#updateMetrics = updateMetrics;
+  }
+
+  get isPaused(): boolean {
+    return this.#base.isPaused;
+  }
+
+  get isProcessing(): boolean {
+    return this.#base.isProcessing;
+  }
+
+  async add(
+    task: Parameters<QueueAdapter['add']>[0],
+    opts?: Parameters<QueueAdapter['add']>[1]
+  ): Promise<Awaited<ReturnType<QueueAdapter['add']>>> {
+    this.#recordEnqueue();
+    try {
+      const result = await this.#base.add(task, opts);
+      this.#recordSuccess();
+      this.#updateMetrics((prev) => ({
+        ...prev,
+        progress: removeProgressEntry(prev.progress, task.id),
+      }));
+      return result;
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      this.#recordFailure(task.id, message);
+      rethrow(error);
+    }
+  }
+
+  async addBulk(
+    tasks: Parameters<QueueAdapter['addBulk']>[0],
+    opts?: Parameters<QueueAdapter['addBulk']>[1]
+  ): Promise<Awaited<ReturnType<QueueAdapter['addBulk']>>> {
+    return Promise.all(tasks.map((task) => this.add(task, opts)));
+  }
+
+  onProgress(
+    listener: Parameters<QueueAdapter['onProgress']>[0]
+  ): ReturnType<QueueAdapter['onProgress']> {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  pause(): void {
+    this.#base.pause();
+  }
+
+  resume(): void {
+    this.#base.resume();
+  }
+
+  async cancel(): Promise<void> {
+    await this.#base.cancel();
+  }
+
+  async drain(): Promise<void> {
+    await this.#base.drain();
+  }
+}
+
 const INITIAL_METRICS: QueueMetrics = {
   active: 0,
   completed: 0,
@@ -68,10 +187,9 @@ export function EmbeddingQueueProvider({
   children,
   adapter,
 }: PropsWithChildren<EmbeddingQueueProviderProps>): ReactNode {
-  const baseAdapterRef = useRef<QueueAdapter | null>(null);
-  if (baseAdapterRef.current === null) {
-    baseAdapterRef.current = adapter ?? createBrowserEmbeddingQueue({ requireWorkerpool: true });
-  }
+  const [baseAdapter] = useState<QueueAdapter>(
+    () => adapter ?? createBrowserEmbeddingQueue({ requireWorkerpool: true })
+  );
 
   const [metrics, setMetrics] = useState<QueueMetrics>(INITIAL_METRICS);
   const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
@@ -115,13 +233,7 @@ export function EmbeddingQueueProvider({
         active: Math.max(0, prev.active - 1),
         failed: prev.failed + 1,
         lastError: message ?? prev.lastError,
-        progress: (() => {
-          if (!(jobId in prev.progress)) {
-            return prev.progress;
-          }
-          const { [jobId]: _removed, ...rest } = prev.progress;
-          return rest;
-        })(),
+        progress: removeProgressEntry(prev.progress, jobId),
       }));
     },
     [updateMetrics]
@@ -144,13 +256,9 @@ export function EmbeddingQueueProvider({
   }, [updateMetrics]);
 
   const instrumentedQueue = useMemo(() => {
-    const base = baseAdapterRef.current;
-    if (!base) {
-      throw new Error('Embedding queue adapter not initialised');
-    }
     const listeners = new Set<(event: QueueProgressEvent | QueueErrorEvent) => void>();
 
-    const unsubscribe = base.onProgress((event) => {
+    const unsubscribe = baseAdapter.onProgress((event) => {
       if (event.type === 'progress') {
         recordProgress(event);
       } else if (event.type === 'error') {
@@ -161,61 +269,20 @@ export function EmbeddingQueueProvider({
       });
     });
 
-    const wrapped: QueueAdapter = {
-      add: async (task, opts) => {
-        recordEnqueue();
-        try {
-          const result = await base.add(task, opts);
-          recordSuccess();
-          updateMetrics((prev) => {
-            if (!(task.id in prev.progress)) {
-              return prev;
-            }
-            const { [task.id]: _removed, ...rest } = prev.progress;
-            return { ...prev, progress: rest };
-          });
-          return result;
-        } catch (error) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : typeof error === 'string'
-                ? error
-                : 'Unknown error';
-          recordFailure(task.id, message);
-          throw error;
-        }
-      },
-      addBulk: async (tasks, opts) => Promise.all(tasks.map((task) => wrapped.add(task, opts))),
-      onProgress(listener) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      pause() {
-        base.pause();
-      },
-      resume() {
-        base.resume();
-      },
-      async cancel() {
-        await base.cancel();
-      },
-      async drain() {
-        await base.drain();
-      },
-      get isPaused() {
-        return base.isPaused;
-      },
-      get isProcessing() {
-        return base.isProcessing;
-      },
-    };
+    const queue = new InstrumentedQueueAdapter(
+      baseAdapter,
+      listeners,
+      recordEnqueue,
+      recordSuccess,
+      recordFailure,
+      updateMetrics
+    );
 
     return {
-      queue: wrapped,
+      queue,
       unsubscribe,
     };
-  }, [recordEnqueue, recordFailure, recordProgress, recordSuccess, updateMetrics]);
+  }, [baseAdapter, recordEnqueue, recordFailure, recordProgress, recordSuccess, updateMetrics]);
 
   useEffect(
     () => () => {

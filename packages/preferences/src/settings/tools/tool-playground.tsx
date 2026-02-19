@@ -223,18 +223,21 @@ export function ToolPlayground({
     setResult(null);
     setParseError(null);
 
-    try {
-      const executionResult = await onExecute(parsedInput);
-      setResult(executionResult);
-    } catch (err) {
-      setResult({
-        success: false,
-        error: err instanceof Error ? err.message : 'Execution failed',
-        durationMs: 0,
-      });
-    } finally {
-      setExecuting(false);
-    }
+    const getResult = async (): Promise<ToolExecutionResult> => {
+      try {
+        return await onExecute(parsedInput);
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'Execution failed',
+          durationMs: 0,
+        };
+      }
+    };
+
+    const executionResult = await getResult();
+    setExecuting(false);
+    setResult(executionResult);
   }, [input, onExecute]);
 
   const parseErrorId = `tool-playground-${toolId}-parse-error`;

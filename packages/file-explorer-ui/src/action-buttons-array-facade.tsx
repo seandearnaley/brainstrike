@@ -36,24 +36,18 @@ interface Props {
   addMultipleSelectedFiles?: (folderId: string, paths: string[]) => void;
 }
 
-// Reuse Set instances to reduce GC pressure for large arrays
-function useStableSet(source: readonly string[]) {
-  const ref = React.useRef<{ arr: readonly string[]; set: Set<string> } | null>(null);
-  if (!ref.current || ref.current.arr !== source) {
-    ref.current = { arr: source, set: new Set(source) };
-  }
-  return ref.current.set;
-}
-
 const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
-  const displayedSet = useStableSet(props.displayedFiles);
-  const selectedSet = useStableSet(props.selectedFiles);
+  const { displayedFiles, selectedFiles, setSelectedFiles } = props;
+
+  // Reuse Set instances to reduce GC pressure for large arrays
+  const displayedSet = React.useMemo(() => new Set(displayedFiles), [displayedFiles]);
+  const selectedSet = React.useMemo(() => new Set(selectedFiles), [selectedFiles]);
 
   const setSelectedSet = React.useCallback(
     (nextSet: Set<string>) => {
-      props.setSelectedFiles(Array.from(nextSet));
+      setSelectedFiles(Array.from(nextSet));
     },
-    [props.setSelectedFiles]
+    [setSelectedFiles]
   );
 
   return (

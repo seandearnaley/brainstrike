@@ -10,7 +10,7 @@ import {
 } from '@brainstrike/ui';
 import { supportsAccurateTokenCounting } from '@brainstrike/utils';
 import { AlertTriangle, CheckCircle2, Loader2, MinusCircle } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
@@ -57,31 +57,27 @@ const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
 export function TokenCountingSettingsSection() {
   const accurateCounting = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   const setAccurateCounting = useTokenPreferencesStore((state) => state.setAccurateCounting);
-  const [runtimeStatus, setRuntimeStatus] = useState<TokenRuntimeStatus>(
-    accurateCounting ? 'checking' : 'disabled'
-  );
+  // Store resolved status keyed by the accurateCounting value it was computed for
+  const [resolvedStatus, setResolvedStatus] = useState<{
+    for: boolean;
+    status: 'accurate' | 'fallback';
+  } | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-
     if (!accurateCounting) {
-      setRuntimeStatus('disabled');
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
 
-    setRuntimeStatus('checking');
+    let cancelled = false;
     supportsAccurateTokenCounting()
       .then((supported) => {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          setResolvedStatus({ for: accurateCounting, status: supported ? 'accurate' : 'fallback' });
         }
-        setRuntimeStatus(supported ? 'accurate' : 'fallback');
       })
       .catch(() => {
         if (!cancelled) {
-          setRuntimeStatus('fallback');
+          setResolvedStatus({ for: accurateCounting, status: 'fallback' });
         }
       });
 
@@ -90,7 +86,13 @@ export function TokenCountingSettingsSection() {
     };
   }, [accurateCounting]);
 
-  const status = useMemo(() => STATUS_METADATA[runtimeStatus], [runtimeStatus]);
+  const runtimeStatus: TokenRuntimeStatus = accurateCounting
+    ? resolvedStatus?.for === accurateCounting
+      ? resolvedStatus.status
+      : 'checking'
+    : 'disabled';
+
+  const status = STATUS_METADATA[runtimeStatus];
 
   const Icon = status.icon;
 

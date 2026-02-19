@@ -281,26 +281,27 @@ function EmbeddingInspector({ data }: { data: EmbeddingData }) {
   );
 }
 
-/**
- * Get icon for node type
- */
-function getNodeTypeIcon(type: string) {
-  switch (type) {
-    case 'collection':
-      return FolderOpen;
-    case 'file':
-      return File;
-    case 'chunk':
-      return FileText;
-    case 'embedding':
-      return Sparkles;
-    default:
-      return Info;
-  }
-}
-
 /** Collapsed width constant */
 const COLLAPSED_WIDTH = 40;
+
+/**
+ * Node type icon component - renders the appropriate icon for a node type
+ */
+function NodeTypeIcon({ type, className }: { type: string | null; className?: string }) {
+  if (type === 'collection') {
+    return <FolderOpen className={className} />;
+  }
+  if (type === 'file') {
+    return <File className={className} />;
+  }
+  if (type === 'chunk') {
+    return <FileText className={className} />;
+  }
+  if (type === 'embedding') {
+    return <Sparkles className={className} />;
+  }
+  return <Info className={className} />;
+}
 
 /**
  * Collapse toggle button component
@@ -368,7 +369,6 @@ function CollapsedView({
   nodeType: string | null;
   onToggle: () => void;
 }) {
-  const TypeIcon = nodeType ? getNodeTypeIcon(nodeType) : Sparkles;
   const typeConfig = nodeType
     ? NODE_TYPE_CONFIG[nodeType as keyof typeof NODE_TYPE_CONFIG]
     : NODE_TYPE_CONFIG.embedding;
@@ -382,7 +382,10 @@ function CollapsedView({
         <CollapseToggleButton isCollapsed onToggle={onToggle} />
       </div>
       <div className="flex flex-1 flex-col items-center justify-center">
-        <TypeIcon className={cn('h-5 w-5', typeConfig?.color ?? 'text-muted-foreground')} />
+        <NodeTypeIcon
+          className={cn('h-5 w-5', typeConfig?.color ?? 'text-muted-foreground')}
+          type={nodeType}
+        />
       </div>
     </div>
   );
@@ -437,7 +440,6 @@ export function NodeInspector({
     return <EmptyView className={className} onToggle={handleToggle} width={width ?? '100%'} />;
   }
 
-  const TypeIcon = getNodeTypeIcon(nodeType);
   const typeConfig = NODE_TYPE_CONFIG[nodeType as keyof typeof NODE_TYPE_CONFIG];
 
   return (
@@ -446,7 +448,10 @@ export function NodeInspector({
       style={{ width: width ?? '100%' }}
     >
       <div className="flex h-12 items-center gap-2 border-b px-3">
-        <TypeIcon className={cn('h-5 w-5', typeConfig?.color ?? 'text-muted-foreground')} />
+        <NodeTypeIcon
+          className={cn('h-5 w-5', typeConfig?.color ?? 'text-muted-foreground')}
+          type={nodeType}
+        />
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium leading-none">
             {typeConfig?.label ?? 'Item'} Details

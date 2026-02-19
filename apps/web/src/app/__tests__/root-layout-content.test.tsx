@@ -158,7 +158,7 @@ vi.mock('@brainstrike/app-shell', () => ({
     ...config,
   }),
   // Mock RootLayoutContent with internal state management
-  RootLayoutContent: ({
+  RootLayoutContent({
     sidebarContent,
     homePageContent,
     settingsPageContent,
@@ -168,7 +168,7 @@ vi.mock('@brainstrike/app-shell', () => ({
     homePageContent: React.ReactNode;
     settingsPageContent: React.ReactNode;
     navigationItems: unknown[];
-  }) => {
+  }) {
     const [activeTab, setActiveTab] = React.useState<'explorer' | 'settings'>('explorer');
 
     const handleNavigationClick = (path: string) => {
@@ -199,22 +199,29 @@ vi.mock('@brainstrike/app-shell', () => ({
 
 // Mock the page components
 let homeMountCount = 0;
+
+function MockHomePageContent() {
+  const [mountIndex, setMountIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    homeMountCount += 1;
+    setMountIndex(homeMountCount);
+  }, []);
+
+  return (
+    <div data-mount-index={mountIndex} data-testid="home-page-content">
+      Home Page Content
+    </div>
+  );
+}
+
+function MockWebFileExplorerLeftPanel() {
+  return <div data-testid="web-file-explorer-left-panel">Left Panel</div>;
+}
+
 vi.mock('../home-page-content', () => ({
-  default: () => {
-    const [mountIndex, setMountIndex] = React.useState(0);
-
-    React.useEffect(() => {
-      homeMountCount += 1;
-      setMountIndex(homeMountCount);
-    }, []);
-
-    return (
-      <div data-mount-index={mountIndex} data-testid="home-page-content">
-        Home Page Content
-      </div>
-    );
-  },
-  WebFileExplorerLeftPanel: () => <div data-testid="web-file-explorer-left-panel">Left Panel</div>,
+  default: MockHomePageContent,
+  WebFileExplorerLeftPanel: MockWebFileExplorerLeftPanel,
 }));
 
 vi.mock('../settings/page-content', () => ({

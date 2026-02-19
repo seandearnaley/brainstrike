@@ -72,17 +72,6 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
       [node.path, onToggleDirectoryExpansion]
     );
 
-    /**
-     * Determines the appropriate icon to display based on node type and state.
-     * - Files: Show file icon
-     * - Directories: Show folder/folder-open based on expansion state
-     * - Loading state: Show spinner
-     */
-    const renderIcon = useCallback(
-      () => <NodeIcon isExpanded={isExpanded} isLoading={isLoading} node={node} />,
-      [node, isExpanded, isLoading]
-    );
-
     return (
       <li className="list-none">
         <div className="flex items-center rounded p-1 transition-all duration-150 hover:bg-accent">
@@ -107,7 +96,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
               </button>
             )}
           </div>
-          {renderIcon()}
+          <NodeIcon isExpanded={isExpanded} isLoading={isLoading} node={node} />
           {node.isSymbolicLink && <Link2Icon className="mx-1 h-4 w-4 text-blue-500" />}
           <span className="ml-1">{node.name}</span>
           {node.type === 'directory' && node.isDepthTruncated && (

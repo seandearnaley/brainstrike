@@ -30,12 +30,18 @@ export function DbSchemaVerifier({ children }: DbSchemaVerifierProps): React.Rea
   const db = usePGliteDatabase();
   const setSchemaVerified = useVectorStatusUIStore((s) => s.setSchemaVerified);
 
-  // biome-ignore lint/plugin: This effect intentionally syncs DB readiness state - not an event handler pattern
   useEffect(() => {
-    if (db) {
-      // Database is ready (migrations have run in DbProvider), set schemaVerified
-      setSchemaVerified(true);
+    if (!db) {
+      return;
     }
+    // Database is ready (migrations have run in DbProvider), set schemaVerified
+    // Defer to avoid synchronous setState in effect body (React Compiler requirement)
+    const timer = setTimeout(() => {
+      setSchemaVerified(true);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [db, setSchemaVerified]);
 
   return <>{children}</>;

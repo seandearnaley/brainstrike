@@ -394,8 +394,10 @@ export function QueueDiagnosticsPanel({
     setIsRefreshing(true);
     try {
       await hookResult.refresh();
-    } finally {
       setIsRefreshing(false);
+    } catch (error) {
+      setIsRefreshing(false);
+      throw error;
     }
   }, [externalMetrics, hookResult]);
 

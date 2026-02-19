@@ -45,7 +45,6 @@ import {
   computeContextSelectedTokenSummary,
   createSelectedFileContentSnapshot,
   createTokenCountByFile,
-  hasSameSelectedFileContentSnapshot,
   type TapestryRangeMap,
 } from './utils/context-selected-token-summary';
 import {
@@ -60,7 +59,6 @@ import { buildGroupedPageSections, getVisibleFilesOnPage } from './utils/preview
 const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
 const TAPESTRY_MAX_PAGE_SIZE = 24;
-const DECODED_SELECTION_CACHE_LIMIT = 2000;
 // Keep a stable reference for the "empty snapshot" state to preserve memo identity optimizations.
 const EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT: Record<string, string> = {};
 
@@ -291,7 +289,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   const [tapestryRangesByKey, setTapestryRangesByKey] = useState<TapestryRangeMap>({});
   const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
-  const summaryFileContentsRef = useRef<Record<string, string>>({});
   const legacyContextWarningRef = useRef<{ download: boolean; copy: boolean }>({
     download: false,
     copy: false,
@@ -349,32 +346,17 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const { totalStats, flatListItems } = state;
   // Defer large list snapshots so expensive token summary work does not block UI updates.
   const deferredFlatListItems = useDeferredValue(flatListItems);
-  // Snapshot reconciliation intentionally uses ref + memo together.
-  // We commit the selected snapshot inside this memo so rapid consecutive renders
-  // do not observe an effect-commit lag between range edits and token recalculation.
+  // Compute the content snapshot for context-selected token summary.
+  // Uses a pure useMemo — no ref access during render.
   const selectedFileContentSnapshot = useMemo(() => {
-    const previousSnapshot = summaryFileContentsRef.current;
     if (!useTapestryRangesForContextOutput) {
-      const nextSnapshot =
-        Object.keys(previousSnapshot).length === 0
-          ? previousSnapshot
-          : EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT;
-      summaryFileContentsRef.current = nextSnapshot;
-      return nextSnapshot;
+      return EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT;
     }
-
-    const nextSnapshot = createSelectedFileContentSnapshot({
+    return createSelectedFileContentSnapshot({
       selectedFiles,
       tapestryRangesByKey,
       fileContents,
     });
-    if (hasSameSelectedFileContentSnapshot(previousSnapshot, nextSnapshot)) {
-      summaryFileContentsRef.current = previousSnapshot;
-      return previousSnapshot;
-    }
-
-    summaryFileContentsRef.current = nextSnapshot;
-    return nextSnapshot;
   }, [fileContents, selectedFiles, tapestryRangesByKey, useTapestryRangesForContextOutput]);
 
   const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
@@ -409,46 +391,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     activeRangeFilesCount: contextSelectedTokenSummary.activeRangeFilesCount,
   });
 
-  const decodedSelectionCacheRef = useRef<Map<string, { folderId: string; path: string } | null>>(
-    new Map()
-  );
-
-  useEffect(() => {
-    decodedSelectionCacheRef.current.clear();
-  }, [decodeFileSelection]);
-
-  const getDecodedSelection = useCallback(
-    (compositeKey: string): { folderId: string; path: string } | null => {
-      const cache = decodedSelectionCacheRef.current;
-      if (cache.has(compositeKey)) {
-        const cached = cache.get(compositeKey) ?? null;
-        if (cached) {
-          cache.delete(compositeKey);
-          cache.set(compositeKey, cached);
-        }
-        return cached;
-      }
-
-      try {
-        const decoded = decodeFileSelection(compositeKey);
-        cache.set(compositeKey, decoded);
-        if (cache.size > DECODED_SELECTION_CACHE_LIMIT) {
-          const oldestKey = cache.keys().next().value;
-          if (oldestKey) {
-            cache.delete(oldestKey);
-          }
-        }
-        return decoded;
-      } catch (error) {
-        logger.warn('Failed to decode composite key:', compositeKey, error);
-        cache.set(compositeKey, null);
-        return null;
-      }
-    },
-    [decodeFileSelection]
-  );
-
-  // Transform list items to simplified table data - only files
+  // Transform list items to simplified table data - only files.
+  // The useMemo already provides cross-render memoization, so no per-item cache is needed.
   const tableData: TableRowData[] = useMemo(() => {
     const fileItems = deferredFlatListItems.filter(
       (item): item is FileItem => item.type === 'file'
@@ -456,17 +400,19 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
     return fileItems
       .map((fileItem): TableRowData | null => {
-        const decoded = getDecodedSelection(fileItem.compositeKey);
-        if (!decoded) {
+        let decoded: { folderId: string; path: string };
+        try {
+          decoded = decodeFileSelection(fileItem.compositeKey);
+        } catch (error) {
+          logger.warn('Failed to decode composite key:', fileItem.compositeKey, error);
           return null;
         }
 
-        const { folderId, path } = decoded;
         const result: TableRowData = {
           id: fileItem.compositeKey,
-          rootFolderId: folderId,
-          path,
-          type: getFileExtension(path) || EXTENSIONLESS_FILE_TYPE,
+          rootFolderId: decoded.folderId,
+          path: decoded.path,
+          type: getFileExtension(decoded.path) || EXTENSIONLESS_FILE_TYPE,
           compositeKey: fileItem.compositeKey,
         };
 
@@ -480,30 +426,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         return result;
       })
       .filter((item): item is TableRowData => item !== null);
-  }, [deferredFlatListItems, getDecodedSelection]);
-
-  // biome-ignore lint/plugin: Cache cleanup for decoded selections; no data fetching
-  useEffect(() => {
-    const cache = decodedSelectionCacheRef.current;
-    if (cache.size === 0) {
-      return;
-    }
-
-    const visibleKeys = new Set(tableData.map((item) => item.compositeKey));
-    for (const key of cache.keys()) {
-      if (!visibleKeys.has(key)) {
-        cache.delete(key);
-      }
-    }
-
-    while (cache.size > DECODED_SELECTION_CACHE_LIMIT) {
-      const oldestKey = cache.keys().next().value;
-      if (!oldestKey) {
-        break;
-      }
-      cache.delete(oldestKey);
-    }
-  }, [tableData]);
+  }, [deferredFlatListItems, decodeFileSelection]);
 
   const tapestryFileBaseByKey = useMemo(() => {
     // Skip expensive computation unless ranges must be rendered or exported.
@@ -545,18 +468,21 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }, [shouldSyncTapestryRanges, tapestryFileBaseByKey]);
 
   // Toggle group collapse
-  const toggleGroupCollapse = useCallback((groupKey: GroupKey) => {
-    setCollapsedGroups((prev) => {
-      const newSet = new Set(prev);
-      const keyStr = String(groupKey);
-      if (newSet.has(keyStr)) {
-        newSet.delete(keyStr);
-      } else {
-        newSet.add(keyStr);
-      }
-      return newSet;
-    });
-  }, []);
+  const toggleGroupCollapse = useCallback(
+    (groupKey: GroupKey) => {
+      setCollapsedGroups((prev) => {
+        const newSet = new Set(prev);
+        const keyStr = String(groupKey);
+        if (newSet.has(keyStr)) {
+          newSet.delete(keyStr);
+        } else {
+          newSet.add(keyStr);
+        }
+        return newSet;
+      });
+    },
+    [setCollapsedGroups]
+  );
 
   // Null check helper
   const handleNullValues = useCallback((aVal: unknown, bVal: unknown): number | null => {
@@ -949,14 +875,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       }
       resetAllPages();
     },
-    [sortField, resetAllPages]
+    [sortField, setSortDirection, setSortField, resetAllPages]
   );
 
   const resetSort = useCallback(() => {
     setSortField('rootFolderId');
     setSortDirection('asc');
     resetAllPages();
-  }, [resetAllPages]);
+  }, [setSortField, setSortDirection, resetAllPages]);
 
   // Reset to first page when grouping changes
   const prevGroupingConfigRef = useRef(groupingConfig);

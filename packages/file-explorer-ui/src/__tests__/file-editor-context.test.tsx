@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { FileEditorContextValue } from '../contexts/file-editor-context';
 import { FileEditorProvider, useFileEditor } from '../contexts/file-editor-context';
 
 describe('FileEditorContext', () => {
@@ -63,11 +62,15 @@ describe('FileEditorContext', () => {
     it('should return context value when used within provider', () => {
       const mockOpenFileInTab = vi.fn();
       const mockValue = { openFileInTab: mockOpenFileInTab };
-      let capturedContext: FileEditorContextValue | null = null;
 
+      // Verify context is accessible by triggering a call through a rendered button
       const TestConsumer = () => {
-        capturedContext = useFileEditor();
-        return null;
+        const ctx = useFileEditor();
+        return (
+          <button onClick={() => ctx.openFileInTab('test-verify')} type="button">
+            verify
+          </button>
+        );
       };
 
       render(
@@ -76,8 +79,8 @@ describe('FileEditorContext', () => {
         </FileEditorProvider>
       );
 
-      expect(capturedContext).not.toBeNull();
-      expect(capturedContext!.openFileInTab).toBe(mockOpenFileInTab);
+      screen.getByRole('button', { name: 'verify' }).click();
+      expect(mockOpenFileInTab).toHaveBeenCalledWith('test-verify');
     });
 
     it('should allow opening multiple files', () => {

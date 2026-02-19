@@ -3,13 +3,29 @@ import type { DepthProgress } from '@brainstrike/types';
 import { Button, cn, Progress } from '@brainstrike/ui';
 import { Loader2, RefreshCw, X } from 'lucide-react';
 import type React from 'react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import {
   useCancelButtonDelay,
   useKeyboardCancellation,
   useProgressDescription,
   useProgressMessage,
 } from './hooks';
+
+type EtaAction = { type: 'reset' } | { type: 'tick'; now: number; isStart: boolean };
+interface EtaState {
+  startMs: number | null;
+  nowMs: number | null;
+}
+
+const etaReducer = (state: EtaState, action: EtaAction): EtaState => {
+  if (action.type === 'reset') {
+    return { startMs: null, nowMs: null };
+  }
+  return {
+    startMs: action.isStart ? action.now : (state.startMs ?? action.now),
+    nowMs: action.now,
+  };
+};
 
 export interface LoadingProgressState {
   loaded: number;
@@ -59,21 +75,18 @@ export const LoadingOverlay = ({
   const progressMessage = useProgressMessage(isCancelling, message, isInitialLoad, progressState);
   const progressDescription = useProgressDescription(isCancelling, description, progressState);
 
-  // Track start time to estimate remaining time. Reset when a new load begins.
-  const startTimeRef = useRef<number | null>(null);
+  // Track start time and current time for ETA using useReducer for single-dispatch updates.
+  const [etaTimes, dispatchEta] = useReducer(etaReducer, { startMs: null, nowMs: null });
   const isLoadingPhase = progressState?.phase === 'loading';
   const hasJustStarted = progressState?.loaded === 0;
 
   useEffect(() => {
-    if (isCancelling) {
+    if (isCancelling || !progressState) {
+      dispatchEta({ type: 'reset' });
       return;
     }
-    if (!progressState) {
-      startTimeRef.current = null;
-      return;
-    }
-    if (isLoadingPhase && hasJustStarted) {
-      startTimeRef.current = performance.now();
+    if (isLoadingPhase) {
+      dispatchEta({ type: 'tick', now: performance.now(), isStart: hasJustStarted });
     }
   }, [isLoadingPhase, hasJustStarted, isCancelling, progressState]);
 
@@ -109,10 +122,12 @@ export const LoadingOverlay = ({
       return null;
     }
     const { loaded, total } = progressState;
-    if (!startTimeRef.current || total === 0 || loaded < 10) {
+    const { startMs } = etaTimes;
+    if (!startMs || total === 0 || loaded < 10) {
       return null;
     }
-    const elapsedSec = (performance.now() - startTimeRef.current) / 1000;
+    // Use performance.now() inline for fresh elapsed time on each render
+    const elapsedSec = (performance.now() - startMs) / 1000;
     const rate = loaded / Math.max(elapsedSec, 0.001);
     if (rate <= 0) {
       return null;
@@ -122,7 +137,7 @@ export const LoadingOverlay = ({
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `~${mins > 0 ? `${mins}m ` : ''}${secs}s remaining`;
-  }, [progressState]);
+  }, [progressState, etaTimes]);
 
   if (!isLoading) {
     return null;

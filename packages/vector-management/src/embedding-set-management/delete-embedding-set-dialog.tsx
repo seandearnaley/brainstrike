@@ -46,45 +46,49 @@ export function DeleteEmbeddingSetDialog({
       return;
     }
 
+    const collectionName = embeddingSet.name ?? embeddingSet.modelKey;
+    const collectionId = embeddingSet.id;
+
     setDeleting(true);
     try {
       // Delete all chunks associated with this collection
-      await db.query('DELETE FROM file_chunks WHERE embedding_set_id = $1', [embeddingSet.id]);
+      await db.query('DELETE FROM file_chunks WHERE embedding_set_id = $1', [collectionId]);
 
       // Delete the collection itself
-      await db.query('DELETE FROM embedding_sets WHERE id = $1', [embeddingSet.id]);
+      await db.query('DELETE FROM embedding_sets WHERE id = $1', [collectionId]);
 
       // Immediately update the Zustand cache to remove the deleted collection
       // This ensures UI updates instantly without waiting for live query refresh
       // Uses functional action to avoid stale closure bugs
-      removeCachedCollection(embeddingSet.id);
+      removeCachedCollection(collectionId);
 
       // Emit event to notify other components
       if (typeof window !== 'undefined') {
         window.dispatchEvent(
           new CustomEvent('brainstrike:embedding-set-updated', {
-            detail: { id: embeddingSet.id },
+            detail: { id: collectionId },
           })
         );
       }
 
       toast({
         title: 'Success',
-        description: `Deleted collection: ${embeddingSet.name ?? embeddingSet.modelKey}`,
+        description: `Deleted collection: ${collectionName}`,
       });
 
+      setDeleting(false);
       onOpenChange(false);
-      onSetDeleted?.(embeddingSet.id);
     } catch (error) {
+      setDeleting(false);
       logger.error('Failed to delete embedding set', { error });
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to delete collection',
         variant: 'destructive',
       });
-    } finally {
-      setDeleting(false);
+      return;
     }
+    onSetDeleted?.(collectionId);
   };
 
   if (!embeddingSet) {

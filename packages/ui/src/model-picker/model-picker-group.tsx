@@ -1,7 +1,7 @@
 import { Command } from 'cmdk';
 import type { ModelPickerProvider } from './types';
 import { getProviderColor } from './utils/provider-colors';
-import { getProviderIcon } from './utils/provider-icons';
+import { ProviderIcon } from './utils/provider-icons';
 
 interface ModelPickerGroupProps {
   provider: ModelPickerProvider;
@@ -16,7 +16,6 @@ export function ModelPickerGroup({
   theme = 'light',
   modelCount,
 }: ModelPickerGroupProps) {
-  const Icon = getProviderIcon(provider.id);
   const color = getProviderColor(provider.id, theme);
 
   return (
@@ -27,7 +26,7 @@ export function ModelPickerGroup({
           className="sticky top-0 z-10 flex items-center gap-2 border-l-2 bg-muted/5 px-2 py-1.5 font-medium text-muted-foreground text-xs backdrop-blur-sm"
           style={{ borderLeftColor: color }}
         >
-          <Icon className="h-3 w-3" style={{ color }} />
+          <ProviderIcon className="h-3 w-3" providerId={provider.id} style={{ color }} />
           <span>{provider.name}</span>
           {modelCount !== undefined && (
             <span className="ml-auto rounded-full bg-muted px-1.5 text-[10px]">{modelCount}</span>

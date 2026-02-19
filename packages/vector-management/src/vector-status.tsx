@@ -475,6 +475,21 @@ function isElectronRenderer(): boolean {
   return typeof window !== 'undefined' && window.electronAPI !== undefined;
 }
 
+function getEpMixLabel(): string {
+  try {
+    const anyTB = TransformersBackend as unknown as {
+      getRuntimeStats?: () => { epFallbackSeen: number; inferenceCount: number };
+    };
+    const s = anyTB.getRuntimeStats?.();
+    if (!s || s.inferenceCount === 0) {
+      return ' n/a';
+    }
+    return s.epFallbackSeen > 0 ? ' webgpu+wasm' : ' pure';
+  } catch {
+    return ' n/a';
+  }
+}
+
 export function formatRelativeTimeFromNow(input: string | null): string {
   if (!input) {
     return 'never';
@@ -649,8 +664,10 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     isEmbeddingActive,
   });
 
-  backfillRef.current = queueState.backfillActiveSet;
-  validateApiKeyRef.current = queueState.validateApiKey;
+  useEffect(() => {
+    backfillRef.current = queueState.backfillActiveSet;
+    validateApiKeyRef.current = queueState.validateApiKey;
+  });
 
   // On web, determine if we need to auto-start the worker when backfill is clicked
   const isWebPlatform = typeof window !== 'undefined' && !isElectronRenderer();
@@ -786,20 +803,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
           </label>
           <span className="text-[10px] text-muted-foreground">
             EP Mix:
-            {(() => {
-              try {
-                const anyTB = TransformersBackend as unknown as {
-                  getRuntimeStats?: () => { epFallbackSeen: number; inferenceCount: number };
-                };
-                const s = anyTB.getRuntimeStats?.();
-                if (!s || s.inferenceCount === 0) {
-                  return ' n/a';
-                }
-                return s.epFallbackSeen > 0 ? ' webgpu+wasm' : ' pure';
-              } catch {
-                return ' n/a';
-              }
-            })()}
+            {getEpMixLabel()}
           </span>
         </div>
         <div className="flex items-center gap-2">

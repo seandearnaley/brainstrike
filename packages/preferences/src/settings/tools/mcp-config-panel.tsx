@@ -1,5 +1,5 @@
 import { Button, Card, CardContent, Input } from '@brainstrike/ui';
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type { ToolsSettingsOperations } from './types';
 
 interface McpConfigPanelProps {
@@ -20,20 +20,121 @@ function isAbsoluteFilePath(filePath: string): boolean {
   );
 }
 
+interface McpPanelState {
+  pathDraft: string;
+  editorValue: string;
+  savedValue: string;
+  loading: boolean;
+  statusMessage: string | null;
+  errorMessage: string | null;
+  showReloadConfirm: boolean;
+}
+
+type McpPanelAction =
+  | { type: 'SET_PATH_DRAFT'; value: string }
+  | { type: 'SET_EDITOR_VALUE'; value: string }
+  | { type: 'START_LOADING' }
+  | { type: 'DOCUMENT_LOADED'; path: string; content: string; created?: boolean }
+  | { type: 'LOAD_ERROR'; error: string }
+  | { type: 'LOAD_DONE' }
+  | { type: 'SET_STATUS'; message: string | null }
+  | { type: 'SET_ERROR'; message: string | null }
+  | { type: 'CLEAR_MESSAGES' }
+  | { type: 'SHOW_RELOAD_CONFIRM' }
+  | { type: 'HIDE_RELOAD_CONFIRM' }
+  | { type: 'SAVE_SUCCESS' }
+  | { type: 'SET_SAVED_VALUE'; value: string };
+
+const initialState: McpPanelState = {
+  pathDraft: '',
+  editorValue: '',
+  savedValue: '',
+  loading: false,
+  statusMessage: null,
+  errorMessage: null,
+  showReloadConfirm: false,
+};
+
+function mcpPanelReducer(state: McpPanelState, action: McpPanelAction): McpPanelState {
+  switch (action.type) {
+    case 'SET_PATH_DRAFT':
+      return { ...state, pathDraft: action.value };
+    case 'SET_EDITOR_VALUE':
+      return { ...state, editorValue: action.value };
+    case 'START_LOADING':
+      return {
+        ...state,
+        loading: true,
+        showReloadConfirm: false,
+        errorMessage: null,
+        statusMessage: null,
+      };
+    case 'DOCUMENT_LOADED':
+      return {
+        ...state,
+        loading: false,
+        showReloadConfirm: false,
+        pathDraft: action.path,
+        editorValue: action.content,
+        savedValue: action.content,
+        errorMessage: null,
+        statusMessage: action.created
+          ? 'Created a new MCP config template with commented examples.'
+          : null,
+      };
+    case 'LOAD_ERROR':
+      return {
+        ...state,
+        loading: false,
+        showReloadConfirm: false,
+        errorMessage: action.error,
+        statusMessage: null,
+      };
+    case 'LOAD_DONE':
+      return { ...state, loading: false, showReloadConfirm: false };
+    case 'SET_STATUS':
+      return { ...state, statusMessage: action.message };
+    case 'SET_ERROR':
+      return { ...state, errorMessage: action.message };
+    case 'CLEAR_MESSAGES':
+      return { ...state, errorMessage: null, statusMessage: null };
+    case 'SHOW_RELOAD_CONFIRM':
+      return { ...state, showReloadConfirm: true };
+    case 'HIDE_RELOAD_CONFIRM':
+      return { ...state, showReloadConfirm: false };
+    case 'SAVE_SUCCESS':
+      return {
+        ...state,
+        savedValue: state.editorValue,
+        showReloadConfirm: false,
+        statusMessage: 'MCP config saved.',
+      };
+    case 'SET_SAVED_VALUE':
+      return { ...state, savedValue: action.value };
+    default:
+      return state;
+  }
+}
+
 export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelProps) {
-  const [pathDraft, setPathDraft] = useState('');
-  const [editorValue, setEditorValue] = useState('');
-  const [savedValue, setSavedValue] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showReloadConfirm, setShowReloadConfirm] = useState(false);
+  // React Compiler cannot optimize: complex async patterns with sequential awaits and value blocks in try/catch
+  'use no memo';
+  const [state, dispatch] = useReducer(mcpPanelReducer, initialState);
+  const {
+    pathDraft,
+    editorValue,
+    savedValue,
+    loading,
+    statusMessage,
+    errorMessage,
+    showReloadConfirm,
+  } = state;
 
   const editorAvailable = useMemo(
     () => Boolean(operations.readMcpConfigText && operations.writeMcpConfigText),
     [operations.readMcpConfigText, operations.writeMcpConfigText]
   );
-  // Keep loadDocument stable while still using the latest operation callback from props.
+  // Keep fetchAndApplyDocument stable while still using the latest operation callback from props.
   const readMcpConfigTextRef = useRef(operations.readMcpConfigText);
 
   useEffect(() => {
@@ -42,59 +143,73 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
 
   const hasUnsavedChanges = editorValue !== savedValue;
 
-  const loadDocument = useCallback(async () => {
+  const fetchAndApplyDocument = useCallback(async () => {
     const readMcpConfigText = readMcpConfigTextRef.current;
     if (!readMcpConfigText) {
       return;
     }
 
-    setLoading(true);
-    setShowReloadConfirm(false);
-    setErrorMessage(null);
-    setStatusMessage(null);
+    let doc: Awaited<ReturnType<typeof readMcpConfigText>> | null = null;
+    let loadError: string | null = null;
     try {
-      const doc = await readMcpConfigText();
-      setPathDraft(doc.path);
-      setEditorValue(doc.content);
-      setSavedValue(doc.content);
-      if (doc.created) {
-        setStatusMessage('Created a new MCP config template with commented examples.');
-      }
+      doc = await readMcpConfigText();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to load MCP config');
-    } finally {
-      setLoading(false);
+      loadError = error instanceof Error ? error.message : 'Failed to load MCP config';
+    }
+    if (loadError !== null) {
+      dispatch({ type: 'LOAD_ERROR', error: loadError });
+      return;
+    }
+    if (doc !== null) {
+      dispatch({
+        type: 'DOCUMENT_LOADED',
+        path: doc.path,
+        content: doc.content,
+        created: doc.created,
+      });
+    } else {
+      dispatch({ type: 'LOAD_DONE' });
     }
   }, []);
+
+  const loadDocument = useCallback(async () => {
+    dispatch({ type: 'START_LOADING' });
+    await fetchAndApplyDocument();
+  }, [fetchAndApplyDocument]);
 
   useEffect(() => {
     if (!editorAvailable) {
       return;
     }
-    void loadDocument();
-  }, [editorAvailable, loadDocument]);
+    void fetchAndApplyDocument();
+  }, [editorAvailable, fetchAndApplyDocument]);
 
   const handleApplyPath = useCallback(async () => {
     if (!operations.setMcpConfigPath) {
       return;
     }
 
-    try {
-      setErrorMessage(null);
-      setStatusMessage(null);
-      const nextPath = pathDraft.trim();
-      if (nextPath.length > 0 && !isAbsoluteFilePath(nextPath)) {
-        setErrorMessage('Please provide an absolute path to the MCP config file.');
-        return;
-      }
-      await operations.setMcpConfigPath(nextPath.length > 0 ? nextPath : null);
-      await onConfigChanged();
-      await loadDocument();
-      setStatusMessage('MCP config path updated.');
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to update MCP config path');
+    const nextPath = pathDraft.trim();
+    const resolvedPath = nextPath.length > 0 ? nextPath : null;
+    if (nextPath.length > 0 && !isAbsoluteFilePath(nextPath)) {
+      dispatch({
+        type: 'SET_ERROR',
+        message: 'Please provide an absolute path to the MCP config file.',
+      });
+      return;
     }
-  }, [loadDocument, onConfigChanged, operations.setMcpConfigPath, pathDraft]);
+    dispatch({ type: 'CLEAR_MESSAGES' });
+    try {
+      await operations.setMcpConfigPath(resolvedPath);
+      await Promise.all([onConfigChanged(), loadDocument()]);
+      dispatch({ type: 'SET_STATUS', message: 'MCP config path updated.' });
+    } catch (error) {
+      dispatch({
+        type: 'SET_ERROR',
+        message: error instanceof Error ? error.message : 'Failed to update MCP config path',
+      });
+    }
+  }, [loadDocument, onConfigChanged, operations, pathDraft]);
 
   const handleBrowse = useCallback(async () => {
     if (!operations.openMcpConfig) {
@@ -102,15 +217,16 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     }
 
     try {
-      setErrorMessage(null);
-      setStatusMessage(null);
+      dispatch({ type: 'CLEAR_MESSAGES' });
       await operations.openMcpConfig();
-      await onConfigChanged();
-      await loadDocument();
+      await Promise.all([onConfigChanged(), loadDocument()]);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to open MCP config picker');
+      dispatch({
+        type: 'SET_ERROR',
+        message: error instanceof Error ? error.message : 'Failed to open MCP config picker',
+      });
     }
-  }, [loadDocument, onConfigChanged, operations.openMcpConfig]);
+  }, [loadDocument, onConfigChanged, operations]);
 
   const handleResetPath = useCallback(async () => {
     if (!operations.resetMcpConfig) {
@@ -118,16 +234,17 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     }
 
     try {
-      setErrorMessage(null);
-      setStatusMessage(null);
+      dispatch({ type: 'CLEAR_MESSAGES' });
       await operations.resetMcpConfig();
-      await onConfigChanged();
-      await loadDocument();
-      setStatusMessage('MCP config path reset to default.');
+      await Promise.all([onConfigChanged(), loadDocument()]);
+      dispatch({ type: 'SET_STATUS', message: 'MCP config path reset to default.' });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to reset MCP config path');
+      dispatch({
+        type: 'SET_ERROR',
+        message: error instanceof Error ? error.message : 'Failed to reset MCP config path',
+      });
     }
-  }, [loadDocument, onConfigChanged, operations.resetMcpConfig]);
+  }, [loadDocument, onConfigChanged, operations]);
 
   const handleSave = useCallback(async () => {
     if (!operations.writeMcpConfigText) {
@@ -135,21 +252,21 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     }
 
     try {
-      setErrorMessage(null);
-      setStatusMessage(null);
+      dispatch({ type: 'CLEAR_MESSAGES' });
       const result = await operations.writeMcpConfigText(editorValue);
       if (!result.success) {
-        setErrorMessage(result.error);
+        dispatch({ type: 'SET_ERROR', message: result.error });
         return;
       }
-      setSavedValue(editorValue);
-      setShowReloadConfirm(false);
-      setStatusMessage('MCP config saved.');
+      dispatch({ type: 'SAVE_SUCCESS' });
       await onConfigChanged();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to save MCP config');
+      dispatch({
+        type: 'SET_ERROR',
+        message: error instanceof Error ? error.message : 'Failed to save MCP config',
+      });
     }
-  }, [editorValue, onConfigChanged, operations.writeMcpConfigText]);
+  }, [editorValue, onConfigChanged, operations]);
 
   const handleEditorKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -165,7 +282,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
 
   const handleReload = useCallback(async () => {
     if (hasUnsavedChanges) {
-      setShowReloadConfirm(true);
+      dispatch({ type: 'SHOW_RELOAD_CONFIRM' });
       return;
     }
 
@@ -173,12 +290,12 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
   }, [hasUnsavedChanges, loadDocument]);
 
   const handleConfirmReload = useCallback(async () => {
-    setShowReloadConfirm(false);
+    dispatch({ type: 'HIDE_RELOAD_CONFIRM' });
     await loadDocument();
   }, [loadDocument]);
 
   const handleCancelReload = useCallback(() => {
-    setShowReloadConfirm(false);
+    dispatch({ type: 'HIDE_RELOAD_CONFIRM' });
   }, []);
 
   const editorDescribedBy = useMemo(() => {
@@ -204,149 +321,230 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
 
   return (
     <div className="space-y-4" data-testid="mcp-config-editor-panel">
-      <Card>
-        <CardContent className="space-y-4 p-4">
-          <div className="space-y-2">
-            <label className="font-medium text-sm" htmlFor="mcp-config-path-input-field">
-              MCP Config Path
-            </label>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                className="font-mono text-xs"
-                data-testid="mcp-config-path-input"
-                id="mcp-config-path-input-field"
-                onChange={(event) => setPathDraft(event.target.value)}
-                placeholder="/absolute/path/to/mcp.config.json"
-                value={pathDraft}
-              />
-              <div className="flex gap-2">
-                {operations.setMcpConfigPath && (
-                  <Button
-                    data-testid="mcp-config-apply-path"
-                    onClick={() => void handleApplyPath()}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Apply Path
-                  </Button>
-                )}
-                {operations.openMcpConfig && (
-                  <Button
-                    data-testid="mcp-config-browse-path"
-                    onClick={() => void handleBrowse()}
-                    size="sm"
-                    variant="outline"
-                  >
-                    Browse
-                  </Button>
-                )}
-                {operations.resetMcpConfig && (
-                  <Button
-                    data-testid="mcp-config-reset-path"
-                    onClick={() => void handleResetPath()}
-                    size="sm"
-                    variant="ghost"
-                  >
-                    Reset
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
+      <McpPathCard
+        onApplyPath={() => void handleApplyPath()}
+        onBrowse={operations.openMcpConfig ? () => void handleBrowse() : undefined}
+        onPathChange={(value) => dispatch({ type: 'SET_PATH_DRAFT', value })}
+        onResetPath={operations.resetMcpConfig ? () => void handleResetPath() : undefined}
+        pathDraft={pathDraft}
+        showApplyPath={Boolean(operations.setMcpConfigPath)}
+      />
+      <McpEditorCard
+        editorDescribedBy={editorDescribedBy}
+        editorValue={editorValue}
+        errorMessage={errorMessage}
+        hasUnsavedChanges={hasUnsavedChanges}
+        loading={loading}
+        onCancelReload={handleCancelReload}
+        onConfirmReload={() => void handleConfirmReload()}
+        onEditorChange={(value) => dispatch({ type: 'SET_EDITOR_VALUE', value })}
+        onEditorKeyDown={handleEditorKeyDown}
+        onReload={() => void handleReload()}
+        onSave={() => void handleSave()}
+        showReloadConfirm={showReloadConfirm}
+        statusMessage={statusMessage}
+      />
+      <McpHelpCard />
+    </div>
+  );
+}
 
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <label className="font-medium text-sm" htmlFor="mcp-config-editor-field">
-                Config Editor (JSONC)
-              </label>
-              <div className="flex gap-2">
-                <Button
-                  data-testid="mcp-config-reload"
-                  onClick={() => void handleReload()}
-                  size="sm"
-                  variant="ghost"
-                >
-                  Reload
-                </Button>
-                <Button
-                  data-testid="mcp-config-save"
-                  disabled={loading || !hasUnsavedChanges}
-                  onClick={() => void handleSave()}
-                  size="sm"
-                >
-                  Save
-                </Button>
-              </div>
-            </div>
-            <textarea
-              aria-describedby={editorDescribedBy}
-              aria-invalid={errorMessage ? true : undefined}
-              className="max-h-[600px] min-h-[360px] w-full resize-y overflow-y-auto rounded-md border bg-background p-3 font-mono text-xs leading-5"
-              data-testid="mcp-config-editor"
-              id="mcp-config-editor-field"
-              onChange={(event) => setEditorValue(event.target.value)}
-              onKeyDown={handleEditorKeyDown}
-              spellCheck={false}
-              value={editorValue}
+interface McpPathCardProps {
+  pathDraft: string;
+  onPathChange: (value: string) => void;
+  showApplyPath: boolean;
+  onApplyPath: () => void;
+  onBrowse?: (() => void) | undefined;
+  onResetPath?: (() => void) | undefined;
+}
+
+function McpPathCard({
+  pathDraft,
+  onPathChange,
+  showApplyPath,
+  onApplyPath,
+  onBrowse,
+  onResetPath,
+}: McpPathCardProps) {
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-4">
+        <div className="space-y-2">
+          <label className="font-medium text-sm" htmlFor="mcp-config-path-input-field">
+            MCP Config Path
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              className="font-mono text-xs"
+              data-testid="mcp-config-path-input"
+              id="mcp-config-path-input-field"
+              onChange={(event) => onPathChange(event.target.value)}
+              placeholder="/absolute/path/to/mcp.config.json"
+              value={pathDraft}
             />
-            {showReloadConfirm && (
-              <div
-                className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs"
-                data-testid="mcp-config-reload-confirm"
-              >
-                <span>Discard unsaved MCP config changes and reload from disk?</span>
+            <div className="flex gap-2">
+              {showApplyPath && (
                 <Button
-                  data-testid="mcp-config-reload-confirm-discard"
-                  onClick={() => void handleConfirmReload()}
+                  data-testid="mcp-config-apply-path"
+                  onClick={onApplyPath}
                   size="sm"
                   variant="outline"
                 >
-                  Discard and Reload
+                  Apply Path
                 </Button>
+              )}
+              {onBrowse && (
                 <Button
-                  data-testid="mcp-config-reload-confirm-cancel"
-                  onClick={handleCancelReload}
+                  data-testid="mcp-config-browse-path"
+                  onClick={onBrowse}
+                  size="sm"
+                  variant="outline"
+                >
+                  Browse
+                </Button>
+              )}
+              {onResetPath && (
+                <Button
+                  data-testid="mcp-config-reset-path"
+                  onClick={onResetPath}
                   size="sm"
                   variant="ghost"
                 >
-                  Keep Editing
+                  Reset
                 </Button>
-              </div>
-            )}
-            {loading && <div className="text-muted-foreground text-xs">Loading MCP config…</div>}
-            {statusMessage && (
-              <div
-                aria-live="polite"
-                className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-900 text-xs dark:text-emerald-200"
-                data-testid="mcp-config-status"
-                id={MCP_CONFIG_STATUS_ID}
-              >
-                {statusMessage}
-              </div>
-            )}
-            {errorMessage && (
-              <div
-                aria-live="assertive"
-                className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive text-xs"
-                data-testid="mcp-config-error"
-                id={MCP_CONFIG_ERROR_ID}
-              >
-                {errorMessage}
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
-      <Card>
-        <CardContent className="space-y-2 p-4">
-          <div className="font-medium text-sm">Help</div>
-          <div className="text-muted-foreground text-xs">
-            Use `stdio` for local commands and `sse` for remote endpoints. Comments are supported in
-            this file. Keep placeholder values replaced before enabling servers.
+interface McpEditorCardProps {
+  editorValue: string;
+  editorDescribedBy: string | undefined;
+  errorMessage: string | null;
+  statusMessage: string | null;
+  loading: boolean;
+  hasUnsavedChanges: boolean;
+  showReloadConfirm: boolean;
+  onEditorChange: (value: string) => void;
+  onEditorKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  onSave: () => void;
+  onReload: () => void;
+  onConfirmReload: () => void;
+  onCancelReload: () => void;
+}
+
+function McpEditorCard({
+  editorValue,
+  editorDescribedBy,
+  errorMessage,
+  statusMessage,
+  loading,
+  hasUnsavedChanges,
+  showReloadConfirm,
+  onEditorChange,
+  onEditorKeyDown,
+  onSave,
+  onReload,
+  onConfirmReload,
+  onCancelReload,
+}: McpEditorCardProps) {
+  return (
+    <Card>
+      <CardContent className="space-y-2 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="font-medium text-sm" htmlFor="mcp-config-editor-field">
+            Config Editor (JSONC)
+          </label>
+          <div className="flex gap-2">
+            <Button data-testid="mcp-config-reload" onClick={onReload} size="sm" variant="ghost">
+              Reload
+            </Button>
+            <Button
+              data-testid="mcp-config-save"
+              disabled={loading || !hasUnsavedChanges}
+              onClick={onSave}
+              size="sm"
+            >
+              Save
+            </Button>
           </div>
-          <pre className="overflow-x-auto rounded-md border bg-muted/30 p-3 text-[11px]">
-            {`// stdio example
+        </div>
+        <textarea
+          aria-describedby={editorDescribedBy}
+          aria-invalid={errorMessage ? true : undefined}
+          className="max-h-[600px] min-h-[360px] w-full resize-y overflow-y-auto rounded-md border bg-background p-3 font-mono text-xs leading-5"
+          data-testid="mcp-config-editor"
+          id="mcp-config-editor-field"
+          onChange={(event) => onEditorChange(event.target.value)}
+          onKeyDown={onEditorKeyDown}
+          spellCheck={false}
+          value={editorValue}
+        />
+        {showReloadConfirm && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs"
+            data-testid="mcp-config-reload-confirm"
+          >
+            <span>Discard unsaved MCP config changes and reload from disk?</span>
+            <Button
+              data-testid="mcp-config-reload-confirm-discard"
+              onClick={onConfirmReload}
+              size="sm"
+              variant="outline"
+            >
+              Discard and Reload
+            </Button>
+            <Button
+              data-testid="mcp-config-reload-confirm-cancel"
+              onClick={onCancelReload}
+              size="sm"
+              variant="ghost"
+            >
+              Keep Editing
+            </Button>
+          </div>
+        )}
+        {loading && <div className="text-muted-foreground text-xs">Loading MCP config…</div>}
+        {statusMessage && (
+          <div
+            aria-live="polite"
+            className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-900 text-xs dark:text-emerald-200"
+            data-testid="mcp-config-status"
+            id={MCP_CONFIG_STATUS_ID}
+          >
+            {statusMessage}
+          </div>
+        )}
+        {errorMessage && (
+          <div
+            aria-live="assertive"
+            className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive text-xs"
+            data-testid="mcp-config-error"
+            id={MCP_CONFIG_ERROR_ID}
+          >
+            {errorMessage}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function McpHelpCard() {
+  return (
+    <Card>
+      <CardContent className="space-y-2 p-4">
+        <div className="font-medium text-sm">Help</div>
+        <div className="text-muted-foreground text-xs">
+          Use `stdio` for local commands and `sse` for remote endpoints. Comments are supported in
+          this file. Keep placeholder values replaced before enabling servers.
+        </div>
+        <pre className="overflow-x-auto rounded-md border bg-muted/30 p-3 text-[11px]">
+          {`// stdio example
 {
   "transport": "stdio",
   "name": "filesystem",
@@ -360,9 +558,8 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
   "name": "remote-api",
   "url": "https://your-host.example.com/mcp/sse"
 }`}
-          </pre>
-        </CardContent>
-      </Card>
-    </div>
+        </pre>
+      </CardContent>
+    </Card>
   );
 }

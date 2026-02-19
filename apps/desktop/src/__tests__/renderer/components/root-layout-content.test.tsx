@@ -118,21 +118,22 @@ vi.mock('@brainstrike/app-shell', () => ({
 
 // Mock the page components to avoid adapter dependencies
 let homeMountCount = 0;
+function MockHomePage() {
+  const [mountIndex, setMountIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    homeMountCount += 1;
+    setMountIndex(homeMountCount);
+  }, []);
+
+  return (
+    <div data-mount-index={mountIndex} data-testid="home-page-content">
+      Home Page Content
+    </div>
+  );
+}
 vi.mock('../../../renderer/components/home-page-content', () => ({
-  default: () => {
-    const [mountIndex, setMountIndex] = React.useState(0);
-
-    React.useEffect(() => {
-      homeMountCount += 1;
-      setMountIndex(homeMountCount);
-    }, []);
-
-    return (
-      <div data-mount-index={mountIndex} data-testid="home-page-content">
-        Home Page Content
-      </div>
-    );
-  },
+  default: MockHomePage,
   DesktopFileExplorerLeftPanel: () => (
     <div data-testid="desktop-file-explorer-left-panel">Left Panel</div>
   ),

@@ -3,6 +3,12 @@ import { cn } from './lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table';
 import { TablePagination } from './table-pagination';
 
+const defaultGetRowId = (_: unknown, index: number) => String(index);
+
+function ExpandedRowContent({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
+
 export interface DataTableColumn<TData> {
   id: string;
   header?: React.ReactNode | ((props: { column: DataTableColumn<TData> }) => React.ReactNode);
@@ -41,7 +47,7 @@ export interface DataTableProps<TData> {
 export function DataTable<TData>({
   columns,
   data,
-  getRowId = (_, index) => String(index),
+  getRowId = defaultGetRowId,
   maxHeight = '400px',
   pagination,
   sorting,
@@ -131,6 +137,10 @@ export function DataTable<TData>({
             {paginatedData.map((row, index) => {
               const rowId = getRowId(row, index);
               const isExpanded = expandable?.expandedRows?.has(rowId) ?? false;
+              const expandedContent =
+                expandable?.enabled && isExpanded && expandable.renderExpandedContent
+                  ? expandable.renderExpandedContent(row)
+                  : null;
 
               return (
                 <React.Fragment key={rowId}>
@@ -141,10 +151,10 @@ export function DataTable<TData>({
                       </TableCell>
                     ))}
                   </TableRow>
-                  {expandable?.enabled && isExpanded && expandable.renderExpandedContent && (
+                  {expandedContent && (
                     <TableRow>
                       <TableCell className="p-0" colSpan={columns.length}>
-                        {expandable.renderExpandedContent(row)}
+                        <ExpandedRowContent>{expandedContent}</ExpandedRowContent>
                       </TableCell>
                     </TableRow>
                   )}

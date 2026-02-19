@@ -107,8 +107,8 @@ const useHighlighter = (): HighlighterCore | null => {
   const [highlighter, setHighlighter] = useState<HighlighterCore | null>(highlighterCache);
 
   useEffect(() => {
+    // If already cached or failed, no async work needed
     if (highlighterCache || highlighterFailed) {
-      setHighlighter(highlighterCache);
       return;
     }
 
@@ -130,7 +130,8 @@ const useHighlighter = (): HighlighterCore | null => {
     };
   }, []);
 
-  return highlighter;
+  // Return cached instance directly if available (bypasses stale state)
+  return highlighterCache ?? highlighter;
 };
 
 const SyntaxHighlighterImpl = ({ language, code, components }: SyntaxHighlighterProps) => {

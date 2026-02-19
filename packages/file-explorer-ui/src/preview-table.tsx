@@ -230,10 +230,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     pagination,
   } = props;
 
-  const totalVisibleColumns = useMemo(
-    () => Object.values(columnVisibility).filter(Boolean).length,
-    [columnVisibility]
-  );
+  const totalVisibleColumns = Object.values(columnVisibility).filter(Boolean).length;
 
   const isAllCurrentPageSelected = useMemo(
     () => isAllSelected(visibleFilesOnPage),
