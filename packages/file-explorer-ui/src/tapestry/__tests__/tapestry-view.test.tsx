@@ -57,7 +57,7 @@ const buildTableRows = (files: FileTapestry[]): TableRowData[] =>
   });
 
 const TapestryHarness = memo(({ count = 12 }: { count?: number }) => {
-  const [files, setFiles] = useState<FileTapestry[]>(
+  const [files, setFiles] = useState<FileTapestry[]>(() =>
     Array.from({ length: count }).map((_, index) => buildFile(index))
   );
   const [previewSelections] = useState<Set<string>>(new Set());

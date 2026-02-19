@@ -22,6 +22,28 @@ import { wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
+// Module-level dynamic import helpers — extracted from component scope
+// so the React Compiler's HIR builder doesn't encounter import() expressions.
+async function loadElectronEmbeddingSetsRepository() {
+  const mod = await import('./repositories/electron-embedding-sets-repository.js');
+  return mod.ElectronEmbeddingSetsRepository;
+}
+
+async function loadElectronViewFilterPresetsRepository() {
+  const mod = await import('./repositories/electron-view-filter-presets-repository.js');
+  return mod.ElectronViewFilterPresetsRepository;
+}
+
+async function loadDrizzleEmbeddingSetsRepository() {
+  const mod = await import('./repositories/drizzle/embedding-sets-repository.js');
+  return mod.DrizzleEmbeddingSetsRepository;
+}
+
+async function loadDrizzleViewFilterPresetsRepository() {
+  const mod = await import('./repositories/drizzle/view-filter-presets-repository.js');
+  return mod.DrizzleViewFilterPresetsRepository;
+}
+
 interface DbHandle extends IDatabase {
   exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
   readonly raw?: unknown;
@@ -258,10 +280,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
     try {
       const testResult = await electronDB.test();
-      if (!testResult.success) {
-        throw new Error(`Database test failed: ${testResult.message}`);
+      if (testResult.success) {
+        logger.info('Database test passed:', testResult.message);
+      } else {
+        logger.warn(
+          'Database test not available or failed:',
+          new Error(`Database test failed: ${testResult.message}`)
+        );
       }
-      logger.info('Database test passed:', testResult.message);
     } catch (error) {
       logger.warn('Database test not available or failed:', error);
     }
@@ -317,20 +343,15 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         exec,
       });
 
-      // Dynamic import to match pattern used in Direct PGlite path
-      const { ElectronEmbeddingSetsRepository } = await import(
-        './repositories/electron-embedding-sets-repository.js'
-      );
-      const embeddingSetsRepo = new ElectronEmbeddingSetsRepository({
+      // Dynamic import via module-level helpers (avoids import() in component scope)
+      const ElectronEmbeddingSetsRepo = await loadElectronEmbeddingSetsRepository();
+      const embeddingSetsRepo = new ElectronEmbeddingSetsRepo({
         query: electronDB.query,
         exec,
       });
 
-      // Import and create view filter presets repository for Electron
-      const { ElectronViewFilterPresetsRepository } = await import(
-        './repositories/electron-view-filter-presets-repository.js'
-      );
-      const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepository({
+      const ElectronViewFilterPresetsRepo = await loadElectronViewFilterPresetsRepository();
+      const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepo({
         query: electronDB.query,
         exec,
       });
@@ -376,18 +397,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
 
       // Create Drizzle instance and type-safe repositories
-      // Dynamic import to avoid linter removing unused static import
-      const { DrizzleEmbeddingSetsRepository } = await import(
-        './repositories/drizzle/embedding-sets-repository.js'
-      );
-      const { DrizzleViewFilterPresetsRepository } = await import(
-        './repositories/drizzle/view-filter-presets-repository.js'
-      );
+      // Dynamic imports via module-level helpers (avoids import() in component scope)
+      const DrizzleEmbeddingSetsRepo = await loadDrizzleEmbeddingSetsRepository();
+      const DrizzleViewFilterPresetsRepo = await loadDrizzleViewFilterPresetsRepository();
       const drizzleInstance = drizzle(db);
       const repository = new DrizzleFileRecordRepository(drizzleInstance);
       const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);
-      const embeddingSetsRepo = new DrizzleEmbeddingSetsRepository(drizzleInstance);
-      const viewFilterPresetsRepo = new DrizzleViewFilterPresetsRepository(drizzleInstance);
+      const embeddingSetsRepo = new DrizzleEmbeddingSetsRepo(drizzleInstance);
+      const viewFilterPresetsRepo = new DrizzleViewFilterPresetsRepo(drizzleInstance);
       if (!cancelled.value) {
         setDrizzleDb(drizzleInstance);
         setFileRecordRepository(repository);

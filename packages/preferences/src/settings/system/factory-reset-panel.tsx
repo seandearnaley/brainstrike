@@ -21,10 +21,10 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       return;
     }
 
+    const resetFn = doFactoryReset ?? providerFactoryReset;
     try {
       setRunning(true);
       // Prefer provider-level factory reset if available so DB purge occurs before UI state is removed.
-      const resetFn = doFactoryReset ?? providerFactoryReset;
       let skipIndexedDb = false;
       if (typeof resetFn === 'function') {
         await resetFn();

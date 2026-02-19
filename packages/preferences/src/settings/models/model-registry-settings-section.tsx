@@ -46,13 +46,14 @@ export function ModelRegistrySettingsSection() {
       return;
     }
 
+    const cacheDir = modelCacheDir ?? undefined;
+    const cacheDirOption = cacheDir ? { cacheDir } : {};
+    const service = new SimpleEmbeddingService();
+    setDownloading(modelId, true);
+    setDownloadProgress(modelId, 0);
     try {
-      setDownloading(modelId, true);
-      setDownloadProgress(modelId, 0);
-
-      const service = new SimpleEmbeddingService();
       await service.downloadModel(modelId, {
-        ...(modelCacheDir ? { cacheDir: modelCacheDir } : {}),
+        ...cacheDirOption,
         onProgress: (p) => {
           if (p.progress !== undefined) {
             setDownloadProgress(modelId, p.progress);
@@ -71,9 +72,8 @@ export function ModelRegistrySettingsSection() {
             : 'An unknown error occurred while downloading the model.',
         variant: 'destructive',
       });
-    } finally {
-      setDownloading(modelId, false);
     }
+    setDownloading(modelId, false);
   };
 
   if (error) {

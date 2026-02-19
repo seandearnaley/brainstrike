@@ -23,6 +23,35 @@ import type { CSSProperties } from 'react';
 import { memo, useCallback, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
+interface TreeNodeIconProps {
+  isLoading: boolean;
+  nodeType: IFileNode['type'];
+  nodeName: string;
+  isExpanded: boolean;
+}
+
+function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIconProps) {
+  if (isLoading) {
+    return (
+      <Loader2
+        aria-label={`Loading ${nodeName}`}
+        className="animate-spin text-blue-500 dark:text-blue-400"
+        size={16}
+      />
+    );
+  }
+  if (nodeType === 'file') {
+    return <FileIcon className="text-gray-500 dark:text-gray-400" size={16} />;
+  }
+  if (nodeType === 'directory') {
+    if (isExpanded) {
+      return <FolderOpen className="text-blue-500 dark:text-blue-400" size={16} />;
+    }
+    return <Folder className="text-blue-500 dark:text-blue-400" size={16} />;
+  }
+  return null;
+}
+
 interface OptimizedFileTreeRowProps {
   node: IFileNode;
   depth: number;
@@ -332,30 +361,6 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       }
     }, [wouldExceedLimit, handleNodeSelection]);
 
-    // Memoize icon rendering
-    const renderIcon = useCallback(() => {
-      if (isLoading) {
-        return (
-          <Loader2
-            aria-label={`Loading ${node.name}`}
-            className="animate-spin text-blue-500 dark:text-blue-400"
-            size={16}
-          />
-        );
-      }
-      if (node.type === 'file') {
-        return <FileIcon className="text-gray-500 dark:text-gray-400" size={16} />;
-      }
-      if (node.type === 'directory') {
-        return isExpanded ? (
-          <FolderOpen className="text-blue-500 dark:text-blue-400" size={16} />
-        ) : (
-          <Folder className="text-blue-500 dark:text-blue-400" size={16} />
-        );
-      }
-      return null;
-    }, [node.type, node.name, isExpanded, isLoading]);
-
     return (
       <div
         aria-expanded={node.type === 'directory' ? isExpanded : undefined}
@@ -423,7 +428,14 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           </div>
 
           {/* File/folder icon with consistent sizing */}
-          <div className="mr-2 flex w-4 items-center justify-center">{renderIcon()}</div>
+          <div className="mr-2 flex w-4 items-center justify-center">
+            <TreeNodeIcon
+              isExpanded={isExpanded}
+              isLoading={isLoading}
+              nodeName={node.name}
+              nodeType={node.type}
+            />
+          </div>
 
           {/* File/folder name and additional icons */}
           <div className="flex min-w-0 flex-1 items-center">

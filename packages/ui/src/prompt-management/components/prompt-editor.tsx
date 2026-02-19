@@ -1,5 +1,5 @@
 import { History, Plus, RotateCcw, Save, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 import { Badge } from '../../badge';
 import { Button } from '../../button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../dialog';
@@ -12,6 +12,9 @@ import { ScrollArea } from '../../scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../select';
 import type { Category, Prompt } from '../types';
 
+const DEFAULT_AVAILABLE_MODELS: ModelPickerModel[] = [];
+const DEFAULT_PROVIDERS: ModelPickerProvider[] = [];
+
 interface PromptEditorProps {
   isOpen: boolean;
   onClose: () => void;
@@ -22,41 +25,72 @@ interface PromptEditorProps {
   onSave: (promptData: Partial<Prompt>) => void;
 }
 
+interface FormState {
+  title: string;
+  content: string;
+  categoryId: string;
+  tags: string[];
+  tagInput: string;
+  model: string;
+  temperature: number;
+}
+
+type FormAction =
+  | { type: 'SET_FIELD'; field: keyof Omit<FormState, 'tags'>; value: string | number }
+  | { type: 'SET_TAGS'; tags: string[] }
+  | { type: 'INIT'; prompt: Prompt | null | undefined };
+
+function getInitialState(prompt: Prompt | null | undefined): FormState {
+  if (prompt) {
+    return {
+      title: prompt.title,
+      content: prompt.content,
+      categoryId: prompt.categoryId,
+      tags: prompt.tags,
+      tagInput: '',
+      model: prompt.modelSettings.model,
+      temperature: prompt.modelSettings.temperature,
+    };
+  }
+  return {
+    title: '',
+    content: '',
+    categoryId: 'general',
+    tags: [],
+    tagInput: '',
+    model: 'gpt-5.2',
+    temperature: 0.7,
+  };
+}
+
+function formReducer(state: FormState, action: FormAction): FormState {
+  switch (action.type) {
+    case 'SET_FIELD':
+      return { ...state, [action.field]: action.value };
+    case 'SET_TAGS':
+      return { ...state, tags: action.tags };
+    case 'INIT':
+      return getInitialState(action.prompt);
+    default:
+      return state;
+  }
+}
+
 export function PromptEditor({
-  isOpen,
+  isOpen: _isOpen,
   onClose,
   prompt,
   categories,
-  availableModels = [],
-  providers = [],
+  availableModels = DEFAULT_AVAILABLE_MODELS,
+  providers = DEFAULT_PROVIDERS,
   onSave,
 }: PromptEditorProps) {
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [categoryId, setCategoryId] = useState('general');
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState('');
-  const [model, setModel] = useState('gpt-5.2');
-  const [temperature, setTemperature] = useState(0.7);
+  const [formState, dispatch] = useReducer(formReducer, getInitialState(prompt));
+  const { title, content, categoryId, tags, tagInput, model, temperature } = formState;
 
-  // Reset form when prompt changes
   useEffect(() => {
-    if (prompt) {
-      setTitle(prompt.title);
-      setContent(prompt.content);
-      setCategoryId(prompt.categoryId);
-      setTags(prompt.tags);
-      setModel(prompt.modelSettings.model);
-      setTemperature(prompt.modelSettings.temperature);
-    } else {
-      setTitle('');
-      setContent('');
-      setCategoryId('general');
-      setTags([]);
-      setModel('gpt-5.2');
-      setTemperature(0.7);
-    }
-  }, [prompt, isOpen]);
+    dispatch({ type: 'INIT', prompt });
+  }, [prompt]);
 
   const handleSave = () => {
     onSave({
@@ -76,17 +110,17 @@ export function PromptEditor({
 
   const addTag = () => {
     if (tagInput.trim() && !tags.includes(tagInput.trim())) {
-      setTags([...tags, tagInput.trim()]);
-      setTagInput('');
+      dispatch({ type: 'SET_TAGS', tags: [...tags, tagInput.trim()] });
+      dispatch({ type: 'SET_FIELD', field: 'tagInput', value: '' });
     }
   };
 
   const removeTag = (tagToRemove: string) => {
-    setTags(tags.filter((tag) => tag !== tagToRemove));
+    dispatch({ type: 'SET_TAGS', tags: tags.filter((tag) => tag !== tagToRemove) });
   };
 
   return (
-    <Dialog onOpenChange={(open) => !open && onClose()} open={isOpen}>
+    <Dialog onOpenChange={(open) => !open && onClose()} open={_isOpen}>
       <DialogContent className="flex h-[80vh] max-w-4xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-border/50 border-b p-6 pb-2">
           <DialogTitle className="flex items-center gap-2 font-bold text-xl">
@@ -107,7 +141,9 @@ export function PromptEditor({
               <Input
                 className="font-medium text-lg"
                 id="title"
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  dispatch({ type: 'SET_FIELD', field: 'title', value: e.target.value })
+                }
                 placeholder="e.g., Code Refactoring Assistant"
                 value={title}
               />
@@ -119,7 +155,9 @@ export function PromptEditor({
                 className="flex-1 resize-none bg-muted/30 p-4 font-mono text-sm leading-relaxed"
                 id="content"
                 minRows={10}
-                onChange={(e) => setContent(e as unknown as string)}
+                onChange={(e) =>
+                  dispatch({ type: 'SET_FIELD', field: 'content', value: e as unknown as string })
+                }
                 placeholder="Enter your system prompt here..."
                 value={content}
               />
@@ -130,7 +168,12 @@ export function PromptEditor({
           <div className="flex w-80 flex-col gap-6 overflow-y-auto border-border/50 border-l bg-muted/10 p-6">
             <div className="space-y-2">
               <Label>Category</Label>
-              <Select onValueChange={setCategoryId} value={categoryId}>
+              <Select
+                onValueChange={(v) =>
+                  dispatch({ type: 'SET_FIELD', field: 'categoryId', value: v })
+                }
+                value={categoryId}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
@@ -156,7 +199,9 @@ export function PromptEditor({
                 mode="single"
                 models={availableModels}
                 modelType="llm"
-                onChange={(id) => setModel(id as string)}
+                onChange={(id) =>
+                  dispatch({ type: 'SET_FIELD', field: 'model', value: id as string })
+                }
                 placeholder="Select a model..."
                 providers={providers}
                 value={model}
@@ -173,7 +218,11 @@ export function PromptEditor({
                 max="2"
                 min="0"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setTemperature(Number.parseFloat(e.target.value))
+                  dispatch({
+                    type: 'SET_FIELD',
+                    field: 'temperature',
+                    value: Number.parseFloat(e.target.value),
+                  })
                 }
                 step="0.1"
                 type="range"
@@ -207,8 +256,14 @@ export function PromptEditor({
               <div className="flex gap-2">
                 <Input
                   className="h-8 text-sm"
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addTag()}
+                  onChange={(e) =>
+                    dispatch({ type: 'SET_FIELD', field: 'tagInput', value: e.target.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      addTag();
+                    }
+                  }}
                   placeholder="Add tag..."
                   value={tagInput}
                 />

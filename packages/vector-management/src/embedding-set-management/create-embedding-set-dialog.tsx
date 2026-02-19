@@ -15,7 +15,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
 /**
@@ -91,6 +91,56 @@ function buildMetadata(formData: {
 
 const logger = createLogger('CreateEmbeddingSetDialog');
 
+interface FormState {
+  creating: boolean;
+  formData: {
+    name: string;
+    description: string;
+    tags: string;
+    category: string;
+    selectedModel: string;
+  };
+  existingNames: Set<string>;
+  hasInitialized: boolean;
+}
+
+type FormAction =
+  | { type: 'set_creating'; creating: boolean }
+  | { type: 'set_form_field'; field: string; value: string }
+  | { type: 'set_form_data'; formData: FormState['formData'] }
+  | { type: 'set_existing_names'; names: Set<string> }
+  | { type: 'set_initialized'; names: Set<string>; selectedModel: string; name: string }
+  | { type: 'reset' };
+
+const INITIAL_FORM_STATE: FormState = {
+  creating: false,
+  formData: { name: '', description: '', tags: '', category: '', selectedModel: '' },
+  existingNames: new Set(),
+  hasInitialized: false,
+};
+
+function formReducer(state: FormState, action: FormAction): FormState {
+  switch (action.type) {
+    case 'set_creating':
+      return { ...state, creating: action.creating };
+    case 'set_form_field':
+      return { ...state, formData: { ...state.formData, [action.field]: action.value } };
+    case 'set_form_data':
+      return { ...state, formData: action.formData };
+    case 'set_existing_names':
+      return { ...state, existingNames: action.names };
+    case 'set_initialized':
+      return {
+        ...state,
+        existingNames: action.names,
+        formData: { ...state.formData, selectedModel: action.selectedModel, name: action.name },
+        hasInitialized: true,
+      };
+    case 'reset':
+      return { ...INITIAL_FORM_STATE };
+  }
+}
+
 export function CreateEmbeddingSetDialog({
   open,
   onOpenChange,
@@ -101,19 +151,8 @@ export function CreateEmbeddingSetDialog({
   onSetCreated,
 }: CreateEmbeddingSetDialogProps) {
   const { toast } = useToast();
-  const [creating, setCreating] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    tags: '',
-    category: '',
-    selectedModel: '',
-  });
-
-  // Track existing collection names for collision detection
-  const [existingNames, setExistingNames] = useState<Set<string>>(new Set());
-  // Track whether we've done the initial form setup (to avoid re-running after user interaction)
-  const [hasInitialized, setHasInitialized] = useState(false);
+  const [formState, dispatch] = useReducer(formReducer, INITIAL_FORM_STATE);
+  const { creating, formData, existingNames, hasInitialized } = formState;
 
   const selectedModelInfo = models.find((m) => m.id === formData.selectedModel);
   const hasModelOptions = models.length > 0;
@@ -121,9 +160,7 @@ export function CreateEmbeddingSetDialog({
   // Handle dialog open/close and reset state when closing
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
-      // Reset initialization state when dialog closes
-      setHasInitialized(false);
-      setExistingNames(new Set());
+      dispatch({ type: 'reset' });
     }
     onOpenChange(newOpen);
   };
@@ -161,20 +198,16 @@ export function CreateEmbeddingSetDialog({
         return;
       }
 
-      // Update state with both existing names and auto-filled form
-      setExistingNames(collectionNames);
-
       // Generate unique name using the model's display name
       const baseName = firstModel.name;
       const uniqueName = generateUniqueName(baseName, collectionNames);
 
-      setFormData((prev) => ({
-        ...prev,
+      dispatch({
+        type: 'set_initialized',
+        names: collectionNames,
         selectedModel: firstModel.id,
         name: uniqueName,
-      }));
-
-      setHasInitialized(true);
+      });
     };
 
     void initializeForm();
@@ -211,15 +244,16 @@ export function CreateEmbeddingSetDialog({
       return;
     }
 
-    setCreating(true);
+    // Reconstruct modelKey and dimensions from ModelPickerModel
+    const modelKey = selectedModelInfo.id; // id is the modelKey (e.g. "openai::text-embedding-3-small")
+    const modelId = selectedModelInfo.name; // name is the modelId (e.g. "text-embedding-3-small")
+    const dimensions = selectedModelInfo.capabilities.defaultDimension ?? 1536; // Fallback if missing
+    const distance = 'cosine'; // Default for now
+
+    dispatch({ type: 'set_creating', creating: true });
+    let newSetId: string | null = null;
     try {
       const metadata = buildMetadata(formData);
-
-      // Reconstruct modelKey and dimensions from ModelPickerModel
-      const modelKey = selectedModelInfo.id; // id is the modelKey (e.g. "openai::text-embedding-3-small")
-      const modelId = selectedModelInfo.name; // name is the modelId (e.g. "text-embedding-3-small")
-      const dimensions = selectedModelInfo.capabilities.defaultDimension ?? 1536; // Fallback if missing
-      const distance = 'cosine'; // Default for now
 
       const newSet = await repository.getOrCreateSet(
         modelKey,
@@ -229,6 +263,7 @@ export function CreateEmbeddingSetDialog({
         metadata
       );
 
+      newSetId = newSet.id;
       setActiveEmbeddingSetId(newSet.id);
 
       // Emit event to notify other components (triggers live query refresh)
@@ -245,26 +280,20 @@ export function CreateEmbeddingSetDialog({
         description: `Created embedding set: ${formData.name}`,
       });
 
-      // Reset form
-      setFormData({
-        name: '',
-        description: '',
-        tags: '',
-        category: '',
-        selectedModel: '',
-      });
-
+      dispatch({ type: 'reset' });
       handleOpenChange(false);
-      onSetCreated?.(newSet.id);
     } catch (error) {
+      dispatch({ type: 'set_creating', creating: false });
       logger.error('Failed to create embedding set', { error });
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to create collection',
         variant: 'destructive',
       });
-    } finally {
-      setCreating(false);
+      return;
+    }
+    if (newSetId) {
+      onSetCreated?.(newSetId);
     }
   };
 
@@ -312,27 +341,17 @@ export function CreateEmbeddingSetDialog({
                 onChange={(value: string | string[]) => {
                   const modelKey = value as string;
                   const selectedModel = models.find((m) => m.id === modelKey);
-
-                  setFormData((prev) => {
-                    // Only auto-fill name if it's empty or was auto-generated
-                    // (user hasn't manually typed a custom name)
-                    const shouldAutoFillName = prev.name === '';
-
-                    if (shouldAutoFillName && selectedModel) {
-                      const baseName = selectedModel.name;
-                      const uniqueName = generateUniqueName(baseName, existingNames);
-                      return {
-                        ...prev,
-                        selectedModel: modelKey,
-                        name: uniqueName,
-                      };
-                    }
-
-                    return {
-                      ...prev,
-                      selectedModel: modelKey,
-                    };
-                  });
+                  // Only auto-fill name if it's empty or was auto-generated
+                  const shouldAutoFillName = formData.name === '';
+                  if (shouldAutoFillName && selectedModel) {
+                    const uniqueName = generateUniqueName(selectedModel.name, existingNames);
+                    dispatch({
+                      type: 'set_form_data',
+                      formData: { ...formData, selectedModel: modelKey, name: uniqueName },
+                    });
+                  } else {
+                    dispatch({ type: 'set_form_field', field: 'selectedModel', value: modelKey });
+                  }
                 }}
                 placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
                 providers={providers}
@@ -353,7 +372,9 @@ export function CreateEmbeddingSetDialog({
               <Input
                 disabled={creating}
                 id="name"
-                onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                onChange={(e) =>
+                  dispatch({ type: 'set_form_field', field: 'name', value: e.target.value })
+                }
                 placeholder="e.g., Code Embeddings, General Purpose, etc."
                 value={formData.name}
               />
@@ -366,7 +387,9 @@ export function CreateEmbeddingSetDialog({
               <Input
                 disabled={creating}
                 id="description"
-                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                onChange={(e) =>
+                  dispatch({ type: 'set_form_field', field: 'description', value: e.target.value })
+                }
                 placeholder="Describe the purpose of this collection"
                 value={formData.description}
               />
@@ -379,7 +402,9 @@ export function CreateEmbeddingSetDialog({
               <Input
                 disabled={creating}
                 id="tags"
-                onChange={(e) => setFormData((prev) => ({ ...prev, tags: e.target.value }))}
+                onChange={(e) =>
+                  dispatch({ type: 'set_form_field', field: 'tags', value: e.target.value })
+                }
                 placeholder="Comma-separated tags (e.g., code, programming, analysis)"
                 value={formData.tags}
               />
@@ -393,7 +418,9 @@ export function CreateEmbeddingSetDialog({
               <Input
                 disabled={creating}
                 id="category"
-                onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
+                onChange={(e) =>
+                  dispatch({ type: 'set_form_field', field: 'category', value: e.target.value })
+                }
                 placeholder="e.g., development, documentation, general-text"
                 value={formData.category}
               />

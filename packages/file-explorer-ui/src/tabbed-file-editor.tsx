@@ -62,7 +62,7 @@ function getTabIcon(isLoading: boolean, tabStatus: TabFileStatus | undefined): R
   return <File className="h-3 w-3 flex-shrink-0" />;
 }
 
-function buildContentNode(opts: {
+interface TabContentNodeProps {
   isLoading: boolean;
   content: string | undefined;
   isActive: boolean;
@@ -70,23 +70,24 @@ function buildContentNode(opts: {
   path: string;
   text: string | undefined;
   truncated: boolean;
-  activeContentRef: React.RefObject<HTMLPreElement | null>;
+  /** Callback with the pre element when active, null when inactive */
+  onActiveElement: (el: HTMLPreElement | null) => void;
   handleContentScroll: (compositeKey: string, e: React.UIEvent<HTMLPreElement>) => void;
   tabStatus: TabFileStatus | undefined;
-}) {
-  const {
-    isLoading,
-    content,
-    isActive,
-    tab,
-    path,
-    text,
-    truncated,
-    activeContentRef,
-    handleContentScroll,
-    tabStatus,
-  } = opts;
+}
 
+function TabContentNode({
+  isLoading,
+  content,
+  isActive,
+  tab,
+  path,
+  text,
+  truncated,
+  onActiveElement,
+  handleContentScroll,
+  tabStatus,
+}: TabContentNodeProps) {
   // BST-307: Show permission prompt for tabs needing permission
   if (tabStatus?.status === 'needs-permission') {
     return (
@@ -145,7 +146,7 @@ function buildContentNode(opts: {
       className="h-full overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm"
       data-truncated={truncated ? 'true' : 'false'}
       onScroll={(e) => handleContentScroll(tab.compositeKey, e)}
-      ref={isActive ? activeContentRef : null}
+      ref={isActive ? onActiveElement : null}
     >
       {content.startsWith('File not accessible') ? (
         <div className="text-amber-600 dark:text-amber-400">
@@ -219,6 +220,8 @@ function TabStripOverflowMenu({ actions }: TabStripOverflowMenuProps) {
   );
 }
 
+const EMPTY_TAB_STRIP_ACTIONS: TabStripAction[] = [];
+
 export function TabbedFileEditor({
   tabs,
   activeTabId,
@@ -228,14 +231,19 @@ export function TabbedFileEditor({
   onTabClose,
   onLoadFileContent,
   decodeFileSelection,
-  tabStripActions = [],
+  tabStripActions = EMPTY_TAB_STRIP_ACTIONS,
   tabStatuses,
   getTabStatusMessage,
 }: TabbedFileEditorProps) {
   const activeTabRef = useRef<HTMLButtonElement>(null);
-  const activeContentRef = useRef<HTMLPreElement>(null);
+  const activeContentRef = useRef<HTMLPreElement | null>(null);
   const getScrollTop = useEditorViewStateStore((s) => s.getScrollTop);
   const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
+
+  // Callback ref that TabContentNode calls to register/unregister the active pre element.
+  const handleActiveElement = useCallback((el: HTMLPreElement | null) => {
+    activeContentRef.current = el;
+  }, []);
 
   // Load content for active tab if not already loaded
   // biome-ignore lint/plugin: Load content for active tab - reactive data loading
@@ -316,19 +324,6 @@ export function TabbedFileEditor({
       const tabButtonId = `tab-${tab.id}`;
       const { text, truncated } = getDisplayContent(content);
 
-      const contentNode = buildContentNode({
-        isLoading,
-        content,
-        isActive,
-        tab,
-        path,
-        text,
-        truncated,
-        activeContentRef,
-        handleContentScroll,
-        tabStatus,
-      });
-
       return (
         <div
           aria-labelledby={tabButtonId}
@@ -338,11 +333,22 @@ export function TabbedFileEditor({
           key={tab.id}
           role="tabpanel"
         >
-          {contentNode}
+          <TabContentNode
+            content={content}
+            handleContentScroll={handleContentScroll}
+            isActive={isActive}
+            isLoading={isLoading}
+            onActiveElement={handleActiveElement}
+            path={path}
+            tab={tab}
+            tabStatus={tabStatus}
+            text={text}
+            truncated={truncated}
+          />
         </div>
       );
     },
-    [handleContentScroll]
+    [handleContentScroll, handleActiveElement]
   );
 
   const getFileName = (path: string) => path.split('/').pop() || path;

@@ -66,15 +66,15 @@ export function EmptyState({
 
         {/* Minimalist 2026 Grid Identity Element */}
         <div className="grid grid-cols-3 gap-1.5 pt-4 opacity-15">
-          {new Array(9).fill(null).map((_, i) => (
-            <div
-              className="h-1 w-1 rounded-full bg-foreground"
-              key={`grid-dot-${
-                // biome-ignore lint/suspicious/noArrayIndexKey: Static decorative grid
-                i
-              }`}
-            />
-          ))}
+          <div className="h-1 w-1 rounded-full bg-foreground" />
+          <div className="h-1 w-1 rounded-full bg-foreground" />
+          <div className="h-1 w-1 rounded-full bg-foreground" />
+          <div className="h-1 w-1 rounded-full bg-foreground" />
+          <div className="h-1 w-1 rounded-full bg-foreground" />
+          <div className="h-1 w-1 rounded-full bg-foreground" />
+          <div className="h-1 w-1 rounded-full bg-foreground" />
+          <div className="h-1 w-1 rounded-full bg-foreground" />
+          <div className="h-1 w-1 rounded-full bg-foreground" />
         </div>
       </div>
     </div>

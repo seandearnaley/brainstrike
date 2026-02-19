@@ -1,7 +1,7 @@
 import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { createLogger, decodeFileSelection } from '@brainstrike/utils';
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('TabbedFileEditorPanel');
 
@@ -57,22 +57,24 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
             return;
           }
 
-          permissionRequestsInProgressRef.current.add(tab.compositeKey);
+          const tabCompositeKey = tab.compositeKey;
+          permissionRequestsInProgressRef.current.add(tabCompositeKey);
           try {
-            const granted = await requestTabPermission(tab.compositeKey);
+            const granted = await requestTabPermission(tabCompositeKey);
             if (granted) {
               // Permission granted - load the file content
-              void loadFileContent(tab.compositeKey);
+              void loadFileContent(tabCompositeKey);
             }
             // If not granted, still select the tab to show the permission message
+            permissionRequestsInProgressRef.current.delete(tabCompositeKey);
           } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
             logger.error('Failed to request file permission', {
-              compositeKey: tab.compositeKey,
-              error: err instanceof Error ? err.message : String(err),
+              compositeKey: tabCompositeKey,
+              error: errMsg,
             });
             // Still select the tab to show the current status
-          } finally {
-            permissionRequestsInProgressRef.current.delete(tab.compositeKey);
+            permissionRequestsInProgressRef.current.delete(tabCompositeKey);
           }
         }
 
@@ -155,6 +157,18 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     // NOTE: Tab content is read directly from fileContents in TabbedFileEditor (line 306),
     // not from tab.content. The sync effect was removed as it maintained unused state.
 
+    // Keep latest fileContents and loadingFiles in refs so the open-file callback can read
+    // them without listing them as deps (which would cause infinite re-registration loops).
+    // Sync via useLayoutEffect (after commit, not during render) to keep refs up-to-date.
+    const fileContentsRef = useRef(fileContents);
+    const loadingFilesRef = useRef(loadingFiles);
+    useLayoutEffect(() => {
+      fileContentsRef.current = fileContents;
+    });
+    useLayoutEffect(() => {
+      loadingFilesRef.current = loadingFiles;
+    });
+
     // Function to open a file in a tab (exposed globally for preview panel to use)
     const handleOpenFileInTab = useCallback(
       (compositeKey: string) => {
@@ -163,12 +177,12 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
         const uniqueTabId = `${rootDirectoryHandle?.name ?? 'default'}:${compositeKey}`;
         openTab(path, uniqueTabId, compositeKey);
 
-        // Load content if not already loaded or loading
-        if (!(fileContents[compositeKey] || loadingFiles.has(compositeKey))) {
+        // Load content if not already loaded or loading (read latest values via refs)
+        if (!(fileContentsRef.current[compositeKey] || loadingFilesRef.current.has(compositeKey))) {
           void loadFileContent(compositeKey);
         }
       },
-      [openTab, loadFileContent, rootDirectoryHandle] // Remove fileContents and loadingFiles to prevent infinite loops
+      [openTab, loadFileContent, rootDirectoryHandle]
     );
 
     // Register the openFileInTab function with the IDE layout context

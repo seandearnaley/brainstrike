@@ -18,6 +18,77 @@ import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
 
 const logger = createLogger('ToolbarPresetSelector');
 
+interface ZustandPersistStorage {
+  getItem: (key: string) => Promise<string | null> | string | null;
+  setItem: (key: string, value: string) => Promise<void> | void;
+}
+
+interface ZustandPersistOptions {
+  name?: string;
+  storage?: ZustandPersistStorage;
+}
+
+interface ZustandPersistApi {
+  getOptions?: () => ZustandPersistOptions;
+}
+
+/** Resolve the Zustand persist API from a store reference, or null if unavailable. */
+function resolveStorePersistApi(
+  store: unknown
+): { storage: ZustandPersistStorage; name: string } | null {
+  const persistApi = (store as { persist?: ZustandPersistApi }).persist;
+  if (!persistApi || typeof persistApi.getOptions !== 'function') {
+    return null;
+  }
+  const opts = persistApi.getOptions();
+  const storage = opts?.storage;
+  if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') {
+    return null;
+  }
+  return { storage, name: opts?.name ?? 'file-explorer-storage-v4' };
+}
+
+/** Merge patch into the Zustand persisted state JSON and write it back. */
+async function mergeAndWriteStoragePatch(
+  storage: ZustandPersistStorage,
+  name: string,
+  patch: Record<string, unknown>
+): Promise<void> {
+  let currentJson: string | null = null;
+  try {
+    currentJson = await storage.getItem(name);
+  } catch (error) {
+    if (isDevEnv()) {
+      logger.warn('Failed to read preset storage', { error });
+    }
+    return;
+  }
+
+  let current: unknown = {};
+  if (currentJson) {
+    try {
+      current = JSON.parse(currentJson);
+    } catch {
+      current = {};
+    }
+  }
+
+  const currentIsObject = current !== null && typeof current === 'object';
+  const currentObj = current as Record<string, unknown>;
+  const hasWrapper = currentIsObject && 'state' in currentObj;
+  const base = hasWrapper ? ((currentObj['state'] as Record<string, unknown>) ?? {}) : currentObj;
+  const merged = { ...base, ...patch };
+  const wrapper = hasWrapper ? { ...currentObj, state: merged } : { version: 1, state: merged };
+
+  try {
+    await storage.setItem(name, JSON.stringify(wrapper));
+  } catch (error) {
+    if (isDevEnv()) {
+      logger.warn('Failed to persist preset patch', { error });
+    }
+  }
+}
+
 interface ToolbarPresetSelectorProps {
   /** Called when filter patterns change (to update file tree) */
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
@@ -128,53 +199,11 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
     // Create persist helper - stable reference via useCallback
     const persistPatch = useCallback(
       async (patch: Record<string, unknown>) => {
-        try {
-          const persistApi = (
-            store as unknown as {
-              persist?: {
-                getOptions?: () => {
-                  name?: string;
-                  storage?: {
-                    getItem: (key: string) => Promise<string | null> | string | null;
-                    setItem: (key: string, value: string) => Promise<void> | void;
-                  };
-                };
-              };
-            }
-          ).persist;
-
-          if (!persistApi || typeof persistApi.getOptions !== 'function') {
-            return;
-          }
-
-          const opts = persistApi.getOptions();
-          const storage = opts?.storage;
-          if (
-            !storage ||
-            typeof storage.getItem !== 'function' ||
-            typeof storage.setItem !== 'function'
-          ) {
-            return;
-          }
-
-          const name = opts?.name ?? 'file-explorer-storage-v4';
-          const currentJson = await storage.getItem(name);
-          const current = currentJson ? JSON.parse(currentJson) : {};
-
-          // Merge patch with existing state
-          const hasWrapper = current && typeof current === 'object' && 'state' in current;
-          const base = (hasWrapper ? (current as { state: unknown }).state : current) || {};
-          const merged = { ...base, ...patch };
-          const wrapper = hasWrapper
-            ? { ...current, state: merged }
-            : { version: 1, state: merged };
-
-          await storage.setItem(name, JSON.stringify(wrapper));
-        } catch (error) {
-          if (isDevEnv()) {
-            logger.warn('Failed to persist preset patch', { error });
-          }
+        const resolved = resolveStorePersistApi(store);
+        if (!resolved) {
+          return;
         }
+        await mergeAndWriteStoragePatch(resolved.storage, resolved.name, patch);
       },
       [store]
     );

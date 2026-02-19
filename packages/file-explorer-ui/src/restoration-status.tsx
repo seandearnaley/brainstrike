@@ -51,7 +51,7 @@ export const RestorationStatus: React.FC<RestorationStatusProps> = React.memo(
         return null;
       }
       return formatDisplayPath(progress.currentPath);
-    }, [progress?.currentPath]);
+    }, [progress]);
 
     if (!isRestoring) {
       return null;

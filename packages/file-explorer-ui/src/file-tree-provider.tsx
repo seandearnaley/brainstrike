@@ -76,11 +76,8 @@ export function FileTreeProvider({
   filterTreeFn,
 }: FileTreeProviderProps): React.ReactElement {
   // Create a single FileTreeIndex instance that persists across renders
-  const indexRef = useRef<FileTreeIndex | null>(null);
-  if (indexRef.current === null) {
-    indexRef.current = new FileTreeIndex();
-  }
-  const index = indexRef.current;
+  // Using useState with lazy initializer avoids reading ref during render
+  const [index] = useState<FileTreeIndex>(() => new FileTreeIndex());
 
   // Version counter to signal index mutations to consumers
   // Coalesced via microtask to avoid excessive re-renders during multi-step updates

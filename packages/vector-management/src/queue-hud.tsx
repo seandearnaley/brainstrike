@@ -167,7 +167,9 @@ function useQueueRetry(
       await jobQueue.requeueFailed(EMBEDDING_QUEUE_NAME, RETRY_BATCH_SIZE);
       const nextStats = await jobQueue.getQueueStats(EMBEDDING_QUEUE_NAME);
       setStats(nextStats);
+      setBusy(false);
     } catch (error) {
+      setBusy(false);
       logger.error('Failed to retry embedding queue jobs', { error });
       const message = error instanceof Error ? error.message : String(error);
       toast({
@@ -175,8 +177,6 @@ function useQueueRetry(
         description: message || 'Unable to retry failed embedding jobs.',
         variant: 'destructive',
       });
-    } finally {
-      setBusy(false);
     }
   }, [jobQueue, setStats, toast]);
 

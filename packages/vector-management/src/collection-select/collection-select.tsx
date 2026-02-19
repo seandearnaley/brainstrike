@@ -2,7 +2,7 @@ import type { usePGliteDatabase } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 
 /**
  * Row shape returned by the collections query
@@ -254,9 +254,31 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   // - Users need to see collections while searching/browsing during embedding
   // - Only the queue monitoring queries in useVectorQueueState need to be paused
   const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting;
-  // Track loading state for initial fetch
-  const [initialLoading, setInitialLoading] = useState(false);
-  const [initialError, setInitialError] = useState<Error | null>(null);
+  // Track loading/error state for initial fetch
+  interface FetchState {
+    loading: boolean;
+    error: Error | null;
+  }
+  type FetchAction =
+    | { type: 'start' }
+    | { type: 'success' }
+    | { type: 'error'; error: Error }
+    | { type: 'reset' };
+  const [fetchState, dispatchFetch] = useReducer(
+    (_state: FetchState, action: FetchAction): FetchState => {
+      switch (action.type) {
+        case 'start':
+          return { loading: true, error: null };
+        case 'success':
+          return { loading: false, error: null };
+        case 'error':
+          return { loading: false, error: action.error };
+        case 'reset':
+          return { loading: false, error: null };
+      }
+    },
+    { loading: false, error: null }
+  );
   // Track if we've done the initial fetch (separate from live query)
   const initialFetchedRef = useRef(false);
 
@@ -313,7 +335,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     const shouldFetch =
       schemaVerified && // Wait for schema to be ready (tables exist)
       canQuery &&
-      !initialLoading &&
+      !fetchState.loading &&
       !initialFetchedRef.current;
     if (!shouldFetch) {
       return;
@@ -321,27 +343,26 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
 
     let cancelled = false;
     initialFetchedRef.current = true;
-    setInitialLoading(true);
 
     const fetchOnce = async () => {
+      await Promise.resolve();
+      if (!cancelled) {
+        dispatchFetch({ type: 'start' });
+      }
       try {
         const result = await (
           db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
         ).query(COLLECTIONS_QUERY);
         if (!cancelled) {
           setCachedCollections(normalizeCollectionRows(result.rows));
-          setInitialError(null);
+          dispatchFetch({ type: 'success' });
         }
       } catch (err) {
         if (!cancelled) {
           const normalized = err instanceof Error ? err : new Error(String(err));
-          setInitialError(normalized);
           // Reset flag on error so we can retry when conditions change
           initialFetchedRef.current = false;
-        }
-      } finally {
-        if (!cancelled) {
-          setInitialLoading(false);
+          dispatchFetch({ type: 'error', error: normalized });
         }
       }
     };
@@ -351,7 +372,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       cancelled = true;
     };
-  }, [db, schemaVerified, setCachedCollections]);
+  }, [db, fetchState.loading, schemaVerified, setCachedCollections]);
 
   // Reset initial fetch flag when db changes (e.g., reconnection)
   useEffect(() => {
@@ -362,8 +383,8 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   // Use initial loading/error state when live query is disabled
   return {
     collections: liveQueryEnabled ? collections : cachedCollections,
-    loading: liveQueryEnabled ? loading : initialLoading,
-    error: liveQueryEnabled ? error : initialError,
+    loading: liveQueryEnabled ? loading : fetchState.loading,
+    error: liveQueryEnabled ? error : fetchState.error,
   };
 }
 

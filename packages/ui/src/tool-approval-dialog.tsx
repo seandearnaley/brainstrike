@@ -6,7 +6,7 @@
  */
 
 import { AlertTriangle } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from './button';
 import { Checkbox } from './checkbox';
 import {
@@ -242,21 +242,47 @@ export function useToolApproval(options: UseToolApprovalOptions = {}): UseToolAp
     Array<{ tool: ToolApprovalInfo; resolve: (result: ToolApprovalResult) => void }>
   >([]);
 
+  const onApproveRef = useRef(onApprove);
+  const onCancelRef = useRef(onCancel);
+
+  useEffect(() => {
+    onApproveRef.current = onApprove;
+  }, [onApprove]);
+
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  }, [onCancel]);
+
   const startApproval = useCallback(
     (tool: ToolApprovalInfo, resolve: (result: ToolApprovalResult) => void) => {
       pendingRef.current = tool;
       resolveRef.current = (result: ToolApprovalResult) => {
         if (result.approved) {
-          onApprove?.(tool.id, result.dontAskAgain);
+          onApproveRef.current?.(tool.id, result.dontAskAgain);
         } else {
-          onCancel?.(tool.id);
+          onCancelRef.current?.(tool.id);
         }
 
         resolve(result);
 
         const next = queueRef.current.shift();
         if (next) {
-          startApproval(next.tool, next.resolve);
+          // Use the resolve callback pattern via queueRef to avoid self-reference
+          const nextResolveRef = next.resolve;
+          const nextTool = next.tool;
+          pendingRef.current = nextTool;
+          resolveRef.current = (nextResult: ToolApprovalResult) => {
+            if (nextResult.approved) {
+              onApproveRef.current?.(nextTool.id, nextResult.dontAskAgain);
+            } else {
+              onCancelRef.current?.(nextTool.id);
+            }
+            nextResolveRef(nextResult);
+            pendingRef.current = null;
+            resolveRef.current = null;
+            setPendingTool(null);
+          };
+          setPendingTool(nextTool);
           return;
         }
 
@@ -267,7 +293,7 @@ export function useToolApproval(options: UseToolApprovalOptions = {}): UseToolAp
 
       setPendingTool(tool);
     },
-    [onApprove, onCancel]
+    []
   );
 
   const requestApproval = useCallback(

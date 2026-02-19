@@ -5,6 +5,13 @@ import { cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { Check, Code, Search, X } from 'lucide-react';
 import * as React from 'react';
 
+// Stable module-level icon elements to avoid creating new JSX on each render
+// (avoids breaking memo() on FilterChip)
+const INCLUDE_ICON = <Check className="h-3 w-3" />;
+const EXCLUDE_ICON = <X className="h-3 w-3" />;
+const SEARCH_ICON = <Search className="h-3 w-3" />;
+const REGEX_ICON = <Code className="h-3 w-3" />;
+
 export const DirectoryStatus: React.FC<{
   rootDirectoryHandle: DirectoryHandle | null;
 }> = React.memo(({ rootDirectoryHandle }) => {
@@ -98,7 +105,7 @@ export const FilterStatus: React.FC<{
         {includeFilters.map((filter) => (
           <FilterChip
             disabled={disabledIncludeFilters?.has(filter) ?? false}
-            icon={<Check className="h-3 w-3" />}
+            icon={INCLUDE_ICON}
             key={`include-${filter}`}
             label={FileExplorerStrings.status.includeFilters}
             onToggle={onToggleFilter ? () => onToggleFilter(filter, 'include') : undefined}
@@ -109,7 +116,7 @@ export const FilterStatus: React.FC<{
         {excludeFilters.map((filter) => (
           <FilterChip
             disabled={disabledExcludeFilters?.has(filter) ?? false}
-            icon={<X className="h-3 w-3" />}
+            icon={EXCLUDE_ICON}
             key={`exclude-${filter}`}
             label={FileExplorerStrings.status.excludeFilters}
             onToggle={onToggleFilter ? () => onToggleFilter(filter, 'exclude') : undefined}
@@ -119,7 +126,7 @@ export const FilterStatus: React.FC<{
         ))}
         {quickFilter && (
           <FilterChip
-            icon={<Search className="h-3 w-3" />}
+            icon={SEARCH_ICON}
             label={FileExplorerStrings.status.quickFilter}
             value={quickFilter}
             variant="search"
@@ -127,7 +134,7 @@ export const FilterStatus: React.FC<{
         )}
         {useRegex && (
           <FilterChip
-            icon={<Code className="h-3 w-3" />}
+            icon={REGEX_ICON}
             label={FileExplorerStrings.status.regexMode}
             value="regex"
             variant="regex"

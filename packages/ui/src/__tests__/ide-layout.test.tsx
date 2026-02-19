@@ -99,10 +99,14 @@ vi.mock('react-resizable-panels', () => {
       collapse: Mock;
     };
     useImperativeHandle(panelRef, () => handle);
-    if (props.id) {
-      const id = String(props.id);
-      panelHandles[id] = handle;
-    }
+    const handleRef = React.useRef(handle);
+    const panelId = props.id ? String(props.id) : null;
+    React.useEffect(() => {
+      handleRef.current = handle;
+      if (panelId) {
+        panelHandles[panelId] = handleRef.current;
+      }
+    });
     return (
       <div data-testid="panel" {...props}>
         {children}

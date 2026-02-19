@@ -25,17 +25,20 @@ const CardHeader = ({
 CardHeader.displayName = 'CardHeader';
 
 const CardTitle = ({
+  children,
   className,
   ref,
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement> & {
-  ref?: React.RefObject<HTMLParagraphElement | null>;
+  ref?: React.RefObject<HTMLHeadingElement | null>;
 }) => (
   <h3
     className={cn('font-semibold text-2xl leading-none tracking-tight', className)}
     ref={ref}
     {...props}
-  />
+  >
+    {children}
+  </h3>
 );
 CardTitle.displayName = 'CardTitle';
 

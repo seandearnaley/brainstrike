@@ -118,8 +118,8 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
   const [isReady, setIsReady] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  // Track when port is created (separate from ready state)
-  const [portCreated, setPortCreated] = useState(false);
+  // Track the port in state so useMemo doesn't need to read from ref during render
+  const [currentPortState, setCurrentPortState] = useState<ChunkingWorkerPort | null>(null);
 
   // Use refs for worker/port to avoid re-renders when they change
   const workerRef = useRef<Worker | null>(null);
@@ -149,7 +149,7 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
       workerRef.current.terminate();
       workerRef.current = null;
     }
-    setPortCreated(false);
+    setCurrentPortState(null);
   }, []);
 
   const initialize = useCallback(async () => {
@@ -172,7 +172,7 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
         // a re-render before portRef.current is set.
         const port = createChunkingWorkerPort(worker);
         portRef.current = port;
-        setPortCreated(true);
+        setCurrentPortState(port);
 
         const handleMessage = (event: MessageEvent) => {
           const { data } = event;
@@ -274,7 +274,7 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
     portRef.current = null;
     initPromiseRef.current = null;
     setIsReady(false);
-    setPortCreated(false);
+    setCurrentPortState(null);
     setError(null);
     setIsProcessing(false);
     terminalFailureActiveRef.current = false;
@@ -306,12 +306,9 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
   // Create wrapped port that tracks processing state
   // This returns the port even when not ready - consumers should check isReady()
   // This prevents fallback to main thread when import starts before worker is ready
+  // Note: Using currentPortState (state) instead of portRef.current because refs don't trigger re-renders
   const wrappedPort = useMemo((): ChunkingWorkerPort | null => {
-    if (!portCreated) {
-      return null;
-    }
-    const currentPort = portRef.current;
-    if (!currentPort) {
+    if (!currentPortState) {
       return null;
     }
 
@@ -319,30 +316,33 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
       chunkFile: async (...args) => {
         setIsProcessing(true);
         try {
-          return await currentPort.chunkFile(...args);
-        } finally {
+          const result = await currentPortState.chunkFile(...args);
           setIsProcessing(false);
+          return result;
+        } catch (err) {
+          setIsProcessing(false);
+          throw err;
         }
       },
       chunkBatch: async (files, options, callbacks?: ChunkingBatchCallbacks) => {
         setIsProcessing(true);
         try {
-          return await currentPort.chunkBatch(files, options, callbacks);
-        } finally {
+          const result = await currentPortState.chunkBatch(files, options, callbacks);
           setIsProcessing(false);
+          return result;
+        } catch (err) {
+          setIsProcessing(false);
+          throw err;
         }
       },
-      isReady: () => currentPort.isReady(),
+      isReady: () => currentPortState.isReady(),
       terminate: () => {
-        currentPort.terminate();
+        currentPortState.terminate();
         portRef.current = null;
         setIsReady(false);
       },
     };
-    // Re-run when port becomes available (not just when ready)
-    // This ensures port is returned as soon as it's created, even if not ready yet
-    // Note: Using portCreated state instead of portRef.current because refs don't trigger re-renders
-  }, [portCreated]);
+  }, [currentPortState]);
 
   const contextValue = useMemo<ChunkingWorkerContextValue>(
     () => ({

@@ -85,13 +85,14 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
             'Embedding worker started after provider dispose; stopping stale worker',
             'Stale embedding worker stopped after dispose'
           );
+          startingRef.current = false;
           return;
         }
         controllerRef.current = controller;
         logger.info('Embedding worker started successfully');
+        startingRef.current = false;
       } catch (error) {
         logWorkerStartError(error);
-      } finally {
         startingRef.current = false;
       }
     };

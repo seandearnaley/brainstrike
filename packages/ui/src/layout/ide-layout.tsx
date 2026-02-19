@@ -38,22 +38,24 @@ const LAYOUT_INIT_SLOW_THRESHOLD_MS = 100;
 
 // Layout handler configuration
 interface LayoutHandlerConfig {
-  leftPanelContent?: React.ReactNode;
-  rightPanelContent?: React.ReactNode;
-  consoleContent?: React.ReactNode;
-  showLeftPanel?: boolean;
-  showRightPanel?: boolean;
-  showConsole?: boolean;
-  safeLeftSize?: number;
-  safeRightSize?: number;
-  safeConsoleSize?: number;
-  saveLayout?: (
-    sizes: number[],
-    showConsole?: boolean,
-    showLeftPanel?: boolean,
-    showRightPanel?: boolean
-  ) => void;
-  isInitialRenderRef?: React.RefObject<boolean>;
+  leftPanelContent?: React.ReactNode | undefined;
+  rightPanelContent?: React.ReactNode | undefined;
+  consoleContent?: React.ReactNode | undefined;
+  showLeftPanel?: boolean | undefined;
+  showRightPanel?: boolean | undefined;
+  showConsole?: boolean | undefined;
+  safeLeftSize?: number | undefined;
+  safeRightSize?: number | undefined;
+  safeConsoleSize?: number | undefined;
+  saveLayout?:
+    | ((
+        sizes: number[],
+        showConsole?: boolean,
+        showLeftPanel?: boolean,
+        showRightPanel?: boolean
+      ) => void)
+    | undefined;
+  isInitialRenderRef?: React.RefObject<boolean> | undefined;
 }
 
 function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerConfig {
@@ -96,20 +98,47 @@ function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerCon
 
 // Custom hook for managing layout change handlers
 function useLayoutHandlers(config: LayoutHandlerConfig) {
+  const {
+    leftPanelContent,
+    rightPanelContent,
+    consoleContent,
+    showLeftPanel,
+    showRightPanel,
+    showConsole,
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+    saveLayout,
+    isInitialRenderRef,
+  } = config;
+
   const stableConfig = useMemo<LayoutHandlerConfig>(
-    () => buildLayoutHandlerConfig(config),
+    () =>
+      buildLayoutHandlerConfig({
+        leftPanelContent,
+        rightPanelContent,
+        consoleContent,
+        showLeftPanel,
+        showRightPanel,
+        showConsole,
+        safeLeftSize,
+        safeRightSize,
+        safeConsoleSize,
+        saveLayout,
+        isInitialRenderRef,
+      }),
     [
-      config.leftPanelContent,
-      config.rightPanelContent,
-      config.consoleContent,
-      config.showLeftPanel,
-      config.showRightPanel,
-      config.showConsole,
-      config.safeLeftSize,
-      config.safeRightSize,
-      config.safeConsoleSize,
-      config.saveLayout,
-      config.isInitialRenderRef,
+      leftPanelContent,
+      rightPanelContent,
+      consoleContent,
+      showLeftPanel,
+      showRightPanel,
+      showConsole,
+      safeLeftSize,
+      safeRightSize,
+      safeConsoleSize,
+      saveLayout,
+      isInitialRenderRef,
     ]
   );
 

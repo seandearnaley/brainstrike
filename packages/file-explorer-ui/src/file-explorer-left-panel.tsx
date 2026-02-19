@@ -410,9 +410,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         title: FileExplorerStrings.success.title,
         description: FileExplorerStrings.success.refreshSuccess,
       });
+      setIsRefreshing(false);
     } catch (error) {
       handleRefreshError(error);
-    } finally {
       setIsRefreshing(false);
     }
   }, [rootDirectoryHandle, refreshFileExplorer, showToast, handleRefreshError]);

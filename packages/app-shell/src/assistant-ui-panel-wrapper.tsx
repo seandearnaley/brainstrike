@@ -45,7 +45,7 @@ import {
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
-import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type FC, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -97,6 +97,26 @@ interface TotalFilesRow {
 
 interface QueryableTokenDatabase {
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+}
+
+async function computeTreeTokenEstimate(
+  db: QueryableTokenDatabase,
+  isCancelled: () => boolean
+): Promise<number> {
+  try {
+    const result = await db.query<TotalFilesRow>('SELECT COUNT(*) AS count FROM file_records');
+    if (isCancelled()) {
+      return 0;
+    }
+    const firstRow = result.rows[0];
+    const rawCount = firstRow ? firstRow.count : undefined;
+    const totalFiles =
+      typeof rawCount === 'number' ? rawCount : Number.parseInt(String(rawCount ?? '0'), 10) || 0;
+    const estimatedLines = Math.min(totalFiles, TREE_CONTEXT_LINE_LIMIT) + (totalFiles > 0 ? 1 : 0);
+    return estimatedLines * TREE_TOKEN_ESTIMATE_PER_LINE;
+  } catch {
+    return 0;
+  }
 }
 
 function loadStoredIncludeFileReport(): boolean {
@@ -282,6 +302,52 @@ function buildProviderOptions(
   }
 }
 
+interface McpState {
+  tools: AssistantToolMenuItem[];
+  loading: boolean;
+}
+
+type McpAction =
+  | { type: 'LOADING' }
+  | { type: 'LOADED'; tools: AssistantToolMenuItem[] }
+  | { type: 'ERROR' };
+
+function mcpReducer(_state: McpState, action: McpAction): McpState {
+  switch (action.type) {
+    case 'LOADING':
+      return { tools: [], loading: true };
+    case 'LOADED':
+      return { tools: action.tools, loading: false };
+    case 'ERROR':
+      return { tools: [], loading: false };
+    default:
+      return _state;
+  }
+}
+
+interface TokenEstimateState {
+  selectionTokensFromDb: number;
+  projectTreeTokensEstimate: number;
+}
+
+type TokenEstimateAction =
+  | { type: 'SET_SELECTION'; tokens: number }
+  | { type: 'SET_TREE'; tokens: number };
+
+function tokenEstimateReducer(
+  state: TokenEstimateState,
+  action: TokenEstimateAction
+): TokenEstimateState {
+  switch (action.type) {
+    case 'SET_SELECTION':
+      return { ...state, selectionTokensFromDb: action.tokens };
+    case 'SET_TREE':
+      return { ...state, projectTreeTokensEstimate: action.tokens };
+    default:
+      return state;
+  }
+}
+
 export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ initialProviders }) => {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
     () => initialProviders ?? []
@@ -316,8 +382,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
-  const [mcpTools, setMcpTools] = useState<AssistantToolMenuItem[]>([]);
-  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpState, dispatchMcp] = useReducer(mcpReducer, { tools: [], loading: false });
+  const mcpTools = mcpState.tools;
+  const mcpLoading = mcpState.loading;
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -327,15 +394,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     };
   }, []);
 
-  const setMcpToolsIfMounted = useCallback((items: AssistantToolMenuItem[]) => {
+  const dispatchMcpIfMounted = useCallback((action: McpAction) => {
     if (isMountedRef.current) {
-      setMcpTools(items);
-    }
-  }, []);
-
-  const setMcpLoadingIfMounted = useCallback((value: boolean) => {
-    if (isMountedRef.current) {
-      setMcpLoading(value);
+      dispatchMcp(action);
     }
   }, []);
 
@@ -428,8 +489,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const [includeFileReport, setIncludeFileReport] = useState<boolean>(() =>
     loadStoredIncludeFileReport()
   );
-  const [selectionTokensFromDb, setSelectionTokensFromDb] = useState<number>(0);
-  const [projectTreeTokensEstimate, setProjectTreeTokensEstimate] = useState<number>(0);
+  const [tokenEstimateState, dispatchTokenEstimate] = useReducer(tokenEstimateReducer, {
+    selectionTokensFromDb: 0,
+    projectTreeTokensEstimate: 0,
+  });
+  const selectionTokensFromDb = tokenEstimateState.selectionTokensFromDb;
+  const projectTreeTokensEstimate = tokenEstimateState.projectTreeTokensEstimate;
   const handleSelectionLimitExceeded = useCallback(() => {}, []);
   const { effectiveSelection } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitExceeded,
@@ -476,7 +541,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   useEffect(() => {
     const folderId = selectionData.folderId;
     if (!(db && folderId && selectionData.filePaths.length > 0)) {
-      setSelectionTokensFromDb(0);
+      dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: 0 });
       return;
     }
 
@@ -484,12 +549,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     void estimateSelectionTokenCountFromDb(db as QueryableTokenDatabase, selectionData.filePaths)
       .then((total) => {
         if (!cancelled) {
-          setSelectionTokensFromDb(total);
+          dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: total });
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setSelectionTokensFromDb(0);
+          dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: 0 });
         }
       });
 
@@ -500,31 +565,16 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   useEffect(() => {
     if (!(db && includeProjectTree)) {
-      setProjectTreeTokensEstimate(0);
+      dispatchTokenEstimate({ type: 'SET_TREE', tokens: 0 });
       return;
     }
 
     let cancelled = false;
-    void (async () => {
-      try {
-        const result = await db.query<TotalFilesRow>('SELECT COUNT(*) AS count FROM file_records');
-        if (cancelled) {
-          return;
-        }
-        const countValue = result.rows[0]?.count;
-        const totalFiles =
-          typeof countValue === 'number'
-            ? countValue
-            : Number.parseInt(String(countValue ?? '0'), 10) || 0;
-        const estimatedLines =
-          Math.min(totalFiles, TREE_CONTEXT_LINE_LIMIT) + (totalFiles > 0 ? 1 : 0);
-        setProjectTreeTokensEstimate(estimatedLines * TREE_TOKEN_ESTIMATE_PER_LINE);
-      } catch {
-        if (!cancelled) {
-          setProjectTreeTokensEstimate(0);
-        }
+    void computeTreeTokenEstimate(db, () => cancelled).then((tokens) => {
+      if (!cancelled) {
+        dispatchTokenEstimate({ type: 'SET_TREE', tokens });
       }
-    })();
+    });
 
     return () => {
       cancelled = true;
@@ -652,20 +702,18 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   const loadMcpTools = useCallback(async () => {
     if (typeof window === 'undefined' || !window.mcp?.listTools) {
-      setMcpToolsIfMounted([]);
+      dispatchMcpIfMounted({ type: 'LOADED', tools: [] });
       return;
     }
 
-    setMcpLoadingIfMounted(true);
+    dispatchMcpIfMounted({ type: 'LOADING' });
     try {
       const toolsByServer = (await window.mcp.listTools()) as McpToolMap;
-      setMcpToolsIfMounted(buildMcpMenuItems(toolsByServer));
+      dispatchMcpIfMounted({ type: 'LOADED', tools: buildMcpMenuItems(toolsByServer) });
     } catch {
-      setMcpToolsIfMounted([]);
-    } finally {
-      setMcpLoadingIfMounted(false);
+      dispatchMcpIfMounted({ type: 'ERROR' });
     }
-  }, [setMcpLoadingIfMounted, setMcpToolsIfMounted]);
+  }, [dispatchMcpIfMounted]);
 
   useEffect(() => {
     void loadMcpTools();
@@ -761,6 +809,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     tokenBudget,
   ]);
 
+  const workspaceRootPath = rootDirectoryHandle?.path ?? null;
+
   const requestData = useMemo(() => {
     const data: Record<string, unknown> = {};
     if (activeEmbeddingSetId) {
@@ -772,8 +822,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     if (selectionData.folderId) {
       data['selectionFolderId'] = selectionData.folderId;
     }
-    if (rootDirectoryHandle?.path) {
-      data['workspaceRootPath'] = rootDirectoryHandle.path;
+    if (workspaceRootPath) {
+      data['workspaceRootPath'] = workspaceRootPath;
     }
     if (typeof tokenBudget === 'number') {
       data['tokenBudget'] = tokenBudget;
@@ -795,7 +845,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     includeProjectTree,
     modelSettings,
     providerOptions,
-    rootDirectoryHandle?.path,
+    workspaceRootPath,
     selectionData,
     tokenBudget,
   ]);

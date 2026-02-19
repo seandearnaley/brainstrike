@@ -1,16 +1,39 @@
 import { Badge } from '@brainstrike/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 
 interface McpStatus {
   exists: boolean;
   servers: Array<{ name: string; transport: 'stdio' | 'sse' }>;
 }
 
-export function McpBanner() {
-  const [status, setStatus] = useState<McpStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+interface McpState {
+  status: McpStatus | null;
+  error: string | null;
+}
 
-  // biome-ignore lint/plugin: Async data fetching on mount - standard pattern for loading MCP config
+type McpAction =
+  | { type: 'RESET' }
+  | { type: 'SUCCESS'; status: McpStatus }
+  | { type: 'ERROR'; error: string };
+
+const initialMcpState: McpState = { status: null, error: null };
+
+function mcpReducer(state: McpState, action: McpAction): McpState {
+  switch (action.type) {
+    case 'RESET':
+      return { status: null, error: null };
+    case 'SUCCESS':
+      return { status: action.status, error: null };
+    case 'ERROR':
+      return { status: state.status, error: action.error };
+    default:
+      return state;
+  }
+}
+
+export function McpBanner() {
+  const [{ status, error }, dispatch] = useReducer(mcpReducer, initialMcpState);
+
   useEffect(() => {
     let mounted = true;
 
@@ -21,16 +44,17 @@ export function McpBanner() {
       }
 
       if (!res) {
-        setStatus(null);
-        setError(null);
+        dispatch({ type: 'RESET' });
         return;
       }
 
-      setStatus({
-        exists: Boolean(res.exists),
-        servers: (res.servers ?? []) as McpStatus['servers'],
+      dispatch({
+        type: 'SUCCESS',
+        status: {
+          exists: Boolean(res.exists),
+          servers: (res.servers ?? []) as McpStatus['servers'],
+        },
       });
-      setError(null);
     }
 
     async function run() {
@@ -40,7 +64,7 @@ export function McpBanner() {
         if (!mounted) {
           return;
         }
-        setError(e instanceof Error ? e.message : String(e));
+        dispatch({ type: 'ERROR', error: e instanceof Error ? e.message : String(e) });
       }
     }
 

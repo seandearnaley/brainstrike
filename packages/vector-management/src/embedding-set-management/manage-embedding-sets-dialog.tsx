@@ -15,7 +15,7 @@ import {
 import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useReducer } from 'react';
 import { CreateEmbeddingSetDialog } from './create-embedding-set-dialog';
 import { DeleteEmbeddingSetDialog } from './delete-embedding-set-dialog';
 import { formatRelativeTimeFromNow } from './format-utils';
@@ -104,6 +104,61 @@ function dbModelToPickerModel(dbModel: DbModel): ModelPickerModel {
 
 const logger = createLogger('ManageEmbeddingSetsDialog');
 
+interface DialogState {
+  sets: EmbeddingSetWithStats[];
+  loading: boolean;
+  createDialogOpen: boolean;
+  renameDialogOpen: boolean;
+  deleteDialogOpen: boolean;
+  selectedSet: EmbeddingSetWithStats | null;
+}
+
+type DialogAction =
+  | { type: 'sets_loading' }
+  | { type: 'sets_loaded'; sets: EmbeddingSetWithStats[] }
+  | { type: 'sets_error' }
+  | { type: 'open_create' }
+  | { type: 'open_rename'; set: EmbeddingSetWithStats }
+  | { type: 'open_delete'; set: EmbeddingSetWithStats }
+  | { type: 'close_create' }
+  | { type: 'close_rename' }
+  | { type: 'close_delete' }
+  | { type: 'clear_selected' };
+
+const INITIAL_DIALOG_STATE: DialogState = {
+  sets: [],
+  loading: false,
+  createDialogOpen: false,
+  renameDialogOpen: false,
+  deleteDialogOpen: false,
+  selectedSet: null,
+};
+
+function dialogReducer(state: DialogState, action: DialogAction): DialogState {
+  switch (action.type) {
+    case 'sets_loading':
+      return { ...state, loading: true };
+    case 'sets_loaded':
+      return { ...state, loading: false, sets: action.sets };
+    case 'sets_error':
+      return { ...state, loading: false };
+    case 'open_create':
+      return { ...state, createDialogOpen: true };
+    case 'open_rename':
+      return { ...state, renameDialogOpen: true, selectedSet: action.set };
+    case 'open_delete':
+      return { ...state, deleteDialogOpen: true, selectedSet: action.set };
+    case 'close_create':
+      return { ...state, createDialogOpen: false };
+    case 'close_rename':
+      return { ...state, renameDialogOpen: false };
+    case 'close_delete':
+      return { ...state, deleteDialogOpen: false };
+    case 'clear_selected':
+      return { ...state, selectedSet: null };
+  }
+}
+
 export function ManageEmbeddingSetsDialog({
   open,
   onOpenChange,
@@ -111,31 +166,21 @@ export function ManageEmbeddingSetsDialog({
   repository,
   onSetSelected,
 }: ManageEmbeddingSetsDialogProps) {
-  const [sets, setSets] = useState<EmbeddingSetWithStats[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedSet, setSelectedSet] = useState<EmbeddingSetWithStats | null>(null);
+  const [state, dispatch] = useReducer(dialogReducer, INITIAL_DIALOG_STATE);
+  const { sets, loading, createDialogOpen, renameDialogOpen, deleteDialogOpen, selectedSet } =
+    state;
 
   // Get all models from database - single source of truth
   const dbModels = useModelRegistryStore((state) => state.models);
   const ensureRegistry = useModelRegistryStore((state) => state.ensureRegistry);
-
-  // Load models from database when dialog opens
-  // biome-ignore lint/plugin: Load registry when dialog opens - ensureRegistry is stable from zustand
-  useEffect(() => {
-    if (open && db) {
-      void ensureRegistry(db);
-    }
-  }, [open, db, ensureRegistry]);
 
   const loadSets = useCallback(async () => {
     if (!db) {
       return;
     }
 
-    setLoading(true);
+    await Promise.resolve();
+    dispatch({ type: 'sets_loading' });
     try {
       const result = await db.query<{
         id: string;
@@ -170,39 +215,41 @@ export function ManageEmbeddingSetsDialog({
       );
 
       const mapped: EmbeddingSetWithStats[] = result.rows.map(mapRowToSet);
-
-      setSets(mapped);
+      dispatch({ type: 'sets_loaded', sets: mapped });
     } catch (error) {
       logger.error('Failed to load embedding sets', { error });
-    } finally {
-      setLoading(false);
+      dispatch({ type: 'sets_error' });
     }
   }, [db]);
 
-  // biome-ignore lint/plugin: Load sets when dialog opens - standard modal data loading
-  useEffect(() => {
-    if (open) {
-      void loadSets();
-    }
-  }, [open, loadSets]);
+  const handleDialogOpenChange = useCallback(
+    (isOpen: boolean) => {
+      if (isOpen) {
+        if (db) {
+          void ensureRegistry(db);
+        }
+        void loadSets();
+      }
+      onOpenChange(isOpen);
+    },
+    [db, ensureRegistry, loadSets, onOpenChange]
+  );
 
   const handleCreateSet = () => {
-    setCreateDialogOpen(true);
+    dispatch({ type: 'open_create' });
   };
 
   const handleEditSet = (set: EmbeddingSetWithStats) => {
-    setSelectedSet(set);
-    setRenameDialogOpen(true);
+    dispatch({ type: 'open_rename', set });
   };
 
   const handleDeleteSet = (set: EmbeddingSetWithStats) => {
-    setSelectedSet(set);
-    setDeleteDialogOpen(true);
+    dispatch({ type: 'open_delete', set });
   };
 
   const handleSetAction = async (newSetId?: string) => {
     await loadSets();
-    setSelectedSet(null);
+    dispatch({ type: 'clear_selected' });
     // Auto-select newly created collection
     if (newSetId && onSetSelected) {
       onSetSelected(newSetId);
@@ -228,7 +275,7 @@ export function ManageEmbeddingSetsDialog({
 
   return (
     <>
-      <Dialog onOpenChange={onOpenChange} open={open}>
+      <Dialog onOpenChange={handleDialogOpenChange} open={open}>
         <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-[700px]">
           <DialogHeader>
             <div className="flex items-center justify-between">
@@ -374,7 +421,11 @@ export function ManageEmbeddingSetsDialog({
 
       <CreateEmbeddingSetDialog
         models={availableModels}
-        onOpenChange={setCreateDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            dispatch({ type: 'close_create' });
+          }
+        }}
         onSetCreated={handleSetAction}
         open={createDialogOpen}
         providers={providers}
@@ -383,7 +434,12 @@ export function ManageEmbeddingSetsDialog({
 
       <RenameEmbeddingSetDialog
         embeddingSet={selectedSet}
-        onOpenChange={setRenameDialogOpen}
+        key={selectedSet?.id ?? 'none'}
+        onOpenChange={(open) => {
+          if (!open) {
+            dispatch({ type: 'close_rename' });
+          }
+        }}
         onSetRenamed={handleSetAction}
         open={renameDialogOpen}
         repository={repository}
@@ -392,7 +448,11 @@ export function ManageEmbeddingSetsDialog({
       <DeleteEmbeddingSetDialog
         db={db}
         embeddingSet={selectedSet}
-        onOpenChange={setDeleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            dispatch({ type: 'close_delete' });
+          }
+        }}
         onSetDeleted={handleSetAction}
         open={deleteDialogOpen}
       />

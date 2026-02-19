@@ -12,16 +12,47 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import type { LoggingPreferences } from '@brainstrike/utils';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import type { LoggingSettingsPayload } from '../../../logging-shared';
 import { getRendererLogBuffer } from '../../log-buffer';
 
+interface LoggingSettingsState {
+  loading: boolean;
+  syncing: boolean;
+  error: string | null;
+  fileCapabilities: LoggingSettingsSectionProps['fileCapabilities'];
+}
+
+type LoggingSettingsAction =
+  | { type: 'start_syncing' }
+  | { type: 'stop_syncing' }
+  | { type: 'load_success'; fileCapabilities: LoggingSettingsSectionProps['fileCapabilities'] }
+  | { type: 'load_error'; error: string };
+
+function loggingSettingsReducer(
+  state: LoggingSettingsState,
+  action: LoggingSettingsAction
+): LoggingSettingsState {
+  switch (action.type) {
+    case 'start_syncing':
+      return { ...state, syncing: true };
+    case 'stop_syncing':
+      return { ...state, syncing: false };
+    case 'load_success':
+      return { ...state, loading: false, error: null, fileCapabilities: action.fileCapabilities };
+    case 'load_error':
+      return { ...state, loading: false, error: action.error };
+  }
+}
+
 export function DesktopLoggingSettings() {
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fileCapabilities, setFileCapabilities] =
-    useState<LoggingSettingsSectionProps['fileCapabilities']>();
+  const [settingsState, settingsDispatch] = useReducer(loggingSettingsReducer, {
+    loading: true,
+    syncing: false,
+    error: null,
+    fileCapabilities: undefined,
+  });
+  const { loading, syncing, error, fileCapabilities } = settingsState;
   const { toast } = useToast();
 
   const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
@@ -47,17 +78,19 @@ export function DesktopLoggingSettings() {
   const mapPayload = useCallback(
     (payload: LoggingSettingsPayload) => {
       setPreferences(payload.preferences);
-      setFileCapabilities({
-        fileLoggingSupported: payload.capabilities.fileLoggingSupported,
-        canSelectDestination: payload.capabilities.canSelectDestination,
-        reason: payload.capabilities.reason,
-        defaultDestination: payload.capabilities.defaultDestination,
+      settingsDispatch({
+        type: 'load_success',
+        fileCapabilities: {
+          fileLoggingSupported: payload.capabilities.fileLoggingSupported,
+          canSelectDestination: payload.capabilities.canSelectDestination,
+          reason: payload.capabilities.reason,
+          defaultDestination: payload.capabilities.defaultDestination,
+        },
       });
     },
     [setPreferences]
   );
 
-  // biome-ignore lint/plugin: Async data fetching with cleanup - standard pattern for loading preferences
   useEffect(() => {
     let cancelled = false;
 
@@ -66,8 +99,6 @@ export function DesktopLoggingSettings() {
         return;
       }
       mapPayload(payload);
-      setError(null);
-      setLoading(false);
     };
 
     const finishWithError = (err: unknown) => {
@@ -75,20 +106,24 @@ export function DesktopLoggingSettings() {
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      setLoading(false);
+      settingsDispatch({ type: 'load_error', error: message });
     };
 
     const fetchPreferences = async () => {
-      try {
-        const response = await window.logging?.getPreferences?.();
-        if (!response) {
-          throw new Error('Logging bridge is unavailable in this build.');
-        }
-        finishWithPayload(response);
-      } catch (err) {
+      let caughtError = false;
+      const response = await window.logging?.getPreferences?.().catch((err: unknown) => {
+        caughtError = true;
         finishWithError(err);
+        return undefined;
+      });
+      if (caughtError) {
+        return;
       }
+      if (!response) {
+        finishWithError(new Error('Logging bridge is unavailable in this build.'));
+        return;
+      }
+      finishWithPayload(response);
     };
 
     void fetchPreferences();
@@ -103,22 +138,29 @@ export function DesktopLoggingSettings() {
       if (!window.logging?.setPreferences) {
         throw new Error('Logging bridge is unavailable in this build.');
       }
-      setSyncing(true);
+      settingsDispatch({ type: 'start_syncing' });
+      let caughtError: unknown = null;
+      let result: Awaited<ReturnType<typeof window.logging.setPreferences>> | undefined;
       try {
-        const updated = await window.logging.setPreferences(preferences);
-        mapPayload(updated);
-        return updated.preferences;
+        result = await window.logging.setPreferences(preferences);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        caughtError = err;
+      }
+      settingsDispatch({ type: 'stop_syncing' });
+      if (caughtError !== null) {
+        const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
         toast({
           title: 'Failed to persist logging preferences',
           description: message,
           variant: 'destructive',
         });
-        throw err;
-      } finally {
-        setSyncing(false);
+        throw caughtError;
       }
+      if (result) {
+        mapPayload(result);
+        return result.preferences;
+      }
+      return undefined;
     },
     [mapPayload, toast]
   );

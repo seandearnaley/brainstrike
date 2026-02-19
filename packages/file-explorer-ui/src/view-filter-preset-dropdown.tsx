@@ -39,8 +39,59 @@ import {
   User,
   X,
 } from 'lucide-react';
-import type React from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+
+interface FormState {
+  name: string;
+  includes: string;
+  excludes: string;
+  useRegex: boolean;
+  icon: ViewFilterPresetIcon;
+}
+
+type FormAction =
+  | { type: 'SET_NAME'; value: string }
+  | { type: 'SET_INCLUDES'; value: string }
+  | { type: 'SET_EXCLUDES'; value: string }
+  | { type: 'SET_USE_REGEX'; value: boolean }
+  | { type: 'SET_ICON'; value: ViewFilterPresetIcon }
+  | { type: 'RESET' }
+  | { type: 'LOAD'; preset: ViewFilterPreset };
+
+const EMPTY_FORM: FormState = {
+  name: '',
+  includes: '',
+  excludes: '',
+  useRegex: false,
+  icon: 'file',
+};
+
+function formReducer(state: FormState, action: FormAction): FormState {
+  switch (action.type) {
+    case 'SET_NAME':
+      return { ...state, name: action.value };
+    case 'SET_INCLUDES':
+      return { ...state, includes: action.value };
+    case 'SET_EXCLUDES':
+      return { ...state, excludes: action.value };
+    case 'SET_USE_REGEX':
+      return { ...state, useRegex: action.value };
+    case 'SET_ICON':
+      return { ...state, icon: action.value };
+    case 'RESET':
+      return EMPTY_FORM;
+    case 'LOAD':
+      return {
+        name: action.preset.name,
+        includes: action.preset.includes.join(', '),
+        excludes: action.preset.excludes.join(', '),
+        useRegex: action.preset.useRegex,
+        icon: action.preset.icon,
+      };
+    default:
+      return state;
+  }
+}
 
 // Map icon names to Lucide components
 const ICON_MAP: Record<ViewFilterPresetIcon, React.ElementType> = {
@@ -62,7 +113,239 @@ const ICON_MAP: Record<ViewFilterPresetIcon, React.ElementType> = {
   'test-tube': FlaskConical,
 };
 
+/** Look up the Lucide icon component for a given preset icon name. Falls back to Filter. */
+const getIcon = (name: ViewFilterPresetIcon): React.ElementType => ICON_MAP[name] ?? Filter;
+
 const logger = createLogger('ViewFilterPresetDropdown');
+
+// ─── Subcomponents ────────────────────────────────────────────────────────────
+
+interface IconPickerProps {
+  selectedIcon: ViewFilterPresetIcon;
+  size?: 'sm' | 'md';
+  onSelect: (name: ViewFilterPresetIcon) => void;
+}
+
+function IconPicker({ selectedIcon, size = 'md', onSelect }: IconPickerProps) {
+  return (
+    <div className={`grid grid-cols-5 ${size === 'sm' ? 'gap-1' : 'gap-2'}`}>
+      {PRESET_ICON_OPTIONS.map(({ name, label }) => {
+        const IconComponent = getIcon(name);
+        const isSelected = selectedIcon === name;
+        const btnSize = size === 'sm' ? 'size-6' : 'h-7 w-full';
+        const iconSize = size === 'sm' ? 'size-3' : 'size-4';
+        return (
+          <button
+            aria-label={`Select ${label} icon${isSelected ? ' (selected)' : ''}`}
+            aria-pressed={isSelected}
+            className={cn(
+              `flex ${btnSize} items-center justify-center rounded border transition-all`,
+              isSelected
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'bg-background hover:bg-muted'
+            )}
+            key={name}
+            onClick={() => onSelect(name)}
+            title={label}
+            type="button"
+          >
+            <IconComponent className={iconSize} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+interface PresetCreateFormProps {
+  form: FormState;
+  dispatch: React.Dispatch<FormAction>;
+  onCancel: () => void;
+  onCreate: () => void;
+}
+
+function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFormProps) {
+  return (
+    <div className="space-y-3 bg-muted/10 p-3">
+      <div className="flex items-center justify-between border-b pb-2">
+        <span className="font-semibold text-muted-foreground text-xs uppercase">New Preset</span>
+        <Button className="size-5" onClick={onCancel} size="icon" variant="ghost">
+          <X className="size-3" />
+        </Button>
+      </div>
+      <div className="space-y-2">
+        <div className="space-y-1">
+          <label className="font-medium text-[10px] text-muted-foreground" htmlFor="preset-name">
+            Name
+          </label>
+          <Input
+            className="h-7 text-xs"
+            id="preset-name"
+            onChange={(e) => dispatch({ type: 'SET_NAME', value: e.target.value })}
+            placeholder="e.g. My Custom Filter"
+            value={form.name}
+          />
+        </div>
+        <fieldset className="m-0 space-y-1 border-0 p-0">
+          <legend className="font-medium text-[10px] text-muted-foreground">Icon</legend>
+          <IconPicker
+            onSelect={(name) => dispatch({ type: 'SET_ICON', value: name })}
+            selectedIcon={form.icon}
+          />
+        </fieldset>
+        <div className="space-y-1">
+          <label
+            className="font-medium text-[10px] text-muted-foreground"
+            htmlFor="preset-includes"
+          >
+            Include Patterns (comma sep)
+          </label>
+          <Input
+            className="h-7 font-mono text-xs"
+            id="preset-includes"
+            onChange={(e) => dispatch({ type: 'SET_INCLUDES', value: e.target.value })}
+            placeholder="*.ts, src/**"
+            value={form.includes}
+          />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label
+              className="font-medium text-[10px] text-muted-foreground"
+              htmlFor="preset-excludes"
+            >
+              Exclude Patterns
+            </label>
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input
+                checked={form.useRegex}
+                className="sr-only"
+                onChange={(e) => dispatch({ type: 'SET_USE_REGEX', value: e.target.checked })}
+                type="checkbox"
+              />
+              <div
+                aria-hidden="true"
+                className={cn(
+                  'flex size-3 items-center justify-center rounded border transition-colors',
+                  form.useRegex ? 'border-primary bg-primary' : 'border-muted-foreground'
+                )}
+              >
+                {form.useRegex && <Check className="size-2 text-primary-foreground" />}
+              </div>
+              <span className="text-[10px] text-muted-foreground">Use Regex</span>
+            </label>
+          </div>
+          <Input
+            className="h-7 font-mono text-xs"
+            id="preset-excludes"
+            onChange={(e) => dispatch({ type: 'SET_EXCLUDES', value: e.target.value })}
+            placeholder="node_modules, dist"
+            value={form.excludes}
+          />
+        </div>
+      </div>
+      <div className="pt-1">
+        <Button
+          className="h-7 w-full text-xs"
+          disabled={!form.name.trim()}
+          onClick={onCreate}
+          size="sm"
+        >
+          Save & Select
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface PresetEditFormProps {
+  preset: ViewFilterPreset;
+  form: FormState;
+  dispatch: React.Dispatch<FormAction>;
+  onCancel: () => void;
+  onSave: () => void;
+  onDelete: (id: string) => void;
+}
+
+function PresetEditForm({
+  preset,
+  form,
+  dispatch,
+  onCancel,
+  onSave,
+  onDelete,
+}: PresetEditFormProps) {
+  return (
+    <div className="my-1 cursor-default space-y-2 rounded-md border bg-muted/20 p-2">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-muted-foreground text-xs uppercase">
+          Editing {preset.name}
+        </span>
+        <Button className="size-6" onClick={onCancel} size="icon" variant="ghost">
+          <X className="size-3" />
+        </Button>
+      </div>
+      <IconPicker
+        onSelect={(name) => dispatch({ type: 'SET_ICON', value: name })}
+        selectedIcon={form.icon}
+        size="sm"
+      />
+      <Input
+        className="h-7 text-xs"
+        onChange={(e) => dispatch({ type: 'SET_NAME', value: e.target.value })}
+        placeholder="Name"
+        value={form.name}
+      />
+      <Input
+        className="h-7 font-mono text-xs"
+        onChange={(e) => dispatch({ type: 'SET_INCLUDES', value: e.target.value })}
+        placeholder="Include patterns (comma sep)"
+        value={form.includes}
+      />
+      <div className="flex items-center gap-2">
+        <Input
+          className="h-7 flex-1 font-mono text-xs"
+          onChange={(e) => dispatch({ type: 'SET_EXCLUDES', value: e.target.value })}
+          placeholder="Exclude patterns"
+          value={form.excludes}
+        />
+        <label className="flex cursor-pointer items-center gap-1.5">
+          <input
+            checked={form.useRegex}
+            className="sr-only"
+            onChange={(e) => dispatch({ type: 'SET_USE_REGEX', value: e.target.checked })}
+            type="checkbox"
+          />
+          <div
+            aria-hidden="true"
+            className={cn(
+              'flex size-3 items-center justify-center rounded border transition-colors',
+              form.useRegex ? 'border-primary bg-primary' : 'border-muted-foreground'
+            )}
+          >
+            {form.useRegex && <Check className="size-2 text-primary-foreground" />}
+          </div>
+          <span className="text-[10px] text-muted-foreground">Regex</span>
+        </label>
+      </div>
+      <div className="flex gap-2 pt-1">
+        <Button className="h-7 w-full px-2 text-xs" onClick={onSave} size="sm">
+          Save
+        </Button>
+        {!preset.isDefault && (
+          <Button
+            className="h-7 w-full px-2 text-xs"
+            onClick={() => onDelete(preset.id)}
+            size="sm"
+            variant="destructive"
+          >
+            <Trash2 className="mr-1 size-3" /> Delete
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface ViewFilterPresetDropdownProps {
   /** Available presets */
@@ -107,19 +390,11 @@ export function ViewFilterPresetDropdown({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Create form state
-  const [newName, setNewName] = useState('');
-  const [newIncludes, setNewIncludes] = useState('');
-  const [newExcludes, setNewExcludes] = useState('');
-  const [newUseRegex, setNewUseRegex] = useState(false);
-  const [newIcon, setNewIcon] = useState<ViewFilterPresetIcon>('file');
+  // Create form state (consolidated into useReducer)
+  const [newForm, dispatchNew] = useReducer(formReducer, EMPTY_FORM);
 
-  // Edit form state
-  const [editName, setEditName] = useState('');
-  const [editIncludes, setEditIncludes] = useState('');
-  const [editExcludes, setEditExcludes] = useState('');
-  const [editUseRegex, setEditUseRegex] = useState(false);
-  const [editIcon, setEditIcon] = useState<ViewFilterPresetIcon>('file');
+  // Edit form state (consolidated into useReducer)
+  const [editForm, dispatchEdit] = useReducer(formReducer, EMPTY_FORM);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -138,11 +413,7 @@ export function ViewFilterPresetDropdown({
 
   // Reset create form state
   const resetCreateForm = useCallback(() => {
-    setNewName('');
-    setNewIncludes('');
-    setNewExcludes('');
-    setNewUseRegex(false);
-    setNewIcon('file');
+    dispatchNew({ type: 'RESET' });
   }, []);
 
   // Handle dropdown open/close - reset state when closing
@@ -175,30 +446,26 @@ export function ViewFilterPresetDropdown({
   // Start editing a preset - initialize edit form with preset values
   const startEditing = useCallback((preset: ViewFilterPreset) => {
     setEditingId(preset.id);
-    setEditName(preset.name);
-    setEditIncludes(preset.includes.join(', '));
-    setEditExcludes(preset.excludes.join(', '));
-    setEditUseRegex(preset.useRegex);
-    setEditIcon(preset.icon);
+    dispatchEdit({ type: 'LOAD', preset });
   }, []);
 
   const handleCreate = useCallback(async () => {
-    if (!newName.trim()) {
+    if (!newForm.name.trim()) {
       return;
     }
 
     const input: CreateViewFilterPresetInput = {
-      name: newName.trim(),
-      icon: newIcon,
-      includes: newIncludes
+      name: newForm.name.trim(),
+      icon: newForm.icon,
+      includes: newForm.includes
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      excludes: newExcludes
+      excludes: newForm.excludes
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      useRegex: newUseRegex,
+      useRegex: newForm.useRegex,
     };
 
     try {
@@ -210,81 +477,69 @@ export function ViewFilterPresetDropdown({
     } catch (error) {
       logger.error('Failed to create preset', { error, name: input.name });
     }
-  }, [
-    newName,
-    newIcon,
-    newIncludes,
-    newExcludes,
-    newUseRegex,
-    onCreate,
-    onSelect,
-    resetCreateForm,
-  ]);
+  }, [newForm, onCreate, onSelect, resetCreateForm]);
 
   const handleSaveEdit = useCallback(async () => {
-    if (!(editingId && editName.trim())) {
+    if (!(editingId && editForm.name.trim())) {
       return;
     }
 
     const input: UpdateViewFilterPresetInput = {
-      name: editName.trim(),
-      icon: editIcon,
-      includes: editIncludes
+      name: editForm.name.trim(),
+      icon: editForm.icon,
+      includes: editForm.includes
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      excludes: editExcludes
+      excludes: editForm.excludes
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      useRegex: editUseRegex,
+      useRegex: editForm.useRegex,
     };
 
+    const currentEditingId = editingId;
+    const selectedPresetId = selectedPreset?.id;
+
+    let updated: Awaited<ReturnType<typeof onUpdate>> | null = null;
     try {
-      const updated = await onUpdate(editingId, input);
-      if (updated && selectedPreset?.id === editingId) {
-        onSelect(updated);
-      }
-      setEditingId(null);
+      updated = await onUpdate(currentEditingId, input);
     } catch (error) {
-      logger.error('Failed to update preset', { error, id: editingId });
+      logger.error('Failed to update preset', { error, id: currentEditingId });
+      return;
     }
-  }, [
-    editingId,
-    editName,
-    editIcon,
-    editIncludes,
-    editExcludes,
-    editUseRegex,
-    onUpdate,
-    selectedPreset,
-    onSelect,
-  ]);
+    if (updated && selectedPresetId === currentEditingId) {
+      onSelect(updated);
+    }
+    setEditingId(null);
+  }, [editingId, editForm, onUpdate, selectedPreset, onSelect]);
 
   const handleDelete = useCallback(
     async (id: string) => {
+      const selectedId = selectedPreset?.id;
+      let deleted = false;
       try {
-        const deleted = await onDelete(id);
-        if (deleted) {
-          setEditingId(null);
-          // If deleted preset was selected, select first available
-          if (selectedPreset?.id === id && presets.length > 1) {
-            const next = presets.find((p) => p.id !== id);
-            if (next) {
-              onSelect(next);
-            }
-          }
-        }
+        deleted = await onDelete(id);
       } catch (error) {
         logger.error('Failed to delete preset', { error, id });
+      }
+      if (deleted) {
+        setEditingId(null);
+        // If deleted preset was selected, select first available
+        if (selectedId === id) {
+          const next = presets.find((p) => p.id !== id);
+          if (next) {
+            onSelect(next);
+          }
+        }
       }
     },
     [onDelete, selectedPreset, presets, onSelect]
   );
 
-  const getIcon = (iconName: ViewFilterPresetIcon): React.ElementType => ICON_MAP[iconName] || File;
-
-  const SelectedIcon = selectedPreset ? getIcon(selectedPreset.icon) : Filter;
+  const selectedIconType: React.ElementType = selectedPreset
+    ? (ICON_MAP[selectedPreset.icon] ?? File)
+    : Filter;
 
   return (
     <Popover onOpenChange={handleOpenChange} open={isOpen}>
@@ -295,7 +550,7 @@ export function ViewFilterPresetDropdown({
           variant="outline"
         >
           <div className="flex items-center gap-2 overflow-hidden">
-            <SelectedIcon className="size-4 shrink-0 text-primary" />
+            {React.createElement(selectedIconType, { className: 'size-4 shrink-0 text-primary' })}
             <span className="truncate font-medium">
               {selectedPreset?.name ?? 'Select filter...'}
             </span>
@@ -311,136 +566,12 @@ export function ViewFilterPresetDropdown({
 
       <PopoverContent align="start" className="w-80 p-0">
         {isCreating ? (
-          /* Create Mode */
-          <div className="space-y-3 bg-muted/10 p-3">
-            <div className="flex items-center justify-between border-b pb-2">
-              <span className="font-semibold text-muted-foreground text-xs uppercase">
-                New Preset
-              </span>
-              <Button
-                className="size-5"
-                onClick={() => setIsCreating(false)}
-                size="icon"
-                variant="ghost"
-              >
-                <X className="size-3" />
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              {/* Name */}
-              <div className="space-y-1">
-                <label
-                  className="font-medium text-[10px] text-muted-foreground"
-                  htmlFor="preset-name"
-                >
-                  Name
-                </label>
-                <Input
-                  autoFocus
-                  className="h-7 text-xs"
-                  id="preset-name"
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. My Custom Filter"
-                  value={newName}
-                />
-              </div>
-
-              {/* Icon Picker */}
-              <fieldset className="m-0 space-y-1 border-0 p-0">
-                <legend className="font-medium text-[10px] text-muted-foreground">Icon</legend>
-                <div className="grid grid-cols-5 gap-2">
-                  {PRESET_ICON_OPTIONS.map(({ name, label }) => {
-                    const IconComponent = getIcon(name);
-                    const isSelected = newIcon === name;
-                    return (
-                      <button
-                        aria-label={`Select ${label} icon${isSelected ? ' (selected)' : ''}`}
-                        aria-pressed={isSelected}
-                        className={cn(
-                          'flex h-7 w-full items-center justify-center rounded border transition-all',
-                          isSelected
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'bg-background hover:bg-muted'
-                        )}
-                        key={name}
-                        onClick={() => setNewIcon(name)}
-                        title={label}
-                        type="button"
-                      >
-                        <IconComponent className="size-4" />
-                      </button>
-                    );
-                  })}
-                </div>
-              </fieldset>
-
-              {/* Includes */}
-              <div className="space-y-1">
-                <label
-                  className="font-medium text-[10px] text-muted-foreground"
-                  htmlFor="preset-includes"
-                >
-                  Include Patterns (comma sep)
-                </label>
-                <Input
-                  className="h-7 font-mono text-xs"
-                  id="preset-includes"
-                  onChange={(e) => setNewIncludes(e.target.value)}
-                  placeholder="*.ts, src/**"
-                  value={newIncludes}
-                />
-              </div>
-
-              {/* Excludes */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label
-                    className="font-medium text-[10px] text-muted-foreground"
-                    htmlFor="preset-excludes"
-                  >
-                    Exclude Patterns
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-1.5">
-                    <input
-                      checked={newUseRegex}
-                      className="sr-only"
-                      onChange={(e) => setNewUseRegex(e.target.checked)}
-                      type="checkbox"
-                    />
-                    <div
-                      aria-hidden="true"
-                      className={cn(
-                        'flex size-3 items-center justify-center rounded border transition-colors',
-                        newUseRegex ? 'border-primary bg-primary' : 'border-muted-foreground'
-                      )}
-                    >
-                      {newUseRegex && <Check className="size-2 text-primary-foreground" />}
-                    </div>
-                    <span className="text-[10px] text-muted-foreground">Use Regex</span>
-                  </label>
-                </div>
-                <Input
-                  className="h-7 font-mono text-xs"
-                  id="preset-excludes"
-                  onChange={(e) => setNewExcludes(e.target.value)}
-                  placeholder="node_modules, dist"
-                  value={newExcludes}
-                />
-              </div>
-            </div>
-
-            <div className="pt-1">
-              <Button
-                className="h-7 w-full text-xs"
-                disabled={!newName.trim()}
-                onClick={handleCreate}
-                size="sm"
-              >
-                Save & Select
-              </Button>
-            </div>
-          </div>
+          <PresetCreateForm
+            dispatch={dispatchNew}
+            form={newForm}
+            onCancel={() => setIsCreating(false)}
+            onCreate={handleCreate}
+          />
         ) : (
           <>
             {/* Search */}
@@ -462,115 +593,15 @@ export function ViewFilterPresetDropdown({
 
                 if (isEditing) {
                   return (
-                    <div
-                      className="my-1 cursor-default space-y-2 rounded-md border bg-muted/20 p-2"
+                    <PresetEditForm
+                      dispatch={dispatchEdit}
+                      form={editForm}
                       key={preset.id}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-muted-foreground text-xs uppercase">
-                          Editing {preset.name}
-                        </span>
-                        <Button
-                          className="size-6"
-                          onClick={() => setEditingId(null)}
-                          size="icon"
-                          variant="ghost"
-                        >
-                          <X className="size-3" />
-                        </Button>
-                      </div>
-
-                      {/* Icon Picker */}
-                      <div className="grid grid-cols-5 gap-1">
-                        {PRESET_ICON_OPTIONS.map(({ name, label }) => {
-                          const IconComponent = getIcon(name);
-                          const isSelected = editIcon === name;
-                          return (
-                            <button
-                              aria-label={`Select ${label} icon${isSelected ? ' (selected)' : ''}`}
-                              aria-pressed={isSelected}
-                              className={cn(
-                                'flex size-6 items-center justify-center rounded border transition-all',
-                                isSelected
-                                  ? 'border-primary bg-primary text-primary-foreground'
-                                  : 'bg-background hover:bg-muted'
-                              )}
-                              key={name}
-                              onClick={() => setEditIcon(name)}
-                              title={label}
-                              type="button"
-                            >
-                              <IconComponent className="size-3" />
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Name */}
-                      <Input
-                        className="h-7 text-xs"
-                        onChange={(e) => setEditName(e.target.value)}
-                        placeholder="Name"
-                        value={editName}
-                      />
-
-                      {/* Includes */}
-                      <Input
-                        className="h-7 font-mono text-xs"
-                        onChange={(e) => setEditIncludes(e.target.value)}
-                        placeholder="Include patterns (comma sep)"
-                        value={editIncludes}
-                      />
-
-                      {/* Excludes + Regex */}
-                      <div className="flex items-center gap-2">
-                        <Input
-                          className="h-7 flex-1 font-mono text-xs"
-                          onChange={(e) => setEditExcludes(e.target.value)}
-                          placeholder="Exclude patterns"
-                          value={editExcludes}
-                        />
-                        <label className="flex cursor-pointer items-center gap-1.5">
-                          <input
-                            checked={editUseRegex}
-                            className="sr-only"
-                            onChange={(e) => setEditUseRegex(e.target.checked)}
-                            type="checkbox"
-                          />
-                          <div
-                            aria-hidden="true"
-                            className={cn(
-                              'flex size-3 items-center justify-center rounded border transition-colors',
-                              editUseRegex ? 'border-primary bg-primary' : 'border-muted-foreground'
-                            )}
-                          >
-                            {editUseRegex && <Check className="size-2 text-primary-foreground" />}
-                          </div>
-                          <span className="text-[10px] text-muted-foreground">Regex</span>
-                        </label>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex gap-2 pt-1">
-                        <Button
-                          className="h-7 w-full px-2 text-xs"
-                          onClick={handleSaveEdit}
-                          size="sm"
-                        >
-                          Save
-                        </Button>
-                        {!preset.isDefault && (
-                          <Button
-                            className="h-7 w-full px-2 text-xs"
-                            onClick={() => handleDelete(preset.id)}
-                            size="sm"
-                            variant="destructive"
-                          >
-                            <Trash2 className="mr-1 size-3" /> Delete
-                          </Button>
-                        )}
-                      </div>
-                    </div>
+                      onCancel={() => setEditingId(null)}
+                      onDelete={handleDelete}
+                      onSave={handleSaveEdit}
+                      preset={preset}
+                    />
                   );
                 }
 

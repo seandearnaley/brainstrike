@@ -546,11 +546,14 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   // Local model loading state
   const [localLoadingState, setLocalLoadingState] = useState<LocalModelLoadingState | undefined>();
 
-  // biome-ignore lint/plugin: Async API URL resolution on mount - standard initialization
   useEffect(() => {
+    const getUrl = window.assistant?.getUrl;
+    if (!getUrl) {
+      return;
+    }
     const updateApi = async () => {
       try {
-        const url = await window.assistant?.getUrl?.();
+        const url = await getUrl();
         if (url) {
           setApi(`${url}/assistant`);
         }
@@ -1245,16 +1248,20 @@ const ControlsMenu: FC<ControlsMenuProps> = ({
   }, [selectedProvider]);
 
   const hasContext = Boolean(contextMenu);
-  const hasTools = Boolean(toolMenu?.items && toolMenu.items.length > 0);
   const hasReasoning = Boolean(supportsReasoningSettings && onProviderSettingsChange);
 
+  const toolMenuItems = toolMenu?.items;
+  const toolMenuSummary = toolMenu?.summary;
+
+  const hasTools = Boolean(toolMenuItems && toolMenuItems.length > 0);
+
   const groupedTools = useMemo<ToolMenuGroup[]>(() => {
-    if (!toolMenu?.items) {
+    if (!toolMenuItems) {
       return [];
     }
 
     const groups = new Map<string, ToolMenuGroup>();
-    for (const item of toolMenu.items) {
+    for (const item of toolMenuItems) {
       const key = `${item.source}::${item.group}`;
       const existing = groups.get(key);
       if (existing) {
@@ -1276,24 +1283,26 @@ const ControlsMenu: FC<ControlsMenuProps> = ({
       }
       return a.label.localeCompare(b.label);
     });
-  }, [toolMenu?.items]);
+  }, [toolMenuItems]);
 
   const toolSummary = useMemo(() => {
-    if (!toolMenu?.items) {
+    if (!toolMenuItems) {
       return '';
     }
-    const enabled = toolMenu.items.filter((tool) => tool.enabled).length;
-    return toolMenu.summary ?? `${enabled} of ${toolMenu.items.length} enabled`;
-  }, [toolMenu?.items, toolMenu?.summary]);
+    const enabled = toolMenuItems.filter((tool) => tool.enabled).length;
+    return toolMenuSummary ?? `${enabled} of ${toolMenuItems.length} enabled`;
+  }, [toolMenuItems, toolMenuSummary]);
+
+  const toolMenuOnToggleTool = toolMenu?.onToggleTool;
 
   const handleToggleTool = useCallback(
     (toolId: string, enabled: boolean) => {
-      if (!toolMenu?.onToggleTool) {
+      if (!toolMenuOnToggleTool) {
         return;
       }
-      void toolMenu.onToggleTool(toolId, enabled);
+      void toolMenuOnToggleTool(toolId, enabled);
     },
-    [toolMenu]
+    [toolMenuOnToggleTool]
   );
 
   if (!(hasContext || hasTools || hasReasoning)) {

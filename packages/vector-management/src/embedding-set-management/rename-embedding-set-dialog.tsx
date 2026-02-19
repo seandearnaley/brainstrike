@@ -12,7 +12,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 interface RenameEmbeddingSetDialogProps {
   open: boolean;
@@ -73,24 +73,11 @@ export function RenameEmbeddingSetDialog({
   const { toast } = useToast();
   const [updating, setUpdating] = useState(false);
   const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    tags: '',
-    category: '',
+    name: embeddingSet?.name ?? '',
+    description: embeddingSet?.description ?? '',
+    tags: embeddingSet?.tags ?? '',
+    category: embeddingSet?.category ?? '',
   });
-
-  // Initialize form when collection changes
-  // biome-ignore lint/plugin: Sync form data when embedding set changes - controlled form initialization
-  useEffect(() => {
-    if (embeddingSet) {
-      setFormData({
-        name: embeddingSet.name ?? '',
-        description: embeddingSet.description ?? '',
-        tags: embeddingSet.tags ?? '',
-        category: embeddingSet.category ?? '',
-      });
-    }
-  }, [embeddingSet]);
 
   const validateInputs = (): boolean => {
     if (!(repository && embeddingSet)) {
@@ -139,18 +126,19 @@ export function RenameEmbeddingSetDialog({
         description: `Updated collection: ${formData.name}`,
       });
 
+      setUpdating(false);
       onOpenChange(false);
-      onSetRenamed?.(embeddingSet.id);
     } catch (error) {
+      setUpdating(false);
       logger.error('Failed to rename embedding set', { error });
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to update collection',
         variant: 'destructive',
       });
-    } finally {
-      setUpdating(false);
+      return;
     }
+    onSetRenamed?.(embeddingSet.id);
   };
 
   if (!embeddingSet) {

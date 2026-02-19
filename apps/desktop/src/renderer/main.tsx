@@ -14,7 +14,7 @@ import {
   installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/utils';
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './styles.css';
@@ -153,37 +153,17 @@ declare global {
 }
 
 function App() {
-  const [dbPath, setDbPath] = useState<string | null>(null);
+  // Use IndexedDB storage for desktop app (renderer process can't access filesystem directly)
+  const dbPath = 'idb://brainstrike-desktop';
 
+  // biome-ignore lint/plugin: Fires a one-time DOM event on mount to signal the desktop app is ready.
   useEffect(() => {
-    // Use IndexedDB storage for desktop app (renderer process can't access filesystem directly)
-    setDbPath('idb://brainstrike-desktop');
-  }, []);
-
-  useEffect(() => {
-    if (!dbPath) {
-      return;
-    }
-
     if (!window.__BRAINSTRIKE_READY__) {
       window.__BRAINSTRIKE_READY__ = true;
     }
 
     window.dispatchEvent(new Event('brainstrike:ready'));
-  }, [dbPath]);
-
-  if (!dbPath) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="font-semibold text-lg">Initializing Database...</div>
-          <div className="mt-2 text-muted-foreground text-sm">
-            Setting up PGlite with persistent storage
-          </div>
-        </div>
-      </div>
-    );
-  }
+  }, []);
 
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>

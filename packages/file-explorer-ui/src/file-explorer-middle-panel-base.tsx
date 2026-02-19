@@ -79,14 +79,23 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     const sizes: Record<string, number> = {};
 
     for (const compositeKey of selectedFilePaths) {
+      let folderId: string | undefined;
+      let path: string | undefined;
       try {
-        const { folderId, path } = decodeFileSelection(compositeKey);
-        const node = fileNodeCache.get(folderId)?.get(path);
-        if (node?.type === 'file' && typeof node.size === 'number') {
-          sizes[compositeKey] = node.size;
-        }
+        const decoded = decodeFileSelection(compositeKey);
+        folderId = decoded.folderId;
+        path = decoded.path;
       } catch {
         // Ignore invalid composite keys
+        continue;
+      }
+      const folderCache = fileNodeCache.get(folderId);
+      if (!folderCache) {
+        continue;
+      }
+      const node = folderCache.get(path);
+      if (node && node.type === 'file' && typeof node.size === 'number') {
+        sizes[compositeKey] = node.size;
       }
     }
 
