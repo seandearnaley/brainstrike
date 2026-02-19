@@ -56,6 +56,8 @@ interface CollectionBrowserData {
   isFilterVisible: boolean;
   /** Grouping key for the tree (default: 'none') */
   groupBy: GroupByKey;
+  /** Node IDs marked as in-context */
+  contextSelectedIds: string[];
   /** Whether to show checkboxes for multi-select */
   showCheckbox: boolean;
   /** Whether multi-select mode is enabled */
@@ -117,6 +119,8 @@ interface CollectionBrowserActions {
   setIsFilterVisible: (visible: boolean) => void;
   /** Set grouping key */
   setGroupBy: (groupBy: GroupByKey) => void;
+  /** Toggle in-context state for a node ID */
+  toggleContextSelectedId: (nodeId: string) => void;
   /** Set checkbox visibility */
   setShowCheckbox: (show: boolean) => void;
   /** Set multi-select mode */
@@ -154,6 +158,7 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchConfigExpanded: false,
   isFilterVisible: false,
   groupBy: 'none',
+  contextSelectedIds: [],
   showCheckbox: false,
   multiSelectEnabled: false,
 };
@@ -285,6 +290,17 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setGroupBy: (groupBy) => set({ groupBy }),
 
+      toggleContextSelectedId: (nodeId) => {
+        const { contextSelectedIds } = get();
+        const idSet = new Set(contextSelectedIds);
+        if (idSet.has(nodeId)) {
+          idSet.delete(nodeId);
+        } else {
+          idSet.add(nodeId);
+        }
+        set({ contextSelectedIds: Array.from(idSet) });
+      },
+
       setShowCheckbox: (show) => set({ showCheckbox: show }),
 
       setMultiSelectEnabled: (enabled) => set({ multiSelectEnabled: enabled }),
@@ -319,6 +335,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         isFilterVisible: s.isFilterVisible,
         // Persist grouping preference, but keep multi-select UI mode session-scoped.
         groupBy: s.groupBy,
+        contextSelectedIds: s.contextSelectedIds,
       }),
     }
   )
@@ -355,6 +372,7 @@ export const collectionBrowserSelectors = {
   searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
   isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,
   groupBy: (s: CollectionBrowserStore) => s.groupBy,
+  contextSelectedIds: (s: CollectionBrowserStore) => s.contextSelectedIds,
   showCheckbox: (s: CollectionBrowserStore) => s.showCheckbox,
   multiSelectEnabled: (s: CollectionBrowserStore) => s.multiSelectEnabled,
 };

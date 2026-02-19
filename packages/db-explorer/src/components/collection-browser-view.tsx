@@ -311,9 +311,11 @@ export function CollectionBrowserView({
     setIsFilterVisible,
     // Grouping and checkbox state
     groupBy,
+    contextSelectedIds,
     showCheckbox,
     multiSelectEnabled,
     setGroupBy,
+    toggleContextSelectedId,
     setShowCheckbox,
     setMultiSelectEnabled,
     toggleExpanded,
@@ -579,6 +581,13 @@ export function CollectionBrowserView({
     [setGroupBy]
   );
 
+  const handleToggleContextForSelected = useCallback(() => {
+    if (!selectedId) {
+      return;
+    }
+    toggleContextSelectedId(selectedId);
+  }, [selectedId, toggleContextSelectedId]);
+
   // Handle double-click: toggle expand for parent nodes, open inspector for leaves
   const handleDoubleClick = useCallback(
     (nodeId: string, nodeType: string, _data: BrowserNodeData) => {
@@ -794,6 +803,20 @@ export function CollectionBrowserView({
         onFiltersChange={handleFiltersChange}
       />
 
+      <div className="flex items-center justify-between border-border border-b px-3 py-2">
+        <span className="text-muted-foreground text-xs">In context: {contextSelectedIds.length}</span>
+        <Button
+          disabled={!selectedId}
+          onClick={handleToggleContextForSelected}
+          size="sm"
+          variant="outline"
+        >
+          {selectedId && contextSelectedIds.includes(selectedId)
+            ? 'Remove selected from context'
+            : 'Add selected to context'}
+        </Button>
+      </div>
+
       {/* Error message display */}
       {searchError && (
         <div className="border-border border-b bg-destructive/10 px-3 py-2 text-destructive text-sm">
@@ -830,6 +853,7 @@ export function CollectionBrowserView({
             <CollectionBrowser
               bulkActions={bulkActions}
               className="h-full"
+              contextNodeIds={new Set(contextSelectedIds)}
               data={treeData}
               emptyMessage={emptyMessage}
               expandedIds={expandedIdsSet}
