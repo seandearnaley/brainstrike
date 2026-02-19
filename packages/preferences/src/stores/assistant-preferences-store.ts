@@ -1,5 +1,11 @@
 import {
   getProviderDefaultModel,
+  type LocalRuntimeAvailabilityState,
+  LocalRuntimeDiscoveryService,
+  type LocalRuntimeId,
+  LocalRuntimeModelCatalogService,
+  type LocalRuntimeModelCatalogState,
+  listProviders,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   providerEnvKeys,
@@ -34,7 +40,7 @@ type ProviderSettingsMap = Record<SupportedProvider, AssistantProviderSettings>;
 
 interface AssistantPreferencesData {
   selectedModel: string | null; // Composite key: "provider::model"
-  modelsByProvider: Record<SupportedProvider, string>;
+  modelsByProvider: Partial<Record<SupportedProvider, string>>;
   enabledModelsByProvider: EnabledModelsMap;
   providerSettings: ProviderSettingsMap;
 }
@@ -52,6 +58,14 @@ interface AssistantPreferencesActions {
   getSelectedProvider: () => SupportedProvider | null;
   getEnabledModels: (provider: SupportedProvider) => string[];
   getAvailableProviders: () => Promise<SupportedProvider[]>;
+  getLocalRuntimeStatuses: (options?: {
+    force?: boolean;
+  }) => Promise<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
+  getLocalRuntimeModels: (options?: {
+    force?: boolean;
+    verifyEmbeddingDimensions?: boolean;
+    maxVerificationModels?: number;
+  }) => Promise<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
   setProviderSettings: (
     provider: SupportedProvider,
     updates: AssistantProviderSettingsUpdate
@@ -64,12 +78,23 @@ type Store = AssistantPreferencesData & AssistantPreferencesActions;
 const STORE_NAME = 'assistant-preferences.v1' as const;
 const STORE_VERSION = 4;
 
-const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFAULT_MODELS) as SupportedProvider[];
+const SUPPORTED_PROVIDERS = listProviders().map((provider) => provider.id) as SupportedProvider[];
 const SUPPORTED_PROVIDER_SET = new Set<SupportedProvider>(SUPPORTED_PROVIDERS);
-const NO_KEY_PROVIDERS = SUPPORTED_PROVIDERS.filter(
-  (provider) => providerEnvKeys(provider).length === 0
+const LOCAL_RUNTIME_PROVIDER_BY_RUNTIME: Record<LocalRuntimeId, SupportedProvider> = {
+  ollama: 'ollama',
+  lmstudio: 'lmstudio',
+};
+const LOCAL_RUNTIME_PROVIDERS = new Set<SupportedProvider>(
+  Object.values(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME)
+);
+const STATIC_NO_KEY_PROVIDERS = SUPPORTED_PROVIDERS.filter(
+  (provider) => providerEnvKeys(provider).length === 0 && !LOCAL_RUNTIME_PROVIDERS.has(provider)
 );
 const MODEL_KEY_DELIMITER = '::' as const;
+const localRuntimeDiscoveryService = new LocalRuntimeDiscoveryService();
+const localRuntimeModelCatalogService = new LocalRuntimeModelCatalogService({
+  discoveryService: localRuntimeDiscoveryService,
+});
 
 interface ParsedCompositeModelKey {
   provider: SupportedProvider;
@@ -145,6 +170,8 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   local: {},
   cohere: {},
   voyage: {},
+  ollama: {},
+  lmstudio: {},
 };
 
 function migrateModelId(provider: SupportedProvider, modelId: string): string {
@@ -219,6 +246,66 @@ function resolvePreferredModel(
   return enabledModels[0] ?? null;
 }
 
+function shouldIncludeLocalRuntimeProvider(status: LocalRuntimeAvailabilityState): boolean {
+  switch (status.state) {
+    case 'available':
+    case 'stale':
+    case 'auth_required':
+    case 'incompatible':
+    case 'blocked_web':
+      return true;
+    case 'checking':
+    case 'unavailable':
+      return false;
+    default:
+      return false;
+  }
+}
+
+async function getProvidersWithSavedKeys(): Promise<readonly SupportedProvider[]> {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  const secretsBridge = (window as Window & { secrets?: { list?: () => Promise<string[]> } })
+    .secrets;
+  if (typeof secretsBridge?.list !== 'function') {
+    return [];
+  }
+
+  try {
+    const savedProviders = await secretsBridge.list();
+    if (!Array.isArray(savedProviders)) {
+      return [];
+    }
+    return SUPPORTED_PROVIDERS.filter((provider) => savedProviders.includes(provider));
+  } catch {
+    return [];
+  }
+}
+
+async function getDetectedRuntimeProviders(): Promise<readonly SupportedProvider[]> {
+  try {
+    const runtimeStatuses = await localRuntimeDiscoveryService.probeAll();
+    const detected: SupportedProvider[] = [];
+
+    for (const runtimeId of Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[]) {
+      const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
+      if (shouldIncludeLocalRuntimeProvider(runtimeStatuses[runtimeId])) {
+        detected.push(providerId);
+      }
+    }
+
+    return detected;
+  } catch {
+    return [];
+  }
+}
+
+function orderProvidersByRegistry(providers: ReadonlySet<SupportedProvider>): SupportedProvider[] {
+  return SUPPORTED_PROVIDERS.filter((provider) => providers.has(provider));
+}
+
 function buildMigratedEnabledModels(base?: EnabledModelsMap): EnabledModelsMap {
   const migrated: EnabledModelsMap = {
     ...DEFAULT_ENABLED_MODELS,
@@ -236,11 +323,11 @@ function buildMigratedEnabledModels(base?: EnabledModelsMap): EnabledModelsMap {
 function buildMigratedModelsByProvider(
   base: Partial<Record<SupportedProvider, string>> | undefined,
   enabled: EnabledModelsMap
-): Record<SupportedProvider, string> {
-  const migrated: Record<SupportedProvider, string> = {
+): Partial<Record<SupportedProvider, string>> {
+  const migrated: Partial<Record<SupportedProvider, string>> = {
     ...PROVIDER_DEFAULT_MODELS,
     ...(base ?? {}),
-  } as Record<SupportedProvider, string>;
+  };
 
   for (const provider of SUPPORTED_PROVIDERS) {
     const current = migrated[provider];
@@ -387,7 +474,7 @@ function disableModelForProvider(
 
   // Clear selectedModel if the currently selected model is being disabled
   const selected = parseCompositeModelKey(state.selectedModel);
-  if (selected?.provider === provider && selected.model === model) {
+  if (selected?.provider === provider && selected?.model === model) {
     updates.selectedModel = null;
   }
 
@@ -395,7 +482,7 @@ function disableModelForProvider(
 }
 
 interface AccumulatedState {
-  modelsByProvider: Record<SupportedProvider, string>;
+  modelsByProvider: Partial<Record<SupportedProvider, string>>;
   enabledModelsByProvider: EnabledModelsMap;
   selectedModel: string | null;
   hasChanges: boolean;
@@ -518,33 +605,36 @@ export const useAssistantPreferencesStore = create<Store>()(
       },
 
       getAvailableProviders: async () => {
-        if (typeof window === 'undefined') {
-          return NO_KEY_PROVIDERS;
+        const combined = new Set<SupportedProvider>(STATIC_NO_KEY_PROVIDERS);
+        const [providersWithSavedKeys, detectedRuntimeProviders] = await Promise.all([
+          getProvidersWithSavedKeys(),
+          getDetectedRuntimeProviders(),
+        ]);
+
+        for (const provider of providersWithSavedKeys) {
+          combined.add(provider);
         }
 
-        const secretsBridge = (window as Window & { secrets?: { list?: () => Promise<string[]> } })
-          .secrets;
-        if (typeof secretsBridge?.list !== 'function') {
-          return NO_KEY_PROVIDERS;
+        for (const provider of detectedRuntimeProviders) {
+          combined.add(provider);
         }
 
-        try {
-          const savedProviders = await secretsBridge.list();
-          if (!Array.isArray(savedProviders)) {
-            return NO_KEY_PROVIDERS;
-          }
-
-          // Include providers with saved API keys + providers that don't need keys
-          const providersWithKeys = SUPPORTED_PROVIDERS.filter((p) => savedProviders.includes(p));
-          const combined = new Set([...providersWithKeys, ...NO_KEY_PROVIDERS]);
-
-          // Return in original order for consistency
-          return SUPPORTED_PROVIDERS.filter((p) => combined.has(p));
-        } catch {
-          // On error, still return providers that don't need keys
-          return NO_KEY_PROVIDERS;
-        }
+        return orderProvidersByRegistry(combined);
       },
+
+      getLocalRuntimeStatuses: async (options) =>
+        localRuntimeDiscoveryService.probeAll({
+          ...(options?.force ? { force: true } : {}),
+        }),
+
+      getLocalRuntimeModels: async (options) =>
+        localRuntimeModelCatalogService.listAllModels({
+          ...(options?.force ? { force: true } : {}),
+          ...(options?.verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
+          ...(typeof options?.maxVerificationModels === 'number'
+            ? { maxVerificationModels: options.maxVerificationModels }
+            : {}),
+        }),
 
       setProviderSettings: (provider, updates) =>
         set((state) => {

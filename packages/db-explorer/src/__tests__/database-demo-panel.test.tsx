@@ -210,7 +210,12 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
   };
 });
 
-const { mockEnsureModelRegistry, mockFetchRegistry, mockUseModelRegistryStore } = vi.hoisted(() => {
+const {
+  mockEnsureModelRegistry,
+  mockFetchRegistry,
+  mockUseLocalRuntimeEmbeddingModelCatalog,
+  mockUseModelRegistryStore,
+} = vi.hoisted(() => {
   const fetchRegistry = vi.fn();
   const ensureModelRegistry = vi.fn();
   const useModelRegistryStore = vi.fn(() => ({
@@ -220,10 +225,17 @@ const { mockEnsureModelRegistry, mockFetchRegistry, mockUseModelRegistryStore } 
     fetchRegistry,
     isLoading: false,
   }));
+  const useLocalRuntimeEmbeddingModelCatalog = vi.fn(() => ({
+    catalog: null,
+    isLoading: false,
+    error: null,
+    refresh: vi.fn().mockResolvedValue(undefined),
+  }));
   return {
     mockEnsureModelRegistry: ensureModelRegistry,
     mockFetchRegistry: fetchRegistry,
     mockUseModelRegistryStore: useModelRegistryStore,
+    mockUseLocalRuntimeEmbeddingModelCatalog: useLocalRuntimeEmbeddingModelCatalog,
   };
 });
 
@@ -232,6 +244,7 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
   return {
     ...actual,
     useEnsureModelRegistry: mockEnsureModelRegistry,
+    useLocalRuntimeEmbeddingModelCatalog: mockUseLocalRuntimeEmbeddingModelCatalog,
     useModelRegistryStore: mockUseModelRegistryStore,
   };
 });

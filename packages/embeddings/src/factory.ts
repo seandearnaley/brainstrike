@@ -4,9 +4,9 @@ import type {
   EmbeddingProviderConfig,
   EmbeddingProviderError,
   HostedProviderType,
-  LocalProviderType,
   Result,
 } from './provider-types';
+import { hostedProviderRequiresApiKey, type LocalProviderType } from './provider-types';
 import {
   clearHostedProviderApiKeyCache,
   resolveHostedProviderApiKey,
@@ -32,6 +32,11 @@ class MissingApiKeyError extends Error {
     this.name = 'MissingApiKeyError';
   }
 }
+
+const DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS = {
+  ollama: 'http://127.0.0.1:11434/v1/embeddings',
+  lmstudio: 'http://localhost:1234/v1/embeddings',
+} as const;
 
 /**
  * Factory for creating embedding provider instances
@@ -145,22 +150,28 @@ export class EmbeddingProviderFactory {
     config: Extract<EmbeddingProviderConfig, { runtime: 'hosted' }>
   ): Promise<IEmbeddingProvider> {
     const apiKey = await resolveHostedProviderApiKey(config.provider);
-    if (!apiKey) {
+    if (hostedProviderRequiresApiKey(config.provider) && !apiKey) {
       throw new MissingApiKeyError(config.provider);
     }
+    const requireApiKey = (provider: HostedProviderType): string => {
+      if (!apiKey) {
+        throw new MissingApiKeyError(provider);
+      }
+      return apiKey;
+    };
 
     switch (config.provider) {
       case 'openai':
         return new OpenAIEmbeddingProvider({
           modelId: config.modelId,
           targetDimensions: config.dimensions,
-          apiKey,
+          apiKey: requireApiKey('openai'),
         });
 
       case 'google': {
         const options: { modelId: string; apiKey: string; outputDimensions?: number } = {
           modelId: config.modelId,
-          apiKey,
+          apiKey: requireApiKey('google'),
         };
         if (config.outputDimensionality !== undefined) {
           options.outputDimensions = config.outputDimensionality;
@@ -175,7 +186,7 @@ export class EmbeddingProviderFactory {
           inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
         } = {
           modelId: config.modelId,
-          apiKey,
+          apiKey: requireApiKey('cohere'),
         };
         if (config.inputType !== undefined) {
           options.inputType = config.inputType;
@@ -186,12 +197,26 @@ export class EmbeddingProviderFactory {
       case 'voyage': {
         const options: { modelId: string; apiKey: string; inputType?: 'document' | 'query' } = {
           modelId: config.modelId,
-          apiKey,
+          apiKey: requireApiKey('voyage'),
         };
         if (config.inputType !== undefined) {
           options.inputType = config.inputType;
         }
         return new VoyageEmbeddingProvider(options);
+      }
+      case 'ollama':
+      case 'lmstudio': {
+        const endpoint =
+          config.endpoint ?? DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS[config.provider];
+        return new OpenAIEmbeddingProvider({
+          provider: config.provider,
+          modelId: config.modelId,
+          targetDimensions: config.dimensions,
+          endpoint,
+          ...(apiKey ? { apiKey } : {}),
+          requiresApiKey: false,
+          includeDimensions: false,
+        });
       }
 
       default: {
@@ -301,7 +326,9 @@ export class EmbeddingProviderFactory {
   /**
    * Clear cached API keys (useful for tests)
    */
-  static clearHostedApiKeyCache(provider?: Exclude<EmbeddingProviderConfig['provider'], 'local'>) {
+  static clearHostedApiKeyCache(
+    provider?: Exclude<EmbeddingProviderConfig['provider'], LocalProviderType>
+  ) {
     if (provider) {
       clearHostedProviderApiKeyCache(provider);
     } else {
@@ -331,6 +358,12 @@ export class EmbeddingProviderFactory {
       }
       case 'voyage': {
         return config.inputType ?? 'default';
+      }
+      case 'ollama':
+      case 'lmstudio': {
+        const endpoint =
+          config.endpoint ?? DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS[config.provider];
+        return `${config.dimensions}:${endpoint}`;
       }
       default:
         return 'default';

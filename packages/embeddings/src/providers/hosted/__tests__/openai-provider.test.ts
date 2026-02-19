@@ -60,6 +60,51 @@ describe('OpenAIEmbeddingProvider', () => {
     });
   });
 
+  it('supports OpenAI-compatible local runtimes without API keys', async () => {
+    const mockPayload = {
+      data: [
+        {
+          embedding: [0.1, 0.2, 0.3, 0.4],
+        },
+      ],
+    };
+    const mockResponse = new Response(JSON.stringify(mockPayload), { status: 200 });
+    let capturedInit: RequestInit | undefined;
+    const mockFetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedInit = init;
+      return mockResponse;
+    });
+
+    const provider = new OpenAIEmbeddingProvider({
+      provider: 'ollama',
+      modelId: 'nomic-embed-text',
+      targetDimensions: 4,
+      fetch: mockFetch as typeof fetch,
+      endpoint: 'http://127.0.0.1:11434/v1/embeddings',
+      requiresApiKey: false,
+      includeDimensions: false,
+    });
+
+    expect(await provider.isAvailable()).toBe(true);
+    expect(provider.hasApiKey()).toBe(true);
+
+    const result = await provider.embed({
+      text: 'hello runtime',
+      modelId: 'nomic-embed-text',
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.provider).toBe('ollama');
+      expect(result.value.embedding).toHaveLength(4);
+    }
+
+    if (!capturedInit) {
+      throw new Error('Expected fetch init options for OpenAI-compatible runtime provider');
+    }
+    const body = JSON.parse(String(capturedInit.body));
+    expect(body.dimensions).toBeUndefined();
+  });
+
   it('captures total token usage from successful responses', async () => {
     const mockPayload = {
       data: [

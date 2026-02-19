@@ -1,4 +1,4 @@
-import type { SupportedProvider } from '@brainstrike/agent/client';
+import type { LocalRuntimeModelCatalogState, SupportedProvider } from '@brainstrike/agent/client';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
@@ -117,6 +117,14 @@ vi.mock('@brainstrike/preferences', async () => {
     setModel: (compositeKey: string) => void;
     clearModel: () => void;
     getAvailableProviders: () => Promise<SupportedProvider[]>;
+    getLocalRuntimeStatuses: () => Promise<{
+      ollama: { state: 'unavailable'; checkedAt: number; message: string };
+      lmstudio: { state: 'unavailable'; checkedAt: number; message: string };
+    }>;
+    getLocalRuntimeModels: () => Promise<{
+      ollama: LocalRuntimeModelCatalogState;
+      lmstudio: LocalRuntimeModelCatalogState;
+    }>;
     getSelectedProvider: () => SupportedProvider | null;
     getSelectedModel: () => string | null;
     setProviderSettings: (providerId: string, updates: Record<string, unknown>) => void;
@@ -146,6 +154,50 @@ vi.mock('@brainstrike/preferences', async () => {
       });
     },
     getAvailableProviders: async () => ['openai', 'anthropic', 'google', 'openrouter'],
+    getLocalRuntimeStatuses: async () => ({
+      ollama: {
+        state: 'unavailable',
+        checkedAt: 0,
+        message: 'not detected',
+      },
+      lmstudio: {
+        state: 'unavailable',
+        checkedAt: 0,
+        message: 'not detected',
+      },
+    }),
+    getLocalRuntimeModels: async () => ({
+      ollama: {
+        state: 'loaded_empty',
+        runtime: 'ollama',
+        checkedAt: 0,
+        availability: {
+          state: 'available',
+          checkedAt: 0,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 0,
+        },
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        source: 'openai_v1_models',
+        freshness: 'live',
+        models: [],
+      },
+      lmstudio: {
+        state: 'loaded_empty',
+        runtime: 'lmstudio',
+        checkedAt: 0,
+        availability: {
+          state: 'available',
+          checkedAt: 0,
+          endpoint: 'http://localhost:1234/v1/models',
+          latencyMs: 0,
+        },
+        endpoint: 'http://localhost:1234/v1/models',
+        source: 'openai_v1_models',
+        freshness: 'live',
+        models: [],
+      },
+    }),
     getSelectedProvider: () => get().selectedProvider,
     getSelectedModel: () => get().selectedModel,
     setProviderSettings: (providerId: string, updates: Record<string, unknown>) => {
@@ -713,7 +765,7 @@ describe('AssistantUiPanelWrapper', () => {
       const state = useAssistantPreferencesStore.getState();
       expect(state.getSelectedProvider()).toBe('openrouter');
       expect(state.getSelectedModel()).toBe('openrouter::anthropic/claude-sonnet-4.5');
-      expect(state.modelsByProvider.openrouter).toBe('anthropic/claude-sonnet-4.5');
+      expect(state.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.5');
     });
   });
 
@@ -820,7 +872,7 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(() => {
         const state = useAssistantPreferencesStore.getState();
         expect(state.getSelectedProvider()).toBe('openai');
-        expect(state.modelsByProvider.openai).toBe('gpt-5.2');
+        expect(state.modelsByProvider['openai']).toBe('gpt-5.2');
       })
     );
 
@@ -831,7 +883,7 @@ describe('AssistantUiPanelWrapper', () => {
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
       expect(state.getSelectedProvider()).toBe('openrouter');
-      expect(state.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
+      expect(state.modelsByProvider['openrouter']).toBe('openai/gpt-5.2');
     });
 
     // Change model (to the model we enabled above)
@@ -839,7 +891,7 @@ describe('AssistantUiPanelWrapper', () => {
 
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
-      expect(state.modelsByProvider.openrouter).toBe('anthropic/claude-sonnet-4.5');
+      expect(state.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.5');
     });
   });
 
@@ -1163,7 +1215,7 @@ describe('AssistantUiPanelWrapper', () => {
       providerSettings: {
         ...state.providerSettings,
         openai: {
-          ...state.providerSettings.openai,
+          ...state.providerSettings['openai'],
           maxOutputTokens: 513.9,
           reasoningEffort: 'high',
           reasoningSummary: 'auto',
@@ -1193,7 +1245,7 @@ describe('AssistantUiPanelWrapper', () => {
       providerSettings: {
         ...state.providerSettings,
         anthropic: {
-          ...state.providerSettings.anthropic,
+          ...state.providerSettings['anthropic'],
           anthropicEffort: 'medium',
           anthropicThinkingBudgetTokens: 422.2,
         },
@@ -1224,7 +1276,7 @@ describe('AssistantUiPanelWrapper', () => {
       providerSettings: {
         ...state.providerSettings,
         google: {
-          ...state.providerSettings.google,
+          ...state.providerSettings['google'],
           googleThinkingLevel: 'minimal',
         },
       },

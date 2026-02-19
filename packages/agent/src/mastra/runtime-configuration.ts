@@ -39,8 +39,12 @@ export function resolveRuntimeConfiguration(
     ? { ...runtimeData, provider: normalizedProvider }
     : { provider: normalizedProvider };
 
-  // Local provider runs entirely client-side and doesn't need an API key
-  if (normalizedProvider === 'local') {
+  // Local runtimes do not require API keys.
+  if (
+    normalizedProvider === 'local' ||
+    normalizedProvider === 'ollama' ||
+    normalizedProvider === 'lmstudio'
+  ) {
     return {
       provider: normalizedProvider,
       runtime: sanitizedRuntime,

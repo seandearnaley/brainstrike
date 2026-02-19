@@ -1,0 +1,219 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LocalRuntimeDiscoveryService } from '../providers/local-runtime-discovery';
+
+type FetchMockInput = string | URL | Request;
+type FetchMock = (input: FetchMockInput, init?: RequestInit) => Promise<Response>;
+
+function getRequestUrl(input: FetchMockInput): string {
+  if (typeof input === 'string') {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
+  return input.url;
+}
+
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      'content-type': 'application/json',
+    },
+  });
+}
+
+describe('local-runtime-discovery', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('marks Ollama as available when /v1/models responds with OpenAI-compatible payload', async () => {
+    const fetchMock = vi.fn<FetchMock>().mockResolvedValue(
+      jsonResponse({
+        data: [{ id: 'nomic-embed-text' }],
+      })
+    );
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 1000,
+    });
+
+    const status = await service.probeRuntime('ollama', { surface: 'desktop' });
+
+    expect(status).toMatchObject({
+      state: 'available',
+      endpoint: 'http://127.0.0.1:11434/v1/models',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to Ollama /api/version when /v1/models is unavailable', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      if (url.endsWith('/v1/models')) {
+        return new Response('missing', { status: 404 });
+      }
+      if (url.endsWith('/api/version')) {
+        return jsonResponse({ version: '0.5.7' });
+      }
+      return jsonResponse({ models: [] });
+    });
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 2000,
+    });
+
+    const status = await service.probeRuntime('ollama', { surface: 'desktop' });
+
+    expect(status).toMatchObject({
+      state: 'available',
+      endpoint: 'http://127.0.0.1:11434/api/version',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns auth_required for 401/403 probe responses', async () => {
+    const fetchMock = vi
+      .fn<FetchMock>()
+      .mockResolvedValue(new Response('unauthorized', { status: 401 }));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 3000,
+    });
+
+    const status = await service.probeRuntime('lmstudio', { surface: 'desktop' });
+
+    expect(status).toMatchObject({
+      state: 'auth_required',
+      endpoint: 'http://localhost:1234/v1/models',
+      status: 401,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns incompatible when probe endpoints respond with unknown payload shapes', async () => {
+    const fetchMock = vi.fn<FetchMock>().mockResolvedValue(jsonResponse({ hello: 'world' }));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 4000,
+    });
+
+    const status = await service.probeRuntime('ollama', { surface: 'desktop' });
+
+    expect(status).toMatchObject({
+      state: 'incompatible',
+      endpoint: 'http://127.0.0.1:11434/v1/models',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns blocked_web for browser-localhost probes blocked under HTTPS', async () => {
+    vi.stubGlobal('window', {
+      location: { protocol: 'https:' },
+    });
+
+    const fetchMock = vi.fn<FetchMock>().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 5000,
+    });
+
+    const status = await service.probeRuntime('lmstudio', { surface: 'web' });
+
+    expect(status.state).toBe('blocked_web');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns stale when a previously available runtime becomes unreachable', async () => {
+    let nowMs = 10_000;
+    const fetchMock = vi
+      .fn<FetchMock>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: 'text-embedding-nomic-embed-text-v1.5' }],
+        })
+      )
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED 127.0.0.1:11434'));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => nowMs,
+      successTtlMs: 1000,
+    });
+
+    const first = await service.probeRuntime('ollama', { surface: 'desktop' });
+    expect(first.state).toBe('available');
+    if (first.state !== 'available') {
+      throw new Error('Expected available runtime status');
+    }
+
+    nowMs = 20_000;
+    const second = await service.probeRuntime('ollama', { surface: 'desktop', force: true });
+
+    expect(second.state).toBe('stale');
+    if (second.state !== 'stale') {
+      throw new Error('Expected stale runtime status');
+    }
+    expect(second.reason).toBe('unavailable');
+    expect(second.endpoint).toBe(first.endpoint);
+    expect(second.lastSuccessfulAt).toBe(first.checkedAt);
+  });
+
+  it('applies failure backoff to avoid repeated probe spam', async () => {
+    let nowMs = 30_000;
+    const fetchMock = vi
+      .fn<FetchMock>()
+      .mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:1234'));
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => nowMs,
+      failureBaseBackoffMs: 2000,
+      failureMaxBackoffMs: 10_000,
+    });
+
+    const first = await service.probeRuntime('lmstudio', { surface: 'desktop' });
+    expect(first.state).toBe('unavailable');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    nowMs = 31_000;
+    const second = await service.probeRuntime('lmstudio', { surface: 'desktop' });
+    expect(second.state).toBe('unavailable');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    nowMs = 34_000;
+    await service.probeRuntime('lmstudio', { surface: 'desktop' });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('probes all runtimes and returns a typed status record', async () => {
+    const fetchMock = vi.fn<FetchMock>(async (input) => {
+      const url = getRequestUrl(input);
+      if (url.includes('11434')) {
+        return jsonResponse({
+          data: [{ id: 'nomic-embed-text' }],
+        });
+      }
+      return jsonResponse({
+        data: [{ id: 'text-embedding-nomic-embed-text-v1.5' }],
+      });
+    });
+
+    const service = new LocalRuntimeDiscoveryService({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      now: () => 40_000,
+    });
+
+    const statuses = await service.probeAll({ surface: 'desktop' });
+
+    expect(statuses.ollama.state).toBe('available');
+    expect(statuses.lmstudio.state).toBe('available');
+  });
+});

@@ -17,6 +17,8 @@ const FALLBACK_PROVIDERS: readonly SupportedProvider[] = [
   'cohere',
   'voyage',
   'local',
+  'ollama',
+  'lmstudio',
 ];
 
 const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
@@ -34,6 +36,8 @@ const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
   cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
   voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
   local: [], // Local provider runs in-browser, no API key needed
+  ollama: [], // Local runtime provider, auto-discovered on localhost
+  lmstudio: [], // Local runtime provider, auto-discovered on localhost
 };
 
 function tryRequireAgentClient(path: string): AgentClientModule | null {

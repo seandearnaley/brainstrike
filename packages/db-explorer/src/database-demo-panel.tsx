@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/db';
 import {
   useEnsureModelRegistry,
+  useLocalRuntimeEmbeddingModelCatalog,
   useModelRegistryStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
@@ -107,9 +108,14 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   // Get enabled models from model registry
   const { models, providers, isLoading: isRegistryLoading } = useModelRegistryStore();
   useEnsureModelRegistry({ db: dbContext });
+  const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
+    useLocalRuntimeEmbeddingModelCatalog({
+      verifyEmbeddingDimensions: true,
+      maxVerificationModels: 8,
+    });
 
-  const availableModels = useAvailableModels(models);
-  const availableProviders = useAvailableProviders(providers);
+  const availableModels = useAvailableModels(models, runtimeEmbeddingCatalog);
+  const availableProviders = useAvailableProviders(providers, runtimeEmbeddingCatalog);
 
   const showSettings = useDatabaseDemoStore((s) => s.showSettings);
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
@@ -514,7 +520,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {/* Create Collection Dialog */}
       {collectionDialogs.createCollectionOpen && (
         <CreateEmbeddingSetDialog
-          isLoading={isRegistryLoading}
+          isLoading={isRegistryLoading || isRuntimeCatalogLoading}
           models={availableModels}
           onOpenChange={(open) => {
             if (!open) {

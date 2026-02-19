@@ -9,6 +9,9 @@ import {
   getProviderDefinition,
   getProviderModelDefinitions,
   isSupportedProvider,
+  type LocalRuntimeAvailabilityState,
+  type LocalRuntimeId,
+  type LocalRuntimeModelCatalogState,
   NATIVE_TOOL_DEFAULTS,
   type ProviderModelDefinition,
   type ProviderRuntime,
@@ -93,6 +96,140 @@ interface TokenCountRow {
 
 interface TotalFilesRow {
   count: string | number;
+}
+
+type LocalRuntimeStatusMap = Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
+type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
+type LlmProviderModelDefinition = ProviderModelDefinition & { type: 'llm' };
+
+const LOCAL_RUNTIME_PROVIDER_IDS = ['ollama', 'lmstudio'] as const;
+type LocalRuntimeProviderId = (typeof LOCAL_RUNTIME_PROVIDER_IDS)[number];
+
+function isLocalRuntimeProvider(
+  providerId: SupportedProvider | null | undefined
+): providerId is LocalRuntimeProviderId {
+  if (!providerId) {
+    return false;
+  }
+  return LOCAL_RUNTIME_PROVIDER_IDS.includes(providerId as LocalRuntimeProviderId);
+}
+
+function isLoadedRuntimeModelCatalogState(
+  state: LocalRuntimeModelCatalogState | null | undefined
+): state is Extract<LocalRuntimeModelCatalogState, { state: 'loaded_non_empty' | 'stale_cached' }> {
+  return Boolean(state && (state.state === 'loaded_non_empty' || state.state === 'stale_cached'));
+}
+
+function toRuntimeProviderModels(
+  providerId: LocalRuntimeProviderId,
+  catalog: LocalRuntimeModelCatalogMap | null
+): readonly LlmProviderModelDefinition[] {
+  const runtimeState = catalog?.[providerId];
+  if (!isLoadedRuntimeModelCatalogState(runtimeState)) {
+    return [];
+  }
+
+  const llmCandidates = runtimeState.models.filter((model) => model.capabilities.llm);
+  return llmCandidates.map((model, index) => ({
+    id: model.modelId,
+    label: model.displayName,
+    type: 'llm' as const,
+    default: index === 0,
+    supportsStreaming: true,
+  }));
+}
+
+function addValuesToSet(target: Set<string>, values: Iterable<string>): void {
+  for (const value of values) {
+    target.add(value);
+  }
+}
+
+function addPreferenceEnabledModelIds(
+  target: Set<string>,
+  configuredProviders: readonly SupportedProvider[],
+  enabledModelsByProvider: Record<SupportedProvider, string[]>
+): void {
+  for (const providerId of configuredProviders) {
+    const enabledModels = enabledModelsByProvider[providerId] ?? [];
+    addValuesToSet(target, enabledModels);
+  }
+}
+
+function addRuntimeCatalogEnabledLlmModelIds(
+  target: Set<string>,
+  localRuntimeModels: LocalRuntimeModelCatalogMap | null
+): void {
+  for (const runtimeId of LOCAL_RUNTIME_PROVIDER_IDS) {
+    const runtimeState = localRuntimeModels?.[runtimeId];
+    if (!isLoadedRuntimeModelCatalogState(runtimeState)) {
+      continue;
+    }
+    for (const model of runtimeState.models) {
+      if (model.capabilities.llm) {
+        target.add(model.modelId);
+      }
+    }
+  }
+}
+
+function buildEnabledModelIdSet(options: {
+  readonly shouldFallbackToPreferences: boolean;
+  readonly configuredProviders: readonly SupportedProvider[];
+  readonly enabledModelsByProvider: Record<SupportedProvider, string[]>;
+  readonly registryEnabledModelIds: ReadonlySet<string>;
+  readonly localRuntimeModels: LocalRuntimeModelCatalogMap | null;
+}): Set<string> {
+  const enabledIds = new Set<string>();
+
+  if (options.shouldFallbackToPreferences) {
+    addPreferenceEnabledModelIds(
+      enabledIds,
+      options.configuredProviders,
+      options.enabledModelsByProvider
+    );
+  } else {
+    addValuesToSet(enabledIds, options.registryEnabledModelIds);
+  }
+
+  addRuntimeCatalogEnabledLlmModelIds(enabledIds, options.localRuntimeModels);
+  return enabledIds;
+}
+
+function resolveLocalRuntimeProviderDisabledReason(
+  selectedProvider: SupportedProvider | null,
+  configuredProviders: readonly SupportedProvider[]
+): string | undefined {
+  if (
+    selectedProvider &&
+    isLocalRuntimeProvider(selectedProvider) &&
+    (configuredProviders.length === 0 || !configuredProviders.includes(selectedProvider))
+  ) {
+    return 'The selected local runtime is currently unavailable.';
+  }
+  return;
+}
+
+function resolveSelectedLocalModelUnavailableReason(options: {
+  readonly selectedProvider: SupportedProvider;
+  readonly selectedModel: string | null;
+  readonly providerModelIds: readonly string[];
+}): string | undefined {
+  if (!isLocalRuntimeProvider(options.selectedProvider)) {
+    return;
+  }
+  const selectedModelName = resolveModelNameFromComposite(options.selectedModel);
+  if (!(selectedModelName && !options.providerModelIds.includes(selectedModelName))) {
+    return;
+  }
+  return `The selected local model "${selectedModelName}" is unavailable.`;
+}
+
+function findFirstProviderWithEnabledModels(
+  configuredProviders: readonly SupportedProvider[],
+  providerHasEnabledModels: (provider: SupportedProvider) => boolean
+): SupportedProvider | undefined {
+  return configuredProviders.find((providerId) => providerHasEnabledModels(providerId));
 }
 
 interface QueryableTokenDatabase {
@@ -350,11 +487,19 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
     () => initialProviders ?? []
   );
+  const [localRuntimeStatuses, setLocalRuntimeStatuses] = useState<LocalRuntimeStatusMap | null>(
+    null
+  );
+  const [localRuntimeModels, setLocalRuntimeModels] = useState<LocalRuntimeModelCatalogMap | null>(
+    null
+  );
 
   const {
     setModel,
     clearModel,
     getAvailableProviders,
+    getLocalRuntimeStatuses,
+    getLocalRuntimeModels,
     getSelectedModel,
     getSelectedProvider,
     setProviderSettings,
@@ -420,24 +565,43 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   }, [db, dbError, dbInitializing, registryError]);
 
   const enabledModelIds = useMemo(() => {
-    if (!shouldFallbackToPreferences) {
-      return registryEnabledModelIds;
-    }
-
-    const enabledIds = new Set<string>();
-    for (const providerId of configuredProviders) {
-      const enabledModels = enabledModelsByProvider[providerId] ?? [];
-      for (const modelId of enabledModels) {
-        enabledIds.add(modelId);
-      }
-    }
-    return enabledIds;
+    return buildEnabledModelIdSet({
+      shouldFallbackToPreferences,
+      configuredProviders,
+      enabledModelsByProvider,
+      registryEnabledModelIds,
+      localRuntimeModels,
+    });
   }, [
     configuredProviders,
     enabledModelsByProvider,
+    localRuntimeModels,
     registryEnabledModelIds,
     shouldFallbackToPreferences,
   ]);
+
+  const runtimeLlmModelsByProvider = useMemo<
+    Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>
+  >(
+    () => ({
+      ollama: toRuntimeProviderModels('ollama', localRuntimeModels),
+      lmstudio: toRuntimeProviderModels('lmstudio', localRuntimeModels),
+    }),
+    [localRuntimeModels]
+  );
+
+  const getProviderLlmModels = useCallback(
+    (provider: SupportedProvider): readonly LlmProviderModelDefinition[] => {
+      if (isLocalRuntimeProvider(provider)) {
+        return runtimeLlmModelsByProvider[provider] ?? [];
+      }
+      return getProviderModelDefinitions(provider).filter(
+        (model: ProviderModelDefinition): model is LlmProviderModelDefinition =>
+          model.type === 'llm'
+      );
+    },
+    [runtimeLlmModelsByProvider]
+  );
 
   const selectedProvider = getSelectedProvider();
   const currentModel = getSelectedModel();
@@ -687,15 +851,22 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   }, [handleSelectionUpdate]);
 
   const nativeToolItems = useMemo<AssistantToolMenuItem[]>(() => {
-    return Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => ({
-      id: toolId,
-      label: formatToolLabel(toolId),
-      enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
-      source: 'native',
-      group: 'Native Tools',
-      description: getToolDescription(toolId),
-      category: metadata.category,
-    }));
+    return Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => {
+      const category =
+        typeof (metadata as { category?: unknown }).category === 'string'
+          ? (metadata as { category: string }).category
+          : undefined;
+
+      return {
+        id: toolId,
+        label: formatToolLabel(toolId),
+        enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
+        source: 'native',
+        group: 'Native Tools',
+        description: getToolDescription(toolId),
+        ...(category ? { category } : {}),
+      };
+    });
   }, [nativeToolStates]);
 
   const loadMcpTools = useCallback(async () => {
@@ -856,35 +1027,35 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   const providerHasEnabledModels = useCallback(
     (provider: SupportedProvider) => {
-      const modelDefinitions = getProviderModelDefinitions(provider).filter(
-        (model: ProviderModelDefinition) => model.type === 'llm'
-      );
-      return modelDefinitions.some((model: ProviderModelDefinition) =>
+      const modelDefinitions = getProviderLlmModels(provider);
+      return modelDefinitions.some((model: LlmProviderModelDefinition) =>
         enabledModelIds.has(model.id)
       );
     },
-    [enabledModelIds]
+    [enabledModelIds, getProviderLlmModels]
   );
 
   const selectModelForProvider = useCallback(
     (provider: SupportedProvider) => {
-      const modelDefinitions = getProviderModelDefinitions(provider).filter(
-        (model: ProviderModelDefinition) => model.type === 'llm'
-      );
+      const modelDefinitions = getProviderLlmModels(provider);
       const enabledModels = modelDefinitions
-        .filter((model: ProviderModelDefinition) => isModelEnabled(provider, model.id))
-        .map((model: ProviderModelDefinition) => model.id);
+        .filter((model: LlmProviderModelDefinition) => isModelEnabled(provider, model.id))
+        .map((model: LlmProviderModelDefinition) => model.id);
 
       if (enabledModels.length === 0) {
         return;
       }
 
       const defaultModel = getProviderDefaultModel(provider);
-      const modelToSelect =
-        defaultModel && enabledModels.includes(defaultModel) ? defaultModel : enabledModels[0];
+      const modelToSelect = enabledModels.includes(defaultModel ?? '')
+        ? defaultModel
+        : enabledModels[0];
+      if (!modelToSelect) {
+        return;
+      }
       setModel(`${provider}::${modelToSelect}`);
     },
-    [isModelEnabled, setModel]
+    [getProviderLlmModels, isModelEnabled, setModel]
   );
 
   useEffect(() => {
@@ -911,33 +1082,175 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     // secretsVersion triggers re-check when API keys are added/removed
   }, [initialProviders, getAvailableProviders, secretsVersion]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setLocalRuntimeStatuses({
+      ollama: { state: 'checking' },
+      lmstudio: { state: 'checking' },
+    });
+
+    void getLocalRuntimeStatuses()
+      .then((statuses) => {
+        if (!cancelled) {
+          setLocalRuntimeStatuses(statuses);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          const fallback = {
+            state: 'unavailable' as const,
+            checkedAt: Date.now(),
+            message: 'Local runtime probe failed',
+          };
+          setLocalRuntimeStatuses({
+            ollama: fallback,
+            lmstudio: fallback,
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getLocalRuntimeStatuses]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getLocalRuntimeModels()
+      .then((catalog) => {
+        if (!cancelled) {
+          setLocalRuntimeModels(catalog);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLocalRuntimeModels(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getLocalRuntimeModels]);
+
+  const localRuntimeHint = useMemo(() => {
+    if (!localRuntimeStatuses) {
+      return;
+    }
+
+    const labelByRuntime = {
+      ollama: 'Ollama',
+      lmstudio: 'LM Studio',
+    } as const;
+
+    const detected = (Object.keys(labelByRuntime) as Array<keyof typeof labelByRuntime>)
+      .filter((runtimeId) => {
+        const status = localRuntimeStatuses[runtimeId];
+        return status.state === 'available' || status.state === 'stale';
+      })
+      .map((runtimeId) => {
+        const modelState = localRuntimeModels?.[runtimeId];
+        if (modelState?.state === 'loaded_non_empty' || modelState?.state === 'stale_cached') {
+          return `${labelByRuntime[runtimeId]} (${modelState.models.length} models)`;
+        }
+        if (modelState?.state === 'loaded_empty') {
+          return `${labelByRuntime[runtimeId]} (no models)`;
+        }
+        return labelByRuntime[runtimeId];
+      });
+
+    if (detected.length > 0) {
+      return `Detected local runtime: ${detected.join(' + ')} on localhost.`;
+    }
+
+    const blockedRuntime = (Object.keys(labelByRuntime) as Array<keyof typeof labelByRuntime>).find(
+      (runtimeId) => localRuntimeStatuses[runtimeId].state === 'blocked_web'
+    );
+    if (blockedRuntime) {
+      return `${labelByRuntime[blockedRuntime]} probe was blocked by browser networking policy.`;
+    }
+
+    const checking = (Object.keys(labelByRuntime) as Array<keyof typeof labelByRuntime>).some(
+      (runtimeId) => localRuntimeStatuses[runtimeId].state === 'checking'
+    );
+    if (checking) {
+      return 'Checking local runtime availability on localhost.';
+    }
+    return;
+  }, [localRuntimeStatuses, localRuntimeModels]);
+
+  const shouldSkipSelectionReconcile = useCallback(
+    (currentProvider: SupportedProvider | null) =>
+      configuredProviders.length === 0 && !isLocalRuntimeProvider(currentProvider),
+    [configuredProviders]
+  );
+
+  const hasValidCurrentModelSelection = useCallback(
+    (currentProvider: SupportedProvider) => {
+      const currentComposite = getSelectedModel();
+      const currentModelName = resolveModelNameFromComposite(currentComposite);
+      if (!currentModelName) {
+        return false;
+      }
+      return isModelEnabled(currentProvider, currentModelName);
+    },
+    [getSelectedModel, isModelEnabled]
+  );
+
+  const handleLocalRuntimeSelection = useCallback(
+    (currentProvider: SupportedProvider): boolean => {
+      if (!isLocalRuntimeProvider(currentProvider)) {
+        return false;
+      }
+
+      const currentComposite = getSelectedModel();
+      const currentModelName = resolveModelNameFromComposite(currentComposite);
+      if (currentModelName) {
+        return true;
+      }
+
+      if (providerHasEnabledModels(currentProvider)) {
+        selectModelForProvider(currentProvider);
+      }
+      return true;
+    },
+    [getSelectedModel, providerHasEnabledModels, selectModelForProvider]
+  );
+
   // Reconcile selection whenever providers or enabled models change
   // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)
   // React will properly batch these updates and handle them in the commit phase
   useEffect(() => {
-    if (configuredProviders.length === 0) {
+    const currentProvider = getSelectedProvider();
+    if (shouldSkipSelectionReconcile(currentProvider)) {
       return;
     }
 
-    const currentProvider = getSelectedProvider();
-
     // Case 1: Current provider is no longer available
     if (currentProvider && !configuredProviders.includes(currentProvider)) {
+      if (isLocalRuntimeProvider(currentProvider)) {
+        return;
+      }
       clearModel();
       return;
     }
 
+    if (currentProvider && handleLocalRuntimeSelection(currentProvider)) {
+      return;
+    }
+
     // Case 2: Current provider exists and has enabled models - nothing to do
-    if (currentProvider && providerHasEnabledModels(currentProvider)) {
-      const currentComposite = getSelectedModel();
-      const currentModelName = resolveModelNameFromComposite(currentComposite);
-      if (currentModelName && isModelEnabled(currentProvider, currentModelName)) {
-        return;
-      }
+    if (
+      currentProvider &&
+      providerHasEnabledModels(currentProvider) &&
+      hasValidCurrentModelSelection(currentProvider)
+    ) {
+      return;
     }
 
     // Case 3: Find the first provider with enabled models
-    const next = configuredProviders.find((providerId) => providerHasEnabledModels(providerId));
+    const next = findFirstProviderWithEnabledModels(configuredProviders, providerHasEnabledModels);
     if (next) {
       selectModelForProvider(next);
       return;
@@ -950,12 +1263,13 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   }, [
     configuredProviders,
     enabledModelIds,
+    handleLocalRuntimeSelection,
+    hasValidCurrentModelSelection,
     getSelectedProvider,
-    getSelectedModel,
     clearModel,
-    isModelEnabled,
     providerHasEnabledModels,
     selectModelForProvider,
+    shouldSkipSelectionReconcile,
   ]);
 
   const handleModelChange = useCallback(
@@ -969,6 +1283,10 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const handleModelToggle = useCallback(
     (providerId: string, modelId: string, enabled: boolean) => {
       if (!isSupportedProvider(providerId)) {
+        return;
+      }
+
+      if (isLocalRuntimeProvider(providerId)) {
         return;
       }
 
@@ -1005,12 +1323,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     for (const providerId of configuredProviders) {
       const definition = getProviderDefinition(providerId);
       const runtime = definition.runtime;
-      const modelDefinitions = getProviderModelDefinitions(providerId).filter(
-        (model: ProviderModelDefinition): model is ProviderModelDefinition & { type: 'llm' } =>
-          model.type === 'llm'
-      );
+      const modelDefinitions = getProviderLlmModels(providerId);
 
-      const models = modelDefinitions.map((model: ProviderModelDefinition & { type: 'llm' }) => ({
+      const models = modelDefinitions.map((model: LlmProviderModelDefinition) => ({
         id: model.id,
         label: model.label ?? model.id,
         type: 'llm' as const,
@@ -1041,7 +1356,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       .filter((group): group is ProviderGroupConfig =>
         Boolean(group && group.providers.length > 0)
       );
-  }, [configuredProviders, isModelEnabled]);
+  }, [configuredProviders, getProviderLlmModels, isModelEnabled]);
 
   // Transform provider groups to ModelPicker-compatible format
   const pickerProviders = useMemo<ModelPickerProvider[]>(() => {
@@ -1060,10 +1375,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     const models: ModelPickerModel[] = [];
 
     for (const providerId of configuredProviders) {
-      const modelDefinitions = getProviderModelDefinitions(providerId).filter(
-        (model: ProviderModelDefinition): model is ProviderModelDefinition & { type: 'llm' } =>
-          model.type === 'llm'
-      );
+      const modelDefinitions = getProviderLlmModels(providerId);
 
       for (const model of modelDefinitions) {
         // Check enabled status using the unified helper
@@ -1085,15 +1397,28 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     }
 
     return models;
-  }, [configuredProviders, isModelEnabled]);
+  }, [configuredProviders, getProviderLlmModels, isModelEnabled]);
 
   const isProviderReady = Boolean(
     selectedProvider && currentModel && configuredProviders.includes(selectedProvider)
   );
 
   const disabledReason = useMemo(() => {
+    const localRuntimeProviderReason = resolveLocalRuntimeProviderDisabledReason(
+      selectedProvider,
+      configuredProviders
+    );
+    if (localRuntimeProviderReason) {
+      return localRuntimeProviderReason;
+    }
+
     if (configuredProviders.length === 0) {
-      return 'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.';
+      const baseReason =
+        'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.';
+      if (localRuntimeHint) {
+        return `${baseReason} ${localRuntimeHint}`;
+      }
+      return baseReason;
     }
     if (!selectedProvider) {
       return 'Select an AI provider to start chatting.';
@@ -1101,6 +1426,17 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     if (!configuredProviders.includes(selectedProvider)) {
       return 'The selected provider is no longer configured.';
     }
+
+    const providerModelIds = getProviderLlmModels(selectedProvider).map((model) => model.id);
+    const unavailableLocalModelReason = resolveSelectedLocalModelUnavailableReason({
+      selectedProvider,
+      selectedModel: currentModel,
+      providerModelIds,
+    });
+    if (unavailableLocalModelReason) {
+      return unavailableLocalModelReason;
+    }
+
     if (!providerHasEnabledModels(selectedProvider)) {
       const definition = getProviderDefinition(selectedProvider);
       return `Enable at least one model for ${definition.displayName} to continue.`;
@@ -1109,7 +1445,14 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       return 'Select a model for the chosen provider to continue.';
     }
     return;
-  }, [configuredProviders, selectedProvider, providerHasEnabledModels, currentModel]);
+  }, [
+    configuredProviders,
+    currentModel,
+    getProviderLlmModels,
+    localRuntimeHint,
+    providerHasEnabledModels,
+    selectedProvider,
+  ]);
 
   return (
     <AssistantUiPanel

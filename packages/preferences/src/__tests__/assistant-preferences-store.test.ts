@@ -311,7 +311,7 @@ describe('assistant-preferences-store', () => {
     const snapshot = persistedValue as {
       state?: {
         selectedModel: string | null;
-        modelsByProvider: Record<SupportedProvider, string>;
+        modelsByProvider: Partial<Record<SupportedProvider, string>>;
         enabledModelsByProvider: Record<SupportedProvider, string[]>;
       };
     };

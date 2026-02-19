@@ -17,7 +17,9 @@ export type EmbeddingProviderType =
   | 'openai'
   | 'google'
   | 'cohere'
-  | 'voyage';
+  | 'voyage'
+  | 'ollama'
+  | 'lmstudio';
 
 /**
  * Local provider types that run in the browser via transformers.js
@@ -25,9 +27,18 @@ export type EmbeddingProviderType =
 export type LocalProviderType = 'local' | 'transformers';
 
 /**
- * Hosted provider types that require API keys
+ * Hosted provider types (remote APIs and local OpenAI-compatible runtimes)
  */
 export type HostedProviderType = Exclude<EmbeddingProviderType, LocalProviderType>;
+
+const NO_API_KEY_HOSTED_PROVIDERS = new Set<HostedProviderType>(['ollama', 'lmstudio']);
+
+/**
+ * Hosted providers that require an API key to operate.
+ */
+export function hostedProviderRequiresApiKey(provider: HostedProviderType): boolean {
+  return !NO_API_KEY_HOSTED_PROVIDERS.has(provider);
+}
 
 /**
  * Check if a provider type is a local (browser-based) provider
@@ -77,6 +88,20 @@ export type EmbeddingProviderConfig =
       provider: 'voyage';
       modelId: string; // e.g., 'voyage-2'
       inputType?: 'document' | 'query';
+    }
+  | {
+      runtime: 'hosted';
+      provider: 'ollama';
+      modelId: string; // e.g., 'nomic-embed-text'
+      dimensions: number; // Expected output dimensions from embedding set metadata
+      endpoint?: string; // Optional custom endpoint (defaults to localhost Ollama)
+    }
+  | {
+      runtime: 'hosted';
+      provider: 'lmstudio';
+      modelId: string; // e.g., 'text-embedding-nomic-embed-text-v1.5'
+      dimensions: number; // Expected output dimensions from embedding set metadata
+      endpoint?: string; // Optional custom endpoint (defaults to localhost LM Studio)
     };
 
 /**

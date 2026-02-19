@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { type EmbeddingProviderType, isLocalProviderType } from '../provider-types';
+import {
+  type EmbeddingProviderType,
+  hostedProviderRequiresApiKey,
+  isLocalProviderType,
+} from '../provider-types';
 import { isHostedProvider } from '../provider-utils';
 
 describe('provider-types', () => {
@@ -13,6 +17,8 @@ describe('provider-types', () => {
     expect(isLocalProviderType('google')).toBe(false);
     expect(isLocalProviderType('cohere')).toBe(false);
     expect(isLocalProviderType('voyage')).toBe(false);
+    expect(isLocalProviderType('ollama')).toBe(false);
+    expect(isLocalProviderType('lmstudio')).toBe(false);
   });
 
   it('isHostedProvider mirrors local classification', () => {
@@ -22,6 +28,17 @@ describe('provider-types', () => {
     expect(isHostedProvider('google')).toBe(true);
     expect(isHostedProvider('cohere')).toBe(true);
     expect(isHostedProvider('voyage')).toBe(true);
+    expect(isHostedProvider('ollama')).toBe(true);
+    expect(isHostedProvider('lmstudio')).toBe(true);
+  });
+
+  it('identifies hosted providers that do not require API keys', () => {
+    expect(hostedProviderRequiresApiKey('openai')).toBe(true);
+    expect(hostedProviderRequiresApiKey('google')).toBe(true);
+    expect(hostedProviderRequiresApiKey('cohere')).toBe(true);
+    expect(hostedProviderRequiresApiKey('voyage')).toBe(true);
+    expect(hostedProviderRequiresApiKey('ollama')).toBe(false);
+    expect(hostedProviderRequiresApiKey('lmstudio')).toBe(false);
   });
 
   it('handles all provider variants without throwing', () => {
@@ -32,6 +49,8 @@ describe('provider-types', () => {
       'google',
       'cohere',
       'voyage',
+      'ollama',
+      'lmstudio',
     ];
 
     for (const provider of providers) {

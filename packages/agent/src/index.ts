@@ -84,6 +84,44 @@ export type {
 } from './providers/local';
 // Local LLM backend for browser-based inference with transformers.js
 export { LocalLlmBackend } from './providers/local';
+export {
+  LOCAL_RUNTIME_IDS,
+  type LocalRuntimeAuthRequiredState,
+  type LocalRuntimeAvailabilityState,
+  type LocalRuntimeAvailableState,
+  type LocalRuntimeBlockedWebState,
+  type LocalRuntimeCheckingState,
+  LocalRuntimeDiscoveryService,
+  type LocalRuntimeDiscoveryServiceOptions,
+  type LocalRuntimeId,
+  type LocalRuntimeIncompatibleState,
+  type LocalRuntimeStaleState,
+  type LocalRuntimeSurface,
+  type LocalRuntimeUnavailableState,
+  type ProbeLocalRuntimeOptions,
+} from './providers/local-runtime-discovery';
+export {
+  type ListLocalRuntimeModelsOptions,
+  type LocalRuntimeDimensionsState,
+  type LocalRuntimeEmbeddingCapability,
+  type LocalRuntimeEmbeddingDimensionFailed,
+  type LocalRuntimeEmbeddingDimensionProbeResult,
+  type LocalRuntimeEmbeddingDimensionUnsupported,
+  type LocalRuntimeEmbeddingDimensionVerified,
+  type LocalRuntimeKnownDimensionsState,
+  LocalRuntimeModelCatalogService,
+  type LocalRuntimeModelCatalogServiceOptions,
+  type LocalRuntimeModelCatalogState,
+  type LocalRuntimeModelFreshness,
+  type LocalRuntimeModelSource,
+  type LocalRuntimeModelsFailedState,
+  type LocalRuntimeModelsLoadedEmptyState,
+  type LocalRuntimeModelsLoadedNonEmptyState,
+  type LocalRuntimeModelsStaleCachedState,
+  type LocalRuntimeNeedsVerificationDimensionsState,
+  type LocalRuntimeNormalizedModel,
+  type LocalRuntimeNotApplicableDimensionsState,
+} from './providers/local-runtime-model-catalog';
 // Provider models and utilities (no Mastra dependencies - safe for client-side)
 export {
   getProviderDefaultModel,

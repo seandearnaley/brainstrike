@@ -3,7 +3,7 @@
  * Prevents errors from propagating to users when they haven't configured required API keys.
  */
 
-import type { HostedProviderType } from './provider-types';
+import { type HostedProviderType, hostedProviderRequiresApiKey } from './provider-types';
 import { isHostedProvider, parseProviderModelKey } from './provider-utils';
 import { resolveHostedProviderApiKey } from './providers/hosted/api-key-resolver';
 
@@ -22,6 +22,8 @@ const PROVIDER_ENV_HINTS: Record<HostedProviderType, string[]> = {
   google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY'],
   cohere: ['COHERE_API_KEY'],
   voyage: ['VOYAGE_API_KEY'],
+  ollama: ['OLLAMA_API_KEY'],
+  lmstudio: ['LMSTUDIO_API_KEY'],
 };
 
 /**
@@ -32,6 +34,8 @@ const PROVIDER_DISPLAY_NAMES: Record<HostedProviderType, string> = {
   google: 'Google',
   cohere: 'Cohere',
   voyage: 'Voyage AI',
+  ollama: 'Ollama',
+  lmstudio: 'LM Studio',
 };
 
 /**
@@ -67,6 +71,10 @@ export async function checkApiKeyAvailability(
 
   // Local providers don't need API keys
   if (!isHostedProvider(provider)) {
+    return { available: true };
+  }
+
+  if (!hostedProviderRequiresApiKey(provider)) {
     return { available: true };
   }
 
@@ -106,7 +114,7 @@ export function requiresApiKey(modelKey: string | null | undefined): boolean {
     return false;
   }
 
-  return isHostedProvider(parsed.provider);
+  return isHostedProvider(parsed.provider) && hostedProviderRequiresApiKey(parsed.provider);
 }
 
 /**
@@ -118,6 +126,10 @@ export function requiresApiKey(modelKey: string | null | undefined): boolean {
 export function getApiKeyConfigInstructions(provider: HostedProviderType): string {
   const displayName = PROVIDER_DISPLAY_NAMES[provider];
   const envHints = PROVIDER_ENV_HINTS[provider];
+
+  if (!hostedProviderRequiresApiKey(provider)) {
+    return `${displayName} local runtime does not require an API key by default.`;
+  }
 
   const instructions = [
     `To use ${displayName} embeddings, configure your API key:`,

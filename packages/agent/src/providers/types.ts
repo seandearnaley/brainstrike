@@ -49,7 +49,7 @@ export const PROVIDER_DEFAULT_MODELS = Object.fromEntries(
   SUPPORTED_PROVIDERS.map((id) => [id, resolveDefaultModel(id)] as const).filter(
     (pair): pair is [SupportedProvider, string] => pair[1] !== undefined
   )
-) as Record<SupportedProvider, string>;
+) as Partial<Record<SupportedProvider, string>>;
 
 /**
  * Models that should be enabled by default (those with `default: true` in registry).

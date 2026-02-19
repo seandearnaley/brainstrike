@@ -387,6 +387,16 @@ describe('resolveRuntimeConfiguration', () => {
     expect((thrown as MastraAgentError | undefined)?.code).toBe('mastra_agent_missing_api_key');
   });
 
+  it('allows local runtime providers without api keys', () => {
+    const ollamaResult = resolveRuntimeConfiguration({ provider: 'ollama' });
+    expect(ollamaResult.provider).toBe('ollama');
+    expect(ollamaResult.apiKey).toBe('');
+
+    const lmStudioResult = resolveRuntimeConfiguration({ provider: 'lmstudio' });
+    expect(lmStudioResult.provider).toBe('lmstudio');
+    expect(lmStudioResult.apiKey).toBe('');
+  });
+
   it('handles undefined runtimeData by creating sanitized runtime with normalized provider', () => {
     // Set env key for this test
     process.env['OPENAI_API_KEY'] = 'env-test-key';

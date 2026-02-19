@@ -1,3 +1,4 @@
+import type { LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
 import type { DbModel, DbProvider } from '@brainstrike/preferences';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -75,6 +76,76 @@ const mockProviders: DbProvider[] = [
   },
 ];
 
+const runtimeCatalog: {
+  ollama: LocalRuntimeModelCatalogState;
+  lmstudio: LocalRuntimeModelCatalogState;
+} = {
+  ollama: {
+    state: 'loaded_non_empty',
+    runtime: 'ollama',
+    checkedAt: 100,
+    availability: {
+      state: 'available',
+      checkedAt: 100,
+      endpoint: 'http://127.0.0.1:11434/v1/models',
+      latencyMs: 8,
+    },
+    endpoint: 'http://127.0.0.1:11434/v1/models',
+    source: 'openai_v1_models',
+    freshness: 'live',
+    models: [
+      {
+        runtime: 'ollama',
+        providerId: 'ollama',
+        modelId: 'nomic-embed-text',
+        modelKey: 'ollama::nomic-embed-text',
+        displayName: 'Nomic Embed Text',
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        source: 'openai_v1_models',
+        freshness: 'live',
+        capabilities: {
+          llm: false,
+          embeddings: 'supported',
+        },
+        dimensionsKnown: {
+          state: 'known',
+          values: [768],
+          verifiedAt: 99,
+          endpoint: 'http://127.0.0.1:11434/v1/embeddings',
+        },
+      },
+      {
+        runtime: 'ollama',
+        providerId: 'ollama',
+        modelId: 'qwen2.5:7b',
+        modelKey: 'ollama::qwen2.5:7b',
+        displayName: 'qwen2.5:7b',
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        source: 'openai_v1_models',
+        freshness: 'live',
+        capabilities: {
+          llm: true,
+          embeddings: 'needs_verification',
+        },
+        dimensionsKnown: {
+          state: 'needs_verification',
+        },
+      },
+    ],
+  },
+  lmstudio: {
+    state: 'failed',
+    runtime: 'lmstudio',
+    checkedAt: 100,
+    availability: {
+      state: 'unavailable',
+      checkedAt: 100,
+      message: 'Connection refused',
+    },
+    message: 'Connection refused',
+  },
+};
+
 describe('useAvailableModels', () => {
   it('should filter and transform enabled embedding models', () => {
     const { result } = renderHook(() => useAvailableModels(mockModels));
@@ -96,6 +167,19 @@ describe('useAvailableModels', () => {
       capabilities: { type: 'embedding' },
     });
   });
+
+  it('should include runtime-discovered models with verified dimensions', () => {
+    const { result } = renderHook(() => useAvailableModels(mockModels, runtimeCatalog));
+
+    expect(result.current).toContainEqual({
+      id: 'ollama::nomic-embed-text',
+      providerId: 'ollama',
+      name: 'nomic-embed-text',
+      description: 'Nomic Embed Text • 768D • Local runtime',
+      capabilities: { type: 'embedding', defaultDimension: 768 },
+    });
+    expect(result.current.some((model) => model.id === 'ollama::qwen2.5:7b')).toBe(false);
+  });
 });
 
 describe('useAvailableProviders', () => {
@@ -108,5 +192,16 @@ describe('useAvailableProviders', () => {
       name: 'OpenAI',
       icon: 'openai-icon',
     });
+  });
+
+  it('should append runtime providers when runtime embedding models are discovered', () => {
+    const { result } = renderHook(() => useAvailableProviders(mockProviders, runtimeCatalog));
+
+    expect(result.current).toContainEqual({
+      id: 'ollama',
+      name: 'Ollama',
+      icon: null,
+    });
+    expect(result.current.some((provider) => provider.id === 'lmstudio')).toBe(false);
   });
 });

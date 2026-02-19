@@ -51,6 +51,8 @@ describe('embedding-preferences-store', () => {
       expect(store.getEnabledModels('google')).toEqual([]);
       expect(store.getEnabledModels('cohere')).toEqual([]);
       expect(store.getEnabledModels('voyage')).toEqual([]);
+      expect(store.getEnabledModels('ollama')).toEqual([]);
+      expect(store.getEnabledModels('lmstudio')).toEqual([]);
     });
   });
 
@@ -181,6 +183,8 @@ describe('embedding-preferences-store', () => {
             google: ['text-embedding-004'],
             cohere: [],
             voyage: [],
+            ollama: [],
+            lmstudio: [],
           },
           preferredRuntime: 'hosted',
         },

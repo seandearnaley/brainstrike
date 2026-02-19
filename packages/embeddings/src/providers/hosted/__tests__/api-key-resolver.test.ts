@@ -229,6 +229,34 @@ describe('api-key-resolver', () => {
       expect(result).toBe('voyage-key');
     });
 
+    it('handles Ollama provider environment variables', async () => {
+      (globalThis as { window?: unknown }).window = undefined;
+
+      globalThis.process = {
+        env: {
+          OLLAMA_API_KEY: 'ollama-key',
+        },
+      } as unknown as NodeJS.Process;
+
+      const result = await resolveHostedProviderApiKey('ollama');
+
+      expect(result).toBe('ollama-key');
+    });
+
+    it('handles LM Studio provider environment variables', async () => {
+      (globalThis as { window?: unknown }).window = undefined;
+
+      globalThis.process = {
+        env: {
+          LMSTUDIO_API_KEY: 'lmstudio-key',
+        },
+      } as unknown as NodeJS.Process;
+
+      const result = await resolveHostedProviderApiKey('lmstudio');
+
+      expect(result).toBe('lmstudio-key');
+    });
+
     it('returns undefined when no environment variable found', async () => {
       (globalThis as { window?: unknown }).window = undefined;
 

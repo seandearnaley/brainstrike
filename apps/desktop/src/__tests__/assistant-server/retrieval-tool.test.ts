@@ -100,8 +100,9 @@ vi.mock('@brainstrike/embeddings', () => ({
       return embedMock();
     }
   },
+  hostedProviderRequiresApiKey: (provider: string) => !['ollama', 'lmstudio'].includes(provider),
   isHostedProvider: (provider: string) =>
-    ['openai', 'google', 'cohere', 'voyage'].includes(provider),
+    ['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'].includes(provider),
   parseProviderModelKey: (modelKey: string) => ({ provider: modelKey.split(':')[0] }),
   resolveHostedProviderApiKey: resolveHostedProviderApiKeyMock,
 }));
@@ -216,6 +217,34 @@ describe('retrieval-tool', () => {
       filePaths: ['/repo/file.ts'],
     });
     expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
+  });
+
+  it('does not require API keys for local runtime embedding providers', async () => {
+    getKeyMock.mockResolvedValue(undefined);
+    resolveHostedProviderApiKeyMock.mockResolvedValue(undefined);
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'ollama::nomic-embed-text',
+              modelId: 'nomic-embed-text',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const result = await tool.execute({
+      context: { query: 'hello', embeddingSetId: 'set-1' },
+    });
+
+    expect(result.embeddingSetId).toBe('set-1');
+    expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('ollama');
   });
 
   it('creates a selection snapshot when file paths exceed limit', async () => {
