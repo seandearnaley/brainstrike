@@ -1,25 +1,10 @@
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { hasEnabledLocalLlmModels, useModelRegistryStore } from '@brainstrike/preferences';
 import { useMemo } from 'react';
 import {
   type AssistantAvailabilityStatus,
   type AssistantStatusFetcher,
   useAssistantAvailability,
 } from './use-assistant-availability';
-
-/**
- * Check if any local LLM models are enabled in the model registry.
- * Local models run in the browser via transformers.js and don't require API keys.
- */
-function hasEnabledLocalLlmModels(
-  models: { providerId: string; isEnabled: boolean; capabilities: { type: string } }[]
-): boolean {
-  return models.some(
-    (model) =>
-      (model.providerId === 'local' || model.providerId === 'transformers') &&
-      model.isEnabled &&
-      model.capabilities.type === 'llm'
-  );
-}
 
 /**
  * Extended assistant availability hook that also considers local LLM models.

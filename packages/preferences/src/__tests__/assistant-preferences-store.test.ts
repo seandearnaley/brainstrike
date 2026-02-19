@@ -127,6 +127,17 @@ describe('assistant-preferences-store', () => {
     expect(updated.getSelectedModel()).toBe(anotherComposite);
   });
 
+  it('ignores setModel calls for unknown providers', () => {
+    const store = useAssistantPreferencesStore.getState();
+    const previous = store.getSelectedModel();
+
+    store.setModel('unknown-provider::model-x');
+
+    const next = useAssistantPreferencesStore.getState();
+    expect(next.getSelectedModel()).toBe(previous);
+    expect(next.getSelectedProvider()).toBeNull();
+  });
+
   it('resolves available providers from secrets API', async () => {
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
