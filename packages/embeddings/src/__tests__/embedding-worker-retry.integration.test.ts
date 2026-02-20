@@ -62,6 +62,65 @@ class FlakyEmbeddingService implements EmbeddingService {
   }
 }
 
+class WorkerTerminationEmbeddingService implements EmbeddingService {
+  private status: EmbeddingStatus = 'ready';
+  private attempts = 0;
+
+  initialize(
+    _config?: Partial<EmbeddingConfig>,
+    _onProgress?: (progress: EmbeddingProgress) => void
+  ): Promise<void> {
+    this.status = 'ready';
+    return Promise.resolve();
+  }
+
+  async generateEmbedding(_text: string): Promise<EmbeddingResult> {
+    this.attempts++;
+    if (this.attempts === 1) {
+      throw new Error('Worker terminated unexpectedly');
+    }
+
+    return {
+      embedding: new Array(768).fill(0.2),
+      dimensions: 768,
+      model: 'fake-model',
+      usage: { totalTokens: 8 },
+    };
+  }
+
+  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+    const results: EmbeddingResult[] = [];
+    for (const text of texts) {
+      results.push(await this.generateEmbedding(text));
+    }
+    return results;
+  }
+
+  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+
+  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+
+  calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
+    return { similarity: 1, distance: 0, method: 'cosine' };
+  }
+
+  getStatus(): EmbeddingStatus {
+    return this.status;
+  }
+
+  getConfig(): EmbeddingConfig {
+    return { modelId: 'fake-model' };
+  }
+
+  async dispose(): Promise<void> {
+    this.status = 'disposed';
+  }
+}
+
 async function waitFor(
   fn: () => Promise<boolean>,
   timeoutMs = 15_000,
@@ -137,6 +196,60 @@ describe('embedding-worker retries and backoff', () => {
       const state = String(row?.['state'] ?? '');
       const attempts = Number(row?.['attempts'] ?? 0);
       return state === 'succeeded' && attempts >= 2;
+    });
+
+    await controller.stop();
+  });
+
+  it('retries when the worker task fails with a termination-style error', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-r2';
+    const fileId = 'file-r2';
+    const chunkId = 'chunk-r2';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        embeddingSetId,
+        'local::jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
+        768,
+        'cosine',
+        now,
+      ]
+    );
+
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [fileId, 'worker.ts', '/worker.ts', 100, 'retry termination', 't-hash', 10, now]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+      VALUES ($1,$2,0,$3,$4,10,'text',10,$5,$5)`,
+      [chunkId, fileId, 'retry termination', 't-hash', now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      VALUES ('job-r2','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [JSON.stringify({ chunkId, embeddingSetId }), now]
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 1000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: new WorkerTerminationEmbeddingService(),
+    });
+
+    await waitFor(async () => {
+      const res = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-r2'`);
+      const row = res.rows[0] as Record<string, unknown> | undefined;
+      const state = String(row?.['state'] ?? '');
+      const attempts = Number(row?.['attempts'] ?? 0);
+      return state === 'succeeded' && attempts >= 1;
     });
 
     await controller.stop();

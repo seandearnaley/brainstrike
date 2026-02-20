@@ -78,9 +78,9 @@ function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupH
 /**
  * Type guard for runtime-safe group header rendering.
  */
-function parseGroupHeaderData(data: unknown): TreeTableGroupHeaderData | null {
+function isGroupHeaderData(data: unknown): data is TreeTableGroupHeaderData {
   if (typeof data !== 'object' || data === null) {
-    return null;
+    return false;
   }
 
   const record = data as Record<string, unknown>;
@@ -88,13 +88,10 @@ function parseGroupHeaderData(data: unknown): TreeTableGroupHeaderData | null {
   const itemCount = record['itemCount'];
 
   if (typeof groupLabel !== 'string' || typeof itemCount !== 'number') {
-    return null;
+    return false;
   }
 
-  return {
-    groupLabel,
-    itemCount,
-  };
+  return true;
 }
 
 function toGroupHeaderNode(node: TreeNode<unknown>): TreeNode<TreeTableGroupHeaderData> | null {
@@ -102,16 +99,11 @@ function toGroupHeaderNode(node: TreeNode<unknown>): TreeNode<TreeTableGroupHead
     return null;
   }
 
-  const parsedData = parseGroupHeaderData(node.data);
-  if (!parsedData) {
+  if (!isGroupHeaderData(node.data)) {
     return null;
   }
 
-  const { data: _ignoredData, ...rest } = node;
-  return {
-    ...rest,
-    data: parsedData,
-  };
+  return node as TreeNode<TreeTableGroupHeaderData>;
 }
 
 /**

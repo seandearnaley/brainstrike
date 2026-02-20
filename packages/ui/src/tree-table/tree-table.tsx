@@ -75,12 +75,13 @@ function getCycleFallbackState(
   warnedCycleNodeIds: Set<string>
 ): CheckboxState {
   if (shouldWarnForCycles() && !warnedCycleNodeIds.has(nodeId)) {
-    if (warnedCycleNodeIds.size >= MAX_WARNED_CYCLE_NODE_IDS) {
-      warnedCycleNodeIds.clear();
+    if (warnedCycleNodeIds.size < MAX_WARNED_CYCLE_NODE_IDS) {
+      warnedCycleNodeIds.add(nodeId);
+      // biome-ignore lint/suspicious/noConsole: Cycles indicate malformed tree data and should be surfaced during development.
+      console.warn(
+        `[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`
+      );
     }
-    warnedCycleNodeIds.add(nodeId);
-    // biome-ignore lint/suspicious/noConsole: Cycles indicate malformed tree data and should be surfaced during development.
-    console.warn(`[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`);
   }
   // Cycles indicate malformed tree data; prefer a conservative visual state
   // that avoids incorrectly showing a fully checked parent.
@@ -234,6 +235,8 @@ export function TreeTable<T>({
   onRowContextMenu,
 }: TreeTableProps<T>) {
   const parentRef = React.useRef<HTMLDivElement>(null);
+  // Diagnostic-only cycle warning cache. This is intentionally mutable and
+  // excluded from memo deps because it does not affect rendered output.
   const warnedCycleNodeIdsRef = React.useRef<Set<string>>(new Set());
 
   const getChildren = React.useMemo(() => createChildrenGetter(nodes), [nodes]);

@@ -53,6 +53,21 @@ import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
 const logger = createLogger('CollectionBrowserView');
+const NODE_ID_PREFIX_PATTERN = /^(collection|file|chunk|embedding)-(.+)$/;
+
+function parseNodeId(nodeId: string): {
+  nodeType: 'collection' | 'file' | 'chunk' | 'embedding' | null;
+  originalId: string;
+} {
+  const match = NODE_ID_PREFIX_PATTERN.exec(nodeId);
+  if (!match) {
+    return { nodeType: null, originalId: nodeId };
+  }
+
+  const nodeType = match[1] as 'collection' | 'file' | 'chunk' | 'embedding';
+  const originalId = match[2] ?? nodeId;
+  return { nodeType, originalId };
+}
 
 export interface CollectionBrowserViewProps {
   /** File records */
@@ -360,12 +375,10 @@ export function CollectionBrowserView({
     if (!selectedId) {
       return { selectedNodeType: null, selectedNodeId: null };
     }
-    // Parse the node ID to determine type and original ID
-    const prefixMatch = selectedId.match(/^(collection|file|chunk|embedding)-(.+)$/);
-    if (!prefixMatch) {
+    const { nodeType, originalId } = parseNodeId(selectedId);
+    if (!nodeType) {
       return { selectedNodeType: null, selectedNodeId: null };
     }
-    const [, nodeType, originalId] = prefixMatch;
     return {
       selectedNodeType: nodeType,
       selectedNodeId: originalId,
@@ -516,8 +529,7 @@ export function CollectionBrowserView({
       // Store the full prefixed ID in the store
       setSelectedId(nodeId);
 
-      // Extract the original ID (remove prefix like 'file-', 'chunk-', etc.)
-      const originalId = nodeId.replace(/^(collection|file|chunk|embedding)-/, '');
+      const { originalId } = parseNodeId(nodeId);
 
       // Call specific handlers based on node type
       if (nodeType === 'file' && onFileSelect) {
@@ -587,7 +599,7 @@ export function CollectionBrowserView({
   const handleContextMenu = useCallback(
     (nodeId: string, nodeType: string, _data: BrowserNodeData, event: React.MouseEvent) => {
       event.preventDefault();
-      const originalId = nodeId.replace(/^(collection|file|chunk|embedding)-/, '');
+      const { originalId } = parseNodeId(nodeId);
       const hasChildren =
         nodeType === 'collection'
           ? records.some(
@@ -634,7 +646,7 @@ export function CollectionBrowserView({
     }
     // Find all child IDs based on node type
     const childIds: string[] = [];
-    const originalId = contextMenu.nodeId.replace(/^(collection|file|chunk|embedding)-/, '');
+    const { originalId } = parseNodeId(contextMenu.nodeId);
 
     if (contextMenu.nodeType === 'file') {
       const fileChunks = chunks.filter((c) => c.fileRecordId === originalId);
@@ -665,7 +677,7 @@ export function CollectionBrowserView({
   // Context menu: copy node ID to clipboard
   const handleContextCopyId = useCallback(() => {
     if (contextMenu) {
-      const originalId = contextMenu.nodeId.replace(/^(collection|file|chunk|embedding)-/, '');
+      const { originalId } = parseNodeId(contextMenu.nodeId);
       navigator.clipboard.writeText(originalId).catch((error: unknown) => {
         logger.warn('Failed to copy node ID to clipboard', { error });
       });
@@ -700,7 +712,7 @@ export function CollectionBrowserView({
         icon: <Copy className="h-4 w-4" />,
         onAction: (selectedIds: Set<string>) => {
           const ids = Array.from(selectedIds)
-            .map((id) => id.replace(/^(collection|file|chunk|embedding)-/, ''))
+            .map((id) => parseNodeId(id).originalId)
             .join('\n');
           navigator.clipboard.writeText(ids).catch((error: unknown) => {
             logger.warn('Failed to copy selected node IDs to clipboard', { error });
@@ -875,7 +887,7 @@ export function CollectionBrowserView({
               {contextMenu.hasChildren && (
                 <>
                   <DropdownMenuItem onClick={handleContextExpand}>
-                    {expandedIds.includes(contextMenu.nodeId) ? (
+                    {expandedIdsSet.has(contextMenu.nodeId) ? (
                       <>
                         <ChevronRight className="mr-2 h-4 w-4 rotate-90" />
                         Collapse

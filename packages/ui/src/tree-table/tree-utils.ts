@@ -576,7 +576,11 @@ export function buildTreeFromFlatNodes<T>(nodes: TreeNode<T>[]): TreeNode<T>[] {
 }
 
 /**
- * Computes the checkbox state for a parent node based on its descendants' selection state.
+ * Computes checkbox state from a precomputed descendant set.
+ *
+ * This is a standalone utility for call sites that only have descendant IDs.
+ * TreeTable runtime rendering uses its own memoized tree traversal in
+ * `tree-table.tsx` for cycle-aware state aggregation across the full tree.
  *
  * @param nodeId - The node ID to compute state for
  * @param multiSelectedIds - Currently selected node IDs
