@@ -18,6 +18,8 @@ import { estimateHardwareConcurrency, ProgressEmitter } from '../util';
 const logger = createLogger('BrowserWorkerpoolAdapter');
 
 export interface WorkerpoolAdapterOptions {
+  /** Minimum workers to keep alive; defaults to 1 to prevent repeated WASM model loading/unloading cycles. */
+  readonly minWorkers?: number;
   readonly maxWorkers?: number;
   readonly maxQueueSize?: number;
   readonly name?: string;
@@ -82,8 +84,10 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     Math.min(options.maxWorkers ?? Math.max(1, hardwareConcurrency - 1), DEFAULT_MAX_WORKERS_CAP)
   );
   const workerScript = options.workerUrl ?? resolveEmbeddingWorkerUrl().href;
+  const minWorkers = options.minWorkers ?? 1;
   const poolOptions: WorkerPoolOptions = {
-    maxWorkers,
+    minWorkers,
+    maxWorkers: Math.max(minWorkers, maxWorkers),
     maxQueueSize: options.maxQueueSize ?? Number.POSITIVE_INFINITY,
     workerType: 'web',
     workerOpts: { type: 'module' },

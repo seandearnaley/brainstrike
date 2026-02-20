@@ -153,20 +153,6 @@ declare global {
 }
 
 function App() {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/a67c7242-fa95-40d2-befe-f4f7a66bce86', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b4e51e' },
-    body: JSON.stringify({
-      sessionId: 'b4e51e',
-      location: 'main.tsx:App',
-      message: 'App component rendering',
-      data: {},
-      hypothesisId: 'H1,H4',
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   // Use IndexedDB storage for desktop app (renderer process can't access filesystem directly)
   const dbPath = 'idb://brainstrike-desktop';
 
@@ -198,21 +184,6 @@ if (!rootElement) {
 }
 
 const existingRoot = window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__;
-
-// #region agent log
-fetch('http://127.0.0.1:7242/ingest/a67c7242-fa95-40d2-befe-f4f7a66bce86', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b4e51e' },
-  body: JSON.stringify({
-    sessionId: 'b4e51e',
-    location: 'main.tsx:mount',
-    message: 'React root mounting',
-    data: { hasExistingRoot: !!existingRoot },
-    hypothesisId: 'H1',
-    timestamp: Date.now(),
-  }),
-}).catch(() => {});
-// #endregion
 
 const root = existingRoot ?? ReactDOM.createRoot(rootElement);
 if (!existingRoot) {
