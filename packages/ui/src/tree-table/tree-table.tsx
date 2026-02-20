@@ -59,9 +59,8 @@ interface CheckboxStateContext<T> {
   multiSelectedIds: Set<string>;
   states: Map<string, CheckboxState>;
   visiting: Set<string>;
+  warnedCycleNodeIds: Set<string>;
 }
-
-const warnedCycleNodeIds = new Set<string>();
 
 function shouldWarnForCycles(): boolean {
   if (typeof process !== 'undefined') {
@@ -70,7 +69,11 @@ function shouldWarnForCycles(): boolean {
   return true;
 }
 
-function getCycleFallbackState(nodeId: string, selectedIds: Set<string>): CheckboxState {
+function getCycleFallbackState(
+  nodeId: string,
+  selectedIds: Set<string>,
+  warnedCycleNodeIds: Set<string>
+): CheckboxState {
   if (shouldWarnForCycles() && !warnedCycleNodeIds.has(nodeId)) {
     if (warnedCycleNodeIds.size >= MAX_WARNED_CYCLE_NODE_IDS) {
       warnedCycleNodeIds.clear();
@@ -127,7 +130,11 @@ function computeNodeState<T>(node: TreeNode<T>, context: CheckboxStateContext<T>
   }
 
   if (context.visiting.has(node.id)) {
-    const fallbackState = getCycleFallbackState(node.id, context.multiSelectedIds);
+    const fallbackState = getCycleFallbackState(
+      node.id,
+      context.multiSelectedIds,
+      context.warnedCycleNodeIds
+    );
     context.states.set(node.id, fallbackState);
     return fallbackState;
   }
@@ -153,13 +160,15 @@ function computeNodeState<T>(node: TreeNode<T>, context: CheckboxStateContext<T>
 function buildCheckboxStateMap<T>(
   nodes: TreeNode<T>[],
   getChildren: (node: TreeNode<T>) => TreeNode<T>[],
-  multiSelectedIds: Set<string>
+  multiSelectedIds: Set<string>,
+  warnedCycleNodeIds: Set<string>
 ): Map<string, CheckboxState> {
   const context: CheckboxStateContext<T> = {
     getChildren,
     multiSelectedIds,
     states: new Map<string, CheckboxState>(),
     visiting: new Set<string>(),
+    warnedCycleNodeIds,
   };
 
   for (const node of nodes) {
@@ -225,14 +234,24 @@ export function TreeTable<T>({
   onRowContextMenu,
 }: TreeTableProps<T>) {
   const parentRef = React.useRef<HTMLDivElement>(null);
+  const warnedCycleNodeIdsRef = React.useRef<Set<string>>(new Set());
 
   const getChildren = React.useMemo(() => createChildrenGetter(nodes), [nodes]);
 
   const { rows, indexMap } = React.useMemo(() => {
-    const nodesWithLoading = nodes.map((node) => ({
-      ...node,
-      isLoading: loadingNodeIds.has(node.id),
-    }));
+    const nodesWithLoading =
+      loadingNodeIds.size === 0
+        ? nodes
+        : nodes.map((node) => {
+            const isLoading = loadingNodeIds.has(node.id);
+            if (isLoading) {
+              return node.isLoading === true ? node : { ...node, isLoading: true };
+            }
+            if (node.isLoading === true) {
+              return { ...node, isLoading: false };
+            }
+            return node;
+          });
 
     const rootsWithLoading = nodesWithLoading.filter((n) => n.parentId === null);
     const getChildrenWithLoading = createChildrenGetter(nodesWithLoading);
@@ -276,7 +295,12 @@ export function TreeTable<T>({
     if (!showCheckbox) {
       return new Map();
     }
-    return buildCheckboxStateMap(nodes, getChildren, multiSelectedIds);
+    return buildCheckboxStateMap(
+      nodes,
+      getChildren,
+      multiSelectedIds,
+      warnedCycleNodeIdsRef.current
+    );
   }, [showCheckbox, nodes, multiSelectedIds, getChildren]);
 
   // Handle checkbox toggle - select/deselect node and all descendants
