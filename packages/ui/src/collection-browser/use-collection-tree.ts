@@ -600,7 +600,8 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
       // Keep parent nodes visible when descendants match, even if the parent
       // itself does not match node type/search/status filters.
       // Intentionally short-circuit when self matches to avoid unnecessary
-      // descendant traversal during visibility checks.
+      // descendant traversal during visibility checks. In DAG-shaped inputs this
+      // can reduce cache population for descendants, but it remains correct.
       const result = selfMatches || children.some((child) => matchesNode(child));
       cache.set(node.id, result);
       return result;
@@ -1203,7 +1204,7 @@ export function useCollectionTree({
   const matchesStandardFilters = React.useMemo(() => {
     return createFilterMatcher(filterContext);
   }, [filterContext]);
-  const matchesStandardNodeFiltersMemo = React.useCallback(
+  const matchesDirectNodeFilters = React.useCallback(
     (node: TreeNode<BrowserNodeData>) => matchesStandardNodeFilters(node, filters),
     [filters]
   );
@@ -1220,7 +1221,7 @@ export function useCollectionTree({
         allNodes,
         sortedRootNodes,
         sortedChildrenMap,
-        matchesStandardNodeFiltersMemo
+        matchesDirectNodeFilters
       );
     }
 
@@ -1230,7 +1231,7 @@ export function useCollectionTree({
       sortedRootNodes,
       sortedChildrenMap,
       matchesStandardFilters,
-      matchesStandardNodeFiltersMemo
+      matchesDirectNodeFilters
     );
   }, [
     sortedRootNodes,
@@ -1240,7 +1241,7 @@ export function useCollectionTree({
     filterToSemanticResults,
     filters,
     matchesStandardFilters,
-    matchesStandardNodeFiltersMemo,
+    matchesDirectNodeFilters,
   ]);
 
   const semanticVisibleNodeIds = React.useMemo((): Set<string> | null => {

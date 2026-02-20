@@ -54,10 +54,16 @@ import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
 const logger = createLogger('CollectionBrowserView');
 type NodeIdPrefix = Extract<CollectionNodeType, 'collection' | 'file' | 'chunk' | 'embedding'>;
-const NODE_ID_PREFIX_PATTERN = /^(collection|file|chunk|embedding)-(.+)$/;
+const NODE_ID_PREFIXES = [
+  'collection',
+  'file',
+  'chunk',
+  'embedding',
+] as const satisfies readonly NodeIdPrefix[];
+const NODE_ID_PREFIX_PATTERN = new RegExp(`^(${NODE_ID_PREFIXES.join('|')})-(.+)$`);
 
 function isNodeIdPrefix(value: string): value is NodeIdPrefix {
-  return value === 'collection' || value === 'file' || value === 'chunk' || value === 'embedding';
+  return NODE_ID_PREFIXES.some((prefix) => prefix === value);
 }
 
 function parseNodeId(nodeId: string): {
