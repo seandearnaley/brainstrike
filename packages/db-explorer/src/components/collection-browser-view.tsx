@@ -587,7 +587,22 @@ export function CollectionBrowserView({
   const handleContextMenu = useCallback(
     (nodeId: string, nodeType: string, _data: BrowserNodeData, event: React.MouseEvent) => {
       event.preventDefault();
-      const hasChildren = nodeType === 'file' || nodeType === 'collection' || nodeType === 'chunk';
+      const originalId = nodeId.replace(/^(collection|file|chunk|embedding)-/, '');
+      const hasChildren =
+        nodeType === 'collection'
+          ? records.some(
+              (record) =>
+                activeCollectionId === null || record.embeddingSetId === activeCollectionId
+            )
+          : nodeType === 'file'
+            ? chunks.some(
+                (chunk) =>
+                  chunk.fileRecordId === originalId &&
+                  (activeCollectionId === null || chunk.embeddingSetId === activeCollectionId)
+              )
+            : nodeType === 'chunk'
+              ? chunks.some((chunk) => chunk.id === originalId && Boolean(chunk.embedding?.length))
+              : false;
       setContextMenu({
         x: event.clientX,
         y: event.clientY,
@@ -596,7 +611,7 @@ export function CollectionBrowserView({
         hasChildren,
       });
     },
-    []
+    [records, chunks, activeCollectionId]
   );
 
   // Close context menu
