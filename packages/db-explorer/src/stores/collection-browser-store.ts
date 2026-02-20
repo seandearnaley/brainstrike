@@ -68,6 +68,8 @@ interface CollectionBrowserData {
 interface CollectionBrowserActions {
   /** Set expanded node IDs */
   setExpandedIds: (ids: string[]) => void;
+  /** Remove specific IDs from the expanded set */
+  removeExpandedIds: (ids: Iterable<string>) => void;
   /** Toggle a single node's expansion */
   toggleExpanded: (id: string) => void;
   /** Expand all provided IDs */
@@ -184,6 +186,22 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       // Expansion actions
       setExpandedIds: (ids) => set({ expandedIds: ids }),
+      removeExpandedIds: (ids) => {
+        const idsToRemove = new Set(ids);
+        if (idsToRemove.size === 0) {
+          return;
+        }
+
+        const { expandedIds } = get();
+        if (expandedIds.length === 0) {
+          return;
+        }
+
+        const nextExpandedIds = expandedIds.filter((id) => !idsToRemove.has(id));
+        if (nextExpandedIds.length !== expandedIds.length) {
+          set({ expandedIds: nextExpandedIds });
+        }
+      },
 
       toggleExpanded: (id) => {
         const { expandedIds } = get();
@@ -299,6 +317,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigFtsWeight: s.searchConfigFtsWeight,
         searchConfigExpanded: s.searchConfigExpanded,
         isFilterVisible: s.isFilterVisible,
+        // Persist grouping preference, but keep multi-select UI mode session-scoped.
         groupBy: s.groupBy,
       }),
     }

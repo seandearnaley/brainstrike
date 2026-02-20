@@ -60,8 +60,24 @@ interface CheckboxStateContext<T> {
   visiting: Set<string>;
 }
 
+const warnedCycleNodeIds = new Set<string>();
+
+function shouldWarnForCycles(): boolean {
+  if (typeof process !== 'undefined') {
+    return process.env['NODE_ENV'] !== 'production';
+  }
+  return true;
+}
+
 function getCycleFallbackState(nodeId: string, selectedIds: Set<string>): CheckboxState {
-  return selectedIds.has(nodeId) ? 'checked' : 'unchecked';
+  if (shouldWarnForCycles() && !warnedCycleNodeIds.has(nodeId)) {
+    warnedCycleNodeIds.add(nodeId);
+    // biome-ignore lint/suspicious/noConsole: Cycles indicate malformed tree data and should be surfaced during development.
+    console.warn(`[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`);
+  }
+  // Cycles indicate malformed tree data; prefer a conservative visual state
+  // that avoids incorrectly showing a fully checked parent.
+  return selectedIds.has(nodeId) ? 'indeterminate' : 'unchecked';
 }
 
 function aggregateChildStates<T>(

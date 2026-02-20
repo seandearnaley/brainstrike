@@ -66,9 +66,7 @@ function row<T>(n: TreeNode<T>, index: number): FlattenedRow<T> {
 // ---------------------------------------------------------------------------
 
 describe('computeCheckboxState — edge cases', () => {
-  it('returns "checked" early when node itself is selected (ignores descendants)', () => {
-    // Even if descendants exist and are NOT selected, the node is "checked"
-    // because it is directly in multiSelectedIds.
+  it('returns "indeterminate" when parent is selected without full descendant selection', () => {
     const selected = new Set(['parent']);
     const getDesc = (id: string): Set<string> => {
       if (id === 'parent') {
@@ -77,7 +75,7 @@ describe('computeCheckboxState — edge cases', () => {
       return new Set();
     };
 
-    expect(computeCheckboxState('parent', selected, getDesc)).toBe('checked');
+    expect(computeCheckboxState('parent', selected, getDesc)).toBe('indeterminate');
   });
 
   it('returns "unchecked" for leaf with no descendants and not selected', () => {
@@ -105,9 +103,7 @@ describe('computeCheckboxState — edge cases', () => {
     expect(computeCheckboxState('p', selected, getDesc)).toBe('unchecked');
   });
 
-  it('dead branch at line 594: leaf not selected with 0 descendants returns "unchecked"', () => {
-    // This exercises the path where descendants.size === 0 AND
-    // multiSelectedIds.has(nodeId) is false (the redundant re-check).
+  it('returns "unchecked" for a leaf with no descendants and no selection', () => {
     const selected = new Set<string>();
     const getDesc = (): Set<string> => new Set<string>();
 

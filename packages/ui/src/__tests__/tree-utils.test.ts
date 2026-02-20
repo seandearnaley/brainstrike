@@ -644,6 +644,18 @@ describe('tree-utils', () => {
       expect(result).toBe('unchecked');
     });
 
+    it('returns indeterminate when a parent is selected but descendants are not fully selected', () => {
+      const selected = new Set(['parent', 'child1']);
+      const getDescendants = (id: string): Set<string> => {
+        if (id === 'parent') {
+          return new Set(['child1', 'child2']);
+        }
+        return new Set();
+      };
+      const result = computeCheckboxState('parent', selected, getDescendants);
+      expect(result).toBe('indeterminate');
+    });
+
     it('returns checked when all descendants are selected', () => {
       const selected = new Set(['child1', 'child2']);
       const getDescendants = (id: string): Set<string> => {

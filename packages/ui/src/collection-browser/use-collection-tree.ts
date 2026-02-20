@@ -896,7 +896,7 @@ function applyGrouping(
 
   // Sort groups by label
   const sortedGroupEntries = [...groups.entries()].sort(([a], [b]) =>
-    getGroupLabel(groupBy, a).localeCompare(getGroupLabel(groupBy, b))
+    getGroupLabel(groupBy, a).localeCompare(getGroupLabel(groupBy, b), 'en')
   );
 
   for (const [groupValue, files] of sortedGroupEntries) {

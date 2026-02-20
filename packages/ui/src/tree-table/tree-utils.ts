@@ -581,20 +581,19 @@ export function buildTreeFromFlatNodes<T>(nodes: TreeNode<T>[]): TreeNode<T>[] {
  * @param nodeId - The node ID to compute state for
  * @param multiSelectedIds - Currently selected node IDs
  * @param getDescendants - Function to get all descendant IDs for a node
- * @returns 'checked' if all descendants selected, 'indeterminate' if some, 'unchecked' if none
+ * @returns Leaf nodes: checked when selected, unchecked otherwise.
+ * Parents: checked when all descendants selected, indeterminate when some descendants
+ * are selected (including explicit parent selection with incomplete descendants),
+ * unchecked when none are selected.
  */
 export function computeCheckboxState(
   nodeId: string,
   multiSelectedIds: Set<string>,
   getDescendants: (nodeId: string) => Set<string>
 ): 'checked' | 'unchecked' | 'indeterminate' {
-  if (multiSelectedIds.has(nodeId)) {
-    return 'checked';
-  }
-
   const descendants = getDescendants(nodeId);
   if (descendants.size === 0) {
-    return 'unchecked';
+    return multiSelectedIds.has(nodeId) ? 'checked' : 'unchecked';
   }
 
   let selectedCount = 0;
@@ -605,7 +604,7 @@ export function computeCheckboxState(
   }
 
   if (selectedCount === 0) {
-    return 'unchecked';
+    return multiSelectedIds.has(nodeId) ? 'indeterminate' : 'unchecked';
   }
   if (selectedCount === descendants.size) {
     return 'checked';

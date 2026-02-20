@@ -82,10 +82,15 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   // Track focused node (separate from selection)
   const [focusedId, setFocusedId] = React.useState<string | null>(null);
   const [isActive, setIsActive] = React.useState(false);
+  const focusedIdRef = React.useRef<string | null>(null);
 
   // Track the anchor point for range selection
   const rangeAnchorRef = React.useRef<string | null>(null);
   const suppressAutoFocusRef = React.useRef(false);
+
+  React.useEffect(() => {
+    focusedIdRef.current = focusedId;
+  }, [focusedId]);
 
   // Sync focused state with table focus
   React.useEffect(() => {
@@ -101,18 +106,22 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
       return;
     }
 
+    const currentFocusedId = focusedIdRef.current;
+
     if (rows.length === 0) {
-      if (focusedId !== null) {
+      if (currentFocusedId !== null) {
+        focusedIdRef.current = null;
         setFocusedId(null);
       }
       suppressAutoFocusRef.current = false;
       return;
     }
 
-    if (focusedId !== null) {
-      const stillExists = rows.some((row) => row.node.id === focusedId);
+    if (currentFocusedId !== null) {
+      const stillExists = rows.some((row) => row.node.id === currentFocusedId);
       if (!stillExists) {
         suppressAutoFocusRef.current = true;
+        focusedIdRef.current = null;
         setFocusedId(null);
       }
       return;
@@ -125,9 +134,10 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
 
     const firstRow = rows[0];
     if (firstRow) {
+      focusedIdRef.current = firstRow.node.id;
       setFocusedId(firstRow.node.id);
     }
-  }, [isActive, focusedId, rows]);
+  }, [isActive, rows]);
 
   // Navigation actions
   const moveUp = React.useCallback(() => {

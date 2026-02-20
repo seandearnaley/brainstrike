@@ -241,6 +241,7 @@ export function CollectionBrowserView({
     isInspectorCollapsed,
     inspectorWidth,
     setExpandedIds,
+    removeExpandedIds,
     setSelectedId,
     setSortState,
     setInspectorCollapsed,
@@ -671,12 +672,7 @@ export function CollectionBrowserView({
         label: 'Collapse',
         icon: <ChevronsDownUp className="h-4 w-4" />,
         onAction: (selectedIds: Set<string>) => {
-          // Remove selected IDs from expanded set
-          const currentExpanded = new Set(useCollectionBrowserStore.getState().expandedIds);
-          for (const id of selectedIds) {
-            currentExpanded.delete(id);
-          }
-          setExpandedIds(Array.from(currentExpanded));
+          removeExpandedIds(selectedIds);
         },
         applicableTypes: ['file', 'chunk'] as CollectionNodeType[],
       },
@@ -694,7 +690,7 @@ export function CollectionBrowserView({
         },
       },
     ],
-    [expandIds, setExpandedIds]
+    [expandIds, removeExpandedIds]
   );
 
   // Empty state message - depends on search mode

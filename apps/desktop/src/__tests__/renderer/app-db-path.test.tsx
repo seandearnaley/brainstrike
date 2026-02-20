@@ -1,4 +1,5 @@
 import { render } from '@testing-library/react';
+import type { Root as ReactRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock file-explorer packages to avoid Worker import issues
@@ -60,7 +61,9 @@ beforeEach(() => {
   const rootEl = document.createElement('div');
   rootEl.id = 'root';
   document.body.appendChild(rootEl);
-  window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = undefined;
+  window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = {
+    render: mockRender,
+  } as unknown as ReactRoot;
   window.__BRAINSTRIKE_READY__ = undefined;
   // Reset modules to ensure fresh import each test
   vi.resetModules();
@@ -75,15 +78,9 @@ describe('App database path resolution', () => {
     });
 
     await import('../../renderer/main.tsx');
-    const element = mockRender.mock.calls[0]?.[0];
-    if (element) {
-      render(element);
-    }
-    const { waitFor } = await import('@testing-library/react');
-    await waitFor(() => {
-      const last = mockDbProvider.mock.calls.at(-1)?.[0];
-      expect(last).toBeDefined();
-    });
+    const element = mockRender.mock.calls.at(-1)?.[0];
+    expect(element).toBeDefined();
+    render(element);
     const call = mockDbProvider.mock.calls.at(-1)?.[0] as { useElectronIPC?: boolean } | undefined;
     expect(call?.useElectronIPC).toBe(true);
   });
