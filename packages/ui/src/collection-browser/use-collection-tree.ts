@@ -598,6 +598,8 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
       const children = ctx.childrenMap.get(node.id) ?? [];
       // Keep parent nodes visible when descendants match, even if the parent
       // itself does not match node type/search/status filters.
+      // Intentionally short-circuit when self matches to avoid unnecessary
+      // descendant traversal during visibility checks.
       const result = selfMatches || children.some((child) => matchesNode(child));
       cache.set(node.id, result);
       return result;
@@ -1198,9 +1200,10 @@ export function useCollectionTree({
   const matchesStandardFilters = React.useMemo(() => {
     return createFilterMatcher(filterContext);
   }, [filterContext]);
-  const matchesStandardNodeFiltersMemo = React.useMemo(() => {
-    return (node: TreeNode<BrowserNodeData>) => matchesStandardNodeFilters(node, filters);
-  }, [filters]);
+  const matchesStandardNodeFiltersMemo = React.useCallback(
+    (node: TreeNode<BrowserNodeData>) => matchesStandardNodeFilters(node, filters),
+    [filters]
+  );
 
   // Apply filters (use sorted versions)
   // When filterToSemanticResults is true, filter to only show matching chunks and their ancestors

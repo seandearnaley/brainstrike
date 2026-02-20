@@ -56,6 +56,10 @@ const logger = createLogger('CollectionBrowserView');
 type NodeIdPrefix = 'collection' | 'file' | 'chunk' | 'embedding';
 const NODE_ID_PREFIX_PATTERN = /^(collection|file|chunk|embedding)-(.+)$/;
 
+function isNodeIdPrefix(value: string): value is NodeIdPrefix {
+  return value === 'collection' || value === 'file' || value === 'chunk' || value === 'embedding';
+}
+
 function parseNodeId(nodeId: string): {
   nodeType: NodeIdPrefix | null;
   originalId: string;
@@ -65,9 +69,12 @@ function parseNodeId(nodeId: string): {
     return { nodeType: null, originalId: nodeId };
   }
 
-  // Regex guarantees both capture groups when match is truthy.
-  const nodeType = match[1] as NodeIdPrefix;
-  const originalId = match[2] as string;
+  const nodeType = match[1];
+  const originalId = match[2];
+  if (nodeType === undefined || originalId === undefined || !isNodeIdPrefix(nodeType)) {
+    return { nodeType: null, originalId: nodeId };
+  }
+
   return { nodeType, originalId };
 }
 
