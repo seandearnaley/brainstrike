@@ -116,6 +116,11 @@ export function useCollectionBrowserState({
   const [internalSelectedId, setInternalSelectedId] = React.useState<string | null>(null);
   const selectedId = controlledSelectedId !== undefined ? controlledSelectedId : internalSelectedId;
   const setSelectedId = onSelectedIdChange ?? setInternalSelectedId;
+  const setSelectedIdRef = React.useRef(setSelectedId);
+
+  React.useEffect(() => {
+    setSelectedIdRef.current = setSelectedId;
+  }, [setSelectedId]);
 
   const [multiSelectedIds, setMultiSelectedIds] = React.useState<Set<string>>(new Set());
 
@@ -291,10 +296,10 @@ export function useCollectionBrowserState({
     if (selectedId !== null && nodes.length > 0) {
       const stillVisible = nodes.some((n) => n.id === selectedId);
       if (!stillVisible) {
-        setSelectedId(null);
+        setSelectedIdRef.current(null);
       }
     }
-  }, [selectedId, nodes, setSelectedId]);
+  }, [selectedId, nodes]);
 
   const highlightedIds = isSemanticMode && hasSemanticResults ? semanticMatchIds : searchMatchIds;
 

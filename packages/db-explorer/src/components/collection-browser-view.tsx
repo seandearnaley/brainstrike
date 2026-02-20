@@ -853,7 +853,7 @@ export function CollectionBrowserView({
           >
             <DropdownMenuTrigger asChild>
               <div
-                className="pointer-events-none fixed"
+                className="pointer-events-none fixed h-px w-px"
                 style={{ left: contextMenu.x, top: contextMenu.y }}
               />
             </DropdownMenuTrigger>

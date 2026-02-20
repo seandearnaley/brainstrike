@@ -623,7 +623,6 @@ describe('embedding worker runtime', () => {
     ).rejects.toThrow('Embedding failed:');
 
     pipelineMock.mockResolvedValueOnce(async () => {
-      // biome-ignore lint/style/useThrowOnlyError: Exercising circular failure serialization fallback
       throw circular;
     });
     await expect(

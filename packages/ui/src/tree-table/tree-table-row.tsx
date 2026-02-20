@@ -12,7 +12,6 @@ import { ChevronDown, ChevronRight, Layers, Loader2 } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '../button';
 import { Checkbox } from '../checkbox';
-import type { GroupHeaderData } from '../collection-browser/types';
 import { cn } from '../lib/utils';
 import { TableCell, TableRow } from '../table';
 import type { FlattenedRow, TreeNode, TreeTableColumn, TreeTableRowProps } from './types';
@@ -22,11 +21,16 @@ import type { FlattenedRow, TreeNode, TreeTableColumn, TreeTableRowProps } from 
  */
 const INDENT_WIDTH = 20;
 
+interface TreeTableGroupHeaderData {
+  groupLabel: string;
+  itemCount: number;
+}
+
 /**
  * Props for the GroupHeaderCell component.
  */
 interface GroupHeaderCellProps<T> {
-  node: TreeNode<GroupHeaderData>;
+  node: TreeNode<TreeTableGroupHeaderData>;
   isExpanded: boolean;
   onExpandClick: (event: React.MouseEvent) => void;
   columns: TreeTableColumn<T>[];
@@ -74,35 +78,26 @@ function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupH
 /**
  * Type guard for runtime-safe group header rendering.
  */
-function parseGroupHeaderData(data: unknown): GroupHeaderData | null {
+function parseGroupHeaderData(data: unknown): TreeTableGroupHeaderData | null {
   if (typeof data !== 'object' || data === null) {
     return null;
   }
 
   const record = data as Record<string, unknown>;
   const groupLabel = record['groupLabel'];
-  const groupValue = record['groupValue'];
   const itemCount = record['itemCount'];
-  const groupKey = record['groupKey'];
 
-  if (
-    typeof groupLabel !== 'string' ||
-    typeof groupValue !== 'string' ||
-    typeof itemCount !== 'number' ||
-    (groupKey !== 'none' && groupKey !== 'status' && groupKey !== 'type')
-  ) {
+  if (typeof groupLabel !== 'string' || typeof itemCount !== 'number') {
     return null;
   }
 
   return {
     groupLabel,
-    groupValue,
     itemCount,
-    groupKey,
   };
 }
 
-function toGroupHeaderNode(node: TreeNode<unknown>): TreeNode<GroupHeaderData> | null {
+function toGroupHeaderNode(node: TreeNode<unknown>): TreeNode<TreeTableGroupHeaderData> | null {
   if (node.type !== 'group') {
     return null;
   }

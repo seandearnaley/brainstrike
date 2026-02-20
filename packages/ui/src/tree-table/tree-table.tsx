@@ -18,12 +18,7 @@ import { useResizeObserver } from '../hooks/use-resize-observer';
 import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
 import { DEFAULT_ROW_HEIGHTS, TreeTableRow } from './tree-table-row';
-import {
-  computeCheckboxState,
-  createChildrenGetter,
-  flattenTreeRecursive,
-  getDescendantIds,
-} from './tree-utils';
+import { createChildrenGetter, flattenTreeRecursive, getDescendantIds } from './tree-utils';
 import type { CheckboxState, TreeNode, TreeTableProps } from './types';
 import { type UseTreeKeyboardOptions, useTreeKeyboard } from './use-tree-keyboard';
 import { useTreeTableHandlers } from './use-tree-table-handlers';
@@ -56,6 +51,87 @@ function getAriaSortValue(
     return 'descending';
   }
   return 'none';
+}
+
+interface CheckboxStateContext<T> {
+  getChildren: (node: TreeNode<T>) => TreeNode<T>[];
+  multiSelectedIds: Set<string>;
+  states: Map<string, CheckboxState>;
+  visiting: Set<string>;
+}
+
+function getCycleFallbackState(nodeId: string, selectedIds: Set<string>): CheckboxState {
+  return selectedIds.has(nodeId) ? 'checked' : 'unchecked';
+}
+
+function aggregateChildStates<T>(
+  children: TreeNode<T>[],
+  context: CheckboxStateContext<T>
+): CheckboxState {
+  let hasSelectedDescendant = false;
+  let allChildrenChecked = true;
+
+  for (const child of children) {
+    const childState = computeNodeState(child, context);
+    if (childState !== 'unchecked') {
+      hasSelectedDescendant = true;
+    }
+    if (childState !== 'checked') {
+      allChildrenChecked = false;
+    }
+  }
+
+  if (!hasSelectedDescendant) {
+    return 'unchecked';
+  }
+  return allChildrenChecked ? 'checked' : 'indeterminate';
+}
+
+function computeNodeState<T>(node: TreeNode<T>, context: CheckboxStateContext<T>): CheckboxState {
+  const cached = context.states.get(node.id);
+  if (cached) {
+    return cached;
+  }
+
+  if (context.visiting.has(node.id)) {
+    const fallbackState = getCycleFallbackState(node.id, context.multiSelectedIds);
+    context.states.set(node.id, fallbackState);
+    return fallbackState;
+  }
+
+  if (context.multiSelectedIds.has(node.id)) {
+    context.states.set(node.id, 'checked');
+    return 'checked';
+  }
+
+  context.visiting.add(node.id);
+  const children = context.getChildren(node);
+  const state = children.length === 0 ? 'unchecked' : aggregateChildStates(children, context);
+  context.visiting.delete(node.id);
+
+  context.states.set(node.id, state);
+  return state;
+}
+
+function buildCheckboxStateMap<T>(
+  nodes: TreeNode<T>[],
+  getChildren: (node: TreeNode<T>) => TreeNode<T>[],
+  multiSelectedIds: Set<string>
+): Map<string, CheckboxState> {
+  const context: CheckboxStateContext<T> = {
+    getChildren,
+    multiSelectedIds,
+    states: new Map<string, CheckboxState>(),
+    visiting: new Set<string>(),
+  };
+
+  for (const node of nodes) {
+    if (!context.states.has(node.id)) {
+      computeNodeState(node, context);
+    }
+  }
+
+  return context.states;
 }
 
 /**
@@ -157,28 +233,14 @@ export function TreeTable<T>({
     return map;
   }, [nodes]);
 
-  // Compute checkbox states for all visible rows when showCheckbox is enabled
+  // Compute checkbox states in a single bottom-up pass across the whole tree.
+  // This avoids O(visibleRows * subtreeTraversal) work on each render.
   const checkboxStates = React.useMemo((): Map<string, CheckboxState> => {
     if (!showCheckbox) {
       return new Map();
     }
-    const states = new Map<string, CheckboxState>();
-    const getDescendantsFn = (nodeId: string): Set<string> => {
-      const node = nodeById.get(nodeId);
-      if (!node) {
-        return new Set();
-      }
-      return getDescendantIds(node, getChildren);
-    };
-
-    for (const row of rows) {
-      states.set(
-        row.node.id,
-        computeCheckboxState(row.node.id, multiSelectedIds, getDescendantsFn)
-      );
-    }
-    return states;
-  }, [showCheckbox, rows, nodeById, multiSelectedIds, getChildren]);
+    return buildCheckboxStateMap(nodes, getChildren, multiSelectedIds);
+  }, [showCheckbox, nodes, multiSelectedIds, getChildren]);
 
   // Handle checkbox toggle - select/deselect node and all descendants
   const handleCheckboxChange = React.useCallback(

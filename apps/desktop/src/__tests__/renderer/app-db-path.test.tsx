@@ -60,6 +60,8 @@ beforeEach(() => {
   const rootEl = document.createElement('div');
   rootEl.id = 'root';
   document.body.appendChild(rootEl);
+  window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = undefined;
+  window.__BRAINSTRIKE_READY__ = undefined;
   // Reset modules to ensure fresh import each test
   vi.resetModules();
 });

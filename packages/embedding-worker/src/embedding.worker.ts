@@ -260,14 +260,17 @@ function stopKeepAlive(): void {
  * when minWorkers >= 1).
  */
 function invalidateWebGpuPipelines(): void {
-  const count = pipelines.size;
+  const keysToDelete: string[] = [];
   for (const key of pipelines.keys()) {
     if (key.includes('|webgpu|')) {
-      pipelines.delete(key);
+      keysToDelete.push(key);
     }
   }
+  for (const key of keysToDelete) {
+    pipelines.delete(key);
+  }
   // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-  console.warn(`[EmbeddingWorker] Invalidated ${count - pipelines.size} WebGPU pipeline(s)`);
+  console.warn(`[EmbeddingWorker] Invalidated ${keysToDelete.length} WebGPU pipeline(s)`);
 }
 
 /**
