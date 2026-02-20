@@ -36,6 +36,7 @@ import {
   type SearchMode,
   SearchModeBar,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import {
   ChevronLeft,
   ChevronRight,
@@ -50,6 +51,8 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { Group, Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
+
+const logger = createLogger('CollectionBrowserView');
 
 export interface CollectionBrowserViewProps {
   /** File records */
@@ -648,8 +651,8 @@ export function CollectionBrowserView({
   const handleContextCopyId = useCallback(() => {
     if (contextMenu) {
       const originalId = contextMenu.nodeId.replace(/^(collection|file|chunk|embedding)-/, '');
-      navigator.clipboard.writeText(originalId).catch(() => {
-        // Clipboard write can fail if page doesn't have focus or permissions are denied
+      navigator.clipboard.writeText(originalId).catch((error: unknown) => {
+        logger.warn('Failed to copy node ID to clipboard', { error });
       });
     }
     closeContextMenu();
@@ -684,8 +687,8 @@ export function CollectionBrowserView({
           const ids = Array.from(selectedIds)
             .map((id) => id.replace(/^(collection|file|chunk|embedding)-/, ''))
             .join('\n');
-          navigator.clipboard.writeText(ids).catch(() => {
-            // Clipboard write can fail if page doesn't have focus or permissions are denied
+          navigator.clipboard.writeText(ids).catch((error: unknown) => {
+            logger.warn('Failed to copy selected node IDs to clipboard', { error });
           });
         },
       },

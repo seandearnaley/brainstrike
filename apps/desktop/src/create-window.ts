@@ -51,6 +51,8 @@ const DEV_SERVER_RETRY_ATTEMPTS = isTestRuntime ? 1 : 30;
 const DEV_SERVER_RETRY_DELAY_MS = isTestRuntime ? 0 : 200;
 const DEV_RENDERER_URL =
   process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim() || 'http://localhost:8081';
+const MAX_RENDERER_CRASHES_IN_WINDOW = 3;
+const RENDERER_CRASH_WINDOW_MS = 30_000;
 
 function shouldAutoOpenDevTools(): boolean {
   return process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] === '1';
@@ -168,6 +170,8 @@ interface CreateWindowOptions {
 
 export async function createWindow(options: CreateWindowOptions = {}) {
   const startupStartedAt = Date.now();
+  let crashCountInWindow = 0;
+  let lastCrashAt = 0;
   const logStartupPhase = (phase: string, extra: Record<string, unknown> = {}) => {
     startupLogger.info(`Window startup: ${phase}`, {
       elapsedMs: Date.now() - startupStartedAt,
@@ -263,7 +267,27 @@ export async function createWindow(options: CreateWindowOptions = {}) {
 
       // Only attempt recovery for crashes — 'killed' and 'clean-exit' are intentional.
       if (details.reason === 'crashed' || details.reason === 'abnormal-exit') {
-        startupLogger.info('Attempting renderer recovery via reload');
+        const now = Date.now();
+        if (now - lastCrashAt > RENDERER_CRASH_WINDOW_MS) {
+          crashCountInWindow = 0;
+        }
+        crashCountInWindow += 1;
+        lastCrashAt = now;
+
+        if (crashCountInWindow > MAX_RENDERER_CRASHES_IN_WINDOW) {
+          startupLogger.error('Renderer crash loop detected; skipping automatic reload', {
+            crashCountInWindow,
+            maxRendererCrashesInWindow: MAX_RENDERER_CRASHES_IN_WINDOW,
+            rendererCrashWindowMs: RENDERER_CRASH_WINDOW_MS,
+          });
+          return;
+        }
+
+        startupLogger.info('Attempting renderer recovery via reload', {
+          crashCountInWindow,
+          maxRendererCrashesInWindow: MAX_RENDERER_CRASHES_IN_WINDOW,
+          rendererCrashWindowMs: RENDERER_CRASH_WINDOW_MS,
+        });
         try {
           win.webContents.reload();
         } catch (reloadError) {

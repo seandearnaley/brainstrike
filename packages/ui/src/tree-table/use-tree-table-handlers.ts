@@ -51,13 +51,9 @@ export function useTreeTableHandlers<T>({
   onRowContextMenu,
   rowVirtualizer,
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
-  // Track the last explicitly clicked node as the range selection anchor
-  const rangeAnchorRef = React.useRef<string | null>(null);
-
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
-      // Use the explicit range anchor, falling back to keyboard anchor
-      const anchor = rangeAnchorRef.current ?? keyboard.state.focusedId;
+      const anchor = keyboard.state.focusedId;
       if (!anchor) {
         return;
       }

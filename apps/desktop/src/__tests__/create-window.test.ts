@@ -43,6 +43,7 @@ describe('createWindow', () => {
       setWindowOpenHandler: vi.fn(),
       on: vi.fn(),
       openDevTools: vi.fn(),
+      reload: vi.fn(),
     };
 
     mockBrowserWindow = {
@@ -238,6 +239,28 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.show).not.toHaveBeenCalled();
 
       process.argv = originalArgv;
+    });
+
+    it('limits renderer crash recovery reloads to avoid crash loops', async () => {
+      existsSyncMock.mockReturnValue(true);
+
+      await createWindow();
+
+      const renderProcessGoneCall = mockWebContents.on.mock.calls.find(
+        (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
+      );
+      expect(renderProcessGoneCall).toBeDefined();
+      const handler = renderProcessGoneCall?.[1] as (
+        event: unknown,
+        details: { reason: string; exitCode: number }
+      ) => void;
+
+      handler({}, { reason: 'crashed', exitCode: 1 });
+      handler({}, { reason: 'abnormal-exit', exitCode: 1 });
+      handler({}, { reason: 'crashed', exitCode: 1 });
+      handler({}, { reason: 'crashed', exitCode: 1 });
+
+      expect(mockWebContents.reload).toHaveBeenCalledTimes(3);
     });
   });
 
