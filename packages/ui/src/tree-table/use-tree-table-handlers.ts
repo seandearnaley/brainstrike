@@ -53,11 +53,15 @@ export function useTreeTableHandlers<T>({
   rowVirtualizer,
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
   const fallbackMultiSelectAnchor = React.useMemo<string | undefined>(() => {
-    // Use the first selected row as shift-range anchor when focus/selectedId are absent.
-    // This is Set insertion order, not visual row order.
-    // This hook expects selection updates to replace the Set instance.
-    return multiSelectedIds.values().next().value;
-  }, [multiSelectedIds]);
+    // Use the first selected row in rendered order as the shift-range anchor
+    // when focus/selectedId are absent.
+    for (const row of rows) {
+      if (multiSelectedIds.has(row.node.id)) {
+        return row.node.id;
+      }
+    }
+    return undefined;
+  }, [rows, multiSelectedIds]);
 
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
