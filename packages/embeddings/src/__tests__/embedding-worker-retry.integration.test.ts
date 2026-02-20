@@ -45,9 +45,7 @@ function createFlakyService(options: FlakyServiceOptions): EmbeddingService {
       status = 'ready';
       return Promise.resolve();
     },
-    async generateEmbedding(text: string): Promise<EmbeddingResult> {
-      return generateEmbedding(text);
-    },
+    generateEmbedding,
     async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
       const results: EmbeddingResult[] = [];
       for (const text of texts) {
