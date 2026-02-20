@@ -53,6 +53,8 @@ export function useTreeTableHandlers<T>({
   rowVirtualizer,
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
   const fallbackMultiSelectAnchor = React.useMemo(() => {
+    // Use the first selected row as shift-range anchor when focus/selectedId are absent.
+    // This hook expects selection updates to replace the Set instance.
     return multiSelectedIds.values().next().value;
   }, [multiSelectedIds]);
 

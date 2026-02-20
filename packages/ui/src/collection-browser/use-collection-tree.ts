@@ -22,6 +22,8 @@ import type {
 import { EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
 
 const EMPTY_VISIBLE_NODE_IDS = new Set<string>();
+// Keep this derived from NODE_TYPE_CONFIG so adding a new node type
+// automatically updates the default-filter fast-path check.
 const ALL_COLLECTION_NODE_TYPE_COUNT = Object.keys(NODE_TYPE_CONFIG).length;
 
 /**

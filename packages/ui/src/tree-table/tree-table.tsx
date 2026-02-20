@@ -77,6 +77,7 @@ function getCycleFallbackState(
   if (
     shouldWarnForCycles() &&
     !warnedCycleNodeIds.has(nodeId) &&
+    // Cap warning memory instead of clearing it; avoids repeated warnings for the same IDs.
     warnedCycleNodeIds.size < MAX_WARNED_CYCLE_NODE_IDS
   ) {
     warnedCycleNodeIds.add(nodeId);

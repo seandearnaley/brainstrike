@@ -91,6 +91,7 @@ function isGroupHeaderData(data: unknown): data is TreeTableGroupHeaderData {
     return false;
   }
 
+  // Keep this runtime guard aligned with required fields on TreeTableGroupHeaderData.
   return true;
 }
 
