@@ -24,6 +24,8 @@ interface FlakyServiceOptions {
 
 function createFlakyService(options: FlakyServiceOptions): EmbeddingService {
   let status: EmbeddingStatus = 'ready';
+  // Intentionally shared across embedding entry points so retry behavior stays
+  // consistent regardless of which service method the worker calls.
   let attempts = 0;
 
   const generateEmbedding = async (_text: string): Promise<EmbeddingResult> => {

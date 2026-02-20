@@ -53,10 +53,12 @@ import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
 const logger = createLogger('CollectionBrowserView');
-const NODE_ID_PREFIX_PATTERN = /^(collection|file|chunk|embedding)-(.+)$/;
+const NODE_ID_PREFIXES = ['collection', 'file', 'chunk', 'embedding'] as const;
+type NodeIdPrefix = (typeof NODE_ID_PREFIXES)[number];
+const NODE_ID_PREFIX_PATTERN = new RegExp(`^(${NODE_ID_PREFIXES.join('|')})-(.+)$`);
 
 function parseNodeId(nodeId: string): {
-  nodeType: 'collection' | 'file' | 'chunk' | 'embedding' | null;
+  nodeType: NodeIdPrefix | null;
   originalId: string;
 } {
   const match = NODE_ID_PREFIX_PATTERN.exec(nodeId);
@@ -64,13 +66,9 @@ function parseNodeId(nodeId: string): {
     return { nodeType: null, originalId: nodeId };
   }
 
-  const nodeType = match[1];
-  const originalId = match[2];
-  // Defensive guards for `noUncheckedIndexedAccess`; both captures are guaranteed by the regex.
-  if (nodeType === undefined || originalId === undefined) {
-    throw new Error(`Invalid node id format: ${nodeId}`);
-  }
-  return { nodeType: nodeType as 'collection' | 'file' | 'chunk' | 'embedding', originalId };
+  const nodeType = match[1] as NodeIdPrefix;
+  const originalId = match[2] as string;
+  return { nodeType, originalId };
 }
 
 export interface CollectionBrowserViewProps {
