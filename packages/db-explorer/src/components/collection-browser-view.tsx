@@ -66,6 +66,7 @@ function parseNodeId(nodeId: string): {
 
   const nodeType = match[1] as 'collection' | 'file' | 'chunk' | 'embedding';
   const originalId = match[2];
+  // Defensive guard for `noUncheckedIndexedAccess`; this capture is guaranteed by the regex.
   if (originalId === undefined) {
     throw new Error(`Invalid node id format: ${nodeId}`);
   }
