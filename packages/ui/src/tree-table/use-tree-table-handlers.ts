@@ -52,8 +52,9 @@ export function useTreeTableHandlers<T>({
   onRowContextMenu,
   rowVirtualizer,
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
-  const fallbackMultiSelectAnchor = React.useMemo(() => {
+  const fallbackMultiSelectAnchor = React.useMemo<string | undefined>(() => {
     // Use the first selected row as shift-range anchor when focus/selectedId are absent.
+    // This is Set insertion order, not visual row order.
     // This hook expects selection updates to replace the Set instance.
     return multiSelectedIds.values().next().value;
   }, [multiSelectedIds]);

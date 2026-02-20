@@ -757,15 +757,33 @@ function buildSemanticVisibleNodeIds(
 }
 
 function countMatchingNodes(
-  allNodes: TreeNode<BrowserNodeData>[],
+  roots: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
   matchesFilter: (node: TreeNode<BrowserNodeData>) => boolean
 ): number {
   let count = 0;
-  for (const node of allNodes) {
+  const visited = new Set<string>();
+
+  function visit(node: TreeNode<BrowserNodeData>): void {
+    if (visited.has(node.id)) {
+      return;
+    }
+    visited.add(node.id);
+
     if (matchesFilter(node)) {
       count++;
     }
+
+    const children = childrenMap.get(node.id) ?? [];
+    for (const child of children) {
+      visit(child);
+    }
   }
+
+  for (const root of roots) {
+    visit(root);
+  }
+
   return count;
 }
 
@@ -819,6 +837,7 @@ function computeStandardFilteredRoots(
   filters: CollectionBrowserFilters,
   allNodes: TreeNode<BrowserNodeData>[],
   roots: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
   matchesStandardFilters: (node: TreeNode<BrowserNodeData>) => boolean
 ): { filteredRoots: TreeNode<BrowserNodeData>[]; filteredCount: number } {
   if (hasDefaultFilters(filters)) {
@@ -827,7 +846,7 @@ function computeStandardFilteredRoots(
 
   return {
     filteredRoots: roots.filter((root) => matchesStandardFilters(root)),
-    filteredCount: countMatchingNodes(allNodes, matchesStandardFilters),
+    filteredCount: countMatchingNodes(roots, childrenMap, matchesStandardFilters),
   };
 }
 
@@ -1170,7 +1189,13 @@ export function useCollectionTree({
       );
     }
 
-    return computeStandardFilteredRoots(filters, allNodes, sortedRootNodes, matchesStandardFilters);
+    return computeStandardFilteredRoots(
+      filters,
+      allNodes,
+      sortedRootNodes,
+      sortedChildrenMap,
+      matchesStandardFilters
+    );
   }, [
     sortedRootNodes,
     allNodes,

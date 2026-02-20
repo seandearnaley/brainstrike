@@ -217,7 +217,7 @@ describe('embedding-worker retries and backoff', () => {
       const row = res.rows[0] as Record<string, unknown> | undefined;
       const state = String(row?.['state'] ?? '');
       const attempts = Number(row?.['attempts'] ?? 0);
-      return state === 'succeeded' && attempts >= 2;
+      return state === 'succeeded' && attempts === 2;
     });
 
     await controller.stop();
