@@ -52,10 +52,13 @@ export function useTreeTableHandlers<T>({
   onRowContextMenu,
   rowVirtualizer,
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
+  const fallbackMultiSelectAnchor = React.useMemo(() => {
+    return multiSelectedIds.values().next().value;
+  }, [multiSelectedIds]);
+
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
-      const anchor =
-        keyboard.state.focusedId ?? selectedId ?? multiSelectedIds.values().next().value;
+      const anchor = keyboard.state.focusedId ?? selectedId ?? fallbackMultiSelectAnchor;
       if (anchor === undefined) {
         return;
       }
@@ -71,7 +74,7 @@ export function useTreeTableHandlers<T>({
       const rangeIds = new Set(rows.slice(start, end + 1).map((r) => r.node.id));
       onMultiSelectChange?.(rangeIds);
     },
-    [rows, onMultiSelectChange, keyboard.state.focusedId, selectedId, multiSelectedIds]
+    [rows, onMultiSelectChange, keyboard.state.focusedId, selectedId, fallbackMultiSelectAnchor]
   );
 
   const handleToggleSelect = React.useCallback(

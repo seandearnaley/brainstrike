@@ -103,6 +103,7 @@ function toGroupHeaderNode(node: TreeNode<unknown>): TreeNode<TreeTableGroupHead
     return null;
   }
 
+  // Safe cast: runtime guard above validates `node.data` shape for group headers.
   return node as TreeNode<TreeTableGroupHeaderData>;
 }
 

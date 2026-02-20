@@ -563,6 +563,8 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
       matchesEmbeddingStatus(node, ctx.filters.embeddingStatus);
 
     const children = ctx.childrenMap.get(node.id) ?? [];
+    // Keep parent nodes visible when descendants match, even if the parent
+    // itself does not match node type/search/status filters.
     const result = selfMatches || children.some((child) => matchesNode(child));
     cache.set(node.id, result);
     visiting.delete(node.id);

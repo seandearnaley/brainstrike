@@ -65,7 +65,10 @@ function parseNodeId(nodeId: string): {
   }
 
   const nodeType = match[1] as 'collection' | 'file' | 'chunk' | 'embedding';
-  const originalId = match[2] ?? nodeId;
+  const originalId = match[2];
+  if (originalId === undefined) {
+    throw new Error(`Invalid node id format: ${nodeId}`);
+  }
   return { nodeType, originalId };
 }
 
