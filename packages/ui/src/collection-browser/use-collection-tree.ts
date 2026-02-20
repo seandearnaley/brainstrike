@@ -841,12 +841,15 @@ function computeSemanticFilteredRoots(
   allNodes: TreeNode<BrowserNodeData>[],
   roots: TreeNode<BrowserNodeData>[],
   childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
-  matchesNodeFilters: (node: TreeNode<BrowserNodeData>) => boolean
+  matchesDirectNodeFilters: (node: TreeNode<BrowserNodeData>) => boolean
 ): { filteredRoots: TreeNode<BrowserNodeData>[]; filteredCount: number } {
+  // Semantic results already identify concrete matching nodes.
+  // We only need a direct matcher here; ancestor visibility is added by
+  // the parent walk inside buildSemanticVisibleNodeIds.
   const { visibleNodeIds, matchingCount } = buildSemanticVisibleNodeIds(
     semanticResults,
     allNodes,
-    matchesNodeFilters
+    matchesDirectNodeFilters
   );
 
   includeGroupHeadersWithVisibleChildren(roots, childrenMap, visibleNodeIds);
