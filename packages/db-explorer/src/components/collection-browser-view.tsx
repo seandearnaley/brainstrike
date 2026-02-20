@@ -616,20 +616,24 @@ export function CollectionBrowserView({
       event.preventDefault();
       const { originalId } = parseNodeId(nodeId);
       const hasChildren =
-        nodeType === 'collection'
-          ? records.some(
-              (record) =>
-                activeCollectionId === null || record.embeddingSetId === activeCollectionId
-            )
-          : nodeType === 'file'
-            ? chunks.some(
-                (chunk) =>
-                  chunk.fileRecordId === originalId &&
-                  (activeCollectionId === null || chunk.embeddingSetId === activeCollectionId)
+        nodeType === 'group'
+          ? true
+          : nodeType === 'collection'
+            ? records.some(
+                (record) =>
+                  activeCollectionId === null || record.embeddingSetId === activeCollectionId
               )
-            : nodeType === 'chunk'
-              ? chunks.some((chunk) => chunk.id === originalId && Boolean(chunk.embedding?.length))
-              : false;
+            : nodeType === 'file'
+              ? chunks.some(
+                  (chunk) =>
+                    chunk.fileRecordId === originalId &&
+                    (activeCollectionId === null || chunk.embeddingSetId === activeCollectionId)
+                )
+              : nodeType === 'chunk'
+                ? chunks.some(
+                    (chunk) => chunk.id === originalId && Boolean(chunk.embedding?.length)
+                  )
+                : false;
       setContextMenu({
         x: event.clientX,
         y: event.clientY,

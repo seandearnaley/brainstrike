@@ -6,6 +6,7 @@
  */
 
 import * as React from 'react';
+import { warnCycleOnce } from '../lib/cycle-warning';
 import type { TreeNode } from '../tree-table/types';
 import type {
   BrowserNodeData,
@@ -575,19 +576,12 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
       return cached;
     }
     if (visiting.has(node.id)) {
-      const shouldWarnForCycles =
-        typeof process === 'undefined' || process.env['NODE_ENV'] !== 'production';
-      if (
-        shouldWarnForCycles &&
-        !warnedCycleNodeIds.has(node.id) &&
-        warnedCycleNodeIds.size < MAX_WARNED_FILTER_CYCLE_NODE_IDS
-      ) {
-        warnedCycleNodeIds.add(node.id);
-        // biome-ignore lint/suspicious/noConsole: Cycles in tree data should be visible during development.
-        console.warn(
-          `[CollectionTree] Cycle detected while filtering node "${node.id}". Excluding this cycle path.`
-        );
-      }
+      warnCycleOnce({
+        nodeId: node.id,
+        warnedNodeIds: warnedCycleNodeIds,
+        maxWarnings: MAX_WARNED_FILTER_CYCLE_NODE_IDS,
+        warningMessage: `[CollectionTree] Cycle detected while filtering node "${node.id}". Excluding this cycle path.`,
+      });
       cache.set(node.id, false);
       return false;
     }
@@ -602,6 +596,7 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
       // Intentionally short-circuit when self matches to avoid unnecessary
       // descendant traversal during visibility checks. In DAG-shaped inputs this
       // can reduce cache population for descendants, but it remains correct.
+      // Filtered-count computation uses a separate direct matcher and traversal.
       const result = selfMatches || children.some((child) => matchesNode(child));
       cache.set(node.id, result);
       return result;

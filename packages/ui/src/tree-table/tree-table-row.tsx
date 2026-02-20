@@ -28,7 +28,6 @@ interface TreeTableGroupHeaderData {
 
 // Compile-time guard: fails here if TreeTableGroupHeaderData gains required fields.
 const GROUP_HEADER_DATA_SHAPE = { groupLabel: '', itemCount: 0 } satisfies TreeTableGroupHeaderData;
-void GROUP_HEADER_DATA_SHAPE;
 
 /**
  * Props for the GroupHeaderCell component.
@@ -91,7 +90,10 @@ function isGroupHeaderData(data: unknown): data is TreeTableGroupHeaderData {
   const groupLabel = record['groupLabel'];
   const itemCount = record['itemCount'];
 
-  if (typeof groupLabel !== 'string' || typeof itemCount !== 'number') {
+  if (
+    typeof groupLabel !== typeof GROUP_HEADER_DATA_SHAPE.groupLabel ||
+    typeof itemCount !== typeof GROUP_HEADER_DATA_SHAPE.itemCount
+  ) {
     return false;
   }
 

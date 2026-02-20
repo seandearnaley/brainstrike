@@ -66,7 +66,7 @@ export function useTreeTableHandlers<T>({
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
       const anchor = keyboard.state.focusedId ?? selectedId ?? fallbackMultiSelectAnchor;
-      if (anchor === undefined) {
+      if (anchor == null) {
         return;
       }
 
