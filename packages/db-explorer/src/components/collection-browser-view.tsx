@@ -65,13 +65,10 @@ function parseNodeId(nodeId: string): {
     return { nodeType: null, originalId: nodeId };
   }
 
-  const nodeType = match[1];
-  const originalId = match[2];
-  if (!(nodeType && originalId)) {
-    return { nodeType: null, originalId: nodeId };
-  }
-
-  return { nodeType: nodeType as NodeIdPrefix, originalId };
+  // Regex guarantees both capture groups when match is truthy.
+  const nodeType = match[1] as NodeIdPrefix;
+  const originalId = match[2] as string;
+  return { nodeType, originalId };
 }
 
 export interface CollectionBrowserViewProps {

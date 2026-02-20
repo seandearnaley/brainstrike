@@ -563,6 +563,8 @@ interface FilterContext {
  * 2. It has any descendant that is visible.
  */
 function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeData>) => boolean {
+  // Filter visibility is path-independent for current semantics, so node-id caching
+  // is safe even when the structure is a DAG rather than a strict tree.
   const cache = new Map<string, boolean>();
   const visiting = new Set<string>();
   const warnedCycleNodeIds = new Set<string>();
