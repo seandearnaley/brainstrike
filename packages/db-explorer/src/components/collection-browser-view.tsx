@@ -64,13 +64,13 @@ function parseNodeId(nodeId: string): {
     return { nodeType: null, originalId: nodeId };
   }
 
-  const nodeType = match[1] as 'collection' | 'file' | 'chunk' | 'embedding';
+  const nodeType = match[1];
   const originalId = match[2];
-  // Defensive guard for `noUncheckedIndexedAccess`; this capture is guaranteed by the regex.
-  if (originalId === undefined) {
+  // Defensive guards for `noUncheckedIndexedAccess`; both captures are guaranteed by the regex.
+  if (nodeType === undefined || originalId === undefined) {
     throw new Error(`Invalid node id format: ${nodeId}`);
   }
-  return { nodeType, originalId };
+  return { nodeType: nodeType as 'collection' | 'file' | 'chunk' | 'embedding', originalId };
 }
 
 export interface CollectionBrowserViewProps {

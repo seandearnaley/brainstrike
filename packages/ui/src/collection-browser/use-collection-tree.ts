@@ -545,6 +545,7 @@ interface FilterContext {
 function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeData>) => boolean {
   const cache = new Map<string, boolean>();
   const visiting = new Set<string>();
+  const warnedCycleNodeIds = new Set<string>();
 
   const matchesNode = (node: TreeNode<BrowserNodeData>): boolean => {
     const cached = cache.get(node.id);
@@ -552,6 +553,15 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
       return cached;
     }
     if (visiting.has(node.id)) {
+      const shouldWarnForCycles =
+        typeof process === 'undefined' || process.env['NODE_ENV'] !== 'production';
+      if (shouldWarnForCycles && !warnedCycleNodeIds.has(node.id)) {
+        warnedCycleNodeIds.add(node.id);
+        // biome-ignore lint/suspicious/noConsole: Cycles in tree data should be visible during development.
+        console.warn(
+          `[CollectionTree] Cycle detected while filtering node "${node.id}". Excluding this cycle path.`
+        );
+      }
       return false;
     }
 
@@ -716,7 +726,7 @@ function computeAggregatedScores(
 function buildSemanticVisibleNodeIds(
   semanticResults: SemanticSearchResult[],
   allNodes: TreeNode<BrowserNodeData>[],
-  filterFn: (node: TreeNode<BrowserNodeData>) => TreeNode<BrowserNodeData> | null
+  filterFn: (node: TreeNode<BrowserNodeData>) => boolean
 ): { visibleNodeIds: Set<string>; matchingCount: number } {
   const visibleNodeIds = new Set<string>();
   let matchingCount = 0;
@@ -794,7 +804,7 @@ function computeSemanticFilteredRoots(
   const { visibleNodeIds, matchingCount } = buildSemanticVisibleNodeIds(
     semanticResults,
     allNodes,
-    (node) => (matchesStandardFilters(node) ? node : null)
+    matchesStandardFilters
   );
 
   includeGroupHeadersWithVisibleChildren(roots, childrenMap, visibleNodeIds);
