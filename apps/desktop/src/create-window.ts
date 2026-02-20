@@ -202,6 +202,12 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
+      // CRITICAL: Prevents Chromium from freezing the renderer process after ~5
+      // minutes of inactivity. Without this, the embedding worker's WebGPU
+      // keep-alive timer stops firing, the GPU device idles out, and ONNX
+      // Runtime hits a V8 CHECK() on the stale handle → SIGTRAP → crash.
+      // See: docs/debug-handoff-renderer-crash.md
+      backgroundThrottling: false,
     },
     titleBarStyle: 'default',
     backgroundColor: '#0b1020',
@@ -240,6 +246,30 @@ export async function createWindow(options: CreateWindowOptions = {}) {
         errorDescription,
         validatedURL,
       });
+    }
+  );
+
+  // Safety net for renderer crashes (e.g. SIGTRAP from stale WebGPU handles).
+  // Logs crash details and reloads the renderer for automatic recovery.
+  // See: docs/debug-handoff-renderer-crash.md (Layer 3: crash recovery)
+  win.webContents.on(
+    'render-process-gone',
+    (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) => {
+      startupLogger.error('Renderer process gone', {
+        reason: details.reason,
+        exitCode: details.exitCode,
+        elapsedMs: Date.now() - startupStartedAt,
+      });
+
+      // Only attempt recovery for crashes — 'killed' and 'clean-exit' are intentional.
+      if (details.reason === 'crashed' || details.reason === 'abnormal-exit') {
+        startupLogger.info('Attempting renderer recovery via reload');
+        try {
+          win.webContents.reload();
+        } catch (reloadError) {
+          startupLogger.error('Renderer reload failed after crash', { reloadError });
+        }
+      }
     }
   );
 

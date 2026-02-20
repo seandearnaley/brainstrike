@@ -31,6 +31,12 @@ function logWorkerStartError(error: unknown): void {
  * Automatically starts the embedding worker in the renderer process when the database is ready.
  * The worker runs in the browser context where Web Workers (workerpool) are available.
  * This is REQUIRED for desktop - without it, backfill jobs won't be processed.
+ *
+ * The worker uses WebGPU for inference by default (see SimpleEmbeddingService).
+ * A keep-alive guard in embedding.worker.ts prevents the GPU device from idling
+ * out. The BrowserWindow must have `backgroundThrottling: false` to ensure the
+ * keep-alive timer fires reliably when the window is unfocused.
+ * See: docs/debug-handoff-renderer-crash.md
  */
 // Helper to create worker config
 function createWorkerConfig(
