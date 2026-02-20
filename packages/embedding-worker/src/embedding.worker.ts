@@ -141,6 +141,7 @@ interface GpuDeviceLostInfo {
   readonly message: string;
 }
 interface GpuCommandBuffer {
+  // Phantom field to avoid accidentally passing plain `{}` into queue.submit.
   readonly __brand: 'GPUCommandBuffer';
 }
 interface GpuCommandEncoder {
@@ -225,7 +226,8 @@ function startKeepAlive(device: GpuDeviceHandle): void {
       const encoder = device.createCommandEncoder();
       device.queue.submit([encoder.finish()]);
       keepAliveTickCount += 1;
-      // Log periodically (every ~2 min) to confirm the keep-alive is running
+      // Log periodically (every ~2 min) to confirm the keep-alive is running.
+      // `=== 1` intentionally logs the first tick immediately, then every 8 ticks.
       if (keepAliveTickCount % 8 === 1) {
         // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
         console.log(`[EmbeddingWorker] GPU keep-alive tick #${keepAliveTickCount}`);
