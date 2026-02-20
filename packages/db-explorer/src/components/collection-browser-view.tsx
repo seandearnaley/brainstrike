@@ -55,7 +55,8 @@ import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 const logger = createLogger('CollectionBrowserView');
 const NODE_ID_PREFIXES = ['collection', 'file', 'chunk', 'embedding'] as const;
 type NodeIdPrefix = (typeof NODE_ID_PREFIXES)[number];
-const NODE_ID_PREFIX_PATTERN = new RegExp(`^(${NODE_ID_PREFIXES.join('|')})-(.+)$`);
+// Keep this literal in sync with NODE_ID_PREFIXES.
+const NODE_ID_PREFIX_PATTERN = /^(collection|file|chunk|embedding)-(.+)$/;
 
 function parseNodeId(nodeId: string): {
   nodeType: NodeIdPrefix | null;

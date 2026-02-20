@@ -95,17 +95,8 @@ function isGroupHeaderData(data: unknown): data is TreeTableGroupHeaderData {
   return true;
 }
 
-function toGroupHeaderNode(node: TreeNode<unknown>): TreeNode<TreeTableGroupHeaderData> | null {
-  if (node.type !== 'group') {
-    return null;
-  }
-
-  if (!isGroupHeaderData(node.data)) {
-    return null;
-  }
-
-  // Safe cast: runtime guard above validates `node.data` shape for group headers.
-  return node as TreeNode<TreeTableGroupHeaderData>;
+function isGroupHeaderNode(node: TreeNode<unknown>): node is TreeNode<TreeTableGroupHeaderData> {
+  return node.type === 'group' && isGroupHeaderData(node.data);
 }
 
 /**
@@ -171,8 +162,7 @@ function TreeTableRowInner<T>({
     onCheckboxChange?.(node.id);
   }, [node.id, onCheckboxChange]);
 
-  const groupHeaderNode = toGroupHeaderNode(node);
-  const isGroupHeader = groupHeaderNode !== null;
+  const isGroupHeader = isGroupHeaderNode(node);
 
   return (
     <TableRow
@@ -211,7 +201,7 @@ function TreeTableRowInner<T>({
         <GroupHeaderCell
           columns={columns}
           isExpanded={row.isExpanded}
-          node={groupHeaderNode}
+          node={node}
           onExpandClick={handleExpandClick}
         />
       ) : (

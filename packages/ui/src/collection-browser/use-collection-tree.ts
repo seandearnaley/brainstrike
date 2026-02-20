@@ -566,21 +566,23 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
     }
 
     visiting.add(node.id);
+    try {
+      const nodeType = node.type as CollectionNodeType;
+      const typeMatches = ctx.filters.nodeTypes.has(nodeType);
+      const selfMatches =
+        typeMatches &&
+        matchesSearch(node, ctx.filters.searchQuery) &&
+        matchesEmbeddingStatus(node, ctx.filters.embeddingStatus);
 
-    const nodeType = node.type as CollectionNodeType;
-    const typeMatches = ctx.filters.nodeTypes.has(nodeType);
-    const selfMatches =
-      typeMatches &&
-      matchesSearch(node, ctx.filters.searchQuery) &&
-      matchesEmbeddingStatus(node, ctx.filters.embeddingStatus);
-
-    const children = ctx.childrenMap.get(node.id) ?? [];
-    // Keep parent nodes visible when descendants match, even if the parent
-    // itself does not match node type/search/status filters.
-    const result = selfMatches || children.some((child) => matchesNode(child));
-    cache.set(node.id, result);
-    visiting.delete(node.id);
-    return result;
+      const children = ctx.childrenMap.get(node.id) ?? [];
+      // Keep parent nodes visible when descendants match, even if the parent
+      // itself does not match node type/search/status filters.
+      const result = selfMatches || children.some((child) => matchesNode(child));
+      cache.set(node.id, result);
+      return result;
+    } finally {
+      visiting.delete(node.id);
+    }
   };
 
   return matchesNode;
@@ -780,6 +782,8 @@ function countMatchingNodes(
     }
   }
 
+  // Count only nodes reachable from visible roots so orphaned/pre-flatten nodes
+  // from intermediate transforms do not inflate filtered totals.
   for (const root of roots) {
     visit(root);
   }
