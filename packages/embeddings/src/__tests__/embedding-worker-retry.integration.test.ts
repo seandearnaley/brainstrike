@@ -12,54 +12,71 @@ import type {
   SimilarityResult,
 } from '../types';
 
-class FlakyEmbeddingService implements EmbeddingService {
-  private status: EmbeddingStatus = 'ready';
-  private attempts = 0;
+// Increase timeouts to reduce flakiness under workspace-wide runs
+vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
 
-  initialize(
-    _config?: Partial<EmbeddingConfig>,
-    _onProgress?: (progress: EmbeddingProgress) => void
-  ): Promise<void> {
-    this.status = 'ready';
-    return Promise.resolve();
-  }
-  async generateEmbedding(_text: string): Promise<EmbeddingResult> {
-    this.attempts++;
-    if (this.attempts <= 2) {
-      throw new Error('Temporary service failure');
+interface FlakyServiceOptions {
+  shouldFail: (attempt: number) => boolean;
+  errorMessage: string;
+  embeddingValue: number;
+  totalTokens: number;
+}
+
+function createFlakyService(options: FlakyServiceOptions): EmbeddingService {
+  let status: EmbeddingStatus = 'ready';
+  // Intentionally shared across embedding entry points so retry behavior stays
+  // consistent regardless of which service method the worker calls.
+  let attempts = 0;
+
+  const generateEmbedding = async (_text: string): Promise<EmbeddingResult> => {
+    attempts++;
+    if (options.shouldFail(attempts)) {
+      throw new Error(options.errorMessage);
     }
+
     return {
-      embedding: new Array(768).fill(0.1),
+      embedding: new Array(768).fill(options.embeddingValue),
       dimensions: 768,
       model: 'fake-model',
-      usage: { totalTokens: 10 },
+      usage: { totalTokens: options.totalTokens },
     };
-  }
-  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
-    const results: EmbeddingResult[] = [];
-    for (const text of texts) {
-      results.push(await this.generateEmbedding(text));
-    }
-    return results;
-  }
-  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
-    return this.generateEmbedding(text);
-  }
-  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
-    return this.generateEmbedding(text);
-  }
-  calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-    return { similarity: 1, distance: 0, method: 'cosine' };
-  }
-  getStatus(): EmbeddingStatus {
-    return this.status;
-  }
-  getConfig(): EmbeddingConfig {
-    return { modelId: 'fake-model' };
-  }
-  async dispose(): Promise<void> {
-    this.status = 'disposed';
-  }
+  };
+
+  return {
+    initialize(
+      _config?: Partial<EmbeddingConfig>,
+      _onProgress?: (progress: EmbeddingProgress) => void
+    ): Promise<void> {
+      status = 'ready';
+      return Promise.resolve();
+    },
+    generateEmbedding,
+    async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+      const results: EmbeddingResult[] = [];
+      for (const text of texts) {
+        results.push(await generateEmbedding(text));
+      }
+      return results;
+    },
+    async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+      return generateEmbedding(text);
+    },
+    async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+      return generateEmbedding(text);
+    },
+    calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
+      return { similarity: 1, distance: 0, method: 'cosine' };
+    },
+    getStatus(): EmbeddingStatus {
+      return status;
+    },
+    getConfig(): EmbeddingConfig {
+      return { modelId: 'fake-model' };
+    },
+    async dispose(): Promise<void> {
+      status = 'disposed';
+    },
+  };
 }
 
 async function waitFor(
@@ -128,7 +145,12 @@ describe('embedding-worker retries and backoff', () => {
       concurrency: 1,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
-      service: new FlakyEmbeddingService(),
+      service: createFlakyService({
+        shouldFail: (attempt) => attempt <= 2,
+        errorMessage: 'Temporary service failure',
+        embeddingValue: 0.1,
+        totalTokens: 10,
+      }),
     });
 
     await waitFor(async () => {
@@ -141,6 +163,63 @@ describe('embedding-worker retries and backoff', () => {
 
     await controller.stop();
   });
+
+  it('retries when the worker task fails with a termination-style error', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-r2';
+    const fileId = 'file-r2';
+    const chunkId = 'chunk-r2';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        embeddingSetId,
+        'local::jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
+        768,
+        'cosine',
+        now,
+      ]
+    );
+
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [fileId, 'worker.ts', '/worker.ts', 100, 'retry termination', 't-hash', 10, now]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+      VALUES ($1,$2,0,$3,$4,10,'text',10,$5,$5)`,
+      [chunkId, fileId, 'retry termination', 't-hash', now]
+    );
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      VALUES ('job-r2','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [JSON.stringify({ chunkId, embeddingSetId }), now]
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 1000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: createFlakyService({
+        shouldFail: (attempt) => attempt === 1,
+        errorMessage: 'Worker terminated unexpectedly',
+        embeddingValue: 0.2,
+        totalTokens: 8,
+      }),
+    });
+
+    await waitFor(async () => {
+      const res = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-r2'`);
+      const row = res.rows[0] as Record<string, unknown> | undefined;
+      const state = String(row?.['state'] ?? '');
+      const attempts = Number(row?.['attempts'] ?? 0);
+      return state === 'succeeded' && attempts === 2;
+    });
+
+    await controller.stop();
+  });
 });
-// Increase timeouts to reduce flakiness under workspace-wide runs
-vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });

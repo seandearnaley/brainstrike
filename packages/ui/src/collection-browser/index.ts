@@ -36,6 +36,9 @@ export type {
   FileData,
   FilterBarProps,
   FilterChipProps,
+  GroupByKey,
+  GroupHeaderData,
+  GroupingState,
   NodeTypeConfig,
   RetrievalMode,
   SearchConfig,
@@ -46,6 +49,7 @@ export type {
 } from './types';
 export {
   DEFAULT_FILTERS,
+  DEFAULT_GROUPING_STATE,
   DEFAULT_SEARCH_CONFIG,
   EMBEDDING_STATUS_CONFIG,
   NODE_TYPE_CONFIG,

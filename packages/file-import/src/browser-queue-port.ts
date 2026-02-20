@@ -88,6 +88,12 @@ function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
   };
 
   return {
+    reset() {
+      state.totalQueued = 0;
+      state.processed = 0;
+      state.failed = 0;
+      state.lastError = null;
+    },
     queued(args: QueueProgressArgs) {
       state.totalQueued += 1;
       emit('queued', args);
@@ -139,6 +145,15 @@ export function createBrowserEmbeddingQueuePort({
   });
 
   return {
+    resetProgress() {
+      if (pendingChunks.size > 0) {
+        logger.warn('Skipping queue progress reset while jobs are still pending', {
+          pending: pendingChunks.size,
+        });
+        return;
+      }
+      progressTracker.reset();
+    },
     async enqueueBatch(chunks, _fileRecordId, options) {
       const model = options?.model ?? null;
       if (!model) {

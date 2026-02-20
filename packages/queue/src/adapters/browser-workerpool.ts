@@ -18,6 +18,15 @@ import { estimateHardwareConcurrency, ProgressEmitter } from '../util';
 const logger = createLogger('BrowserWorkerpoolAdapter');
 
 export interface WorkerpoolAdapterOptions {
+  /**
+   * Minimum workers to keep alive (default: 1).
+   *
+   * Prevents repeated WASM/WebGPU model load-unload cycles that cause 300 MB
+   * memory spikes. Also ensures workerpool auto-spawns a replacement if a
+   * worker crashes (e.g. WebGPU device loss → self.close() in the worker).
+   * See: docs/debug-handoff-renderer-crash.md
+   */
+  readonly minWorkers?: number;
   readonly maxWorkers?: number;
   readonly maxQueueSize?: number;
   readonly name?: string;
@@ -82,8 +91,10 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     Math.min(options.maxWorkers ?? Math.max(1, hardwareConcurrency - 1), DEFAULT_MAX_WORKERS_CAP)
   );
   const workerScript = options.workerUrl ?? resolveEmbeddingWorkerUrl().href;
+  const minWorkers = options.minWorkers ?? 1;
   const poolOptions: WorkerPoolOptions = {
-    maxWorkers,
+    minWorkers,
+    maxWorkers: Math.max(minWorkers, maxWorkers),
     maxQueueSize: options.maxQueueSize ?? Number.POSITIVE_INFINITY,
     workerType: 'web',
     workerOpts: { type: 'module' },

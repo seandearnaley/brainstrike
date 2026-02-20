@@ -5,7 +5,7 @@
  * to keep the main component focused on behavior and layout.
  */
 
-import { File, FileText, FolderOpen, Sparkles } from 'lucide-react';
+import { File, FileText, FolderOpen, Layers, Sparkles } from 'lucide-react';
 import * as React from 'react';
 import { Badge } from '../badge';
 import { cn } from '../lib/utils';
@@ -31,6 +31,9 @@ function NodeIcon({ type }: { type: string }) {
   }
   if (type === 'embedding') {
     return <Sparkles className={cn('h-4 w-4', NODE_TYPE_CONFIG.embedding.color)} />;
+  }
+  if (type === 'group') {
+    return <Layers className="h-4 w-4 text-muted-foreground" />;
   }
   return null;
 }

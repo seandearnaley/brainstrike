@@ -41,6 +41,7 @@ export function useTreeTableHandlers<T>({
   nodes,
   keyboard,
   selectionMode,
+  selectedId,
   multiSelectedIds,
   rowClassName,
   sortState,
@@ -51,14 +52,25 @@ export function useTreeTableHandlers<T>({
   onRowContextMenu,
   rowVirtualizer,
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
+  const fallbackMultiSelectAnchor = React.useMemo<string | undefined>(() => {
+    // Use the first selected row in rendered order as the shift-range anchor
+    // when focus/selectedId are absent.
+    for (const row of rows) {
+      if (multiSelectedIds.has(row.node.id)) {
+        return row.node.id;
+      }
+    }
+    return undefined;
+  }, [rows, multiSelectedIds]);
+
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
-      const lastSelected = Array.from(multiSelectedIds).pop();
-      if (!lastSelected) {
+      const anchor = keyboard.state.focusedId ?? selectedId ?? fallbackMultiSelectAnchor;
+      if (anchor == null) {
         return;
       }
 
-      const fromIndex = rows.findIndex((r) => r.node.id === lastSelected);
+      const fromIndex = rows.findIndex((r) => r.node.id === anchor);
       const toIndex = rows.findIndex((r) => r.node.id === nodeId);
       if (fromIndex === -1 || toIndex === -1) {
         return;
@@ -69,7 +81,7 @@ export function useTreeTableHandlers<T>({
       const rangeIds = new Set(rows.slice(start, end + 1).map((r) => r.node.id));
       onMultiSelectChange?.(rangeIds);
     },
-    [multiSelectedIds, rows, onMultiSelectChange]
+    [rows, onMultiSelectChange, keyboard.state.focusedId, selectedId, fallbackMultiSelectAnchor]
   );
 
   const handleToggleSelect = React.useCallback(

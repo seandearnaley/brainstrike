@@ -184,6 +184,7 @@ if (!rootElement) {
 }
 
 const existingRoot = window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__;
+
 const root = existingRoot ?? ReactDOM.createRoot(rootElement);
 if (!existingRoot) {
   window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = root;

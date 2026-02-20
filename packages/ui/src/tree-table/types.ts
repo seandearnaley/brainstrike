@@ -31,6 +31,21 @@ export interface TreeNode<T = unknown> {
 }
 
 /**
+ * ARIA attributes for a tree row, computed from tree structure.
+ * Follows WAI-ARIA treegrid pattern.
+ */
+export interface TreeRowAriaAttributes {
+  /** Depth in hierarchy (1-based, per ARIA spec) */
+  ariaLevel: number;
+  /** Number of siblings at the same level under the same parent */
+  ariaSetSize: number;
+  /** Position among siblings (1-based) */
+  ariaPosInSet: number;
+  /** 1-based row index within the full grid (for virtualized grids) */
+  ariaRowIndex: number;
+}
+
+/**
  * A flattened representation of a tree node for rendering.
  * Includes visual state information (expanded, selected, highlighted).
  */
@@ -47,6 +62,10 @@ export interface FlattenedRow<T = unknown> {
   isHighlighted: boolean;
   /** Whether this node matches current filters */
   matchesFilter: boolean;
+  /** Whether this node is in the active context (e.g., selected in file explorer) */
+  isInContext: boolean;
+  /** ARIA attributes computed from tree structure */
+  aria: TreeRowAriaAttributes;
 }
 
 /**
@@ -90,6 +109,8 @@ export interface TreeTableCellProps<T> {
   isSelected: boolean;
   /** Whether the node is highlighted */
   isHighlighted: boolean;
+  /** Whether the node is in the active context */
+  isInContext: boolean;
   /** Row index in the flattened array */
   rowIndex: number;
 }
@@ -156,6 +177,10 @@ export interface TreeTableProps<T> {
   /** Set of highlighted node IDs */
   highlightedIds?: Set<string>;
 
+  // Context awareness
+  /** Set of node IDs that are in the active context (e.g., selected in file explorer) */
+  contextNodeIds?: Set<string>;
+
   // Virtualization
   /** Row height (fixed number or function) */
   rowHeight?: RowHeightConfig<T>;
@@ -190,12 +215,21 @@ export interface TreeTableProps<T> {
   /** Accessible label for the table */
   ariaLabel?: string;
 
+  // Checkbox
+  /** Whether to show checkboxes for row selection */
+  showCheckbox?: boolean;
+
   // Callbacks
   /** Callback when a row is double-clicked */
   onRowDoubleClick?: (nodeId: string, node: TreeNode<T>) => void;
   /** Callback when a row is right-clicked (context menu) */
   onRowContextMenu?: (nodeId: string, node: TreeNode<T>, event: React.MouseEvent) => void;
 }
+
+/**
+ * Checkbox state for tri-state parent checkboxes.
+ */
+export type CheckboxState = 'checked' | 'unchecked' | 'indeterminate';
 
 /**
  * Props for the TreeTableRow component.
@@ -223,6 +257,14 @@ export interface TreeTableRowProps<T> {
   measureRef?: (node: HTMLTableRowElement | null) => void;
   /** Virtual index for @tanstack/react-virtual measureElement */
   virtualIndex?: number;
+  /** Whether to show checkbox for multi-select */
+  showCheckbox?: boolean | undefined;
+  /** Checkbox state (for tri-state parent logic) */
+  checkboxState?: CheckboxState | undefined;
+  /** Callback when checkbox is toggled */
+  onCheckboxChange?: ((nodeId: string) => void) | undefined;
+  /** Total number of rows for ARIA rowcount */
+  totalRowCount?: number | undefined;
 }
 
 /**
@@ -281,6 +323,8 @@ export interface FlattenOptions {
   multiSelectedIds?: Set<string>;
   /** Set of highlighted node IDs */
   highlightedIds?: Set<string>;
+  /** Set of node IDs that are in the active context */
+  contextNodeIds?: Set<string>;
   /** Filter function to determine which nodes match current filters */
   filterFn?: (node: TreeNode<unknown>) => boolean;
 }
