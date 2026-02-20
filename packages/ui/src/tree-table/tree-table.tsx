@@ -87,6 +87,17 @@ function aggregateChildStates<T>(
   return allChildrenChecked ? 'checked' : 'indeterminate';
 }
 
+function mergeParentSelectionState(
+  nodeId: string,
+  childState: CheckboxState,
+  selectedIds: Set<string>
+): CheckboxState {
+  if (!selectedIds.has(nodeId)) {
+    return childState;
+  }
+  return childState === 'checked' ? 'checked' : 'indeterminate';
+}
+
 function computeNodeState<T>(node: TreeNode<T>, context: CheckboxStateContext<T>): CheckboxState {
   const cached = context.states.get(node.id);
   if (cached) {
@@ -99,14 +110,18 @@ function computeNodeState<T>(node: TreeNode<T>, context: CheckboxStateContext<T>
     return fallbackState;
   }
 
-  if (context.multiSelectedIds.has(node.id)) {
-    context.states.set(node.id, 'checked');
-    return 'checked';
-  }
-
   context.visiting.add(node.id);
   const children = context.getChildren(node);
-  const state = children.length === 0 ? 'unchecked' : aggregateChildStates(children, context);
+  const state =
+    children.length === 0
+      ? context.multiSelectedIds.has(node.id)
+        ? 'checked'
+        : 'unchecked'
+      : mergeParentSelectionState(
+          node.id,
+          aggregateChildStates(children, context),
+          context.multiSelectedIds
+        );
   context.visiting.delete(node.id);
 
   context.states.set(node.id, state);
