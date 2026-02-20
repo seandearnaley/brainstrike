@@ -74,14 +74,14 @@ function getCycleFallbackState(
   selectedIds: Set<string>,
   warnedCycleNodeIds: Set<string>
 ): CheckboxState {
-  if (shouldWarnForCycles() && !warnedCycleNodeIds.has(nodeId)) {
-    if (warnedCycleNodeIds.size < MAX_WARNED_CYCLE_NODE_IDS) {
-      warnedCycleNodeIds.add(nodeId);
-      // biome-ignore lint/suspicious/noConsole: Cycles indicate malformed tree data and should be surfaced during development.
-      console.warn(
-        `[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`
-      );
-    }
+  if (
+    shouldWarnForCycles() &&
+    !warnedCycleNodeIds.has(nodeId) &&
+    warnedCycleNodeIds.size < MAX_WARNED_CYCLE_NODE_IDS
+  ) {
+    warnedCycleNodeIds.add(nodeId);
+    // biome-ignore lint/suspicious/noConsole: Cycles indicate malformed tree data and should be surfaced during development.
+    console.warn(`[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`);
   }
   // Cycles indicate malformed tree data; prefer a conservative visual state
   // that avoids incorrectly showing a fully checked parent.
