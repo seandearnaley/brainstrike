@@ -8,14 +8,32 @@
  * @returns The file extension (without the dot) or empty string if no extension
  */
 export function getFileExtension(filename: string): string {
-  const lastPathSeparatorIndex = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
-  const basename =
-    lastPathSeparatorIndex === -1 ? filename : filename.slice(lastPathSeparatorIndex + 1);
-  const lastDotIndex = basename.lastIndexOf('.');
-  if (lastDotIndex <= 0) {
-    return '';
+  const len = filename.length;
+  // Optimization: Loop backwards manually to find dot or separator
+  // This avoids scanning the string multiple times with lastIndexOf and creating intermediate substrings
+  for (let i = len - 1; i >= 0; i--) {
+    const char = filename.charCodeAt(i);
+    // 46 is '.'
+    if (char === 46) {
+      if (i === 0) {
+        return '';
+      }
+      // Check if previous char is a separator (e.g. /. or \.)
+      const prevChar = filename.charCodeAt(i - 1);
+      // 47 is '/', 92 is '\'
+      if (prevChar === 47 || prevChar === 92) {
+        return '';
+      }
+
+      return filename.slice(i + 1).toLowerCase();
+    }
+    // 47 is '/', 92 is '\'
+    if (char === 47 || char === 92) {
+      // Found separator before dot, so no extension
+      return '';
+    }
   }
-  return basename.slice(lastDotIndex + 1).toLowerCase();
+  return '';
 }
 
 // Invariant: entries must be lowercase and must not include a leading dot.
