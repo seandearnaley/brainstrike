@@ -33,6 +33,7 @@ const DEFAULT_MULTI_SELECTED = new Set<string>();
 const DEFAULT_HIGHLIGHTED = new Set<string>();
 const DEFAULT_CONTEXT_NODE_IDS = new Set<string>();
 const DEFAULT_LOADING_NODE_IDS = new Set<string>();
+const MAX_WARNED_CYCLE_NODE_IDS = 1000;
 
 /**
  * Maps our SortDirection to ARIA sort values.
@@ -71,6 +72,9 @@ function shouldWarnForCycles(): boolean {
 
 function getCycleFallbackState(nodeId: string, selectedIds: Set<string>): CheckboxState {
   if (shouldWarnForCycles() && !warnedCycleNodeIds.has(nodeId)) {
+    if (warnedCycleNodeIds.size >= MAX_WARNED_CYCLE_NODE_IDS) {
+      warnedCycleNodeIds.clear();
+    }
     warnedCycleNodeIds.add(nodeId);
     // biome-ignore lint/suspicious/noConsole: Cycles indicate malformed tree data and should be surfaced during development.
     console.warn(`[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`);
