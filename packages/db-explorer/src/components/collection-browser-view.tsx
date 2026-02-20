@@ -672,7 +672,7 @@ export function CollectionBrowserView({
         icon: <ChevronsDownUp className="h-4 w-4" />,
         onAction: (selectedIds: Set<string>) => {
           // Remove selected IDs from expanded set
-          const currentExpanded = new Set(expandedIds);
+          const currentExpanded = new Set(useCollectionBrowserStore.getState().expandedIds);
           for (const id of selectedIds) {
             currentExpanded.delete(id);
           }
@@ -694,7 +694,7 @@ export function CollectionBrowserView({
         },
       },
     ],
-    [expandIds, expandedIds, setExpandedIds]
+    [expandIds, setExpandedIds]
   );
 
   // Empty state message - depends on search mode

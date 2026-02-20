@@ -300,8 +300,6 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigExpanded: s.searchConfigExpanded,
         isFilterVisible: s.isFilterVisible,
         groupBy: s.groupBy,
-        showCheckbox: s.showCheckbox,
-        multiSelectEnabled: s.multiSelectEnabled,
       }),
     }
   )
