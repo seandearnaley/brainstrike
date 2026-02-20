@@ -548,14 +548,6 @@ export function CollectionBrowserView({
     [setGroupBy]
   );
 
-  // Handle multi-select callback
-  const handleMultiSelect = useCallback((nodeIds: Set<string>) => {
-    // Multi-select state is managed internally by CollectionBrowser;
-    // this callback provides the consumer with the current selection.
-    // Future: could integrate with bulk operations outside of the BulkActionBar.
-    void nodeIds;
-  }, []);
-
   // Handle double-click: toggle expand for parent nodes, open inspector for leaves
   const handleDoubleClick = useCallback(
     (nodeId: string, nodeType: string, _data: BrowserNodeData) => {
@@ -806,7 +798,6 @@ export function CollectionBrowserView({
               onDoubleClick={handleDoubleClick}
               onExpandedIdsChange={handleExpandedIdsChange}
               onFiltersChange={handleFiltersChange}
-              onMultiSelect={handleMultiSelect}
               onSelect={handleSelect}
               onSelectedIdChange={handleSelectedIdChange}
               onSortChange={handleSortChange}

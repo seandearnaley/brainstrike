@@ -15,7 +15,7 @@ import { Checkbox } from '../checkbox';
 import type { GroupHeaderData } from '../collection-browser/types';
 import { cn } from '../lib/utils';
 import { TableCell, TableRow } from '../table';
-import type { FlattenedRow, TreeTableColumn, TreeTableRowProps } from './types';
+import type { FlattenedRow, TreeNode, TreeTableColumn, TreeTableRowProps } from './types';
 
 /**
  * Default indentation width per depth level in pixels.
@@ -26,7 +26,7 @@ const INDENT_WIDTH = 20;
  * Props for the GroupHeaderCell component.
  */
 interface GroupHeaderCellProps<T> {
-  node: FlattenedRow<T>['node'];
+  node: TreeNode<GroupHeaderData>;
   isExpanded: boolean;
   onExpandClick: (event: React.MouseEvent) => void;
   columns: TreeTableColumn<T>[];
@@ -37,10 +37,6 @@ interface GroupHeaderCellProps<T> {
  * Displays an expand/collapse toggle, group icon, label, and item count.
  */
 function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupHeaderCellProps<T>) {
-  // GroupHeaderData is part of the BrowserNodeData union, but the
-  // generic T means we still need a single cast for group header rows.
-  const groupData = node.data as unknown as GroupHeaderData;
-
   return (
     <TableCell className="p-0" colSpan={columns.length} role="gridcell">
       <div className="flex items-center">
@@ -68,11 +64,64 @@ function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupH
         <Layers className="mx-1 h-4 w-4 flex-shrink-0 text-muted-foreground" />
 
         {/* Group label and item count */}
-        <span className="px-1 font-semibold text-sm">{groupData.groupLabel}</span>
-        <span className="text-muted-foreground text-xs">({groupData.itemCount})</span>
+        <span className="px-1 font-semibold text-sm">{node.data.groupLabel}</span>
+        <span className="text-muted-foreground text-xs">({node.data.itemCount})</span>
       </div>
     </TableCell>
   );
+}
+
+/**
+ * Type guard for runtime-safe group header rendering.
+ */
+function parseGroupHeaderData(data: unknown): GroupHeaderData | null {
+  if (typeof data !== 'object' || data === null) {
+    return null;
+  }
+
+  const record = data as Record<string, unknown>;
+  const groupLabel = record['groupLabel'];
+  const groupValue = record['groupValue'];
+  const itemCount = record['itemCount'];
+  const groupKey = record['groupKey'];
+
+  if (
+    typeof groupLabel !== 'string' ||
+    typeof groupValue !== 'string' ||
+    typeof itemCount !== 'number' ||
+    (groupKey !== 'none' && groupKey !== 'status' && groupKey !== 'type')
+  ) {
+    return null;
+  }
+
+  return {
+    groupLabel,
+    groupValue,
+    itemCount,
+    groupKey,
+  };
+}
+
+function toGroupHeaderNode(node: TreeNode<unknown>): TreeNode<GroupHeaderData> | null {
+  if (node.type !== 'group') {
+    return null;
+  }
+
+  const parsedData = parseGroupHeaderData(node.data);
+  if (!parsedData) {
+    return null;
+  }
+
+  return {
+    id: node.id,
+    type: node.type,
+    depth: node.depth,
+    data: parsedData,
+    parentId: node.parentId,
+    hasChildren: node.hasChildren,
+    ...(node.childCount !== undefined ? { childCount: node.childCount } : {}),
+    ...(node.isLoading !== undefined ? { isLoading: node.isLoading } : {}),
+  };
 }
 
 /**
@@ -84,26 +133,23 @@ function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupH
  * - ARIA attributes for treegrid accessibility
  * - Optional checkbox for multi-select
  */
-function TreeTableRowInner<T>(
-  {
-    row,
-    columns,
-    onToggleExpand,
-    onClick,
-    onDoubleClick,
-    onContextMenu,
-    className,
-    style,
-    isFocused = false,
-    measureRef,
-    virtualIndex,
-    showCheckbox = false,
-    checkboxState,
-    onCheckboxChange,
-    totalRowCount,
-  }: TreeTableRowProps<T>,
-  ref: React.Ref<HTMLTableRowElement>
-) {
+function TreeTableRowInner<T>({
+  row,
+  columns,
+  onToggleExpand,
+  onClick,
+  onDoubleClick,
+  onContextMenu,
+  className,
+  style,
+  isFocused = false,
+  measureRef,
+  virtualIndex,
+  showCheckbox = false,
+  checkboxState,
+  onCheckboxChange,
+  totalRowCount,
+}: TreeTableRowProps<T>) {
   const { node, isSelected, isHighlighted, isInContext, matchesFilter, aria } = row;
 
   // Handle row click
@@ -141,23 +187,8 @@ function TreeTableRowInner<T>(
     onCheckboxChange?.(node.id);
   }, [node.id, onCheckboxChange]);
 
-  // Combine external ref with measure ref
-  const combinedRef = React.useCallback(
-    (element: HTMLTableRowElement | null) => {
-      // Call measure ref for virtualization
-      measureRef?.(element);
-
-      // Forward ref
-      if (typeof ref === 'function') {
-        ref(element);
-      } else if (ref) {
-        (ref as React.MutableRefObject<HTMLTableRowElement | null>).current = element;
-      }
-    },
-    [ref, measureRef]
-  );
-
-  const isGroupHeader = node.type === 'group';
+  const groupHeaderNode = toGroupHeaderNode(node);
+  const isGroupHeader = groupHeaderNode !== null;
 
   return (
     <TableRow
@@ -188,7 +219,7 @@ function TreeTableRowInner<T>(
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
-      ref={combinedRef}
+      ref={measureRef}
       style={style}
       tabIndex={isFocused ? 0 : -1}
     >
@@ -196,7 +227,7 @@ function TreeTableRowInner<T>(
         <GroupHeaderCell
           columns={columns}
           isExpanded={row.isExpanded}
-          node={node}
+          node={groupHeaderNode}
           onExpandClick={handleExpandClick}
         />
       ) : (
@@ -288,7 +319,9 @@ function TreeTableCellComponent<T>({
           {showCheckbox && (
             <Checkbox
               aria-label={`Select ${node.id}`}
-              checked={checkboxState === 'checked' || checkboxState === 'indeterminate'}
+              checked={
+                checkboxState === 'indeterminate' ? 'indeterminate' : checkboxState === 'checked'
+              }
               className="mx-1 h-4 w-4 flex-shrink-0"
               data-state={checkboxState}
               onCheckedChange={() => onCheckboxChange?.()}
@@ -325,8 +358,8 @@ function TreeTableCellComponent<T>({
  * Memoized TreeTableRow to prevent unnecessary re-renders.
  * Only re-renders when the row's visual state changes.
  */
-export const TreeTableRow = React.memo(React.forwardRef(TreeTableRowInner)) as <T>(
-  props: TreeTableRowProps<T> & { ref?: React.Ref<HTMLTableRowElement> }
+export const TreeTableRow = React.memo(TreeTableRowInner) as <T>(
+  props: TreeTableRowProps<T>
 ) => React.ReactElement;
 
 /**

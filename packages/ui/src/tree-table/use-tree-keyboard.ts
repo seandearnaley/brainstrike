@@ -70,10 +70,8 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     rows,
     nodes,
     getChildren,
-    expandedIds: _expandedIds,
     onToggleExpand,
     selectionMode,
-    selectedId: _selectedId = null,
     onSelect,
     multiSelectedIds = new Set<string>(),
     onMultiSelectChange,
@@ -81,43 +79,55 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     onScrollToNode,
   } = options;
 
-  // These are used by the tree navigation but not directly in this hook
-  void _expandedIds;
-  void _selectedId;
-
   // Track focused node (separate from selection)
   const [focusedId, setFocusedId] = React.useState<string | null>(null);
   const [isActive, setIsActive] = React.useState(false);
 
   // Track the anchor point for range selection
   const rangeAnchorRef = React.useRef<string | null>(null);
+  const suppressAutoFocusRef = React.useRef(false);
 
   // Sync focused state with table focus
   React.useEffect(() => {
     if (!isTableFocused) {
       setIsActive(false);
+      suppressAutoFocusRef.current = false;
     }
   }, [isTableFocused]);
 
-  // Initialize focus to first row when activating
+  // Keep focus in sync with row changes while avoiding refocus races after filtering.
   React.useEffect(() => {
-    if (isActive && focusedId === null && rows.length > 0) {
-      const firstRow = rows[0];
-      if (firstRow) {
-        setFocusedId(firstRow.node.id);
-      }
+    if (!isActive) {
+      return;
     }
-  }, [isActive, focusedId, rows]);
 
-  // Reset focusedId when the focused node disappears from rows (filtered/deleted)
-  React.useEffect(() => {
-    if (focusedId !== null && rows.length > 0) {
-      const stillExists = rows.some((r) => r.node.id === focusedId);
-      if (!stillExists) {
+    if (rows.length === 0) {
+      if (focusedId !== null) {
         setFocusedId(null);
       }
+      suppressAutoFocusRef.current = false;
+      return;
     }
-  }, [focusedId, rows]);
+
+    if (focusedId !== null) {
+      const stillExists = rows.some((row) => row.node.id === focusedId);
+      if (!stillExists) {
+        suppressAutoFocusRef.current = true;
+        setFocusedId(null);
+      }
+      return;
+    }
+
+    if (suppressAutoFocusRef.current) {
+      suppressAutoFocusRef.current = false;
+      return;
+    }
+
+    const firstRow = rows[0];
+    if (firstRow) {
+      setFocusedId(firstRow.node.id);
+    }
+  }, [isActive, focusedId, rows]);
 
   // Navigation actions
   const moveUp = React.useCallback(() => {
@@ -352,19 +362,6 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         return;
       }
 
-      // Key handlers map using KeyboardEvent.key values (PascalCase matches the spec)
-      const handlers = new Map<string, () => void>([
-        ['ArrowUp', () => handleArrowKey('up', shiftKey)],
-        ['ArrowDown', () => handleArrowKey('down', shiftKey)],
-        ['ArrowLeft', collapseOrMoveLeft],
-        ['ArrowRight', expandOrMoveRight],
-        ['Enter', selectFocused],
-        [' ', handleSpaceKey],
-        ['Home', jumpToFirst],
-        ['End', jumpToLast],
-        ['Escape', clearSelection],
-      ]);
-
       // Handle 'a'/'A' for select all with modifier
       if ((key === 'a' || key === 'A') && modKey) {
         event.preventDefault();
@@ -372,10 +369,45 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         return;
       }
 
-      const handler = handlers.get(key);
-      if (handler) {
-        event.preventDefault();
-        handler();
+      switch (key) {
+        case 'ArrowUp':
+          event.preventDefault();
+          handleArrowKey('up', shiftKey);
+          return;
+        case 'ArrowDown':
+          event.preventDefault();
+          handleArrowKey('down', shiftKey);
+          return;
+        case 'ArrowLeft':
+          event.preventDefault();
+          collapseOrMoveLeft();
+          return;
+        case 'ArrowRight':
+          event.preventDefault();
+          expandOrMoveRight();
+          return;
+        case 'Enter':
+          event.preventDefault();
+          selectFocused();
+          return;
+        case ' ':
+          event.preventDefault();
+          handleSpaceKey();
+          return;
+        case 'Home':
+          event.preventDefault();
+          jumpToFirst();
+          return;
+        case 'End':
+          event.preventDefault();
+          jumpToLast();
+          return;
+        case 'Escape':
+          event.preventDefault();
+          clearSelection();
+          return;
+        default:
+          return;
       }
     },
     [

@@ -151,7 +151,7 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchConfigFtsWeight: 1.0,
   searchConfigExpanded: false,
   isFilterVisible: false,
-  groupBy: 'none' as GroupByKey,
+  groupBy: 'none',
   showCheckbox: false,
   multiSelectEnabled: false,
 };

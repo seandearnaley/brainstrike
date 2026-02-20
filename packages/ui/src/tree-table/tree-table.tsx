@@ -90,8 +90,6 @@ export function TreeTable<T>({
   columns,
   expandedIds,
   onToggleExpand,
-  onExpandAll: _onExpandAll,
-  onCollapseAll: _onCollapseAll,
   selectedId = null,
   onSelect,
   multiSelectedIds = DEFAULT_MULTI_SELECTED,
@@ -104,7 +102,6 @@ export function TreeTable<T>({
   maxHeight = '600px',
   sortState,
   onSortChange,
-  onLoadChildren: _onLoadChildren,
   loadingNodeIds = DEFAULT_LOADING_NODE_IDS,
   className,
   rowClassName,
@@ -114,12 +111,6 @@ export function TreeTable<T>({
   onRowDoubleClick,
   onRowContextMenu,
 }: TreeTableProps<T>) {
-  'use no memo';
-  // These props are passed through but not used directly yet (future expansion)
-  void _onExpandAll;
-  void _onCollapseAll;
-  void _onLoadChildren;
-
   const parentRef = React.useRef<HTMLDivElement>(null);
 
   const getChildren = React.useMemo(() => createChildrenGetter(nodes), [nodes]);

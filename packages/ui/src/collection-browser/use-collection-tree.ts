@@ -21,6 +21,8 @@ import type {
 } from './types';
 import { EMBEDDING_STATUS_CONFIG } from './types';
 
+const EMPTY_VISIBLE_NODE_IDS = new Set<string>();
+
 /**
  * Input data for building the collection tree
  */
@@ -1148,28 +1150,28 @@ export function useCollectionTree({
     filters,
     semanticResults,
     filterToSemanticResults,
-    semanticExpandIds,
   ]);
+
+  const semanticVisibleNodeIds = React.useMemo((): Set<string> | null => {
+    if (!(semanticResults && semanticResults.length > 0 && filterToSemanticResults)) {
+      return null;
+    }
+
+    const visibleNodeIds = new Set<string>();
+    for (const result of semanticResults) {
+      visibleNodeIds.add(result.nodeId);
+    }
+    for (const id of semanticExpandIds) {
+      visibleNodeIds.add(id);
+    }
+
+    return visibleNodeIds;
+  }, [semanticResults, semanticExpandIds, filterToSemanticResults]);
 
   // Flatten visible nodes based on expansion state (use sorted children)
   // When semantic results are present, only show nodes that are in the match set or ancestors
   const visibleNodes = React.useMemo(() => {
-    const hasSemanticFilter: boolean = !!(
-      semanticResults &&
-      semanticResults.length > 0 &&
-      filterToSemanticResults
-    );
-
-    // Build set of visible node IDs for semantic filtering
-    const visibleNodeIds = new Set<string>();
-    if (hasSemanticFilter && semanticResults) {
-      for (const res of semanticResults) {
-        visibleNodeIds.add(res.nodeId);
-      }
-      for (const id of semanticExpandIds) {
-        visibleNodeIds.add(id);
-      }
-    }
+    const hasSemanticFilter = semanticVisibleNodeIds !== null;
 
     // Create filter context for checking nodes
     const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
@@ -1179,18 +1181,10 @@ export function useCollectionTree({
       expandedIds,
       sortedChildrenMap,
       hasSemanticFilter,
-      visibleNodeIds,
+      semanticVisibleNodeIds ?? EMPTY_VISIBLE_NODE_IDS,
       filterCtx
     );
-  }, [
-    filteredRoots,
-    expandedIds,
-    sortedChildrenMap,
-    semanticResults,
-    filterToSemanticResults,
-    semanticExpandIds,
-    filters,
-  ]);
+  }, [filteredRoots, expandedIds, sortedChildrenMap, semanticVisibleNodeIds, filters]);
 
   // Get children callback (returns sorted children, filtered appropriately)
   const getChildren = React.useCallback(
@@ -1198,22 +1192,15 @@ export function useCollectionTree({
       const children = sortedChildrenMap.get(parentId) ?? [];
 
       // If semantic filter active, only return children that are visible
-      if (semanticResults && semanticResults.length > 0 && filterToSemanticResults) {
-        const visibleNodeIds = new Set<string>();
-        for (const res of semanticResults) {
-          visibleNodeIds.add(res.nodeId);
-        }
-        for (const id of semanticExpandIds) {
-          visibleNodeIds.add(id);
-        }
-        return children.filter((c) => visibleNodeIds.has(c.id));
+      if (semanticVisibleNodeIds) {
+        return children.filter((child) => semanticVisibleNodeIds.has(child.id));
       }
 
       // Apply type/status/search filters to children
       const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
-      return children.filter((c) => filterTreeNode(c, filterCtx) !== null);
+      return children.filter((child) => filterTreeNode(child, filterCtx) !== null);
     },
-    [sortedChildrenMap, semanticResults, filterToSemanticResults, semanticExpandIds, filters]
+    [sortedChildrenMap, semanticVisibleNodeIds, filters]
   );
 
   // Compute search match IDs and nodes to auto-expand (text search)

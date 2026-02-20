@@ -61,6 +61,8 @@ export function flattenTree<T>(nodes: TreeNode<T>[], options: FlattenOptions): F
 
   const rows: FlattenedRow<T>[] = [];
   const indexMap = new Map<string, number>();
+  // flattenTree is intentionally non-recursive and only used for a single sibling level.
+  // Nested trees should use flattenTreeRecursive, which computes sibling ARIA per depth.
   const rootSiblingAria = computeSiblingAria(nodes as TreeNode<unknown>[]);
 
   function traverse(nodeList: TreeNode<T>[], parentExpanded: boolean): void {
