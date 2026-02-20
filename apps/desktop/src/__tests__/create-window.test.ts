@@ -92,6 +92,7 @@ describe('createWindow', () => {
           webSecurity: true,
           allowRunningInsecureContent: false,
           experimentalFeatures: false,
+          backgroundThrottling: false,
         },
         titleBarStyle: 'default',
         backgroundColor: '#0b1020',
