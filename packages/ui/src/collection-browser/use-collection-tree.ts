@@ -588,6 +588,7 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
           `[CollectionTree] Cycle detected while filtering node "${node.id}". Excluding this cycle path.`
         );
       }
+      cache.set(node.id, false);
       return false;
     }
 
@@ -865,7 +866,9 @@ function computeStandardFilteredRoots(
   allNodes: TreeNode<BrowserNodeData>[],
   roots: TreeNode<BrowserNodeData>[],
   childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  // Visibility matcher supports descendant propagation for tree display.
   matchesVisibleFilter: (node: TreeNode<BrowserNodeData>) => boolean,
+  // Node matcher is direct-only and used for leaf-count reporting.
   matchesNodeFilters: (node: TreeNode<BrowserNodeData>) => boolean
 ): { filteredRoots: TreeNode<BrowserNodeData>[]; filteredCount: number } {
   if (hasDefaultFilters(filters)) {

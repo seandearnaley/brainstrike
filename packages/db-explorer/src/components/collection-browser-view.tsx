@@ -53,7 +53,7 @@ import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
 const logger = createLogger('CollectionBrowserView');
-type NodeIdPrefix = 'collection' | 'file' | 'chunk' | 'embedding';
+type NodeIdPrefix = Extract<CollectionNodeType, 'collection' | 'file' | 'chunk' | 'embedding'>;
 const NODE_ID_PREFIX_PATTERN = /^(collection|file|chunk|embedding)-(.+)$/;
 
 function isNodeIdPrefix(value: string): value is NodeIdPrefix {

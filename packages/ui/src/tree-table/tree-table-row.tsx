@@ -92,6 +92,8 @@ function isGroupHeaderData(data: unknown): data is TreeTableGroupHeaderData {
   }
 
   // Keep this runtime guard aligned with required fields on TreeTableGroupHeaderData.
+  const typecheck: TreeTableGroupHeaderData = { groupLabel, itemCount };
+  void typecheck;
   return true;
 }
 
