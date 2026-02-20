@@ -53,9 +53,7 @@ import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
 const logger = createLogger('CollectionBrowserView');
-const NODE_ID_PREFIXES = ['collection', 'file', 'chunk', 'embedding'] as const;
-type NodeIdPrefix = (typeof NODE_ID_PREFIXES)[number];
-// Keep this literal in sync with NODE_ID_PREFIXES.
+type NodeIdPrefix = 'collection' | 'file' | 'chunk' | 'embedding';
 const NODE_ID_PREFIX_PATTERN = /^(collection|file|chunk|embedding)-(.+)$/;
 
 function parseNodeId(nodeId: string): {
@@ -67,9 +65,13 @@ function parseNodeId(nodeId: string): {
     return { nodeType: null, originalId: nodeId };
   }
 
-  const nodeType = match[1] as NodeIdPrefix;
-  const originalId = match[2] as string;
-  return { nodeType, originalId };
+  const nodeType = match[1];
+  const originalId = match[2];
+  if (!(nodeType && originalId)) {
+    return { nodeType: null, originalId: nodeId };
+  }
+
+  return { nodeType: nodeType as NodeIdPrefix, originalId };
 }
 
 export interface CollectionBrowserViewProps {
