@@ -310,6 +310,8 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
 
     // Terminate this worker cleanly. Workerpool will spawn a fresh one
     // (minWorkers: 1) which can acquire a new GPUDevice.
+    // Any in-flight request rejects and is expected to be retried by the
+    // embedding queue's existing retry path.
     // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
     console.warn('[EmbeddingWorker] Terminating worker after device loss for clean recovery');
     if (typeof self !== 'undefined' && typeof self.close === 'function') {

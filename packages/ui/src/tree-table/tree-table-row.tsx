@@ -107,15 +107,10 @@ function toGroupHeaderNode(node: TreeNode<unknown>): TreeNode<TreeTableGroupHead
     return null;
   }
 
+  const { data: _ignoredData, ...rest } = node;
   return {
-    id: node.id,
-    type: node.type,
-    depth: node.depth,
+    ...rest,
     data: parsedData,
-    parentId: node.parentId,
-    hasChildren: node.hasChildren,
-    ...(node.childCount !== undefined ? { childCount: node.childCount } : {}),
-    ...(node.isLoading !== undefined ? { isLoading: node.isLoading } : {}),
   };
 }
 
