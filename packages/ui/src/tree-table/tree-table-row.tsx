@@ -12,6 +12,7 @@ import { ChevronDown, ChevronRight, Layers, Loader2 } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '../button';
 import { Checkbox } from '../checkbox';
+import type { GroupHeaderData } from '../collection-browser/types';
 import { cn } from '../lib/utils';
 import { TableCell, TableRow } from '../table';
 import type { FlattenedRow, TreeTableColumn, TreeTableRowProps } from './types';
@@ -36,12 +37,9 @@ interface GroupHeaderCellProps<T> {
  * Displays an expand/collapse toggle, group icon, label, and item count.
  */
 function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupHeaderCellProps<T>) {
-  // Access GroupHeaderData (cast through unknown because group nodes
-  // store GroupHeaderData in the BrowserNodeData union slot)
-  const groupData = node.data as unknown as {
-    groupLabel: string;
-    itemCount: number;
-  };
+  // GroupHeaderData is part of the BrowserNodeData union, but the
+  // generic T means we still need a single cast for group header rows.
+  const groupData = node.data as unknown as GroupHeaderData;
 
   return (
     <TableCell className="p-0" colSpan={columns.length} role="gridcell">

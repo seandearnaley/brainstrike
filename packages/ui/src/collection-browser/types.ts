@@ -71,7 +71,12 @@ export interface EmbeddingData {
 /**
  * Union type for all node data types
  */
-export type BrowserNodeData = CollectionData | FileData | ChunkData | EmbeddingData;
+export type BrowserNodeData =
+  | CollectionData
+  | FileData
+  | ChunkData
+  | EmbeddingData
+  | GroupHeaderData;
 
 /**
  * Typed tree node for collection browser

@@ -912,7 +912,7 @@ function applyGrouping(
       id: groupId,
       type: 'group',
       depth: 0,
-      data: groupHeaderData as unknown as BrowserNodeData,
+      data: groupHeaderData,
       parentId: null,
       hasChildren: files.length > 0,
       childCount: files.length,

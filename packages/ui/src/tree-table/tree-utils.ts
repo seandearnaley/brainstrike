@@ -592,7 +592,7 @@ export function computeCheckboxState(
 
   const descendants = getDescendants(nodeId);
   if (descendants.size === 0) {
-    return multiSelectedIds.has(nodeId) ? 'checked' : 'unchecked';
+    return 'unchecked';
   }
 
   let selectedCount = 0;
