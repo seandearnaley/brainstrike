@@ -11,6 +11,7 @@ import type {
   BrowserNodeData,
   CollectionBrowserFilters,
   CollectionNodeType,
+  GroupByKey,
   SearchMode,
   SemanticSearchResult,
 } from './types';
@@ -56,6 +57,7 @@ interface UseCollectionBrowserStateOptions {
   semanticResults?: SemanticSearchResult[] | undefined;
   hasSearched?: boolean | undefined;
   filters?: CollectionBrowserFilters | undefined;
+  groupBy?: GroupByKey | undefined;
 }
 
 export interface UseCollectionBrowserStateResult {
@@ -103,6 +105,7 @@ export function useCollectionBrowserState({
   semanticResults,
   hasSearched = false,
   filters: controlledFilters,
+  groupBy,
 }: UseCollectionBrowserStateOptions): UseCollectionBrowserStateResult {
   const [internalFilters] = React.useState<CollectionBrowserFilters>(() => ({
     ...DEFAULT_FILTERS,
@@ -113,6 +116,11 @@ export function useCollectionBrowserState({
   const [internalSelectedId, setInternalSelectedId] = React.useState<string | null>(null);
   const selectedId = controlledSelectedId !== undefined ? controlledSelectedId : internalSelectedId;
   const setSelectedId = onSelectedIdChange ?? setInternalSelectedId;
+  const setSelectedIdRef = React.useRef(setSelectedId);
+
+  React.useEffect(() => {
+    setSelectedIdRef.current = setSelectedId;
+  }, [setSelectedId]);
 
   const [multiSelectedIds, setMultiSelectedIds] = React.useState<Set<string>>(new Set());
 
@@ -140,6 +148,7 @@ export function useCollectionBrowserState({
     ...(shouldFilterToSemanticResults
       ? { semanticResults: semanticResults ?? [], filterToSemanticResults: true }
       : {}),
+    ...(groupBy ? { groupBy } : {}),
   });
 
   const prevSearchQuery = React.useRef(filters.searchQuery);
@@ -280,6 +289,17 @@ export function useCollectionBrowserState({
     },
     [onSortChange]
   );
+
+  // Clear selectedId when the selected node is no longer in the visible tree
+  // (e.g., after filtering, search mode change, or data update)
+  React.useEffect(() => {
+    if (selectedId !== null && nodes.length > 0) {
+      const stillVisible = nodes.some((n) => n.id === selectedId);
+      if (!stillVisible) {
+        setSelectedIdRef.current(null);
+      }
+    }
+  }, [selectedId, nodes]);
 
   const highlightedIds = isSemanticMode && hasSemanticResults ? semanticMatchIds : searchMatchIds;
 

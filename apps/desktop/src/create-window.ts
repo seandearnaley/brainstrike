@@ -51,6 +51,8 @@ const DEV_SERVER_RETRY_ATTEMPTS = isTestRuntime ? 1 : 30;
 const DEV_SERVER_RETRY_DELAY_MS = isTestRuntime ? 0 : 200;
 const DEV_RENDERER_URL =
   process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim() || 'http://localhost:8081';
+const MAX_RENDERER_CRASHES_IN_WINDOW = 3;
+const RENDERER_CRASH_WINDOW_MS = 30_000;
 
 function shouldAutoOpenDevTools(): boolean {
   return process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] === '1';
@@ -168,6 +170,8 @@ interface CreateWindowOptions {
 
 export async function createWindow(options: CreateWindowOptions = {}) {
   const startupStartedAt = Date.now();
+  let crashCountInWindow = 0;
+  let lastCrashAt = 0;
   const logStartupPhase = (phase: string, extra: Record<string, unknown> = {}) => {
     startupLogger.info(`Window startup: ${phase}`, {
       elapsedMs: Date.now() - startupStartedAt,
@@ -202,6 +206,12 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
+      // CRITICAL: Prevents Chromium from freezing the renderer process after ~5
+      // minutes of inactivity. Without this, the embedding worker's WebGPU
+      // keep-alive timer stops firing, the GPU device idles out, and ONNX
+      // Runtime hits a V8 CHECK() on the stale handle → SIGTRAP → crash.
+      // See: docs/debug-handoff-renderer-crash.md
+      backgroundThrottling: false,
     },
     titleBarStyle: 'default',
     backgroundColor: '#0b1020',
@@ -240,6 +250,50 @@ export async function createWindow(options: CreateWindowOptions = {}) {
         errorDescription,
         validatedURL,
       });
+    }
+  );
+
+  // Safety net for renderer crashes (e.g. SIGTRAP from stale WebGPU handles).
+  // Logs crash details and reloads the renderer for automatic recovery.
+  // See: docs/debug-handoff-renderer-crash.md (Layer 3: crash recovery)
+  win.webContents.on(
+    'render-process-gone',
+    (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) => {
+      startupLogger.error('Renderer process gone', {
+        reason: details.reason,
+        exitCode: details.exitCode,
+        elapsedMs: Date.now() - startupStartedAt,
+      });
+
+      // Only attempt recovery for crashes — 'killed' and 'clean-exit' are intentional.
+      if (details.reason === 'crashed' || details.reason === 'abnormal-exit') {
+        const now = Date.now();
+        if (now - lastCrashAt > RENDERER_CRASH_WINDOW_MS) {
+          crashCountInWindow = 0;
+        }
+        crashCountInWindow += 1;
+        lastCrashAt = now;
+
+        if (crashCountInWindow > MAX_RENDERER_CRASHES_IN_WINDOW) {
+          startupLogger.error('Renderer crash loop detected; skipping automatic reload', {
+            crashCountInWindow,
+            maxRendererCrashesInWindow: MAX_RENDERER_CRASHES_IN_WINDOW,
+            rendererCrashWindowMs: RENDERER_CRASH_WINDOW_MS,
+          });
+          return;
+        }
+
+        startupLogger.info('Attempting renderer recovery via reload', {
+          crashCountInWindow,
+          maxRendererCrashesInWindow: MAX_RENDERER_CRASHES_IN_WINDOW,
+          rendererCrashWindowMs: RENDERER_CRASH_WINDOW_MS,
+        });
+        try {
+          win.webContents.reload();
+        } catch (reloadError) {
+          startupLogger.error('Renderer reload failed after crash', { reloadError });
+        }
+      }
     }
   );
 

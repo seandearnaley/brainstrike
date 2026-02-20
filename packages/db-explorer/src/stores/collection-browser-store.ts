@@ -3,6 +3,7 @@ import type {
   CollectionSortKey,
   CollectionSortState,
   DistanceMetric,
+  GroupByKey,
   SearchMode,
 } from '@brainstrike/ui';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
@@ -53,6 +54,12 @@ interface CollectionBrowserData {
   searchConfigExpanded: boolean;
   /** Whether the filter bar is visible */
   isFilterVisible: boolean;
+  /** Grouping key for the tree (default: 'none') */
+  groupBy: GroupByKey;
+  /** Whether to show checkboxes for multi-select */
+  showCheckbox: boolean;
+  /** Whether multi-select mode is enabled */
+  multiSelectEnabled: boolean;
 }
 
 /**
@@ -61,6 +68,8 @@ interface CollectionBrowserData {
 interface CollectionBrowserActions {
   /** Set expanded node IDs */
   setExpandedIds: (ids: string[]) => void;
+  /** Remove specific IDs from the expanded set */
+  removeExpandedIds: (ids: Iterable<string>) => void;
   /** Toggle a single node's expansion */
   toggleExpanded: (id: string) => void;
   /** Expand all provided IDs */
@@ -106,6 +115,12 @@ interface CollectionBrowserActions {
   setSearchConfigExpanded: (expanded: boolean) => void;
   /** Set filter bar visibility */
   setIsFilterVisible: (visible: boolean) => void;
+  /** Set grouping key */
+  setGroupBy: (groupBy: GroupByKey) => void;
+  /** Set checkbox visibility */
+  setShowCheckbox: (show: boolean) => void;
+  /** Set multi-select mode */
+  setMultiSelectEnabled: (enabled: boolean) => void;
   /** Reset all state to defaults */
   reset: () => void;
 }
@@ -138,6 +153,9 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchConfigFtsWeight: 1.0,
   searchConfigExpanded: false,
   isFilterVisible: false,
+  groupBy: 'none',
+  showCheckbox: false,
+  multiSelectEnabled: false,
 };
 
 /**
@@ -168,6 +186,22 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       // Expansion actions
       setExpandedIds: (ids) => set({ expandedIds: ids }),
+      removeExpandedIds: (ids) => {
+        const idsToRemove = new Set(ids);
+        if (idsToRemove.size === 0) {
+          return;
+        }
+
+        const { expandedIds } = get();
+        if (expandedIds.length === 0) {
+          return;
+        }
+
+        const nextExpandedIds = expandedIds.filter((id) => !idsToRemove.has(id));
+        if (nextExpandedIds.length !== expandedIds.length) {
+          set({ expandedIds: nextExpandedIds });
+        }
+      },
 
       toggleExpanded: (id) => {
         const { expandedIds } = get();
@@ -249,6 +283,12 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setIsFilterVisible: (visible) => set({ isFilterVisible: visible }),
 
+      setGroupBy: (groupBy) => set({ groupBy }),
+
+      setShowCheckbox: (show) => set({ showCheckbox: show }),
+
+      setMultiSelectEnabled: (enabled) => set({ multiSelectEnabled: enabled }),
+
       // Reset action
       reset: () => set(DEFAULT_STATE),
     }),
@@ -277,6 +317,8 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigFtsWeight: s.searchConfigFtsWeight,
         searchConfigExpanded: s.searchConfigExpanded,
         isFilterVisible: s.isFilterVisible,
+        // Persist grouping preference, but keep multi-select UI mode session-scoped.
+        groupBy: s.groupBy,
       }),
     }
   )
@@ -312,6 +354,9 @@ export const collectionBrowserSelectors = {
   }),
   searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
   isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,
+  groupBy: (s: CollectionBrowserStore) => s.groupBy,
+  showCheckbox: (s: CollectionBrowserStore) => s.showCheckbox,
+  multiSelectEnabled: (s: CollectionBrowserStore) => s.multiSelectEnabled,
 };
 
 /**

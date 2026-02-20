@@ -12,6 +12,8 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Filter,
+  Group,
+  ListChecks,
   Loader2,
   Settings,
   Sparkles,
@@ -19,13 +21,27 @@ import {
 } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '../button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '../dropdown-menu';
 import { ExpandableTextarea } from '../expandable-textarea';
 import { cn } from '../lib/utils';
-import type { SearchModeBarProps } from './types';
+import type { GroupByKey, SearchModeBarProps } from './types';
 
 /**
  * SearchModeBar - Mode toggle and search input container
  */
+/** Group-by option labels */
+const GROUP_BY_OPTIONS: { value: GroupByKey; label: string }[] = [
+  { value: 'none', label: 'No Grouping' },
+  { value: 'status', label: 'By Status' },
+  { value: 'type', label: 'By Type' },
+];
+
 export const SearchModeBar = React.memo(function SearchModeBar({
   mode,
   onModeChange,
@@ -41,6 +57,10 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   onExpandAll,
   onCollapseAll,
   hasSearched,
+  multiSelectEnabled,
+  onMultiSelectToggle,
+  groupBy,
+  onGroupByChange,
   className,
 }: SearchModeBarProps) {
   // Handle semantic query change
@@ -197,6 +217,56 @@ export const SearchModeBar = React.memo(function SearchModeBar({
             >
               <Settings className="h-4 w-4" />
             </Button>
+
+            {onMultiSelectToggle && (
+              <>
+                <div className="mx-0.5 h-5 w-px bg-border" />
+                <Button
+                  aria-label="Toggle multi-select"
+                  className={cn(
+                    'h-9 w-9 p-0',
+                    multiSelectEnabled && 'bg-accent text-accent-foreground'
+                  )}
+                  onClick={() => onMultiSelectToggle(!multiSelectEnabled)}
+                  size="sm"
+                  title="Multi-select"
+                  variant="ghost"
+                >
+                  <ListChecks className="h-4 w-4" />
+                </Button>
+              </>
+            )}
+
+            {onGroupByChange && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    aria-label="Group by"
+                    className={cn(
+                      'h-9 w-9 p-0',
+                      groupBy && groupBy !== 'none' && 'bg-accent text-accent-foreground'
+                    )}
+                    size="sm"
+                    title="Group by"
+                    variant="ghost"
+                  >
+                    <Group className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuRadioGroup
+                    onValueChange={(value) => onGroupByChange(value as GroupByKey)}
+                    value={groupBy ?? 'none'}
+                  >
+                    {GROUP_BY_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem key={option.value} value={option.value}>
+                        {option.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </div>

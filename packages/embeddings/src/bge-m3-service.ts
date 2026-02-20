@@ -31,6 +31,9 @@ export class SimpleEmbeddingService implements EmbeddingService {
     this._backend = new TransformersBackend();
 
     // Default config - will be overwritten by initializeWithModel()
+    // WebGPU is the default device for optimal throughput. The embedding worker
+    // has a keep-alive guard that prevents GPU idle crashes in Electron.
+    // See: docs/debug-handoff-renderer-crash.md
     this._config = {
       modelId: 'jinaai/jina-embeddings-v2-base-code', // Default HuggingFace ID
       device: 'webgpu',

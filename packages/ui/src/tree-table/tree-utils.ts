@@ -5,7 +5,41 @@
  * and navigating hierarchical data for the TreeTable component.
  */
 
-import type { FlattenedRow, FlattenOptions, FlattenResult, TreeNode } from './types';
+import type {
+  FlattenedRow,
+  FlattenOptions,
+  FlattenResult,
+  TreeNode,
+  TreeRowAriaAttributes,
+} from './types';
+
+/**
+ * Default ARIA attributes for rows where structure info is unavailable.
+ */
+const DEFAULT_ARIA: TreeRowAriaAttributes = {
+  ariaLevel: 1,
+  ariaSetSize: 1,
+  ariaPosInSet: 1,
+  ariaRowIndex: 1,
+};
+
+/**
+ * Computes ARIA sibling metadata (setSize and posInSet) for a list of sibling nodes.
+ * Returns a Map from node ID to { setSize, posInSet }.
+ */
+function computeSiblingAria(
+  siblings: TreeNode<unknown>[]
+): Map<string, { setSize: number; posInSet: number }> {
+  const result = new Map<string, { setSize: number; posInSet: number }>();
+  const setSize = siblings.length;
+  for (let i = 0; i < siblings.length; i++) {
+    const sibling = siblings[i];
+    if (sibling) {
+      result.set(sibling.id, { setSize, posInSet: i + 1 });
+    }
+  }
+  return result;
+}
 
 /**
  * Flattens a tree structure into a linear array suitable for virtualized rendering.
@@ -21,11 +55,15 @@ export function flattenTree<T>(nodes: TreeNode<T>[], options: FlattenOptions): F
     selectedId = null,
     multiSelectedIds = new Set<string>(),
     highlightedIds = new Set<string>(),
+    contextNodeIds = new Set<string>(),
     filterFn,
   } = options;
 
   const rows: FlattenedRow<T>[] = [];
   const indexMap = new Map<string, number>();
+  // flattenTree is intentionally non-recursive and only used for a single sibling level.
+  // Nested trees should use flattenTreeRecursive, which computes sibling ARIA per depth.
+  const rootSiblingAria = computeSiblingAria(nodes as TreeNode<unknown>[]);
 
   function traverse(nodeList: TreeNode<T>[], parentExpanded: boolean): void {
     for (const node of nodeList) {
@@ -40,14 +78,26 @@ export function flattenTree<T>(nodes: TreeNode<T>[], options: FlattenOptions): F
       const isExpanded = expandedIds.has(node.id);
       const isSelected = selectedId === node.id || multiSelectedIds.has(node.id);
       const isHighlighted = highlightedIds.has(node.id);
+      const isInContext = contextNodeIds.has(node.id);
+
+      const siblingInfo = rootSiblingAria.get(node.id);
+      const rowIndex = rows.length;
+      const aria: TreeRowAriaAttributes = {
+        ariaLevel: node.depth + 1,
+        ariaSetSize: siblingInfo?.setSize ?? 1,
+        ariaPosInSet: siblingInfo?.posInSet ?? 1,
+        ariaRowIndex: rowIndex + 2, // +2: 1-based + header row
+      };
 
       const row: FlattenedRow<T> = {
         node,
-        index: rows.length,
+        index: rowIndex,
         isExpanded,
         isSelected,
         isHighlighted,
         matchesFilter,
+        isInContext,
+        aria,
       };
 
       indexMap.set(node.id, rows.length);
@@ -86,6 +136,7 @@ export function flattenTreeRecursive<T>(
     selectedId = null,
     multiSelectedIds = new Set<string>(),
     highlightedIds = new Set<string>(),
+    contextNodeIds = new Set<string>(),
     filterFn,
   } = options;
 
@@ -93,19 +144,33 @@ export function flattenTreeRecursive<T>(
   const indexMap = new Map<string, number>();
 
   function traverse(nodeList: TreeNode<T>[]): void {
+    const siblingAria = computeSiblingAria(nodeList as TreeNode<unknown>[]);
+
     for (const node of nodeList) {
       const matchesFilter = filterFn ? filterFn(node as TreeNode<unknown>) : true;
       const isExpanded = expandedIds.has(node.id);
       const isSelected = selectedId === node.id || multiSelectedIds.has(node.id);
       const isHighlighted = highlightedIds.has(node.id);
+      const isInContext = contextNodeIds.has(node.id);
+
+      const siblingInfo = siblingAria.get(node.id);
+      const rowIndex = rows.length;
+      const aria: TreeRowAriaAttributes = {
+        ariaLevel: node.depth + 1,
+        ariaSetSize: siblingInfo?.setSize ?? 1,
+        ariaPosInSet: siblingInfo?.posInSet ?? 1,
+        ariaRowIndex: rowIndex + 2, // +2: 1-based + header row
+      };
 
       const row: FlattenedRow<T> = {
         node,
-        index: rows.length,
+        index: rowIndex,
         isExpanded,
         isSelected,
         isHighlighted,
         matchesFilter,
+        isInContext,
+        aria,
       };
 
       indexMap.set(node.id, rows.length);
@@ -509,3 +574,43 @@ export function createChildrenGetter<T>(
 export function buildTreeFromFlatNodes<T>(nodes: TreeNode<T>[]): TreeNode<T>[] {
   return nodes.filter((node) => node.parentId === null);
 }
+
+/**
+ * Computes the checkbox state for a parent node based on its descendants' selection state.
+ *
+ * @param nodeId - The node ID to compute state for
+ * @param multiSelectedIds - Currently selected node IDs
+ * @param getDescendants - Function to get all descendant IDs for a node
+ * @returns Leaf nodes: checked when selected, unchecked otherwise.
+ * Parents: checked when all descendants selected, indeterminate when some descendants
+ * are selected (including explicit parent selection with incomplete descendants),
+ * unchecked when none are selected.
+ */
+export function computeCheckboxState(
+  nodeId: string,
+  multiSelectedIds: Set<string>,
+  getDescendants: (nodeId: string) => Set<string>
+): 'checked' | 'unchecked' | 'indeterminate' {
+  const descendants = getDescendants(nodeId);
+  if (descendants.size === 0) {
+    return multiSelectedIds.has(nodeId) ? 'checked' : 'unchecked';
+  }
+
+  let selectedCount = 0;
+  for (const descId of descendants) {
+    if (multiSelectedIds.has(descId)) {
+      selectedCount++;
+    }
+  }
+
+  if (selectedCount === 0) {
+    return multiSelectedIds.has(nodeId) ? 'indeterminate' : 'unchecked';
+  }
+  if (selectedCount === descendants.size) {
+    return 'checked';
+  }
+  return 'indeterminate';
+}
+
+// Re-export DEFAULT_ARIA for use in tests
+export { DEFAULT_ARIA };

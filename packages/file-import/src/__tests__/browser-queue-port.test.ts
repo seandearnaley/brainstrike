@@ -146,4 +146,76 @@ describe('createBrowserEmbeddingQueuePort', () => {
     });
     expect(chunkRepository.update).not.toHaveBeenCalled();
   });
+
+  it('resets progress counters between import sessions', async () => {
+    const eventListener = vi.fn();
+    const queue = createAdapter();
+    const chunkRepository = {
+      update: vi.fn().mockResolvedValue(null),
+    };
+
+    const port = createBrowserEmbeddingQueuePort({
+      queue,
+      chunkRepository,
+      deviceHint: 'wasm',
+      dispatchProgressEvent: eventListener,
+    });
+
+    const secondChunk = {
+      ...chunk,
+      id: 'chunk-2',
+      contentHash: 'hash-2',
+    };
+
+    await port.enqueueBatch([chunk as never], 'file-1', {
+      model: 'test-model',
+      targetEmbeddingSetId: 'set-1',
+    });
+
+    await vi.waitUntil(() =>
+      eventListener.mock.calls.some(
+        (call) =>
+          (call[0] as QueueProgressEventDetail).status === 'completed' &&
+          (call[0] as QueueProgressEventDetail).chunkId === 'chunk-1'
+      )
+    );
+
+    const firstCompletion = eventListener.mock.calls.find(
+      (call) =>
+        (call[0] as QueueProgressEventDetail).status === 'completed' &&
+        (call[0] as QueueProgressEventDetail).chunkId === 'chunk-1'
+    )?.[0] as QueueProgressEventDetail | undefined;
+
+    expect(firstCompletion).toMatchObject({
+      processed: 1,
+      totalQueued: 1,
+    });
+
+    port.resetProgress?.();
+
+    await port.enqueueBatch([secondChunk as never], 'file-1', {
+      model: 'test-model',
+      targetEmbeddingSetId: 'set-1',
+    });
+
+    await vi.waitUntil(() =>
+      eventListener.mock.calls.some(
+        (call) =>
+          (call[0] as QueueProgressEventDetail).status === 'completed' &&
+          (call[0] as QueueProgressEventDetail).chunkId === 'chunk-2'
+      )
+    );
+
+    const secondCompletion = eventListener.mock.calls.find(
+      (call) =>
+        (call[0] as QueueProgressEventDetail).status === 'completed' &&
+        (call[0] as QueueProgressEventDetail).chunkId === 'chunk-2'
+    )?.[0] as QueueProgressEventDetail | undefined;
+
+    expect(secondCompletion).toMatchObject({
+      processed: 1,
+      totalQueued: 1,
+      failed: 0,
+    });
+  });
 });

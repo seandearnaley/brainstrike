@@ -15,9 +15,13 @@ import type {
   EmbeddingData,
   EmbeddingStatus,
   FileData,
+  GroupByKey,
+  GroupHeaderData,
   SemanticSearchResult,
 } from './types';
 import { EMBEDDING_STATUS_CONFIG } from './types';
+
+const EMPTY_VISIBLE_NODE_IDS = new Set<string>();
 
 /**
  * Input data for building the collection tree
@@ -88,6 +92,8 @@ export interface UseCollectionTreeOptions {
   semanticResults?: SemanticSearchResult[];
   /** Whether to filter tree to only show semantic results (default: true when results present) */
   filterToSemanticResults?: boolean;
+  /** Grouping key for organizing nodes into groups (optional, default: 'none') */
+  groupBy?: GroupByKey;
 }
 
 /**
@@ -120,17 +126,23 @@ export interface UseCollectionTreeResult {
  * Determine embedding status for a file based on its chunks
  */
 function getFileEmbeddingStatus(
-  file: CollectionTreeInput['files'][0],
-  chunks: CollectionTreeInput['chunks'],
+  fileChunks: CollectionTreeInput['chunks'],
   pendingChunkIds?: Set<string>
 ): EmbeddingStatus {
-  const fileChunks = chunks.filter((c) => c.fileRecordId === file.id);
   if (fileChunks.length === 0) {
     return 'none';
   }
 
-  const embeddedCount = fileChunks.filter((c) => c.embedding && c.embedding.length > 0).length;
-  const pendingCount = fileChunks.filter((c) => pendingChunkIds?.has(c.id)).length;
+  let embeddedCount = 0;
+  let pendingCount = 0;
+  for (const c of fileChunks) {
+    if (pendingChunkIds?.has(c.id)) {
+      pendingCount++;
+    }
+    if (c.embedding && c.embedding.length > 0) {
+      embeddedCount++;
+    }
+  }
 
   if (pendingCount > 0) {
     return 'processing';
@@ -142,6 +154,24 @@ function getFileEmbeddingStatus(
     return 'pending';
   }
   return 'none';
+}
+
+/**
+ * Build a map from fileRecordId to its chunks for O(1) lookup.
+ */
+function buildChunksByFileMap(
+  chunks: CollectionTreeInput['chunks']
+): Map<string, CollectionTreeInput['chunks']> {
+  const map = new Map<string, CollectionTreeInput['chunks']>();
+  for (const chunk of chunks) {
+    const existing = map.get(chunk.fileRecordId);
+    if (existing) {
+      existing.push(chunk);
+    } else {
+      map.set(chunk.fileRecordId, [chunk]);
+    }
+  }
+  return map;
 }
 
 /**
@@ -429,11 +459,17 @@ function createFileNode(
   file: CollectionTreeInput['files'][0],
   parentId: string | null,
   data: CollectionTreeInput,
-  ctx: TreeBuildContext
+  ctx: TreeBuildContext,
+  chunksByFile: Map<string, CollectionTreeInput['chunks']>
 ): TreeNode<BrowserNodeData> {
-  const fileChunks = data.chunks.filter((c) => c.fileRecordId === file.id);
-  const embeddingStatus = getFileEmbeddingStatus(file, data.chunks, data.pendingChunkIds);
-  const embeddedChunks = fileChunks.filter((c) => c.embedding && c.embedding.length > 0).length;
+  const fileChunks = chunksByFile.get(file.id) ?? [];
+  const embeddingStatus = getFileEmbeddingStatus(fileChunks, data.pendingChunkIds);
+  let embeddedChunks = 0;
+  for (const c of fileChunks) {
+    if (c.embedding && c.embedding.length > 0) {
+      embeddedChunks++;
+    }
+  }
   const progress =
     fileChunks.length > 0 ? Math.round((embeddedChunks / fileChunks.length) * 100) : 0;
 
@@ -614,6 +650,13 @@ function nodePassesFilter(
   visibleNodeIds: Set<string>,
   filterCtx: FilterContext
 ): boolean {
+  // Group headers are structural nodes — they pass if any child is visible
+  if (node.type === 'group') {
+    if (hasSemanticFilter) {
+      return visibleNodeIds.has(node.id);
+    }
+    return true;
+  }
   if (hasSemanticFilter) {
     return visibleNodeIds.has(node.id);
   }
@@ -634,6 +677,17 @@ function flattenVisibleNodes(
 ): TreeNode<BrowserNodeData>[] {
   const result: TreeNode<BrowserNodeData>[] = [];
 
+  /**
+   * Check if a group header has any visible children (recursive).
+   * This ensures group headers are only shown when they contain visible content.
+   */
+  function groupHasVisibleChildren(groupId: string): boolean {
+    const children = sortedChildrenMap.get(groupId) ?? [];
+    return children.some((child) =>
+      nodePassesFilter(child, hasSemanticFilter, visibleNodeIds, filterCtx)
+    );
+  }
+
   function addNode(node: TreeNode<BrowserNodeData>): void {
     result.push(node);
 
@@ -649,6 +703,10 @@ function flattenVisibleNodes(
   }
 
   for (const root of filteredRoots) {
+    // For group headers, only include if they have at least one visible child
+    if (root.type === 'group' && !groupHasVisibleChildren(root.id)) {
+      continue;
+    }
     addNode(root);
   }
 
@@ -716,6 +774,177 @@ function buildSemanticVisibleNodeIds(
 }
 
 /**
+ * Get the file extension from a file name.
+ */
+function getFileExtension(fileName: string): string {
+  const dotIndex = fileName.lastIndexOf('.');
+  if (dotIndex <= 0) {
+    return 'No extension';
+  }
+  return fileName.slice(dotIndex).toLowerCase();
+}
+
+/**
+ * Get group key value for a file node based on the grouping key.
+ */
+function getGroupValue(node: TreeNode<BrowserNodeData>, groupBy: GroupByKey): string {
+  if (node.type !== 'file') {
+    return '';
+  }
+  const fileData = node.data as FileData;
+  switch (groupBy) {
+    case 'status':
+      return fileData.embeddingStatus;
+    case 'type':
+      return getFileExtension(fileData.name);
+    default:
+      return '';
+  }
+}
+
+/**
+ * Get a display label for a group value.
+ */
+function getGroupLabel(groupBy: GroupByKey, groupValue: string): string {
+  if (groupBy === 'status') {
+    const config = EMBEDDING_STATUS_CONFIG[groupValue as keyof typeof EMBEDDING_STATUS_CONFIG];
+    return config?.label ?? groupValue;
+  }
+  return groupValue;
+}
+
+/**
+ * Re-depth chunks and embeddings under a reparented file, updating
+ * the children map and node registry.
+ */
+function reparentFileDescendants(
+  file: TreeNode<BrowserNodeData>,
+  groupedChildrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  allNodesById: Map<string, TreeNode<BrowserNodeData>>
+): void {
+  const fileChildren = groupedChildrenMap.get(file.id);
+  if (!fileChildren) {
+    return;
+  }
+
+  const reparentedChunks = fileChildren.map((chunk) => ({
+    ...chunk,
+    depth: 2,
+  }));
+  groupedChildrenMap.set(file.id, reparentedChunks);
+
+  for (const chunk of reparentedChunks) {
+    allNodesById.set(chunk.id, chunk);
+
+    const chunkChildren = groupedChildrenMap.get(chunk.id);
+    if (chunkChildren) {
+      const reparentedEmbeddings = chunkChildren.map((emb) => ({
+        ...emb,
+        depth: 3,
+      }));
+      groupedChildrenMap.set(chunk.id, reparentedEmbeddings);
+
+      for (const emb of reparentedEmbeddings) {
+        allNodesById.set(emb.id, emb);
+      }
+    }
+  }
+}
+
+/**
+ * Organize root file nodes into groups based on a grouping key.
+ * Returns new root nodes (group headers) with file nodes as children,
+ * along with updated children and all-nodes maps.
+ */
+function applyGrouping(
+  rootNodes: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  allNodes: TreeNode<BrowserNodeData>[],
+  groupBy: GroupByKey
+): {
+  groupedRoots: TreeNode<BrowserNodeData>[];
+  groupedChildrenMap: Map<string, TreeNode<BrowserNodeData>[]>;
+  groupedAllNodes: TreeNode<BrowserNodeData>[];
+} {
+  if (groupBy === 'none') {
+    return {
+      groupedRoots: rootNodes,
+      groupedChildrenMap: childrenMap,
+      groupedAllNodes: allNodes,
+    };
+  }
+
+  // Group file nodes by the grouping key
+  const groups = new Map<string, TreeNode<BrowserNodeData>[]>();
+  for (const root of rootNodes) {
+    const groupValue = getGroupValue(root, groupBy);
+    if (!groups.has(groupValue)) {
+      groups.set(groupValue, []);
+    }
+    groups.get(groupValue)?.push(root);
+  }
+
+  // Create group header nodes and rebuild the tree
+  const groupedRoots: TreeNode<BrowserNodeData>[] = [];
+  const groupedChildrenMap = new Map(childrenMap);
+
+  // Build a mutable map of allNodes by ID so reparented versions replace originals
+  const allNodesById = new Map<string, TreeNode<BrowserNodeData>>();
+  for (const node of allNodes) {
+    allNodesById.set(node.id, node);
+  }
+
+  // Sort groups by label
+  const sortedGroupEntries = [...groups.entries()].sort(([a], [b]) =>
+    getGroupLabel(groupBy, a).localeCompare(getGroupLabel(groupBy, b), 'en')
+  );
+
+  for (const [groupValue, files] of sortedGroupEntries) {
+    const groupId = `group-${groupBy}-${groupValue}`;
+    const groupLabel = getGroupLabel(groupBy, groupValue);
+
+    const groupHeaderData: GroupHeaderData = {
+      groupLabel,
+      groupKey: groupBy,
+      groupValue,
+      itemCount: files.length,
+    };
+
+    const groupNode: TreeNode<BrowserNodeData> = {
+      id: groupId,
+      type: 'group',
+      depth: 0,
+      data: groupHeaderData,
+      parentId: null,
+      hasChildren: files.length > 0,
+      childCount: files.length,
+    };
+
+    groupedRoots.push(groupNode);
+    allNodesById.set(groupNode.id, groupNode);
+
+    // Re-parent file nodes under the group header
+    const reparentedFiles = files.map((file) => ({
+      ...file,
+      depth: 1,
+      parentId: groupId,
+    }));
+
+    // Replace original file entries and re-depth descendants
+    for (const file of reparentedFiles) {
+      allNodesById.set(file.id, file);
+      reparentFileDescendants(file, groupedChildrenMap, allNodesById);
+    }
+
+    groupedChildrenMap.set(groupId, reparentedFiles);
+  }
+
+  const groupedAllNodes = [...allNodesById.values()];
+
+  return { groupedRoots, groupedChildrenMap, groupedAllNodes };
+}
+
+/**
  * Hook to transform flat data into a hierarchical tree structure
  */
 export function useCollectionTree({
@@ -725,18 +954,48 @@ export function useCollectionTree({
   sortState,
   semanticResults,
   filterToSemanticResults = true,
+  groupBy = 'none',
 }: UseCollectionTreeOptions): UseCollectionTreeResult {
   // Build the tree structure using helper functions
-  const { rootNodes, allNodes, childrenMap } = React.useMemo(() => {
+  const {
+    rootNodes: rawRootNodes,
+    allNodes: rawAllNodes,
+    childrenMap: rawChildrenMap,
+  } = React.useMemo(() => {
     const ctx: TreeBuildContext = {
       all: [],
       children: new Map<string, TreeNode<BrowserNodeData>[]>(),
     };
 
-    const roots = data.files.map((file) => createFileNode(file, null, data, ctx));
+    // Pre-build chunk lookup map: O(C) once instead of O(F×C) per file
+    const chunksByFile = buildChunksByFileMap(data.chunks);
+
+    const roots = data.files.map((file) => createFileNode(file, null, data, ctx, chunksByFile));
 
     return { rootNodes: roots, allNodes: ctx.all, childrenMap: ctx.children };
   }, [data]);
+
+  // Apply grouping if a groupBy key is set
+  const { rootNodes, allNodes, childrenMap } = React.useMemo(() => {
+    if (groupBy === 'none') {
+      return {
+        rootNodes: rawRootNodes,
+        allNodes: rawAllNodes,
+        childrenMap: rawChildrenMap,
+      };
+    }
+    const { groupedRoots, groupedChildrenMap, groupedAllNodes } = applyGrouping(
+      rawRootNodes,
+      rawChildrenMap,
+      rawAllNodes,
+      groupBy
+    );
+    return {
+      rootNodes: groupedRoots,
+      allNodes: groupedAllNodes,
+      childrenMap: groupedChildrenMap,
+    };
+  }, [rawRootNodes, rawAllNodes, rawChildrenMap, groupBy]);
 
   // Compute semantic search match IDs and scores
   const { semanticMatchIds, similarityScores, semanticExpandIds } = React.useMemo(() => {
@@ -802,7 +1061,16 @@ export function useCollectionTree({
   }, [childrenMap, sortState, semanticResults, similarityScores]);
 
   // Sort root nodes as well
+  // When roots are group headers, preserve their alphabetical order from applyGrouping
   const sortedRootNodes = React.useMemo(() => {
+    const firstRoot = rootNodes[0];
+    const hasGroupRoots = firstRoot !== undefined && firstRoot.type === 'group';
+
+    // Group headers maintain their own ordering — don't sort them
+    if (hasGroupRoots) {
+      return rootNodes;
+    }
+
     const hasSemanticSort = semanticResults && semanticResults.length > 0 && !sortState;
 
     if (hasSemanticSort) {
@@ -832,6 +1100,17 @@ export function useCollectionTree({
         allNodes,
         filterFn
       );
+
+      // When grouping is active, include group headers if any of their children are visible
+      for (const root of sortedRootNodes) {
+        if (root.type === 'group') {
+          const groupChildren = sortedChildrenMap.get(root.id) ?? [];
+          const hasVisibleChild = groupChildren.some((child) => visibleNodeIds.has(child.id));
+          if (hasVisibleChild) {
+            visibleNodeIds.add(root.id);
+          }
+        }
+      }
 
       // Filter root nodes (will be empty if no results pass filters)
       const filtered = sortedRootNodes.filter((root) => visibleNodeIds.has(root.id));
@@ -871,28 +1150,28 @@ export function useCollectionTree({
     filters,
     semanticResults,
     filterToSemanticResults,
-    semanticExpandIds,
   ]);
+
+  const semanticVisibleNodeIds = React.useMemo((): Set<string> | null => {
+    if (!(semanticResults && semanticResults.length > 0 && filterToSemanticResults)) {
+      return null;
+    }
+
+    const visibleNodeIds = new Set<string>();
+    for (const result of semanticResults) {
+      visibleNodeIds.add(result.nodeId);
+    }
+    for (const id of semanticExpandIds) {
+      visibleNodeIds.add(id);
+    }
+
+    return visibleNodeIds;
+  }, [semanticResults, semanticExpandIds, filterToSemanticResults]);
 
   // Flatten visible nodes based on expansion state (use sorted children)
   // When semantic results are present, only show nodes that are in the match set or ancestors
   const visibleNodes = React.useMemo(() => {
-    const hasSemanticFilter: boolean = !!(
-      semanticResults &&
-      semanticResults.length > 0 &&
-      filterToSemanticResults
-    );
-
-    // Build set of visible node IDs for semantic filtering
-    const visibleNodeIds = new Set<string>();
-    if (hasSemanticFilter && semanticResults) {
-      for (const res of semanticResults) {
-        visibleNodeIds.add(res.nodeId);
-      }
-      for (const id of semanticExpandIds) {
-        visibleNodeIds.add(id);
-      }
-    }
+    const hasSemanticFilter = semanticVisibleNodeIds !== null;
 
     // Create filter context for checking nodes
     const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
@@ -902,18 +1181,10 @@ export function useCollectionTree({
       expandedIds,
       sortedChildrenMap,
       hasSemanticFilter,
-      visibleNodeIds,
+      semanticVisibleNodeIds ?? EMPTY_VISIBLE_NODE_IDS,
       filterCtx
     );
-  }, [
-    filteredRoots,
-    expandedIds,
-    sortedChildrenMap,
-    semanticResults,
-    filterToSemanticResults,
-    semanticExpandIds,
-    filters,
-  ]);
+  }, [filteredRoots, expandedIds, sortedChildrenMap, semanticVisibleNodeIds, filters]);
 
   // Get children callback (returns sorted children, filtered appropriately)
   const getChildren = React.useCallback(
@@ -921,22 +1192,15 @@ export function useCollectionTree({
       const children = sortedChildrenMap.get(parentId) ?? [];
 
       // If semantic filter active, only return children that are visible
-      if (semanticResults && semanticResults.length > 0 && filterToSemanticResults) {
-        const visibleNodeIds = new Set<string>();
-        for (const res of semanticResults) {
-          visibleNodeIds.add(res.nodeId);
-        }
-        for (const id of semanticExpandIds) {
-          visibleNodeIds.add(id);
-        }
-        return children.filter((c) => visibleNodeIds.has(c.id));
+      if (semanticVisibleNodeIds) {
+        return children.filter((child) => semanticVisibleNodeIds.has(child.id));
       }
 
       // Apply type/status/search filters to children
       const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
-      return children.filter((c) => filterTreeNode(c, filterCtx) !== null);
+      return children.filter((child) => filterTreeNode(child, filterCtx) !== null);
     },
-    [sortedChildrenMap, semanticResults, filterToSemanticResults, semanticExpandIds, filters]
+    [sortedChildrenMap, semanticVisibleNodeIds, filters]
   );
 
   // Compute search match IDs and nodes to auto-expand (text search)

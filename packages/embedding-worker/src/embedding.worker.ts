@@ -99,6 +99,246 @@ const pipelines = new Map<string, Promise<FeatureExtractor>>();
 // Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
 env.allowRemoteModels = env.allowRemoteModels ?? true;
 
+// ---------------------------------------------------------------------------
+// WebGPU device keep-alive & device loss recovery
+//
+// Problem:
+//   ONNX Runtime Web acquires a GPUDevice internally when using the WebGPU
+//   execution provider. If the Electron renderer is backgrounded (unfocused)
+//   for ~5 minutes, Chromium freezes all JS timers. The GPU device then idles
+//   out, and when ONNX Runtime next accesses the stale native handle it
+//   triggers a V8 CHECK() assertion failure (SIGTRAP / exitCode 5), killing
+//   the entire renderer process.
+//
+// Fix (three layers):
+//   Layer 1 (root cause) — create-window.ts sets `backgroundThrottling: false`
+//     on the BrowserWindow so Chromium never freezes this renderer's timers.
+//   Layer 2 (defence-in-depth) — this file's keep-alive submits a real GPU
+//     command buffer every 15 s to register activity with the driver.
+//   Layer 3 (recovery) — device-loss watcher terminates this worker cleanly
+//     via self.close(); workerpool (minWorkers: 1) spawns a replacement.
+//     create-window.ts also has a `render-process-gone` handler that reloads
+//     the renderer if a crash still occurs.
+//
+// The ONNX Runtime device is accessible after the first inference session via
+// `env.backends.onnx.webgpu.device` (a Promise<GPUDevice>).
+//
+// Full write-up: docs/debug-handoff-renderer-crash.md
+//
+// Refs:
+//   - WebGPU spec device loss: https://gpuweb.github.io/gpuweb/#dom-gpudevice-lost
+//   - ONNX Runtime env flags:  https://onnxruntime.ai/docs/api/js/interfaces/Env.WebGpuFlags.html
+//   - Toji best practices:     https://toji.dev/webgpu-best-practices/device-loss.html
+// ---------------------------------------------------------------------------
+
+const GPU_KEEPALIVE_INTERVAL_MS = 15_000;
+
+// Minimal WebGPU type surface used by the keep-alive / device-loss system.
+// The full @webgpu/types package is not in this project's deps; these cover
+// only the members we actually touch.
+interface GpuDeviceLostInfo {
+  readonly reason: string | undefined;
+  readonly message: string;
+}
+interface GpuCommandBuffer {
+  // Phantom field to avoid accidentally passing plain `{}` into queue.submit.
+  readonly __brand: 'GPUCommandBuffer';
+}
+interface GpuCommandEncoder {
+  finish(): GpuCommandBuffer;
+}
+interface GpuQueue {
+  submit(buffers: GpuCommandBuffer[]): void;
+}
+interface GpuDeviceHandle {
+  readonly lost: Promise<GpuDeviceLostInfo>;
+  readonly queue: GpuQueue;
+  createCommandEncoder(): GpuCommandEncoder;
+}
+
+/** Handle for the keep-alive interval so it can be stopped on device loss. */
+let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Whether we have already attached the device-loss watcher for the current device. */
+let deviceLossWatcherAttached = false;
+
+/** Counter for diagnostic logging of keep-alive ticks. */
+let keepAliveTickCount = 0;
+
+/**
+ * Obtain the GPUDevice that ONNX Runtime created internally.
+ *
+ * After the first WebGPU inference session, ONNX Runtime freezes the device
+ * onto `env.webgpu.device` via Object.defineProperty (writable: false,
+ * configurable: false). Transformers.js exposes the ORT env at
+ * `env.backends.onnx`, so the device lives at `env.backends.onnx.webgpu.device`.
+ *
+ * Returns `null` if WebGPU is not in use or the device is unavailable.
+ */
+async function getOrtWebGpuDevice(): Promise<GpuDeviceHandle | null> {
+  try {
+    const onnxEnv = (env as { backends?: { onnx?: { webgpu?: { device?: unknown } } } }).backends
+      ?.onnx as { webgpu?: { device: Promise<GpuDeviceHandle> | GpuDeviceHandle } } | undefined;
+    if (!onnxEnv?.webgpu) {
+      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+      console.warn('[EmbeddingWorker] GPU guard: env.backends.onnx.webgpu not found');
+      return null;
+    }
+    const device = await onnxEnv.webgpu.device;
+    if (!device || typeof device.createCommandEncoder !== 'function') {
+      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+      console.warn('[EmbeddingWorker] GPU guard: device missing or invalid', {
+        hasDevice: Boolean(device),
+        type: typeof device,
+      });
+      return null;
+    }
+    return device;
+  } catch (error) {
+    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+    console.warn('[EmbeddingWorker] GPU guard: failed to get device', error);
+    return null;
+  }
+}
+
+/**
+ * Start periodic GPU command submissions to keep the device alive.
+ *
+ * Chromium / the OS GPU driver may reclaim a WebGPU device after an extended
+ * idle period. We submit a real (but empty) command buffer — not just
+ * `queue.submit([])` which may be optimised away — to register actual GPU
+ * activity with the driver.
+ *
+ * Safe to call multiple times — only one interval runs at a time.
+ */
+function startKeepAlive(device: GpuDeviceHandle): void {
+  if (keepAliveTimer !== null) {
+    return;
+  }
+  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+  console.log(`[EmbeddingWorker] GPU keep-alive started (interval=${GPU_KEEPALIVE_INTERVAL_MS}ms)`);
+  keepAliveTimer = setInterval(() => {
+    try {
+      // Create and submit a real (empty) command buffer. This goes through
+      // Dawn's full command-buffer encoding and submission path, which is
+      // more likely to be treated as genuine GPU activity by the driver
+      // than a bare `queue.submit([])`.
+      const encoder = device.createCommandEncoder();
+      device.queue.submit([encoder.finish()]);
+      keepAliveTickCount += 1;
+      // Log periodically (every ~2 min) to confirm the keep-alive is running.
+      // `=== 1` intentionally logs the first tick immediately, then every 8 ticks.
+      if (keepAliveTickCount % 8 === 1) {
+        // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+        console.log(`[EmbeddingWorker] GPU keep-alive tick #${keepAliveTickCount}`);
+      }
+    } catch (error) {
+      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+      console.warn('[EmbeddingWorker] GPU keep-alive tick failed:', error);
+      // Device may already be lost; the device-loss watcher handles cleanup.
+      stopKeepAlive();
+    }
+  }, GPU_KEEPALIVE_INTERVAL_MS);
+}
+
+function stopKeepAlive(): void {
+  if (keepAliveTimer !== null) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+    console.log('[EmbeddingWorker] GPU keep-alive stopped');
+  }
+}
+
+/**
+ * Invalidate all cached pipelines that were loaded with a WebGPU device.
+ * The next embed() call will call loadPipeline() which recreates the pipeline
+ * (and ONNX Runtime will acquire a fresh GPUDevice internally).
+ *
+ * NOTE: ONNX Runtime freezes `env.webgpu.device` with configurable: false,
+ * so a fresh device can only be obtained in a new worker instance. The
+ * pipeline invalidation is still useful as a signal, but true recovery
+ * requires workerpool to restart this worker (which it does automatically
+ * when minWorkers >= 1).
+ */
+function invalidateWebGpuPipelines(): void {
+  const keysToDelete: string[] = [];
+  for (const key of pipelines.keys()) {
+    if (key.includes('|webgpu|')) {
+      keysToDelete.push(key);
+    }
+  }
+  for (const key of keysToDelete) {
+    pipelines.delete(key);
+  }
+  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+  console.warn(`[EmbeddingWorker] Invalidated ${keysToDelete.length} WebGPU pipeline(s)`);
+}
+
+/**
+ * Attach a one-time watcher on GPUDevice.lost. When device loss fires:
+ *   1. Stop the keep-alive interval (the device is gone).
+ *   2. Invalidate all WebGPU pipeline cache entries.
+ *   3. Terminate this worker so workerpool can spawn a fresh one.
+ *
+ * Self-termination is necessary because ONNX Runtime's WebGPU backend is a
+ * one-shot singleton — `env.webgpu.device` is frozen (configurable: false)
+ * and cannot be replaced. A new device can only exist in a new worker.
+ * Calling `self.close()` terminates cleanly (no SIGTRAP), and workerpool's
+ * `minWorkers: 1` ensures a replacement is spawned immediately.
+ */
+function watchDeviceLoss(device: GpuDeviceHandle): void {
+  if (deviceLossWatcherAttached) {
+    return;
+  }
+  deviceLossWatcherAttached = true;
+
+  void device.lost.then((info: GpuDeviceLostInfo) => {
+    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+    console.warn('[EmbeddingWorker] WebGPU device lost:', info.message, '| reason:', info.reason);
+
+    stopKeepAlive();
+    invalidateWebGpuPipelines();
+    deviceLossWatcherAttached = false;
+
+    workerEmit({
+      type: 'error',
+      id: 'device-lost',
+      message: `WebGPU device lost: ${info.message}`,
+      cause: `reason=${String(info.reason)}`,
+    });
+
+    // Terminate this worker cleanly. Workerpool will spawn a fresh one
+    // (minWorkers: 1) which can acquire a new GPUDevice.
+    // Any in-flight request rejects and is expected to be retried by the
+    // embedding queue's existing retry path.
+    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+    console.warn('[EmbeddingWorker] Terminating worker after device loss for clean recovery');
+    if (typeof self !== 'undefined' && typeof self.close === 'function') {
+      self.close();
+    }
+  });
+}
+
+/**
+ * After a WebGPU pipeline successfully loads, set up the keep-alive heartbeat
+ * and device-loss watcher on the ONNX Runtime device.
+ */
+async function initWebGpuDeviceGuard(): Promise<void> {
+  const device = await getOrtWebGpuDevice();
+  if (!device) {
+    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+    console.warn(
+      '[EmbeddingWorker] GPU guard: could not obtain ORT WebGPU device — guard NOT active'
+    );
+    return;
+  }
+  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+  console.log('[EmbeddingWorker] GPU guard: device acquired, starting keep-alive + loss watcher');
+  startKeepAlive(device);
+  watchDeviceLoss(device);
+}
+
 function hasWebGPU(): boolean {
   return (
     typeof navigator !== 'undefined' &&
@@ -138,6 +378,15 @@ async function loadPipeline(
   const loader = (async () => {
     try {
       const result = await pipeline('feature-extraction', model, { device, dtype });
+
+      // After the first WebGPU pipeline loads, set up keep-alive and device-loss
+      // watcher on the ONNX Runtime internal GPUDevice. This must happen after
+      // pipeline() returns because ONNX Runtime creates the device during session
+      // creation inside pipeline().
+      if (device === 'webgpu') {
+        void initWebGpuDeviceGuard();
+      }
+
       return result as FeatureExtractor;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EmbedWorkerRequest, EmbedWorkerSuccess } from '../src';
 
 const workerEmitMock = vi.fn();
@@ -22,6 +22,24 @@ class MockTensor {
   tolist() {
     return Array.from(this.data);
   }
+}
+
+class NestedMockTensor extends MockTensor {
+  override tolist(): number[][][] {
+    return [[[1, 2, 3]]];
+  }
+}
+
+interface MockGpuCommandEncoder {
+  finish: () => unknown;
+}
+
+interface MockGpuDevice {
+  readonly lost: Promise<{ readonly reason?: string; readonly message: string }>;
+  readonly queue: {
+    submit: (buffers: unknown[]) => void;
+  };
+  createCommandEncoder: () => MockGpuCommandEncoder;
 }
 
 vi.mock('workerpool', () => ({
@@ -49,6 +67,36 @@ describe('embedding worker runtime', () => {
     registeredHandlers.runEmbedding = undefined;
     vi.unstubAllGlobals();
   });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function setOrtWebGpuDevice(device: MockGpuDevice | Promise<MockGpuDevice> | null) {
+    const transformers = await import('@huggingface/transformers');
+    const mockedEnv = transformers.env as {
+      allowRemoteModels: boolean;
+      backends?: { onnx?: { webgpu?: { device?: Promise<MockGpuDevice> | MockGpuDevice } } };
+    };
+
+    if (!device) {
+      mockedEnv.backends = undefined;
+      return;
+    }
+
+    mockedEnv.backends = {
+      onnx: {
+        webgpu: {
+          device,
+        },
+      },
+    };
+  }
+
+  const flushMicrotasks = async (): Promise<void> => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
 
   describe('global error handlers', () => {
     it('sets up onerror handler in worker context', async () => {
@@ -185,6 +233,164 @@ describe('embedding worker runtime', () => {
     expect(pipelineMock).toHaveBeenCalledTimes(1);
   });
 
+  it('activates WebGPU guard, ticks keep-alive, and recovers after device loss', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', { gpu: {} });
+
+    const closeMock = vi.fn();
+    vi.stubGlobal('self', {
+      close: closeMock,
+      onerror: undefined,
+      onunhandledrejection: undefined,
+    });
+
+    let resolveLost:
+      | ((info: { readonly reason?: string; readonly message: string }) => void)
+      | undefined;
+    const lost = new Promise<{ readonly reason?: string; readonly message: string }>((resolve) => {
+      resolveLost = resolve;
+    });
+
+    const submitMock = vi.fn();
+    const finishMock = vi.fn<() => unknown>(() => ({ kind: 'command-buffer' }));
+    const createCommandEncoderMock = vi.fn<() => MockGpuCommandEncoder>(() => ({
+      finish: finishMock,
+    }));
+
+    await setOrtWebGpuDevice({
+      lost,
+      queue: {
+        submit: submitMock,
+      },
+      createCommandEncoder: createCommandEncoderMock,
+    });
+
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'webgpu-guard',
+      model: 'bge-m3',
+      texts: ['hello'],
+      deviceHint: 'webgpu',
+    });
+
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(createCommandEncoderMock).toHaveBeenCalled();
+    expect(submitMock).toHaveBeenCalled();
+
+    resolveLost?.({ message: 'device was lost', reason: 'destroyed' });
+    await flushMicrotasks();
+    expect(closeMock).toHaveBeenCalled();
+
+    const deviceLostCall = workerEmitMock.mock.calls.find(
+      ([event]) => event?.type === 'error' && event?.id === 'device-lost'
+    );
+    expect(deviceLostCall?.[0]).toMatchObject({
+      type: 'error',
+      id: 'device-lost',
+      message: 'WebGPU device lost: device was lost',
+    });
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'webgpu-guard-reload',
+      model: 'bge-m3',
+      texts: ['hello again'],
+      deviceHint: 'webgpu',
+    });
+    expect(pipelineMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('handles keep-alive tick failures by stopping the timer', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', { gpu: {} });
+
+    await setOrtWebGpuDevice({
+      lost: new Promise(() => {}),
+      queue: {
+        submit: vi.fn(),
+      },
+      createCommandEncoder: () => {
+        throw new Error('encoder unavailable');
+      },
+    });
+
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+    await runEmbedding({
+      type: 'embed',
+      id: 'webgpu-tick-failure',
+      model: 'bge-m3',
+      texts: ['hello'],
+      deviceHint: 'webgpu',
+    });
+
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    // Additional elapsed time should not invoke another tick because stopKeepAlive() clears the interval.
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+
+  it('continues embedding when ORT WebGPU device is unavailable', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    await setOrtWebGpuDevice(null);
+
+    pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+    const runEmbedding = await loadWorker();
+    const result = await runEmbedding({
+      type: 'embed',
+      id: 'guard-missing-env',
+      model: 'bge-m3',
+      texts: ['hello'],
+      deviceHint: 'webgpu',
+    });
+
+    await flushMicrotasks();
+    expect(result.vectors).toHaveLength(1);
+  });
+
+  it('continues embedding when ORT returns an invalid device object', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    await setOrtWebGpuDevice(
+      Promise.resolve({ lost: Promise.resolve({ message: 'ok' }) } as MockGpuDevice)
+    );
+
+    pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+    const runEmbedding = await loadWorker();
+    const result = await runEmbedding({
+      type: 'embed',
+      id: 'guard-invalid-device',
+      model: 'bge-m3',
+      texts: ['hello'],
+      deviceHint: 'webgpu',
+    });
+
+    await flushMicrotasks();
+    expect(result.vectors).toHaveLength(1);
+  });
+
+  it('continues embedding when ORT device promise rejects', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    await setOrtWebGpuDevice(Promise.reject(new Error('device unavailable')));
+
+    pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+    const runEmbedding = await loadWorker();
+    const result = await runEmbedding({
+      type: 'embed',
+      id: 'guard-device-reject',
+      model: 'bge-m3',
+      texts: ['hello'],
+      deviceHint: 'webgpu',
+    });
+
+    await flushMicrotasks();
+    expect(result.vectors).toHaveLength(1);
+  });
+
   it('supports tasks requesting non-default embedding dimensions', async () => {
     const vector = new Float32Array(1024).fill(0.25);
     pipelineMock.mockResolvedValue(async () => vector);
@@ -201,6 +407,77 @@ describe('embedding worker runtime', () => {
     });
     expect(result.metadata.dimensions).toBe(1024);
     expect(Array.from(result.vectors[0])).toHaveLength(1024);
+  });
+
+  it('validates dimension parameter hints for provider-specific requests', async () => {
+    pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+    const runEmbedding = await loadWorker();
+
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'invalid-output-dimensionality',
+        model: 'bge-m3',
+        texts: ['test'],
+        targetDimension: 0,
+        dimensionParameter: 'output_dimensionality',
+        provider: 'google',
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('output_dimensionality');
+
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'invalid-output-dimension',
+        model: 'bge-m3',
+        texts: ['test'],
+        targetDimension: Number.POSITIVE_INFINITY,
+        dimensionParameter: 'output_dimension',
+        provider: 'cohere',
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('output_dimension');
+
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'invalid-dimensions',
+        model: 'bge-m3',
+        texts: ['test'],
+        targetDimension: -1,
+        dimensionParameter: 'dimensions',
+        provider: 'openai',
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('dimensions');
+  });
+
+  it('rejects non-integer and oversized target dimensions', async () => {
+    pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+    const runEmbedding = await loadWorker();
+
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'invalid-non-integer-dimension',
+        model: 'bge-m3',
+        texts: ['test'],
+        targetDimension: 2.5,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('must be an integer');
+
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'invalid-large-dimension',
+        model: 'bge-m3',
+        texts: ['test'],
+        targetDimension: 20_001,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('supported maximum');
   });
 
   it('surfaces pipeline errors without retry', async () => {
@@ -289,6 +566,103 @@ describe('embedding worker runtime', () => {
         deviceHint: 'wasm',
       })
     ).rejects.toThrow('pipeline initialization failed');
+  });
+
+  it('normalizes undefined and null failures from runtime backends', async () => {
+    const runEmbedding = await loadWorker();
+
+    pipelineMock.mockResolvedValueOnce(async () => {
+      // biome-ignore lint/style/useThrowOnlyError: Exercising unknown backend failure shape
+      throw undefined;
+    });
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'undefined-error',
+        model: 'bge-m3',
+        texts: ['test'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('unknown error');
+
+    pipelineMock.mockResolvedValueOnce(async () => {
+      // biome-ignore lint/style/useThrowOnlyError: Exercising unknown backend failure shape
+      throw null;
+    });
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'null-error',
+        model: 'bge-m3',
+        texts: ['test'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('unknown error');
+  });
+
+  it('normalizes object failures including circular references', async () => {
+    const circular: { self?: unknown; code: string } = { code: 'E_CIRCULAR' };
+    circular.self = circular;
+    const runEmbedding = await loadWorker();
+
+    pipelineMock.mockResolvedValueOnce(async () => {
+      // biome-ignore lint/style/useThrowOnlyError: Exercising object failure serialization
+      throw { code: 'E_OBJECT', detail: 'oops' };
+    });
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'object-error',
+        model: 'bge-m3',
+        texts: ['test'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('Embedding failed:');
+
+    pipelineMock.mockResolvedValueOnce(async () => {
+      throw circular;
+    });
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'circular-error',
+        model: 'bge-m3',
+        texts: ['test'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('Embedding failed:');
+  });
+
+  it('handles 1D and nested tensors from transformers output', async () => {
+    const runEmbedding = await loadWorker();
+
+    pipelineMock.mockResolvedValueOnce(async () => new MockTensor([1, 2, 3], [3]));
+    const oneDimensional = await runEmbedding({
+      type: 'embed',
+      id: 'tensor-1d',
+      model: 'bge-m3',
+      texts: ['single'],
+      truncateDim: 3,
+      deviceHint: 'wasm',
+    });
+    expect(oneDimensional.vectors).toHaveLength(1);
+    expect(oneDimensional.vectors[0]).toHaveLength(3);
+
+    pipelineMock.mockResolvedValueOnce(async () => new NestedMockTensor([1, 2, 3], [1, 1, 3]));
+    const nested = await runEmbedding({
+      type: 'embed',
+      id: 'tensor-nested',
+      model: 'bge-m3',
+      texts: ['nested'],
+      truncateDim: 3,
+      deviceHint: 'wasm',
+    });
+    expect(nested.vectors).toHaveLength(1);
+    expect(nested.vectors[0]).toHaveLength(3);
   });
 
   it('normalizes batched tensors returned by transformers', async () => {

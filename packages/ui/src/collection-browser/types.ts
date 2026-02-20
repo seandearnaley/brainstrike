@@ -71,7 +71,12 @@ export interface EmbeddingData {
 /**
  * Union type for all node data types
  */
-export type BrowserNodeData = CollectionData | FileData | ChunkData | EmbeddingData;
+export type BrowserNodeData =
+  | CollectionData
+  | FileData
+  | ChunkData
+  | EmbeddingData
+  | GroupHeaderData;
 
 /**
  * Typed tree node for collection browser
@@ -334,6 +339,14 @@ export interface SearchModeBarProps {
   onFiltersChange?: (filters: CollectionBrowserFilters) => void;
   /** Callback to reset filters */
   onResetFilters?: () => void;
+  /** Whether multi-select mode is enabled */
+  multiSelectEnabled?: boolean;
+  /** Callback when multi-select toggle changes */
+  onMultiSelectToggle?: (enabled: boolean) => void;
+  /** Current group-by key */
+  groupBy?: GroupByKey;
+  /** Callback when group-by changes */
+  onGroupByChange?: (groupBy: GroupByKey) => void;
   /** Custom class name */
   className?: string;
 }
@@ -354,6 +367,47 @@ export interface SearchConfigPanelProps {
   collectionDistanceMetric?: DistanceMetric;
   /** Custom class name */
   className?: string;
+}
+
+// ============================================================================
+// GROUPING TYPES
+// ============================================================================
+
+/**
+ * Available keys for grouping tree nodes.
+ * - 'none': No grouping (flat list)
+ * - 'status': Group by embedding status
+ * - 'type': Group by file extension / MIME type
+ */
+export type GroupByKey = 'none' | 'status' | 'type';
+
+/**
+ * Grouping configuration for the collection browser.
+ */
+export interface GroupingState {
+  /** Active grouping key */
+  groupBy: GroupByKey;
+}
+
+/**
+ * Default grouping state (no grouping)
+ */
+export const DEFAULT_GROUPING_STATE: GroupingState = {
+  groupBy: 'none',
+};
+
+/**
+ * Data for a virtual group header node.
+ */
+export interface GroupHeaderData {
+  /** Group display label */
+  groupLabel: string;
+  /** Grouping key that produced this group */
+  groupKey: GroupByKey;
+  /** Value of the group (e.g., 'complete', '.ts') */
+  groupValue: string;
+  /** Number of direct children in this group */
+  itemCount: number;
 }
 
 /**
