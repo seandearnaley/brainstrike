@@ -572,6 +572,14 @@ export function useEnhancedFileImportService(
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      // Start each import with fresh queue progress accounting.
+      if (queueProgressFlushTimeoutRef.current) {
+        clearTimeout(queueProgressFlushTimeoutRef.current);
+        queueProgressFlushTimeoutRef.current = null;
+      }
+      pendingQueueProgressRef.current = null;
+      queuePort?.resetProgress?.();
+
       // Link external signal if provided
       if (abortSignal) {
         abortSignal.addEventListener('abort', () => controller.abort());

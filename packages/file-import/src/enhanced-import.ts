@@ -149,6 +149,11 @@ function dispatchEmbeddingSetUpdateEvent(id: string): void {
 }
 
 export interface EmbeddingJobQueuePort {
+  /**
+   * Reset queue progress counters before starting a new import session.
+   * Implementations that don't track progress can omit this.
+   */
+  resetProgress?: () => void;
   enqueueBatch(
     chunks: FileChunk[],
     fileRecordId: string,
