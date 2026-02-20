@@ -19,9 +19,10 @@ import type {
   GroupHeaderData,
   SemanticSearchResult,
 } from './types';
-import { EMBEDDING_STATUS_CONFIG } from './types';
+import { EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
 
 const EMPTY_VISIBLE_NODE_IDS = new Set<string>();
+const ALL_COLLECTION_NODE_TYPE_COUNT = Object.keys(NODE_TYPE_CONFIG).length;
 
 /**
  * Input data for building the collection tree
@@ -554,9 +555,6 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
 
     visiting.add(node.id);
 
-    const children = ctx.childrenMap.get(node.id) ?? [];
-    const hasMatchingChildren = children.some((child) => matchesNode(child));
-
     const nodeType = node.type as CollectionNodeType;
     const typeMatches = ctx.filters.nodeTypes.has(nodeType);
     const selfMatches =
@@ -564,7 +562,8 @@ function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeDat
       matchesSearch(node, ctx.filters.searchQuery) &&
       matchesEmbeddingStatus(node, ctx.filters.embeddingStatus);
 
-    const result = selfMatches || hasMatchingChildren;
+    const children = ctx.childrenMap.get(node.id) ?? [];
+    const result = selfMatches || children.some((child) => matchesNode(child));
     cache.set(node.id, result);
     visiting.delete(node.id);
     return result;
@@ -774,7 +773,11 @@ function includeGroupHeadersWithVisibleChildren(
 }
 
 function hasDefaultFilters(filters: CollectionBrowserFilters): boolean {
-  return !filters.searchQuery && filters.nodeTypes.size === 4 && filters.embeddingStatus === 'all';
+  return (
+    !filters.searchQuery &&
+    filters.nodeTypes.size === ALL_COLLECTION_NODE_TYPE_COUNT &&
+    filters.embeddingStatus === 'all'
+  );
 }
 
 function computeSemanticFilteredRoots(

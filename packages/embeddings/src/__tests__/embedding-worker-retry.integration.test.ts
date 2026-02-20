@@ -12,113 +12,68 @@ import type {
   SimilarityResult,
 } from '../types';
 
-class FlakyEmbeddingService implements EmbeddingService {
-  private status: EmbeddingStatus = 'ready';
-  private attempts = 0;
-
-  initialize(
-    _config?: Partial<EmbeddingConfig>,
-    _onProgress?: (progress: EmbeddingProgress) => void
-  ): Promise<void> {
-    this.status = 'ready';
-    return Promise.resolve();
-  }
-  async generateEmbedding(_text: string): Promise<EmbeddingResult> {
-    this.attempts++;
-    if (this.attempts <= 2) {
-      throw new Error('Temporary service failure');
-    }
-    return {
-      embedding: new Array(768).fill(0.1),
-      dimensions: 768,
-      model: 'fake-model',
-      usage: { totalTokens: 10 },
-    };
-  }
-  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
-    const results: EmbeddingResult[] = [];
-    for (const text of texts) {
-      results.push(await this.generateEmbedding(text));
-    }
-    return results;
-  }
-  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
-    return this.generateEmbedding(text);
-  }
-  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
-    return this.generateEmbedding(text);
-  }
-  calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-    return { similarity: 1, distance: 0, method: 'cosine' };
-  }
-  getStatus(): EmbeddingStatus {
-    return this.status;
-  }
-  getConfig(): EmbeddingConfig {
-    return { modelId: 'fake-model' };
-  }
-  async dispose(): Promise<void> {
-    this.status = 'disposed';
-  }
+interface FlakyServiceOptions {
+  shouldFail: (attempt: number) => boolean;
+  errorMessage: string;
+  embeddingValue: number;
+  totalTokens: number;
 }
 
-class WorkerTerminationEmbeddingService implements EmbeddingService {
-  private status: EmbeddingStatus = 'ready';
-  private attempts = 0;
+function createFlakyService(options: FlakyServiceOptions): EmbeddingService {
+  let status: EmbeddingStatus = 'ready';
+  let attempts = 0;
 
-  initialize(
-    _config?: Partial<EmbeddingConfig>,
-    _onProgress?: (progress: EmbeddingProgress) => void
-  ): Promise<void> {
-    this.status = 'ready';
-    return Promise.resolve();
-  }
-
-  async generateEmbedding(_text: string): Promise<EmbeddingResult> {
-    this.attempts++;
-    if (this.attempts === 1) {
-      throw new Error('Worker terminated unexpectedly');
+  const generateEmbedding = async (_text: string): Promise<EmbeddingResult> => {
+    attempts++;
+    if (options.shouldFail(attempts)) {
+      throw new Error(options.errorMessage);
     }
 
     return {
-      embedding: new Array(768).fill(0.2),
+      embedding: new Array(768).fill(options.embeddingValue),
       dimensions: 768,
       model: 'fake-model',
-      usage: { totalTokens: 8 },
+      usage: { totalTokens: options.totalTokens },
     };
-  }
+  };
 
-  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
-    const results: EmbeddingResult[] = [];
-    for (const text of texts) {
-      results.push(await this.generateEmbedding(text));
-    }
-    return results;
-  }
-
-  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
-    return this.generateEmbedding(text);
-  }
-
-  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
-    return this.generateEmbedding(text);
-  }
-
-  calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
-    return { similarity: 1, distance: 0, method: 'cosine' };
-  }
-
-  getStatus(): EmbeddingStatus {
-    return this.status;
-  }
-
-  getConfig(): EmbeddingConfig {
-    return { modelId: 'fake-model' };
-  }
-
-  async dispose(): Promise<void> {
-    this.status = 'disposed';
-  }
+  return {
+    initialize(
+      _config?: Partial<EmbeddingConfig>,
+      _onProgress?: (progress: EmbeddingProgress) => void
+    ): Promise<void> {
+      status = 'ready';
+      return Promise.resolve();
+    },
+    async generateEmbedding(text: string): Promise<EmbeddingResult> {
+      return generateEmbedding(text);
+    },
+    async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+      const results: EmbeddingResult[] = [];
+      for (const text of texts) {
+        results.push(await generateEmbedding(text));
+      }
+      return results;
+    },
+    async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+      return generateEmbedding(text);
+    },
+    async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+      return generateEmbedding(text);
+    },
+    calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
+      return { similarity: 1, distance: 0, method: 'cosine' };
+    },
+    getStatus(): EmbeddingStatus {
+      return status;
+    },
+    getConfig(): EmbeddingConfig {
+      return { modelId: 'fake-model' };
+    },
+    async dispose(): Promise<void> {
+      status = 'disposed';
+    },
+  };
 }
 
 async function waitFor(
@@ -187,7 +142,12 @@ describe('embedding-worker retries and backoff', () => {
       concurrency: 1,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
-      service: new FlakyEmbeddingService(),
+      service: createFlakyService({
+        shouldFail: (attempt) => attempt <= 2,
+        errorMessage: 'Temporary service failure',
+        embeddingValue: 0.1,
+        totalTokens: 10,
+      }),
     });
 
     await waitFor(async () => {
@@ -241,7 +201,12 @@ describe('embedding-worker retries and backoff', () => {
       concurrency: 1,
       leaseMs: 1000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
-      service: new WorkerTerminationEmbeddingService(),
+      service: createFlakyService({
+        shouldFail: (attempt) => attempt === 1,
+        errorMessage: 'Worker terminated unexpectedly',
+        embeddingValue: 0.2,
+        totalTokens: 8,
+      }),
     });
 
     await waitFor(async () => {

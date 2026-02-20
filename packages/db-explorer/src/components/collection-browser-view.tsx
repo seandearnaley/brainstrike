@@ -568,7 +568,7 @@ export function CollectionBrowserView({
   const handleDoubleClick = useCallback(
     (nodeId: string, nodeType: string, _data: BrowserNodeData) => {
       // Parent nodes (files with chunks) → toggle expand
-      if (nodeType === 'file' || nodeType === 'collection') {
+      if (nodeType === 'file' || nodeType === 'collection' || nodeType === 'group') {
         toggleExpanded(nodeId);
         return;
       }

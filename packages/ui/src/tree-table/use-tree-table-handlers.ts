@@ -41,6 +41,7 @@ export function useTreeTableHandlers<T>({
   nodes,
   keyboard,
   selectionMode,
+  selectedId,
   multiSelectedIds,
   rowClassName,
   sortState,
@@ -53,8 +54,9 @@ export function useTreeTableHandlers<T>({
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
-      const anchor = keyboard.state.focusedId;
-      if (!anchor) {
+      const anchor =
+        keyboard.state.focusedId ?? selectedId ?? multiSelectedIds.values().next().value;
+      if (anchor === undefined) {
         return;
       }
 
@@ -69,7 +71,7 @@ export function useTreeTableHandlers<T>({
       const rangeIds = new Set(rows.slice(start, end + 1).map((r) => r.node.id));
       onMultiSelectChange?.(rangeIds);
     },
-    [rows, onMultiSelectChange, keyboard.state.focusedId]
+    [rows, onMultiSelectChange, keyboard.state.focusedId, selectedId, multiSelectedIds]
   );
 
   const handleToggleSelect = React.useCallback(
