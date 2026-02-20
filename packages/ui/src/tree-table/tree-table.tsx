@@ -15,6 +15,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import * as React from 'react';
 import { useResizeObserver } from '../hooks/use-resize-observer';
+import { warnCycleOnce } from '../lib/cycle-warning';
 import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
 import { DEFAULT_ROW_HEIGHTS, TreeTableRow } from './tree-table-row';
@@ -62,26 +63,18 @@ interface CheckboxStateContext<T> {
   warnedCycleNodeIds: Set<string>;
 }
 
-function shouldWarnForCycles(): boolean {
-  if (typeof process !== 'undefined') {
-    return process.env['NODE_ENV'] !== 'production';
-  }
-  return true;
-}
-
 function getCycleFallbackState(
   nodeId: string,
   selectedIds: Set<string>,
   warnedCycleNodeIds: Set<string>
 ): CheckboxState {
-  if (shouldWarnForCycles() && !warnedCycleNodeIds.has(nodeId)) {
-    if (warnedCycleNodeIds.size >= MAX_WARNED_CYCLE_NODE_IDS) {
-      warnedCycleNodeIds.clear();
-    }
-    warnedCycleNodeIds.add(nodeId);
-    // biome-ignore lint/suspicious/noConsole: Cycles indicate malformed tree data and should be surfaced during development.
-    console.warn(`[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`);
-  }
+  warnCycleOnce({
+    nodeId,
+    warnedNodeIds: warnedCycleNodeIds,
+    // Cap warning memory instead of clearing it; avoids repeated warnings for the same IDs.
+    maxWarnings: MAX_WARNED_CYCLE_NODE_IDS,
+    warningMessage: `[TreeTable] Cycle detected while computing checkbox state for node "${nodeId}".`,
+  });
   // Cycles indicate malformed tree data; prefer a conservative visual state
   // that avoids incorrectly showing a fully checked parent.
   return selectedIds.has(nodeId) ? 'indeterminate' : 'unchecked';
@@ -234,6 +227,8 @@ export function TreeTable<T>({
   onRowContextMenu,
 }: TreeTableProps<T>) {
   const parentRef = React.useRef<HTMLDivElement>(null);
+  // Diagnostic-only cycle warning cache. This is intentionally mutable and
+  // excluded from memo deps because it does not affect rendered output.
   const warnedCycleNodeIdsRef = React.useRef<Set<string>>(new Set());
 
   const getChildren = React.useMemo(() => createChildrenGetter(nodes), [nodes]);

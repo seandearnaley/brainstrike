@@ -6,6 +6,7 @@
  */
 
 import * as React from 'react';
+import { warnCycleOnce } from '../lib/cycle-warning';
 import type { TreeNode } from '../tree-table/types';
 import type {
   BrowserNodeData,
@@ -19,9 +20,13 @@ import type {
   GroupHeaderData,
   SemanticSearchResult,
 } from './types';
-import { EMBEDDING_STATUS_CONFIG } from './types';
+import { EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
 
 const EMPTY_VISIBLE_NODE_IDS = new Set<string>();
+// Keep this derived from NODE_TYPE_CONFIG so adding a new node type
+// automatically updates the default-filter fast-path check.
+const ALL_COLLECTION_NODE_TYPE_COUNT = Object.keys(NODE_TYPE_CONFIG).length;
+const MAX_WARNED_FILTER_CYCLE_NODE_IDS = 1000;
 
 /**
  * Input data for building the collection tree
@@ -526,6 +531,25 @@ function matchesEmbeddingStatus(
 }
 
 /**
+ * Check if a node directly matches the active standard filters
+ * (type/search/status), without descendant visibility propagation.
+ */
+function matchesStandardNodeFilters(
+  node: TreeNode<BrowserNodeData>,
+  filters: CollectionBrowserFilters
+): boolean {
+  const nodeType = node.type as CollectionNodeType;
+  const typeMatches = filters.nodeTypes.has(nodeType);
+  if (!typeMatches) {
+    return false;
+  }
+  if (!matchesSearch(node, filters.searchQuery)) {
+    return false;
+  }
+  return matchesEmbeddingStatus(node, filters.embeddingStatus);
+}
+
+/**
  * Filter context for recursive node filtering
  */
 interface FilterContext {
@@ -534,73 +558,54 @@ interface FilterContext {
 }
 
 /**
- * Check if node passes type filter, considering children visibility
+ * Creates a memoized matcher for filter visibility.
+ * A node is visible when:
+ * 1. It matches type/search/status filters itself, or
+ * 2. It has any descendant that is visible.
  */
-function checkTypeFilter(
-  node: TreeNode<BrowserNodeData>,
-  ctx: FilterContext,
-  filterFn: (n: TreeNode<BrowserNodeData>) => TreeNode<BrowserNodeData> | null
-): TreeNode<BrowserNodeData> | null {
-  const nodeType = node.type as CollectionNodeType;
-  if (ctx.filters.nodeTypes.has(nodeType)) {
-    return node; // Type passes
-  }
+function createFilterMatcher(ctx: FilterContext): (node: TreeNode<BrowserNodeData>) => boolean {
+  // Filter visibility is path-independent for current semantics, so node-id caching
+  // is safe even when the structure is a DAG rather than a strict tree.
+  const cache = new Map<string, boolean>();
+  const visiting = new Set<string>();
+  const warnedCycleNodeIds = new Set<string>();
 
-  // Type doesn't pass, but check children
-  const nodeChildren = ctx.childrenMap.get(node.id) ?? [];
-  return nodeChildren.some((child) => filterFn(child) !== null) ? node : null;
-}
+  const matchesNode = (node: TreeNode<BrowserNodeData>): boolean => {
+    const cached = cache.get(node.id);
+    if (cached !== undefined) {
+      return cached;
+    }
+    if (visiting.has(node.id)) {
+      warnCycleOnce({
+        nodeId: node.id,
+        warnedNodeIds: warnedCycleNodeIds,
+        maxWarnings: MAX_WARNED_FILTER_CYCLE_NODE_IDS,
+        warningMessage: `[CollectionTree] Cycle detected while filtering node "${node.id}". Excluding this cycle path.`,
+      });
+      cache.set(node.id, false);
+      return false;
+    }
 
-/**
- * Check if a leaf node matches all filters
- */
-function checkLeafFilters(
-  node: TreeNode<BrowserNodeData>,
-  ctx: FilterContext
-): TreeNode<BrowserNodeData> | null {
-  const matchesSearchFilter = matchesSearch(node, ctx.filters.searchQuery);
-  const matchesStatusFilter = matchesEmbeddingStatus(node, ctx.filters.embeddingStatus);
-  return matchesSearchFilter && matchesStatusFilter ? node : null;
-}
+    visiting.add(node.id);
+    try {
+      const selfMatches = matchesStandardNodeFilters(node, ctx.filters);
 
-/**
- * Check if a parent node should be included (has matching children or matches itself)
- */
-function checkParentFilters(
-  node: TreeNode<BrowserNodeData>,
-  ctx: FilterContext,
-  filterFn: (n: TreeNode<BrowserNodeData>) => TreeNode<BrowserNodeData> | null
-): TreeNode<BrowserNodeData> | null {
-  const nodeChildren = ctx.childrenMap.get(node.id) ?? [];
-  const hasMatchingChildren = nodeChildren.some((child) => filterFn(child) !== null);
-  if (hasMatchingChildren) {
-    return node;
-  }
-  return checkLeafFilters(node, ctx);
-}
+      const children = ctx.childrenMap.get(node.id) ?? [];
+      // Keep parent nodes visible when descendants match, even if the parent
+      // itself does not match node type/search/status filters.
+      // Intentionally short-circuit when self matches to avoid unnecessary
+      // descendant traversal during visibility checks. In DAG-shaped inputs this
+      // can reduce cache population for descendants, but it remains correct.
+      // Filtered-count computation uses a separate direct matcher and traversal.
+      const result = selfMatches || children.some((child) => matchesNode(child));
+      cache.set(node.id, result);
+      return result;
+    } finally {
+      visiting.delete(node.id);
+    }
+  };
 
-/**
- * Recursive filter function for tree nodes
- */
-function filterTreeNode(
-  node: TreeNode<BrowserNodeData>,
-  ctx: FilterContext
-): TreeNode<BrowserNodeData> | null {
-  // First check type filter
-  const typeResult = checkTypeFilter(node, ctx, (n) => filterTreeNode(n, ctx));
-  if (typeResult === null) {
-    return null;
-  }
-  if (typeResult !== node) {
-    return typeResult; // Type didn't pass but had visible children
-  }
-
-  // Check if leaf or parent
-  const nodeChildren = ctx.childrenMap.get(node.id) ?? [];
-  if (nodeChildren.length === 0) {
-    return checkLeafFilters(node, ctx);
-  }
-  return checkParentFilters(node, ctx, (n) => filterTreeNode(n, ctx));
+  return matchesNode;
 }
 
 /**
@@ -648,7 +653,7 @@ function nodePassesFilter(
   node: TreeNode<BrowserNodeData>,
   hasSemanticFilter: boolean,
   visibleNodeIds: Set<string>,
-  filterCtx: FilterContext
+  matchesFilter: (node: TreeNode<BrowserNodeData>) => boolean
 ): boolean {
   // Group headers are structural nodes — they pass if any child is visible
   if (node.type === 'group') {
@@ -660,7 +665,7 @@ function nodePassesFilter(
   if (hasSemanticFilter) {
     return visibleNodeIds.has(node.id);
   }
-  return filterTreeNode(node, filterCtx) !== null;
+  return matchesFilter(node);
 }
 
 /**
@@ -673,7 +678,7 @@ function flattenVisibleNodes(
   sortedChildrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
   hasSemanticFilter: boolean,
   visibleNodeIds: Set<string>,
-  filterCtx: FilterContext
+  matchesFilter: (node: TreeNode<BrowserNodeData>) => boolean
 ): TreeNode<BrowserNodeData>[] {
   const result: TreeNode<BrowserNodeData>[] = [];
 
@@ -684,7 +689,7 @@ function flattenVisibleNodes(
   function groupHasVisibleChildren(groupId: string): boolean {
     const children = sortedChildrenMap.get(groupId) ?? [];
     return children.some((child) =>
-      nodePassesFilter(child, hasSemanticFilter, visibleNodeIds, filterCtx)
+      nodePassesFilter(child, hasSemanticFilter, visibleNodeIds, matchesFilter)
     );
   }
 
@@ -695,7 +700,7 @@ function flattenVisibleNodes(
       const children = sortedChildrenMap.get(node.id) ?? [];
       for (const child of children) {
         // Only add children that pass the filter
-        if (nodePassesFilter(child, hasSemanticFilter, visibleNodeIds, filterCtx)) {
+        if (nodePassesFilter(child, hasSemanticFilter, visibleNodeIds, matchesFilter)) {
           addNode(child);
         }
       }
@@ -743,7 +748,7 @@ function computeAggregatedScores(
 function buildSemanticVisibleNodeIds(
   semanticResults: SemanticSearchResult[],
   allNodes: TreeNode<BrowserNodeData>[],
-  filterFn: (node: TreeNode<BrowserNodeData>) => TreeNode<BrowserNodeData> | null
+  filterFn: (node: TreeNode<BrowserNodeData>) => boolean
 ): { visibleNodeIds: Set<string>; matchingCount: number } {
   const visibleNodeIds = new Set<string>();
   let matchingCount = 0;
@@ -771,6 +776,108 @@ function buildSemanticVisibleNodeIds(
   }
 
   return { visibleNodeIds, matchingCount };
+}
+
+function countMatchingNodes(
+  roots: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  matchesNodeFilters: (node: TreeNode<BrowserNodeData>) => boolean
+): number {
+  let count = 0;
+  const visited = new Set<string>();
+
+  function visit(node: TreeNode<BrowserNodeData>): void {
+    if (visited.has(node.id)) {
+      return;
+    }
+    visited.add(node.id);
+
+    if (matchesNodeFilters(node)) {
+      count++;
+    }
+
+    const children = childrenMap.get(node.id) ?? [];
+    for (const child of children) {
+      visit(child);
+    }
+  }
+
+  // Count only nodes reachable from visible roots so orphaned/pre-flatten nodes
+  // from intermediate transforms do not inflate filtered totals.
+  for (const root of roots) {
+    visit(root);
+  }
+
+  return count;
+}
+
+function includeGroupHeadersWithVisibleChildren(
+  roots: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  visibleNodeIds: Set<string>
+): void {
+  for (const root of roots) {
+    if (root.type !== 'group') {
+      continue;
+    }
+    const groupChildren = childrenMap.get(root.id) ?? [];
+    const hasVisibleChild = groupChildren.some((child) => visibleNodeIds.has(child.id));
+    if (hasVisibleChild) {
+      visibleNodeIds.add(root.id);
+    }
+  }
+}
+
+function hasDefaultFilters(filters: CollectionBrowserFilters): boolean {
+  return (
+    !filters.searchQuery &&
+    filters.nodeTypes.size === ALL_COLLECTION_NODE_TYPE_COUNT &&
+    filters.embeddingStatus === 'all'
+  );
+}
+
+function computeSemanticFilteredRoots(
+  semanticResults: SemanticSearchResult[],
+  allNodes: TreeNode<BrowserNodeData>[],
+  roots: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  matchesDirectNodeFilters: (node: TreeNode<BrowserNodeData>) => boolean
+): { filteredRoots: TreeNode<BrowserNodeData>[]; filteredCount: number } {
+  // Semantic results already identify concrete matching nodes.
+  // We only need a direct matcher here; ancestor visibility is added by
+  // the parent walk inside buildSemanticVisibleNodeIds.
+  const { visibleNodeIds, matchingCount } = buildSemanticVisibleNodeIds(
+    semanticResults,
+    allNodes,
+    matchesDirectNodeFilters
+  );
+
+  includeGroupHeadersWithVisibleChildren(roots, childrenMap, visibleNodeIds);
+
+  return {
+    filteredRoots: roots.filter((root) => visibleNodeIds.has(root.id)),
+    filteredCount: matchingCount,
+  };
+}
+
+function computeStandardFilteredRoots(
+  filters: CollectionBrowserFilters,
+  allNodes: TreeNode<BrowserNodeData>[],
+  roots: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  // Visibility matcher supports descendant propagation for tree display.
+  matchesVisibleFilter: (node: TreeNode<BrowserNodeData>) => boolean,
+  // Node matcher is direct-only and used for leaf-count reporting.
+  matchesNodeFilters: (node: TreeNode<BrowserNodeData>) => boolean
+): { filteredRoots: TreeNode<BrowserNodeData>[]; filteredCount: number } {
+  if (hasDefaultFilters(filters)) {
+    return { filteredRoots: roots, filteredCount: allNodes.length };
+  }
+
+  return {
+    filteredRoots: roots.filter((root) => matchesVisibleFilter(root)),
+    filteredCount: countMatchingNodes(roots, childrenMap, matchesNodeFilters),
+  };
 }
 
 /**
@@ -1084,6 +1191,22 @@ export function useCollectionTree({
     return sortNodes(rootNodes, sortState, similarityScores);
   }, [rootNodes, sortState, semanticResults, similarityScores]);
 
+  const filterContext = React.useMemo<FilterContext>(
+    () => ({
+      filters,
+      childrenMap: sortedChildrenMap,
+    }),
+    [filters, sortedChildrenMap]
+  );
+
+  const matchesStandardFilters = React.useMemo(() => {
+    return createFilterMatcher(filterContext);
+  }, [filterContext]);
+  const matchesDirectNodeFilters = React.useCallback(
+    (node: TreeNode<BrowserNodeData>) => matchesStandardNodeFilters(node, filters),
+    [filters]
+  );
+
   // Apply filters (use sorted versions)
   // When filterToSemanticResults is true, filter to only show matching chunks and their ancestors
   // This applies even when semanticResults is empty (shows empty state)
@@ -1091,65 +1214,32 @@ export function useCollectionTree({
     // If semantic filter is active, filter to matching nodes and ancestors
     // This includes the case where semanticResults is an empty array (0 results)
     if (filterToSemanticResults && semanticResults) {
-      // Create filter context (use sorted children map)
-      const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
-      const filterFn = (node: TreeNode<BrowserNodeData>) => filterTreeNode(node, filterCtx);
-
-      const { visibleNodeIds, matchingCount } = buildSemanticVisibleNodeIds(
+      return computeSemanticFilteredRoots(
         semanticResults,
         allNodes,
-        filterFn
+        sortedRootNodes,
+        sortedChildrenMap,
+        matchesDirectNodeFilters
       );
-
-      // When grouping is active, include group headers if any of their children are visible
-      for (const root of sortedRootNodes) {
-        if (root.type === 'group') {
-          const groupChildren = sortedChildrenMap.get(root.id) ?? [];
-          const hasVisibleChild = groupChildren.some((child) => visibleNodeIds.has(child.id));
-          if (hasVisibleChild) {
-            visibleNodeIds.add(root.id);
-          }
-        }
-      }
-
-      // Filter root nodes (will be empty if no results pass filters)
-      const filtered = sortedRootNodes.filter((root) => visibleNodeIds.has(root.id));
-
-      return { filteredRoots: filtered, filteredCount: matchingCount };
     }
 
-    // Standard text filter logic
-    if (!filters.searchQuery && filters.nodeTypes.size === 4 && filters.embeddingStatus === 'all') {
-      return { filteredRoots: sortedRootNodes, filteredCount: allNodes.length };
-    }
-
-    // Create filter context (use sorted children map)
-    const ctx: FilterContext = { filters, childrenMap: sortedChildrenMap };
-    const filterFn = (node: TreeNode<BrowserNodeData>) => filterTreeNode(node, ctx);
-
-    const filtered = sortedRootNodes.map(filterFn).filter(Boolean) as TreeNode<BrowserNodeData>[];
-
-    // Count filtered nodes recursively
-    let count = 0;
-    function countNodes(nodes: TreeNode<BrowserNodeData>[]): void {
-      for (const node of nodes) {
-        if (filterFn(node)) {
-          count++;
-          const nodeChildren = sortedChildrenMap.get(node.id) ?? [];
-          countNodes(nodeChildren);
-        }
-      }
-    }
-    countNodes(filtered);
-
-    return { filteredRoots: filtered, filteredCount: count };
+    return computeStandardFilteredRoots(
+      filters,
+      allNodes,
+      sortedRootNodes,
+      sortedChildrenMap,
+      matchesStandardFilters,
+      matchesDirectNodeFilters
+    );
   }, [
     sortedRootNodes,
     allNodes,
     sortedChildrenMap,
-    filters,
     semanticResults,
     filterToSemanticResults,
+    filters,
+    matchesStandardFilters,
+    matchesDirectNodeFilters,
   ]);
 
   const semanticVisibleNodeIds = React.useMemo((): Set<string> | null => {
@@ -1173,18 +1263,21 @@ export function useCollectionTree({
   const visibleNodes = React.useMemo(() => {
     const hasSemanticFilter = semanticVisibleNodeIds !== null;
 
-    // Create filter context for checking nodes
-    const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
-
     return flattenVisibleNodes(
       filteredRoots,
       expandedIds,
       sortedChildrenMap,
       hasSemanticFilter,
       semanticVisibleNodeIds ?? EMPTY_VISIBLE_NODE_IDS,
-      filterCtx
+      matchesStandardFilters
     );
-  }, [filteredRoots, expandedIds, sortedChildrenMap, semanticVisibleNodeIds, filters]);
+  }, [
+    filteredRoots,
+    expandedIds,
+    sortedChildrenMap,
+    semanticVisibleNodeIds,
+    matchesStandardFilters,
+  ]);
 
   // Get children callback (returns sorted children, filtered appropriately)
   const getChildren = React.useCallback(
@@ -1196,11 +1289,9 @@ export function useCollectionTree({
         return children.filter((child) => semanticVisibleNodeIds.has(child.id));
       }
 
-      // Apply type/status/search filters to children
-      const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
-      return children.filter((child) => filterTreeNode(child, filterCtx) !== null);
+      return children.filter((child) => matchesStandardFilters(child));
     },
-    [sortedChildrenMap, semanticVisibleNodeIds, filters]
+    [sortedChildrenMap, semanticVisibleNodeIds, matchesStandardFilters]
   );
 
   // Compute search match IDs and nodes to auto-expand (text search)

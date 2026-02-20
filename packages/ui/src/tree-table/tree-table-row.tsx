@@ -26,6 +26,9 @@ interface TreeTableGroupHeaderData {
   itemCount: number;
 }
 
+// Compile-time guard: fails here if TreeTableGroupHeaderData gains required fields.
+const GROUP_HEADER_DATA_SHAPE = { groupLabel: '', itemCount: 0 } satisfies TreeTableGroupHeaderData;
+
 /**
  * Props for the GroupHeaderCell component.
  */
@@ -78,40 +81,28 @@ function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupH
 /**
  * Type guard for runtime-safe group header rendering.
  */
-function parseGroupHeaderData(data: unknown): TreeTableGroupHeaderData | null {
+function isGroupHeaderData(data: unknown): data is TreeTableGroupHeaderData {
   if (typeof data !== 'object' || data === null) {
-    return null;
+    return false;
   }
 
   const record = data as Record<string, unknown>;
   const groupLabel = record['groupLabel'];
   const itemCount = record['itemCount'];
 
-  if (typeof groupLabel !== 'string' || typeof itemCount !== 'number') {
-    return null;
+  if (
+    typeof groupLabel !== typeof GROUP_HEADER_DATA_SHAPE.groupLabel ||
+    typeof itemCount !== typeof GROUP_HEADER_DATA_SHAPE.itemCount
+  ) {
+    return false;
   }
 
-  return {
-    groupLabel,
-    itemCount,
-  };
+  // Keep this runtime guard aligned with required fields on TreeTableGroupHeaderData.
+  return true;
 }
 
-function toGroupHeaderNode(node: TreeNode<unknown>): TreeNode<TreeTableGroupHeaderData> | null {
-  if (node.type !== 'group') {
-    return null;
-  }
-
-  const parsedData = parseGroupHeaderData(node.data);
-  if (!parsedData) {
-    return null;
-  }
-
-  const { data: _ignoredData, ...rest } = node;
-  return {
-    ...rest,
-    data: parsedData,
-  };
+function isGroupHeaderNode(node: TreeNode<unknown>): node is TreeNode<TreeTableGroupHeaderData> {
+  return node.type === 'group' && isGroupHeaderData(node.data);
 }
 
 /**
@@ -177,8 +168,7 @@ function TreeTableRowInner<T>({
     onCheckboxChange?.(node.id);
   }, [node.id, onCheckboxChange]);
 
-  const groupHeaderNode = toGroupHeaderNode(node);
-  const isGroupHeader = groupHeaderNode !== null;
+  const isGroupHeader = isGroupHeaderNode(node);
 
   return (
     <TableRow
@@ -217,7 +207,7 @@ function TreeTableRowInner<T>({
         <GroupHeaderCell
           columns={columns}
           isExpanded={row.isExpanded}
-          node={groupHeaderNode}
+          node={node}
           onExpandClick={handleExpandClick}
         />
       ) : (
