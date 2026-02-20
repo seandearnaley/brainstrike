@@ -743,6 +743,77 @@ function buildSemanticVisibleNodeIds(
   return { visibleNodeIds, matchingCount };
 }
 
+function countMatchingNodes(
+  allNodes: TreeNode<BrowserNodeData>[],
+  matchesFilter: (node: TreeNode<BrowserNodeData>) => boolean
+): number {
+  let count = 0;
+  for (const node of allNodes) {
+    if (matchesFilter(node)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function includeGroupHeadersWithVisibleChildren(
+  roots: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  visibleNodeIds: Set<string>
+): void {
+  for (const root of roots) {
+    if (root.type !== 'group') {
+      continue;
+    }
+    const groupChildren = childrenMap.get(root.id) ?? [];
+    const hasVisibleChild = groupChildren.some((child) => visibleNodeIds.has(child.id));
+    if (hasVisibleChild) {
+      visibleNodeIds.add(root.id);
+    }
+  }
+}
+
+function hasDefaultFilters(filters: CollectionBrowserFilters): boolean {
+  return !filters.searchQuery && filters.nodeTypes.size === 4 && filters.embeddingStatus === 'all';
+}
+
+function computeSemanticFilteredRoots(
+  semanticResults: SemanticSearchResult[],
+  allNodes: TreeNode<BrowserNodeData>[],
+  roots: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  matchesStandardFilters: (node: TreeNode<BrowserNodeData>) => boolean
+): { filteredRoots: TreeNode<BrowserNodeData>[]; filteredCount: number } {
+  const { visibleNodeIds, matchingCount } = buildSemanticVisibleNodeIds(
+    semanticResults,
+    allNodes,
+    (node) => (matchesStandardFilters(node) ? node : null)
+  );
+
+  includeGroupHeadersWithVisibleChildren(roots, childrenMap, visibleNodeIds);
+
+  return {
+    filteredRoots: roots.filter((root) => visibleNodeIds.has(root.id)),
+    filteredCount: matchingCount,
+  };
+}
+
+function computeStandardFilteredRoots(
+  filters: CollectionBrowserFilters,
+  allNodes: TreeNode<BrowserNodeData>[],
+  roots: TreeNode<BrowserNodeData>[],
+  matchesStandardFilters: (node: TreeNode<BrowserNodeData>) => boolean
+): { filteredRoots: TreeNode<BrowserNodeData>[]; filteredCount: number } {
+  if (hasDefaultFilters(filters)) {
+    return { filteredRoots: roots, filteredCount: allNodes.length };
+  }
+
+  return {
+    filteredRoots: roots.filter((root) => matchesStandardFilters(root)),
+    filteredCount: countMatchingNodes(allNodes, matchesStandardFilters),
+  };
+}
+
 /**
  * Get the file extension from a file name.
  */
@@ -1073,45 +1144,16 @@ export function useCollectionTree({
     // If semantic filter is active, filter to matching nodes and ancestors
     // This includes the case where semanticResults is an empty array (0 results)
     if (filterToSemanticResults && semanticResults) {
-      const { visibleNodeIds, matchingCount } = buildSemanticVisibleNodeIds(
+      return computeSemanticFilteredRoots(
         semanticResults,
         allNodes,
-        (node) => (matchesStandardFilters(node) ? node : null)
+        sortedRootNodes,
+        sortedChildrenMap,
+        matchesStandardFilters
       );
-
-      // When grouping is active, include group headers if any of their children are visible
-      for (const root of sortedRootNodes) {
-        if (root.type === 'group') {
-          const groupChildren = sortedChildrenMap.get(root.id) ?? [];
-          const hasVisibleChild = groupChildren.some((child) => visibleNodeIds.has(child.id));
-          if (hasVisibleChild) {
-            visibleNodeIds.add(root.id);
-          }
-        }
-      }
-
-      // Filter root nodes (will be empty if no results pass filters)
-      const filtered = sortedRootNodes.filter((root) => visibleNodeIds.has(root.id));
-
-      return { filteredRoots: filtered, filteredCount: matchingCount };
     }
 
-    // Standard text filter logic
-    if (!filters.searchQuery && filters.nodeTypes.size === 4 && filters.embeddingStatus === 'all') {
-      return { filteredRoots: sortedRootNodes, filteredCount: allNodes.length };
-    }
-
-    const filtered = sortedRootNodes.filter((root) => matchesStandardFilters(root));
-
-    // Count filtered nodes in a single pass over all nodes.
-    let count = 0;
-    for (const node of allNodes) {
-      if (matchesStandardFilters(node)) {
-        count++;
-      }
-    }
-
-    return { filteredRoots: filtered, filteredCount: count };
+    return computeStandardFilteredRoots(filters, allNodes, sortedRootNodes, matchesStandardFilters);
   }, [
     sortedRootNodes,
     allNodes,
