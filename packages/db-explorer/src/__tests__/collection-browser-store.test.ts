@@ -282,6 +282,7 @@ describe('collection-browser-store', () => {
       store.setSearchConfigDistanceMetric('l2');
       store.setSearchConfigExpanded(true);
       store.setIsFilterVisible(true);
+      store.toggleContextSelectedId('file-1');
 
       // Reset
       store.reset();
@@ -303,6 +304,7 @@ describe('collection-browser-store', () => {
       expect(state.searchConfigDistanceMetric).toBe('cosine');
       expect(state.searchConfigExpanded).toBe(false);
       expect(state.isFilterVisible).toBe(false);
+      expect(state.contextSelectedIds).toEqual([]);
     });
   });
 

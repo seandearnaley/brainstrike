@@ -591,9 +591,7 @@ export function CollectionBrowserView({
     toggleContextSelectedId(selectedId);
   }, [selectedId, toggleContextSelectedId]);
 
-  const handleClearContextSelection = useCallback(() => {
-    clearContextSelectedIds();
-  }, [clearContextSelectedIds]);
+  const handleClearContextSelection = clearContextSelectedIds;
 
   // Handle double-click: toggle expand for parent nodes, open inspector for leaves
   const handleDoubleClick = useCallback(

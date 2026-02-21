@@ -185,6 +185,7 @@ function migratePersistedState(
     return snapshot;
   }
 
+  // Chain future version migrations here (v2->v3, v3->v4, etc.) to preserve upgrade paths.
   // Also recovers from corrupted snapshots where contextSelectedIds is not an array.
   if (version < 2 || !Array.isArray(snapshot.contextSelectedIds)) {
     return {
