@@ -804,7 +804,9 @@ export function CollectionBrowserView({
       />
 
       <div className="flex items-center justify-between border-border border-b px-3 py-2">
-        <span className="text-muted-foreground text-xs">In context: {contextSelectedIds.length}</span>
+        <span className="text-muted-foreground text-xs">
+          In context: {contextSelectedIds.length}
+        </span>
         <Button
           disabled={!selectedId}
           onClick={handleToggleContextForSelected}
