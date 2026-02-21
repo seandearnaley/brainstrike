@@ -239,6 +239,29 @@ describe('collection-browser-store', () => {
     });
   });
 
+  describe('context selection state', () => {
+    it('toggles context-selected IDs on and off', () => {
+      const store = useCollectionBrowserStore.getState();
+      store.toggleContextSelectedId('file-1');
+      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual(['file-1']);
+
+      store.toggleContextSelectedId('file-1');
+      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
+    });
+
+    it('clears all context-selected IDs', () => {
+      const store = useCollectionBrowserStore.getState();
+      store.toggleContextSelectedId('file-1');
+      store.toggleContextSelectedId('file-2');
+      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual(
+        expect.arrayContaining(['file-1', 'file-2'])
+      );
+
+      store.clearContextSelectedIds();
+      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
+    });
+  });
+
   describe('reset', () => {
     it('resets all state to defaults', () => {
       const store = useCollectionBrowserStore.getState();

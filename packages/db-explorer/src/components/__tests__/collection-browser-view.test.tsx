@@ -401,11 +401,18 @@ describe('CollectionBrowserView', () => {
 
     const addButton = screen.getByRole('button', { name: /add selected to context/i });
     expect(addButton).toBeEnabled();
+    const clearContextButton = screen.getByRole('button', { name: /clear context/i });
+    expect(clearContextButton).toBeDisabled();
     await user.click(screen.getByRole('button', { name: /add selected to context/i }));
 
     expect(useCollectionBrowserStore.getState().contextSelectedIds).toContain('file-1');
     expect(screen.getByTestId('context-selected-first-file')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /clear context/i })).toBeEnabled();
 
+    await user.click(screen.getByRole('button', { name: /clear context/i }));
+    expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
+
+    await user.click(screen.getByRole('button', { name: /add selected to context/i }));
     await user.click(screen.getByRole('button', { name: /remove selected from context/i }));
     expect(useCollectionBrowserStore.getState().contextSelectedIds).not.toContain('file-1');
 

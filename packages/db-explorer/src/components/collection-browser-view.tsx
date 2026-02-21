@@ -316,6 +316,7 @@ export function CollectionBrowserView({
     multiSelectEnabled,
     setGroupBy,
     toggleContextSelectedId,
+    clearContextSelectedIds,
     setShowCheckbox,
     setMultiSelectEnabled,
     toggleExpanded,
@@ -590,6 +591,10 @@ export function CollectionBrowserView({
     toggleContextSelectedId(selectedId);
   }, [selectedId, toggleContextSelectedId]);
 
+  const handleClearContextSelection = useCallback(() => {
+    clearContextSelectedIds();
+  }, [clearContextSelectedIds]);
+
   // Handle double-click: toggle expand for parent nodes, open inspector for leaves
   const handleDoubleClick = useCallback(
     (nodeId: string, nodeType: string, _data: BrowserNodeData) => {
@@ -810,16 +815,26 @@ export function CollectionBrowserView({
           <span className="text-muted-foreground text-xs">
             In context: {contextSelectedIds.length}
           </span>
-          <Button
-            disabled={!selectedId}
-            onClick={handleToggleContextForSelected}
-            size="sm"
-            variant="outline"
-          >
-            {selectedId && contextNodeIdsSet.has(selectedId)
-              ? 'Remove selected from context'
-              : 'Add selected to context'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              disabled={!selectedId}
+              onClick={handleToggleContextForSelected}
+              size="sm"
+              variant="outline"
+            >
+              {selectedId && contextNodeIdsSet.has(selectedId)
+                ? 'Remove selected from context'
+                : 'Add selected to context'}
+            </Button>
+            <Button
+              disabled={contextSelectedIds.length === 0}
+              onClick={handleClearContextSelection}
+              size="sm"
+              variant="outline"
+            >
+              Clear context
+            </Button>
+          </div>
         </div>
       )}
 

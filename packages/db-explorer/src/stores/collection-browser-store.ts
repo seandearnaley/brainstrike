@@ -121,6 +121,8 @@ interface CollectionBrowserActions {
   setGroupBy: (groupBy: GroupByKey) => void;
   /** Toggle in-context state for a node ID */
   toggleContextSelectedId: (nodeId: string) => void;
+  /** Clear all in-context node IDs */
+  clearContextSelectedIds: () => void;
   /** Set checkbox visibility */
   setShowCheckbox: (show: boolean) => void;
   /** Set multi-select mode */
@@ -131,8 +133,10 @@ interface CollectionBrowserActions {
 
 export type CollectionBrowserStore = CollectionBrowserData & CollectionBrowserActions;
 
+// Keep the existing key stable so persisted snapshots can migrate in place.
 const STORE_NAME = 'collection-browser.v1' as const;
 const STORE_VERSION = 2 as const;
+type PersistedCollectionBrowserData = Partial<CollectionBrowserData>;
 
 /**
  * Default values for the store
@@ -172,15 +176,16 @@ const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 function migratePersistedState(
   persistedState: unknown,
   version: number
-): Partial<CollectionBrowserData> | undefined {
+): PersistedCollectionBrowserData | undefined {
   const snapshot =
     persistedState && typeof persistedState === 'object'
-      ? (persistedState as Partial<CollectionBrowserData>)
+      ? (persistedState as PersistedCollectionBrowserData)
       : undefined;
   if (!snapshot) {
     return snapshot;
   }
 
+  // Also recovers from corrupted snapshots where contextSelectedIds is not an array.
   if (version < 2 || !Array.isArray(snapshot.contextSelectedIds)) {
     return {
       ...snapshot,
@@ -323,6 +328,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         }
         set({ contextSelectedIds: Array.from(idSet) });
       },
+      clearContextSelectedIds: () => set({ contextSelectedIds: [] }),
 
       setShowCheckbox: (show) => set({ showCheckbox: show }),
 
@@ -335,7 +341,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
       name: STORE_NAME,
       version: STORE_VERSION,
       storage,
-      migrate: (persistedState, version) => migratePersistedState(persistedState, version),
+      migrate: migratePersistedState,
       partialize: (s) => ({
         expandedIds: s.expandedIds,
         selectedId: s.selectedId,
