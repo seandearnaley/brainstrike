@@ -15,11 +15,54 @@ describe('file-utils', () => {
     expect(isBinaryFile('icon.svg')).toBe(false);
   });
 
-  it('extracts base filename correctly', () => {
-    expect(getBaseFilename('/path/to/file.txt')).toBe('file');
-    expect(getBaseFilename('C:\\Users\\name\\file.txt')).toBe('file');
-    expect(getBaseFilename('C:\\Users\\name\\.gitignore')).toBe('.gitignore');
-    expect(getBaseFilename('file')).toBe('file');
+  describe('getBaseFilename', () => {
+    it('extracts base from simple filenames', () => {
+      expect(getBaseFilename('file.txt')).toBe('file');
+      expect(getBaseFilename('README.md')).toBe('README');
+      expect(getBaseFilename('index.ts')).toBe('index');
+    });
+
+    it('extracts base from Unix paths', () => {
+      expect(getBaseFilename('/path/to/file.txt')).toBe('file');
+      expect(getBaseFilename('/home/user/document.pdf')).toBe('document');
+    });
+
+    it('extracts base from Windows paths', () => {
+      expect(getBaseFilename('C:\\Users\\name\\file.txt')).toBe('file');
+      expect(getBaseFilename('D:\\projects\\app.js')).toBe('app');
+    });
+
+    it('returns full name for files with no extension', () => {
+      expect(getBaseFilename('file')).toBe('file');
+      expect(getBaseFilename('Makefile')).toBe('Makefile');
+      expect(getBaseFilename('/usr/bin/node')).toBe('node');
+    });
+
+    it('preserves dotfiles as-is', () => {
+      expect(getBaseFilename('.gitignore')).toBe('.gitignore');
+      expect(getBaseFilename('/home/user/.bashrc')).toBe('.bashrc');
+      expect(getBaseFilename('C:\\Users\\name\\.gitignore')).toBe('.gitignore');
+    });
+
+    it('strips extension from dotfiles that have one', () => {
+      expect(getBaseFilename('.env.local')).toBe('.env');
+      expect(getBaseFilename('/home/user/.tsconfig.json')).toBe('.tsconfig');
+    });
+
+    it('strips only the last extension from multi-dot files', () => {
+      expect(getBaseFilename('archive.tar.gz')).toBe('archive.tar');
+      expect(getBaseFilename('component.test.ts')).toBe('component.test');
+      expect(getBaseFilename('/path/to/app.config.js')).toBe('app.config');
+    });
+
+    it('returns empty string for empty input', () => {
+      expect(getBaseFilename('')).toBe('');
+    });
+
+    it('handles trailing separators', () => {
+      expect(getBaseFilename('/path/to/')).toBe('');
+      expect(getBaseFilename('C:\\Users\\')).toBe('');
+    });
   });
 
   it('handles dotfiles consistently in full paths', () => {
