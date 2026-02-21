@@ -3,4 +3,13 @@
  * This file ensures Tailwind CSS scans this package's components for utility classes.
  */
 
-@source "./src"; 
+@source "./src";
+
+@keyframes tapestry-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+} 
