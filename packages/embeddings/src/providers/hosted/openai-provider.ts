@@ -2,6 +2,7 @@ import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
+  HostedProviderType,
   ProviderMetadata,
   Result,
 } from '../../provider-types';
@@ -50,30 +51,52 @@ const OPENAI_MODELS: Record<string, ModelConfig> = {
   },
 };
 
+type OpenAiCompatibleProvider = Extract<HostedProviderType, 'openai' | 'ollama' | 'lmstudio'>;
+
+const OPENAI_COMPATIBLE_ENDPOINTS: Record<OpenAiCompatibleProvider, string> = {
+  openai: 'https://api.openai.com/v1/embeddings',
+  ollama: 'http://127.0.0.1:11434/v1/embeddings',
+  lmstudio: 'http://localhost:1234/v1/embeddings',
+};
+
+const OPENAI_COMPATIBLE_LABELS: Record<OpenAiCompatibleProvider, string> = {
+  openai: 'OpenAI',
+  ollama: 'Ollama',
+  lmstudio: 'LM Studio',
+};
+
 export interface OpenAIEmbeddingProviderOptions {
   readonly modelId: string;
   readonly targetDimensions: number;
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
   readonly endpoint?: string;
+  readonly provider?: OpenAiCompatibleProvider;
+  readonly requiresApiKey?: boolean;
+  readonly includeDimensions?: boolean;
 }
 
 export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   readonly runtime = 'hosted' as const;
-  readonly provider = 'openai' as const;
+  readonly provider: OpenAiCompatibleProvider;
 
   private apiKey: string | null;
   private readonly modelId: string;
   private readonly targetDimensions: number;
   private readonly fetchImpl: FetchLike;
   private readonly endpoint: string;
+  private readonly requiresApiKey: boolean;
+  private readonly includeDimensions: boolean;
 
   constructor(options: OpenAIEmbeddingProviderOptions) {
+    this.provider = options.provider ?? 'openai';
     this.modelId = options.modelId;
-    this.targetDimensions = options.targetDimensions || STANDARD_EMBEDDING_DIMENSION;
+    this.targetDimensions = resolveTargetDimensions(options.targetDimensions);
     this.apiKey = normalizeApiKey(options.apiKey);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
-    this.endpoint = options.endpoint ?? 'https://api.openai.com/v1/embeddings';
+    this.endpoint = options.endpoint ?? OPENAI_COMPATIBLE_ENDPOINTS[this.provider];
+    this.requiresApiKey = options.requiresApiKey ?? this.provider === 'openai';
+    this.includeDimensions = options.includeDimensions ?? this.provider === 'openai';
   }
 
   setApiKey(apiKey: string): void {
@@ -81,6 +104,9 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   }
 
   hasApiKey(): boolean {
+    if (!this.requiresApiKey) {
+      return true;
+    }
     return this.apiKey !== null;
   }
 
@@ -89,7 +115,26 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   }
 
   getModelInfo(modelId: string): ModelConfig | null {
-    return OPENAI_MODELS[modelId] ?? null;
+    const knownModel = OPENAI_MODELS[modelId];
+    if (knownModel) {
+      return knownModel;
+    }
+
+    if (modelId !== this.modelId) {
+      return null;
+    }
+
+    const providerLabel = OPENAI_COMPATIBLE_LABELS[this.provider];
+    return {
+      id: modelId,
+      name: `${providerLabel} ${modelId}`,
+      dimensions: this.targetDimensions,
+      quantized: false,
+      description: `${providerLabel} OpenAI-compatible embedding model.`,
+      tags: [this.provider, 'embedding', 'openai-compatible'],
+      origin: providerLabel,
+      size: 'hosted',
+    };
   }
 
   /**
@@ -102,7 +147,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     return {
-      providerId: 'openai',
+      providerId: this.provider,
       modelKey: modelId,
       // Use configured targetDimensions (OpenAI supports configurable dimensions)
       dimensions: this.targetDimensions,
@@ -113,15 +158,15 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   }
 
   async embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
-    if (!this.apiKey) {
-      return { ok: false, error: { type: 'missing_api_key', provider: 'openai' } };
+    if (this.requiresApiKey && !this.apiKey) {
+      return { ok: false, error: { type: 'missing_api_key', provider: this.provider } };
     }
     if (!this.fetchImpl) {
       return {
         ok: false,
         error: {
           type: 'network_error',
-          provider: 'openai',
+          provider: this.provider,
           originalError: new Error('Fetch implementation not available'),
         },
       };
@@ -138,7 +183,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
         ok: false,
         error: {
           type: 'network_error',
-          provider: 'openai',
+          provider: this.provider,
           originalError: error instanceof Error ? error : new Error(String(error)),
         },
       };
@@ -147,20 +192,34 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
 
   private async makeEmbeddingRequest(text: string | string[]): Promise<Response> {
     const fetchImpl = this.fetchImpl.bind(globalThis);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    }
+
+    const body: {
+      model: string;
+      input: string | string[];
+      // biome-ignore lint/style/useNamingConvention: OpenAI-compatible APIs expect snake_case key
+      encoding_format: 'float';
+      dimensions?: number;
+    } = {
+      model: this.modelId,
+      input: text,
+      // biome-ignore lint/style/useNamingConvention: OpenAI-compatible APIs expect snake_case key
+      encoding_format: 'float',
+    };
+
+    if (this.includeDimensions) {
+      body.dimensions = this.targetDimensions;
+    }
+
     return fetchImpl(this.endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // biome-ignore lint/style/useNamingConvention: HTTP header casing is standardized
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.modelId,
-        input: text,
-        // biome-ignore lint/style/useNamingConvention: OpenAI API expects snake_case key
-        encoding_format: 'float',
-        dimensions: this.targetDimensions,
-      }),
+      headers,
+      body: JSON.stringify(body),
     });
   }
 
@@ -171,7 +230,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
       const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
       const error: Extract<EmbeddingProviderError, { type: 'rate_limit_exceeded' }> = {
         type: 'rate_limit_exceeded',
-        provider: 'openai',
+        provider: this.provider,
       };
       if (retryAfter !== undefined) {
         error.retryAfter = retryAfter;
@@ -182,11 +241,11 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
     const errorPayload = (await safeJson(response)) as OpenAIEmbeddingResponse | undefined;
     const message =
       errorPayload?.error?.message ??
-      `OpenAI embeddings request failed with status ${response.status}`;
+      `${OPENAI_COMPATIBLE_LABELS[this.provider]} embeddings request failed with status ${response.status}`;
 
     return {
       ok: false,
-      error: { type: 'api_error', provider: 'openai', statusCode: response.status, message },
+      error: { type: 'api_error', provider: this.provider, statusCode: response.status, message },
     };
   }
 
@@ -201,7 +260,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
         ok: false,
         error: {
           type: 'api_error',
-          provider: 'openai',
+          provider: this.provider,
           statusCode: response.status,
           message: 'OpenAI response did not include any embedding data.',
         },
@@ -220,7 +279,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
         ok: false,
         error: {
           type: 'api_error',
-          provider: 'openai',
+          provider: this.provider,
           statusCode: response.status,
           message: 'OpenAI response data contained no valid embeddings.',
         },
@@ -233,7 +292,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
         ok: false,
         error: {
           type: 'api_error',
-          provider: 'openai',
+          provider: this.provider,
           statusCode: response.status,
           message: 'OpenAI response data contained no valid embeddings.',
         },
@@ -250,7 +309,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
       embeddings,
       dimensions: firstEmbedding.length,
       modelId,
-      provider: 'openai',
+      provider: this.provider,
     };
 
     if (payload.usage) {
@@ -295,13 +354,17 @@ function normalizeApiKey(value: string | undefined): string | null {
   if (trimmed.length === 0) {
     return null;
   }
-  // Basic validation: OpenAI keys typically start with "sk-" or "sess-"
-  // However, we should be lenient to allow for project-scoped keys or future formats
-  // Just ensuring it's not a placeholder and has reasonable length is a good start
-  if (trimmed.length < 10) {
-    return null; // Too short to be a valid key
-  }
   return trimmed;
+}
+
+function resolveTargetDimensions(value: number | undefined): number {
+  const targetDimensions = value ?? STANDARD_EMBEDDING_DIMENSION;
+  if (!Number.isFinite(targetDimensions) || targetDimensions <= 0) {
+    throw new Error(
+      `OpenAI-compatible embedding dimensions must be a positive number. Received: ${String(value)}`
+    );
+  }
+  return Math.floor(targetDimensions);
 }
 
 function parseRetryAfter(headerValue: string | null): number | undefined {

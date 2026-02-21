@@ -1,4 +1,5 @@
 import {
+  LocalRuntimeDiscoveryService,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   type SupportedProvider,
@@ -171,6 +172,72 @@ describe('assistant-preferences-store', () => {
     expect(providers).toEqual(['local']);
   });
 
+  it('includes detected local runtime providers only for available and stale states', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
+      ollama: {
+        state: 'available',
+        checkedAt: 123,
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        latencyMs: 5,
+      },
+      lmstudio: {
+        state: 'stale',
+        checkedAt: 123,
+        endpoint: 'http://localhost:1234/v1/models',
+        lastSuccessfulAt: 122,
+        reason: 'unavailable',
+      },
+    });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+
+    expect(providers).toContain('local');
+    expect(providers).toContain('ollama');
+    expect(providers).toContain('lmstudio');
+  });
+
+  it('excludes local runtime providers when runtime status is non-usable', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
+      ollama: {
+        state: 'blocked_web',
+        checkedAt: 200,
+        message: 'blocked',
+      },
+      lmstudio: {
+        state: 'auth_required',
+        checkedAt: 200,
+        endpoint: 'http://localhost:1234/v1/models',
+        status: 401,
+      },
+    });
+
+    const secretTarget = window as Window & { secrets?: unknown };
+    secretTarget.secrets = {
+      list: vi.fn().mockResolvedValue([]),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
+    };
+
+    const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
+
+    expect(providers).toContain('local');
+    expect(providers).not.toContain('ollama');
+    expect(providers).not.toContain('lmstudio');
+  });
+
   it('updates model with composite key', () => {
     const store = useAssistantPreferencesStore.getState();
 
@@ -311,7 +378,7 @@ describe('assistant-preferences-store', () => {
     const snapshot = persistedValue as {
       state?: {
         selectedModel: string | null;
-        modelsByProvider: Record<SupportedProvider, string>;
+        modelsByProvider: Partial<Record<SupportedProvider, string>>;
         enabledModelsByProvider: Record<SupportedProvider, string[]>;
       };
     };

@@ -131,6 +131,97 @@ describe('EmbeddingProviderFactory', () => {
       }
     });
 
+    it('creates an Ollama provider without requiring API keys', async () => {
+      const mockEmbedding = new Array(768).fill(0.1);
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          data: [{ embedding: mockEmbedding }],
+        }),
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const config: EmbeddingProviderConfig = {
+        runtime: 'hosted',
+        provider: 'ollama',
+        modelId: 'nomic-embed-text',
+        dimensions: 768,
+      };
+
+      const result = await EmbeddingProviderFactory.createProvider(config);
+      expect(result.ok).toBe(true);
+
+      if (result.ok) {
+        const embedResult = await result.value.embed({
+          text: 'hello local runtime',
+          modelId: 'nomic-embed-text',
+        });
+
+        expect(embedResult.ok).toBe(true);
+        if (embedResult.ok) {
+          expect(embedResult.value.provider).toBe('ollama');
+          expect(embedResult.value.embedding).toHaveLength(768);
+        }
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const callArgs = fetchMock.mock.calls[0];
+        expect(callArgs).toBeDefined();
+        const [url, init] = callArgs as [RequestInfo | URL, RequestInit | undefined];
+        expect(url).toBe('http://127.0.0.1:11434/v1/embeddings');
+        expect(init?.method).toBe('POST');
+        const body = JSON.parse(String(init?.body));
+        expect(body.dimensions).toBeUndefined();
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        expect(headers['Authorization']).toBeUndefined();
+      }
+    });
+
+    it('creates an LM Studio provider without requiring API keys', async () => {
+      const mockEmbedding = new Array(1024).fill(0.2);
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          data: [{ embedding: mockEmbedding }],
+        }),
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const config: EmbeddingProviderConfig = {
+        runtime: 'hosted',
+        provider: 'lmstudio',
+        modelId: 'text-embedding-nomic-embed-text-v1.5',
+        dimensions: 1024,
+      };
+
+      const result = await EmbeddingProviderFactory.createProvider(config);
+      expect(result.ok).toBe(true);
+
+      if (result.ok) {
+        const embedResult = await result.value.embed({
+          text: 'lmstudio local runtime',
+          modelId: 'text-embedding-nomic-embed-text-v1.5',
+        });
+
+        expect(embedResult.ok).toBe(true);
+        if (embedResult.ok) {
+          expect(embedResult.value.provider).toBe('lmstudio');
+          expect(embedResult.value.embedding).toHaveLength(1024);
+        }
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const callArgs = fetchMock.mock.calls[0];
+        expect(callArgs).toBeDefined();
+        const [url, init] = callArgs as [RequestInfo | URL, RequestInit | undefined];
+        expect(url).toBe('http://localhost:1234/v1/embeddings');
+        const body = JSON.parse(String(init?.body));
+        expect(body.dimensions).toBeUndefined();
+      }
+    });
+
     it('creates an OpenAI provider and generates embeddings', async () => {
       process.env[OPENAI_ENV_KEY] = 'test-openai-key';
       EmbeddingProviderFactory.clearHostedApiKeyCache('openai');

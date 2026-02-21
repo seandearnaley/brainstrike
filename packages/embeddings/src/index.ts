@@ -65,7 +65,11 @@ export type {
   ProviderMetadata,
   Result,
 } from './provider-types';
-export { isLocalProviderType, STANDARD_EMBEDDING_DIMENSION } from './provider-types';
+export {
+  hostedProviderRequiresApiKey,
+  isLocalProviderType,
+  STANDARD_EMBEDDING_DIMENSION,
+} from './provider-types';
 export {
   canonicalizeProviderModelKey,
   formatProviderModelKey,

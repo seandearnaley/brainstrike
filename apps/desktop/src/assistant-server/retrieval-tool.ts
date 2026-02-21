@@ -12,6 +12,7 @@ import {
   CohereEmbeddingProvider,
   GoogleEmbeddingProvider,
   type HostedProviderType,
+  hostedProviderRequiresApiKey,
   isHostedProvider,
   OpenAIEmbeddingProvider,
   parseProviderModelKey,
@@ -198,16 +199,50 @@ function createHostedProvider(
   provider: HostedProviderType,
   modelId: string,
   dimensions: number,
-  apiKey: string
+  apiKey?: string
 ): HostedEmbeddingProvider {
   switch (provider) {
     case 'openai':
-      return new OpenAIEmbeddingProvider({ modelId, targetDimensions: dimensions, apiKey });
+      return new OpenAIEmbeddingProvider({
+        provider: 'openai',
+        modelId,
+        targetDimensions: dimensions,
+        apiKey,
+      });
+    case 'ollama':
+      return new OpenAIEmbeddingProvider({
+        provider: 'ollama',
+        modelId,
+        targetDimensions: dimensions,
+        endpoint: 'http://127.0.0.1:11434/v1/embeddings',
+        ...(apiKey ? { apiKey } : {}),
+        requiresApiKey: false,
+        includeDimensions: false,
+      });
+    case 'lmstudio':
+      return new OpenAIEmbeddingProvider({
+        provider: 'lmstudio',
+        modelId,
+        targetDimensions: dimensions,
+        endpoint: 'http://localhost:1234/v1/embeddings',
+        ...(apiKey ? { apiKey } : {}),
+        requiresApiKey: false,
+        includeDimensions: false,
+      });
     case 'google':
+      if (!apiKey) {
+        throw new Error(ERROR_MESSAGES.missingApiKey);
+      }
       return new GoogleEmbeddingProvider({ modelId, outputDimensions: dimensions, apiKey });
     case 'cohere':
+      if (!apiKey) {
+        throw new Error(ERROR_MESSAGES.missingApiKey);
+      }
       return new CohereEmbeddingProvider({ modelId, inputType: 'search_query', apiKey });
     case 'voyage':
+      if (!apiKey) {
+        throw new Error(ERROR_MESSAGES.missingApiKey);
+      }
       return new VoyageEmbeddingProvider({ modelId, inputType: 'query', apiKey });
     default:
       throw new Error(ERROR_MESSAGES.unsupportedProvider);
@@ -364,7 +399,7 @@ async function generateQueryEmbedding(
   query: string
 ): Promise<number[]> {
   const apiKey = await resolveEmbeddingApiKey(provider);
-  if (!apiKey) {
+  if (hostedProviderRequiresApiKey(provider) && !apiKey) {
     throw new Error(ERROR_MESSAGES.missingApiKey);
   }
   const hostedProvider = createHostedProvider(provider, modelId, dimensions, apiKey);

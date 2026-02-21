@@ -78,6 +78,8 @@ const DEFAULT_ENABLED_MODELS: EnabledModelsMap = Object.freeze({
   google: Object.freeze([] as string[]), // Requires API key, disabled by default
   cohere: Object.freeze([] as string[]), // Requires API key, disabled by default
   voyage: Object.freeze([] as string[]), // Requires API key, disabled by default
+  ollama: Object.freeze([] as string[]), // Local runtime, discovered dynamically
+  lmstudio: Object.freeze([] as string[]), // Local runtime, discovered dynamically
 }) as EnabledModelsMap;
 
 const EMBEDDING_MODEL_MIGRATIONS: Record<EmbeddingProviderType, Record<string, string>> = {
@@ -89,6 +91,8 @@ const EMBEDDING_MODEL_MIGRATIONS: Record<EmbeddingProviderType, Record<string, s
   },
   cohere: {},
   voyage: {},
+  ollama: {},
+  lmstudio: {},
 };
 
 function migrateEmbeddingModelId(provider: EmbeddingProviderType, modelId: string): string {

@@ -3,6 +3,7 @@ import type {
   EmbeddingOutput,
   EmbeddingProviderError,
   EmbeddingProviderType,
+  LocalProviderType,
   ProviderMetadata,
   Result,
 } from '../provider-types';
@@ -109,7 +110,7 @@ export interface IHostedEmbeddingProvider extends IEmbeddingProvider {
    * Provider type discriminator
    */
   readonly runtime: 'hosted';
-  readonly provider: Exclude<EmbeddingProviderType, 'local'>;
+  readonly provider: Exclude<EmbeddingProviderType, LocalProviderType>;
 
   /**
    * Set API key for the provider

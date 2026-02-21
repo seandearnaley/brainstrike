@@ -69,6 +69,24 @@ export function createProvider(
       return openrouterProvider(modelName);
     }
 
+    case 'ollama': {
+      // Ollama exposes OpenAI-compatible routes on localhost.
+      const ollamaProvider = createOpenAI({
+        baseURL: 'http://127.0.0.1:11434/v1',
+        ...(apiKey ? { apiKey } : {}),
+      });
+      return ollamaProvider(modelName);
+    }
+
+    case 'lmstudio': {
+      // LM Studio exposes OpenAI-compatible routes on localhost.
+      const lmStudioProvider = createOpenAI({
+        baseURL: 'http://localhost:1234/v1',
+        ...(apiKey ? { apiKey } : {}),
+      });
+      return lmStudioProvider(modelName);
+    }
+
     case 'local': {
       // Local models use Transformers.js running in-browser via WebGPU/WASM
       return createLocalLanguageModel(modelName) as MastraModelConfig;
@@ -86,5 +104,8 @@ export function createProvider(
  * Get the default model name for a provider
  */
 export function getDefaultModel(provider: SupportedProvider | string): string {
-  return PROVIDER_DEFAULT_MODELS[provider as SupportedProvider] ?? PROVIDER_DEFAULT_MODELS.openai;
+  if (isSupportedProvider(provider)) {
+    return PROVIDER_DEFAULT_MODELS[provider] ?? '';
+  }
+  return PROVIDER_DEFAULT_MODELS.openai ?? '';
 }

@@ -9,6 +9,7 @@ import type {
   EmbeddingProviderConfig,
   EmbeddingProviderError,
   EmbeddingProviderType,
+  LocalProviderType,
 } from '../provider-types';
 import { isLocalProviderType } from '../provider-types';
 import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
@@ -251,7 +252,10 @@ class WorkerRateLimitError extends Error {
 
 type Distance = 'cosine' | 'l2' | 'ip';
 
-type SupportedHostedProvider = Extract<EmbeddingProviderType, 'openai' | 'google'>;
+type SupportedHostedProvider = Extract<
+  EmbeddingProviderType,
+  'openai' | 'google' | 'ollama' | 'lmstudio'
+>;
 type HostedProviderConfig = Extract<
   EmbeddingProviderConfig,
   { runtime: 'hosted'; provider: SupportedHostedProvider }
@@ -603,9 +607,14 @@ function shouldStartWorker(
 }
 
 function toSupportedHostedProvider(
-  provider: Exclude<EmbeddingProviderType, 'local'>
+  provider: Exclude<EmbeddingProviderType, LocalProviderType>
 ): SupportedHostedProvider {
-  if (provider === 'openai' || provider === 'google') {
+  if (
+    provider === 'openai' ||
+    provider === 'google' ||
+    provider === 'ollama' ||
+    provider === 'lmstudio'
+  ) {
     return provider;
   }
   throw new Error(`Hosted provider "${provider}" is not supported yet.`);
@@ -630,6 +639,20 @@ function buildHostedProviderConfig(
         provider: 'google',
         modelId,
         outputDimensionality: expectedDimension,
+      };
+    case 'ollama':
+      return {
+        runtime: 'hosted',
+        provider: 'ollama',
+        modelId,
+        dimensions: expectedDimension,
+      };
+    case 'lmstudio':
+      return {
+        runtime: 'hosted',
+        provider: 'lmstudio',
+        modelId,
+        dimensions: expectedDimension,
       };
     default:
       throw new Error(`Hosted provider "${provider}" is not supported yet.`);
@@ -1026,7 +1049,7 @@ export async function startEmbeddingWorker(
   }
 
   async function generateHostedEmbeddings(
-    provider: Exclude<EmbeddingProviderType, 'local'>,
+    provider: Exclude<EmbeddingProviderType, LocalProviderType>,
     modelId: string,
     expectedDimension: number,
     texts: string[]

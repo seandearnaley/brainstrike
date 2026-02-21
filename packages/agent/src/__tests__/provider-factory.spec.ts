@@ -59,6 +59,22 @@ describe('provider-factory', () => {
       expect(model.modelId).toBe('anthropic/claude-sonnet-4.5');
     });
 
+    it('creates Ollama provider with custom model', () => {
+      const model = createProvider('ollama', undefined, 'qwen2.5:latest') as { modelId: string };
+      expect(model).toBeDefined();
+      expect(model.modelId).toBe('qwen2.5:latest');
+    });
+
+    it('creates LM Studio provider with custom model', () => {
+      const model = createProvider('lmstudio', undefined, 'qwen2.5') as { modelId: string };
+      expect(model).toBeDefined();
+      expect(model.modelId).toBe('qwen2.5');
+    });
+
+    it('throws when local runtime provider has no selected model', () => {
+      expect(() => createProvider('ollama')).toThrowError();
+    });
+
     it('throws MastraAgentError for unsupported provider', () => {
       try {
         createProvider('unsupported', 'test-key');
@@ -76,6 +92,8 @@ describe('provider-factory', () => {
                 'google',
                 'openrouter',
                 'local',
+                'ollama',
+                'lmstudio',
               ]),
             })
           );

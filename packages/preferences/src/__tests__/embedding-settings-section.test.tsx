@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import type { LocalRuntimeModelCatalogState } from '@brainstrike/agent/client';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingSettings } from '../embedding/embedding-settings-section';
 import {
   __resetEmbeddingPreferencesStoreForTests,
@@ -12,6 +13,91 @@ import {
   type DbProvider,
   useModelRegistryStore,
 } from '../stores/model-registry-store';
+
+const { mockUseLocalRuntimeEmbeddingModelCatalog, runtimeCatalogWithOllamaEmbedding } = vi.hoisted(
+  () => {
+    interface RuntimeCatalogMap {
+      ollama: LocalRuntimeModelCatalogState;
+      lmstudio: LocalRuntimeModelCatalogState;
+    }
+    interface RuntimeCatalogHookResult {
+      catalog: RuntimeCatalogMap | null;
+      isLoading: boolean;
+      error: string | null;
+      refresh: () => Promise<void>;
+    }
+    const runtimeCatalog: {
+      ollama: LocalRuntimeModelCatalogState;
+      lmstudio: LocalRuntimeModelCatalogState;
+    } = {
+      ollama: {
+        state: 'loaded_non_empty',
+        runtime: 'ollama',
+        checkedAt: 120,
+        availability: {
+          state: 'available',
+          checkedAt: 120,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 6,
+        },
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        source: 'openai_v1_models',
+        freshness: 'live',
+        models: [
+          {
+            runtime: 'ollama',
+            providerId: 'ollama',
+            modelId: 'nomic-embed-text',
+            modelKey: 'ollama::nomic-embed-text',
+            displayName: 'Nomic Embed Text',
+            endpoint: 'http://127.0.0.1:11434/v1/models',
+            source: 'openai_v1_models',
+            freshness: 'live',
+            capabilities: {
+              llm: false,
+              embeddings: 'supported',
+            },
+            dimensionsKnown: {
+              state: 'known',
+              values: [768],
+              verifiedAt: 120,
+              endpoint: 'http://127.0.0.1:11434/v1/embeddings',
+            },
+          },
+        ],
+      },
+      lmstudio: {
+        state: 'loaded_empty',
+        runtime: 'lmstudio',
+        checkedAt: 120,
+        availability: {
+          state: 'available',
+          checkedAt: 120,
+          endpoint: 'http://localhost:1234/v1/models',
+          latencyMs: 8,
+        },
+        endpoint: 'http://localhost:1234/v1/models',
+        source: 'openai_v1_models',
+        freshness: 'live',
+        models: [],
+      },
+    };
+
+    return {
+      runtimeCatalogWithOllamaEmbedding: runtimeCatalog,
+      mockUseLocalRuntimeEmbeddingModelCatalog: vi.fn<() => RuntimeCatalogHookResult>(() => ({
+        catalog: null,
+        isLoading: false,
+        error: null,
+        refresh: vi.fn().mockResolvedValue(undefined),
+      })),
+    };
+  }
+);
+
+vi.mock('../hooks/use-local-runtime-embedding-model-catalog', () => ({
+  useLocalRuntimeEmbeddingModelCatalog: mockUseLocalRuntimeEmbeddingModelCatalog,
+}));
 
 beforeAll(() => {
   const elementPrototype = Element.prototype as unknown as {
@@ -41,6 +127,12 @@ describe('EmbeddingSettings', () => {
   beforeEach(() => {
     __resetEmbeddingPreferencesStoreForTests();
     __resetModelRegistryStoreForTests();
+    mockUseLocalRuntimeEmbeddingModelCatalog.mockReturnValue({
+      catalog: null,
+      isLoading: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+    });
     const provider: DbProvider = {
       id: 'transformers',
       name: 'Local Models',
@@ -131,6 +223,70 @@ describe('EmbeddingSettings', () => {
 
     const enabled = useEmbeddingPreferencesStore.getState().getEnabledModels('openai');
     expect(enabled).toContain('text-embedding-3-small');
+  });
+
+  it('renders discovered Ollama embedding models from runtime catalog', () => {
+    mockUseLocalRuntimeEmbeddingModelCatalog.mockReturnValue({
+      catalog: runtimeCatalogWithOllamaEmbedding,
+      isLoading: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+    });
+
+    renderComponent();
+
+    expect(screen.getByTestId('embedding-provider-ollama')).toBeTruthy();
+    expect(screen.getByTestId('embedding-model-row-ollama-nomic-embed-text')).toBeTruthy();
+  });
+
+  it('assigns runtime default badge after alphabetical sort', () => {
+    const ollamaCatalog = runtimeCatalogWithOllamaEmbedding.ollama;
+    if (ollamaCatalog.state !== 'loaded_non_empty') {
+      throw new Error('expected loaded_non_empty ollama catalog');
+    }
+    const [baseModel] = ollamaCatalog.models;
+    if (!baseModel) {
+      throw new Error('expected at least one runtime model');
+    }
+
+    const runtimeCatalogWithOutOfOrderLabels: {
+      ollama: LocalRuntimeModelCatalogState;
+      lmstudio: LocalRuntimeModelCatalogState;
+    } = {
+      ollama: {
+        ...ollamaCatalog,
+        models: [
+          {
+            ...baseModel,
+            modelId: 'zeta-model',
+            modelKey: 'ollama::zeta-model',
+            displayName: 'Zeta Embedding',
+          },
+          {
+            ...baseModel,
+            modelId: 'alpha-model',
+            modelKey: 'ollama::alpha-model',
+            displayName: 'Alpha Embedding',
+          },
+        ],
+      },
+      lmstudio: runtimeCatalogWithOllamaEmbedding.lmstudio,
+    };
+
+    mockUseLocalRuntimeEmbeddingModelCatalog.mockReturnValue({
+      catalog: runtimeCatalogWithOutOfOrderLabels,
+      isLoading: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+    });
+
+    renderComponent();
+
+    const alphaRow = screen.getByTestId('embedding-model-row-ollama-alpha-model');
+    const zetaRow = screen.getByTestId('embedding-model-row-ollama-zeta-model');
+
+    expect(within(alphaRow).getByText('Default')).toBeTruthy();
+    expect(within(zetaRow).queryByText('Default')).toBeNull();
   });
 
   describe('Quick Start Presets', () => {

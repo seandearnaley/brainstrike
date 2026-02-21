@@ -14,6 +14,9 @@ const ENV_KEYS: Record<HostedProvider, readonly string[]> = {
   google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
   cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
   voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+  // Optional auth for local OpenAI-compatible runtimes.
+  ollama: ['OLLAMA_API_KEY', 'AI_OLLAMA_API_KEY'],
+  lmstudio: ['LMSTUDIO_API_KEY', 'AI_LMSTUDIO_API_KEY'],
 };
 
 const apiKeyCache = new Map<HostedProvider, string | undefined>();

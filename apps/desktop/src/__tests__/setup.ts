@@ -241,6 +241,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 vi.mock('@brainstrike/agent/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent/client')>();
   return {
+    ...actual,
     // Provider-related mocks
     listProviders: () => mockProviderDefinitions.map((definition) => cloneDefinition(definition)),
     providerEnvKeys: (provider: string) => ensureDefinition(provider).envKeys ?? [],

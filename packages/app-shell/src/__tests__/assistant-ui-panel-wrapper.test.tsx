@@ -1,4 +1,4 @@
-import type { SupportedProvider } from '@brainstrike/agent/client';
+import type { LocalRuntimeModelCatalogState, SupportedProvider } from '@brainstrike/agent/client';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
@@ -117,6 +117,14 @@ vi.mock('@brainstrike/preferences', async () => {
     setModel: (compositeKey: string) => void;
     clearModel: () => void;
     getAvailableProviders: () => Promise<SupportedProvider[]>;
+    getLocalRuntimeStatuses: () => Promise<{
+      ollama: { state: 'unavailable'; checkedAt: number; message: string };
+      lmstudio: { state: 'unavailable'; checkedAt: number; message: string };
+    }>;
+    getLocalRuntimeModels: () => Promise<{
+      ollama: LocalRuntimeModelCatalogState;
+      lmstudio: LocalRuntimeModelCatalogState;
+    }>;
     getSelectedProvider: () => SupportedProvider | null;
     getSelectedModel: () => string | null;
     setProviderSettings: (providerId: string, updates: Record<string, unknown>) => void;
@@ -146,6 +154,50 @@ vi.mock('@brainstrike/preferences', async () => {
       });
     },
     getAvailableProviders: async () => ['openai', 'anthropic', 'google', 'openrouter'],
+    getLocalRuntimeStatuses: async () => ({
+      ollama: {
+        state: 'unavailable',
+        checkedAt: 0,
+        message: 'not detected',
+      },
+      lmstudio: {
+        state: 'unavailable',
+        checkedAt: 0,
+        message: 'not detected',
+      },
+    }),
+    getLocalRuntimeModels: async () => ({
+      ollama: {
+        state: 'loaded_empty',
+        runtime: 'ollama',
+        checkedAt: 0,
+        availability: {
+          state: 'available',
+          checkedAt: 0,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 0,
+        },
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        source: 'openai_v1_models',
+        freshness: 'live',
+        models: [],
+      },
+      lmstudio: {
+        state: 'loaded_empty',
+        runtime: 'lmstudio',
+        checkedAt: 0,
+        availability: {
+          state: 'available',
+          checkedAt: 0,
+          endpoint: 'http://localhost:1234/v1/models',
+          latencyMs: 0,
+        },
+        endpoint: 'http://localhost:1234/v1/models',
+        source: 'openai_v1_models',
+        freshness: 'live',
+        models: [],
+      },
+    }),
     getSelectedProvider: () => get().selectedProvider,
     getSelectedModel: () => get().selectedModel,
     setProviderSettings: (providerId: string, updates: Record<string, unknown>) => {
@@ -327,6 +379,27 @@ vi.mock('@brainstrike/agent/client', () => {
         { id: 'google/gemini-3-flash-preview', type: 'llm', supportsStreaming: true },
       ],
     },
+    ollama: {
+      id: 'ollama',
+      displayName: 'Ollama',
+      runtime: 'local',
+      capabilities: { llm: true, embeddings: true, streaming: true },
+      models: [{ id: 'nomic-embed-text', type: 'llm', default: true, supportsStreaming: true }],
+    },
+    lmstudio: {
+      id: 'lmstudio',
+      displayName: 'LM Studio',
+      runtime: 'local',
+      capabilities: { llm: true, embeddings: true, streaming: true },
+      models: [
+        {
+          id: 'text-embedding-nomic-embed-text-v1.5',
+          type: 'llm',
+          default: true,
+          supportsStreaming: true,
+        },
+      ],
+    },
   } as const;
 
   const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFINITIONS) as Array<
@@ -379,6 +452,12 @@ vi.mock('@brainstrike/agent/client', () => {
       PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS],
     getProviderModelDefinitions: (provider: string) =>
       PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS]?.models ?? [],
+    isLoadedRuntimeModelCatalogState: (
+      state: LocalRuntimeModelCatalogState | null | undefined
+    ): state is Extract<
+      LocalRuntimeModelCatalogState,
+      { state: 'loaded_non_empty' | 'stale_cached' }
+    > => Boolean(state && (state.state === 'loaded_non_empty' || state.state === 'stale_cached')),
     isSupportedProvider: (provider: string) =>
       SUPPORTED_PROVIDERS.includes(provider as keyof typeof PROVIDER_DEFINITIONS),
     supportsStandardEmbeddingDimension: (provider: string) => provider !== 'openrouter',
@@ -663,6 +742,258 @@ describe('AssistantUiPanelWrapper', () => {
     );
   });
 
+  test('shows local runtime unavailable message when a local provider is selected but not configured', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      ...state,
+      selectedProvider: 'ollama',
+      selectedModel: 'ollama::nomic-embed-text',
+      modelsByProvider: {
+        ...state.modelsByProvider,
+        ollama: 'nomic-embed-text',
+      },
+    }));
+
+    await renderAssistantPanel([], () =>
+      waitFor(
+        () => {
+          expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+            'The selected local runtime is currently unavailable.'
+          );
+          expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+        },
+        { timeout: 3000 }
+      )
+    );
+  });
+
+  test('reselects a valid local runtime model when the previously selected local model is unavailable', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      ...state,
+      selectedProvider: 'ollama',
+      selectedModel: 'ollama::retired-model',
+      modelsByProvider: {
+        ...state.modelsByProvider,
+        ollama: 'retired-model',
+      },
+      getLocalRuntimeStatuses: async () => ({
+        ollama: {
+          state: 'available',
+          checkedAt: 10,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 5,
+        },
+        lmstudio: {
+          state: 'unavailable',
+          checkedAt: 10,
+          message: 'not detected',
+        },
+      }),
+      getLocalRuntimeModels: async () => ({
+        ollama: {
+          state: 'loaded_non_empty',
+          runtime: 'ollama',
+          checkedAt: 10,
+          availability: {
+            state: 'available',
+            checkedAt: 10,
+            endpoint: 'http://127.0.0.1:11434/v1/models',
+            latencyMs: 5,
+          },
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          source: 'openai_v1_models',
+          freshness: 'live',
+          models: [
+            {
+              runtime: 'ollama',
+              providerId: 'ollama',
+              modelId: 'nomic-embed-text',
+              modelKey: 'ollama::nomic-embed-text',
+              displayName: 'Nomic Embed Text',
+              endpoint: 'http://127.0.0.1:11434/v1/models',
+              source: 'openai_v1_models',
+              freshness: 'live',
+              capabilities: { llm: true, embeddings: 'supported' },
+              dimensionsKnown: { state: 'known', values: [768], verifiedAt: 10, endpoint: '' },
+            },
+          ],
+        },
+        lmstudio: {
+          state: 'loaded_empty',
+          runtime: 'lmstudio',
+          checkedAt: 10,
+          availability: {
+            state: 'unavailable',
+            checkedAt: 10,
+            message: 'not detected',
+          },
+          endpoint: 'http://localhost:1234/v1/models',
+          source: 'openai_v1_models',
+          freshness: 'live',
+          models: [],
+        },
+      }),
+    }));
+
+    await renderAssistantPanel(['ollama'], () =>
+      waitFor(
+        () => {
+          const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+          const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
+
+          expect(providerSelect.value).toBe('ollama');
+          expect(modelSelect.value).toBe('nomic-embed-text');
+        },
+        { timeout: 3000 }
+      )
+    );
+
+    const state = useAssistantPreferencesStore.getState();
+    expect(state.getSelectedModel()).toBe('ollama::nomic-embed-text');
+  });
+
+  test('includes local runtime detection hint when no providers are configured', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      ...state,
+      getLocalRuntimeStatuses: async () => ({
+        ollama: {
+          state: 'available',
+          checkedAt: 20,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 7,
+        },
+        lmstudio: {
+          state: 'stale',
+          checkedAt: 20,
+          endpoint: 'http://localhost:1234/v1/models',
+          lastSuccessfulAt: 19,
+          reason: 'unavailable',
+        },
+      }),
+      getLocalRuntimeModels: async () => ({
+        ollama: {
+          state: 'loaded_non_empty',
+          runtime: 'ollama',
+          checkedAt: 20,
+          availability: {
+            state: 'available',
+            checkedAt: 20,
+            endpoint: 'http://127.0.0.1:11434/v1/models',
+            latencyMs: 7,
+          },
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          source: 'openai_v1_models',
+          freshness: 'live',
+          models: [
+            {
+              runtime: 'ollama',
+              providerId: 'ollama',
+              modelId: 'qwen3',
+              modelKey: 'ollama::qwen3',
+              displayName: 'Qwen3',
+              endpoint: 'http://127.0.0.1:11434/v1/models',
+              source: 'openai_v1_models',
+              freshness: 'live',
+              capabilities: { llm: true, embeddings: 'unsupported' },
+              dimensionsKnown: { state: 'not_applicable' },
+            },
+            {
+              runtime: 'ollama',
+              providerId: 'ollama',
+              modelId: 'nomic-embed-text',
+              modelKey: 'ollama::nomic-embed-text',
+              displayName: 'Nomic Embed Text',
+              endpoint: 'http://127.0.0.1:11434/v1/models',
+              source: 'openai_v1_models',
+              freshness: 'live',
+              capabilities: { llm: false, embeddings: 'supported' },
+              dimensionsKnown: { state: 'known', values: [768], verifiedAt: 20, endpoint: '' },
+            },
+          ],
+        },
+        lmstudio: {
+          state: 'loaded_empty',
+          runtime: 'lmstudio',
+          checkedAt: 20,
+          availability: {
+            state: 'stale',
+            checkedAt: 20,
+            endpoint: 'http://localhost:1234/v1/models',
+            lastSuccessfulAt: 19,
+            reason: 'unavailable',
+          },
+          endpoint: 'http://localhost:1234/v1/models',
+          source: 'openai_v1_models',
+          freshness: 'live',
+          models: [],
+        },
+      }),
+    }));
+
+    await renderAssistantPanel([], () =>
+      waitFor(
+        () => {
+          expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+            'Detected local runtime: Ollama (2 models) + LM Studio (no models) on localhost.'
+          );
+        },
+        { timeout: 3000 }
+      )
+    );
+  });
+
+  test('includes blocked web policy hint when runtime localhost probing is blocked', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      ...state,
+      getLocalRuntimeStatuses: async () => ({
+        ollama: {
+          state: 'blocked_web',
+          checkedAt: 30,
+          message: 'Failed to fetch',
+        },
+        lmstudio: {
+          state: 'unavailable',
+          checkedAt: 30,
+          message: 'not detected',
+        },
+      }),
+      getLocalRuntimeModels: async () => ({
+        ollama: {
+          state: 'failed',
+          runtime: 'ollama',
+          checkedAt: 30,
+          availability: {
+            state: 'blocked_web',
+            checkedAt: 30,
+            message: 'Failed to fetch',
+          },
+          message: 'probe blocked',
+        },
+        lmstudio: {
+          state: 'failed',
+          runtime: 'lmstudio',
+          checkedAt: 30,
+          availability: {
+            state: 'unavailable',
+            checkedAt: 30,
+            message: 'not detected',
+          },
+          message: 'not detected',
+        },
+      }),
+    }));
+
+    await renderAssistantPanel([], () =>
+      waitFor(
+        () => {
+          expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+            'Ollama probe was blocked by browser networking policy.'
+          );
+        },
+        { timeout: 3000 }
+      )
+    );
+  });
+
   test('allows changing provider and auto-selects default model', async () => {
     const user = userEvent.setup();
 
@@ -713,7 +1044,7 @@ describe('AssistantUiPanelWrapper', () => {
       const state = useAssistantPreferencesStore.getState();
       expect(state.getSelectedProvider()).toBe('openrouter');
       expect(state.getSelectedModel()).toBe('openrouter::anthropic/claude-sonnet-4.5');
-      expect(state.modelsByProvider.openrouter).toBe('anthropic/claude-sonnet-4.5');
+      expect(state.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.5');
     });
   });
 
@@ -820,7 +1151,7 @@ describe('AssistantUiPanelWrapper', () => {
       waitFor(() => {
         const state = useAssistantPreferencesStore.getState();
         expect(state.getSelectedProvider()).toBe('openai');
-        expect(state.modelsByProvider.openai).toBe('gpt-5.2');
+        expect(state.modelsByProvider['openai']).toBe('gpt-5.2');
       })
     );
 
@@ -831,7 +1162,7 @@ describe('AssistantUiPanelWrapper', () => {
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
       expect(state.getSelectedProvider()).toBe('openrouter');
-      expect(state.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
+      expect(state.modelsByProvider['openrouter']).toBe('openai/gpt-5.2');
     });
 
     // Change model (to the model we enabled above)
@@ -839,7 +1170,7 @@ describe('AssistantUiPanelWrapper', () => {
 
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
-      expect(state.modelsByProvider.openrouter).toBe('anthropic/claude-sonnet-4.5');
+      expect(state.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.5');
     });
   });
 
@@ -1163,7 +1494,7 @@ describe('AssistantUiPanelWrapper', () => {
       providerSettings: {
         ...state.providerSettings,
         openai: {
-          ...state.providerSettings.openai,
+          ...state.providerSettings['openai'],
           maxOutputTokens: 513.9,
           reasoningEffort: 'high',
           reasoningSummary: 'auto',
@@ -1193,7 +1524,7 @@ describe('AssistantUiPanelWrapper', () => {
       providerSettings: {
         ...state.providerSettings,
         anthropic: {
-          ...state.providerSettings.anthropic,
+          ...state.providerSettings['anthropic'],
           anthropicEffort: 'medium',
           anthropicThinkingBudgetTokens: 422.2,
         },
@@ -1224,7 +1555,7 @@ describe('AssistantUiPanelWrapper', () => {
       providerSettings: {
         ...state.providerSettings,
         google: {
-          ...state.providerSettings.google,
+          ...state.providerSettings['google'],
           googleThinkingLevel: 'minimal',
         },
       },

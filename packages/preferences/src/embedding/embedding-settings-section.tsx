@@ -1,4 +1,8 @@
 import {
+  isLoadedRuntimeModelCatalogState,
+  type LoadedRuntimeModelCatalogState,
+  type LocalRuntimeId,
+  type LocalRuntimeModelCatalogState,
   listProviders,
   type ProviderDefinition,
   type ProviderModelDefinition,
@@ -23,12 +27,14 @@ import {
 } from '@brainstrike/ui';
 import { SearchIcon } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
+import { useLocalRuntimeEmbeddingModelCatalog } from '../hooks/use-local-runtime-embedding-model-catalog';
 import { useEnsureModelRegistry } from '../hooks/use-model-registry';
 import { useEmbeddingPreferencesStore } from '../stores/embedding-preferences-store';
 import type { DbModel, DbProvider } from '../stores/model-registry-store';
 import { useModelRegistryStore } from '../stores/model-registry-store';
 
 type HostedEmbeddingProviderId = HostedProviderType;
+type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
 
 interface ModelPreset {
   readonly id: string;
@@ -118,6 +124,8 @@ const HOSTED_PROVIDER_METADATA: Record<
   google: { displayName: 'Google', runtime: 'hosted' },
   cohere: { displayName: 'Cohere', runtime: 'hosted' },
   voyage: { displayName: 'Voyage', runtime: 'hosted' },
+  ollama: { displayName: 'Ollama', runtime: 'hosted' },
+  lmstudio: { displayName: 'LM Studio', runtime: 'hosted' },
 };
 
 const HOSTED_EMBEDDING_PROVIDER_IDS: readonly HostedEmbeddingProviderId[] = [
@@ -125,7 +133,33 @@ const HOSTED_EMBEDDING_PROVIDER_IDS: readonly HostedEmbeddingProviderId[] = [
   'google',
   'cohere',
   'voyage',
+  'ollama',
+  'lmstudio',
 ] as const;
+
+const LOCAL_RUNTIME_PROVIDER_IDS: readonly LocalRuntimeId[] = ['ollama', 'lmstudio'] as const;
+const LOCAL_RUNTIME_PROVIDER_METADATA: Record<
+  LocalRuntimeId,
+  { readonly displayName: string; readonly runtime: 'hosted' }
+> = {
+  ollama: HOSTED_PROVIDER_METADATA.ollama,
+  lmstudio: HOSTED_PROVIDER_METADATA.lmstudio,
+} as const;
+
+function isRuntimeHostedProvider(
+  providerId: HostedEmbeddingProviderId
+): providerId is LocalRuntimeId {
+  return LOCAL_RUNTIME_PROVIDER_IDS.includes(providerId as LocalRuntimeId);
+}
+
+function resolveKnownRuntimeDimensions(
+  model: LoadedRuntimeModelCatalogState['models'][number]
+): readonly number[] {
+  if (model.dimensionsKnown.state !== 'known') {
+    return [];
+  }
+  return model.dimensionsKnown.values.filter((value) => Number.isFinite(value) && value > 0);
+}
 
 function resolveLocalModelDimensions(model: DbModel): number {
   const dimensions = Number(model.capabilities.defaultDimension);
@@ -234,10 +268,62 @@ function placeholderHostedProvider(id: HostedEmbeddingProviderId): NormalizedEmb
   };
 }
 
+function toNormalizedRuntimeProvider(
+  providerId: LocalRuntimeId,
+  state: LocalRuntimeModelCatalogState
+): NormalizedEmbeddingProvider {
+  const models = isLoadedRuntimeModelCatalogState(state)
+    ? state.models
+        .filter((model) => model.capabilities.embeddings !== 'unsupported')
+        .map<NormalizedEmbeddingModel>((model) => {
+          const knownDimensions = resolveKnownRuntimeDimensions(model);
+          const dimensions = knownDimensions[0] ?? STANDARD_EMBEDDING_DIMENSION;
+          const hasKnownDimensions = knownDimensions.length > 0;
+          const descriptionParts: string[] = [];
+          if (model.displayName !== model.modelId) {
+            descriptionParts.push(model.displayName);
+          }
+          if (!hasKnownDimensions) {
+            descriptionParts.push('Dimension pending verification');
+          }
+          if (state.state === 'stale_cached') {
+            descriptionParts.push('Using cached runtime model list');
+          }
+
+          return {
+            id: model.modelId,
+            label: model.displayName,
+            dimensions,
+            supportsStandardDimension: hasKnownDimensions
+              ? knownDimensions.includes(STANDARD_EMBEDDING_DIMENSION)
+              : dimensions === STANDARD_EMBEDDING_DIMENSION,
+            supportsCustomDimensions: false,
+            ...(hasKnownDimensions ? { availableDimensions: knownDimensions } : {}),
+            ...(descriptionParts.length > 0 ? { description: descriptionParts.join(' • ') } : {}),
+            isDefault: false,
+          };
+        })
+        .sort((a, b) => a.label.localeCompare(b.label))
+        .map((model, index) => ({
+          ...model,
+          isDefault: index === 0,
+        }))
+    : [];
+
+  return {
+    id: providerId,
+    displayName: LOCAL_RUNTIME_PROVIDER_METADATA[providerId].displayName,
+    runtime: LOCAL_RUNTIME_PROVIDER_METADATA[providerId].runtime,
+    models,
+  };
+}
+
 function buildEmbeddingProviders(
   models: DbModel[],
   registryProviders: DbProvider[],
-  localPending: boolean
+  localPending: boolean,
+  runtimeCatalog: LocalRuntimeModelCatalogMap | null,
+  runtimeCatalogLoading: boolean
 ): readonly NormalizedEmbeddingProvider[] {
   const providerDefinitions = listProviders();
   const providersById = new Map<string, ProviderDefinition>(
@@ -247,6 +333,21 @@ function buildEmbeddingProviders(
   const localProvider = buildLocalProvider(models, registryProviders, localPending);
 
   const hostedProviders = HOSTED_EMBEDDING_PROVIDER_IDS.map((providerId) => {
+    if (isRuntimeHostedProvider(providerId)) {
+      const state = runtimeCatalog?.[providerId];
+      if (!state) {
+        return runtimeCatalogLoading
+          ? placeholderHostedProvider(providerId)
+          : {
+              id: providerId,
+              displayName: HOSTED_PROVIDER_METADATA[providerId].displayName,
+              runtime: HOSTED_PROVIDER_METADATA[providerId].runtime,
+              models: [],
+            };
+      }
+      return toNormalizedRuntimeProvider(providerId, state);
+    }
+
     if (!providersById.has(providerId)) {
       return placeholderHostedProvider(providerId);
     }
@@ -400,10 +501,25 @@ function renderProviderSection({
 export function EmbeddingSettings() {
   const { models, providers: registryProviders, isLoading, hasLoaded } = useModelRegistryStore();
   const registryError = useEnsureModelRegistry();
+  const {
+    catalog: runtimeCatalog,
+    isLoading: runtimeCatalogLoading,
+    error: runtimeCatalogError,
+  } = useLocalRuntimeEmbeddingModelCatalog({
+    verifyEmbeddingDimensions: true,
+    maxVerificationModels: 8,
+  });
   const localPending = isLoading && !hasLoaded && models.length === 0;
   const providers = useMemo(
-    () => buildEmbeddingProviders(models, registryProviders, localPending),
-    [localPending, models, registryProviders]
+    () =>
+      buildEmbeddingProviders(
+        models,
+        registryProviders,
+        localPending,
+        runtimeCatalog,
+        runtimeCatalogLoading
+      ),
+    [localPending, models, registryProviders, runtimeCatalog, runtimeCatalogLoading]
   );
 
   const enabledModelsByProvider = useEmbeddingPreferencesStore(
@@ -498,6 +614,12 @@ export function EmbeddingSettings() {
                 <p className="text-xs">{registryError}</p>
               </div>
             ) : null}
+            {runtimeCatalogError ? (
+              <div className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
+                <p className="font-medium text-sm">Failed to load local runtime models</p>
+                <p className="text-xs">{runtimeCatalogError}</p>
+              </div>
+            ) : null}
             {providers.map((provider) =>
               renderProviderSection({
                 provider,
@@ -509,7 +631,8 @@ export function EmbeddingSettings() {
             )}
             {providers.every((provider) => provider.pending || provider.models.length === 0) ? (
               <p className="text-muted-foreground text-xs">
-                Hosted provider integrations are on the roadmap. Local embeddings remain available.
+                No hosted embedding models are currently available. Start Ollama or LM Studio to
+                discover local runtime models.
               </p>
             ) : null}
             {normalizedSearch &&
@@ -594,6 +717,9 @@ function EmbeddingModelRow({ providerId, model, enabled, onToggle }: EmbeddingMo
     >
       <div className="space-y-1">
         <p className="font-medium text-sm leading-tight">{model.label}</p>
+        {model.description ? (
+          <p className="text-muted-foreground text-xs">{model.description}</p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
           <span>{model.id}</span>
           <span>{model.dimensions}D</span>
@@ -641,6 +767,7 @@ function LocalPendingSection({ provider }: PendingProviderSectionProps) {
 
 function PendingProviderSection({ provider }: PendingProviderSectionProps) {
   const metadata = HOSTED_PROVIDER_METADATA[provider.id as HostedEmbeddingProviderId];
+  const runtimeProvider = isRuntimeHostedProvider(provider.id as HostedEmbeddingProviderId);
   return (
     <section
       className="rounded-lg border border-border/60 border-dashed bg-muted/20 px-3 py-3"
@@ -650,8 +777,9 @@ function PendingProviderSection({ provider }: PendingProviderSectionProps) {
         <div className="space-y-1">
           <p className="font-medium text-sm leading-tight">{metadata.displayName}</p>
           <p className="text-muted-foreground text-xs">
-            Hosted embedding integration coming soon. Configure API keys in the Provider Keys
-            section to prepare for launch.
+            {runtimeProvider
+              ? 'Detecting locally available models from the runtime endpoint.'
+              : 'Hosted embedding integration coming soon. Configure API keys in the Provider Keys section to prepare for launch.'}
           </p>
         </div>
         <Badge variant="outline">
@@ -688,6 +816,7 @@ function LocalEmptySection({ provider }: EmptyProviderSectionProps) {
 
 function EmptyProviderSection({ provider }: EmptyProviderSectionProps) {
   const metadata = HOSTED_PROVIDER_METADATA[provider.id as HostedEmbeddingProviderId];
+  const runtimeProvider = isRuntimeHostedProvider(provider.id as HostedEmbeddingProviderId);
   return (
     <section
       className="rounded-lg border border-border/60 bg-muted/10 px-3 py-3"
@@ -697,7 +826,9 @@ function EmptyProviderSection({ provider }: EmptyProviderSectionProps) {
         <div className="space-y-1">
           <p className="font-medium text-sm leading-tight">{metadata.displayName}</p>
           <p className="text-muted-foreground text-xs">
-            This provider does not currently expose embedding models in the shared registry.
+            {runtimeProvider
+              ? 'No embedding-capable runtime models were discovered with verified dimensions.'
+              : 'This provider does not currently expose embedding models in the shared registry.'}
           </p>
         </div>
         <Badge variant="outline">

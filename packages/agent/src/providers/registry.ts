@@ -84,7 +84,9 @@ export type ProviderId =
   | 'openrouter'
   | 'cohere'
   | 'voyage'
-  | 'local';
+  | 'local'
+  | 'ollama'
+  | 'lmstudio';
 
 const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
   {
@@ -345,6 +347,30 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       // NOTE: Qwen3-1.7B removed - crashes due to WebGPU buffer size limits
       // See: https://github.com/huggingface/transformers.js/issues/1469
     ],
+  },
+  {
+    id: 'ollama',
+    displayName: 'Ollama (Local Runtime)',
+    runtime: 'local',
+    capabilities: {
+      llm: true,
+      embeddings: true,
+      streaming: true,
+    },
+    // Runtime models are discovered dynamically from localhost endpoints.
+    models: [],
+  },
+  {
+    id: 'lmstudio',
+    displayName: 'LM Studio (Local Runtime)',
+    runtime: 'local',
+    capabilities: {
+      llm: true,
+      embeddings: true,
+      streaming: true,
+    },
+    // Runtime models are discovered dynamically from localhost endpoints.
+    models: [],
   },
 ];
 
