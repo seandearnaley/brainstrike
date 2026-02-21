@@ -5,6 +5,7 @@
  * for the Collection Browser. Handles filtering, sorting, and memoization.
  */
 
+import { getFileExtension } from '@brainstrike/utils';
 import * as React from 'react';
 import { warnCycleOnce } from '../lib/cycle-warning';
 import type { TreeNode } from '../tree-table/types';
@@ -881,14 +882,13 @@ function computeStandardFilteredRoots(
 }
 
 /**
- * Get the file extension from a file name.
+ * Formats a file extension for display as a group label.
+ * Wraps the canonical getFileExtension (which returns "ts")
+ * to produce ".ts" with leading dot, or "No extension" for bare names.
  */
-function getFileExtension(fileName: string): string {
-  const dotIndex = fileName.lastIndexOf('.');
-  if (dotIndex <= 0) {
-    return 'No extension';
-  }
-  return fileName.slice(dotIndex).toLowerCase();
+function getFileExtensionForGrouping(fileName: string): string {
+  const ext = getFileExtension(fileName);
+  return ext ? `.${ext}` : 'No extension';
 }
 
 /**
@@ -903,7 +903,7 @@ function getGroupValue(node: TreeNode<BrowserNodeData>, groupBy: GroupByKey): st
     case 'status':
       return fileData.embeddingStatus;
     case 'type':
-      return getFileExtension(fileData.name);
+      return getFileExtensionForGrouping(fileData.name);
     default:
       return '';
   }

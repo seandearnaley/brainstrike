@@ -195,19 +195,38 @@ export function isBinaryFile(filename: string): boolean {
 }
 
 /**
- * Gets the base filename without extension
+ * Gets the base filename without extension using a single backward scan.
+ *
+ * Uses the same CHAR_* constant + charCodeAt pattern as getFileExtension
+ * for consistency and to avoid redundant lastIndexOf + Math.max calls.
+ *
  * @param filename The filename to process
  * @returns The filename without extension
  */
 export function getBaseFilename(filename: string): string {
-  const lastPathSeparatorIndex = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
-  const nameWithExtension =
-    lastPathSeparatorIndex === -1 ? filename : filename.slice(lastPathSeparatorIndex + 1);
-  const lastDotIndex = nameWithExtension.lastIndexOf('.');
-  if (lastDotIndex === -1 || lastDotIndex === 0) {
-    return nameWithExtension;
+  const len = filename.length;
+
+  let nameStart = 0;
+  for (let i = len - 1; i >= 0; i--) {
+    const char = filename.charCodeAt(i);
+    if (char === CHAR_FORWARD_SLASH || char === CHAR_BACKSLASH) {
+      nameStart = i + 1;
+      break;
+    }
   }
-  return nameWithExtension.slice(0, lastDotIndex);
+
+  let dotIndex = -1;
+  for (let i = len - 1; i >= nameStart; i--) {
+    if (filename.charCodeAt(i) === CHAR_DOT) {
+      dotIndex = i;
+      break;
+    }
+  }
+
+  if (dotIndex === -1 || dotIndex === nameStart) {
+    return filename.slice(nameStart);
+  }
+  return filename.slice(nameStart, dotIndex);
 }
 
 const FILE_SIZE_UNITS = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
