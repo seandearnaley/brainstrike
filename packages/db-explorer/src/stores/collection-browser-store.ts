@@ -132,6 +132,7 @@ interface CollectionBrowserActions {
 export type CollectionBrowserStore = CollectionBrowserData & CollectionBrowserActions;
 
 const STORE_NAME = 'collection-browser.v1' as const;
+const STORE_VERSION = 2 as const;
 
 /**
  * Default values for the store
@@ -167,6 +168,28 @@ const DEFAULT_STATE: CollectionBrowserData = {
  * Storage adapter with fallback to in-memory for SSR/tests
  */
 const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+
+function migratePersistedState(
+  persistedState: unknown,
+  version: number
+): Partial<CollectionBrowserData> | undefined {
+  const snapshot =
+    persistedState && typeof persistedState === 'object'
+      ? (persistedState as Partial<CollectionBrowserData>)
+      : undefined;
+  if (!snapshot) {
+    return snapshot;
+  }
+
+  if (version < 2 || !Array.isArray(snapshot.contextSelectedIds)) {
+    return {
+      ...snapshot,
+      contextSelectedIds: [],
+    };
+  }
+
+  return snapshot;
+}
 
 /**
  * Helper to cycle through sort directions: null -> asc -> desc -> null
@@ -310,8 +333,9 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
     }),
     {
       name: STORE_NAME,
-      version: 1,
+      version: STORE_VERSION,
       storage,
+      migrate: (persistedState, version) => migratePersistedState(persistedState, version),
       partialize: (s) => ({
         expandedIds: s.expandedIds,
         selectedId: s.selectedId,

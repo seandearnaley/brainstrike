@@ -386,6 +386,8 @@ export function CollectionBrowserView({
 
   // Convert expanded IDs array to Set for CollectionBrowser
   const expandedIdsSet = useMemo(() => new Set(expandedIds), [expandedIds]);
+  const contextNodeIdsSet = useMemo(() => new Set(contextSelectedIds), [contextSelectedIds]);
+  const shouldShowContextToolbar = selectedId !== null || contextSelectedIds.length > 0;
 
   // State for selected node inspection (derived from store selectedId)
   const { selectedNodeType, selectedNodeId } = useMemo(() => {
@@ -803,21 +805,23 @@ export function CollectionBrowserView({
         onFiltersChange={handleFiltersChange}
       />
 
-      <div className="flex items-center justify-between border-border border-b px-3 py-2">
-        <span className="text-muted-foreground text-xs">
-          In context: {contextSelectedIds.length}
-        </span>
-        <Button
-          disabled={!selectedId}
-          onClick={handleToggleContextForSelected}
-          size="sm"
-          variant="outline"
-        >
-          {selectedId && contextSelectedIds.includes(selectedId)
-            ? 'Remove selected from context'
-            : 'Add selected to context'}
-        </Button>
-      </div>
+      {shouldShowContextToolbar && (
+        <div className="flex items-center justify-between border-border border-b px-3 py-2">
+          <span className="text-muted-foreground text-xs">
+            In context: {contextSelectedIds.length}
+          </span>
+          <Button
+            disabled={!selectedId}
+            onClick={handleToggleContextForSelected}
+            size="sm"
+            variant="outline"
+          >
+            {selectedId && contextNodeIdsSet.has(selectedId)
+              ? 'Remove selected from context'
+              : 'Add selected to context'}
+          </Button>
+        </div>
+      )}
 
       {/* Error message display */}
       {searchError && (
@@ -855,7 +859,7 @@ export function CollectionBrowserView({
             <CollectionBrowser
               bulkActions={bulkActions}
               className="h-full"
-              contextNodeIds={new Set(contextSelectedIds)}
+              contextNodeIds={contextNodeIdsSet}
               data={treeData}
               emptyMessage={emptyMessage}
               expandedIds={expandedIdsSet}

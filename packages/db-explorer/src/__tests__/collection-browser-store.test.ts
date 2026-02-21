@@ -8,6 +8,8 @@ type PersistApi<T> = T & {
   persist?: {
     getOptions?: () => {
       name: string;
+      version?: number;
+      migrate?: (persistedState: unknown, version: number) => unknown;
       storage: {
         getItem: (name: string) => string | null;
         setItem: (name: string, value: string) => void;
@@ -284,6 +286,20 @@ describe('collection-browser-store', () => {
   describe('persistence', () => {
     it('has persist API defined', () => {
       expect(storeWithPersist.persist).toBeDefined();
+    });
+
+    it('migrates pre-v2 snapshots to include contextSelectedIds', () => {
+      const options = storeWithPersist.persist?.getOptions?.();
+      expect(options?.version).toBe(2);
+      expect(options?.migrate).toBeTypeOf('function');
+      if (!options?.migrate) {
+        throw new Error('persist migrate unavailable for test');
+      }
+
+      const migrated = options.migrate({ expandedIds: ['node-1'] }, 1) as {
+        contextSelectedIds?: string[];
+      };
+      expect(migrated.contextSelectedIds).toEqual([]);
     });
 
     it('persists through fallback storage when localStorage fails', () => {

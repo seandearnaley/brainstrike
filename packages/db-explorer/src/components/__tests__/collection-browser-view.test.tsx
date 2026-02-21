@@ -392,10 +392,15 @@ describe('CollectionBrowserView', () => {
       />
     );
 
-    const addButton = screen.getByRole('button', { name: /add selected to context/i });
-    expect(addButton).toBeDisabled();
+    expect(
+      screen.queryByRole('button', { name: /add selected to context/i })
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Select first file' }));
+    expect(useCollectionBrowserStore.getState().selectedId).toBe('file-1');
+
+    const addButton = screen.getByRole('button', { name: /add selected to context/i });
+    expect(addButton).toBeEnabled();
     await user.click(screen.getByRole('button', { name: /add selected to context/i }));
 
     expect(useCollectionBrowserStore.getState().contextSelectedIds).toContain('file-1');
@@ -403,5 +408,10 @@ describe('CollectionBrowserView', () => {
 
     await user.click(screen.getByRole('button', { name: /remove selected from context/i }));
     expect(useCollectionBrowserStore.getState().contextSelectedIds).not.toContain('file-1');
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+    expect(
+      screen.queryByRole('button', { name: /add selected to context/i })
+    ).not.toBeInTheDocument();
   });
 });
