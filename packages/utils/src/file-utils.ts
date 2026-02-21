@@ -2,20 +2,39 @@
  * Utility functions for file operations and manipulations
  */
 
+const CHAR_DOT = 46;
+const CHAR_FORWARD_SLASH = 47;
+const CHAR_BACKSLASH = 92;
+
 /**
- * Gets the file extension from a filename
+ * Gets the file extension from a filename using a single backward scan.
+ *
+ * Replaces the previous multi-pass approach (two `lastIndexOf` calls + `Math.max`
+ * + intermediate `basename` slice) with one backward loop via `charCodeAt`.
+ * This eliminates one intermediate string allocation and redundant scans.
+ *
  * @param filename The filename to extract extension from
- * @returns The file extension (without the dot) or empty string if no extension
+ * @returns The lowercase file extension (without the dot), or empty string if none
  */
 export function getFileExtension(filename: string): string {
-  const lastPathSeparatorIndex = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
-  const basename =
-    lastPathSeparatorIndex === -1 ? filename : filename.slice(lastPathSeparatorIndex + 1);
-  const lastDotIndex = basename.lastIndexOf('.');
-  if (lastDotIndex <= 0) {
-    return '';
+  const len = filename.length;
+  for (let i = len - 1; i >= 0; i--) {
+    const char = filename.charCodeAt(i);
+    if (char === CHAR_DOT) {
+      if (i === 0) {
+        return '';
+      }
+      const prevChar = filename.charCodeAt(i - 1);
+      if (prevChar === CHAR_FORWARD_SLASH || prevChar === CHAR_BACKSLASH) {
+        return '';
+      }
+      return filename.slice(i + 1).toLowerCase();
+    }
+    if (char === CHAR_FORWARD_SLASH || char === CHAR_BACKSLASH) {
+      return '';
+    }
   }
-  return basename.slice(lastDotIndex + 1).toLowerCase();
+  return '';
 }
 
 // Invariant: entries must be lowercase and must not include a leading dot.
