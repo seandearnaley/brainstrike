@@ -39,6 +39,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     bulkActions,
     onMultiSelect,
     showCheckbox,
+    contextNodeIds,
   }: {
     data: { files: Array<{ id: string }> };
     onSelect?: (nodeId: string, nodeType: string, nodeData: unknown) => void;
@@ -54,6 +55,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     bulkActions?: Array<{ id: string; label: string }>;
     onMultiSelect?: (ids: Set<string>) => void;
     showCheckbox?: boolean;
+    contextNodeIds?: Set<string>;
   }) => {
     const firstFile = data.files[0];
 
@@ -66,6 +68,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
         )}
         {firstFile ? (
           <>
+            {contextNodeIds?.has(`file-${firstFile.id}`) && (
+              <span data-testid="context-selected-first-file" />
+            )}
             <button
               aria-label="Select first file"
               onClick={() => onSelect?.(`file-${firstFile.id}`, 'file', {})}
@@ -373,5 +378,47 @@ describe('CollectionBrowserView', () => {
     await user.click(screen.getByRole('button', { name: 'Group by status' }));
 
     expect(useCollectionBrowserStore.getState().groupBy).toBe('status');
+  });
+
+  it('updates context selection from toolbar controls', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    expect(
+      screen.queryByRole('button', { name: /add selected to context/i })
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Select first file' }));
+    expect(useCollectionBrowserStore.getState().selectedId).toBe('file-1');
+
+    const addButton = screen.getByRole('button', { name: /add selected to context/i });
+    expect(addButton).toBeEnabled();
+    const clearContextButton = screen.getByRole('button', { name: /clear context/i });
+    expect(clearContextButton).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /add selected to context/i }));
+
+    expect(useCollectionBrowserStore.getState().contextSelectedIds).toContain('file-1');
+    expect(screen.getByTestId('context-selected-first-file')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /clear context/i })).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: /clear context/i }));
+    expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
+
+    await user.click(screen.getByRole('button', { name: /add selected to context/i }));
+    await user.click(screen.getByRole('button', { name: /remove selected from context/i }));
+    expect(useCollectionBrowserStore.getState().contextSelectedIds).not.toContain('file-1');
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+    expect(
+      screen.queryByRole('button', { name: /add selected to context/i })
+    ).not.toBeInTheDocument();
   });
 });

@@ -56,6 +56,8 @@ interface CollectionBrowserData {
   isFilterVisible: boolean;
   /** Grouping key for the tree (default: 'none') */
   groupBy: GroupByKey;
+  /** Node IDs marked as in-context */
+  contextSelectedIds: string[];
   /** Whether to show checkboxes for multi-select */
   showCheckbox: boolean;
   /** Whether multi-select mode is enabled */
@@ -117,6 +119,10 @@ interface CollectionBrowserActions {
   setIsFilterVisible: (visible: boolean) => void;
   /** Set grouping key */
   setGroupBy: (groupBy: GroupByKey) => void;
+  /** Toggle in-context state for a node ID */
+  toggleContextSelectedId: (nodeId: string) => void;
+  /** Clear all in-context node IDs */
+  clearContextSelectedIds: () => void;
   /** Set checkbox visibility */
   setShowCheckbox: (show: boolean) => void;
   /** Set multi-select mode */
@@ -127,7 +133,10 @@ interface CollectionBrowserActions {
 
 export type CollectionBrowserStore = CollectionBrowserData & CollectionBrowserActions;
 
+// Keep the existing key stable so persisted snapshots can migrate in place.
 const STORE_NAME = 'collection-browser.v1' as const;
+const STORE_VERSION = 2 as const;
+type PersistedCollectionBrowserData = Partial<CollectionBrowserData>;
 
 /**
  * Default values for the store
@@ -154,6 +163,7 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchConfigExpanded: false,
   isFilterVisible: false,
   groupBy: 'none',
+  contextSelectedIds: [],
   showCheckbox: false,
   multiSelectEnabled: false,
 };
@@ -162,6 +172,30 @@ const DEFAULT_STATE: CollectionBrowserData = {
  * Storage adapter with fallback to in-memory for SSR/tests
  */
 const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+
+function migratePersistedState(
+  persistedState: unknown,
+  version: number
+): PersistedCollectionBrowserData | undefined {
+  const snapshot =
+    persistedState && typeof persistedState === 'object'
+      ? (persistedState as PersistedCollectionBrowserData)
+      : undefined;
+  if (!snapshot) {
+    return snapshot;
+  }
+
+  // Chain future version migrations here (v2->v3, v3->v4, etc.) to preserve upgrade paths.
+  // Also recovers from corrupted snapshots where contextSelectedIds is not an array.
+  if (version < 2 || !Array.isArray(snapshot.contextSelectedIds)) {
+    return {
+      ...snapshot,
+      contextSelectedIds: [],
+    };
+  }
+
+  return snapshot;
+}
 
 /**
  * Helper to cycle through sort directions: null -> asc -> desc -> null
@@ -285,6 +319,18 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setGroupBy: (groupBy) => set({ groupBy }),
 
+      toggleContextSelectedId: (nodeId) => {
+        const { contextSelectedIds } = get();
+        const idSet = new Set(contextSelectedIds);
+        if (idSet.has(nodeId)) {
+          idSet.delete(nodeId);
+        } else {
+          idSet.add(nodeId);
+        }
+        set({ contextSelectedIds: Array.from(idSet) });
+      },
+      clearContextSelectedIds: () => set({ contextSelectedIds: [] }),
+
       setShowCheckbox: (show) => set({ showCheckbox: show }),
 
       setMultiSelectEnabled: (enabled) => set({ multiSelectEnabled: enabled }),
@@ -294,8 +340,9 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
     }),
     {
       name: STORE_NAME,
-      version: 1,
+      version: STORE_VERSION,
       storage,
+      migrate: migratePersistedState,
       partialize: (s) => ({
         expandedIds: s.expandedIds,
         selectedId: s.selectedId,
@@ -319,6 +366,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         isFilterVisible: s.isFilterVisible,
         // Persist grouping preference, but keep multi-select UI mode session-scoped.
         groupBy: s.groupBy,
+        contextSelectedIds: s.contextSelectedIds,
       }),
     }
   )
@@ -355,6 +403,7 @@ export const collectionBrowserSelectors = {
   searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
   isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,
   groupBy: (s: CollectionBrowserStore) => s.groupBy,
+  contextSelectedIds: (s: CollectionBrowserStore) => s.contextSelectedIds,
   showCheckbox: (s: CollectionBrowserStore) => s.showCheckbox,
   multiSelectEnabled: (s: CollectionBrowserStore) => s.multiSelectEnabled,
 };

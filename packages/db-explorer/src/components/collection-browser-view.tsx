@@ -311,9 +311,12 @@ export function CollectionBrowserView({
     setIsFilterVisible,
     // Grouping and checkbox state
     groupBy,
+    contextSelectedIds,
     showCheckbox,
     multiSelectEnabled,
     setGroupBy,
+    toggleContextSelectedId,
+    clearContextSelectedIds,
     setShowCheckbox,
     setMultiSelectEnabled,
     toggleExpanded,
@@ -384,6 +387,8 @@ export function CollectionBrowserView({
 
   // Convert expanded IDs array to Set for CollectionBrowser
   const expandedIdsSet = useMemo(() => new Set(expandedIds), [expandedIds]);
+  const contextNodeIdsSet = useMemo(() => new Set(contextSelectedIds), [contextSelectedIds]);
+  const shouldShowContextToolbar = selectedId !== null || contextSelectedIds.length > 0;
 
   // State for selected node inspection (derived from store selectedId)
   const { selectedNodeType, selectedNodeId } = useMemo(() => {
@@ -578,6 +583,15 @@ export function CollectionBrowserView({
     },
     [setGroupBy]
   );
+
+  const handleToggleContextForSelected = useCallback(() => {
+    if (!selectedId) {
+      return;
+    }
+    toggleContextSelectedId(selectedId);
+  }, [selectedId, toggleContextSelectedId]);
+
+  const handleClearContextSelection = clearContextSelectedIds;
 
   // Handle double-click: toggle expand for parent nodes, open inspector for leaves
   const handleDoubleClick = useCallback(
@@ -794,6 +808,34 @@ export function CollectionBrowserView({
         onFiltersChange={handleFiltersChange}
       />
 
+      {shouldShowContextToolbar && (
+        <div className="flex items-center justify-between border-border border-b px-3 py-2">
+          <span className="text-muted-foreground text-xs">
+            In context: {contextSelectedIds.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              disabled={!selectedId}
+              onClick={handleToggleContextForSelected}
+              size="sm"
+              variant="outline"
+            >
+              {selectedId && contextNodeIdsSet.has(selectedId)
+                ? 'Remove selected from context'
+                : 'Add selected to context'}
+            </Button>
+            <Button
+              disabled={contextSelectedIds.length === 0}
+              onClick={handleClearContextSelection}
+              size="sm"
+              variant="outline"
+            >
+              Clear context
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Error message display */}
       {searchError && (
         <div className="border-border border-b bg-destructive/10 px-3 py-2 text-destructive text-sm">
@@ -830,6 +872,7 @@ export function CollectionBrowserView({
             <CollectionBrowser
               bulkActions={bulkActions}
               className="h-full"
+              contextNodeIds={contextNodeIdsSet}
               data={treeData}
               emptyMessage={emptyMessage}
               expandedIds={expandedIdsSet}

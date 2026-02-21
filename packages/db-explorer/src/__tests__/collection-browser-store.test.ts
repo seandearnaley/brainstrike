@@ -8,6 +8,8 @@ type PersistApi<T> = T & {
   persist?: {
     getOptions?: () => {
       name: string;
+      version?: number;
+      migrate?: (persistedState: unknown, version: number) => unknown;
       storage: {
         getItem: (name: string) => string | null;
         setItem: (name: string, value: string) => void;
@@ -237,6 +239,29 @@ describe('collection-browser-store', () => {
     });
   });
 
+  describe('context selection state', () => {
+    it('toggles context-selected IDs on and off', () => {
+      const store = useCollectionBrowserStore.getState();
+      store.toggleContextSelectedId('file-1');
+      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual(['file-1']);
+
+      store.toggleContextSelectedId('file-1');
+      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
+    });
+
+    it('clears all context-selected IDs', () => {
+      const store = useCollectionBrowserStore.getState();
+      store.toggleContextSelectedId('file-1');
+      store.toggleContextSelectedId('file-2');
+      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual(
+        expect.arrayContaining(['file-1', 'file-2'])
+      );
+
+      store.clearContextSelectedIds();
+      expect(useCollectionBrowserStore.getState().contextSelectedIds).toEqual([]);
+    });
+  });
+
   describe('reset', () => {
     it('resets all state to defaults', () => {
       const store = useCollectionBrowserStore.getState();
@@ -257,6 +282,7 @@ describe('collection-browser-store', () => {
       store.setSearchConfigDistanceMetric('l2');
       store.setSearchConfigExpanded(true);
       store.setIsFilterVisible(true);
+      store.toggleContextSelectedId('file-1');
 
       // Reset
       store.reset();
@@ -278,12 +304,27 @@ describe('collection-browser-store', () => {
       expect(state.searchConfigDistanceMetric).toBe('cosine');
       expect(state.searchConfigExpanded).toBe(false);
       expect(state.isFilterVisible).toBe(false);
+      expect(state.contextSelectedIds).toEqual([]);
     });
   });
 
   describe('persistence', () => {
     it('has persist API defined', () => {
       expect(storeWithPersist.persist).toBeDefined();
+    });
+
+    it('migrates pre-v2 snapshots to include contextSelectedIds', () => {
+      const options = storeWithPersist.persist?.getOptions?.();
+      expect(options?.version).toBe(2);
+      expect(options?.migrate).toBeTypeOf('function');
+      if (!options?.migrate) {
+        throw new Error('persist migrate unavailable for test');
+      }
+
+      const migrated = options.migrate({ expandedIds: ['node-1'] }, 1) as {
+        contextSelectedIds?: string[];
+      };
+      expect(migrated.contextSelectedIds).toEqual([]);
     });
 
     it('persists through fallback storage when localStorage fails', () => {
