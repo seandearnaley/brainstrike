@@ -1,5 +1,11 @@
 import { bench, describe } from 'vitest';
-import { isBinaryExtension, isBinaryFile, isTextExtension, isTextFile } from '../src/file-utils';
+import {
+  getFileExtension,
+  isBinaryExtension,
+  isBinaryFile,
+  isTextExtension,
+  isTextFile,
+} from '../src/file-utils';
 
 const normalizedTextExtensions = ['ts', 'tsx', 'md', 'json'];
 const normalizedBinaryExtensions = ['png', 'pdf', 'mp4', 'zip'];
@@ -21,6 +27,46 @@ function runExtensionChecks(
   }
   return hits;
 }
+
+const extensionInputs = {
+  simple: 'file.txt',
+  long: '/home/user/projects/brainstrike/packages/utils/src/__tests__/file-utils.test.ts',
+  hidden: '.gitignore',
+  hiddenWithExt: '/path/.env.local',
+  noExt: 'Makefile',
+  multiDot: 'archive.tar.gz',
+  windows: 'C:\\Users\\name\\Documents\\report.pdf',
+};
+
+describe('getFileExtension', () => {
+  bench('simple filename', () => {
+    getFileExtension(extensionInputs.simple);
+  });
+
+  bench('long path', () => {
+    getFileExtension(extensionInputs.long);
+  });
+
+  bench('hidden file (no extension)', () => {
+    getFileExtension(extensionInputs.hidden);
+  });
+
+  bench('hidden file with extension', () => {
+    getFileExtension(extensionInputs.hiddenWithExt);
+  });
+
+  bench('no extension', () => {
+    getFileExtension(extensionInputs.noExt);
+  });
+
+  bench('multi-dot filename', () => {
+    getFileExtension(extensionInputs.multiDot);
+  });
+
+  bench('Windows path', () => {
+    getFileExtension(extensionInputs.windows);
+  });
+});
 
 describe('isTextExtension', () => {
   bench('normalized extensions', () => {
