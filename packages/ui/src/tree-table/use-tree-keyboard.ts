@@ -175,7 +175,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     }
 
     if (currentFocusedId !== null) {
-      const stillExists = rows.some((row) => row.node.id === currentFocusedId);
+      const stillExists = rowIndexById.has(currentFocusedId);
       if (!stillExists) {
         suppressAutoFocusRef.current = true;
         focusedIdRef.current = null;
@@ -194,7 +194,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
       focusedIdRef.current = firstRow.node.id;
       setFocusedId(firstRow.node.id);
     }
-  }, [isActive, rows]);
+  }, [isActive, rows, rowIndexById]);
 
   // Navigation actions
   const moveUp = React.useCallback(() => {

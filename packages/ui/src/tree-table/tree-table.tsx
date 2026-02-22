@@ -85,6 +85,7 @@ function resolveWindowingStrategy({
   }
 
   // Clamp to 1 so invalid/zero thresholds don't produce degenerate page math.
+  // In search mode, this means `0` behaves as "always paged" once there is at least one row.
   return rowCount >= Math.max(1, autoPagedRowThreshold) ? 'paged' : 'virtual';
 }
 
