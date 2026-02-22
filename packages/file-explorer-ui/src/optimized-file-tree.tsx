@@ -7,7 +7,6 @@ import {
 } from '@brainstrike/ui';
 import {
   createLogger,
-  decodeFileSelection,
   encodeFileSelection,
   memoizedFileExplorer as fileExplorer,
   isPathSelectedInFolder,
@@ -106,16 +105,18 @@ function buildSelectedDirectoryCounts(
     return directoryCounts;
   }
 
+  const folderPrefix = `${folderId}|@|`;
   for (const selectionKey of selectedFilePaths) {
-    try {
-      const decodedSelection = decodeFileSelection(selectionKey);
-      if (decodedSelection.folderId !== folderId) {
-        continue;
-      }
-      addSelectedFileAncestors(directoryCounts, decodedSelection.path);
-    } catch {
-      // Ignore invalid selection keys and continue building counts.
+    if (!selectionKey.startsWith(folderPrefix)) {
+      continue;
     }
+
+    // Avoid decode/split work for keys outside this folder.
+    const selectedPath = selectionKey.slice(folderPrefix.length);
+    if (!selectedPath) {
+      continue;
+    }
+    addSelectedFileAncestors(directoryCounts, selectedPath);
   }
 
   return directoryCounts;
@@ -415,6 +416,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       (node: IFileNode): DirectoryToggleState => {
         const isChildrenLoadingFromStore = loadingPaths?.has(node.path) ?? false;
         return {
+          // Read expansion state at invocation time to avoid stale closure snapshots
+          // across rapid async expand/collapse interactions.
           isExpanded: store.getState().expandedDirectoryPaths.has(node.path),
           isChildrenLoading:
             isChildrenLoadingFromStore ||

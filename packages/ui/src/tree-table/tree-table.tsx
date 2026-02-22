@@ -268,6 +268,8 @@ function resolveRenderedVirtualItems(
   if (virtualItems.length > 0 || rowCount === 0) {
     return virtualItems;
   }
+  // During first paint react-virtual can briefly report zero measured items.
+  // Render a small fallback slice to avoid an empty table flash until measurement completes.
   return buildFallbackVirtualItems(rowCount, overscan);
 }
 

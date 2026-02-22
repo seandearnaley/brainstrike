@@ -59,7 +59,8 @@ const EMPTY_EXPANDED_IDS = new Set<string>();
 
 /**
  * Ref-backed callback wrapper (similar to React's proposed `useEffectEvent`).
- * Use this only for event handlers to keep memoized column definitions stable.
+ * Safe here because callbacks are read from event handlers after commit.
+ * Do not use this for render-time reads or effect dependency shortcuts.
  * TODO(BST-312): Replace with React's stable useEffectEvent once adopted in this codebase.
  */
 function useStableCallback<TArgs extends unknown[], TResult>(
@@ -290,6 +291,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const onDeselectAllStable = useStableCallback(onDeselectAll);
   const isAllSelectedStable = useStableCallback(isAllSelected);
   const onToggleSelectionStable = useStableCallback(onToggleSelection);
+  const isPreviewSelectedStable = useStableCallback((compositeKey: string) =>
+    previewSelections.has(compositeKey)
+  );
   const onFileClickStable = useStableCallback((compositeKey: string) => {
     onFileClick?.(compositeKey);
   });
@@ -408,7 +412,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
           return (
             <Checkbox
               aria-label={`Select ${item.path}`}
-              checked={previewSelections.has(item.compositeKey)}
+              checked={isPreviewSelectedStable(item.compositeKey)}
               onCheckedChange={(checked) =>
                 onToggleSelectionStable(item.compositeKey, checked === true)
               }
@@ -609,7 +613,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     onSelectAllOnPageStable,
     onSortStable,
     onToggleSelectionStable,
-    previewSelections,
+    isPreviewSelectedStable,
     renderGroupHeaderIfPrimary,
     sortDirection,
     sortField,
