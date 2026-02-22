@@ -20,6 +20,30 @@ const regexCache = new Map<string, RegExp>();
 // Cache compiled minimatch patterns to avoid recompilation overhead
 const minimatchCache = new Map<string, Minimatch>();
 
+function getWildcardMatcher(pattern: string): Minimatch {
+  let matcher = minimatchCache.get(pattern);
+  if (!matcher) {
+    matcher = new Minimatch(pattern, { dot: true });
+    minimatchCache.set(pattern, matcher);
+  }
+  return matcher;
+}
+
+function getRegexMatcher(pattern: string): RegExp | null {
+  let regex = regexCache.get(pattern);
+  if (!regex) {
+    try {
+      regex = new RegExp(pattern);
+      regexCache.set(pattern, regex);
+    } catch (_error) {
+      const logger = createLogger('fileFilter');
+      logger.warn(`Invalid regex pattern: ${pattern}`, _error);
+      return null;
+    }
+  }
+  return regex;
+}
+
 /**
  * Utilities for filtering files and directories
  */
@@ -35,30 +59,15 @@ export const fileFilter = {
    * Matches a string against a wildcard pattern
    */
   matchWildcard(str: string, pattern: string): boolean {
-    let matcher = minimatchCache.get(pattern);
-    if (!matcher) {
-      matcher = new Minimatch(pattern, { dot: true });
-      minimatchCache.set(pattern, matcher);
-    }
-    return matcher.match(str);
+    return getWildcardMatcher(pattern).match(str);
   },
 
   /**
    * Matches a string against a regex pattern
    */
   matchRegex(str: string, pattern: string): boolean {
-    let regex = regexCache.get(pattern);
-    if (!regex) {
-      try {
-        regex = new RegExp(pattern);
-        regexCache.set(pattern, regex);
-      } catch (_error) {
-        const logger = createLogger('fileFilter');
-        logger.warn(`Invalid regex pattern: ${pattern}`, _error);
-        return false;
-      }
-    }
-    return regex.test(str);
+    const regex = getRegexMatcher(pattern);
+    return regex ? regex.test(str) : false;
   },
 
   /**
@@ -68,53 +77,70 @@ export const fileFilter = {
     node: IFileNode,
     { includeFilters, excludeFilters, useRegex }: FileFilterOptions
   ): IFileNode | null {
-    const matchFn = useRegex ? this.matchRegex : this.matchWildcard;
+    // Helper to get a matcher function for a pattern
+    const getMatcher = (pattern: string): ((path: string) => boolean) => {
+      if (useRegex) {
+        const regex = getRegexMatcher(pattern);
+        if (!regex) return () => false;
+        return (path: string) => regex.test(path);
+      } else {
+        const matcher = getWildcardMatcher(pattern);
+        return (path: string) => matcher.match(path);
+      }
+    };
 
-    // First check if path should be ignored
-    if (this.shouldIgnorePath(node.path)) {
-      return null;
-    }
+    // Pre-compile matchers to avoid cache lookups during recursion
+    const includeMatchers = includeFilters.map(getMatcher);
+    const excludeMatchers = excludeFilters.map(getMatcher);
 
-    // Then check exclude filters
-    if (
-      excludeFilters.length > 0 &&
-      excludeFilters.some((pattern: string) => matchFn(node.path, pattern))
-    ) {
-      return null;
-    }
-
-    if (node.type === 'directory' && node.children) {
-      // Recursively filter children first
-      const filteredChildren = node.children
-        .map((child: IFileNode) =>
-          this.filterNode(child, { includeFilters, excludeFilters, useRegex })
-        )
-        .filter((child): child is IFileNode => child !== null);
-
-      const directoryMatches =
-        includeFilters.length === 0 ||
-        includeFilters.some((pattern: string) => matchFn(node.path, pattern));
-
-      // If directory doesn't match include filters and has no matching children,
-      // exclude it from the results
-      if (!directoryMatches && filteredChildren.length === 0) {
+    // Recursive helper using compiled matchers
+    const filterRecursive = (currentNode: IFileNode): IFileNode | null => {
+      // First check if path should be ignored
+      if (this.shouldIgnorePath(currentNode.path)) {
         return null;
       }
 
-      return {
-        ...node,
-        children: filteredChildren,
-      };
-    }
+      // Then check exclude filters
+      if (
+        excludeMatchers.length > 0 &&
+        excludeMatchers.some((matcher) => matcher(currentNode.path))
+      ) {
+        return null;
+      }
 
-    // For files, apply include filters after exclude checks
-    if (
-      includeFilters.length > 0 &&
-      !includeFilters.some((pattern: string) => matchFn(node.path, pattern))
-    ) {
-      return null;
-    }
+      if (currentNode.type === 'directory' && currentNode.children) {
+        // Recursively filter children first
+        const filteredChildren = currentNode.children
+          .map((child: IFileNode) => filterRecursive(child))
+          .filter((child): child is IFileNode => child !== null);
 
-    return node;
+        const directoryMatches =
+          includeMatchers.length === 0 ||
+          includeMatchers.some((matcher) => matcher(currentNode.path));
+
+        // If directory doesn't match include filters and has no matching children,
+        // exclude it from the results
+        if (!directoryMatches && filteredChildren.length === 0) {
+          return null;
+        }
+
+        return {
+          ...currentNode,
+          children: filteredChildren,
+        };
+      }
+
+      // For files, apply include filters after exclude checks
+      if (
+        includeMatchers.length > 0 &&
+        !includeMatchers.some((matcher) => matcher(currentNode.path))
+      ) {
+        return null;
+      }
+
+      return currentNode;
+    };
+
+    return filterRecursive(node);
   },
 };
