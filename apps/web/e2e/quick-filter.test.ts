@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -31,11 +32,11 @@ test.describe('Quick Filter and Tree Expansion', () => {
     await expect(
       page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
     ).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
+    await expect(getFileTree(page)).toBeVisible();
   });
 
   test('should filter files and toggle tree expansion', async ({ page }) => {
-    const fileTree = page.getByRole('tree', { name: 'File tree' });
+    const fileTree = getFileTree(page);
     const filterInput = page.getByPlaceholder(
       "Type to filter files... (e.g. 'test component -spec')"
     );

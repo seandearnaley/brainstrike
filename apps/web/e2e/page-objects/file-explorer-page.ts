@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
+import { getFileTree } from '../utils/file-tree-locators';
 
 export class FileExplorerPage {
   constructor(public readonly page: Page) {}
@@ -9,7 +10,7 @@ export class FileExplorerPage {
   }
 
   get fileTree(): Locator {
-    return this.page.getByRole('tree', { name: 'File tree' });
+    return getFileTree(this.page);
   }
 
   get fileTreeScrollContainer(): Locator {

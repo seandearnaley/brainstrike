@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -21,7 +22,7 @@ test.describe('Refresh Workflow', () => {
   test('should refresh file tree and show toast', async ({ page }) => {
     await page.getByTestId('select-root-button').click();
 
-    const fileTree = page.getByRole('tree', { name: 'File tree' });
+    const fileTree = getFileTree(page);
     await expect(fileTree.getByText('old-file.ts')).toBeVisible();
 
     // Initial tree is visible already; proceed without arbitrary sleep

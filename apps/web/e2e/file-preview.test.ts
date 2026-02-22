@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { getFileTree } from './utils/file-tree-locators';
 import { getPanelElements, togglePanelVisibility, waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -21,7 +22,7 @@ test.describe('File Tabbed Editor', () => {
   test('should open file in tabbed editor', async ({ page }) => {
     await page.getByTestId('select-root-button').click();
 
-    const fileTree = page.getByRole('tree', { name: 'File tree' });
+    const fileTree = getFileTree(page);
     await expect(fileTree).toBeVisible();
 
     const checkbox = fileTree.getByRole('checkbox', { name: 'Select example.ts' });
