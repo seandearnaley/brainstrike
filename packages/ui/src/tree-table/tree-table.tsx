@@ -802,7 +802,7 @@ export function TreeTable<T>({
       resetToFirstPage();
       pagination?.onPageSizeChange?.(nextPageSize);
     },
-    [pagination, resetToFirstPage]
+    [pagination, resetToFirstPage, setInternalPageSize]
   );
 
   const virtualItems = isVirtualWindowing ? rowVirtualizer.getVirtualItems() : [];

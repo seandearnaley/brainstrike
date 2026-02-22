@@ -525,19 +525,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
 
     const loadChildrenForExpansion = useCallback(
-      async (node: IFileNode): Promise<boolean> => {
+      async (node: IFileNode): Promise<void> => {
         const needsLoad =
           (node.loadState === 'unloaded' || node.loadState === undefined) && onLoadChildren;
         if (!needsLoad) {
-          return true;
+          return;
         }
 
         pendingChildLoadPathsRef.current.add(node.path);
         try {
           await onLoadChildren(node.path);
-          return true;
-        } catch {
-          return false;
         } finally {
           pendingChildLoadPathsRef.current.delete(node.path);
         }
@@ -556,11 +553,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
 
-        const loadSucceeded = await loadChildrenForExpansion(node);
-        if (!loadSucceeded) {
-          // Preserve collapsed state if child loading fails.
-          return;
-        }
+        await loadChildrenForExpansion(node);
 
         if (!isMountedRef.current) {
           return;
