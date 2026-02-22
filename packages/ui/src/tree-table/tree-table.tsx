@@ -518,7 +518,7 @@ export function TreeTable<T>({
         return;
       }
 
-      if (index !== undefined) {
+      rowVirtualizer.scrollToIndex(index, { align: 'auto', behavior: 'auto' });
         rowVirtualizer.scrollToIndex(index, { align: 'auto', behavior: 'auto' });
       }
     },
