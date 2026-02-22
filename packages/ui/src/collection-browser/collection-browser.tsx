@@ -5,9 +5,10 @@
  * Combines the TreeTable with FilterBar for a complete browsing experience.
  */
 
-import type * as React from 'react';
+import * as React from 'react';
 import { cn } from '../lib/utils';
 import { TreeTable } from '../tree-table/tree-table';
+import type { TreeTablePaginationOptions, TreeTableWindowingStrategy } from '../tree-table/types';
 import type { BulkAction } from './bulk-action-bar';
 import { BulkActionBar } from './bulk-action-bar';
 import type {
@@ -24,6 +25,10 @@ import type { CollectionSortState, CollectionTreeInput } from './use-collection-
 export { shortenPath } from './utils';
 
 const DEFAULT_BULK_ACTIONS: BulkAction[] = [];
+const DEFAULT_TREE_WINDOWING_STRATEGY: TreeTableWindowingStrategy = 'auto';
+const DEFAULT_TREE_AUTO_PAGED_ROW_THRESHOLD = 200;
+const DEFAULT_SEMANTIC_PAGE_SIZE = 50;
+const DEFAULT_SEMANTIC_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
 
 /**
  * Props for the CollectionBrowser component
@@ -88,6 +93,12 @@ export interface CollectionBrowserProps {
   contextNodeIds?: Set<string>;
   /** Whether to show checkboxes for multi-select */
   showCheckbox?: boolean;
+  /** Tree row windowing strategy */
+  treeWindowingStrategy?: TreeTableWindowingStrategy;
+  /** Auto mode threshold for switching semantic search to paged mode */
+  treeAutoPagedRowThreshold?: number;
+  /** Optional pagination configuration for tree table */
+  treePagination?: TreeTablePaginationOptions;
 }
 
 /**
@@ -139,6 +150,9 @@ export function CollectionBrowser({
   groupBy,
   contextNodeIds,
   showCheckbox = false,
+  treeWindowingStrategy = DEFAULT_TREE_WINDOWING_STRATEGY,
+  treeAutoPagedRowThreshold = DEFAULT_TREE_AUTO_PAGED_ROW_THRESHOLD,
+  treePagination,
 }: CollectionBrowserProps) {
   const {
     nodes,
@@ -192,6 +206,25 @@ export function CollectionBrowser({
     emptyMessage
   );
 
+  const shouldUseSearchWindowingContext =
+    isSemanticMode && (hasSearched || (semanticResults?.length ?? 0) > 0);
+  const treeAutoWindowingContext = shouldUseSearchWindowingContext ? 'search' : 'browse';
+  const resolvedTreePagination = React.useMemo<TreeTablePaginationOptions | undefined>(() => {
+    if (treePagination) {
+      return treePagination;
+    }
+    if (!shouldUseSearchWindowingContext) {
+      return undefined;
+    }
+    return {
+      pageSize: DEFAULT_SEMANTIC_PAGE_SIZE,
+      pageSizeOptions: DEFAULT_SEMANTIC_PAGE_SIZE_OPTIONS,
+      showControls: true,
+      showItemRange: true,
+      pageInfo: 'semantic results',
+    };
+  }, [treePagination, shouldUseSearchWindowingContext]);
+
   if (isLoading) {
     return (
       <div
@@ -228,6 +261,8 @@ export function CollectionBrowser({
             : {})}
           ariaLabel="Collection browser"
           {...(contextNodeIds ? { contextNodeIds } : {})}
+          autoPagedRowThreshold={treeAutoPagedRowThreshold}
+          autoWindowingContext={treeAutoWindowingContext}
           emptyState={
             <div className="p-4 text-muted-foreground text-sm">{displayEmptyMessage}</div>
           }
@@ -237,6 +272,8 @@ export function CollectionBrowser({
           onRowDoubleClick={handleDoubleClick}
           rowHeight={48}
           showCheckbox={showCheckbox && multiSelectEnabled}
+          windowingStrategy={treeWindowingStrategy}
+          {...(resolvedTreePagination ? { pagination: resolvedTreePagination } : {})}
           {...(treeTableSortState ? { sortState: treeTableSortState } : {})}
           {...(onSortChange ? { onSortChange: handleTreeTableSortChange } : {})}
         />
