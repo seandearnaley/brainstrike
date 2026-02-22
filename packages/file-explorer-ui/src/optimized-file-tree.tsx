@@ -1,3 +1,4 @@
+import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import {
   LightweightCheckbox,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+// TODO(BST-312): extract ROW_HEIGHT into a shared constant and retire legacy row component.
 import { ROW_HEIGHT } from './optimized-file-tree-row';
 
 interface IOptimizedFileTreeProps {
@@ -413,6 +415,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     loadingPathForSelection,
   }) => {
     const store = useFileExplorerStoreContext();
+    const { showToast } = useToastManager();
     // Keep a subscribed expansion snapshot for TreeTable render state.
     // Event handlers still use `store.getState()` to avoid stale async toggles.
     const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
@@ -588,9 +591,14 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             path: node.path,
             error,
           });
+          showToast({
+            title: 'Failed to load folder',
+            description: `Could not expand "${node.name}". Please try again.`,
+            variant: 'destructive',
+          });
         });
       },
-      [fileNodeByPath, getDirectoryToggleState, toggleDirectoryNode]
+      [fileNodeByPath, getDirectoryToggleState, toggleDirectoryNode, showToast]
     );
 
     const getNodeSelectionState = useCallback(
@@ -604,6 +612,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         ),
       [folderId, selectedFilePaths, selectedDirectoryCounts, maxSelectionCount]
     );
+    const getNodeSelectionStateRef = useRef(getNodeSelectionState);
+    getNodeSelectionStateRef.current = getNodeSelectionState;
 
     const handleNodeSelection = useCallback(
       (node: IFileNode) => {
@@ -666,6 +676,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         addMultipleSelectedFiles,
       ]
     );
+    const handleNodeSelectionRef = useRef(handleNodeSelection);
+    handleNodeSelectionRef.current = handleNodeSelection;
 
     const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(
       () => [
@@ -675,7 +687,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           cell: ({ node, isExpanded }) => {
             const rowData = node.data;
             const fileNode = rowData.fileNode;
-            const selectionState = getNodeSelectionState(fileNode);
+            const selectionState = getNodeSelectionStateRef.current(fileNode);
 
             return (
               <div className="flex min-w-0 flex-1 items-center">
@@ -701,7 +713,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
                       className="h-4 w-4"
                       disabled={selectionState.wouldExceedLimit}
                       id={fileNode.path}
-                      onCheckedChange={() => handleNodeSelection(fileNode)}
+                      onCheckedChange={() => handleNodeSelectionRef.current(fileNode)}
                     />
                   )}
                 </div>
@@ -735,7 +747,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           },
         },
       ],
-      [getNodeSelectionState, handleNodeSelection, maxSelectionCount]
+      [maxSelectionCount]
     );
 
     useEffect(() => {
