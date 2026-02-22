@@ -39,6 +39,7 @@ const DEFAULT_LOADING_NODE_IDS = new Set<string>();
 const MAX_WARNED_CYCLE_NODE_IDS = 1000;
 const DEFAULT_PAGE_SIZE = 50;
 const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
+const MIN_FALLBACK_VIRTUAL_ROWS = 1;
 
 /**
  * Maps our SortDirection to ARIA sort values.
@@ -127,6 +128,26 @@ function buildTablePaginationProps({
     tablePaginationProps.showItemRange = paginationOptions.showItemRange;
   }
   return tablePaginationProps;
+}
+
+function buildFallbackVirtualItems(rowCount: number, overscan: number): Array<{ index: number }> {
+  const fallbackCount = Math.min(rowCount, Math.max(MIN_FALLBACK_VIRTUAL_ROWS, overscan * 2));
+  return Array.from({ length: fallbackCount }, (_, index) => ({ index }));
+}
+
+function resolveRenderedVirtualItems(
+  isVirtualWindowing: boolean,
+  virtualItems: Array<{ index: number }>,
+  rowCount: number,
+  overscan: number
+): Array<{ index: number }> {
+  if (!isVirtualWindowing) {
+    return [];
+  }
+  if (virtualItems.length > 0 || rowCount === 0) {
+    return virtualItems;
+  }
+  return buildFallbackVirtualItems(rowCount, overscan);
 }
 
 interface CheckboxStateContext<T> {
@@ -577,6 +598,16 @@ export function TreeTable<T>({
   );
 
   const virtualItems = isVirtualWindowing ? rowVirtualizer.getVirtualItems() : [];
+  const renderedVirtualItems = React.useMemo(
+    () =>
+      resolveRenderedVirtualItems(
+        isVirtualWindowing,
+        virtualItems as Array<{ index: number }>,
+        rows.length,
+        overscan
+      ),
+    [isVirtualWindowing, overscan, rows.length, virtualItems]
+  );
   const totalSize = isVirtualWindowing ? rowVirtualizer.getTotalSize() : 0;
   const paddingTop = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
   const paddingBottom = virtualItems.length > 0 ? totalSize - (virtualItems.at(-1)?.end ?? 0) : 0;
@@ -680,7 +711,7 @@ export function TreeTable<T>({
             )}
 
             {isVirtualWindowing
-              ? virtualItems.map((virtualRow) => {
+              ? renderedVirtualItems.map((virtualRow) => {
                   const row = rows[virtualRow.index];
                   if (!row) {
                     return null;

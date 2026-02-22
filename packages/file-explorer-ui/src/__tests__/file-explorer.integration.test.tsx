@@ -13,9 +13,13 @@ const previewPanelMocksPromise = vi.hoisted(
   async () => (await import('./__mocks__/preview-panel-mocks')) as PreviewPanelMocksModule
 );
 
-vi.mock('@brainstrike/ui', async () => {
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
   const { createUiModuleMock } = await previewPanelMocksPromise;
-  return createUiModuleMock();
+  return {
+    ...actual,
+    ...createUiModuleMock(),
+  };
 });
 
 vi.mock('@brainstrike/hooks', async () => {
@@ -31,9 +35,11 @@ vi.mock('../use-preview-panel-state', () => ({
   }),
 }));
 
-vi.mock('lucide-react', async () => {
+vi.mock('lucide-react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('lucide-react')>();
   const { createLucideModuleMock } = await previewPanelMocksPromise;
   return {
+    ...actual,
     ...createLucideModuleMock(),
     ChevronDown: () => <div data-testid="chevron-down" />,
     ChevronRight: () => <div data-testid="chevron-right" />,
@@ -121,7 +127,7 @@ describe('File Explorer Integration Tests', () => {
     expect(screen.getByText('package.json')).toBeInTheDocument();
 
     // The tree should render successfully
-    expect(screen.getByRole('tree')).toBeInTheDocument();
+    expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
   });
 
   it('should handle file selection and multi-selection', async () => {
@@ -169,7 +175,7 @@ describe('File Explorer Integration Tests', () => {
     );
 
     // Check that both components render
-    expect(screen.getByRole('tree')).toBeInTheDocument();
+    expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
     expect(container.querySelector('.flex')).toBeInTheDocument();
   });
 
@@ -201,7 +207,7 @@ describe('File Explorer Integration Tests', () => {
     );
 
     // Focus on the tree
-    const tree = screen.getByRole('tree');
+    const tree = screen.getByRole('treegrid', { name: 'File tree' });
     tree.focus();
 
     // Navigate with arrow keys should not throw errors
@@ -249,7 +255,7 @@ describe('File Explorer Integration Tests', () => {
     );
 
     // Check that the tree renders without errors
-    expect(screen.getByRole('tree')).toBeInTheDocument();
+    expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
     expect(screen.getByText('src')).toBeInTheDocument();
     expect(screen.getByText('package.json')).toBeInTheDocument();
   });

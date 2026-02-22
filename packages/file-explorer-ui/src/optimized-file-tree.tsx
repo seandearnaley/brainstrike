@@ -1,9 +1,28 @@
-import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
+import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import {
+  LightweightCheckbox,
+  type TreeNode,
+  TreeTable,
+  type TreeTableColumn,
+} from '@brainstrike/ui';
+import {
+  countSelectedInDirectory,
+  encodeFileSelection,
+  memoizedFileExplorer as fileExplorer,
+  isPathSelectedInFolder,
+} from '@brainstrike/utils';
+import {
+  File as FileIcon,
+  Folder,
+  FolderOpen,
+  Link2 as Link2Icon,
+  Loader2,
+  MoreHorizontal as MoreHorizontalIcon,
+  Sparkles,
+} from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
-import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
-import { useVirtualList } from './use-virtual-list';
+import { ROW_HEIGHT } from './optimized-file-tree-row';
 
 interface IOptimizedFileTreeProps {
   fileTree: IFileNode[];
@@ -26,21 +45,263 @@ interface IOptimizedFileTreeProps {
   loadingPathForSelection?: string | null | undefined;
 }
 
+interface FileTreeRowData {
+  fileNode: IFileNode;
+  isChildrenLoading: boolean;
+  isFileLoading: boolean;
+  isLoadingForSelection: boolean;
+  isRuleSelected: boolean;
+  checkboxState: boolean | 'indeterminate';
+  wouldExceedLimit: boolean;
+}
+
+interface BuildFileTreeRowsOptions {
+  folderId: string;
+  loadingFiles: Set<string>;
+  loadingPaths?: Set<string>;
+  selectedFilePaths: Set<string>;
+  maxSelectionCount: number;
+  selectionModel: FileExplorerState['selectionModel'];
+  isLoadingForSelection?: boolean;
+  loadingPathForSelection?: string | null;
+}
+
+interface StackEntry {
+  node: IFileNode;
+  parentId: string | null;
+  depth: number;
+}
+
+interface NodeSelectionState {
+  checkboxState: boolean | 'indeterminate';
+  wouldExceedLimit: boolean;
+}
+
+function computeDirectoryCheckboxState(
+  node: IFileNode,
+  folderId: string,
+  selectedFilePaths: Set<string>
+): { checkboxState: boolean | 'indeterminate'; selectedCount: number; totalFiles: number } {
+  const totalFiles = fileExplorer.getFolderFileCount(node).count;
+  if (totalFiles === 0) {
+    return {
+      checkboxState: false,
+      selectedCount: 0,
+      totalFiles,
+    };
+  }
+
+  const selectedCount = folderId
+    ? countSelectedInDirectory(selectedFilePaths, folderId, node.path)
+    : 0;
+  if (selectedCount === 0) {
+    return {
+      checkboxState: false,
+      selectedCount,
+      totalFiles,
+    };
+  }
+
+  return {
+    checkboxState: selectedCount === totalFiles ? true : 'indeterminate',
+    selectedCount,
+    totalFiles,
+  };
+}
+
+function computeFileSelectionState(
+  node: IFileNode,
+  folderId: string,
+  selectedFilePaths: Set<string>,
+  maxSelectionCount: number
+): NodeSelectionState {
+  const isSelected = folderId
+    ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path)
+    : false;
+  return {
+    checkboxState: isSelected,
+    wouldExceedLimit: !isSelected && selectedFilePaths.size >= maxSelectionCount,
+  };
+}
+
+function computeDirectorySelectionState(
+  node: IFileNode,
+  folderId: string,
+  selectedFilePaths: Set<string>,
+  maxSelectionCount: number
+): NodeSelectionState {
+  const directoryState = computeDirectoryCheckboxState(node, folderId, selectedFilePaths);
+  const unselectedCount = Math.max(0, directoryState.totalFiles - directoryState.selectedCount);
+  return {
+    checkboxState: directoryState.checkboxState,
+    wouldExceedLimit: selectedFilePaths.size + unselectedCount > maxSelectionCount,
+  };
+}
+
+function computeNodeSelectionState(
+  node: IFileNode,
+  folderId: string,
+  selectedFilePaths: Set<string>,
+  maxSelectionCount: number
+): NodeSelectionState {
+  if (node.type === 'file') {
+    return computeFileSelectionState(node, folderId, selectedFilePaths, maxSelectionCount);
+  }
+  if (node.type === 'directory') {
+    return computeDirectorySelectionState(node, folderId, selectedFilePaths, maxSelectionCount);
+  }
+  return {
+    checkboxState: false,
+    wouldExceedLimit: false,
+  };
+}
+
+function isNodeChildrenLoading(node: IFileNode, loadingPaths?: Set<string>): boolean {
+  return (loadingPaths?.has(node.path) ?? false) || node.loadState === 'loading';
+}
+
+function isNodeFileLoading(node: IFileNode, folderId: string, loadingFiles: Set<string>): boolean {
+  if (!folderId) {
+    return false;
+  }
+  return loadingFiles.has(encodeFileSelection(folderId, node.path));
+}
+
+function isNodeRuleSelected(
+  node: IFileNode,
+  selectionModel: FileExplorerState['selectionModel']
+): boolean {
+  return (
+    node.type === 'file' &&
+    selectionModel.mode === 'rules' &&
+    (selectionModel.materializedPaths?.has(node.path) ?? false)
+  );
+}
+
+function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): FileTreeRowData {
+  const {
+    folderId,
+    loadingFiles,
+    loadingPaths,
+    selectedFilePaths,
+    maxSelectionCount,
+    selectionModel,
+    isLoadingForSelection,
+    loadingPathForSelection,
+  } = options;
+  const { checkboxState, wouldExceedLimit } = computeNodeSelectionState(
+    node,
+    folderId,
+    selectedFilePaths,
+    maxSelectionCount
+  );
+
+  return {
+    fileNode: node,
+    isChildrenLoading: isNodeChildrenLoading(node, loadingPaths),
+    isFileLoading: isNodeFileLoading(node, folderId, loadingFiles),
+    isLoadingForSelection: Boolean(isLoadingForSelection && loadingPathForSelection === node.path),
+    isRuleSelected: isNodeRuleSelected(node, selectionModel),
+    checkboxState,
+    wouldExceedLimit,
+  };
+}
+
+function addChildrenToStack(entry: StackEntry, stack: StackEntry[]): void {
+  const { node, depth } = entry;
+  if (node.type !== 'directory' || !node.children || node.children.length === 0) {
+    return;
+  }
+
+  for (let index = node.children.length - 1; index >= 0; index -= 1) {
+    const child = node.children[index];
+    if (!child) {
+      continue;
+    }
+    stack.push({
+      node: child,
+      parentId: node.path,
+      depth: depth + 1,
+    });
+  }
+}
+
+function buildFileTreeRows(
+  fileTree: IFileNode[],
+  options: BuildFileTreeRowsOptions
+): TreeNode<FileTreeRowData>[] {
+  const rows: TreeNode<FileTreeRowData>[] = [];
+  const stack: StackEntry[] = fileTree
+    .slice()
+    .reverse()
+    .map((node) => ({
+      node,
+      parentId: null,
+      depth: 0,
+    }));
+
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (!entry) {
+      continue;
+    }
+
+    if (entry.node.isVisible === false) {
+      continue;
+    }
+
+    const { node, parentId, depth } = entry;
+    const rowData = createTreeRowData(node, options);
+
+    rows.push({
+      id: node.path,
+      type: node.type,
+      depth,
+      data: rowData,
+      parentId,
+      // Keep directory rows expandable even when children are currently unloaded.
+      hasChildren: node.type === 'directory',
+      isLoading: rowData.isChildrenLoading,
+    });
+
+    addChildrenToStack(entry, stack);
+  }
+
+  return rows;
+}
+
+interface TreeNodeIconProps {
+  isLoading: boolean;
+  nodeType: IFileNode['type'];
+  nodeName: string;
+  isExpanded: boolean;
+}
+
+function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIconProps) {
+  if (isLoading) {
+    return (
+      <Loader2
+        aria-label={`Loading ${nodeName}`}
+        className="animate-spin text-blue-500 dark:text-blue-400"
+        size={16}
+      />
+    );
+  }
+  if (nodeType === 'file' || nodeType === 'loadMore') {
+    return <FileIcon className="text-gray-500 dark:text-gray-400" size={16} />;
+  }
+  if (nodeType === 'directory') {
+    if (isExpanded) {
+      return <FolderOpen className="text-blue-500 dark:text-blue-400" size={16} />;
+    }
+    return <Folder className="text-blue-500 dark:text-blue-400" size={16} />;
+  }
+  return null;
+}
+
 /**
- * @file OptimizedFileTree.tsx
- * @description Optimized version of FileTree with performance improvements for large directory structures.
- *
- * Key optimizations:
- * - Uses LightweightCheckbox instead of ShadCN checkbox
- * - Improved memoization strategies
- * - Optimized React.memo comparison functions
- * - Reduced context provider overhead
- * - Enhanced virtualization with better scroll performance
- *
- * @param {IFileNode[]} fileTree - The array of IFileNode objects representing the file structure to render.
- * @param {Set<string>} loadingFiles - A set of paths for files that are currently in a loading state.
- * @param {(() => void) | undefined} onRender - An optional callback function that is triggered when the tree component renders (primarily for testing).
- * @param {string} folderId - The identifier for the current folder context, used for selection and expansion state.
+ * TreeTable adapter for file explorer left panel.
+ * Maintains lazy-loading and recursive selection behavior while converging on shared tree-grid UI.
  */
 const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
   ({
@@ -59,176 +320,235 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
     const toggleDirectoryExpansion = store((s) => s.toggleDirectoryExpansion);
     const toggleSelectedFile = store((s) => s.toggleSelectedFile);
+    const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
+    const removeMultipleSelectedFiles = store((s) => s.removeMultipleSelectedFiles);
+    const selectedFilePaths = store((s) => s.selectedFilePaths);
+    const maxSelectionCount = store((s) => s.maxSelectionCount);
+    const selectionModel = store((s) => s.selectionModel);
 
-    /**
-     * Wrapped toggle that cancels streaming loads on collapse.
-     * When a directory is currently loading and the user collapses it,
-     * we abort the streaming operation to avoid wasted work.
-     */
-    const handleToggleDirectoryExpansion = useCallback(
-      (path: string) => {
-        // Check if we're collapsing (path is currently expanded) and loading
-        const isExpanded = expandedDirectoryPaths.has(path);
-        const isLoading = loadingPaths?.has(path);
-
-        if (isExpanded && isLoading && cancelChildLoading) {
-          // Cancel the in-flight streaming load before collapsing
-          cancelChildLoading(path);
-        }
-
-        // Proceed with the toggle
-        toggleDirectoryExpansion(path);
-      },
-      [expandedDirectoryPaths, loadingPaths, cancelChildLoading, toggleDirectoryExpansion]
-    );
-
-    // Immediate file selection for better responsiveness
-    const handleToggleFileSelection = useCallback(
-      (path: string) => {
-        if (!folderId) {
-          return;
-        }
-        toggleSelectedFile(folderId, path);
-      },
-      [folderId, toggleSelectedFile]
-    );
-
-    // Optimized tree flattening with better memoization
-    const flattenTree = useCallback(
-      (nodes: IFileNode[]): { node: IFileNode; depth: number }[] => {
-        const acc: { node: IFileNode; depth: number }[] = [];
-
-        // Iterative DFS avoids recursion overhead and avoids allocating
-        // per-directory filtered child arrays on every flatten pass.
-        const stack: Array<{ nodes: IFileNode[]; index: number; depth: number }> = [
-          { nodes, index: 0, depth: 0 },
-        ];
-
-        while (stack.length > 0) {
-          const frame = stack.at(-1);
-          if (!frame) {
-            break;
-          }
-
-          if (frame.index >= frame.nodes.length) {
-            stack.pop();
-            continue;
-          }
-
-          const node = frame.nodes[frame.index++];
-          if (!node || node.isVisible === false) {
-            continue;
-          }
-
-          acc.push({ node, depth: frame.depth });
-
-          if (
-            node.type === 'directory' &&
-            expandedDirectoryPaths.has(node.path) &&
-            node.loadState === 'loaded' &&
-            node.children &&
-            node.children.length > 0
-          ) {
-            stack.push({
-              nodes: node.children,
-              index: 0,
-              depth: frame.depth + 1,
-            });
-          }
-        }
-
-        return acc;
-      },
-      [expandedDirectoryPaths]
-    );
-
-    // Memoize visible nodes calculation
-    const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
-
-    // Enhanced virtualization with improved performance
-    // Overscan of 10 prevents gray patches during rapid scrolling on large trees
-    const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
-      overscan: 10,
-    });
-
-    // Optimized row rendering with better memoization
-    const renderedRows = useMemo(() => {
-      const startIndex = range.start;
-      const endIndex = range.end;
-      const rows = [];
-
-      for (let i = startIndex; i <= endIndex; i++) {
-        const item = visibleNodes[i];
-        if (!item) {
-          continue;
-        }
-
-        const { node, depth } = item;
-
-        rows.push(
-          <OptimizedFileTreeRow
-            depth={depth}
-            folderId={folderId}
-            isChildrenLoading={loadingPaths?.has(node.path) ?? false}
-            isExpanded={expandedDirectoryPaths.has(node.path) && node.loadState === 'loaded'}
-            isLoading={
-              folderId ? loadingFiles.has(encodeFileSelection(folderId, node.path)) : false
-            }
-            isLoadingForSelection={isLoadingForSelection && loadingPathForSelection === node.path}
-            key={node.path}
-            node={node}
-            onLoadChildren={onLoadChildren}
-            onSelectFolderRecursively={onSelectFolderRecursively}
-            onToggleDirectoryExpansion={handleToggleDirectoryExpansion}
-            onToggleFileSelection={handleToggleFileSelection}
-            style={{
-              position: 'absolute',
-              top: i * ROW_HEIGHT,
-              width: '100%',
-              height: ROW_HEIGHT,
-            }}
-          />
-        );
-      }
-
-      return rows;
+    const treeRows = useMemo(() => {
+      const options: BuildFileTreeRowsOptions = {
+        folderId,
+        loadingFiles,
+        selectedFilePaths,
+        maxSelectionCount,
+        selectionModel,
+        ...(loadingPaths ? { loadingPaths } : {}),
+        ...(isLoadingForSelection !== undefined ? { isLoadingForSelection } : {}),
+        ...(loadingPathForSelection !== undefined ? { loadingPathForSelection } : {}),
+      };
+      return buildFileTreeRows(fileTree, options);
     }, [
-      visibleNodes,
-      range.start,
-      range.end,
-      expandedDirectoryPaths,
-      handleToggleDirectoryExpansion,
-      handleToggleFileSelection,
-      loadingFiles,
+      fileTree,
       folderId,
+      loadingFiles,
       loadingPaths,
-      onLoadChildren,
-      onSelectFolderRecursively,
+      selectedFilePaths,
+      maxSelectionCount,
+      selectionModel,
       isLoadingForSelection,
       loadingPathForSelection,
     ]);
 
-    // This effect will run if the onRender callback itself changes.
+    const fileNodeByPath = useMemo(() => {
+      const nodeMap = new Map<string, IFileNode>();
+      for (const row of treeRows) {
+        nodeMap.set(row.id, row.data.fileNode);
+      }
+      return nodeMap;
+    }, [treeRows]);
+
+    const handleToggleExpand = useCallback(
+      (nodeId: string) => {
+        const node = fileNodeByPath.get(nodeId);
+        if (!node || node.type !== 'directory') {
+          return;
+        }
+
+        const toggleDirectory = async () => {
+          const isExpanded = expandedDirectoryPaths.has(node.path);
+          const isChildrenLoading =
+            (loadingPaths?.has(node.path) ?? false) || node.loadState === 'loading';
+
+          if (isExpanded) {
+            if (isChildrenLoading && cancelChildLoading) {
+              cancelChildLoading(node.path);
+            }
+            toggleDirectoryExpansion(node.path);
+            return;
+          }
+
+          const needsLoad =
+            (node.loadState === 'unloaded' || node.loadState === undefined) && onLoadChildren;
+          if (needsLoad) {
+            await onLoadChildren(node.path);
+          }
+          toggleDirectoryExpansion(node.path);
+        };
+
+        void toggleDirectory();
+      },
+      [
+        fileNodeByPath,
+        expandedDirectoryPaths,
+        loadingPaths,
+        cancelChildLoading,
+        toggleDirectoryExpansion,
+        onLoadChildren,
+      ]
+    );
+
+    const handleNodeSelection = useCallback(
+      (rowData: FileTreeRowData) => {
+        if (rowData.wouldExceedLimit || !folderId) {
+          return;
+        }
+
+        const node = rowData.fileNode;
+        if (node.type !== 'directory') {
+          toggleSelectedFile(folderId, node.path);
+          return;
+        }
+
+        const needsRecursiveLoad =
+          node.loadState !== 'loaded' ||
+          (node.children?.some(
+            (child) => child.type === 'directory' && child.loadState !== 'loaded'
+          ) ??
+            false);
+
+        if (needsRecursiveLoad && onSelectFolderRecursively) {
+          void onSelectFolderRecursively(node);
+          return;
+        }
+
+        const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
+        if (allFilePaths.length === 0) {
+          return;
+        }
+
+        const selectedCount = countSelectedInDirectory(selectedFilePaths, folderId, node.path);
+        const isFullySelected = selectedCount === allFilePaths.length;
+        if (isFullySelected) {
+          removeMultipleSelectedFiles(folderId, allFilePaths);
+          return;
+        }
+
+        const unselectedPaths = allFilePaths.filter(
+          (path) => !isPathSelectedInFolder(selectedFilePaths, folderId, path)
+        );
+        const availableSlots = Math.max(0, maxSelectionCount - selectedFilePaths.size);
+        const pathsToSelect = unselectedPaths.slice(0, availableSlots);
+        if (pathsToSelect.length > 0) {
+          addMultipleSelectedFiles(folderId, pathsToSelect);
+        }
+      },
+      [
+        folderId,
+        toggleSelectedFile,
+        onSelectFolderRecursively,
+        selectedFilePaths,
+        removeMultipleSelectedFiles,
+        maxSelectionCount,
+        addMultipleSelectedFiles,
+      ]
+    );
+
+    const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(
+      () => [
+        {
+          id: 'name',
+          header: <span className="sr-only">File Tree</span>,
+          headerClassName: '!h-0 !border-0 !p-0 [&>div]:hidden',
+          className: '!p-0',
+          cell: ({ node, isExpanded }) => {
+            const rowData = node.data;
+            const fileNode = rowData.fileNode;
+
+            return (
+              <div className="flex min-w-0 flex-1 items-center">
+                <div
+                  className="mr-2 flex w-4 items-center justify-center"
+                  title={
+                    rowData.isLoadingForSelection
+                      ? 'Loading folder contents...'
+                      : rowData.wouldExceedLimit
+                        ? `Cannot select more than ${maxSelectionCount} files`
+                        : undefined
+                  }
+                >
+                  {rowData.isLoadingForSelection ? (
+                    <Loader2
+                      aria-label={`Loading ${fileNode.name} for selection`}
+                      className="h-4 w-4 animate-spin text-blue-500"
+                    />
+                  ) : (
+                    <LightweightCheckbox
+                      aria-label={`Select ${fileNode.name}`}
+                      checked={rowData.checkboxState}
+                      className="h-4 w-4"
+                      disabled={rowData.wouldExceedLimit}
+                      id={fileNode.path}
+                      onCheckedChange={() => handleNodeSelection(rowData)}
+                    />
+                  )}
+                </div>
+
+                <div className="mr-2 flex w-4 items-center justify-center">
+                  <TreeNodeIcon
+                    isExpanded={isExpanded}
+                    isLoading={rowData.isFileLoading}
+                    nodeName={fileNode.name}
+                    nodeType={fileNode.type}
+                  />
+                </div>
+
+                <div className="flex min-w-0 flex-1 items-center">
+                  {fileNode.isSymbolicLink && (
+                    <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
+                  )}
+                  <span className="truncate text-sm leading-4">{fileNode.name}</span>
+                  {rowData.isRuleSelected && (
+                    <Sparkles
+                      aria-label="Selected by rule"
+                      className="ml-1.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500 dark:text-amber-400"
+                    />
+                  )}
+                  {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
+                    <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
+                  )}
+                </div>
+              </div>
+            );
+          },
+        },
+      ],
+      [handleNodeSelection, maxSelectionCount]
+    );
+
     useEffect(() => {
       onRender?.();
     }, [onRender]);
-
-    // No cleanup needed anymore
 
     return (
       <div
         className="relative h-full min-h-0 flex-1 overflow-y-auto"
         data-testid="file-tree-scroll-container"
-        ref={containerRef}
       >
-        <div
-          aria-label="File tree"
-          className="file-tree relative"
-          data-testid="file-tree"
-          role="tree"
-          style={{ height: totalHeight }}
-        >
-          {renderedRows}
+        <div className="relative h-full" data-testid="file-tree">
+          <TreeTable
+            ariaLabel="File tree"
+            className="file-tree h-full min-h-0 flex-1"
+            columns={columns}
+            expandedIds={expandedDirectoryPaths}
+            maxHeight="none"
+            nodes={treeRows}
+            onToggleExpand={handleToggleExpand}
+            overscan={10}
+            rowHeight={ROW_HEIGHT}
+            selectionMode="none"
+            windowingStrategy="virtual"
+          />
         </div>
       </div>
     );
@@ -237,7 +557,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
 OptimizedFileTree.displayName = 'OptimizedFileTree';
 
-// Lightweight memoization: rely on reference equality to avoid O(n) comparisons
 const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps) => {
   if (prevProps.folderId !== nextProps.folderId) {
     return false;
@@ -251,7 +570,6 @@ const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps)
   if (prevProps.loadingFiles !== nextProps.loadingFiles) {
     return false;
   }
-  // Include lazy loading props in comparison
   if (prevProps.loadingPaths !== nextProps.loadingPaths) {
     return false;
   }
@@ -261,7 +579,6 @@ const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps)
   if (prevProps.cancelChildLoading !== nextProps.cancelChildLoading) {
     return false;
   }
-  // Include recursive selection props in comparison
   if (prevProps.onSelectFolderRecursively !== nextProps.onSelectFolderRecursively) {
     return false;
   }

@@ -69,10 +69,8 @@ describe('OptimizedFileTree', () => {
       </FileExplorerTestWrapper>
     );
 
-    const tree = screen.getByTestId('file-tree');
-    expect(tree).toBeInTheDocument();
-    expect(tree).toHaveAttribute('role', 'tree');
-    expect(tree).toHaveAttribute('aria-label', 'File tree');
+    const treeGrid = screen.getByRole('treegrid', { name: 'File tree' });
+    expect(treeGrid).toBeInTheDocument();
   });
 
   it('calls onRender callback when provided', () => {
@@ -99,9 +97,7 @@ describe('OptimizedFileTree', () => {
       </FileExplorerTestWrapper>
     );
 
-    const tree = screen.getByTestId('file-tree');
-    expect(tree).toBeInTheDocument();
-    expect(tree.children.length).toBe(0);
+    expect(screen.getByText('No data available')).toBeInTheDocument();
   });
 
   it('applies correct classes to tree container', () => {
@@ -111,8 +107,8 @@ describe('OptimizedFileTree', () => {
       </FileExplorerTestWrapper>
     );
 
-    const tree = screen.getByTestId('file-tree');
-    expect(tree).toHaveClass('relative', 'file-tree');
+    const treeGrid = screen.getByRole('treegrid', { name: 'File tree' });
+    expect(treeGrid).toHaveClass('file-tree');
   });
 
   it('renders with loading files set', () => {

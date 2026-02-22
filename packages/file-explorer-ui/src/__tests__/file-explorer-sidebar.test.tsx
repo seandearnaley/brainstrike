@@ -58,7 +58,7 @@ describe('FileExplorerSidebar', () => {
     });
 
     // Check that the file tree is rendered
-    expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
+    expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
   });
 
   it('displays "No directory selected" when rootDirectoryHandle is null', () => {
