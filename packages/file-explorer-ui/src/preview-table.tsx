@@ -692,6 +692,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   }, []);
 
   if (groupingConfig === 'none') {
+    // TODO(BST-312): converge the ungrouped path onto TreeTable once parity and
+    // migration-risk constraints for ungrouped headers/rows are fully closed.
     return (
       <div className="flex-1 overflow-auto">
         <div className="min-w-full">

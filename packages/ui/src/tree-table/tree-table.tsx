@@ -40,6 +40,9 @@ const MAX_WARNED_CYCLE_NODE_IDS = 1000;
 const DEFAULT_PAGE_SIZE = 50;
 export const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
 const MIN_FALLBACK_VIRTUAL_ROWS = 1;
+// Performance-only fallback cache keyed by table container element.
+// WeakMap ensures container entries are reclaimed after unmount, and fallback
+// misses rebuild the per-container map to drop stale row element references.
 const rowFallbackLookupCache = new WeakMap<HTMLElement, Map<string, HTMLTableRowElement>>();
 
 /**

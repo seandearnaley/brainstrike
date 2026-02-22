@@ -674,6 +674,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const handleNodeSelectionRef = useRef(handleNodeSelection);
     handleNodeSelectionRef.current = handleNodeSelection;
 
+    // Keep column identity stable across selection toggles; per-row selection
+    // reads/actions flow through ref-backed latest callbacks inside cell renderers.
     const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(
       () => [
         {
