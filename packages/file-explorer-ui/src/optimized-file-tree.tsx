@@ -337,8 +337,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // Dedupe in-flight directory loads between rapid expand interactions.
     // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
+    const isMountedRef = useRef(true);
     useEffect(() => {
+      isMountedRef.current = true;
       return () => {
+        isMountedRef.current = false;
         pendingChildLoadPathsRef.current.clear();
       };
     }, []);
@@ -390,7 +393,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       [loadingPaths, store]
     );
 
-    const shouldAbortCollapsedToggle = useCallback(
+    const shouldSkipCollapsedExpansion = useCallback(
       (node: IFileNode, state: DirectoryToggleState): boolean => {
         if (!state.isChildrenLoading) {
           return false;
@@ -403,36 +406,55 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       [cancelChildLoading]
     );
 
+    const collapseExpandedDirectory = useCallback(
+      (node: IFileNode, state: DirectoryToggleState): void => {
+        if (state.isChildrenLoading && cancelChildLoading) {
+          cancelChildLoading(node.path);
+        }
+        toggleDirectoryExpansion(node.path);
+      },
+      [cancelChildLoading, toggleDirectoryExpansion]
+    );
+
+    const loadChildrenForExpansion = useCallback(
+      async (node: IFileNode): Promise<boolean> => {
+        const needsLoad =
+          (node.loadState === 'unloaded' || node.loadState === undefined) && onLoadChildren;
+        if (!needsLoad) {
+          return true;
+        }
+
+        pendingChildLoadPathsRef.current.add(node.path);
+        try {
+          await onLoadChildren(node.path);
+          return true;
+        } catch {
+          return false;
+        } finally {
+          pendingChildLoadPathsRef.current.delete(node.path);
+        }
+      },
+      [onLoadChildren]
+    );
+
     const toggleDirectoryNode = useCallback(
       async (node: IFileNode, state: DirectoryToggleState): Promise<void> => {
         if (state.isExpanded) {
-          if (state.isChildrenLoading && cancelChildLoading) {
-            cancelChildLoading(node.path);
-          }
-          toggleDirectoryExpansion(node.path);
+          collapseExpandedDirectory(node, state);
           return;
         }
 
-        if (shouldAbortCollapsedToggle(node, state)) {
+        if (shouldSkipCollapsedExpansion(node, state)) {
           return;
         }
 
-        const needsLoad =
-          (node.loadState === 'unloaded' || node.loadState === undefined) && onLoadChildren;
-        let loadSucceeded = true;
-        if (needsLoad) {
-          pendingChildLoadPathsRef.current.add(node.path);
-          try {
-            await onLoadChildren(node.path);
-          } catch {
-            loadSucceeded = false;
-          } finally {
-            pendingChildLoadPathsRef.current.delete(node.path);
-          }
-        }
-
+        const loadSucceeded = await loadChildrenForExpansion(node);
         if (!loadSucceeded) {
           // Preserve collapsed state if child loading fails.
+          return;
+        }
+
+        if (!isMountedRef.current) {
           return;
         }
 
@@ -441,9 +463,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         }
       },
       [
-        cancelChildLoading,
-        onLoadChildren,
-        shouldAbortCollapsedToggle,
+        collapseExpandedDirectory,
+        loadChildrenForExpansion,
+        shouldSkipCollapsedExpansion,
         store,
         toggleDirectoryExpansion,
       ]

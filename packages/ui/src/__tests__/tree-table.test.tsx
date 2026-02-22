@@ -276,7 +276,7 @@ describe('TreeTable', () => {
         const nodes: TreeNode<TestData>[] = [
           createTestNode('1', 'File 1'),
           createTestNode('2', 'File 2'),
-          createTestNode('3]\n"\\\\weird', 'File 3'),
+          createTestNode('3[]\n"\\\\weird', 'File 3'),
         ];
 
         render(
@@ -350,6 +350,30 @@ describe('TreeTable', () => {
 
       expect(screen.getByLabelText('Go to next page')).toBeInTheDocument();
       expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+    });
+
+    it('falls back to default threshold when autoPagedRowThreshold is NaN', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          autoPagedRowThreshold={Number.NaN}
+          autoWindowingContext="search"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2 }}
+          windowingStrategy="auto"
+        />
+      );
+
+      expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
+      expect(screen.getByText('File 3')).toBeInTheDocument();
     });
   });
 
