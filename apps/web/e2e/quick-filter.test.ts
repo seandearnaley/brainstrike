@@ -49,10 +49,6 @@ test.describe('Quick Filter and Tree Expansion', () => {
       .toBeGreaterThan(0);
     await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
 
-    // Debug: Let's see what files are actually visible
-    const visibleFiles = await fileTree.locator('text=/\\.(tsx?|jsx?|css|md)$/').allTextContents();
-    console.log('Visible files after filtering for "Button":', visibleFiles);
-
     // Check that the target file is visible (Button.tsx is shown)
     // Note: The filter shows directories containing the match, so sibling files in the same directory
     // as Button.tsx (like Input.tsx, helpers.ts, index.ts) will also be visible.

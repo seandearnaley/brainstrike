@@ -396,6 +396,56 @@ describe('TreeTable', () => {
       }
     });
 
+    it('falls back to row-scan lookup when node-id selector misses', async () => {
+      const scrollIntoViewSpy = vi.fn();
+      const originalScrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoViewSpy;
+      const originalQuerySelector = HTMLElement.prototype.querySelector;
+      const querySelectorSpy = vi
+        .spyOn(HTMLElement.prototype, 'querySelector')
+        .mockImplementation(function querySelectorWithForcedMiss(
+          this: HTMLElement,
+          selectors: string
+        ) {
+          if (selectors.startsWith('[data-node-id=')) {
+            return null;
+          }
+          return originalQuerySelector.call(this, selectors);
+        });
+
+      try {
+        const nodes: TreeNode<TestData>[] = [
+          createTestNode('1', 'File 1'),
+          createTestNode('2', 'File 2'),
+          createTestNode('3', 'File 3'),
+        ];
+
+        render(
+          <TreeTable
+            columns={testColumns}
+            expandedIds={new Set()}
+            nodes={nodes}
+            onToggleExpand={() => {}}
+            pagination={{ pageSize: 2 }}
+            windowingStrategy="paged"
+          />
+        );
+
+        const tree = screen.getByRole('treegrid');
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // activate -> File 1
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 2
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 3 (next page)
+
+        await waitFor(() => {
+          expect(screen.getByText('File 3')).toBeInTheDocument();
+          expect(scrollIntoViewSpy).toHaveBeenCalled();
+        });
+      } finally {
+        querySelectorSpy.mockRestore();
+        Element.prototype.scrollIntoView = originalScrollIntoView;
+      }
+    });
+
     it('keeps auto strategy virtualized in browse mode', () => {
       const nodes: TreeNode<TestData>[] = [
         createTestNode('1', 'File 1'),

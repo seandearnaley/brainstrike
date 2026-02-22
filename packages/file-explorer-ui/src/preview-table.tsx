@@ -56,6 +56,7 @@ type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
 const EMPTY_EXPANDED_IDS = new Set<string>();
+const NOOP_TOGGLE_EXPAND = (): void => {};
 
 /**
  * Ref-backed callback wrapper for stable callback identity.
@@ -166,6 +167,8 @@ function createGroupTreeNode(
   group: GroupedData<TableRowData>,
   groupKey: string
 ): TreeNode<PreviewTreeNodeData> {
+  // Group headers own expand/collapse semantics via GroupHeaderSummary button aria-expanded.
+  // Rows stay non-hierarchical (`hasChildren: false`) in this flat migration projection.
   return {
     id: `group:${groupKey}`,
     type: 'preview-group',
@@ -688,10 +691,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     return '';
   }, []);
 
-  // Group rows are flattened and always visible in this mode; expansion is intentionally disabled.
-  // Render as `grid` instead of `treegrid` to avoid implying a hierarchical ARIA model.
-  const noopToggleExpand = useCallback(() => {}, []);
-
   if (groupingConfig === 'none') {
     return (
       <div className="flex-1 overflow-auto">
@@ -780,6 +779,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     );
   }
 
+  // Group rows are flattened and always visible in this mode; expansion is intentionally disabled.
+  // Render as `grid` instead of `treegrid` to avoid implying a hierarchical ARIA model.
   return (
     <div className="flex min-h-0 flex-1 overflow-auto">
       <TreeTable
@@ -790,7 +791,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         expandedIds={EMPTY_EXPANDED_IDS}
         maxHeight="none"
         nodes={groupedTreeNodes}
-        onToggleExpand={noopToggleExpand}
+        onToggleExpand={NOOP_TOGGLE_EXPAND}
         rowClassName={rowClassName}
         selectionMode="none"
         windowingStrategy="none"

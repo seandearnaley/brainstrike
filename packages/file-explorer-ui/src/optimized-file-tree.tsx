@@ -54,6 +54,7 @@ interface FileTreeRowData {
 }
 
 interface BuildFileTreeRowsOptions {
+  expandedDirectoryPaths: Set<string>;
   folderId: string;
   loadingFiles: Set<string>;
   loadingPaths?: Set<string>;
@@ -81,6 +82,7 @@ interface DirectoryToggleState {
 
 const logger = createLogger('OptimizedFileTree');
 const MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES = 50_000;
+const SELECTED_PATH_ANCESTOR_CACHE_RETAIN_ENTRIES = 25_000;
 
 function incrementDirectoryCount(
   directoryCounts: Map<string, number>,
@@ -89,12 +91,35 @@ function incrementDirectoryCount(
   directoryCounts.set(directoryPath, (directoryCounts.get(directoryPath) ?? 0) + 1);
 }
 
+function evictOldestAncestorCacheEntries(selectedPathAncestorCache: Map<string, string[]>): void {
+  if (selectedPathAncestorCache.size < MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES) {
+    return;
+  }
+
+  // Keep the most recently touched half to avoid a full cache cliff.
+  let entriesToEvict = Math.max(
+    1,
+    selectedPathAncestorCache.size - SELECTED_PATH_ANCESTOR_CACHE_RETAIN_ENTRIES
+  );
+  while (entriesToEvict > 0) {
+    const oldestEntry = selectedPathAncestorCache.keys().next();
+    if (oldestEntry.done) {
+      break;
+    }
+    selectedPathAncestorCache.delete(oldestEntry.value);
+    entriesToEvict -= 1;
+  }
+}
+
 function getAncestorDirectoryPaths(
   filePath: string,
   selectedPathAncestorCache: Map<string, string[]>
 ): string[] {
   const cachedAncestors = selectedPathAncestorCache.get(filePath);
   if (cachedAncestors) {
+    // Refresh insertion order so frequent paths survive bounded eviction.
+    selectedPathAncestorCache.delete(filePath);
+    selectedPathAncestorCache.set(filePath, cachedAncestors);
     return cachedAncestors;
   }
 
@@ -106,9 +131,7 @@ function getAncestorDirectoryPaths(
   }
 
   // Guard long-running sessions against unbounded path growth.
-  if (selectedPathAncestorCache.size >= MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES) {
-    selectedPathAncestorCache.clear();
-  }
+  evictOldestAncestorCacheEntries(selectedPathAncestorCache);
   selectedPathAncestorCache.set(filePath, ancestorPaths);
   return ancestorPaths;
 }
@@ -271,9 +294,16 @@ function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): 
   };
 }
 
-function addChildrenToStack(entry: StackEntry, stack: StackEntry[]): void {
+function addChildrenToStack(
+  entry: StackEntry,
+  stack: StackEntry[],
+  expandedDirectoryPaths: Set<string>
+): void {
   const { node, depth } = entry;
   if (node.type !== 'directory' || !node.children || node.children.length === 0) {
+    return;
+  }
+  if (!expandedDirectoryPaths.has(node.path)) {
     return;
   }
 
@@ -295,6 +325,7 @@ function buildFileTreeRows(
   options: BuildFileTreeRowsOptions
 ): TreeNode<FileTreeRowData>[] {
   const rows: TreeNode<FileTreeRowData>[] = [];
+  const { expandedDirectoryPaths } = options;
   const stack: StackEntry[] = fileTree
     .slice()
     .reverse()
@@ -328,8 +359,8 @@ function buildFileTreeRows(
       isLoading: rowData.isChildrenLoading,
     });
 
-    // Build the full tree shape; TreeTable applies expand/collapse visibility from expandedIds.
-    addChildrenToStack(entry, stack);
+    // Only materialize expanded subtrees to avoid rematerializing collapsed descendants.
+    addChildrenToStack(entry, stack, expandedDirectoryPaths);
   }
 
   return rows;
@@ -420,6 +451,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // do not trigger full tree row reconstruction for large trees.
     const treeRows = useMemo(() => {
       const options: BuildFileTreeRowsOptions = {
+        expandedDirectoryPaths,
         folderId,
         loadingFiles,
         selectionModel,
@@ -430,6 +462,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       return buildFileTreeRows(fileTree, options);
     }, [
       fileTree,
+      expandedDirectoryPaths,
       folderId,
       loadingFiles,
       loadingPaths,

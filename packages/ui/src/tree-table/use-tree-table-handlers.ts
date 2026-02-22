@@ -60,13 +60,13 @@ export function useTreeTableHandlers<T>({
     let anchorId: string | undefined;
     let bestIndex = Number.POSITIVE_INFINITY;
 
-    for (const selectedId of multiSelectedIds) {
-      const index = rowIndexById.get(selectedId);
+    for (const candidateId of multiSelectedIds) {
+      const index = rowIndexById.get(candidateId);
       if (index === undefined || index >= bestIndex) {
         continue;
       }
       bestIndex = index;
-      anchorId = selectedId;
+      anchorId = candidateId;
     }
 
     return anchorId;

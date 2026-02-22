@@ -40,6 +40,7 @@ const MAX_WARNED_CYCLE_NODE_IDS = 1000;
 const DEFAULT_PAGE_SIZE = 50;
 export const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
 const MIN_FALLBACK_VIRTUAL_ROWS = 1;
+const rowFallbackLookupCache = new WeakMap<HTMLElement, Map<string, HTMLTableRowElement>>();
 
 /**
  * Maps our SortDirection to ARIA sort values.
@@ -95,27 +96,45 @@ function resolveWindowingStrategy({
   return rowCount >= Math.max(1, normalizedThreshold) ? 'paged' : 'virtual';
 }
 
+function buildFallbackRowLookup(container: HTMLElement): Map<string, HTMLTableRowElement> {
+  const lookup = new Map<string, HTMLTableRowElement>();
+  const rows = container.querySelectorAll<HTMLTableRowElement>('[data-node-id]');
+  for (const row of rows) {
+    const nodeId = row.getAttribute('data-node-id');
+    if (nodeId) {
+      lookup.set(nodeId, row);
+    }
+  }
+  return lookup;
+}
+
 function findRowElementByNodeId(
   container: HTMLElement,
   nodeId: string
 ): HTMLTableRowElement | null {
   const escapedNodeId = CSS.escape(nodeId);
-  const directMatch = container.querySelector<HTMLTableRowElement>(
-    `[data-node-id=${escapedNodeId}]`
-  );
+  let directMatch: HTMLTableRowElement | null = null;
+  try {
+    directMatch = container.querySelector<HTMLTableRowElement>(`[data-node-id=${escapedNodeId}]`);
+  } catch {
+    directMatch = null;
+  }
   if (directMatch) {
     return directMatch;
   }
 
   // JSDOM and browser selector engines can diverge on edge-case escapes.
-  // Keep a narrow fallback for correctness in focus-navigation code paths.
-  const rows = container.querySelectorAll<HTMLTableRowElement>('[data-node-id]');
-  for (const row of rows) {
-    if (row.getAttribute('data-node-id') === nodeId) {
-      return row;
-    }
+  // Keep a fallback for correctness, but cache scan results by container so
+  // paged keyboard navigation avoids repeated O(n) DOM traversal.
+  const cachedRows = rowFallbackLookupCache.get(container);
+  const cachedMatch = cachedRows?.get(nodeId);
+  if (cachedMatch?.isConnected) {
+    return cachedMatch;
   }
-  return null;
+
+  const refreshedLookup = buildFallbackRowLookup(container);
+  rowFallbackLookupCache.set(container, refreshedLookup);
+  return refreshedLookup.get(nodeId) ?? null;
 }
 
 interface BuildTablePaginationPropsOptions {
@@ -277,14 +296,9 @@ function resolveRenderedVirtualItems(
 function useResolvedPageSize(
   pagination: TreeTableProps<unknown>['pagination']
 ): [number, React.Dispatch<React.SetStateAction<number>>] {
-  const [internalPageSize, setInternalPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
-
-  React.useEffect(() => {
-    if (pagination?.pageSize !== undefined) {
-      setInternalPageSize(pagination.pageSize);
-    }
-  }, [pagination?.pageSize]);
-
+  const [internalPageSize, setInternalPageSize] = React.useState<number>(
+    () => pagination?.pageSize ?? DEFAULT_PAGE_SIZE
+  );
   return [pagination?.pageSize ?? internalPageSize, setInternalPageSize];
 }
 
