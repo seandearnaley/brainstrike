@@ -89,7 +89,21 @@ function resolveWindowingStrategy({
 }
 
 function getNodeSelectorValue(nodeId: string): string {
-  return nodeId.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+  return Array.from(nodeId)
+    .map((char) => {
+      const codePoint = char.codePointAt(0);
+      if (codePoint === undefined) {
+        return '';
+      }
+      if (char === '"' || char === '\\' || char === ']') {
+        return `\\${char}`;
+      }
+      if (codePoint <= 0x1f || codePoint === 0x7f) {
+        return `\\${codePoint.toString(16)} `;
+      }
+      return char;
+    })
+    .join('');
 }
 
 interface BuildTablePaginationPropsOptions {
