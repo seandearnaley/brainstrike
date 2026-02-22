@@ -531,8 +531,6 @@ export function TreeTable<T>({
       }
 
       rowVirtualizer.scrollToIndex(index, { align: 'auto', behavior: 'auto' });
-        rowVirtualizer.scrollToIndex(index, { align: 'auto', behavior: 'auto' });
-      }
     },
     [
       indexMap,
