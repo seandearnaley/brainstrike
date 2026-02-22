@@ -105,6 +105,20 @@ describe('OptimizedFileTree', () => {
     });
   });
 
+  it('updates visible file checkbox state after selection changes', () => {
+    render(
+      <FileExplorerTestWrapper>
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    const fileCheckbox = screen.getByLabelText('Select test.txt');
+    expect(fileCheckbox).not.toBeChecked();
+
+    fireEvent.click(fileCheckbox);
+    expect(fileCheckbox).toBeChecked();
+  });
+
   it('calls onRender callback when provided', () => {
     const mockOnRender = vi.fn();
 

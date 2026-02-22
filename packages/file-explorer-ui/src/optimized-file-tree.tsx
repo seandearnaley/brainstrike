@@ -6,7 +6,6 @@ import {
   type TreeTableColumn,
 } from '@brainstrike/ui';
 import {
-  countSelectedInDirectory,
   createLogger,
   decodeFileSelection,
   encodeFileSelection,
@@ -53,17 +52,12 @@ interface FileTreeRowData {
   isFileLoading: boolean;
   isLoadingForSelection: boolean;
   isRuleSelected: boolean;
-  checkboxState: boolean | 'indeterminate';
-  wouldExceedLimit: boolean;
 }
 
 interface BuildFileTreeRowsOptions {
   folderId: string;
   loadingFiles: Set<string>;
   loadingPaths?: Set<string>;
-  selectedFilePaths: Set<string>;
-  selectedDirectoryCounts: Map<string, number>;
-  maxSelectionCount: number;
   selectionModel: FileExplorerState['selectionModel'];
   isLoadingForSelection?: boolean;
   loadingPathForSelection?: string | null;
@@ -239,20 +233,10 @@ function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): 
     folderId,
     loadingFiles,
     loadingPaths,
-    selectedFilePaths,
-    selectedDirectoryCounts,
-    maxSelectionCount,
     selectionModel,
     isLoadingForSelection,
     loadingPathForSelection,
   } = options;
-  const { checkboxState, wouldExceedLimit } = computeNodeSelectionState(
-    node,
-    folderId,
-    selectedFilePaths,
-    selectedDirectoryCounts,
-    maxSelectionCount
-  );
 
   return {
     fileNode: node,
@@ -260,8 +244,6 @@ function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): 
     isFileLoading: isNodeFileLoading(node, folderId, loadingFiles),
     isLoadingForSelection: Boolean(isLoadingForSelection && loadingPathForSelection === node.path),
     isRuleSelected: isNodeRuleSelected(node, selectionModel),
-    checkboxState,
-    wouldExceedLimit,
   };
 }
 
@@ -396,14 +378,15 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       };
     }, []);
 
+    const selectedDirectoryCounts = useMemo(
+      () => buildSelectedDirectoryCounts(selectedFilePaths, folderId),
+      [selectedFilePaths, folderId]
+    );
+
     const treeRows = useMemo(() => {
-      const selectedDirectoryCounts = buildSelectedDirectoryCounts(selectedFilePaths, folderId);
       const options: BuildFileTreeRowsOptions = {
         folderId,
         loadingFiles,
-        selectedFilePaths,
-        selectedDirectoryCounts,
-        maxSelectionCount,
         selectionModel,
         ...(loadingPaths ? { loadingPaths } : {}),
         ...(isLoadingForSelection !== undefined ? { isLoadingForSelection } : {}),
@@ -415,8 +398,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       folderId,
       loadingFiles,
       loadingPaths,
-      selectedFilePaths,
-      maxSelectionCount,
       selectionModel,
       isLoadingForSelection,
       loadingPathForSelection,
@@ -542,13 +523,29 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       [fileNodeByPath, getDirectoryToggleState, toggleDirectoryNode]
     );
 
+    const getNodeSelectionState = useCallback(
+      (node: IFileNode): NodeSelectionState =>
+        computeNodeSelectionState(
+          node,
+          folderId,
+          selectedFilePaths,
+          selectedDirectoryCounts,
+          maxSelectionCount
+        ),
+      [folderId, selectedFilePaths, selectedDirectoryCounts, maxSelectionCount]
+    );
+
     const handleNodeSelection = useCallback(
-      (rowData: FileTreeRowData) => {
-        if (rowData.wouldExceedLimit || !folderId) {
+      (node: IFileNode) => {
+        if (!folderId) {
           return;
         }
 
-        const node = rowData.fileNode;
+        const selectionState = getNodeSelectionState(node);
+        if (selectionState.wouldExceedLimit) {
+          return;
+        }
+
         if (node.type !== 'directory') {
           toggleSelectedFile(folderId, node.path);
           return;
@@ -571,7 +568,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
 
-        const selectedCount = countSelectedInDirectory(selectedFilePaths, folderId, node.path);
+        const selectedCount = selectedDirectoryCounts.get(node.path) ?? 0;
         const isFullySelected = selectedCount === allFilePaths.length;
         if (isFullySelected) {
           removeMultipleSelectedFiles(folderId, allFilePaths);
@@ -589,9 +586,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       },
       [
         folderId,
+        getNodeSelectionState,
         toggleSelectedFile,
         onSelectFolderRecursively,
         selectedFilePaths,
+        selectedDirectoryCounts,
         removeMultipleSelectedFiles,
         maxSelectionCount,
         addMultipleSelectedFiles,
@@ -606,6 +605,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           cell: ({ node, isExpanded }) => {
             const rowData = node.data;
             const fileNode = rowData.fileNode;
+            const selectionState = getNodeSelectionState(fileNode);
 
             return (
               <div className="flex min-w-0 flex-1 items-center">
@@ -614,7 +614,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
                   title={
                     rowData.isLoadingForSelection
                       ? 'Loading folder contents...'
-                      : rowData.wouldExceedLimit
+                      : selectionState.wouldExceedLimit
                         ? `Cannot select more than ${maxSelectionCount} files`
                         : undefined
                   }
@@ -627,11 +627,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
                   ) : (
                     <LightweightCheckbox
                       aria-label={`Select ${fileNode.name}`}
-                      checked={rowData.checkboxState}
+                      checked={selectionState.checkboxState}
                       className="h-4 w-4"
-                      disabled={rowData.wouldExceedLimit}
+                      disabled={selectionState.wouldExceedLimit}
                       id={fileNode.path}
-                      onCheckedChange={() => handleNodeSelection(rowData)}
+                      onCheckedChange={() => handleNodeSelection(fileNode)}
                     />
                   )}
                 </div>
@@ -665,7 +665,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           },
         },
       ],
-      [handleNodeSelection, maxSelectionCount]
+      [getNodeSelectionState, handleNodeSelection, maxSelectionCount]
     );
 
     useEffect(() => {
