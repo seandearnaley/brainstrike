@@ -55,15 +55,22 @@ export function useTreeTableHandlers<T>({
   rowVirtualizer,
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
   const fallbackMultiSelectAnchor = React.useMemo<string | undefined>(() => {
-    // Use the first selected row in rendered order as the shift-range anchor
-    // when focus/selectedId are absent.
-    for (const row of rows) {
-      if (multiSelectedIds.has(row.node.id)) {
-        return row.node.id;
+    // Use the selected row with the smallest rendered index as the shift-range
+    // anchor when focus/selectedId are absent. This avoids scanning all rows.
+    let anchorId: string | undefined;
+    let bestIndex = Number.POSITIVE_INFINITY;
+
+    for (const selectedId of multiSelectedIds) {
+      const index = rowIndexById.get(selectedId);
+      if (index === undefined || index >= bestIndex) {
+        continue;
       }
+      bestIndex = index;
+      anchorId = selectedId;
     }
-    return undefined;
-  }, [rows, multiSelectedIds]);
+
+    return anchorId;
+  }, [multiSelectedIds, rowIndexById]);
 
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
@@ -80,7 +87,13 @@ export function useTreeTableHandlers<T>({
 
       const start = Math.min(fromIndex, toIndex);
       const end = Math.max(fromIndex, toIndex);
-      const rangeIds = new Set(rows.slice(start, end + 1).map((r) => r.node.id));
+      const rangeIds = new Set<string>();
+      for (let index = start; index <= end; index += 1) {
+        const row = rows[index];
+        if (row) {
+          rangeIds.add(row.node.id);
+        }
+      }
       onMultiSelectChange?.(rangeIds);
     },
     [

@@ -563,6 +563,40 @@ describe('TreeTable', () => {
       expect(newSelection?.has('1')).toBe(true);
       expect(newSelection?.has('2')).toBe(true);
     });
+
+    it('handles shift range selection using lowest selected row as fallback anchor', () => {
+      const handleMultiSelect = vi.fn();
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          multiSelectedIds={new Set(['3'])}
+          nodes={nodes}
+          onMultiSelectChange={handleMultiSelect}
+          onToggleExpand={() => {}}
+          selectedId={null}
+          selectionMode="multi"
+        />
+      );
+
+      const row1 = screen.getByText('File 1').closest('tr');
+      if (row1) {
+        fireEvent.click(row1, { shiftKey: true });
+      }
+
+      const firstCall = handleMultiSelect.mock.calls[0];
+      expect(firstCall).toBeDefined();
+      const rangeSelection = firstCall?.[0] as Set<string> | undefined;
+      expect(rangeSelection?.has('1')).toBe(true);
+      expect(rangeSelection?.has('2')).toBe(true);
+      expect(rangeSelection?.has('3')).toBe(true);
+    });
   });
 
   describe('highlighting', () => {

@@ -92,13 +92,16 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     focusedIdRef.current = focusedId;
   }, [focusedId]);
 
-  const rowById = React.useMemo(() => {
-    const map = new Map<string, FlattenedRow<T>>();
-    for (const row of rows) {
-      map.set(row.node.id, row);
-    }
-    return map;
-  }, [rows]);
+  const getRowById = React.useCallback(
+    (nodeId: string): FlattenedRow<T> | null => {
+      const index = rowIndexById.get(nodeId);
+      if (index === undefined) {
+        return null;
+      }
+      return rows[index] ?? null;
+    },
+    [rowIndexById, rows]
+  );
 
   const selectRangeByIndexes = React.useCallback(
     (fromId: string, toId: string): Set<string> => {
@@ -220,7 +223,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
       return;
     }
 
-    const row = rowById.get(focusedId);
+    const row = getRowById(focusedId);
     if (!row) {
       return;
     }
@@ -240,14 +243,14 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         onToggleExpand(node.id);
       }
     }
-  }, [focusedId, rowById, onToggleExpand, getChildren, onScrollToNode]);
+  }, [focusedId, getRowById, onToggleExpand, getChildren, onScrollToNode]);
 
   const collapseOrMoveLeft = React.useCallback(() => {
     if (!focusedId) {
       return;
     }
 
-    const row = rowById.get(focusedId);
+    const row = getRowById(focusedId);
     if (!row) {
       return;
     }
@@ -265,7 +268,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         onScrollToNode?.(parentId);
       }
     }
-  }, [focusedId, rowById, nodes, onToggleExpand, getChildren, onScrollToNode]);
+  }, [focusedId, getRowById, nodes, onToggleExpand, getChildren, onScrollToNode]);
 
   const selectFocused = React.useCallback(() => {
     if (!focusedId || selectionMode === 'none') {

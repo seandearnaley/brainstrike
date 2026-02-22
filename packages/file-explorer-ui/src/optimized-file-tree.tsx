@@ -8,6 +8,7 @@ import {
 import {
   countSelectedInDirectory,
   createLogger,
+  decodeFileSelection,
   encodeFileSelection,
   memoizedFileExplorer as fileExplorer,
   isPathSelectedInFolder,
@@ -61,6 +62,7 @@ interface BuildFileTreeRowsOptions {
   loadingFiles: Set<string>;
   loadingPaths?: Set<string>;
   selectedFilePaths: Set<string>;
+  selectedDirectoryCounts: Map<string, number>;
   maxSelectionCount: number;
   selectionModel: FileExplorerState['selectionModel'];
   isLoadingForSelection?: boolean;
@@ -86,10 +88,49 @@ interface DirectoryToggleState {
 
 const logger = createLogger('OptimizedFileTree');
 
+function incrementDirectoryCount(
+  directoryCounts: Map<string, number>,
+  directoryPath: string
+): void {
+  directoryCounts.set(directoryPath, (directoryCounts.get(directoryPath) ?? 0) + 1);
+}
+
+function addSelectedFileAncestors(directoryCounts: Map<string, number>, filePath: string): void {
+  let separatorIndex = filePath.lastIndexOf('/');
+  while (separatorIndex > 0) {
+    incrementDirectoryCount(directoryCounts, filePath.slice(0, separatorIndex));
+    separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
+  }
+}
+
+function buildSelectedDirectoryCounts(
+  selectedFilePaths: Set<string>,
+  folderId: string
+): Map<string, number> {
+  const directoryCounts = new Map<string, number>();
+  if (!(folderId && selectedFilePaths.size > 0)) {
+    return directoryCounts;
+  }
+
+  for (const selectionKey of selectedFilePaths) {
+    try {
+      const decodedSelection = decodeFileSelection(selectionKey);
+      if (decodedSelection.folderId !== folderId) {
+        continue;
+      }
+      addSelectedFileAncestors(directoryCounts, decodedSelection.path);
+    } catch {
+      // Ignore invalid selection keys and continue building counts.
+    }
+  }
+
+  return directoryCounts;
+}
+
 function computeDirectoryCheckboxState(
   node: IFileNode,
   folderId: string,
-  selectedFilePaths: Set<string>
+  selectedDirectoryCounts: Map<string, number>
 ): { checkboxState: boolean | 'indeterminate'; selectedCount: number; totalFiles: number } {
   const totalFiles = fileExplorer.getFolderFileCount(node).count;
   if (totalFiles === 0) {
@@ -100,9 +141,7 @@ function computeDirectoryCheckboxState(
     };
   }
 
-  const selectedCount = folderId
-    ? countSelectedInDirectory(selectedFilePaths, folderId, node.path)
-    : 0;
+  const selectedCount = folderId ? (selectedDirectoryCounts.get(node.path) ?? 0) : 0;
   if (selectedCount === 0) {
     return {
       checkboxState: false,
@@ -137,9 +176,10 @@ function computeDirectorySelectionState(
   node: IFileNode,
   folderId: string,
   selectedFilePaths: Set<string>,
+  selectedDirectoryCounts: Map<string, number>,
   maxSelectionCount: number
 ): NodeSelectionState {
-  const directoryState = computeDirectoryCheckboxState(node, folderId, selectedFilePaths);
+  const directoryState = computeDirectoryCheckboxState(node, folderId, selectedDirectoryCounts);
   const unselectedCount = Math.max(0, directoryState.totalFiles - directoryState.selectedCount);
   return {
     checkboxState: directoryState.checkboxState,
@@ -151,13 +191,20 @@ function computeNodeSelectionState(
   node: IFileNode,
   folderId: string,
   selectedFilePaths: Set<string>,
+  selectedDirectoryCounts: Map<string, number>,
   maxSelectionCount: number
 ): NodeSelectionState {
   if (node.type === 'file') {
     return computeFileSelectionState(node, folderId, selectedFilePaths, maxSelectionCount);
   }
   if (node.type === 'directory') {
-    return computeDirectorySelectionState(node, folderId, selectedFilePaths, maxSelectionCount);
+    return computeDirectorySelectionState(
+      node,
+      folderId,
+      selectedFilePaths,
+      selectedDirectoryCounts,
+      maxSelectionCount
+    );
   }
   return {
     checkboxState: false,
@@ -193,6 +240,7 @@ function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): 
     loadingFiles,
     loadingPaths,
     selectedFilePaths,
+    selectedDirectoryCounts,
     maxSelectionCount,
     selectionModel,
     isLoadingForSelection,
@@ -202,6 +250,7 @@ function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): 
     node,
     folderId,
     selectedFilePaths,
+    selectedDirectoryCounts,
     maxSelectionCount
   );
 
@@ -348,10 +397,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     }, []);
 
     const treeRows = useMemo(() => {
+      const selectedDirectoryCounts = buildSelectedDirectoryCounts(selectedFilePaths, folderId);
       const options: BuildFileTreeRowsOptions = {
         folderId,
         loadingFiles,
         selectedFilePaths,
+        selectedDirectoryCounts,
         maxSelectionCount,
         selectionModel,
         ...(loadingPaths ? { loadingPaths } : {}),
