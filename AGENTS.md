@@ -159,6 +159,31 @@ When changing this flow, update this doc.
 
 ---
 
+## 6. TREEGRID CONVERGENCE CONTRACT
+
+File-tree and context preview tree behavior is converging on shared TreeTable primitives.
+
+Rules:
+- Use `packages/ui/src/tree-table/*` as the canonical treegrid implementation.
+- Prefer adapting feature surfaces to TreeTable API over duplicating tree render logic in app/package code.
+- Keep UX parity between:
+  - File explorer tree (left nav).
+  - Context explorer grouped preview tree (main panel).
+- Preserve WAI-ARIA treegrid semantics (`role="treegrid"`, row/level metadata, keyboard traversal).
+
+Windowing and performance:
+- Default strategy should remain `auto` unless a product requirement explicitly pins behavior.
+- For search-heavy and large result flows, paged windowing is acceptable when it produces more stable UX than virtual scrolling.
+- Avoid full-tree rematerialization during render paths; keep derived rows memoized and keyed by stable node ids.
+- Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
+
+When modifying TreeTable strategy or pagination behavior:
+- Update the related collection browser/file explorer/context preview adapters.
+- Add or update tests validating grouped slicing semantics and selection correctness.
+- Document intentional tradeoffs (e.g., paged vs virtual) in code comments or PR notes.
+
+---
+
 ## CODING STYLE AND NAMING
 
 - TypeScript strict; noImplicitAny: true.
