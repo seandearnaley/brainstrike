@@ -347,7 +347,11 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           onLoadChildren;
 
         if (needsLoad) {
-          await onLoadChildren(node.path);
+          try {
+            await onLoadChildren(node.path);
+          } catch {
+            return;
+          }
         }
 
         onToggleDirectoryExpansion(node.path);

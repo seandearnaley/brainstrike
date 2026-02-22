@@ -22,6 +22,8 @@ import type {
 export interface UseTreeKeyboardOptions<T> {
   /** Flattened rows for navigation */
   rows: FlattenedRow<T>[];
+  /** Row index lookup keyed by node id */
+  rowIndexById: Map<string, number>;
   /** All tree nodes (for parent/child lookup) */
   nodes: TreeNode<T>[];
   /** Function to get children of a node */
@@ -63,6 +65,7 @@ export interface UseTreeKeyboardOptions<T> {
 export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeKeyboardResult {
   const {
     rows,
+    rowIndexById,
     nodes,
     getChildren,
     onToggleExpand,
@@ -86,18 +89,6 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   React.useEffect(() => {
     focusedIdRef.current = focusedId;
   }, [focusedId]);
-
-  const rowIndexById = React.useMemo(() => {
-    const map = new Map<string, number>();
-    for (let index = 0; index < rows.length; index += 1) {
-      const row = rows[index];
-      if (!row) {
-        continue;
-      }
-      map.set(row.node.id, index);
-    }
-    return map;
-  }, [rows]);
 
   const rowById = React.useMemo(() => {
     const map = new Map<string, FlattenedRow<T>>();

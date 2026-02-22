@@ -131,6 +131,7 @@ function buildGroupedTreeNodes({
 }: BuildGroupedTreeNodesInput): TreeNode<PreviewTreeNodeData>[] {
   // TODO(BST-312): model grouped rows as parent/child tree nodes instead of a flat projection.
   // Current migration keeps grouped rows in a treegrid shell for shared styling and keyboard behavior.
+  // This means group and item rows both render at depth 0 until hierarchical tree rows are introduced.
   const nodes: TreeNode<PreviewTreeNodeData>[] = [];
   let visibleRowIndex = 0;
 
@@ -326,6 +327,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     ]
   );
 
+  // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
   const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(() => {
     const columns: TreeTableColumn<PreviewTreeNodeData>[] = [];
 

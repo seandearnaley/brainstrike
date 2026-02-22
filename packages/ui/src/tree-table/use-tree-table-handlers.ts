@@ -10,6 +10,7 @@ import type { FlattenedRow, SortState, TreeNode, UseTreeKeyboardResult } from '.
 
 interface UseTreeTableHandlersOptions<T> {
   rows: FlattenedRow<T>[];
+  rowIndexById: Map<string, number>;
   nodeById: Map<string, TreeNode<T>>;
   keyboard: UseTreeKeyboardResult;
   selectionMode: 'single' | 'multi' | 'none';
@@ -38,6 +39,7 @@ export interface UseTreeTableHandlersResult<T> {
 
 export function useTreeTableHandlers<T>({
   rows,
+  rowIndexById,
   nodeById,
   keyboard,
   selectionMode,
@@ -52,18 +54,6 @@ export function useTreeTableHandlers<T>({
   onRowContextMenu,
   rowVirtualizer,
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
-  const rowIndexById = React.useMemo(() => {
-    const indexById = new Map<string, number>();
-    for (let index = 0; index < rows.length; index += 1) {
-      const row = rows[index];
-      if (!row) {
-        continue;
-      }
-      indexById.set(row.node.id, index);
-    }
-    return indexById;
-  }, [rows]);
-
   const fallbackMultiSelectAnchor = React.useMemo<string | undefined>(() => {
     // Use the first selected row in rendered order as the shift-range anchor
     // when focus/selectedId are absent.

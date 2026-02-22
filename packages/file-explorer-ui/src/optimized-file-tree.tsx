@@ -411,13 +411,21 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
         const needsLoad =
           (node.loadState === 'unloaded' || node.loadState === undefined) && onLoadChildren;
+        let loadSucceeded = true;
         if (needsLoad) {
           pendingChildLoadPathsRef.current.add(node.path);
           try {
             await onLoadChildren(node.path);
+          } catch {
+            loadSucceeded = false;
           } finally {
             pendingChildLoadPathsRef.current.delete(node.path);
           }
+        }
+
+        if (!loadSucceeded) {
+          // Preserve collapsed state if child loading fails.
+          return;
         }
 
         if (!store.getState().expandedDirectoryPaths.has(node.path)) {

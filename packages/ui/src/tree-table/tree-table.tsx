@@ -558,6 +558,7 @@ export function TreeTable<T>({
     ]
   );
 
+  // `pagedRows` is intentionally included so this runs after page-slice DOM updates.
   React.useEffect(() => {
     if (isVirtualWindowing) {
       pendingPagedScrollNodeIdRef.current = null;
@@ -588,6 +589,7 @@ export function TreeTable<T>({
   // Setup keyboard navigation
   const keyboardOptions: UseTreeKeyboardOptions<T> = {
     rows,
+    rowIndexById: indexMap,
     nodes,
     getChildren,
     expandedIds,
@@ -619,6 +621,7 @@ export function TreeTable<T>({
     measureRow,
   } = useTreeTableHandlers({
     rows,
+    rowIndexById: indexMap,
     nodeById,
     keyboard,
     selectionMode,
