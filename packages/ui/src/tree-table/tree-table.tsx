@@ -96,6 +96,15 @@ function findRowElementByNodeId(
   container: HTMLElement,
   nodeId: string
 ): HTMLTableRowElement | null {
+  const escapedNodeId = CSS.escape(nodeId);
+  const directMatch = container.querySelector<HTMLTableRowElement>(
+    `[data-node-id=${escapedNodeId}]`
+  );
+  if (directMatch) {
+    return directMatch;
+  }
+
+  // Fallback for edge-case selector parsing differences with quoted/special ids.
   const rows = container.querySelectorAll<HTMLTableRowElement>('[data-node-id]');
   for (const row of rows) {
     if (row.getAttribute('data-node-id') === nodeId) {
