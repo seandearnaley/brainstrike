@@ -72,7 +72,10 @@ function resolveWindowingStrategy({
   autoWindowingContext,
   rowCount,
   autoPagedRowThreshold,
-}: ResolveWindowingStrategyOptions): 'virtual' | 'paged' {
+}: ResolveWindowingStrategyOptions): 'virtual' | 'paged' | 'none' {
+  if (strategy === 'none') {
+    return 'none';
+  }
   if (strategy === 'paged') {
     return 'paged';
   }
@@ -98,7 +101,7 @@ function findRowElementByNodeId(
 ): HTMLTableRowElement | null {
   const escapedNodeId = CSS.escape(nodeId);
   const directMatch = container.querySelector<HTMLTableRowElement>(
-    `[data-node-id=${escapedNodeId}]`
+    `[data-node-id="${escapedNodeId}"]`
   );
   if (directMatch) {
     return directMatch;
@@ -505,6 +508,7 @@ export function TreeTable<T>({
     [windowingStrategy, autoWindowingContext, rows.length, autoPagedRowThreshold]
   );
   const isVirtualWindowing = resolvedWindowingStrategy === 'virtual';
+  const isPagedWindowing = resolvedWindowingStrategy === 'paged';
 
   const [pageSize, setPageSize] = React.useState<number>(
     () => pagination?.pageSize ?? DEFAULT_PAGE_SIZE
@@ -594,9 +598,9 @@ export function TreeTable<T>({
     [rowHeight]
   );
 
-  const pagedRows = React.useMemo(
-    () => rows.slice(startIndex, endIndex),
-    [rows, startIndex, endIndex]
+  const displayedRows = React.useMemo(
+    () => (isPagedWindowing ? rows.slice(startIndex, endIndex) : rows),
+    [isPagedWindowing, rows, startIndex, endIndex]
   );
   const pendingPagedScrollNodeIdRef = React.useRef<string | null>(null);
 
@@ -640,7 +644,7 @@ export function TreeTable<T>({
         return;
       }
 
-      if (!isVirtualWindowing) {
+      if (isPagedWindowing) {
         const targetPage = Math.floor(index / Math.max(1, pageSize));
         if (targetPage !== currentPage) {
           pendingPagedScrollNodeIdRef.current = nodeId;
@@ -654,11 +658,18 @@ export function TreeTable<T>({
         return;
       }
 
+      if (!isVirtualWindowing) {
+        pendingPagedScrollNodeIdRef.current = null;
+        scrollPagedRowIntoView(nodeId);
+        return;
+      }
+
       rowVirtualizer.scrollToIndex(index, { align: 'auto', behavior: 'auto' });
     },
     [
       indexMap,
       isVirtualWindowing,
+      isPagedWindowing,
       currentPage,
       goToPage,
       pageSize,
@@ -668,9 +679,9 @@ export function TreeTable<T>({
     ]
   );
 
-  // `pagedRows` is intentionally included so this runs after page-slice DOM updates.
+  // `displayedRows` is intentionally included so this runs after page-slice DOM updates.
   React.useEffect(() => {
-    if (isVirtualWindowing) {
+    if (!isPagedWindowing) {
       pendingPagedScrollNodeIdRef.current = null;
       return;
     }
@@ -694,7 +705,7 @@ export function TreeTable<T>({
     if (scrollPagedRowIntoView(pendingNodeId)) {
       pendingPagedScrollNodeIdRef.current = null;
     }
-  }, [isVirtualWindowing, indexMap, pageSize, currentPage, pagedRows, scrollPagedRowIntoView]);
+  }, [isPagedWindowing, indexMap, pageSize, currentPage, displayedRows, scrollPagedRowIntoView]);
 
   // Setup keyboard navigation
   const keyboardOptions: UseTreeKeyboardOptions<T> = {
@@ -780,7 +791,7 @@ export function TreeTable<T>({
   const totalSize = isVirtualWindowing ? rowVirtualizer.getTotalSize() : 0;
   const paddingTop = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
   const paddingBottom = virtualItems.length > 0 ? totalSize - (virtualItems.at(-1)?.end ?? 0) : 0;
-  const shouldShowPagination = isVirtualWindowing ? false : (pagination?.showControls ?? true);
+  const shouldShowPagination = isPagedWindowing ? (pagination?.showControls ?? true) : false;
   const tablePaginationProps = React.useMemo(
     () =>
       buildTablePaginationProps({
@@ -877,7 +888,7 @@ export function TreeTable<T>({
                     />
                   );
                 })
-              : pagedRows.map((row) => (
+              : displayedRows.map((row) => (
                   <TreeTableRow
                     ariaRole={tableAriaRole}
                     checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}

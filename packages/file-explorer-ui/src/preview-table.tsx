@@ -6,7 +6,7 @@ import {
   type TreeTableColumn,
 } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import { ExtensionBadge } from './extension-badge';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
@@ -56,13 +56,6 @@ type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
 const EMPTY_EXPANDED_IDS = new Set<string>();
-const GROUPED_TREE_PAGE_SIZE = 1_000_000;
-// Keep grouped preview in a single page while still opting into paged windowing (no virtual scroll).
-// `showControls: false` hides pagination chrome; keep page size very large but bounded to avoid extreme math.
-const GROUPED_TREE_PAGINATION = {
-  pageSize: GROUPED_TREE_PAGE_SIZE,
-  showControls: false,
-} as const;
 
 /**
  * Ref-backed callback wrapper (similar to React's proposed `useEffectEvent`).
@@ -73,9 +66,7 @@ function useStableCallback<TArgs extends unknown[], TResult>(
   callback: (...args: TArgs) => TResult
 ): (...args: TArgs) => TResult {
   const callbackRef = useRef(callback);
-  useEffect(() => {
-    callbackRef.current = callback;
-  }, [callback]);
+  callbackRef.current = callback;
 
   return useCallback((...args: TArgs) => callbackRef.current(...args), []);
 }
@@ -735,10 +726,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         maxHeight="none"
         nodes={groupedTreeNodes}
         onToggleExpand={noopToggleExpand}
-        pagination={GROUPED_TREE_PAGINATION}
         rowClassName={rowClassName}
         selectionMode="none"
-        windowingStrategy="paged"
+        windowingStrategy="none"
       />
     </div>
   );

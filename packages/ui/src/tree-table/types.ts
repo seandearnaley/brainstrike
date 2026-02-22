@@ -134,8 +134,12 @@ export type SortDirection = 'asc' | 'desc' | null;
 
 /**
  * Windowing strategy for tree rows.
+ * - virtual: react-virtual renders only visible rows
+ * - paged: renders current page slice with pagination controls
+ * - auto: chooses virtual/paged based on context
+ * - none: renders all rows without virtual or paged slicing
  */
-export type TreeTableWindowingStrategy = 'virtual' | 'paged' | 'auto';
+export type TreeTableWindowingStrategy = 'virtual' | 'paged' | 'auto' | 'none';
 
 /**
  * Context hint used by auto windowing strategy.

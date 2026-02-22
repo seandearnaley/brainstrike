@@ -152,4 +152,38 @@ describe('PreviewTable grouped mode', () => {
     expect(screen.queryByRole('button', { name: /collapse group src/i })).not.toBeInTheDocument();
     expect(screen.getByText('file-one.ts')).toBeInTheDocument();
   });
+
+  it('uses the latest sort callback after rerender', () => {
+    const onSortInitial = vi.fn();
+    const onSortUpdated = vi.fn();
+    const sharedProps = {
+      columnVisibility: DEFAULT_COLUMN_VISIBILITY,
+      sortField: 'path' as const,
+      sortDirection: 'asc' as const,
+      groupingConfig: 'directory',
+      groupedData: [DEFAULT_GROUP],
+      currentPageData: [] as TableRowData[],
+      collapsedGroups: new Set<string>(),
+      previewSelections: new Set<string>(),
+      visibleFilesOnPage: [FILE_ONE, FILE_TWO],
+      onToggleSelection: vi.fn(),
+      onSelectAllOnPage: vi.fn(),
+      onDeselectAll: vi.fn(),
+      isAllSelected: vi.fn(() => false),
+      onFileClick: vi.fn(),
+      toggleGroupCollapse: vi.fn(),
+      isGroupFullySelected: () => false,
+      isGroupPartiallySelected: () => false,
+      handleGroupSelectAll: vi.fn(),
+      handleGroupDeselectAll: vi.fn(),
+      pagination: { startIndex: 0, endIndex: 20 },
+    };
+    const { rerender } = render(<PreviewTable {...sharedProps} onSort={onSortInitial} />);
+
+    rerender(<PreviewTable {...sharedProps} onSort={onSortUpdated} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sort by File Path' }));
+
+    expect(onSortUpdated).toHaveBeenCalledWith('path');
+    expect(onSortInitial).not.toHaveBeenCalled();
+  });
 });

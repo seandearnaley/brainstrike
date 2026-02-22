@@ -230,6 +230,30 @@ describe('TreeTable', () => {
       expect(screen.queryByText('File 1')).not.toBeInTheDocument();
     });
 
+    it('renders all rows without pagination controls when none strategy is active', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 1, showControls: true }}
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.getByText('File 3')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
+    });
+
     it('keeps focused rows visible after crossing a page boundary', async () => {
       const scrollIntoViewSpy = vi.fn();
       const originalScrollIntoView = Element.prototype.scrollIntoView;
