@@ -129,6 +129,8 @@ function buildGroupedTreeNodes({
   collapsedGroups,
   pagination,
 }: BuildGroupedTreeNodesInput): TreeNode<PreviewTreeNodeData>[] {
+  // TODO(BST-312): model grouped rows as parent/child tree nodes instead of a flat projection.
+  // Current migration keeps grouped rows in a treegrid shell for shared styling and keyboard behavior.
   const nodes: TreeNode<PreviewTreeNodeData>[] = [];
   let visibleRowIndex = 0;
 
@@ -287,6 +289,43 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     [columnVisibility]
   );
 
+  const renderGroupHeaderIfPrimary = useCallback(
+    (group: GroupedData<TableRowData>, columnId: GroupColumnId) => {
+      if (primaryGroupColumn !== columnId) {
+        return null;
+      }
+
+      const isCollapsed = collapsedGroups.has(String(group.groupKey));
+      return (
+        <GroupHeaderSummary
+          group={group}
+          isCollapsed={isCollapsed}
+          isFullySelected={isGroupFullySelected(group)}
+          isPartiallySelected={isGroupPartiallySelected(group)}
+          onSelectionChange={(checked) => {
+            if (checked) {
+              handleGroupSelectAll(group);
+              return;
+            }
+            handleGroupDeselectAll(group);
+          }}
+          onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
+          showInlineCheckbox={!columnVisibility.checkbox}
+        />
+      );
+    },
+    [
+      primaryGroupColumn,
+      collapsedGroups,
+      isGroupFullySelected,
+      isGroupPartiallySelected,
+      handleGroupSelectAll,
+      handleGroupDeselectAll,
+      toggleGroupCollapse,
+      columnVisibility.checkbox,
+    ]
+  );
+
   const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(() => {
     const columns: TreeTableColumn<PreviewTreeNodeData>[] = [];
 
@@ -362,29 +401,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         headerClassName: 'w-44',
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
-            if (primaryGroupColumn !== 'rootFolderId') {
-              return null;
-            }
-
-            const group = node.data.group;
-            const isCollapsed = collapsedGroups.has(String(group.groupKey));
-            return (
-              <GroupHeaderSummary
-                group={group}
-                isCollapsed={isCollapsed}
-                isFullySelected={isGroupFullySelected(group)}
-                isPartiallySelected={isGroupPartiallySelected(group)}
-                onSelectionChange={(checked) => {
-                  if (checked) {
-                    handleGroupSelectAll(group);
-                    return;
-                  }
-                  handleGroupDeselectAll(group);
-                }}
-                onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
-                showInlineCheckbox={!columnVisibility.checkbox}
-              />
-            );
+            return renderGroupHeaderIfPrimary(node.data.group, 'rootFolderId');
           }
 
           const item = node.data.item;
@@ -415,29 +432,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         className: 'px-4 py-2',
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
-            if (primaryGroupColumn !== 'path') {
-              return null;
-            }
-
-            const group = node.data.group;
-            const isCollapsed = collapsedGroups.has(String(group.groupKey));
-            return (
-              <GroupHeaderSummary
-                group={group}
-                isCollapsed={isCollapsed}
-                isFullySelected={isGroupFullySelected(group)}
-                isPartiallySelected={isGroupPartiallySelected(group)}
-                onSelectionChange={(checked) => {
-                  if (checked) {
-                    handleGroupSelectAll(group);
-                    return;
-                  }
-                  handleGroupDeselectAll(group);
-                }}
-                onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
-                showInlineCheckbox={!columnVisibility.checkbox}
-              />
-            );
+            return renderGroupHeaderIfPrimary(node.data.group, 'path');
           }
 
           const item = node.data.item;
@@ -489,29 +484,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         headerClassName: 'w-24',
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
-            if (primaryGroupColumn !== 'type') {
-              return null;
-            }
-
-            const group = node.data.group;
-            const isCollapsed = collapsedGroups.has(String(group.groupKey));
-            return (
-              <GroupHeaderSummary
-                group={group}
-                isCollapsed={isCollapsed}
-                isFullySelected={isGroupFullySelected(group)}
-                isPartiallySelected={isGroupPartiallySelected(group)}
-                onSelectionChange={(checked) => {
-                  if (checked) {
-                    handleGroupSelectAll(group);
-                    return;
-                  }
-                  handleGroupDeselectAll(group);
-                }}
-                onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
-                showInlineCheckbox={!columnVisibility.checkbox}
-              />
-            );
+            return renderGroupHeaderIfPrimary(node.data.group, 'type');
           }
 
           return <ExtensionBadge extension={node.data.item.type} />;
@@ -536,29 +509,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         headerClassName: 'w-24',
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
-            if (primaryGroupColumn !== 'tokens') {
-              return null;
-            }
-
-            const group = node.data.group;
-            const isCollapsed = collapsedGroups.has(String(group.groupKey));
-            return (
-              <GroupHeaderSummary
-                group={group}
-                isCollapsed={isCollapsed}
-                isFullySelected={isGroupFullySelected(group)}
-                isPartiallySelected={isGroupPartiallySelected(group)}
-                onSelectionChange={(checked) => {
-                  if (checked) {
-                    handleGroupSelectAll(group);
-                    return;
-                  }
-                  handleGroupDeselectAll(group);
-                }}
-                onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
-                showInlineCheckbox={!columnVisibility.checkbox}
-              />
-            );
+            return renderGroupHeaderIfPrimary(node.data.group, 'tokens');
           }
 
           const tokens = node.data.item.tokens;
@@ -591,29 +542,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         headerClassName: 'w-24',
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
-            if (primaryGroupColumn !== 'size') {
-              return null;
-            }
-
-            const group = node.data.group;
-            const isCollapsed = collapsedGroups.has(String(group.groupKey));
-            return (
-              <GroupHeaderSummary
-                group={group}
-                isCollapsed={isCollapsed}
-                isFullySelected={isGroupFullySelected(group)}
-                isPartiallySelected={isGroupPartiallySelected(group)}
-                onSelectionChange={(checked) => {
-                  if (checked) {
-                    handleGroupSelectAll(group);
-                    return;
-                  }
-                  handleGroupDeselectAll(group);
-                }}
-                onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
-                showInlineCheckbox={!columnVisibility.checkbox}
-              />
-            );
+            return renderGroupHeaderIfPrimary(node.data.group, 'size');
           }
 
           const size = node.data.item.size;
@@ -634,7 +563,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
 
     return columns;
   }, [
-    collapsedGroups,
     columnVisibility,
     handleGroupDeselectAll,
     handleGroupSelectAll,
@@ -647,10 +575,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     onSort,
     onToggleSelection,
     previewSelections,
-    primaryGroupColumn,
+    renderGroupHeaderIfPrimary,
     sortDirection,
     sortField,
-    toggleGroupCollapse,
     visibleFilesOnPage,
   ]);
 

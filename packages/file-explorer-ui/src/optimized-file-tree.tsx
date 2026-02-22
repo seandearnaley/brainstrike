@@ -331,6 +331,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const selectedFilePaths = store((s) => s.selectedFilePaths);
     const maxSelectionCount = store((s) => s.maxSelectionCount);
     const selectionModel = store((s) => s.selectionModel);
+    // Dedupe in-flight directory loads between rapid expand interactions.
+    // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
 
     const treeRows = useMemo(() => {
@@ -438,7 +440,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
         const toggleState = getDirectoryToggleState(node);
-        void toggleDirectoryNode(node, toggleState);
+        // `onLoadChildren` implementations are responsible for user-visible error handling.
+        void toggleDirectoryNode(node, toggleState).catch(() => undefined);
       },
       [fileNodeByPath, getDirectoryToggleState, toggleDirectoryNode]
     );
