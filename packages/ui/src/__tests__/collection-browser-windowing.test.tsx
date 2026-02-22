@@ -107,6 +107,22 @@ describe('CollectionBrowser windowing configuration', () => {
     });
   });
 
+  it('keeps browse context defaults for quick search results', () => {
+    render(
+      <CollectionBrowser
+        data={TEST_DATA}
+        hasSearched={true}
+        searchMode="quick"
+        semanticResults={SEMANTIC_RESULTS}
+      />
+    );
+
+    const treeTableProps = getLatestTreeTableProps();
+    expect(treeTableProps.windowingStrategy).toBe('auto');
+    expect(treeTableProps.autoWindowingContext).toBe('browse');
+    expect(treeTableProps.pagination).toBeUndefined();
+  });
+
   it('honors explicit tree windowing overrides', () => {
     render(
       <CollectionBrowser

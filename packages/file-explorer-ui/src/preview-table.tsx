@@ -661,7 +661,15 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     return '';
   }, []);
 
+  // Group rows are flattened and always visible in this mode; expansion is intentionally disabled.
   const noopToggleExpand = useCallback(() => {}, []);
+  const groupedPagination = useMemo(
+    () => ({
+      pageSize: Math.max(1, groupedTreeNodes.length),
+      showControls: false,
+    }),
+    [groupedTreeNodes.length]
+  );
 
   if (groupingConfig === 'none') {
     return (
@@ -761,10 +769,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         maxHeight="none"
         nodes={groupedTreeNodes}
         onToggleExpand={noopToggleExpand}
-        pagination={{
-          pageSize: Math.max(1, groupedTreeNodes.length),
-          showControls: false,
-        }}
+        pagination={groupedPagination}
         rowClassName={rowClassName}
         selectionMode="none"
         windowingStrategy="paged"

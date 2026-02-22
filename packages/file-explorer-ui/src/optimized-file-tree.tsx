@@ -20,7 +20,7 @@ import {
   MoreHorizontal as MoreHorizontalIcon,
   Sparkles,
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { ROW_HEIGHT } from './optimized-file-tree-row';
 
@@ -75,6 +75,12 @@ interface StackEntry {
 interface NodeSelectionState {
   checkboxState: boolean | 'indeterminate';
   wouldExceedLimit: boolean;
+}
+
+interface DirectoryToggleState {
+  isExpanded: boolean;
+  isChildrenLoading: boolean;
+  isChildrenLoadingFromStore: boolean;
 }
 
 function computeDirectoryCheckboxState(
@@ -325,6 +331,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const selectedFilePaths = store((s) => s.selectedFilePaths);
     const maxSelectionCount = store((s) => s.maxSelectionCount);
     const selectionModel = store((s) => s.selectionModel);
+    const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
 
     const treeRows = useMemo(() => {
       const options: BuildFileTreeRowsOptions = {
@@ -358,44 +365,82 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       return nodeMap;
     }, [treeRows]);
 
+    const getDirectoryToggleState = useCallback(
+      (node: IFileNode): DirectoryToggleState => {
+        const isChildrenLoadingFromStore = loadingPaths?.has(node.path) ?? false;
+        return {
+          isExpanded: store.getState().expandedDirectoryPaths.has(node.path),
+          isChildrenLoading:
+            isChildrenLoadingFromStore ||
+            node.loadState === 'loading' ||
+            pendingChildLoadPathsRef.current.has(node.path),
+          isChildrenLoadingFromStore,
+        };
+      },
+      [loadingPaths, store]
+    );
+
+    const shouldAbortCollapsedToggle = useCallback(
+      (node: IFileNode, state: DirectoryToggleState): boolean => {
+        if (!state.isChildrenLoading) {
+          return false;
+        }
+        if (state.isChildrenLoadingFromStore && cancelChildLoading) {
+          cancelChildLoading(node.path);
+        }
+        return true;
+      },
+      [cancelChildLoading]
+    );
+
+    const toggleDirectoryNode = useCallback(
+      async (node: IFileNode, state: DirectoryToggleState): Promise<void> => {
+        if (state.isExpanded) {
+          if (state.isChildrenLoading && cancelChildLoading) {
+            cancelChildLoading(node.path);
+          }
+          toggleDirectoryExpansion(node.path);
+          return;
+        }
+
+        if (shouldAbortCollapsedToggle(node, state)) {
+          return;
+        }
+
+        const needsLoad =
+          (node.loadState === 'unloaded' || node.loadState === undefined) && onLoadChildren;
+        if (needsLoad) {
+          pendingChildLoadPathsRef.current.add(node.path);
+          try {
+            await onLoadChildren(node.path);
+          } finally {
+            pendingChildLoadPathsRef.current.delete(node.path);
+          }
+        }
+
+        if (!store.getState().expandedDirectoryPaths.has(node.path)) {
+          toggleDirectoryExpansion(node.path);
+        }
+      },
+      [
+        cancelChildLoading,
+        onLoadChildren,
+        shouldAbortCollapsedToggle,
+        store,
+        toggleDirectoryExpansion,
+      ]
+    );
+
     const handleToggleExpand = useCallback(
       (nodeId: string) => {
         const node = fileNodeByPath.get(nodeId);
         if (!node || node.type !== 'directory') {
           return;
         }
-
-        const toggleDirectory = async () => {
-          const isExpanded = expandedDirectoryPaths.has(node.path);
-          const isChildrenLoading =
-            (loadingPaths?.has(node.path) ?? false) || node.loadState === 'loading';
-
-          if (isExpanded) {
-            if (isChildrenLoading && cancelChildLoading) {
-              cancelChildLoading(node.path);
-            }
-            toggleDirectoryExpansion(node.path);
-            return;
-          }
-
-          const needsLoad =
-            (node.loadState === 'unloaded' || node.loadState === undefined) && onLoadChildren;
-          if (needsLoad) {
-            await onLoadChildren(node.path);
-          }
-          toggleDirectoryExpansion(node.path);
-        };
-
-        void toggleDirectory();
+        const toggleState = getDirectoryToggleState(node);
+        void toggleDirectoryNode(node, toggleState);
       },
-      [
-        fileNodeByPath,
-        expandedDirectoryPaths,
-        loadingPaths,
-        cancelChildLoading,
-        toggleDirectoryExpansion,
-        onLoadChildren,
-      ]
+      [fileNodeByPath, getDirectoryToggleState, toggleDirectoryNode]
     );
 
     const handleNodeSelection = useCallback(

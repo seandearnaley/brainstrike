@@ -4,7 +4,7 @@
  * NOTE: useVirtualizer requires actual DOM dimensions to render items.
  * In JSDOM tests, we mock the virtualizer to return all items for testing.
  */
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeTable } from '../tree-table/tree-table';
 import type { TreeNode, TreeTableColumn } from '../tree-table/types';
@@ -195,6 +195,43 @@ describe('TreeTable', () => {
       expect(handlePageChange).toHaveBeenCalledWith(1);
       expect(screen.getByText('File 3')).toBeInTheDocument();
       expect(screen.queryByText('File 1')).not.toBeInTheDocument();
+    });
+
+    it('keeps focused rows visible after crossing a page boundary', async () => {
+      const scrollIntoViewSpy = vi.fn();
+      const originalScrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoViewSpy;
+
+      try {
+        const nodes: TreeNode<TestData>[] = [
+          createTestNode('1', 'File 1'),
+          createTestNode('2', 'File 2'),
+          createTestNode('3', 'File 3'),
+        ];
+
+        render(
+          <TreeTable
+            columns={testColumns}
+            expandedIds={new Set()}
+            nodes={nodes}
+            onToggleExpand={() => {}}
+            pagination={{ pageSize: 2 }}
+            windowingStrategy="paged"
+          />
+        );
+
+        const tree = screen.getByRole('treegrid');
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // activate -> File 1
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 2
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 3 (next page)
+
+        await waitFor(() => {
+          expect(screen.getByText('File 3')).toBeInTheDocument();
+          expect(scrollIntoViewSpy).toHaveBeenCalled();
+        });
+      } finally {
+        Element.prototype.scrollIntoView = originalScrollIntoView;
+      }
     });
 
     it('keeps auto strategy virtualized in browse mode', () => {

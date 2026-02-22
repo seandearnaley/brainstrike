@@ -84,6 +84,7 @@ function resolveWindowingStrategy({
     return 'virtual';
   }
 
+  // Clamp to 1 so invalid/zero thresholds don't produce degenerate page math.
   return rowCount >= Math.max(1, autoPagedRowThreshold) ? 'paged' : 'virtual';
 }
 
@@ -476,6 +477,17 @@ export function TreeTable<T>({
     () => rows.slice(startIndex, endIndex),
     [rows, startIndex, endIndex]
   );
+  const pendingPagedScrollNodeIdRef = React.useRef<string | null>(null);
+
+  const scrollPagedRowIntoView = React.useCallback((nodeId: string): boolean => {
+    const rowSelector = `[data-node-id="${getNodeSelectorValue(nodeId)}"]`;
+    const rowElement = parentRef.current?.querySelector<HTMLTableRowElement>(rowSelector);
+    if (!rowElement) {
+      return false;
+    }
+    rowElement.scrollIntoView({ block: 'nearest' });
+    return true;
+  }, []);
 
   // Setup virtualizer
   const rowVirtualizer = useVirtualizer({
@@ -507,14 +519,14 @@ export function TreeTable<T>({
       if (!isVirtualWindowing) {
         const targetPage = Math.floor(index / Math.max(1, pageSize));
         if (targetPage !== currentPage) {
+          pendingPagedScrollNodeIdRef.current = nodeId;
           goToPage(targetPage);
           pagination?.onPageChange?.(targetPage);
           return;
         }
 
-        const rowSelector = `[data-node-id="${getNodeSelectorValue(nodeId)}"]`;
-        const rowElement = parentRef.current?.querySelector<HTMLTableRowElement>(rowSelector);
-        rowElement?.scrollIntoView({ block: 'nearest' });
+        pendingPagedScrollNodeIdRef.current = null;
+        scrollPagedRowIntoView(nodeId);
         return;
       }
 
@@ -522,8 +534,44 @@ export function TreeTable<T>({
         rowVirtualizer.scrollToIndex(index, { align: 'auto', behavior: 'auto' });
       }
     },
-    [indexMap, isVirtualWindowing, currentPage, goToPage, pageSize, pagination, rowVirtualizer]
+    [
+      indexMap,
+      isVirtualWindowing,
+      currentPage,
+      goToPage,
+      pageSize,
+      pagination,
+      rowVirtualizer,
+      scrollPagedRowIntoView,
+    ]
   );
+
+  React.useEffect(() => {
+    if (isVirtualWindowing) {
+      pendingPagedScrollNodeIdRef.current = null;
+      return;
+    }
+
+    const pendingNodeId = pendingPagedScrollNodeIdRef.current;
+    if (!pendingNodeId) {
+      return;
+    }
+
+    const pendingIndex = indexMap.get(pendingNodeId);
+    if (pendingIndex === undefined) {
+      pendingPagedScrollNodeIdRef.current = null;
+      return;
+    }
+
+    const pendingPage = Math.floor(pendingIndex / Math.max(1, pageSize));
+    if (pendingPage !== currentPage) {
+      return;
+    }
+
+    if (scrollPagedRowIntoView(pendingNodeId)) {
+      pendingPagedScrollNodeIdRef.current = null;
+    }
+  }, [isVirtualWindowing, indexMap, pageSize, currentPage, pagedRows, scrollPagedRowIntoView]);
 
   // Setup keyboard navigation
   const keyboardOptions: UseTreeKeyboardOptions<T> = {

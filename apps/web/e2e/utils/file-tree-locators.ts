@@ -3,6 +3,7 @@ import type { Locator, Page } from '@playwright/test';
 /**
  * File explorer migrated from ARIA tree to shared TreeTable (treegrid).
  * Keep tests compatible during rollout while preserving an explicit name anchor.
+ * TODO(BST-312): remove the tree fallback once all surfaces are treegrid-only.
  */
 export function getFileTree(page: Page): Locator {
   return page

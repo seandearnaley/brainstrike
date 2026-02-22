@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import OptimizedFileTree from '../optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -71,6 +71,38 @@ describe('OptimizedFileTree', () => {
 
     const treeGrid = screen.getByRole('treegrid', { name: 'File tree' });
     expect(treeGrid).toBeInTheDocument();
+  });
+
+  it('deduplicates child-load requests when expand is retriggered during loading', async () => {
+    let resolveLoad: (() => void) | undefined;
+    const onLoadChildren = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve;
+        })
+    );
+
+    render(
+      <FileExplorerTestWrapper>
+        <OptimizedFileTree
+          fileTree={mockFileTree}
+          folderId="root"
+          loadingFiles={new Set()}
+          onLoadChildren={onLoadChildren}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    const expandButton = screen.getByRole('button', { name: /expand/i });
+    fireEvent.click(expandButton);
+    fireEvent.click(expandButton);
+
+    expect(onLoadChildren).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveLoad?.();
+      await Promise.resolve();
+    });
   });
 
   it('calls onRender callback when provided', () => {
