@@ -761,15 +761,11 @@ export function TreeTable<T>({
   );
 
   const virtualItems = isVirtualWindowing ? rowVirtualizer.getVirtualItems() : [];
-  const renderedVirtualItems = React.useMemo(
-    () =>
-      resolveRenderedVirtualItems(
-        isVirtualWindowing,
-        virtualItems as Array<{ index: number }>,
-        rows.length,
-        overscan
-      ),
-    [isVirtualWindowing, overscan, rows.length, virtualItems]
+  const renderedVirtualItems = resolveRenderedVirtualItems(
+    isVirtualWindowing,
+    virtualItems as Array<{ index: number }>,
+    rows.length,
+    overscan
   );
   const totalSize = isVirtualWindowing ? rowVirtualizer.getTotalSize() : 0;
   const paddingTop = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;

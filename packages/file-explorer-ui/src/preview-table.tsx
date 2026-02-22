@@ -6,7 +6,7 @@ import {
   type TreeTableColumn,
 } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { ExtensionBadge } from './extension-badge';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
@@ -56,6 +56,17 @@ type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
 const EMPTY_EXPANDED_IDS = new Set<string>();
+
+function useStableCallback<TArgs extends unknown[], TResult>(
+  callback: (...args: TArgs) => TResult
+): (...args: TArgs) => TResult {
+  const callbackRef = useRef(callback);
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  return useCallback((...args: TArgs) => callbackRef.current(...args), []);
+}
 
 interface GroupHeaderSummaryProps {
   group: GroupedData<TableRowData>;
@@ -270,9 +281,23 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     pagination,
   } = props;
 
+  const onSortStable = useStableCallback(onSort);
+  const onSelectAllOnPageStable = useStableCallback(onSelectAllOnPage);
+  const onDeselectAllStable = useStableCallback(onDeselectAll);
+  const isAllSelectedStable = useStableCallback(isAllSelected);
+  const onToggleSelectionStable = useStableCallback(onToggleSelection);
+  const onFileClickStable = useStableCallback((compositeKey: string) => {
+    onFileClick?.(compositeKey);
+  });
+  const toggleGroupCollapseStable = useStableCallback(toggleGroupCollapse);
+  const isGroupFullySelectedStable = useStableCallback(isGroupFullySelected);
+  const isGroupPartiallySelectedStable = useStableCallback(isGroupPartiallySelected);
+  const handleGroupSelectAllStable = useStableCallback(handleGroupSelectAll);
+  const handleGroupDeselectAllStable = useStableCallback(handleGroupDeselectAll);
+
   const isAllCurrentPageSelected = useMemo(
-    () => isAllSelected(visibleFilesOnPage),
-    [isAllSelected, visibleFilesOnPage]
+    () => isAllSelectedStable(visibleFilesOnPage),
+    [isAllSelectedStable, visibleFilesOnPage]
   );
 
   const groupedTreeNodes = useMemo(
@@ -301,16 +326,16 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         <GroupHeaderSummary
           group={group}
           isCollapsed={isCollapsed}
-          isFullySelected={isGroupFullySelected(group)}
-          isPartiallySelected={isGroupPartiallySelected(group)}
+          isFullySelected={isGroupFullySelectedStable(group)}
+          isPartiallySelected={isGroupPartiallySelectedStable(group)}
           onSelectionChange={(checked) => {
             if (checked) {
-              handleGroupSelectAll(group);
+              handleGroupSelectAllStable(group);
               return;
             }
-            handleGroupDeselectAll(group);
+            handleGroupDeselectAllStable(group);
           }}
-          onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
+          onToggleCollapse={() => toggleGroupCollapseStable(group.groupKey)}
           showInlineCheckbox={!columnVisibility.checkbox}
         />
       );
@@ -318,11 +343,11 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     [
       primaryGroupColumn,
       collapsedGroups,
-      isGroupFullySelected,
-      isGroupPartiallySelected,
-      handleGroupSelectAll,
-      handleGroupDeselectAll,
-      toggleGroupCollapse,
+      isGroupFullySelectedStable,
+      isGroupPartiallySelectedStable,
+      handleGroupSelectAllStable,
+      handleGroupDeselectAllStable,
+      toggleGroupCollapseStable,
       columnVisibility.checkbox,
     ]
   );
@@ -339,7 +364,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
             aria-label="Select all files on current page"
             checked={isAllCurrentPageSelected}
             onCheckedChange={(checked) =>
-              checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
+              checked ? onSelectAllOnPageStable(visibleFilesOnPage) : onDeselectAllStable()
             }
             title="Select all files on current page"
           />
@@ -349,8 +374,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
             const group = node.data.group;
-            const isFullySelected = isGroupFullySelected(group);
-            const isPartiallySelected = isGroupPartiallySelected(group);
+            const isFullySelected = isGroupFullySelectedStable(group);
+            const isPartiallySelected = isGroupPartiallySelectedStable(group);
             const checkedState: boolean | 'indeterminate' = isFullySelected
               ? true
               : isPartiallySelected
@@ -363,10 +388,10 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
                 checked={checkedState}
                 onCheckedChange={(checked) => {
                   if (checked) {
-                    handleGroupSelectAll(group);
+                    handleGroupSelectAllStable(group);
                     return;
                   }
-                  handleGroupDeselectAll(group);
+                  handleGroupDeselectAllStable(group);
                 }}
                 onClick={(event) => event.stopPropagation()}
               />
@@ -378,7 +403,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
             <Checkbox
               aria-label={`Select ${item.path}`}
               checked={previewSelections.has(item.compositeKey)}
-              onCheckedChange={(checked) => onToggleSelection(item.compositeKey, checked === true)}
+              onCheckedChange={(checked) =>
+                onToggleSelectionStable(item.compositeKey, checked === true)
+              }
               onClick={(event) => event.stopPropagation()}
             />
           );
@@ -392,7 +419,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         header: (
           <SortHeaderButton
             field="rootFolderId"
-            onSort={onSort}
+            onSort={onSortStable}
             sortDirection={sortDirection}
             sortField={sortField}
             title="Folder"
@@ -425,7 +452,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         header: (
           <SortHeaderButton
             field="path"
-            onSort={onSort}
+            onSort={onSortStable}
             sortDirection={sortDirection}
             sortField={sortField}
             title="File Path"
@@ -450,7 +477,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
               className="block w-full min-w-0 overflow-hidden text-left transition-colors hover:text-primary"
               onClick={(event) => {
                 event.preventDefault();
-                onFileClick?.(item.compositeKey);
+                onFileClickStable(item.compositeKey);
               }}
               title={item.path}
               type="button"
@@ -475,7 +502,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         header: (
           <SortHeaderButton
             field="type"
-            onSort={onSort}
+            onSort={onSortStable}
             sortDirection={sortDirection}
             sortField={sortField}
             title="Type"
@@ -500,7 +527,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         header: (
           <SortHeaderButton
             field="tokens"
-            onSort={onSort}
+            onSort={onSortStable}
             sortDirection={sortDirection}
             sortField={sortField}
             title="Tokens"
@@ -533,7 +560,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         header: (
           <SortHeaderButton
             field="size"
-            onSort={onSort}
+            onSort={onSortStable}
             sortDirection={sortDirection}
             sortField={sortField}
             title="Size"
@@ -566,16 +593,16 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     return columns;
   }, [
     columnVisibility,
-    handleGroupDeselectAll,
-    handleGroupSelectAll,
+    handleGroupDeselectAllStable,
+    handleGroupSelectAllStable,
     isAllCurrentPageSelected,
-    isGroupFullySelected,
-    isGroupPartiallySelected,
-    onDeselectAll,
-    onFileClick,
-    onSelectAllOnPage,
-    onSort,
-    onToggleSelection,
+    isGroupFullySelectedStable,
+    isGroupPartiallySelectedStable,
+    onDeselectAllStable,
+    onFileClickStable,
+    onSelectAllOnPageStable,
+    onSortStable,
+    onToggleSelectionStable,
     previewSelections,
     renderGroupHeaderIfPrimary,
     sortDirection,
