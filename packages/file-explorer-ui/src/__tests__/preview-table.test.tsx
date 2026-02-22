@@ -44,6 +44,7 @@ const DEFAULT_GROUP: GroupedData<TableRowData> = {
 
 interface PreviewTableTestOverrides {
   collapsedGroups?: Set<string>;
+  groupedData?: GroupedData<TableRowData>[];
   pagination?: { startIndex: number; endIndex: number };
   previewSelections?: Set<string>;
   isGroupFullySelected?: (group: GroupedData<TableRowData>) => boolean;
@@ -59,7 +60,7 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
     sortField: 'path' as const,
     sortDirection: 'asc' as const,
     groupingConfig: 'directory',
-    groupedData: [DEFAULT_GROUP],
+    groupedData: overrides.groupedData ?? [DEFAULT_GROUP],
     currentPageData: [],
     collapsedGroups: overrides.collapsedGroups ?? new Set<string>(),
     previewSelections: overrides.previewSelections ?? new Set<string>(),
@@ -185,5 +186,45 @@ describe('PreviewTable grouped mode', () => {
 
     expect(onSortUpdated).toHaveBeenCalledWith('path');
     expect(onSortInitial).not.toHaveBeenCalled();
+  });
+
+  it('preserves pagination semantics when skipping large groups before the page window', () => {
+    const largeGroupItems = Array.from({ length: 100 }, (_, index) => ({
+      ...FILE_ONE,
+      id: `large-${index}`,
+      path: `src/large-file-${index}.ts`,
+      compositeKey: `workspace:src/large-file-${index}.ts`,
+    }));
+    const largeGroup: GroupedData<TableRowData> = {
+      groupKey: 'large',
+      groupLabel: 'large',
+      items: largeGroupItems,
+      count: largeGroupItems.length,
+      totalTokens: largeGroupItems.reduce((sum, item) => sum + (item.tokens ?? 0), 0),
+      totalSize: largeGroupItems.reduce((sum, item) => sum + (item.size ?? 0), 0),
+    };
+    const trailingFile: TableRowData = {
+      ...FILE_TWO,
+      id: 'trailing-file',
+      path: 'tail/trailing-file.tsx',
+      compositeKey: 'workspace:tail/trailing-file.tsx',
+    };
+    const trailingGroup: GroupedData<TableRowData> = {
+      groupKey: 'tail',
+      groupLabel: 'tail',
+      items: [trailingFile],
+      count: 1,
+      totalTokens: trailingFile.tokens ?? 0,
+      totalSize: trailingFile.size ?? 0,
+    };
+
+    renderGroupedPreviewTable({
+      groupedData: [largeGroup, trailingGroup],
+      pagination: { startIndex: 101, endIndex: 103 },
+    });
+
+    expect(screen.getByRole('button', { name: /collapse group tail/i })).toBeInTheDocument();
+    expect(screen.getByText('trailing-file.tsx')).toBeInTheDocument();
+    expect(screen.queryByText('large-file-0.ts')).not.toBeInTheDocument();
   });
 });

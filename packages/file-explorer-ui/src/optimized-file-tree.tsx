@@ -80,6 +80,7 @@ interface DirectoryToggleState {
 }
 
 const logger = createLogger('OptimizedFileTree');
+const MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES = 50_000;
 
 function incrementDirectoryCount(
   directoryCounts: Map<string, number>,
@@ -88,23 +89,41 @@ function incrementDirectoryCount(
   directoryCounts.set(directoryPath, (directoryCounts.get(directoryPath) ?? 0) + 1);
 }
 
-function addSelectedFileAncestors(directoryCounts: Map<string, number>, filePath: string): void {
+function getAncestorDirectoryPaths(
+  filePath: string,
+  selectedPathAncestorCache: Map<string, string[]>
+): string[] {
+  const cachedAncestors = selectedPathAncestorCache.get(filePath);
+  if (cachedAncestors) {
+    return cachedAncestors;
+  }
+
+  const ancestorPaths: string[] = [];
   let separatorIndex = filePath.lastIndexOf('/');
   while (separatorIndex > 0) {
-    incrementDirectoryCount(directoryCounts, filePath.slice(0, separatorIndex));
+    ancestorPaths.push(filePath.slice(0, separatorIndex));
     separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
   }
+
+  // Guard long-running sessions against unbounded path growth.
+  if (selectedPathAncestorCache.size >= MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES) {
+    selectedPathAncestorCache.clear();
+  }
+  selectedPathAncestorCache.set(filePath, ancestorPaths);
+  return ancestorPaths;
 }
 
 function buildSelectedDirectoryCounts(
   selectedFilePaths: Set<string>,
-  folderId: string
+  folderId: string,
+  selectedPathAncestorCache?: Map<string, string[]>
 ): Map<string, number> {
   const directoryCounts = new Map<string, number>();
   if (!(folderId && selectedFilePaths.size > 0)) {
     return directoryCounts;
   }
 
+  const ancestorCache = selectedPathAncestorCache ?? new Map<string, string[]>();
   const folderPrefix = `${folderId}|@|`;
   for (const selectionKey of selectedFilePaths) {
     if (!selectionKey.startsWith(folderPrefix)) {
@@ -116,7 +135,11 @@ function buildSelectedDirectoryCounts(
     if (!selectedPath) {
       continue;
     }
-    addSelectedFileAncestors(directoryCounts, selectedPath);
+
+    const ancestorPaths = getAncestorDirectoryPaths(selectedPath, ancestorCache);
+    for (const ancestorPath of ancestorPaths) {
+      incrementDirectoryCount(directoryCounts, ancestorPath);
+    }
   }
 
   return directoryCounts;
@@ -359,6 +382,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     loadingPathForSelection,
   }) => {
     const store = useFileExplorerStoreContext();
+    // Keep a subscribed expansion snapshot for TreeTable render state.
+    // Event handlers still use `store.getState()` to avoid stale async toggles.
     const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
     const toggleDirectoryExpansion = store((s) => s.toggleDirectoryExpansion);
     const toggleSelectedFile = store((s) => s.toggleSelectedFile);
@@ -370,20 +395,29 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // Dedupe in-flight directory loads between rapid expand interactions.
     // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
+    const selectedPathAncestorCacheRef = useRef<Map<string, string[]>>(new Map());
     const isMountedRef = useRef(true);
     useEffect(() => {
       isMountedRef.current = true;
       return () => {
         isMountedRef.current = false;
         pendingChildLoadPathsRef.current.clear();
+        selectedPathAncestorCacheRef.current.clear();
       };
     }, []);
 
     const selectedDirectoryCounts = useMemo(
-      () => buildSelectedDirectoryCounts(selectedFilePaths, folderId),
+      () =>
+        buildSelectedDirectoryCounts(
+          selectedFilePaths,
+          folderId,
+          selectedPathAncestorCacheRef.current
+        ),
       [selectedFilePaths, folderId]
     );
 
+    // Keep row structure independent from selectedFilePaths so checkbox toggles
+    // do not trigger full tree row reconstruction for large trees.
     const treeRows = useMemo(() => {
       const options: BuildFileTreeRowsOptions = {
         folderId,

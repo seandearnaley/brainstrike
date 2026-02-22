@@ -9,17 +9,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeTable } from '../tree-table/tree-table';
 import type { TreeNode, TreeTableColumn } from '../tree-table/types';
 
+let virtualizerMode: 'full' | 'empty' = 'full';
+
 // Mock @tanstack/react-virtual to avoid JSDOM dimension issues
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: vi.fn(({ count }) => ({
-    getVirtualItems: () =>
-      Array.from({ length: count }, (_, i) => ({
+    getVirtualItems: () => {
+      if (virtualizerMode === 'empty') {
+        return [];
+      }
+      return Array.from({ length: count }, (_, i) => ({
         index: i,
         start: i * 40,
         end: (i + 1) * 40,
         size: 40,
         key: `item-${i}`,
-      })),
+      }));
+    },
     getTotalSize: () => count * 40,
     scrollToIndex: vi.fn(),
     measureElement: vi.fn(),
@@ -61,6 +67,7 @@ const testColumns: TreeTableColumn<TestData>[] = [
 
 describe('TreeTable', () => {
   beforeEach(() => {
+    virtualizerMode = 'full';
     vi.clearAllMocks();
   });
 
@@ -230,6 +237,44 @@ describe('TreeTable', () => {
       expect(screen.queryByText('File 1')).not.toBeInTheDocument();
     });
 
+    it('applies controlled pagination page size updates without effect lag', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      const { rerender } = render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2 }}
+          windowingStrategy="paged"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+
+      rerender(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 1 }}
+          windowingStrategy="paged"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.queryByText('File 2')).not.toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+    });
+
     it('renders all rows without pagination controls when none strategy is active', () => {
       const nodes: TreeNode<TestData>[] = [
         createTestNode('1', 'File 1'),
@@ -252,6 +297,29 @@ describe('TreeTable', () => {
       expect(screen.getByText('File 2')).toBeInTheDocument();
       expect(screen.getByText('File 3')).toBeInTheDocument();
       expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
+    });
+
+    it('renders fallback rows when virtualizer temporarily returns no items', () => {
+      virtualizerMode = 'empty';
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          windowingStrategy="virtual"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.getByText('File 3')).toBeInTheDocument();
     });
 
     it('keeps focused rows visible after crossing a page boundary', async () => {

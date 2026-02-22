@@ -101,13 +101,14 @@ function findRowElementByNodeId(
 ): HTMLTableRowElement | null {
   const escapedNodeId = CSS.escape(nodeId);
   const directMatch = container.querySelector<HTMLTableRowElement>(
-    `[data-node-id="${escapedNodeId}"]`
+    `[data-node-id=${escapedNodeId}]`
   );
   if (directMatch) {
     return directMatch;
   }
 
-  // Fallback for edge-case selector parsing differences with quoted/special ids.
+  // JSDOM and browser selector engines can diverge on edge-case escapes.
+  // Keep a narrow fallback for correctness in focus-navigation code paths.
   const rows = container.querySelectorAll<HTMLTableRowElement>('[data-node-id]');
   for (const row of rows) {
     if (row.getAttribute('data-node-id') === nodeId) {
@@ -271,6 +272,20 @@ function resolveRenderedVirtualItems(
   // During first paint react-virtual can briefly report zero measured items.
   // Render a small fallback slice to avoid an empty table flash until measurement completes.
   return buildFallbackVirtualItems(rowCount, overscan);
+}
+
+function useResolvedPageSize(
+  pagination: TreeTableProps<unknown>['pagination']
+): [number, React.Dispatch<React.SetStateAction<number>>] {
+  const [internalPageSize, setInternalPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
+
+  React.useEffect(() => {
+    if (pagination?.pageSize !== undefined) {
+      setInternalPageSize(pagination.pageSize);
+    }
+  }, [pagination?.pageSize]);
+
+  return [pagination?.pageSize ?? internalPageSize, setInternalPageSize];
 }
 
 interface CheckboxStateContext<T> {
@@ -512,14 +527,7 @@ export function TreeTable<T>({
   const isVirtualWindowing = resolvedWindowingStrategy === 'virtual';
   const isPagedWindowing = resolvedWindowingStrategy === 'paged';
 
-  const [pageSize, setPageSize] = React.useState<number>(
-    () => pagination?.pageSize ?? DEFAULT_PAGE_SIZE
-  );
-  React.useEffect(() => {
-    if (pagination?.pageSize !== undefined) {
-      setPageSize(pagination.pageSize);
-    }
-  }, [pagination?.pageSize]);
+  const [pageSize, setInternalPageSize] = useResolvedPageSize(pagination);
 
   const { currentPage, totalPages, startIndex, endIndex, goToPage, resetToFirstPage } =
     usePagination({
@@ -776,7 +784,7 @@ export function TreeTable<T>({
 
   const handlePageSizeChange = React.useCallback(
     (nextPageSize: number) => {
-      setPageSize(nextPageSize);
+      setInternalPageSize(nextPageSize);
       resetToFirstPage();
       pagination?.onPageSizeChange?.(nextPageSize);
     },

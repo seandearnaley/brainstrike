@@ -226,7 +226,8 @@ export interface TreeTableProps<T> {
   autoWindowingContext?: TreeTableAutoWindowingContext;
   /**
    * Row threshold for auto strategy to switch to paged mode.
-   * Values < 1 are clamped to 1, so `0` behaves like "always paged" in search mode.
+   * Values < 1 are clamped to 1.
+   * In search mode, pass `0` to force paged mode whenever at least one row is present.
    */
   autoPagedRowThreshold?: number;
   /** Pagination options used by paged strategy */

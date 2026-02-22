@@ -58,9 +58,11 @@ const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'to
 const EMPTY_EXPANDED_IDS = new Set<string>();
 
 /**
- * Ref-backed callback wrapper (similar to React's proposed `useEffectEvent`).
- * Safe here because callbacks are read from event handlers after commit.
- * Do not use this for render-time reads or effect dependency shortcuts.
+ * Ref-backed callback wrapper for stable callback identity.
+ * Intentionally sync ref during render because grouped cell selection lookups call this in render;
+ * deferring ref updates to an effect introduces a one-render checkbox lag after selection updates.
+ * Callbacks passed here must stay pure if invoked during render (e.g. selection lookups).
+ * Do not use this as an effect dependency shortcut.
  * TODO(BST-312): Replace with React's stable useEffectEvent once adopted in this codebase.
  */
 function useStableCallback<TArgs extends unknown[], TResult>(
@@ -139,6 +141,82 @@ interface BuildGroupedTreeNodesInput {
   pagination: { startIndex: number; endIndex: number };
 }
 
+function isRowInsidePageWindow(
+  rowIndex: number,
+  pagination: { startIndex: number; endIndex: number }
+): boolean {
+  return rowIndex >= pagination.startIndex && rowIndex < pagination.endIndex;
+}
+
+function hasReachedPageEnd(
+  rowIndex: number,
+  pagination: { startIndex: number; endIndex: number }
+): boolean {
+  return rowIndex >= pagination.endIndex;
+}
+
+function resolveGroupVisibleRowCount(
+  group: GroupedData<TableRowData>,
+  isCollapsed: boolean
+): number {
+  return 1 + (isCollapsed ? 0 : group.items.length);
+}
+
+function createGroupTreeNode(
+  group: GroupedData<TableRowData>,
+  groupKey: string
+): TreeNode<PreviewTreeNodeData> {
+  return {
+    id: `group:${groupKey}`,
+    type: 'preview-group',
+    depth: 0,
+    parentId: null,
+    hasChildren: false,
+    data: {
+      kind: 'group',
+      group,
+    },
+  };
+}
+
+function createItemTreeNode(item: TableRowData): TreeNode<PreviewTreeNodeData> {
+  return {
+    id: `item:${item.compositeKey}`,
+    type: 'preview-item',
+    depth: 0,
+    parentId: null,
+    hasChildren: false,
+    data: {
+      kind: 'item',
+      item,
+    },
+  };
+}
+
+function appendVisibleGroupItems(
+  nodes: TreeNode<PreviewTreeNodeData>[],
+  group: GroupedData<TableRowData>,
+  visibleRowIndex: number,
+  pagination: { startIndex: number; endIndex: number }
+): number {
+  const firstVisibleItemIndex = Math.max(0, pagination.startIndex - visibleRowIndex);
+  const maxVisibleItemCount = Math.max(0, pagination.endIndex - visibleRowIndex);
+  const lastVisibleItemIndex = Math.min(
+    group.items.length,
+    firstVisibleItemIndex + maxVisibleItemCount
+  );
+
+  for (let itemIndex = firstVisibleItemIndex; itemIndex < lastVisibleItemIndex; itemIndex += 1) {
+    const item = group.items[itemIndex];
+    if (!item) {
+      continue;
+    }
+    nodes.push(createItemTreeNode(item));
+  }
+
+  return visibleRowIndex + group.items.length;
+}
+
 function buildGroupedTreeNodes({
   groupedData,
   collapsedGroups,
@@ -154,51 +232,34 @@ function buildGroupedTreeNodes({
   for (const group of groupedData) {
     const groupKey = String(group.groupKey);
     const isCollapsed = collapsedGroups.has(groupKey);
+    const groupVisibleRowCount = resolveGroupVisibleRowCount(group, isCollapsed);
 
-    if (visibleRowIndex >= pagination.startIndex && visibleRowIndex < pagination.endIndex) {
-      nodes.push({
-        id: `group:${groupKey}`,
-        type: 'preview-group',
-        depth: 0,
-        parentId: null,
-        hasChildren: false,
-        data: {
-          kind: 'group',
-          group,
-        },
-      });
+    // Fast-path: skip whole groups that are fully before the requested page window.
+    // This avoids O(startIndex) item-by-item scans for large grouped datasets.
+    if (visibleRowIndex + groupVisibleRowCount <= pagination.startIndex) {
+      visibleRowIndex += groupVisibleRowCount;
+      continue;
+    }
+
+    if (hasReachedPageEnd(visibleRowIndex, pagination)) {
+      break;
+    }
+
+    if (isRowInsidePageWindow(visibleRowIndex, pagination)) {
+      nodes.push(createGroupTreeNode(group, groupKey));
     }
     visibleRowIndex += 1;
 
     if (isCollapsed) {
-      if (visibleRowIndex >= pagination.endIndex) {
+      if (hasReachedPageEnd(visibleRowIndex, pagination)) {
         break;
       }
       continue;
     }
 
-    for (const item of group.items) {
-      if (visibleRowIndex >= pagination.endIndex) {
-        break;
-      }
+    visibleRowIndex = appendVisibleGroupItems(nodes, group, visibleRowIndex, pagination);
 
-      if (visibleRowIndex >= pagination.startIndex) {
-        nodes.push({
-          id: `item:${item.compositeKey}`,
-          type: 'preview-item',
-          depth: 0,
-          parentId: null,
-          hasChildren: false,
-          data: {
-            kind: 'item',
-            item,
-          },
-        });
-      }
-      visibleRowIndex += 1;
-    }
-
-    if (visibleRowIndex >= pagination.endIndex) {
+    if (hasReachedPageEnd(visibleRowIndex, pagination)) {
       break;
     }
   }
