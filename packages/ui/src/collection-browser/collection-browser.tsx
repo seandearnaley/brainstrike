@@ -7,7 +7,7 @@
 
 import * as React from 'react';
 import { cn } from '../lib/utils';
-import { TreeTable } from '../tree-table/tree-table';
+import { DEFAULT_AUTO_PAGED_ROW_THRESHOLD, TreeTable } from '../tree-table/tree-table';
 import type { TreeTablePaginationOptions, TreeTableWindowingStrategy } from '../tree-table/types';
 import type { BulkAction } from './bulk-action-bar';
 import { BulkActionBar } from './bulk-action-bar';
@@ -26,7 +26,6 @@ export { shortenPath } from './utils';
 
 const DEFAULT_BULK_ACTIONS: BulkAction[] = [];
 const DEFAULT_TREE_WINDOWING_STRATEGY: TreeTableWindowingStrategy = 'auto';
-const DEFAULT_TREE_AUTO_PAGED_ROW_THRESHOLD = 200;
 const DEFAULT_SEMANTIC_PAGE_SIZE = 50;
 const DEFAULT_SEMANTIC_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
 
@@ -151,7 +150,7 @@ export function CollectionBrowser({
   contextNodeIds,
   showCheckbox = false,
   treeWindowingStrategy = DEFAULT_TREE_WINDOWING_STRATEGY,
-  treeAutoPagedRowThreshold = DEFAULT_TREE_AUTO_PAGED_ROW_THRESHOLD,
+  treeAutoPagedRowThreshold = DEFAULT_AUTO_PAGED_ROW_THRESHOLD,
   treePagination,
 }: CollectionBrowserProps) {
   const {

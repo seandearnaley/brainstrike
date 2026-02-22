@@ -38,7 +38,7 @@ const DEFAULT_CONTEXT_NODE_IDS = new Set<string>();
 const DEFAULT_LOADING_NODE_IDS = new Set<string>();
 const MAX_WARNED_CYCLE_NODE_IDS = 1000;
 const DEFAULT_PAGE_SIZE = 50;
-const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
+export const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
 const MIN_FALLBACK_VIRTUAL_ROWS = 1;
 
 /**
@@ -92,23 +92,17 @@ function resolveWindowingStrategy({
   return rowCount >= Math.max(1, normalizedThreshold) ? 'paged' : 'virtual';
 }
 
-function getNodeSelectorValue(nodeId: string): string {
-  // Node lookups use a double-quoted attribute selector: [data-node-id="..."].
-  return Array.from(nodeId)
-    .map((char) => {
-      const codePoint = char.codePointAt(0);
-      if (codePoint === undefined) {
-        return '';
-      }
-      if (char === '"' || char === "'" || char === '\\' || char === ']' || char === '[') {
-        return `\\${char}`;
-      }
-      if (codePoint <= 0x1f || codePoint === 0x7f) {
-        return `\\${codePoint.toString(16)} `;
-      }
-      return char;
-    })
-    .join('');
+function findRowElementByNodeId(
+  container: HTMLElement,
+  nodeId: string
+): HTMLTableRowElement | null {
+  const rows = container.querySelectorAll<HTMLTableRowElement>('[data-node-id]');
+  for (const row of rows) {
+    if (row.getAttribute('data-node-id') === nodeId) {
+      return row;
+    }
+  }
+  return null;
 }
 
 interface BuildTablePaginationPropsOptions {
@@ -598,8 +592,11 @@ export function TreeTable<T>({
   const pendingPagedScrollNodeIdRef = React.useRef<string | null>(null);
 
   const scrollPagedRowIntoView = React.useCallback((nodeId: string): boolean => {
-    const rowSelector = `[data-node-id="${getNodeSelectorValue(nodeId)}"]`;
-    const rowElement = parentRef.current?.querySelector<HTMLTableRowElement>(rowSelector);
+    const parentElement = parentRef.current;
+    if (!parentElement) {
+      return false;
+    }
+    const rowElement = findRowElementByNodeId(parentElement, nodeId);
     if (!rowElement) {
       return false;
     }

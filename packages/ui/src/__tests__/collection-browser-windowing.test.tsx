@@ -9,6 +9,7 @@ import type { TreeTableProps } from '../tree-table/types';
 const treeTableSpy = vi.fn<(props: TreeTableProps<BrowserNodeData>) => void>();
 
 vi.mock('../tree-table/tree-table', () => ({
+  DEFAULT_AUTO_PAGED_ROW_THRESHOLD: 200,
   TreeTable: (props: TreeTableProps<BrowserNodeData>) => {
     treeTableSpy(props);
     return <div data-testid="tree-table-mock">{props.emptyState as React.ReactNode}</div>;

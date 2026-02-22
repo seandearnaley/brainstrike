@@ -56,16 +56,18 @@ type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
 const EMPTY_EXPANDED_IDS = new Set<string>();
+const GROUPED_TREE_PAGE_SIZE = 1_000_000;
 // Keep grouped preview in a single page while still opting into paged windowing (no virtual scroll).
-// `showControls: false` hides pagination chrome; this large sentinel page size keeps internals consistent.
+// `showControls: false` hides pagination chrome; keep page size very large but bounded to avoid extreme math.
 const GROUPED_TREE_PAGINATION = {
-  pageSize: Number.MAX_SAFE_INTEGER,
+  pageSize: GROUPED_TREE_PAGE_SIZE,
   showControls: false,
 } as const;
 
 /**
  * Ref-backed callback wrapper (similar to React's proposed `useEffectEvent`).
  * Use this only for event handlers to keep memoized column definitions stable.
+ * TODO(BST-312): Replace with React's stable useEffectEvent once adopted in this codebase.
  */
 function useStableCallback<TArgs extends unknown[], TResult>(
   callback: (...args: TArgs) => TResult

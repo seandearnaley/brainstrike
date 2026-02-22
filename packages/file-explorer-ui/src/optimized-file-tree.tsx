@@ -649,38 +649,4 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
 OptimizedFileTree.displayName = 'OptimizedFileTree';
 
-const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps) => {
-  if (prevProps.folderId !== nextProps.folderId) {
-    return false;
-  }
-  if (prevProps.onRender !== nextProps.onRender) {
-    return false;
-  }
-  if (prevProps.fileTree !== nextProps.fileTree) {
-    return false;
-  }
-  if (prevProps.loadingFiles !== nextProps.loadingFiles) {
-    return false;
-  }
-  if (prevProps.loadingPaths !== nextProps.loadingPaths) {
-    return false;
-  }
-  if (prevProps.onLoadChildren !== nextProps.onLoadChildren) {
-    return false;
-  }
-  if (prevProps.cancelChildLoading !== nextProps.cancelChildLoading) {
-    return false;
-  }
-  if (prevProps.onSelectFolderRecursively !== nextProps.onSelectFolderRecursively) {
-    return false;
-  }
-  if (prevProps.isLoadingForSelection !== nextProps.isLoadingForSelection) {
-    return false;
-  }
-  if (prevProps.loadingPathForSelection !== nextProps.loadingPathForSelection) {
-    return false;
-  }
-  return true;
-});
-
-export default OptimizedFileTreeMemoized;
+export default OptimizedFileTree;
