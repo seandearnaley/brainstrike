@@ -445,6 +445,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         buildSelectedDirectoryCounts(
           selectedFilePaths,
           folderId,
+          // Mutable cache by design: recomputation is keyed by selected paths/folder,
+          // while cache contents persist across runs to amortize ancestor parsing.
           selectedPathAncestorCacheRef.current
         ),
       [selectedFilePaths, folderId]
