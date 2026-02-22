@@ -151,6 +151,39 @@ describe('TreeTable', () => {
       expect(screen.getByRole('treegrid')).toBeInTheDocument();
     });
 
+    it('supports grid role for flat table mode', () => {
+      render(
+        <TreeTable
+          ariaRole="grid"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      expect(screen.getByRole('grid')).toBeInTheDocument();
+      const row = screen.getByText('Test').closest('tr');
+      expect(row).not.toHaveAttribute('aria-level');
+      expect(row).not.toHaveAttribute('aria-setsize');
+      expect(row).not.toHaveAttribute('aria-posinset');
+    });
+
+    it('can hide column headers when showHeader is false', () => {
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onToggleExpand={() => {}}
+          showHeader={false}
+        />
+      );
+
+      expect(screen.queryByRole('columnheader')).not.toBeInTheDocument();
+      expect(screen.getByText('Test')).toBeInTheDocument();
+    });
+
     it('renders with custom aria-label', () => {
       render(
         <TreeTable

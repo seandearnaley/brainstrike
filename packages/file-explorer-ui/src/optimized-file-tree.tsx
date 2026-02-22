@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/ui';
 import {
   countSelectedInDirectory,
+  createLogger,
   encodeFileSelection,
   memoizedFileExplorer as fileExplorer,
   isPathSelectedInFolder,
@@ -82,6 +83,8 @@ interface DirectoryToggleState {
   isChildrenLoading: boolean;
   isChildrenLoadingFromStore: boolean;
 }
+
+const logger = createLogger('OptimizedFileTree');
 
 function computeDirectoryCheckboxState(
   node: IFileNode,
@@ -334,6 +337,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // Dedupe in-flight directory loads between rapid expand interactions.
     // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+      return () => {
+        pendingChildLoadPathsRef.current.clear();
+      };
+    }, []);
 
     const treeRows = useMemo(() => {
       const options: BuildFileTreeRowsOptions = {
@@ -448,8 +456,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
         const toggleState = getDirectoryToggleState(node);
-        // `onLoadChildren` implementations are responsible for user-visible error handling.
-        void toggleDirectoryNode(node, toggleState).catch(() => undefined);
+        void toggleDirectoryNode(node, toggleState).catch((error: unknown) => {
+          logger.error('Failed to toggle directory expansion', {
+            path: node.path,
+            error,
+          });
+        });
       },
       [fileNodeByPath, getDirectoryToggleState, toggleDirectoryNode]
     );
@@ -514,8 +526,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       () => [
         {
           id: 'name',
-          header: <span className="sr-only">File Tree</span>,
-          headerClassName: '!h-0 !border-0 !p-0 [&>div]:hidden',
           className: '!p-0',
           cell: ({ node, isExpanded }) => {
             const rowData = node.data;
@@ -603,6 +613,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             overscan={10}
             rowHeight={ROW_HEIGHT}
             selectionMode="none"
+            showHeader={false}
             windowingStrategy="virtual"
           />
         </div>

@@ -130,8 +130,10 @@ function TreeTableRowInner<T>({
   checkboxState,
   onCheckboxChange,
   totalRowCount,
+  ariaRole = 'treegrid',
 }: TreeTableRowProps<T>) {
   const { node, isSelected, isHighlighted, isInContext, matchesFilter, aria } = row;
+  const isTreegrid = ariaRole === 'treegrid';
 
   // Handle row click
   const handleClick = React.useCallback(
@@ -172,12 +174,12 @@ function TreeTableRowInner<T>({
 
   return (
     <TableRow
-      aria-expanded={node.hasChildren ? row.isExpanded : undefined}
-      aria-level={aria.ariaLevel}
-      aria-posinset={aria.ariaPosInSet}
+      aria-expanded={isTreegrid && node.hasChildren ? row.isExpanded : undefined}
+      aria-level={isTreegrid ? aria.ariaLevel : undefined}
+      aria-posinset={isTreegrid ? aria.ariaPosInSet : undefined}
       aria-rowindex={totalRowCount ? aria.ariaRowIndex : undefined}
       aria-selected={isSelected}
-      aria-setsize={aria.ariaSetSize}
+      aria-setsize={isTreegrid ? aria.ariaSetSize : undefined}
       className={cn(
         'cursor-pointer transition-colors',
         isGroupHeader && 'bg-muted/50',

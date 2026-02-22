@@ -252,6 +252,10 @@ export interface TreeTableProps<T> {
   // Accessibility
   /** Accessible label for the table */
   ariaLabel?: string;
+  /** ARIA role for the table container */
+  ariaRole?: 'treegrid' | 'grid';
+  /** Whether to render the header row */
+  showHeader?: boolean;
 
   // Checkbox
   /** Whether to show checkboxes for row selection */
@@ -303,6 +307,8 @@ export interface TreeTableRowProps<T> {
   onCheckboxChange?: ((nodeId: string) => void) | undefined;
   /** Total number of rows for ARIA rowcount */
   totalRowCount?: number | undefined;
+  /** ARIA role inherited from the table container */
+  ariaRole?: 'treegrid' | 'grid' | undefined;
 }
 
 /**
@@ -365,6 +371,8 @@ export interface FlattenOptions {
   contextNodeIds?: Set<string>;
   /** Filter function to determine which nodes match current filters */
   filterFn?: (node: TreeNode<unknown>) => boolean;
+  /** 1-based offset for aria-rowindex (2 when header row is present, 1 otherwise) */
+  rowIndexOffset?: number;
 }
 
 /**

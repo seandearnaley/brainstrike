@@ -83,10 +83,10 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
 }
 
 describe('PreviewTable grouped mode', () => {
-  it('renders grouped rows in a treegrid with accessible group toggle state', () => {
+  it('renders grouped rows in a grid with accessible group toggle state', () => {
     renderGroupedPreviewTable();
 
-    expect(screen.getByRole('treegrid', { name: 'Context explorer table' })).toBeInTheDocument();
+    expect(screen.getByRole('grid', { name: 'Context explorer table' })).toBeInTheDocument();
 
     const toggle = screen.getByRole('button', { name: /collapse group src/i });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');

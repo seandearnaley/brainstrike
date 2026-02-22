@@ -145,6 +145,101 @@ function buildTablePaginationProps({
   return tablePaginationProps;
 }
 
+interface RenderTableHeaderOptions<T> {
+  showHeader: boolean;
+  columns: TreeTableProps<T>['columns'];
+  sortState: TreeTableProps<T>['sortState'];
+  onSortChange: TreeTableProps<T>['onSortChange'];
+  onSortClick: (columnId: string) => void;
+}
+
+function renderTableHeader<T>({
+  showHeader,
+  columns,
+  sortState,
+  onSortChange,
+  onSortClick,
+}: RenderTableHeaderOptions<T>): React.ReactNode {
+  if (!showHeader) {
+    return null;
+  }
+
+  return (
+    <TableHeader className="sticky top-0 z-10 bg-background" role="rowgroup">
+      <TableRow role="row">
+        {columns.map((column) => {
+          const ariaSortValue = column.sortable
+            ? getAriaSortValue(column.id, sortState)
+            : undefined;
+
+          return (
+            <TableHead
+              aria-sort={ariaSortValue}
+              className={cn(
+                column.headerClassName,
+                column.sortable && onSortChange && 'cursor-pointer select-none'
+              )}
+              key={column.id}
+              onClick={() => column.sortable && onSortClick(column.id)}
+              role="columnheader"
+              style={{
+                width: column.width,
+                minWidth: column.minWidth,
+                maxWidth: column.maxWidth,
+              }}
+            >
+              <div className="flex items-center gap-1">
+                {column.header ?? column.id}
+                {column.sortable && sortState?.columnId === column.id && (
+                  <span aria-hidden="true" className="text-xs">
+                    {sortState.direction === 'asc'
+                      ? '\u2191'
+                      : sortState.direction === 'desc'
+                        ? '\u2193'
+                        : ''}
+                  </span>
+                )}
+              </div>
+            </TableHead>
+          );
+        })}
+      </TableRow>
+    </TableHeader>
+  );
+}
+
+function resolveRowIndexOffset(showHeader: boolean): number {
+  return showHeader ? 2 : 1;
+}
+
+function resolveTotalRowCount(rowCount: number, showHeader: boolean): number {
+  return rowCount + (showHeader ? 1 : 0);
+}
+
+function resolveTableAriaRole(ariaRole: TreeTableProps<unknown>['ariaRole']): 'treegrid' | 'grid' {
+  return ariaRole === 'grid' ? 'grid' : 'treegrid';
+}
+
+interface TreeTableViewportProps {
+  className: string;
+  maxHeight: string;
+  parentRef: React.RefObject<HTMLDivElement | null>;
+  children: React.ReactNode;
+}
+
+function TreeTableViewport({
+  className,
+  maxHeight,
+  parentRef,
+  children,
+}: TreeTableViewportProps): React.ReactElement {
+  return (
+    <div className={className} ref={parentRef} style={{ maxHeight, height: '100%' }}>
+      {children}
+    </div>
+  );
+}
+
 function buildFallbackVirtualItems(rowCount: number, overscan: number): Array<{ index: number }> {
   const fallbackCount = Math.min(rowCount, Math.max(MIN_FALLBACK_VIRTUAL_ROWS, overscan * 2));
   return Array.from({ length: fallbackCount }, (_, index) => ({ index }));
@@ -336,10 +431,13 @@ export function TreeTable<T>({
   rowClassName,
   emptyState,
   ariaLabel = 'Tree table',
+  ariaRole = 'treegrid',
+  showHeader = true,
   showCheckbox = false,
   onRowDoubleClick,
   onRowContextMenu,
 }: TreeTableProps<T>) {
+  const tableAriaRole = resolveTableAriaRole(ariaRole);
   const parentRef = React.useRef<HTMLDivElement>(null);
   // Diagnostic-only cycle warning cache. This is intentionally mutable and
   // excluded from memo deps because it does not affect rendered output.
@@ -373,6 +471,7 @@ export function TreeTable<T>({
         multiSelectedIds,
         highlightedIds,
         contextNodeIds,
+        rowIndexOffset: resolveRowIndexOffset(showHeader),
       },
       getChildrenWithLoading
     );
@@ -384,6 +483,7 @@ export function TreeTable<T>({
     highlightedIds,
     contextNodeIds,
     loadingNodeIds,
+    showHeader,
   ]);
 
   const resolvedWindowingStrategy = React.useMemo(
@@ -413,8 +513,7 @@ export function TreeTable<T>({
       pageSize,
     });
 
-  // Total row count for ARIA (includes header row)
-  const totalRowCount = rows.length + 1;
+  const totalRowCount = resolveTotalRowCount(rows.length, showHeader);
 
   // O(1) node lookup map — avoids O(N) nodes.find() per row
   const nodeById = React.useMemo(() => {
@@ -696,6 +795,17 @@ export function TreeTable<T>({
       pagination,
     ]
   );
+  const tableHeader = React.useMemo(
+    () =>
+      renderTableHeader({
+        showHeader,
+        columns,
+        sortState,
+        onSortChange,
+        onSortClick: handleSortClick,
+      }),
+    [showHeader, columns, sortState, onSortChange, handleSortClick]
+  );
 
   if (nodes.length === 0) {
     return (
@@ -712,59 +822,18 @@ export function TreeTable<T>({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        aria-colcount={columns.length}
-        aria-label={ariaLabel}
-        aria-multiselectable={selectionMode === 'multi' || undefined}
-        aria-rowcount={totalRowCount}
-        className={cn('overflow-auto', className)}
-        onKeyDown={keyboard.onKeyDown}
-        ref={parentRef}
-        role="treegrid"
-        style={{ maxHeight, height: '100%' }}
-        tabIndex={0}
-      >
-        <Table>
-          <TableHeader className="sticky top-0 z-10 bg-background" role="rowgroup">
-            <TableRow role="row">
-              {columns.map((column) => {
-                const ariaSortValue = column.sortable
-                  ? getAriaSortValue(column.id, sortState)
-                  : undefined;
-
-                return (
-                  <TableHead
-                    aria-sort={ariaSortValue}
-                    className={cn(
-                      column.headerClassName,
-                      column.sortable && onSortChange && 'cursor-pointer select-none'
-                    )}
-                    key={column.id}
-                    onClick={() => column.sortable && handleSortClick(column.id)}
-                    role="columnheader"
-                    style={{
-                      width: column.width,
-                      minWidth: column.minWidth,
-                      maxWidth: column.maxWidth,
-                    }}
-                  >
-                    <div className="flex items-center gap-1">
-                      {column.header ?? column.id}
-                      {column.sortable && sortState?.columnId === column.id && (
-                        <span aria-hidden="true" className="text-xs">
-                          {sortState.direction === 'asc'
-                            ? '\u2191'
-                            : sortState.direction === 'desc'
-                              ? '\u2193'
-                              : ''}
-                        </span>
-                      )}
-                    </div>
-                  </TableHead>
-                );
-              })}
-            </TableRow>
-          </TableHeader>
+      <TreeTableViewport className="overflow-auto" maxHeight={maxHeight} parentRef={parentRef}>
+        <Table
+          aria-colcount={columns.length}
+          aria-label={ariaLabel}
+          aria-multiselectable={selectionMode === 'multi' || undefined}
+          aria-rowcount={totalRowCount}
+          className={className}
+          onKeyDown={keyboard.onKeyDown}
+          role={tableAriaRole}
+          tabIndex={0}
+        >
+          {tableHeader}
 
           <TableBody role="rowgroup">
             {isVirtualWindowing && paddingTop > 0 && (
@@ -782,6 +851,7 @@ export function TreeTable<T>({
 
                   return (
                     <TreeTableRow
+                      ariaRole={tableAriaRole}
                       checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
                       className={getRowClassName(row.node)}
                       columns={columns}
@@ -802,6 +872,7 @@ export function TreeTable<T>({
                 })
               : pagedRows.map((row) => (
                   <TreeTableRow
+                    ariaRole={tableAriaRole}
                     checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
                     className={getRowClassName(row.node)}
                     columns={columns}
@@ -826,7 +897,7 @@ export function TreeTable<T>({
             )}
           </TableBody>
         </Table>
-      </div>
+      </TreeTableViewport>
 
       {shouldShowPagination && <TablePagination {...tablePaginationProps} />}
     </div>

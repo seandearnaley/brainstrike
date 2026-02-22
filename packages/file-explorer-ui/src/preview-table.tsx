@@ -591,6 +591,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   }, []);
 
   // Group rows are flattened and always visible in this mode; expansion is intentionally disabled.
+  // Render as `grid` instead of `treegrid` to avoid implying a hierarchical ARIA model.
   const noopToggleExpand = useCallback(() => {}, []);
   const groupedPagination = useMemo(
     () => ({
@@ -692,6 +693,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     <div className="flex min-h-0 flex-1 overflow-auto">
       <TreeTable
         ariaLabel="Context explorer table"
+        ariaRole="grid"
         className="min-w-full"
         columns={groupedColumns}
         expandedIds={EMPTY_EXPANDED_IDS}
