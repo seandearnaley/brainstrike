@@ -28,14 +28,14 @@ vi.mock('@brainstrike/storage', () => ({
 }));
 
 // Mock preferences stores
-const mockLoggingStore = {
+const mockLoggingStoreState = {
   hasHydrated: true,
-  preferences: { level: 'debug' },
+  preferences: { level: 'debug', consoleLevel: 'debug' },
   updatePreferences: vi.fn(),
-  getState: vi.fn(() => ({
-    hasHydrated: true,
-    preferences: { level: 'debug' },
-  })),
+};
+
+const mockLoggingStore = {
+  getState: vi.fn(() => mockLoggingStoreState),
   subscribe: vi.fn(() => () => {}),
 };
 
@@ -62,8 +62,17 @@ vi.mock('@brainstrike/utils', () => ({
 }));
 
 // Mock queue telemetry
+interface MockQueueTelemetrySink {
+  flush: () => Promise<void>;
+  dispose: () => Promise<void>;
+}
+
+const initializeQueueTelemetrySinkMock = vi.fn(
+  (_options: unknown): MockQueueTelemetrySink | null => null
+);
+
 vi.mock('@brainstrike/queue', () => ({
-  initializeQueueTelemetrySink: vi.fn(() => null),
+  initializeQueueTelemetrySink: initializeQueueTelemetrySinkMock,
 }));
 
 // Mock file-import to prevent worker initialization during tests
@@ -124,6 +133,10 @@ describe('main entry file', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    mockLoggingStoreState.hasHydrated = true;
+    mockLoggingStoreState.preferences = { level: 'debug', consoleLevel: 'debug' };
+    initializeQueueTelemetrySinkMock.mockReturnValue(null);
     Reflect.deleteProperty(window, '__BRAINSTRIKE_WEB_REACT_ROOT__');
   });
 
@@ -155,5 +168,123 @@ describe('main entry file', () => {
 
     // Verify mocked routing components render without crashing
     expect(screen.getByTestId('root-layout')).toBeInTheDocument();
+  }, 60_000);
+
+  test('reuses existing React root when already initialized', async () => {
+    const rootElement = document.createElement('div');
+    rootElement.id = 'root';
+    vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+
+    const existingRender = vi.fn();
+    window.__BRAINSTRIKE_WEB_REACT_ROOT__ = { render: existingRender } as unknown as NonNullable<
+      typeof window.__BRAINSTRIKE_WEB_REACT_ROOT__
+    >;
+
+    const createRootMock = vi.fn();
+    vi.doMock('react-dom/client', () => ({
+      __esModule: true,
+      default: { createRoot: createRootMock },
+    }));
+
+    await importMain();
+
+    expect(createRootMock).not.toHaveBeenCalled();
+    expect(existingRender).toHaveBeenCalledTimes(1);
+  }, 60_000);
+
+  test('hydrates logging defaults when preferences store is not yet hydrated', async () => {
+    const rootElement = document.createElement('div');
+    rootElement.id = 'root';
+    vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+
+    const renderMock = vi.fn();
+    vi.doMock('react-dom/client', () => ({
+      __esModule: true,
+      default: { createRoot: vi.fn(() => ({ render: renderMock })) },
+    }));
+
+    mockLoggingStoreState.hasHydrated = false;
+
+    await importMain();
+
+    expect(mockLoggingStoreState.updatePreferences).toHaveBeenCalledWith({
+      level: 'info',
+      consoleLevel: 'info',
+    });
+  }, 60_000);
+
+  test('initializes telemetry sink and flushes on lifecycle events', async () => {
+    const rootElement = document.createElement('div');
+    rootElement.id = 'root';
+    vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+
+    const renderMock = vi.fn();
+    vi.doMock('react-dom/client', () => ({
+      __esModule: true,
+      default: { createRoot: vi.fn(() => ({ render: renderMock })) },
+    }));
+
+    const flushMock = vi.fn(() => Promise.resolve());
+    const disposeMock = vi.fn(() => Promise.resolve());
+    initializeQueueTelemetrySinkMock.mockReturnValue({
+      flush: flushMock,
+      dispose: disposeMock,
+    });
+
+    const listeners = new Map<string, EventListener>();
+
+    const addWindowListenerSpy = vi
+      .spyOn(window, 'addEventListener')
+      .mockImplementation((type, listener) => {
+        if (typeof listener === 'function') {
+          listeners.set(type, listener as EventListener);
+        }
+      });
+
+    const addDocumentListenerSpy = vi
+      .spyOn(document, 'addEventListener')
+      .mockImplementation((type, listener) => {
+        if (typeof listener === 'function') {
+          listeners.set(type, listener as EventListener);
+        }
+      });
+
+    const visibilityStateSpy = vi
+      .spyOn(document, 'visibilityState', 'get')
+      .mockReturnValueOnce('visible')
+      .mockReturnValue('hidden');
+
+    vi.stubEnv('VITE_QUEUE_TELEMETRY_ENDPOINT', 'https://telemetry.example.com/queue');
+    vi.stubEnv('VITE_QUEUE_TELEMETRY_API_KEY', 'test-api-key');
+    vi.stubEnv('VITE_APP_VERSION', 'test-version');
+
+    await importMain();
+
+    expect(initializeQueueTelemetrySinkMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: 'https://telemetry.example.com/queue',
+        useSendBeacon: false,
+        apiKey: 'test-api-key',
+        runtime: 'browser',
+        metadata: expect.objectContaining({
+          app: 'web',
+          version: 'test-version',
+        }),
+      })
+    );
+    const beforeUnloadHandler = listeners.get('beforeunload');
+    const visibilityChangeHandler = listeners.get('visibilitychange');
+    expect(beforeUnloadHandler).toBeTypeOf('function');
+    expect(visibilityChangeHandler).toBeTypeOf('function');
+
+    beforeUnloadHandler?.(new Event('beforeunload'));
+    visibilityChangeHandler?.(new Event('visibilitychange'));
+    visibilityChangeHandler?.(new Event('visibilitychange'));
+
+    expect(flushMock).toHaveBeenCalledTimes(2);
+
+    addWindowListenerSpy.mockRestore();
+    addDocumentListenerSpy.mockRestore();
+    visibilityStateSpy.mockRestore();
   }, 60_000);
 });
