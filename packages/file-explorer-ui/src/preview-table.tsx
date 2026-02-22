@@ -56,6 +56,8 @@ type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
 const EMPTY_EXPANDED_IDS = new Set<string>();
+// Keep grouped preview in a single page while still opting into paged windowing (no virtual scroll).
+// `showControls: false` hides pagination chrome; this large sentinel page size keeps internals consistent.
 const GROUPED_TREE_PAGINATION = {
   pageSize: Number.MAX_SAFE_INTEGER,
   showControls: false,

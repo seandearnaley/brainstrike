@@ -16,6 +16,8 @@ import type {
   UseTreeKeyboardResult,
 } from './types';
 
+const EMPTY_MULTI_SELECTED_IDS = new Set<string>();
+
 /**
  * Options for the useTreeKeyboard hook.
  */
@@ -71,7 +73,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     onToggleExpand,
     selectionMode,
     onSelect,
-    multiSelectedIds = new Set<string>(),
+    multiSelectedIds = EMPTY_MULTI_SELECTED_IDS,
     onMultiSelectChange,
     isTableFocused = true,
     onScrollToNode,

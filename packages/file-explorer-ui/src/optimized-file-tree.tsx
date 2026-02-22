@@ -459,6 +459,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
 
+        // A stale async load that resolves after a later user interaction should be a no-op.
+        // If another action already expanded this path, avoid toggling it again.
         if (!store.getState().expandedDirectoryPaths.has(node.path)) {
           toggleDirectoryExpansion(node.path);
         }
