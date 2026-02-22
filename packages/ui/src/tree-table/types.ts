@@ -133,6 +133,36 @@ export type SelectionMode = 'none' | 'single' | 'multi';
 export type SortDirection = 'asc' | 'desc' | null;
 
 /**
+ * Windowing strategy for tree rows.
+ */
+export type TreeTableWindowingStrategy = 'virtual' | 'paged' | 'auto';
+
+/**
+ * Context hint used by auto windowing strategy.
+ */
+export type TreeTableAutoWindowingContext = 'browse' | 'search';
+
+/**
+ * Pagination options used when paged windowing is active.
+ */
+export interface TreeTablePaginationOptions {
+  /** Items per page */
+  pageSize?: number;
+  /** Callback when page changes (0-based) */
+  onPageChange?: (page: number) => void;
+  /** Callback when page size changes */
+  onPageSizeChange?: (pageSize: number) => void;
+  /** Available page size options */
+  pageSizeOptions?: readonly number[];
+  /** Optional additional page info text */
+  pageInfo?: string;
+  /** Whether to show item range summary */
+  showItemRange?: boolean;
+  /** Whether to show pagination controls */
+  showControls?: boolean;
+}
+
+/**
  * Sort state for the tree table.
  */
 export interface SortState {
@@ -186,6 +216,14 @@ export interface TreeTableProps<T> {
   rowHeight?: RowHeightConfig<T>;
   /** Number of rows to render outside visible area */
   overscan?: number;
+  /** Windowing strategy for row rendering */
+  windowingStrategy?: TreeTableWindowingStrategy;
+  /** Context hint used by auto strategy */
+  autoWindowingContext?: TreeTableAutoWindowingContext;
+  /** Row threshold for auto strategy to switch to paged mode */
+  autoPagedRowThreshold?: number;
+  /** Pagination options used by paged strategy */
+  pagination?: TreeTablePaginationOptions;
   /** Maximum height of the table container */
   maxHeight?: string;
 

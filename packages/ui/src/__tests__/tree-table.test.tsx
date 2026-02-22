@@ -166,6 +166,86 @@ describe('TreeTable', () => {
     });
   });
 
+  describe('windowing strategy', () => {
+    it('renders paged rows and page controls when paged strategy is active', () => {
+      const handlePageChange = vi.fn();
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2, onPageChange: handlePageChange }}
+          windowingStrategy="paged"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText('Go to next page'));
+
+      expect(handlePageChange).toHaveBeenCalledWith(1);
+      expect(screen.getByText('File 3')).toBeInTheDocument();
+      expect(screen.queryByText('File 1')).not.toBeInTheDocument();
+    });
+
+    it('keeps auto strategy virtualized in browse mode', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          autoPagedRowThreshold={2}
+          autoWindowingContext="browse"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2 }}
+          windowingStrategy="auto"
+        />
+      );
+
+      expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
+      expect(screen.getByText('File 3')).toBeInTheDocument();
+    });
+
+    it('switches auto strategy to paged mode for large search result sets', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          autoPagedRowThreshold={2}
+          autoWindowingContext="search"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2 }}
+          windowingStrategy="auto"
+        />
+      );
+
+      expect(screen.getByLabelText('Go to next page')).toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+    });
+  });
+
   describe('expansion', () => {
     it('shows expand icon for nodes with children', () => {
       const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Folder', null, true)];

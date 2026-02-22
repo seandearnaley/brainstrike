@@ -75,10 +75,13 @@ export type {
   SortState,
   TreeNode,
   TreeRowAriaAttributes,
+  TreeTableAutoWindowingContext,
   TreeTableCellProps,
   TreeTableColumn,
+  TreeTablePaginationOptions,
   TreeTableProps,
   TreeTableRowProps,
+  TreeTableWindowingStrategy,
   UseTreeKeyboardResult,
 } from './types';
 // Hooks
