@@ -1,5 +1,5 @@
 import { Checkbox, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
-import { memo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { ExtensionBadge } from '../extension-badge';
 import { formatTokenCount } from '../use-preview-panel-state';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
@@ -9,14 +9,7 @@ import { getTapestryRenderMetrics } from './utils';
 interface MinimapProps {
   file: FileTapestry;
   scale: number;
-  onInteractionStart: (
-    mode: InteractionMode,
-    fileId: string,
-    rangeId: string | null,
-    clientY: number,
-    initialRange?: TapestryRange
-  ) => void;
-  smartStart?: (
+  smartStart: (
     mode: InteractionMode,
     fileId: string,
     rangeId: string | null,
@@ -298,6 +291,7 @@ const RangeItem = memo(
         <TooltipContent
           align="start"
           className="pointer-events-none z-[100] w-72 border-border p-0 shadow-2xl ring-1 ring-border"
+          collisionPadding={8}
           side="right"
           sideOffset={16}
         >
@@ -345,7 +339,6 @@ export const Minimap = memo(
   ({
     file,
     scale,
-    onInteractionStart,
     smartStart,
     onToggleRange,
     onMoveRange,
@@ -356,11 +349,20 @@ export const Minimap = memo(
   }: MinimapProps) => {
     const containerRef = useRef<HTMLButtonElement>(null);
     const [hoveredRangeId, setHoveredRangeId] = useState<string | null>(null);
+    const prevScaleRef = useRef(scale);
 
     const { totalHeight, lineScale, lineThickness } = getTapestryRenderMetrics(
       file.totalLines,
       scale
     );
+
+    // Synchronous: animate height only when totalLines changed (content load),
+    // not when the user moved the density slider.
+    const animateHeight = prevScaleRef.current === scale;
+
+    useEffect(() => {
+      prevScaleRef.current = scale;
+    }, [scale]);
 
     const handlePreviewHover = () => {
       if (file.contentStatus === 'idle') {
@@ -371,23 +373,16 @@ export const Minimap = memo(
     const handleMouseDown = (e: React.MouseEvent) => {
       e.stopPropagation();
 
-      // Check if we clicked background
       const target = e.target as HTMLElement;
       const isBackground = target === containerRef.current || target.id === 'minimap-bg';
 
       if (isBackground && containerRef.current) {
-        // Calculate line number
         const rect = containerRef.current.getBoundingClientRect();
         const relativeY = e.clientY - rect.top;
         const clickedLine = Math.floor(relativeY / lineScale);
         const maxLine = Math.max(file.totalLines - 1, 0);
         const clampedLine = Math.min(Math.max(clickedLine, 0), maxLine);
-
-        if (smartStart) {
-          smartStart('CREATING', file.id, null, e.clientY, undefined, clampedLine);
-        } else {
-          onInteractionStart('CREATING', file.id, null, e.clientY);
-        }
+        smartStart('CREATING', file.id, null, e.clientY, undefined, clampedLine);
       }
     };
 
@@ -397,11 +392,7 @@ export const Minimap = memo(
       clientY: number,
       range?: TapestryRange
     ) => {
-      if (smartStart) {
-        smartStart(mode, file.id, rangeId, clientY, range);
-      } else {
-        onInteractionStart(mode, file.id, rangeId, clientY, range);
-      }
+      smartStart(mode, file.id, rangeId, clientY, range);
     };
 
     const isAnyHovered = !!hoveredRangeId;
@@ -409,7 +400,7 @@ export const Minimap = memo(
     return (
       <div
         className={cn(
-          'fade-in zoom-in flex w-full animate-in flex-col gap-2 duration-300',
+          'flex w-full flex-col gap-2',
           isAnyHovered ? 'relative z-40' : 'relative z-0'
         )}
       >
@@ -440,21 +431,50 @@ export const Minimap = memo(
                 </div>
                 <span className="font-mono text-[10px] opacity-70">{file.totalLines}L</span>
                 <ExtensionBadge extension={file.type} size="compact" />
-                <span className="font-mono text-[10px] opacity-70">
-                  {formatPreviewFileSize(file.size)}
-                </span>
-                <span className="font-mono text-[10px] opacity-70">
-                  {file.tokens !== undefined ? formatTokenCount(file.tokens) : '—'}
-                </span>
+                {file.size !== undefined ? (
+                  <span className="font-mono text-[10px] opacity-70">
+                    {formatPreviewFileSize(file.size)}
+                  </span>
+                ) : file.contentStatus === 'loading' ? (
+                  <span className="inline-block h-3 w-10 animate-pulse rounded bg-muted" />
+                ) : (
+                  <span className="font-mono text-[10px] opacity-70">—</span>
+                )}
+                {file.tokens !== undefined ? (
+                  <span className="font-mono text-[10px] opacity-70">
+                    {formatTokenCount(file.tokens)}
+                  </span>
+                ) : file.contentStatus === 'loading' ? (
+                  <span className="inline-block h-3 w-12 animate-pulse rounded bg-muted" />
+                ) : (
+                  <span className="font-mono text-[10px] opacity-70">—</span>
+                )}
               </div>
             </div>
           </div>
         </div>
 
         <div
-          className="group relative w-full overflow-visible rounded-md border border-border bg-linear-to-b from-background to-muted/20 shadow-xs transition-colors hover:border-accent"
-          style={{ height: totalHeight }}
+          className={cn(
+            'group relative w-full overflow-visible rounded-md border bg-linear-to-b from-background to-muted/20 shadow-xs hover:border-accent',
+            file.contentStatus === 'loading' ? 'border-indigo-500/30' : 'border-border'
+          )}
+          style={{
+            height: totalHeight,
+            transition: animateHeight
+              ? 'height 200ms ease-out, border-color 150ms, color 150ms'
+              : 'border-color 150ms, color 150ms',
+          }}
         >
+          {file.contentStatus === 'loading' && (
+            <div className="absolute top-0 right-0 left-0 z-30 h-0.5 overflow-hidden rounded-t-md bg-muted">
+              <div
+                className="h-full w-1/3 rounded-full bg-indigo-500/60"
+                style={{ animation: 'tapestry-shimmer 1.5s ease-in-out infinite' }}
+              />
+            </div>
+          )}
+
           {/* Background button for range creation */}
           <button
             aria-label={`Create range in ${file.name}`}
@@ -469,7 +489,10 @@ export const Minimap = memo(
             <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
               <svg
                 aria-label={`Visual structure of ${file.name}`}
-                className="z-10 h-full w-full opacity-60"
+                className={cn(
+                  'z-10 h-full w-full transition-opacity duration-500',
+                  file.contentStatus === 'ready' ? 'opacity-60' : 'opacity-25'
+                )}
                 preserveAspectRatio="none"
                 role="img"
               >

@@ -54,7 +54,6 @@ describe('Minimap', () => {
   it('uses smartStart to create a range when clicking the background', () => {
     const file = createFile();
     const smartStart = vi.fn();
-    const onInteractionStart = vi.fn();
     const onToggleRange = vi.fn();
 
     render(
@@ -63,7 +62,6 @@ describe('Minimap', () => {
           file={file}
           getGlobalIndex={() => 1}
           isSelected={false}
-          onInteractionStart={onInteractionStart}
           onToggleRange={onToggleRange}
           onToggleSelection={vi.fn()}
           scale={2}
@@ -92,12 +90,11 @@ describe('Minimap', () => {
       undefined,
       expectedLine
     );
-    expect(onInteractionStart).not.toHaveBeenCalled();
   });
 
-  it('starts moving ranges via onInteractionStart when smartStart is absent', () => {
+  it('calls smartStart with MOVING when dragging a range', () => {
     const file = createFile();
-    const onInteractionStart = vi.fn();
+    const smartStart = vi.fn();
 
     render(
       <TooltipProvider>
@@ -105,10 +102,10 @@ describe('Minimap', () => {
           file={file}
           getGlobalIndex={() => 1}
           isSelected={false}
-          onInteractionStart={onInteractionStart}
           onToggleRange={vi.fn()}
           onToggleSelection={vi.fn()}
           scale={2}
+          smartStart={smartStart}
         />
       </TooltipProvider>
     );
@@ -116,7 +113,7 @@ describe('Minimap', () => {
     const range = screen.getByRole('slider', { name: /range 2 to 6 in app\.tsx/i });
     fireEvent.mouseDown(range, { button: 0, clientY: 42 });
 
-    expect(onInteractionStart).toHaveBeenCalledWith(
+    expect(smartStart).toHaveBeenCalledWith(
       'MOVING',
       file.id,
       'range-1',
@@ -135,10 +132,10 @@ describe('Minimap', () => {
           file={file}
           getGlobalIndex={() => 1}
           isSelected={false}
-          onInteractionStart={vi.fn()}
           onToggleRange={onToggleRange}
           onToggleSelection={vi.fn()}
           scale={2}
+          smartStart={vi.fn()}
         />
       </TooltipProvider>
     );

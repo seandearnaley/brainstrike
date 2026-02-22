@@ -286,15 +286,19 @@ function useTapestryDrag(
     initialRange: null,
   });
 
+  // Always-fresh ref avoids stale closures when mouse events fire between renders.
+  const filesRef = useRef(files);
+  filesRef.current = files;
+
   const updateRanges = useCallback(
     (fileId: string, updater: (ranges: TapestryRange[]) => TapestryRange[]) => {
-      const file = files.find((entry) => entry.id === fileId);
+      const file = filesRef.current.find((entry) => entry.id === fileId);
       if (!file) {
         return;
       }
       onRangesChange(fileId, updater(file.selections));
     },
-    [files, onRangesChange]
+    [onRangesChange]
   );
 
   const handleMouseMove = useCallback(
@@ -309,7 +313,7 @@ function useTapestryDrag(
         return;
       }
 
-      const file = files.find((entry) => entry.id === dragState.fileId);
+      const file = filesRef.current.find((entry) => entry.id === dragState.fileId);
       if (!file) {
         return;
       }
@@ -334,7 +338,7 @@ function useTapestryDrag(
         return ranges.map((range) => (range.id === rangeId ? { ...range, ...newBounds } : range));
       });
     },
-    [allowOverlap, dragState, files, scale, updateRanges]
+    [allowOverlap, dragState, scale, updateRanges]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -373,7 +377,7 @@ function useTapestryDrag(
       initialRange?: TapestryRange,
       clickedLine?: number
     ) => {
-      const file = files.find((entry) => entry.id === fileId);
+      const file = filesRef.current.find((entry) => entry.id === fileId);
       if (!file) {
         return;
       }
@@ -415,7 +419,7 @@ function useTapestryDrag(
         });
       }
     },
-    [allowOverlap, files, updateRanges]
+    [allowOverlap, updateRanges]
   );
 
   return { startDrag };
@@ -462,6 +466,9 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
     [groupingConfig, groupedSections, ungroupedFiles]
   );
 
+  const filesRef = useRef(files);
+  filesRef.current = files;
+
   const { startDrag } = useTapestryDrag(files, onRangesChange, scale, allowOverlap);
 
   const rangeIdToIndexMap = useMemo(() => {
@@ -486,13 +493,13 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
 
   const updateRanges = useCallback(
     (fileId: string, updater: (ranges: TapestryRange[]) => TapestryRange[]) => {
-      const file = files.find((entry) => entry.id === fileId);
+      const file = filesRef.current.find((entry) => entry.id === fileId);
       if (!file) {
         return;
       }
       onRangesChange(fileId, updater(file.selections));
     },
-    [files, onRangesChange]
+    [onRangesChange]
   );
 
   const handleToggleRange = useCallback(
@@ -614,13 +621,12 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                     getGlobalIndex={getGlobalIndex}
                     isSelected={previewSelections.has(file.compositeKey)}
                     key={file.id}
-                    onInteractionStart={() => {}}
                     onMoveRange={handleMoveRange}
                     onToggleRange={handleToggleRange}
                     onToggleSelection={onToggleSelection}
                     scale={scale}
-                    {...(onRequestFileContent ? { onRequestFileContent } : {})}
                     smartStart={startDrag}
+                    {...(onRequestFileContent ? { onRequestFileContent } : {})}
                   />
                 ))}
               </div>
@@ -649,13 +655,12 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                           getGlobalIndex={getGlobalIndex}
                           isSelected={previewSelections.has(file.compositeKey)}
                           key={file.id}
-                          onInteractionStart={() => {}}
                           onMoveRange={handleMoveRange}
                           onToggleRange={handleToggleRange}
                           onToggleSelection={onToggleSelection}
                           scale={scale}
-                          {...(onRequestFileContent ? { onRequestFileContent } : {})}
                           smartStart={startDrag}
+                          {...(onRequestFileContent ? { onRequestFileContent } : {})}
                         />
                       ))}
                     </div>
