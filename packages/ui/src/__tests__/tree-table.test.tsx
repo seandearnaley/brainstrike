@@ -276,7 +276,7 @@ describe('TreeTable', () => {
         const nodes: TreeNode<TestData>[] = [
           createTestNode('1', 'File 1'),
           createTestNode('2', 'File 2'),
-          createTestNode('3[]\n"\\\\weird', 'File 3'),
+          createTestNode('3[]\'\n"\\\\weird', 'File 3'),
         ];
 
         render(

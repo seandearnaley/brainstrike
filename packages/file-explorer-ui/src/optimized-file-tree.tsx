@@ -273,6 +273,7 @@ function buildFileTreeRows(
       isLoading: rowData.isChildrenLoading,
     });
 
+    // Build the full tree shape; TreeTable applies expand/collapse visibility from expandedIds.
     addChildrenToStack(entry, stack);
   }
 

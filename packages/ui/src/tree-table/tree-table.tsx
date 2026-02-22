@@ -93,13 +93,14 @@ function resolveWindowingStrategy({
 }
 
 function getNodeSelectorValue(nodeId: string): string {
+  // Node lookups use a double-quoted attribute selector: [data-node-id="..."].
   return Array.from(nodeId)
     .map((char) => {
       const codePoint = char.codePointAt(0);
       if (codePoint === undefined) {
         return '';
       }
-      if (char === '"' || char === '\\' || char === ']' || char === '[') {
+      if (char === '"' || char === "'" || char === '\\' || char === ']' || char === '[') {
         return `\\${char}`;
       }
       if (codePoint <= 0x1f || codePoint === 0x7f) {

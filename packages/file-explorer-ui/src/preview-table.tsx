@@ -56,7 +56,15 @@ type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
 const EMPTY_EXPANDED_IDS = new Set<string>();
+const GROUPED_TREE_PAGINATION = {
+  pageSize: Number.MAX_SAFE_INTEGER,
+  showControls: false,
+} as const;
 
+/**
+ * Ref-backed callback wrapper (similar to React's proposed `useEffectEvent`).
+ * Use this only for event handlers to keep memoized column definitions stable.
+ */
 function useStableCallback<TArgs extends unknown[], TResult>(
   callback: (...args: TArgs) => TResult
 ): (...args: TArgs) => TResult {
@@ -141,8 +149,9 @@ function buildGroupedTreeNodes({
   pagination,
 }: BuildGroupedTreeNodesInput): TreeNode<PreviewTreeNodeData>[] {
   // TODO(BST-312): model grouped rows as parent/child tree nodes instead of a flat projection.
-  // Current migration keeps grouped rows in a treegrid shell for shared styling and keyboard behavior.
+  // Current migration keeps grouped rows in a flat projection for shared table styling.
   // This means group and item rows both render at depth 0 until hierarchical tree rows are introduced.
+  // PreviewTable therefore renders `ariaRole="grid"` (not `treegrid`) to avoid implying tree semantics.
   const nodes: TreeNode<PreviewTreeNodeData>[] = [];
   let visibleRowIndex = 0;
 
@@ -354,6 +363,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
 
   // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
   const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(() => {
+    // Stable callback wrappers above keep parent callback identity churn out of this memo.
+    // Remaining dependencies are stateful render inputs for cells/headers.
     const columns: TreeTableColumn<PreviewTreeNodeData>[] = [];
 
     if (columnVisibility.checkbox) {
@@ -620,13 +631,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   // Group rows are flattened and always visible in this mode; expansion is intentionally disabled.
   // Render as `grid` instead of `treegrid` to avoid implying a hierarchical ARIA model.
   const noopToggleExpand = useCallback(() => {}, []);
-  const groupedPagination = useMemo(
-    () => ({
-      pageSize: Math.max(1, groupedTreeNodes.length),
-      showControls: false,
-    }),
-    [groupedTreeNodes.length]
-  );
 
   if (groupingConfig === 'none') {
     return (
@@ -727,7 +731,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         maxHeight="none"
         nodes={groupedTreeNodes}
         onToggleExpand={noopToggleExpand}
-        pagination={groupedPagination}
+        pagination={GROUPED_TREE_PAGINATION}
         rowClassName={rowClassName}
         selectionMode="none"
         windowingStrategy="paged"
