@@ -4,22 +4,28 @@
  * NOTE: useVirtualizer requires actual DOM dimensions to render items.
  * In JSDOM tests, we mock the virtualizer to return all items for testing.
  */
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeTable } from '../tree-table/tree-table';
 import type { TreeNode, TreeTableColumn } from '../tree-table/types';
 
+let virtualizerMode: 'full' | 'empty' = 'full';
+
 // Mock @tanstack/react-virtual to avoid JSDOM dimension issues
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: vi.fn(({ count }) => ({
-    getVirtualItems: () =>
-      Array.from({ length: count }, (_, i) => ({
+    getVirtualItems: () => {
+      if (virtualizerMode === 'empty') {
+        return [];
+      }
+      return Array.from({ length: count }, (_, i) => ({
         index: i,
         start: i * 40,
         end: (i + 1) * 40,
         size: 40,
         key: `item-${i}`,
-      })),
+      }));
+    },
     getTotalSize: () => count * 40,
     scrollToIndex: vi.fn(),
     measureElement: vi.fn(),
@@ -61,6 +67,7 @@ const testColumns: TreeTableColumn<TestData>[] = [
 
 describe('TreeTable', () => {
   beforeEach(() => {
+    virtualizerMode = 'full';
     vi.clearAllMocks();
   });
 
@@ -151,6 +158,39 @@ describe('TreeTable', () => {
       expect(screen.getByRole('treegrid')).toBeInTheDocument();
     });
 
+    it('supports grid role for flat table mode', () => {
+      render(
+        <TreeTable
+          ariaRole="grid"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      expect(screen.getByRole('grid')).toBeInTheDocument();
+      const row = screen.getByText('Test').closest('tr');
+      expect(row).not.toHaveAttribute('aria-level');
+      expect(row).not.toHaveAttribute('aria-setsize');
+      expect(row).not.toHaveAttribute('aria-posinset');
+    });
+
+    it('can hide column headers when showHeader is false', () => {
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onToggleExpand={() => {}}
+          showHeader={false}
+        />
+      );
+
+      expect(screen.queryByRole('columnheader')).not.toBeInTheDocument();
+      expect(screen.getByText('Test')).toBeInTheDocument();
+    });
+
     it('renders with custom aria-label', () => {
       render(
         <TreeTable
@@ -163,6 +203,319 @@ describe('TreeTable', () => {
       );
 
       expect(screen.getByLabelText('Custom tree table')).toBeInTheDocument();
+    });
+  });
+
+  describe('windowing strategy', () => {
+    it('renders paged rows and page controls when paged strategy is active', () => {
+      const handlePageChange = vi.fn();
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2, onPageChange: handlePageChange }}
+          windowingStrategy="paged"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText('Go to next page'));
+
+      expect(handlePageChange).toHaveBeenCalledWith(1);
+      expect(screen.getByText('File 3')).toBeInTheDocument();
+      expect(screen.queryByText('File 1')).not.toBeInTheDocument();
+    });
+
+    it('applies controlled pagination page size updates without effect lag', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      const { rerender } = render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2 }}
+          windowingStrategy="paged"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+
+      rerender(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 1 }}
+          windowingStrategy="paged"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.queryByText('File 2')).not.toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+    });
+
+    it('renders all rows without pagination controls when none strategy is active', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 1, showControls: true }}
+          windowingStrategy="none"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.getByText('File 3')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
+    });
+
+    it('renders fallback rows when virtualizer temporarily returns no items', () => {
+      virtualizerMode = 'empty';
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          windowingStrategy="virtual"
+        />
+      );
+
+      expect(screen.getByText('File 1')).toBeInTheDocument();
+      expect(screen.getByText('File 2')).toBeInTheDocument();
+      expect(screen.getByText('File 3')).toBeInTheDocument();
+    });
+
+    it('keeps focused rows visible after crossing a page boundary', async () => {
+      const scrollIntoViewSpy = vi.fn();
+      const originalScrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoViewSpy;
+
+      try {
+        const nodes: TreeNode<TestData>[] = [
+          createTestNode('1', 'File 1'),
+          createTestNode('2', 'File 2'),
+          createTestNode('3', 'File 3'),
+        ];
+
+        render(
+          <TreeTable
+            columns={testColumns}
+            expandedIds={new Set()}
+            nodes={nodes}
+            onToggleExpand={() => {}}
+            pagination={{ pageSize: 2 }}
+            windowingStrategy="paged"
+          />
+        );
+
+        const tree = screen.getByRole('treegrid');
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // activate -> File 1
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 2
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 3 (next page)
+
+        await waitFor(() => {
+          expect(screen.getByText('File 3')).toBeInTheDocument();
+          expect(scrollIntoViewSpy).toHaveBeenCalled();
+        });
+      } finally {
+        Element.prototype.scrollIntoView = originalScrollIntoView;
+      }
+    });
+
+    it('handles css-special node ids when paged focus crosses boundaries', async () => {
+      const scrollIntoViewSpy = vi.fn();
+      const originalScrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoViewSpy;
+
+      try {
+        const nodes: TreeNode<TestData>[] = [
+          createTestNode('1', 'File 1'),
+          createTestNode('2', 'File 2'),
+          createTestNode('3[]\'\n"\\\\weird', 'File 3'),
+        ];
+
+        render(
+          <TreeTable
+            columns={testColumns}
+            expandedIds={new Set()}
+            nodes={nodes}
+            onToggleExpand={() => {}}
+            pagination={{ pageSize: 2 }}
+            windowingStrategy="paged"
+          />
+        );
+
+        const tree = screen.getByRole('treegrid');
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // activate -> File 1
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 2
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 3 (next page)
+
+        await waitFor(() => {
+          expect(screen.getByText('File 3')).toBeInTheDocument();
+          expect(scrollIntoViewSpy).toHaveBeenCalled();
+        });
+      } finally {
+        Element.prototype.scrollIntoView = originalScrollIntoView;
+      }
+    });
+
+    it('falls back to row-scan lookup when node-id selector misses', async () => {
+      const scrollIntoViewSpy = vi.fn();
+      const originalScrollIntoView = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoViewSpy;
+      const originalQuerySelector = HTMLElement.prototype.querySelector;
+      const querySelectorSpy = vi
+        .spyOn(HTMLElement.prototype, 'querySelector')
+        .mockImplementation(function querySelectorWithForcedMiss(
+          this: HTMLElement,
+          selectors: string
+        ) {
+          if (selectors.startsWith('[data-node-id=')) {
+            return null;
+          }
+          return originalQuerySelector.call(this, selectors);
+        });
+
+      try {
+        const nodes: TreeNode<TestData>[] = [
+          createTestNode('1', 'File 1'),
+          createTestNode('2', 'File 2'),
+          createTestNode('3', 'File 3'),
+        ];
+
+        render(
+          <TreeTable
+            columns={testColumns}
+            expandedIds={new Set()}
+            nodes={nodes}
+            onToggleExpand={() => {}}
+            pagination={{ pageSize: 2 }}
+            windowingStrategy="paged"
+          />
+        );
+
+        const tree = screen.getByRole('treegrid');
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // activate -> File 1
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 2
+        fireEvent.keyDown(tree, { key: 'ArrowDown' }); // File 3 (next page)
+
+        await waitFor(() => {
+          expect(screen.getByText('File 3')).toBeInTheDocument();
+          expect(scrollIntoViewSpy).toHaveBeenCalled();
+        });
+      } finally {
+        querySelectorSpy.mockRestore();
+        Element.prototype.scrollIntoView = originalScrollIntoView;
+      }
+    });
+
+    it('keeps auto strategy virtualized in browse mode', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          autoPagedRowThreshold={2}
+          autoWindowingContext="browse"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2 }}
+          windowingStrategy="auto"
+        />
+      );
+
+      expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
+      expect(screen.getByText('File 3')).toBeInTheDocument();
+    });
+
+    it('switches auto strategy to paged mode for large search result sets', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          autoPagedRowThreshold={2}
+          autoWindowingContext="search"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2 }}
+          windowingStrategy="auto"
+        />
+      );
+
+      expect(screen.getByLabelText('Go to next page')).toBeInTheDocument();
+      expect(screen.queryByText('File 3')).not.toBeInTheDocument();
+    });
+
+    it('falls back to default threshold when autoPagedRowThreshold is NaN', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          autoPagedRowThreshold={Number.NaN}
+          autoWindowingContext="search"
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={() => {}}
+          pagination={{ pageSize: 2 }}
+          windowingStrategy="auto"
+        />
+      );
+
+      expect(screen.queryByLabelText('Go to next page')).not.toBeInTheDocument();
+      expect(screen.getByText('File 3')).toBeInTheDocument();
     });
   });
 
@@ -351,6 +704,40 @@ describe('TreeTable', () => {
       const newSelection = firstCall?.[0] as Set<string> | undefined;
       expect(newSelection?.has('1')).toBe(true);
       expect(newSelection?.has('2')).toBe(true);
+    });
+
+    it('handles shift range selection using lowest selected row as fallback anchor', () => {
+      const handleMultiSelect = vi.fn();
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File 1'),
+        createTestNode('2', 'File 2'),
+        createTestNode('3', 'File 3'),
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          multiSelectedIds={new Set(['3'])}
+          nodes={nodes}
+          onMultiSelectChange={handleMultiSelect}
+          onToggleExpand={() => {}}
+          selectedId={null}
+          selectionMode="multi"
+        />
+      );
+
+      const row1 = screen.getByText('File 1').closest('tr');
+      if (row1) {
+        fireEvent.click(row1, { shiftKey: true });
+      }
+
+      const firstCall = handleMultiSelect.mock.calls[0];
+      expect(firstCall).toBeDefined();
+      const rangeSelection = firstCall?.[0] as Set<string> | undefined;
+      expect(rangeSelection?.has('1')).toBe(true);
+      expect(rangeSelection?.has('2')).toBe(true);
+      expect(rangeSelection?.has('3')).toBe(true);
     });
   });
 

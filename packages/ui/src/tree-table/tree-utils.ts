@@ -57,6 +57,7 @@ export function flattenTree<T>(nodes: TreeNode<T>[], options: FlattenOptions): F
     highlightedIds = new Set<string>(),
     contextNodeIds = new Set<string>(),
     filterFn,
+    rowIndexOffset = 2,
   } = options;
 
   const rows: FlattenedRow<T>[] = [];
@@ -86,7 +87,7 @@ export function flattenTree<T>(nodes: TreeNode<T>[], options: FlattenOptions): F
         ariaLevel: node.depth + 1,
         ariaSetSize: siblingInfo?.setSize ?? 1,
         ariaPosInSet: siblingInfo?.posInSet ?? 1,
-        ariaRowIndex: rowIndex + 2, // +2: 1-based + header row
+        ariaRowIndex: rowIndex + rowIndexOffset,
       };
 
       const row: FlattenedRow<T> = {
@@ -138,6 +139,7 @@ export function flattenTreeRecursive<T>(
     highlightedIds = new Set<string>(),
     contextNodeIds = new Set<string>(),
     filterFn,
+    rowIndexOffset = 2,
   } = options;
 
   const rows: FlattenedRow<T>[] = [];
@@ -159,7 +161,7 @@ export function flattenTreeRecursive<T>(
         ariaLevel: node.depth + 1,
         ariaSetSize: siblingInfo?.setSize ?? 1,
         ariaPosInSet: siblingInfo?.posInSet ?? 1,
-        ariaRowIndex: rowIndex + 2, // +2: 1-based + header row
+        ariaRowIndex: rowIndex + rowIndexOffset,
       };
 
       const row: FlattenedRow<T> = {

@@ -12,12 +12,14 @@
  * - Full WAI-ARIA treegrid compliance
  */
 
+import { usePagination } from '@brainstrike/hooks';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import * as React from 'react';
 import { useResizeObserver } from '../hooks/use-resize-observer';
 import { warnCycleOnce } from '../lib/cycle-warning';
 import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
+import { TablePagination } from '../table-pagination';
 import { DEFAULT_ROW_HEIGHTS, TreeTableRow } from './tree-table-row';
 import { createChildrenGetter, flattenTreeRecursive, getDescendantIds } from './tree-utils';
 import type { CheckboxState, TreeNode, TreeTableProps } from './types';
@@ -35,6 +37,16 @@ const DEFAULT_HIGHLIGHTED = new Set<string>();
 const DEFAULT_CONTEXT_NODE_IDS = new Set<string>();
 const DEFAULT_LOADING_NODE_IDS = new Set<string>();
 const MAX_WARNED_CYCLE_NODE_IDS = 1000;
+const DEFAULT_PAGE_SIZE = 50;
+export const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
+const MIN_FALLBACK_VIRTUAL_ROWS = 1;
+// Performance-only fallback cache keyed by table container element.
+// WeakMap ensures container entries are reclaimed after unmount.
+// Shared module-level cache is intentional: container keying isolates instances
+// while avoiding per-instance fallback map allocation churn.
+// Each inner map is fully rebuilt from currently rendered rows on fallback miss,
+// and invalidated on displayed-row updates to bound stale detached row refs.
+const rowFallbackLookupCache = new WeakMap<HTMLElement, Map<string, HTMLTableRowElement>>();
 
 /**
  * Maps our SortDirection to ARIA sort values.
@@ -53,6 +65,250 @@ function getAriaSortValue(
     return 'descending';
   }
   return 'none';
+}
+
+interface ResolveWindowingStrategyOptions {
+  strategy: TreeTableProps<unknown>['windowingStrategy'];
+  autoWindowingContext: NonNullable<TreeTableProps<unknown>['autoWindowingContext']>;
+  rowCount: number;
+  autoPagedRowThreshold: number;
+}
+
+function resolveWindowingStrategy({
+  strategy,
+  autoWindowingContext,
+  rowCount,
+  autoPagedRowThreshold,
+}: ResolveWindowingStrategyOptions): 'virtual' | 'paged' | 'none' {
+  if (strategy === 'none') {
+    return 'none';
+  }
+  if (strategy === 'paged') {
+    return 'paged';
+  }
+  if (strategy !== 'auto') {
+    return 'virtual';
+  }
+
+  if (autoWindowingContext !== 'search') {
+    return 'virtual';
+  }
+
+  const normalizedThreshold = Number.isFinite(autoPagedRowThreshold)
+    ? autoPagedRowThreshold
+    : DEFAULT_AUTO_PAGED_ROW_THRESHOLD;
+  // Clamp to 1 so invalid/zero thresholds don't produce degenerate page math.
+  // In search mode, this means `0` behaves as "always paged" once there is at least one row.
+  return rowCount >= Math.max(1, normalizedThreshold) ? 'paged' : 'virtual';
+}
+
+function buildFallbackRowLookup(container: HTMLElement): Map<string, HTMLTableRowElement> {
+  const lookup = new Map<string, HTMLTableRowElement>();
+  const rows = container.querySelectorAll<HTMLTableRowElement>('[data-node-id]');
+  for (const row of rows) {
+    const nodeId = row.getAttribute('data-node-id');
+    if (nodeId) {
+      lookup.set(nodeId, row);
+    }
+  }
+  return lookup;
+}
+
+function findRowElementByNodeId(
+  container: HTMLElement,
+  nodeId: string
+): HTMLTableRowElement | null {
+  const escapedNodeId = CSS.escape(nodeId);
+  let directMatch: HTMLTableRowElement | null = null;
+  try {
+    directMatch = container.querySelector<HTMLTableRowElement>(`[data-node-id=${escapedNodeId}]`);
+  } catch {
+    directMatch = null;
+  }
+  if (directMatch) {
+    return directMatch;
+  }
+
+  // JSDOM and browser selector engines can diverge on edge-case escapes.
+  // Keep a fallback for correctness, but cache scan results by container so
+  // paged keyboard navigation avoids repeated O(n) DOM traversal.
+  const cachedRows = rowFallbackLookupCache.get(container);
+  const cachedMatch = cachedRows?.get(nodeId);
+  if (cachedMatch?.isConnected) {
+    return cachedMatch;
+  }
+  if (cachedMatch && cachedRows) {
+    cachedRows.delete(nodeId);
+  }
+
+  const refreshedLookup = buildFallbackRowLookup(container);
+  rowFallbackLookupCache.set(container, refreshedLookup);
+  return refreshedLookup.get(nodeId) ?? null;
+}
+
+interface BuildTablePaginationPropsOptions {
+  currentPage: number;
+  onPageChange: (nextPage: number) => void;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  onPageSizeChange: (nextPageSize: number) => void;
+  paginationOptions: TreeTableProps<unknown>['pagination'];
+}
+
+function buildTablePaginationProps({
+  currentPage,
+  onPageChange,
+  pageSize,
+  totalItems,
+  totalPages,
+  onPageSizeChange,
+  paginationOptions,
+}: BuildTablePaginationPropsOptions): React.ComponentProps<typeof TablePagination> {
+  const tablePaginationProps: React.ComponentProps<typeof TablePagination> = {
+    currentPage,
+    onPageChange,
+    pageSize,
+    totalItems,
+    totalPages,
+    onPageSizeChange,
+  };
+  if (paginationOptions?.pageInfo !== undefined) {
+    tablePaginationProps.pageInfo = paginationOptions.pageInfo;
+  }
+  if (paginationOptions?.pageSizeOptions !== undefined) {
+    tablePaginationProps.pageSizeOptions = paginationOptions.pageSizeOptions;
+  }
+  if (paginationOptions?.showItemRange !== undefined) {
+    tablePaginationProps.showItemRange = paginationOptions.showItemRange;
+  }
+  return tablePaginationProps;
+}
+
+interface RenderTableHeaderOptions<T> {
+  showHeader: boolean;
+  columns: TreeTableProps<T>['columns'];
+  sortState: TreeTableProps<T>['sortState'];
+  onSortChange: TreeTableProps<T>['onSortChange'];
+  onSortClick: (columnId: string) => void;
+}
+
+function renderTableHeader<T>({
+  showHeader,
+  columns,
+  sortState,
+  onSortChange,
+  onSortClick,
+}: RenderTableHeaderOptions<T>): React.ReactNode {
+  if (!showHeader) {
+    return null;
+  }
+
+  return (
+    <TableHeader className="sticky top-0 z-10 bg-background" role="rowgroup">
+      <TableRow role="row">
+        {columns.map((column) => {
+          const ariaSortValue = column.sortable
+            ? getAriaSortValue(column.id, sortState)
+            : undefined;
+
+          return (
+            <TableHead
+              aria-sort={ariaSortValue}
+              className={cn(
+                column.headerClassName,
+                column.sortable && onSortChange && 'cursor-pointer select-none'
+              )}
+              key={column.id}
+              onClick={() => column.sortable && onSortClick(column.id)}
+              role="columnheader"
+              style={{
+                width: column.width,
+                minWidth: column.minWidth,
+                maxWidth: column.maxWidth,
+              }}
+            >
+              <div className="flex items-center gap-1">
+                {column.header ?? column.id}
+                {column.sortable && sortState?.columnId === column.id && (
+                  <span aria-hidden="true" className="text-xs">
+                    {sortState.direction === 'asc'
+                      ? '\u2191'
+                      : sortState.direction === 'desc'
+                        ? '\u2193'
+                        : ''}
+                  </span>
+                )}
+              </div>
+            </TableHead>
+          );
+        })}
+      </TableRow>
+    </TableHeader>
+  );
+}
+
+function resolveRowIndexOffset(showHeader: boolean): number {
+  return showHeader ? 2 : 1;
+}
+
+function resolveTotalRowCount(rowCount: number, showHeader: boolean): number {
+  return rowCount + (showHeader ? 1 : 0);
+}
+
+function resolveTableAriaRole(ariaRole: TreeTableProps<unknown>['ariaRole']): 'treegrid' | 'grid' {
+  return ariaRole === 'grid' ? 'grid' : 'treegrid';
+}
+
+interface TreeTableViewportProps {
+  className: string;
+  maxHeight: string;
+  parentRef: React.RefObject<HTMLDivElement | null>;
+  children: React.ReactNode;
+}
+
+function TreeTableViewport({
+  className,
+  maxHeight,
+  parentRef,
+  children,
+}: TreeTableViewportProps): React.ReactElement {
+  return (
+    <div className={className} ref={parentRef} style={{ maxHeight, height: '100%' }}>
+      {children}
+    </div>
+  );
+}
+
+function buildFallbackVirtualItems(rowCount: number, overscan: number): Array<{ index: number }> {
+  const fallbackCount = Math.min(rowCount, Math.max(MIN_FALLBACK_VIRTUAL_ROWS, overscan * 2));
+  return Array.from({ length: fallbackCount }, (_, index) => ({ index }));
+}
+
+function resolveRenderedVirtualItems(
+  isVirtualWindowing: boolean,
+  virtualItems: Array<{ index: number }>,
+  rowCount: number,
+  overscan: number
+): Array<{ index: number }> {
+  if (!isVirtualWindowing) {
+    return [];
+  }
+  if (virtualItems.length > 0 || rowCount === 0) {
+    return virtualItems;
+  }
+  // During first paint react-virtual can briefly report zero measured items.
+  // Render a small fallback slice to avoid an empty table flash until measurement completes.
+  return buildFallbackVirtualItems(rowCount, overscan);
+}
+
+function useResolvedPageSize(
+  pagination: TreeTableProps<unknown>['pagination']
+): [number, React.Dispatch<React.SetStateAction<number>>] {
+  const [internalPageSize, setInternalPageSize] = React.useState<number>(
+    () => pagination?.pageSize ?? DEFAULT_PAGE_SIZE
+  );
+  return [pagination?.pageSize ?? internalPageSize, setInternalPageSize];
 }
 
 interface CheckboxStateContext<T> {
@@ -214,6 +470,10 @@ export function TreeTable<T>({
   contextNodeIds = DEFAULT_CONTEXT_NODE_IDS,
   rowHeight = DEFAULT_ROW_HEIGHTS,
   overscan = DEFAULT_OVERSCAN,
+  windowingStrategy = 'virtual',
+  autoWindowingContext = 'browse',
+  autoPagedRowThreshold = DEFAULT_AUTO_PAGED_ROW_THRESHOLD,
+  pagination,
   maxHeight = '600px',
   sortState,
   onSortChange,
@@ -222,10 +482,13 @@ export function TreeTable<T>({
   rowClassName,
   emptyState,
   ariaLabel = 'Tree table',
+  ariaRole = 'treegrid',
+  showHeader = true,
   showCheckbox = false,
   onRowDoubleClick,
   onRowContextMenu,
 }: TreeTableProps<T>) {
+  const tableAriaRole = resolveTableAriaRole(ariaRole);
   const parentRef = React.useRef<HTMLDivElement>(null);
   // Diagnostic-only cycle warning cache. This is intentionally mutable and
   // excluded from memo deps because it does not affect rendered output.
@@ -259,6 +522,7 @@ export function TreeTable<T>({
         multiSelectedIds,
         highlightedIds,
         contextNodeIds,
+        rowIndexOffset: resolveRowIndexOffset(showHeader),
       },
       getChildrenWithLoading
     );
@@ -270,10 +534,31 @@ export function TreeTable<T>({
     highlightedIds,
     contextNodeIds,
     loadingNodeIds,
+    showHeader,
   ]);
 
-  // Total row count for ARIA (includes header row)
-  const totalRowCount = rows.length + 1;
+  const resolvedWindowingStrategy = React.useMemo(
+    () =>
+      resolveWindowingStrategy({
+        strategy: windowingStrategy,
+        autoWindowingContext,
+        rowCount: rows.length,
+        autoPagedRowThreshold,
+      }),
+    [windowingStrategy, autoWindowingContext, rows.length, autoPagedRowThreshold]
+  );
+  const isVirtualWindowing = resolvedWindowingStrategy === 'virtual';
+  const isPagedWindowing = resolvedWindowingStrategy === 'paged';
+
+  const [pageSize, setInternalPageSize] = useResolvedPageSize(pagination);
+
+  const { currentPage, totalPages, startIndex, endIndex, goToPage, resetToFirstPage } =
+    usePagination({
+      totalItems: rows.length,
+      pageSize,
+    });
+
+  const totalRowCount = resolveTotalRowCount(rows.length, showHeader);
 
   // O(1) node lookup map — avoids O(N) nodes.find() per row
   const nodeById = React.useMemo(() => {
@@ -346,9 +631,38 @@ export function TreeTable<T>({
     [rowHeight]
   );
 
+  const displayedRows = React.useMemo(
+    () => (isPagedWindowing ? rows.slice(startIndex, endIndex) : rows),
+    [isPagedWindowing, rows, startIndex, endIndex]
+  );
+  const pendingPagedScrollNodeIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const container = parentRef.current;
+    if (!container) {
+      return;
+    }
+    // Invalidate fallback lookups when rendered rows change so detached row refs
+    // do not linger across page/window transitions.
+    rowFallbackLookupCache.delete(container);
+  }, [displayedRows]);
+
+  const scrollPagedRowIntoView = React.useCallback((nodeId: string): boolean => {
+    const parentElement = parentRef.current;
+    if (!parentElement) {
+      return false;
+    }
+    const rowElement = findRowElementByNodeId(parentElement, nodeId);
+    if (!rowElement) {
+      return false;
+    }
+    rowElement.scrollIntoView({ block: 'nearest' });
+    return true;
+  }, []);
+
   // Setup virtualizer
   const rowVirtualizer = useVirtualizer({
-    count: rows.length,
+    count: isVirtualWindowing ? rows.length : 0,
     getScrollElement: () => parentRef.current,
     estimateSize: (index) => {
       const row = rows[index];
@@ -361,22 +675,85 @@ export function TreeTable<T>({
 
   // ResizeObserver for container sizing
   useResizeObserver(parentRef, () => {
-    rowVirtualizer.measure();
+    if (isVirtualWindowing) {
+      rowVirtualizer.measure();
+    }
   });
 
   const scrollToNode = React.useCallback(
     (nodeId: string) => {
       const index = indexMap.get(nodeId);
-      if (index !== undefined) {
-        rowVirtualizer.scrollToIndex(index, { align: 'auto', behavior: 'auto' });
+      if (index === undefined) {
+        return;
       }
+
+      if (isPagedWindowing) {
+        const targetPage = Math.floor(index / Math.max(1, pageSize));
+        if (targetPage !== currentPage) {
+          pendingPagedScrollNodeIdRef.current = nodeId;
+          goToPage(targetPage);
+          pagination?.onPageChange?.(targetPage);
+          return;
+        }
+
+        pendingPagedScrollNodeIdRef.current = null;
+        scrollPagedRowIntoView(nodeId);
+        return;
+      }
+
+      if (!isVirtualWindowing) {
+        pendingPagedScrollNodeIdRef.current = null;
+        scrollPagedRowIntoView(nodeId);
+        return;
+      }
+
+      rowVirtualizer.scrollToIndex(index, { align: 'auto', behavior: 'auto' });
     },
-    [indexMap, rowVirtualizer]
+    [
+      indexMap,
+      isVirtualWindowing,
+      isPagedWindowing,
+      currentPage,
+      goToPage,
+      pageSize,
+      pagination,
+      rowVirtualizer,
+      scrollPagedRowIntoView,
+    ]
   );
+
+  // `displayedRows` is intentionally included so this runs after page-slice DOM updates.
+  React.useEffect(() => {
+    if (!isPagedWindowing) {
+      pendingPagedScrollNodeIdRef.current = null;
+      return;
+    }
+
+    const pendingNodeId = pendingPagedScrollNodeIdRef.current;
+    if (!pendingNodeId) {
+      return;
+    }
+
+    const pendingIndex = indexMap.get(pendingNodeId);
+    if (pendingIndex === undefined) {
+      pendingPagedScrollNodeIdRef.current = null;
+      return;
+    }
+
+    const pendingPage = Math.floor(pendingIndex / Math.max(1, pageSize));
+    if (pendingPage !== currentPage) {
+      return;
+    }
+
+    if (scrollPagedRowIntoView(pendingNodeId)) {
+      pendingPagedScrollNodeIdRef.current = null;
+    }
+  }, [isPagedWindowing, indexMap, pageSize, currentPage, displayedRows, scrollPagedRowIntoView]);
 
   // Setup keyboard navigation
   const keyboardOptions: UseTreeKeyboardOptions<T> = {
     rows,
+    rowIndexById: indexMap,
     nodes,
     getChildren,
     expandedIds,
@@ -408,7 +785,8 @@ export function TreeTable<T>({
     measureRow,
   } = useTreeTableHandlers({
     rows,
-    nodes,
+    rowIndexById: indexMap,
+    nodeById,
     keyboard,
     selectionMode,
     selectedId,
@@ -420,13 +798,75 @@ export function TreeTable<T>({
     onSortChange,
     onRowDoubleClick,
     onRowContextMenu,
-    rowVirtualizer,
+    rowVirtualizer: {
+      measureElement: (element) => {
+        if (isVirtualWindowing && element) {
+          rowVirtualizer.measureElement(element);
+        }
+      },
+    },
   });
 
-  const virtualItems = rowVirtualizer.getVirtualItems();
-  const totalSize = rowVirtualizer.getTotalSize();
+  const handlePaginationPageChange = React.useCallback(
+    (nextPage: number) => {
+      goToPage(nextPage);
+      pagination?.onPageChange?.(nextPage);
+    },
+    [goToPage, pagination]
+  );
+
+  const handlePageSizeChange = React.useCallback(
+    (nextPageSize: number) => {
+      setInternalPageSize(nextPageSize);
+      resetToFirstPage();
+      pagination?.onPageSizeChange?.(nextPageSize);
+    },
+    [pagination, resetToFirstPage, setInternalPageSize]
+  );
+
+  const virtualItems = isVirtualWindowing ? rowVirtualizer.getVirtualItems() : [];
+  const renderedVirtualItems = resolveRenderedVirtualItems(
+    isVirtualWindowing,
+    virtualItems as Array<{ index: number }>,
+    rows.length,
+    overscan
+  );
+  const totalSize = isVirtualWindowing ? rowVirtualizer.getTotalSize() : 0;
   const paddingTop = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
   const paddingBottom = virtualItems.length > 0 ? totalSize - (virtualItems.at(-1)?.end ?? 0) : 0;
+  const shouldShowPagination = isPagedWindowing ? (pagination?.showControls ?? true) : false;
+  const tablePaginationProps = React.useMemo(
+    () =>
+      buildTablePaginationProps({
+        currentPage,
+        onPageChange: handlePaginationPageChange,
+        pageSize,
+        totalItems: rows.length,
+        totalPages,
+        onPageSizeChange: handlePageSizeChange,
+        paginationOptions: pagination,
+      }),
+    [
+      currentPage,
+      handlePaginationPageChange,
+      pageSize,
+      rows.length,
+      totalPages,
+      handlePageSizeChange,
+      pagination,
+    ]
+  );
+  const tableHeader = React.useMemo(
+    () =>
+      renderTableHeader({
+        showHeader,
+        columns,
+        sortState,
+        onSortChange,
+        onSortClick: handleSortClick,
+      }),
+    [showHeader, columns, sortState, onSortChange, handleSortClick]
+  );
 
   if (nodes.length === 0) {
     return (
@@ -442,101 +882,85 @@ export function TreeTable<T>({
   }
 
   return (
-    <div
-      aria-colcount={columns.length}
-      aria-label={ariaLabel}
-      aria-multiselectable={selectionMode === 'multi' || undefined}
-      aria-rowcount={totalRowCount}
-      className={cn('overflow-auto', className)}
-      onKeyDown={keyboard.onKeyDown}
-      ref={parentRef}
-      role="treegrid"
-      style={{ maxHeight, height: '100%' }}
-      tabIndex={0}
-    >
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-background" role="rowgroup">
-          <TableRow role="row">
-            {columns.map((column) => {
-              const ariaSortValue = column.sortable
-                ? getAriaSortValue(column.id, sortState)
-                : undefined;
+    <div className="flex min-h-0 flex-1 flex-col">
+      <TreeTableViewport className="overflow-auto" maxHeight={maxHeight} parentRef={parentRef}>
+        <Table
+          aria-colcount={columns.length}
+          aria-label={ariaLabel}
+          aria-multiselectable={selectionMode === 'multi' || undefined}
+          aria-rowcount={totalRowCount}
+          className={className}
+          onKeyDown={keyboard.onKeyDown}
+          role={tableAriaRole}
+          tabIndex={0}
+        >
+          {tableHeader}
 
-              return (
-                <TableHead
-                  aria-sort={ariaSortValue}
-                  className={cn(
-                    column.headerClassName,
-                    column.sortable && onSortChange && 'cursor-pointer select-none'
-                  )}
-                  key={column.id}
-                  onClick={() => column.sortable && handleSortClick(column.id)}
-                  role="columnheader"
-                  style={{
-                    width: column.width,
-                    minWidth: column.minWidth,
-                    maxWidth: column.maxWidth,
-                  }}
-                >
-                  <div className="flex items-center gap-1">
-                    {column.header ?? column.id}
-                    {column.sortable && sortState?.columnId === column.id && (
-                      <span aria-hidden="true" className="text-xs">
-                        {sortState.direction === 'asc'
-                          ? '\u2191'
-                          : sortState.direction === 'desc'
-                            ? '\u2193'
-                            : ''}
-                      </span>
-                    )}
-                  </div>
-                </TableHead>
-              );
-            })}
-          </TableRow>
-        </TableHeader>
+          <TableBody role="rowgroup">
+            {isVirtualWindowing && paddingTop > 0 && (
+              <tr>
+                <td colSpan={columns.length} style={{ height: `${paddingTop}px`, padding: 0 }} />
+              </tr>
+            )}
 
-        <TableBody role="rowgroup">
-          {paddingTop > 0 && (
-            <tr>
-              <td colSpan={columns.length} style={{ height: `${paddingTop}px`, padding: 0 }} />
-            </tr>
-          )}
+            {isVirtualWindowing
+              ? renderedVirtualItems.map((virtualRow) => {
+                  const row = rows[virtualRow.index];
+                  if (!row) {
+                    return null;
+                  }
 
-          {virtualItems.map((virtualRow) => {
-            const row = rows[virtualRow.index];
-            if (!row) {
-              return null;
-            }
+                  return (
+                    <TreeTableRow
+                      ariaRole={tableAriaRole}
+                      checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
+                      className={getRowClassName(row.node)}
+                      columns={columns}
+                      isFocused={keyboard.state.focusedId === row.node.id}
+                      key={row.node.id}
+                      measureRef={measureRow}
+                      onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
+                      onClick={handleRowClick}
+                      onContextMenu={handleRowContextMenu}
+                      onDoubleClick={handleRowDoubleClick}
+                      onToggleExpand={onToggleExpand}
+                      row={row}
+                      showCheckbox={showCheckbox}
+                      totalRowCount={totalRowCount}
+                      virtualIndex={virtualRow.index}
+                    />
+                  );
+                })
+              : displayedRows.map((row) => (
+                  <TreeTableRow
+                    ariaRole={tableAriaRole}
+                    checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
+                    className={getRowClassName(row.node)}
+                    columns={columns}
+                    isFocused={keyboard.state.focusedId === row.node.id}
+                    key={row.node.id}
+                    onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
+                    onClick={handleRowClick}
+                    onContextMenu={handleRowContextMenu}
+                    onDoubleClick={handleRowDoubleClick}
+                    onToggleExpand={onToggleExpand}
+                    row={row}
+                    showCheckbox={showCheckbox}
+                    totalRowCount={totalRowCount}
+                    virtualIndex={row.index}
+                  />
+                ))}
 
-            return (
-              <TreeTableRow
-                checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
-                className={getRowClassName(row.node)}
-                columns={columns}
-                isFocused={keyboard.state.focusedId === row.node.id}
-                key={row.node.id}
-                measureRef={measureRow}
-                onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
-                onClick={handleRowClick}
-                onContextMenu={handleRowContextMenu}
-                onDoubleClick={handleRowDoubleClick}
-                onToggleExpand={onToggleExpand}
-                row={row}
-                showCheckbox={showCheckbox}
-                totalRowCount={totalRowCount}
-                virtualIndex={virtualRow.index}
-              />
-            );
-          })}
+            {isVirtualWindowing && paddingBottom > 0 && (
+              <tr>
+                <td colSpan={columns.length} style={{ height: `${paddingBottom}px`, padding: 0 }} />
+              </tr>
+            )}
+          </TableBody>
+        </Table>
+      </TreeTableViewport>
 
-          {paddingBottom > 0 && (
-            <tr>
-              <td colSpan={columns.length} style={{ height: `${paddingBottom}px`, padding: 0 }} />
-            </tr>
-          )}
-        </TableBody>
-      </Table>
+      {shouldShowPagination && <TablePagination {...tablePaginationProps} />}
     </div>
   );
 }

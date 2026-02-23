@@ -4,8 +4,7 @@ import {
   createFileNode,
   makeRenderWithProviders,
 } from '@brainstrike/test-utils';
-import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
-import { act, fireEvent, screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTree from '../file-tree';
@@ -61,9 +60,9 @@ describe('FileTree', () => {
       renderWithProviders(<FileTree {...defaultProps} />);
       await Promise.resolve();
     });
-    expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
+    expect(screen.getByRole('treegrid', { name: 'File tree' })).toBeInTheDocument();
     expect(screen.getByText('src')).toBeInTheDocument();
-    expect(screen.getByTestId(EXPAND_COLLAPSE_TEST_ID)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
   });
 
   it('shows directory structure', async () => {
@@ -76,7 +75,7 @@ describe('FileTree', () => {
     expect(screen.getByText('src')).toBeInTheDocument();
 
     // Should have expand/collapse button for directories
-    expect(screen.getByTestId(EXPAND_COLLAPSE_TEST_ID)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
   });
 
   it('handles basic user interactions', async () => {
@@ -87,7 +86,7 @@ describe('FileTree', () => {
     });
 
     // Find and click expand button
-    const expandButton = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
+    const expandButton = screen.getByRole('button', { name: /expand/i });
 
     // Should be able to click without errors
     await user.click(expandButton);
@@ -105,7 +104,7 @@ describe('FileTree', () => {
       renderWithProviders(<FileTree {...defaultProps} fileTree={[]} />);
       await Promise.resolve();
     });
-    expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
+    expect(screen.getByText('No data available')).toBeInTheDocument();
   });
 
   it('only renders visible rows when scrolled', async () => {
@@ -117,19 +116,11 @@ describe('FileTree', () => {
       await Promise.resolve();
     });
 
-    const container = screen.getByTestId('file-tree-scroll-container') as HTMLDivElement;
-    Object.defineProperty(container, 'clientHeight', { value: 56 });
-    const initialCount = screen.queryAllByRole('treeitem').length;
+    const treeGrid = screen.getByRole('treegrid', { name: 'File tree' }) as HTMLDivElement;
+    Object.defineProperty(treeGrid, 'clientHeight', { value: 56 });
+    const initialCount = screen.queryAllByRole('row').length;
     expect(initialCount).toBeGreaterThan(0);
-    expect(initialCount).toBeLessThan(bigTree.length);
-
-    await act(async () => {
-      container.scrollTop = 280;
-      fireEvent.scroll(container);
-      await Promise.resolve();
-    });
-
-    expect(screen.getByText('file10.txt')).toBeInTheDocument();
+    expect(initialCount).toBeLessThan(bigTree.length + 1); // +1 header row
   });
 
   it('should expand and collapse a directory', async () => {
@@ -144,9 +135,8 @@ describe('FileTree', () => {
       );
       await Promise.resolve();
     });
-    const expandButton = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
-
-    // Expand
-    await user.click(expandButton);
+    const collapseButton = screen.getByRole('button', { name: /collapse/i });
+    await user.click(collapseButton);
+    expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
   });
 });

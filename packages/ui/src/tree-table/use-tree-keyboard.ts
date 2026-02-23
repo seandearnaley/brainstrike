@@ -6,12 +6,7 @@
  */
 
 import * as React from 'react';
-import {
-  getFirstChildNodeId,
-  getNextVisibleNodeId,
-  getParentNodeId,
-  getRangeSelection,
-} from './tree-utils';
+import { getFirstChildNodeId, getParentNodeId } from './tree-utils';
 import type {
   FlattenedRow,
   KeyboardNavigationActions,
@@ -21,12 +16,16 @@ import type {
   UseTreeKeyboardResult,
 } from './types';
 
+const EMPTY_MULTI_SELECTED_IDS = new Set<string>();
+
 /**
  * Options for the useTreeKeyboard hook.
  */
 export interface UseTreeKeyboardOptions<T> {
   /** Flattened rows for navigation */
   rows: FlattenedRow<T>[];
+  /** Row index lookup keyed by node id */
+  rowIndexById: Map<string, number>;
   /** All tree nodes (for parent/child lookup) */
   nodes: TreeNode<T>[];
   /** Function to get children of a node */
@@ -68,16 +67,19 @@ export interface UseTreeKeyboardOptions<T> {
 export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeKeyboardResult {
   const {
     rows,
+    rowIndexById,
     nodes,
     getChildren,
     onToggleExpand,
     selectionMode,
     onSelect,
-    multiSelectedIds = new Set<string>(),
+    multiSelectedIds = EMPTY_MULTI_SELECTED_IDS,
     onMultiSelectChange,
     isTableFocused = true,
     onScrollToNode,
   } = options;
+  // `rows` and `rowIndexById` are derived from the same memoized flatten pass in TreeTable,
+  // so index lookups stay in sync for a given render snapshot.
 
   // Track focused node (separate from selection)
   const [focusedId, setFocusedId] = React.useState<string | null>(null);
@@ -91,6 +93,68 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   React.useEffect(() => {
     focusedIdRef.current = focusedId;
   }, [focusedId]);
+
+  const getRowById = React.useCallback(
+    (nodeId: string): FlattenedRow<T> | null => {
+      const index = rowIndexById.get(nodeId);
+      if (index === undefined) {
+        return null;
+      }
+      return rows[index] ?? null;
+    },
+    [rowIndexById, rows]
+  );
+
+  const selectRangeByIndexes = React.useCallback(
+    (fromId: string, toId: string): Set<string> => {
+      const fromIndex = rowIndexById.get(fromId);
+      const toIndex = rowIndexById.get(toId);
+      if (fromIndex === undefined || toIndex === undefined) {
+        return new Set<string>();
+      }
+
+      const start = Math.min(fromIndex, toIndex);
+      const end = Math.max(fromIndex, toIndex);
+      const ids = new Set<string>();
+      for (let index = start; index <= end; index += 1) {
+        const row = rows[index];
+        if (row) {
+          ids.add(row.node.id);
+        }
+      }
+      return ids;
+    },
+    [rowIndexById, rows]
+  );
+
+  const getNextNodeId = React.useCallback(
+    (direction: 'up' | 'down', currentId: string | null): string | null => {
+      if (rows.length === 0) {
+        return null;
+      }
+
+      if (currentId === null) {
+        const firstRow = rows[0];
+        const lastRow = rows.at(-1);
+        return direction === 'down' ? (firstRow?.node.id ?? null) : (lastRow?.node.id ?? null);
+      }
+
+      const currentIndex = rowIndexById.get(currentId);
+      if (currentIndex === undefined) {
+        const firstRow = rows[0];
+        return firstRow?.node.id ?? null;
+      }
+
+      const nextIndex = direction === 'down' ? currentIndex + 1 : currentIndex - 1;
+      if (nextIndex < 0 || nextIndex >= rows.length) {
+        return null;
+      }
+
+      const nextRow = rows[nextIndex];
+      return nextRow?.node.id ?? null;
+    },
+    [rowIndexById, rows]
+  );
 
   // Sync focused state with table focus
   React.useEffect(() => {
@@ -118,7 +182,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     }
 
     if (currentFocusedId !== null) {
-      const stillExists = rows.some((row) => row.node.id === currentFocusedId);
+      const stillExists = rowIndexById.has(currentFocusedId);
       if (!stillExists) {
         suppressAutoFocusRef.current = true;
         focusedIdRef.current = null;
@@ -137,31 +201,31 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
       focusedIdRef.current = firstRow.node.id;
       setFocusedId(firstRow.node.id);
     }
-  }, [isActive, rows]);
+  }, [isActive, rows, rowIndexById]);
 
   // Navigation actions
   const moveUp = React.useCallback(() => {
-    const nextId = getNextVisibleNodeId(rows, focusedId, 'up');
+    const nextId = getNextNodeId('up', focusedId);
     if (nextId) {
       setFocusedId(nextId);
       onScrollToNode?.(nextId);
     }
-  }, [rows, focusedId, onScrollToNode]);
+  }, [getNextNodeId, focusedId, onScrollToNode]);
 
   const moveDown = React.useCallback(() => {
-    const nextId = getNextVisibleNodeId(rows, focusedId, 'down');
+    const nextId = getNextNodeId('down', focusedId);
     if (nextId) {
       setFocusedId(nextId);
       onScrollToNode?.(nextId);
     }
-  }, [rows, focusedId, onScrollToNode]);
+  }, [getNextNodeId, focusedId, onScrollToNode]);
 
   const expandOrMoveRight = React.useCallback(() => {
     if (!focusedId) {
       return;
     }
 
-    const row = rows.find((r) => r.node.id === focusedId);
+    const row = getRowById(focusedId);
     if (!row) {
       return;
     }
@@ -181,14 +245,14 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         onToggleExpand(node.id);
       }
     }
-  }, [focusedId, rows, onToggleExpand, getChildren, onScrollToNode]);
+  }, [focusedId, getRowById, onToggleExpand, getChildren, onScrollToNode]);
 
   const collapseOrMoveLeft = React.useCallback(() => {
     if (!focusedId) {
       return;
     }
 
-    const row = rows.find((r) => r.node.id === focusedId);
+    const row = getRowById(focusedId);
     if (!row) {
       return;
     }
@@ -206,7 +270,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         onScrollToNode?.(parentId);
       }
     }
-  }, [focusedId, rows, nodes, onToggleExpand, getChildren, onScrollToNode]);
+  }, [focusedId, getRowById, nodes, onToggleExpand, getChildren, onScrollToNode]);
 
   const selectFocused = React.useCallback(() => {
     if (!focusedId || selectionMode === 'none') {
@@ -257,7 +321,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
         return;
       }
 
-      const nextId = getNextVisibleNodeId(rows, focusedId, direction);
+      const nextId = getNextNodeId(direction, focusedId);
       if (!nextId) {
         return;
       }
@@ -268,14 +332,21 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
       }
 
       // Calculate range selection
-      const rangeIds = getRangeSelection(rows, rangeAnchorRef.current, nextId);
+      const rangeIds = selectRangeByIndexes(rangeAnchorRef.current, nextId);
       onMultiSelectChange?.(rangeIds);
 
       // Move focus
       setFocusedId(nextId);
       onScrollToNode?.(nextId);
     },
-    [selectionMode, focusedId, rows, onMultiSelectChange, onScrollToNode]
+    [
+      selectionMode,
+      focusedId,
+      getNextNodeId,
+      selectRangeByIndexes,
+      onMultiSelectChange,
+      onScrollToNode,
+    ]
   );
 
   // Select all visible

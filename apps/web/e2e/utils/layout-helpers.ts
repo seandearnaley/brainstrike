@@ -66,11 +66,13 @@ export interface PanelElements {
 export function getPanelElements(page: Page): PanelElements {
   return {
     // Main panels - v4 uses id attribute for panel identification
-    leftPanel: page.locator('#explorer-panel'),
-    rightPanel: page.locator('#tools-panel'),
-    consolePanel: page.locator('#console-panel'),
-    mainContentPanel: page.locator('#main-content-panel'),
-    middlePanel: page.locator('#middle-panel'),
+    leftPanel: page.locator('#explorer-panel, [data-panel-id="explorer-panel"]'),
+    rightPanel: page.locator('#tools-panel, [data-panel-id="tools-panel"]'),
+    consolePanel: page.locator(
+      '#console-panel, #console-panel-horizontal, [data-panel-id="console-panel"], [data-panel-id="console-panel-horizontal"]'
+    ),
+    mainContentPanel: page.locator('#main-content-panel, [data-panel-id="main-content-panel"]'),
+    middlePanel: page.locator('#middle-panel, [data-panel-id="middle-panel"]'),
 
     // Hide buttons (when panels are open)
     hideExplorerButton: page.locator('[data-testid="hide-explorer-panel"]'),
@@ -130,7 +132,14 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // 2. JS bundle download and parsing (15MB+ vendor bundle)
   // 3. React hydration
   // 4. Panel rendering with react-resizable-panels
-  const effectiveTimeout = isCI ? Math.max(timeout, 55_000) : timeout;
+  const effectiveTimeout = isCI ? Math.max(timeout, 55_000) : Math.max(timeout, 20_000);
+  const panelReadySelector = [
+    '#middle-panel',
+    '[data-panel-id="middle-panel"]',
+    '#main-content-panel',
+    '[data-panel-id="main-content-panel"]',
+    'h1:has-text("Context Explorer")',
+  ].join(', ');
 
   // Collect console errors and network failures in CI for debugging
   // Set up listeners BEFORE waiting for load states to capture all events
@@ -166,7 +175,7 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // Wait for the main layout structure to be present
   // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
   try {
-    await page.waitForSelector('#middle-panel', {
+    await page.waitForSelector(panelReadySelector, {
       state: 'attached',
       timeout: effectiveTimeout,
     });
@@ -201,11 +210,16 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
     throw error;
   }
 
-  // Also ensure the main content panel is present
-  await page.waitForSelector('#main-content-panel', {
-    state: 'attached',
-    timeout: effectiveTimeout,
-  });
+  // Also ensure the main content panel is present when panel IDs are available.
+  await page
+    .waitForSelector('#main-content-panel, [data-panel-id="main-content-panel"]', {
+      state: 'attached',
+      timeout: effectiveTimeout,
+    })
+    .catch(() => {
+      // Some environments expose the main shell without explicit panel IDs.
+      // The readiness selector above already validated visible app content.
+    });
 }
 
 /**

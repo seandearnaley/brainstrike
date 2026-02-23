@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { getFileTree } from './utils/file-tree-locators';
 import {
   getPanelElements,
   resetLayoutState,
@@ -58,10 +59,10 @@ test.describe('Panel State Preservation', () => {
       page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
     ).toBeVisible();
     await expect(page.getByText('No directory selected')).not.toBeVisible();
-    await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
+    await expect(getFileTree(page)).toBeVisible();
 
     // Verify we have some files in the tree
-    const fileTree = page.getByRole('tree', { name: 'File tree' });
+    const fileTree = getFileTree(page);
     await expect(fileTree.getByText('test.ts')).toBeVisible();
     await expect(fileTree.getByText('test2.ts')).toBeVisible();
     await expect(fileTree.getByText('src')).toBeVisible();
@@ -107,10 +108,10 @@ test.describe('Panel State Preservation', () => {
     await expect(
       page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
     ).toBeVisible();
-    await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
+    await expect(getFileTree(page)).toBeVisible();
 
     // The file tree should still be loaded with the same files
-    const fileTreeAfterToggle = page.getByRole('tree', { name: 'File tree' });
+    const fileTreeAfterToggle = getFileTree(page);
     await expect(fileTreeAfterToggle.getByText('test.ts')).toBeVisible();
     await expect(fileTreeAfterToggle.getByText('test2.ts')).toBeVisible();
     await expect(fileTreeAfterToggle.getByText('src')).toBeVisible();
@@ -147,7 +148,7 @@ test.describe('Panel State Preservation', () => {
     await selectDirectoryButton.click();
 
     // Wait for file tree to load
-    const fileTree = page.getByRole('tree', { name: 'File tree' });
+    const fileTree = getFileTree(page);
     await expect(fileTree).toBeVisible();
     await expect(fileTree.getByText('test.ts')).toBeVisible();
 

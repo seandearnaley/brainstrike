@@ -34,9 +34,9 @@ describe('layout-helpers (unit)', () => {
     expect(loadStates).toContain('load');
     // Best-effort networkidle wait for deferred script loading
     expect(loadStates).toContain('networkidle');
-    // react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
-    expect(waited).toContain('#middle-panel');
-    expect(waited).toContain('#main-content-panel');
+    // Readiness check now supports both id and data-panel-id based panel markers.
+    expect(waited.some((selector) => selector.includes('#middle-panel'))).toBe(true);
+    expect(waited.some((selector) => selector.includes('#main-content-panel'))).toBe(true);
   });
 
   it('resetLayoutState clears state and reloads', async () => {

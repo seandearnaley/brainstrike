@@ -101,8 +101,18 @@ function defaultOptions(
   overrides: Partial<UseTreeKeyboardOptions<TestData>> = {}
 ): UseTreeKeyboardOptions<TestData> {
   const { nodes, rows, getChildren } = buildSimpleTree();
-  return {
+  const rowIndexById = new Map<string, number>();
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (!row) {
+      continue;
+    }
+    rowIndexById.set(row.node.id, index);
+  }
+
+  const options: UseTreeKeyboardOptions<TestData> = {
     rows,
+    rowIndexById,
     nodes,
     getChildren,
     expandedIds: new Set<string>(),
@@ -112,6 +122,20 @@ function defaultOptions(
     isTableFocused: true,
     ...overrides,
   };
+
+  if (overrides.rows && !overrides.rowIndexById) {
+    const overrideIndexById = new Map<string, number>();
+    for (let index = 0; index < overrides.rows.length; index += 1) {
+      const row = overrides.rows[index];
+      if (!row) {
+        continue;
+      }
+      overrideIndexById.set(row.node.id, index);
+    }
+    options.rowIndexById = overrideIndexById;
+  }
+
+  return options;
 }
 
 // ---------------------------------------------------------------------------

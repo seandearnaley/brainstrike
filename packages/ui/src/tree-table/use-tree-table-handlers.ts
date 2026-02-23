@@ -10,7 +10,8 @@ import type { FlattenedRow, SortState, TreeNode, UseTreeKeyboardResult } from '.
 
 interface UseTreeTableHandlersOptions<T> {
   rows: FlattenedRow<T>[];
-  nodes: TreeNode<T>[];
+  rowIndexById: Map<string, number>;
+  nodeById: Map<string, TreeNode<T>>;
   keyboard: UseTreeKeyboardResult;
   selectionMode: 'single' | 'multi' | 'none';
   selectedId: string | null;
@@ -38,7 +39,8 @@ export interface UseTreeTableHandlersResult<T> {
 
 export function useTreeTableHandlers<T>({
   rows,
-  nodes,
+  rowIndexById,
+  nodeById,
   keyboard,
   selectionMode,
   selectedId,
@@ -53,15 +55,22 @@ export function useTreeTableHandlers<T>({
   rowVirtualizer,
 }: UseTreeTableHandlersOptions<T>): UseTreeTableHandlersResult<T> {
   const fallbackMultiSelectAnchor = React.useMemo<string | undefined>(() => {
-    // Use the first selected row in rendered order as the shift-range anchor
-    // when focus/selectedId are absent.
-    for (const row of rows) {
-      if (multiSelectedIds.has(row.node.id)) {
-        return row.node.id;
+    // Use the selected row with the smallest rendered index as the shift-range
+    // anchor when focus/selectedId are absent. This avoids scanning all rows.
+    let anchorId: string | undefined;
+    let bestIndex = Number.POSITIVE_INFINITY;
+
+    for (const candidateId of multiSelectedIds) {
+      const index = rowIndexById.get(candidateId);
+      if (index === undefined || index >= bestIndex) {
+        continue;
       }
+      bestIndex = index;
+      anchorId = candidateId;
     }
-    return undefined;
-  }, [rows, multiSelectedIds]);
+
+    return anchorId;
+  }, [multiSelectedIds, rowIndexById]);
 
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
@@ -70,18 +79,31 @@ export function useTreeTableHandlers<T>({
         return;
       }
 
-      const fromIndex = rows.findIndex((r) => r.node.id === anchor);
-      const toIndex = rows.findIndex((r) => r.node.id === nodeId);
-      if (fromIndex === -1 || toIndex === -1) {
+      const fromIndex = rowIndexById.get(anchor);
+      const toIndex = rowIndexById.get(nodeId);
+      if (fromIndex === undefined || toIndex === undefined) {
         return;
       }
 
       const start = Math.min(fromIndex, toIndex);
       const end = Math.max(fromIndex, toIndex);
-      const rangeIds = new Set(rows.slice(start, end + 1).map((r) => r.node.id));
+      const rangeIds = new Set<string>();
+      for (let index = start; index <= end; index += 1) {
+        const row = rows[index];
+        if (row) {
+          rangeIds.add(row.node.id);
+        }
+      }
       onMultiSelectChange?.(rangeIds);
     },
-    [rows, onMultiSelectChange, keyboard.state.focusedId, selectedId, fallbackMultiSelectAnchor]
+    [
+      rows,
+      rowIndexById,
+      onMultiSelectChange,
+      keyboard.state.focusedId,
+      selectedId,
+      fallbackMultiSelectAnchor,
+    ]
   );
 
   const handleToggleSelect = React.useCallback(
@@ -130,22 +152,22 @@ export function useTreeTableHandlers<T>({
 
   const handleRowDoubleClick = React.useCallback(
     (nodeId: string) => {
-      const node = nodes.find((n) => n.id === nodeId);
+      const node = nodeById.get(nodeId);
       if (node) {
         onRowDoubleClick?.(nodeId, node);
       }
     },
-    [nodes, onRowDoubleClick]
+    [nodeById, onRowDoubleClick]
   );
 
   const handleRowContextMenu = React.useCallback(
     (nodeId: string, event: React.MouseEvent) => {
-      const node = nodes.find((n) => n.id === nodeId);
+      const node = nodeById.get(nodeId);
       if (node) {
         onRowContextMenu?.(nodeId, node, event);
       }
     },
-    [nodes, onRowContextMenu]
+    [nodeById, onRowContextMenu]
   );
 
   const handleSortClick = React.useCallback(

@@ -133,6 +133,40 @@ export type SelectionMode = 'none' | 'single' | 'multi';
 export type SortDirection = 'asc' | 'desc' | null;
 
 /**
+ * Windowing strategy for tree rows.
+ * - virtual: react-virtual renders only visible rows
+ * - paged: renders current page slice with pagination controls
+ * - auto: chooses virtual/paged based on context
+ * - none: renders all rows without virtual or paged slicing
+ */
+export type TreeTableWindowingStrategy = 'virtual' | 'paged' | 'auto' | 'none';
+
+/**
+ * Context hint used by auto windowing strategy.
+ */
+export type TreeTableAutoWindowingContext = 'browse' | 'search';
+
+/**
+ * Pagination options used when paged windowing is active.
+ */
+export interface TreeTablePaginationOptions {
+  /** Items per page */
+  pageSize?: number;
+  /** Callback when page changes (0-based) */
+  onPageChange?: (page: number) => void;
+  /** Callback when page size changes */
+  onPageSizeChange?: (pageSize: number) => void;
+  /** Available page size options */
+  pageSizeOptions?: readonly number[];
+  /** Optional additional page info text */
+  pageInfo?: string;
+  /** Whether to show item range summary */
+  showItemRange?: boolean;
+  /** Whether to show pagination controls */
+  showControls?: boolean;
+}
+
+/**
  * Sort state for the tree table.
  */
 export interface SortState {
@@ -186,6 +220,18 @@ export interface TreeTableProps<T> {
   rowHeight?: RowHeightConfig<T>;
   /** Number of rows to render outside visible area */
   overscan?: number;
+  /** Windowing strategy for row rendering */
+  windowingStrategy?: TreeTableWindowingStrategy;
+  /** Context hint used by auto strategy */
+  autoWindowingContext?: TreeTableAutoWindowingContext;
+  /**
+   * Row threshold for auto strategy to switch to paged mode.
+   * Values < 1 are clamped to 1.
+   * In search mode, pass `0` to force paged mode whenever at least one row is present.
+   */
+  autoPagedRowThreshold?: number;
+  /** Pagination options used by paged strategy */
+  pagination?: TreeTablePaginationOptions;
   /** Maximum height of the table container */
   maxHeight?: string;
 
@@ -214,6 +260,10 @@ export interface TreeTableProps<T> {
   // Accessibility
   /** Accessible label for the table */
   ariaLabel?: string;
+  /** ARIA role for the table container */
+  ariaRole?: 'treegrid' | 'grid';
+  /** Whether to render the header row */
+  showHeader?: boolean;
 
   // Checkbox
   /** Whether to show checkboxes for row selection */
@@ -265,6 +315,8 @@ export interface TreeTableRowProps<T> {
   onCheckboxChange?: ((nodeId: string) => void) | undefined;
   /** Total number of rows for ARIA rowcount */
   totalRowCount?: number | undefined;
+  /** ARIA role inherited from the table container */
+  ariaRole?: 'treegrid' | 'grid' | undefined;
 }
 
 /**
@@ -327,6 +379,8 @@ export interface FlattenOptions {
   contextNodeIds?: Set<string>;
   /** Filter function to determine which nodes match current filters */
   filterFn?: (node: TreeNode<unknown>) => boolean;
+  /** 1-based offset for aria-rowindex (2 when header row is present, 1 otherwise) */
+  rowIndexOffset?: number;
 }
 
 /**

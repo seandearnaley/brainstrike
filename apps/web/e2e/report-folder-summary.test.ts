@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -37,10 +38,10 @@ test.describe('Report Folder Summary Threshold', () => {
       page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
     ).toBeVisible();
     await expect(page.getByText('No directory selected')).not.toBeVisible();
-    await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
+    await expect(getFileTree(page)).toBeVisible();
 
     // Verify file tree structure is loaded
-    const fileTree = page.getByRole('tree', { name: 'File tree' });
+    const fileTree = getFileTree(page);
     await expect(fileTree.getByText('test.ts')).toBeVisible();
     await expect(fileTree.getByText('src')).toBeVisible();
 

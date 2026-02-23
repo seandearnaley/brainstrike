@@ -38,6 +38,40 @@ interface MockTableGroupHeaderProps extends MockComponentProps {
   isPartiallySelected?: boolean;
 }
 
+interface MockTreeNode {
+  id: string;
+  type: string;
+  depth: number;
+  data: unknown;
+  parentId: string | null;
+  hasChildren: boolean;
+}
+
+interface MockTreeTableCellProps {
+  node: MockTreeNode;
+  depth: number;
+  isExpanded: boolean;
+  isSelected: boolean;
+  isHighlighted: boolean;
+  isInContext: boolean;
+  rowIndex: number;
+}
+
+interface MockTreeTableColumn {
+  id: string;
+  header?: React.ReactNode;
+  cell: (props: MockTreeTableCellProps) => React.ReactNode;
+}
+
+interface MockTreeTableProps extends MockComponentProps {
+  ariaLabel?: string;
+  className?: string;
+  columns: MockTreeTableColumn[];
+  nodes: MockTreeNode[];
+  expandedIds: Set<string>;
+  onToggleExpand: (nodeId: string) => void;
+}
+
 interface TabsContextValue {
   value?: string;
   onValueChange?: (value: string) => void;
@@ -463,6 +497,61 @@ export const createUiModuleMock = () => ({
       </td>
     </tr>
   ),
+  TreeTable: ({
+    ariaLabel,
+    className,
+    columns,
+    nodes,
+    expandedIds,
+    onToggleExpand,
+  }: MockTreeTableProps) => (
+    <div aria-label={ariaLabel} className={className} role="treegrid">
+      <table>
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.id} scope="col">
+                {column.header ?? column.id}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {nodes
+            .filter((node) => node.parentId === null || expandedIds.has(node.parentId))
+            .map((node, rowIndex) => {
+              const isExpanded = expandedIds.has(node.id);
+              return (
+                <tr data-node-id={node.id} key={node.id}>
+                  {columns.map((column, columnIndex) => (
+                    <td key={column.id}>
+                      {columnIndex === 0 && node.hasChildren && (
+                        <button
+                          aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                          onClick={() => onToggleExpand(node.id)}
+                          type="button"
+                        >
+                          {isExpanded ? '▼' : '▶'}
+                        </button>
+                      )}
+                      {column.cell({
+                        node,
+                        depth: node.depth,
+                        isExpanded,
+                        isSelected: false,
+                        isHighlighted: false,
+                        isInContext: false,
+                        rowIndex,
+                      })}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+        </tbody>
+      </table>
+    </div>
+  ),
   Tabs: ({ children, value, defaultValue, onValueChange, ...props }: TabsProps) => {
     const [internalValue, setInternalValue] = React.useState<string | undefined>(defaultValue);
     const isControlled = value !== undefined;
@@ -607,6 +696,9 @@ export const createHooksModuleMock = () => {
 };
 
 export const createLucideModuleMock = () => ({
+  ArrowLeft: () => <div data-testid="arrow-left" />,
+  ChevronDown: () => <div data-testid="chevron-down" />,
+  ChevronRight: () => <div data-testid="chevron-right" />,
   Columns3: () => <div data-testid="columns3" />,
   Download: () => <div data-testid="download" />,
   FileText: () => <div data-testid="file-text" />,

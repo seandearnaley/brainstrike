@@ -1,9 +1,31 @@
-import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
-import { memo, useCallback, useEffect, useMemo } from 'react';
+import { useToastManager } from '@brainstrike/file-explorer-hooks';
+import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import {
+  LightweightCheckbox,
+  type TreeNode,
+  TreeTable,
+  type TreeTableColumn,
+} from '@brainstrike/ui';
+import {
+  createLogger,
+  encodeFileSelection,
+  memoizedFileExplorer as fileExplorer,
+  isPathSelectedInFolder,
+} from '@brainstrike/utils';
+import {
+  File as FileIcon,
+  Folder,
+  FolderOpen,
+  Link2 as Link2Icon,
+  Loader2,
+  MoreHorizontal as MoreHorizontalIcon,
+  Sparkles,
+} from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
-import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
-import { useVirtualList } from './use-virtual-list';
+import { useEventCallback } from './hooks/use-event-callback';
+// TODO(BST-312): extract ROW_HEIGHT into a shared constant and retire legacy row component.
+import { ROW_HEIGHT } from './optimized-file-tree-row';
 
 interface IOptimizedFileTreeProps {
   fileTree: IFileNode[];
@@ -26,21 +48,589 @@ interface IOptimizedFileTreeProps {
   loadingPathForSelection?: string | null | undefined;
 }
 
+interface FileTreeRowData {
+  fileNode: IFileNode;
+  directoryTotalFiles: number;
+  isChildrenLoading: boolean;
+  isFileLoading: boolean;
+  isLoadingForSelection: boolean;
+  isRuleSelected: boolean;
+}
+
+interface BuildFileTreeRowsOptions {
+  expandedDirectoryPaths: Set<string>;
+  folderId: string;
+  loadingFiles: Set<string>;
+  loadingPaths?: Set<string>;
+  selectionModel: FileExplorerState['selectionModel'];
+  isLoadingForSelection?: boolean;
+  loadingPathForSelection?: string | null;
+}
+
+interface StackEntry {
+  node: IFileNode;
+  parentId: string | null;
+  depth: number;
+}
+
+interface NodeSelectionState {
+  checkboxState: boolean | 'indeterminate';
+  wouldExceedLimit: boolean;
+}
+
+type DirectorySelectionMutationAction = 'add' | 'remove' | 'none';
+
+interface DirectorySelectionMutationInput {
+  allFilePaths: string[];
+  folderId: string;
+  selectedFilePaths: Set<string>;
+  selectedCount: number;
+  directoryTotalFiles: number;
+  maxSelectionCount: number;
+}
+
+interface DirectorySelectionMutation {
+  action: DirectorySelectionMutationAction;
+  paths: string[];
+}
+
+interface DirectoryToggleState {
+  isExpanded: boolean;
+  isChildrenLoading: boolean;
+  isChildrenLoadingFromStore: boolean;
+}
+
+const logger = createLogger('OptimizedFileTree');
+// Bound ancestor-path cache growth for large workspaces (15k+ files) while
+// keeping hot paths resident across frequent selection changes.
+const MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES = 50_000;
+// Retain the most recently touched half to avoid a full cold-cache cliff.
+const SELECTED_PATH_ANCESTOR_CACHE_RETAIN_ENTRIES = 25_000;
+const EMPTY_SELECTION_PATHS: string[] = [];
+
+function incrementDirectoryCount(
+  directoryCounts: Map<string, number>,
+  directoryPath: string
+): void {
+  directoryCounts.set(directoryPath, (directoryCounts.get(directoryPath) ?? 0) + 1);
+}
+
+function evictOldestAncestorCacheEntries(selectedPathAncestorCache: Map<string, string[]>): void {
+  if (selectedPathAncestorCache.size < MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES) {
+    return;
+  }
+
+  // Keep the most recently touched half to avoid a full cache cliff.
+  // Linear key-iterator eviction is intentional here to avoid allocating a
+  // large transient key array during high-cardinality cache churn.
+  let entriesToEvict = Math.max(
+    1,
+    selectedPathAncestorCache.size - SELECTED_PATH_ANCESTOR_CACHE_RETAIN_ENTRIES
+  );
+  while (entriesToEvict > 0) {
+    const oldestEntry = selectedPathAncestorCache.keys().next();
+    if (oldestEntry.done) {
+      break;
+    }
+    selectedPathAncestorCache.delete(oldestEntry.value);
+    entriesToEvict -= 1;
+  }
+}
+
+function getAncestorDirectoryPaths(
+  filePath: string,
+  selectedPathAncestorCache: Map<string, string[]>
+): string[] {
+  const cachedAncestors = selectedPathAncestorCache.get(filePath);
+  if (cachedAncestors) {
+    // Refresh insertion order so frequent paths survive bounded eviction.
+    selectedPathAncestorCache.delete(filePath);
+    selectedPathAncestorCache.set(filePath, cachedAncestors);
+    return cachedAncestors;
+  }
+
+  const ancestorPaths: string[] = [];
+  let separatorIndex = filePath.lastIndexOf('/');
+  while (separatorIndex > 0) {
+    ancestorPaths.push(filePath.slice(0, separatorIndex));
+    separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
+  }
+
+  // Guard long-running sessions against unbounded path growth.
+  evictOldestAncestorCacheEntries(selectedPathAncestorCache);
+  selectedPathAncestorCache.set(filePath, ancestorPaths);
+  return ancestorPaths;
+}
+
+function buildSelectedDirectoryCounts(
+  selectedFilePaths: Set<string>,
+  folderId: string,
+  selectedPathAncestorCache?: Map<string, string[]>
+): Map<string, number> {
+  const directoryCounts = new Map<string, number>();
+  if (!(folderId && selectedFilePaths.size > 0)) {
+    return directoryCounts;
+  }
+
+  const ancestorCache = selectedPathAncestorCache ?? new Map<string, string[]>();
+  const folderPrefix = `${folderId}|@|`;
+  for (const selectionKey of selectedFilePaths) {
+    if (!selectionKey.startsWith(folderPrefix)) {
+      continue;
+    }
+
+    // Avoid decode/split work for keys outside this folder.
+    const selectedPath = selectionKey.slice(folderPrefix.length);
+    if (!selectedPath) {
+      continue;
+    }
+
+    const ancestorPaths = getAncestorDirectoryPaths(selectedPath, ancestorCache);
+    for (const ancestorPath of ancestorPaths) {
+      incrementDirectoryCount(directoryCounts, ancestorPath);
+    }
+  }
+
+  return directoryCounts;
+}
+
+function applySelectionKeyDirectoryCountDelta(
+  directoryCounts: Map<string, number>,
+  selectionKey: string,
+  folderPrefix: string,
+  delta: 1 | -1,
+  selectedPathAncestorCache: Map<string, string[]>
+): void {
+  if (!selectionKey.startsWith(folderPrefix)) {
+    return;
+  }
+
+  const selectedPath = selectionKey.slice(folderPrefix.length);
+  if (!selectedPath) {
+    return;
+  }
+
+  const ancestorPaths = getAncestorDirectoryPaths(selectedPath, selectedPathAncestorCache);
+  for (const ancestorPath of ancestorPaths) {
+    const nextCount = (directoryCounts.get(ancestorPath) ?? 0) + delta;
+    if (nextCount <= 0) {
+      directoryCounts.delete(ancestorPath);
+      continue;
+    }
+    directoryCounts.set(ancestorPath, nextCount);
+  }
+}
+
+function applySelectedDirectoryCountDiff(
+  previousSelectedFilePaths: Set<string>,
+  nextSelectedFilePaths: Set<string>,
+  folderId: string,
+  currentDirectoryCounts: Map<string, number>,
+  selectedPathAncestorCache: Map<string, string[]>
+): Map<string, number> {
+  const nextDirectoryCounts = new Map(currentDirectoryCounts);
+  const folderPrefix = `${folderId}|@|`;
+
+  for (const selectionKey of previousSelectedFilePaths) {
+    if (nextSelectedFilePaths.has(selectionKey)) {
+      continue;
+    }
+    applySelectionKeyDirectoryCountDelta(
+      nextDirectoryCounts,
+      selectionKey,
+      folderPrefix,
+      -1,
+      selectedPathAncestorCache
+    );
+  }
+
+  for (const selectionKey of nextSelectedFilePaths) {
+    if (previousSelectedFilePaths.has(selectionKey)) {
+      continue;
+    }
+    applySelectionKeyDirectoryCountDelta(
+      nextDirectoryCounts,
+      selectionKey,
+      folderPrefix,
+      1,
+      selectedPathAncestorCache
+    );
+  }
+
+  return nextDirectoryCounts;
+}
+
+function useSelectedDirectoryCounts(
+  selectedFilePaths: Set<string>,
+  folderId: string
+): Map<string, number> {
+  const selectedPathAncestorCacheRef = useRef<Map<string, string[]>>(new Map());
+  const previousSelectedFilePathsRef = useRef<Set<string> | null>(null);
+  const previousFolderIdRef = useRef<string>(folderId);
+  const selectedDirectoryCountsRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    return () => {
+      selectedPathAncestorCacheRef.current.clear();
+      selectedDirectoryCountsRef.current.clear();
+      previousSelectedFilePathsRef.current = null;
+    };
+  }, []);
+
+  return useMemo(() => {
+    const previousSelectedFilePaths = previousSelectedFilePathsRef.current;
+    const hasFolderChanged = previousFolderIdRef.current !== folderId;
+
+    if (!(folderId && selectedFilePaths.size > 0)) {
+      const emptyCounts = new Map<string, number>();
+      selectedDirectoryCountsRef.current = emptyCounts;
+      previousSelectedFilePathsRef.current = selectedFilePaths;
+      previousFolderIdRef.current = folderId;
+      return emptyCounts;
+    }
+
+    if (hasFolderChanged || !previousSelectedFilePaths) {
+      const rebuiltCounts = buildSelectedDirectoryCounts(
+        selectedFilePaths,
+        folderId,
+        // Mutable cache by design: recomputation is keyed by selected paths/folder,
+        // while cache contents persist across runs to amortize ancestor parsing.
+        // StrictMode may invoke this memo twice in development; cache writes stay
+        // idempotent because each file path deterministically maps to ancestors.
+        selectedPathAncestorCacheRef.current
+      );
+      selectedDirectoryCountsRef.current = rebuiltCounts;
+      previousSelectedFilePathsRef.current = selectedFilePaths;
+      previousFolderIdRef.current = folderId;
+      return rebuiltCounts;
+    }
+
+    if (previousSelectedFilePaths !== selectedFilePaths) {
+      const updatedCounts = applySelectedDirectoryCountDiff(
+        previousSelectedFilePaths,
+        selectedFilePaths,
+        folderId,
+        selectedDirectoryCountsRef.current,
+        selectedPathAncestorCacheRef.current
+      );
+      selectedDirectoryCountsRef.current = updatedCounts;
+    }
+
+    previousSelectedFilePathsRef.current = selectedFilePaths;
+    previousFolderIdRef.current = folderId;
+    return selectedDirectoryCountsRef.current;
+  }, [selectedFilePaths, folderId]);
+}
+
+function computeDirectoryCheckboxState(
+  directoryPath: string,
+  totalFiles: number,
+  folderId: string,
+  selectedDirectoryCounts: Map<string, number>
+): { checkboxState: boolean | 'indeterminate'; selectedCount: number } {
+  if (totalFiles === 0) {
+    return {
+      checkboxState: false,
+      selectedCount: 0,
+    };
+  }
+
+  const selectedCount = folderId ? (selectedDirectoryCounts.get(directoryPath) ?? 0) : 0;
+  if (selectedCount === 0) {
+    return {
+      checkboxState: false,
+      selectedCount,
+    };
+  }
+
+  return {
+    checkboxState: selectedCount === totalFiles ? true : 'indeterminate',
+    selectedCount,
+  };
+}
+
+function computeFileSelectionState(
+  node: IFileNode,
+  folderId: string,
+  selectedFilePaths: Set<string>,
+  maxSelectionCount: number
+): NodeSelectionState {
+  const isSelected = folderId
+    ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path)
+    : false;
+  return {
+    checkboxState: isSelected,
+    wouldExceedLimit: !isSelected && selectedFilePaths.size >= maxSelectionCount,
+  };
+}
+
+function computeDirectorySelectionState(
+  directoryPath: string,
+  directoryTotalFiles: number,
+  folderId: string,
+  selectedFilePaths: Set<string>,
+  selectedDirectoryCounts: Map<string, number>,
+  maxSelectionCount: number
+): NodeSelectionState {
+  const directoryState = computeDirectoryCheckboxState(
+    directoryPath,
+    directoryTotalFiles,
+    folderId,
+    selectedDirectoryCounts
+  );
+  const unselectedCount = Math.max(0, directoryTotalFiles - directoryState.selectedCount);
+  return {
+    checkboxState: directoryState.checkboxState,
+    wouldExceedLimit: selectedFilePaths.size + unselectedCount > maxSelectionCount,
+  };
+}
+
+function computeNodeSelectionState(
+  rowData: FileTreeRowData,
+  folderId: string,
+  selectedFilePaths: Set<string>,
+  selectedDirectoryCounts: Map<string, number>,
+  maxSelectionCount: number
+): NodeSelectionState {
+  const node = rowData.fileNode;
+  if (node.type === 'file') {
+    return computeFileSelectionState(node, folderId, selectedFilePaths, maxSelectionCount);
+  }
+  if (node.type === 'directory') {
+    return computeDirectorySelectionState(
+      node.path,
+      rowData.directoryTotalFiles,
+      folderId,
+      selectedFilePaths,
+      selectedDirectoryCounts,
+      maxSelectionCount
+    );
+  }
+  return {
+    checkboxState: false,
+    wouldExceedLimit: false,
+  };
+}
+
+function isNodeChildrenLoading(node: IFileNode, loadingPaths?: Set<string>): boolean {
+  return (loadingPaths?.has(node.path) ?? false) || node.loadState === 'loading';
+}
+
+function isNodeFileLoading(node: IFileNode, folderId: string, loadingFiles: Set<string>): boolean {
+  if (!folderId) {
+    return false;
+  }
+  return loadingFiles.has(encodeFileSelection(folderId, node.path));
+}
+
+function isNodeRuleSelected(
+  node: IFileNode,
+  selectionModel: FileExplorerState['selectionModel']
+): boolean {
+  return (
+    node.type === 'file' &&
+    selectionModel.mode === 'rules' &&
+    (selectionModel.materializedPaths?.has(node.path) ?? false)
+  );
+}
+
+function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): FileTreeRowData {
+  const {
+    folderId,
+    loadingFiles,
+    loadingPaths,
+    selectionModel,
+    isLoadingForSelection,
+    loadingPathForSelection,
+  } = options;
+
+  return {
+    fileNode: node,
+    directoryTotalFiles:
+      node.type === 'directory' ? fileExplorer.getFolderFileCount(node).count : 0,
+    isChildrenLoading: isNodeChildrenLoading(node, loadingPaths),
+    isFileLoading: isNodeFileLoading(node, folderId, loadingFiles),
+    isLoadingForSelection: Boolean(isLoadingForSelection && loadingPathForSelection === node.path),
+    isRuleSelected: isNodeRuleSelected(node, selectionModel),
+  };
+}
+
+function shouldLoadDirectoryRecursively(node: IFileNode): boolean {
+  return (
+    node.loadState !== 'loaded' ||
+    (node.children?.some((child) => child.type === 'directory' && child.loadState !== 'loaded') ??
+      false)
+  );
+}
+
+function resolveDirectorySelectionMutation({
+  allFilePaths,
+  folderId,
+  selectedFilePaths,
+  selectedCount,
+  directoryTotalFiles,
+  maxSelectionCount,
+}: DirectorySelectionMutationInput): DirectorySelectionMutation {
+  if (allFilePaths.length === 0) {
+    return {
+      action: 'none',
+      paths: EMPTY_SELECTION_PATHS,
+    };
+  }
+
+  if (selectedCount === directoryTotalFiles) {
+    return {
+      action: 'remove',
+      paths: allFilePaths,
+    };
+  }
+
+  const availableSlots = Math.max(0, maxSelectionCount - selectedFilePaths.size);
+  if (availableSlots === 0) {
+    return {
+      action: 'none',
+      paths: EMPTY_SELECTION_PATHS,
+    };
+  }
+
+  const pathsToSelect: string[] = [];
+  for (const path of allFilePaths) {
+    if (isPathSelectedInFolder(selectedFilePaths, folderId, path)) {
+      continue;
+    }
+    pathsToSelect.push(path);
+    if (pathsToSelect.length >= availableSlots) {
+      break;
+    }
+  }
+
+  if (pathsToSelect.length === 0) {
+    return {
+      action: 'none',
+      paths: EMPTY_SELECTION_PATHS,
+    };
+  }
+
+  return {
+    action: 'add',
+    paths: pathsToSelect,
+  };
+}
+
+function addChildrenToStack(
+  entry: StackEntry,
+  stack: StackEntry[],
+  expandedDirectoryPaths: Set<string>
+): void {
+  const { node, depth } = entry;
+  // Only descend into expanded directories whose children are fully loaded.
+  if (
+    node.type !== 'directory' ||
+    node.loadState !== 'loaded' ||
+    !node.children ||
+    node.children.length === 0
+  ) {
+    return;
+  }
+  if (!expandedDirectoryPaths.has(node.path)) {
+    return;
+  }
+
+  for (let index = node.children.length - 1; index >= 0; index -= 1) {
+    const child = node.children[index];
+    if (!child) {
+      continue;
+    }
+    stack.push({
+      node: child,
+      parentId: node.path,
+      depth: depth + 1,
+    });
+  }
+}
+
+function buildFileTreeRows(
+  fileTree: IFileNode[],
+  options: BuildFileTreeRowsOptions
+): TreeNode<FileTreeRowData>[] {
+  const rows: TreeNode<FileTreeRowData>[] = [];
+  const { expandedDirectoryPaths } = options;
+  const stack: StackEntry[] = [];
+  for (let index = fileTree.length - 1; index >= 0; index -= 1) {
+    const node = fileTree[index];
+    if (!node) {
+      continue;
+    }
+    stack.push({
+      node,
+      parentId: null,
+      depth: 0,
+    });
+  }
+
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (!entry) {
+      continue;
+    }
+
+    if (entry.node.isVisible === false) {
+      continue;
+    }
+
+    const { node, parentId, depth } = entry;
+    const rowData = createTreeRowData(node, options);
+
+    rows.push({
+      id: node.path,
+      type: node.type,
+      depth,
+      data: rowData,
+      parentId,
+      // Keep directory rows expandable even when children are currently unloaded.
+      hasChildren: node.type === 'directory',
+      isLoading: rowData.isChildrenLoading,
+    });
+
+    // Only materialize expanded subtrees to avoid rematerializing collapsed descendants.
+    addChildrenToStack(entry, stack, expandedDirectoryPaths);
+  }
+
+  return rows;
+}
+
+interface TreeNodeIconProps {
+  isLoading: boolean;
+  nodeType: IFileNode['type'];
+  nodeName: string;
+  isExpanded: boolean;
+}
+
+function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIconProps) {
+  if (isLoading) {
+    return (
+      <Loader2
+        aria-label={`Loading ${nodeName}`}
+        className="animate-spin text-blue-500 dark:text-blue-400"
+        size={16}
+      />
+    );
+  }
+  if (nodeType === 'file' || nodeType === 'loadMore') {
+    return <FileIcon className="text-gray-500 dark:text-gray-400" size={16} />;
+  }
+  if (nodeType === 'directory') {
+    if (isExpanded) {
+      return <FolderOpen className="text-blue-500 dark:text-blue-400" size={16} />;
+    }
+    return <Folder className="text-blue-500 dark:text-blue-400" size={16} />;
+  }
+  return null;
+}
+
 /**
- * @file OptimizedFileTree.tsx
- * @description Optimized version of FileTree with performance improvements for large directory structures.
- *
- * Key optimizations:
- * - Uses LightweightCheckbox instead of ShadCN checkbox
- * - Improved memoization strategies
- * - Optimized React.memo comparison functions
- * - Reduced context provider overhead
- * - Enhanced virtualization with better scroll performance
- *
- * @param {IFileNode[]} fileTree - The array of IFileNode objects representing the file structure to render.
- * @param {Set<string>} loadingFiles - A set of paths for files that are currently in a loading state.
- * @param {(() => void) | undefined} onRender - An optional callback function that is triggered when the tree component renders (primarily for testing).
- * @param {string} folderId - The identifier for the current folder context, used for selection and expansion state.
+ * TreeTable adapter for file explorer left panel.
+ * Maintains lazy-loading and recursive selection behavior while converging on shared tree-grid UI.
  */
 const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
   ({
@@ -56,179 +646,356 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     loadingPathForSelection,
   }) => {
     const store = useFileExplorerStoreContext();
+    const { showToast } = useToastManager();
+    // Keep a subscribed expansion snapshot for TreeTable render state.
+    // Event handlers still use `store.getState()` to avoid stale async toggles.
     const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
     const toggleDirectoryExpansion = store((s) => s.toggleDirectoryExpansion);
     const toggleSelectedFile = store((s) => s.toggleSelectedFile);
+    const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
+    const removeMultipleSelectedFiles = store((s) => s.removeMultipleSelectedFiles);
+    const selectedFilePaths = store((s) => s.selectedFilePaths);
+    const maxSelectionCount = store((s) => s.maxSelectionCount);
+    const selectionModel = store((s) => s.selectionModel);
+    // Dedupe in-flight directory loads between rapid expand interactions.
+    // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
+    const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
+    const isMountedRef = useRef(true);
+    useEffect(() => {
+      isMountedRef.current = true;
+      return () => {
+        isMountedRef.current = false;
+        pendingChildLoadPathsRef.current.clear();
+      };
+    }, []);
 
-    /**
-     * Wrapped toggle that cancels streaming loads on collapse.
-     * When a directory is currently loading and the user collapses it,
-     * we abort the streaming operation to avoid wasted work.
-     */
-    const handleToggleDirectoryExpansion = useCallback(
-      (path: string) => {
-        // Check if we're collapsing (path is currently expanded) and loading
-        const isExpanded = expandedDirectoryPaths.has(path);
-        const isLoading = loadingPaths?.has(path);
+    const selectedDirectoryCounts = useSelectedDirectoryCounts(selectedFilePaths, folderId);
 
-        if (isExpanded && isLoading && cancelChildLoading) {
-          // Cancel the in-flight streaming load before collapsing
-          cancelChildLoading(path);
-        }
-
-        // Proceed with the toggle
-        toggleDirectoryExpansion(path);
-      },
-      [expandedDirectoryPaths, loadingPaths, cancelChildLoading, toggleDirectoryExpansion]
-    );
-
-    // Immediate file selection for better responsiveness
-    const handleToggleFileSelection = useCallback(
-      (path: string) => {
-        if (!folderId) {
-          return;
-        }
-        toggleSelectedFile(folderId, path);
-      },
-      [folderId, toggleSelectedFile]
-    );
-
-    // Optimized tree flattening with better memoization
-    const flattenTree = useCallback(
-      (nodes: IFileNode[]): { node: IFileNode; depth: number }[] => {
-        const acc: { node: IFileNode; depth: number }[] = [];
-
-        // Iterative DFS avoids recursion overhead and avoids allocating
-        // per-directory filtered child arrays on every flatten pass.
-        const stack: Array<{ nodes: IFileNode[]; index: number; depth: number }> = [
-          { nodes, index: 0, depth: 0 },
-        ];
-
-        while (stack.length > 0) {
-          const frame = stack.at(-1);
-          if (!frame) {
-            break;
-          }
-
-          if (frame.index >= frame.nodes.length) {
-            stack.pop();
-            continue;
-          }
-
-          const node = frame.nodes[frame.index++];
-          if (!node || node.isVisible === false) {
-            continue;
-          }
-
-          acc.push({ node, depth: frame.depth });
-
-          if (
-            node.type === 'directory' &&
-            expandedDirectoryPaths.has(node.path) &&
-            node.loadState === 'loaded' &&
-            node.children &&
-            node.children.length > 0
-          ) {
-            stack.push({
-              nodes: node.children,
-              index: 0,
-              depth: frame.depth + 1,
-            });
-          }
-        }
-
-        return acc;
-      },
-      [expandedDirectoryPaths]
-    );
-
-    // Memoize visible nodes calculation
-    const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
-
-    // Enhanced virtualization with improved performance
-    // Overscan of 10 prevents gray patches during rapid scrolling on large trees
-    const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
-      overscan: 10,
-    });
-
-    // Optimized row rendering with better memoization
-    const renderedRows = useMemo(() => {
-      const startIndex = range.start;
-      const endIndex = range.end;
-      const rows = [];
-
-      for (let i = startIndex; i <= endIndex; i++) {
-        const item = visibleNodes[i];
-        if (!item) {
-          continue;
-        }
-
-        const { node, depth } = item;
-
-        rows.push(
-          <OptimizedFileTreeRow
-            depth={depth}
-            folderId={folderId}
-            isChildrenLoading={loadingPaths?.has(node.path) ?? false}
-            isExpanded={expandedDirectoryPaths.has(node.path) && node.loadState === 'loaded'}
-            isLoading={
-              folderId ? loadingFiles.has(encodeFileSelection(folderId, node.path)) : false
-            }
-            isLoadingForSelection={isLoadingForSelection && loadingPathForSelection === node.path}
-            key={node.path}
-            node={node}
-            onLoadChildren={onLoadChildren}
-            onSelectFolderRecursively={onSelectFolderRecursively}
-            onToggleDirectoryExpansion={handleToggleDirectoryExpansion}
-            onToggleFileSelection={handleToggleFileSelection}
-            style={{
-              position: 'absolute',
-              top: i * ROW_HEIGHT,
-              width: '100%',
-              height: ROW_HEIGHT,
-            }}
-          />
-        );
-      }
-
-      return rows;
+    // Keep row structure independent from selectedFilePaths so checkbox toggles
+    // do not trigger full tree row reconstruction for large trees.
+    const treeRows = useMemo(() => {
+      const options: BuildFileTreeRowsOptions = {
+        expandedDirectoryPaths,
+        folderId,
+        loadingFiles,
+        selectionModel,
+        ...(loadingPaths ? { loadingPaths } : {}),
+        ...(isLoadingForSelection !== undefined ? { isLoadingForSelection } : {}),
+        ...(loadingPathForSelection !== undefined ? { loadingPathForSelection } : {}),
+      };
+      return buildFileTreeRows(fileTree, options);
     }, [
-      visibleNodes,
-      range.start,
-      range.end,
+      fileTree,
       expandedDirectoryPaths,
-      handleToggleDirectoryExpansion,
-      handleToggleFileSelection,
-      loadingFiles,
       folderId,
+      loadingFiles,
       loadingPaths,
-      onLoadChildren,
-      onSelectFolderRecursively,
+      selectionModel,
       isLoadingForSelection,
       loadingPathForSelection,
     ]);
 
-    // This effect will run if the onRender callback itself changes.
+    const fileNodeByPath = useMemo(() => {
+      const nodeMap = new Map<string, IFileNode>();
+      for (const row of treeRows) {
+        nodeMap.set(row.id, row.data.fileNode);
+      }
+      return nodeMap;
+    }, [treeRows]);
+
+    const getDirectoryToggleState = useCallback(
+      (node: IFileNode): DirectoryToggleState => {
+        const isChildrenLoadingFromStore = loadingPaths?.has(node.path) ?? false;
+        return {
+          // Read expansion state at invocation time to avoid stale closure snapshots
+          // across rapid async expand/collapse interactions.
+          isExpanded: store.getState().expandedDirectoryPaths.has(node.path),
+          isChildrenLoading:
+            isChildrenLoadingFromStore ||
+            node.loadState === 'loading' ||
+            pendingChildLoadPathsRef.current.has(node.path),
+          isChildrenLoadingFromStore,
+        };
+      },
+      [loadingPaths, store]
+    );
+
+    const shouldSkipCollapsedExpansion = useCallback(
+      (node: IFileNode, state: DirectoryToggleState): boolean => {
+        if (!state.isChildrenLoading) {
+          return false;
+        }
+        if (state.isChildrenLoadingFromStore && cancelChildLoading) {
+          cancelChildLoading(node.path);
+        }
+        return true;
+      },
+      [cancelChildLoading]
+    );
+
+    const collapseExpandedDirectory = useCallback(
+      (node: IFileNode, state: DirectoryToggleState): void => {
+        if (state.isChildrenLoading && cancelChildLoading) {
+          cancelChildLoading(node.path);
+        }
+        toggleDirectoryExpansion(node.path);
+      },
+      [cancelChildLoading, toggleDirectoryExpansion]
+    );
+
+    const loadChildrenForExpansion = useCallback(
+      async (node: IFileNode): Promise<void> => {
+        const needsLoad =
+          (node.loadState === 'unloaded' || node.loadState === undefined) && onLoadChildren;
+        if (!needsLoad) {
+          return;
+        }
+
+        pendingChildLoadPathsRef.current.add(node.path);
+        try {
+          await onLoadChildren(node.path);
+        } finally {
+          pendingChildLoadPathsRef.current.delete(node.path);
+        }
+      },
+      [onLoadChildren]
+    );
+
+    const toggleDirectoryNode = useCallback(
+      async (node: IFileNode, state: DirectoryToggleState): Promise<void> => {
+        if (state.isExpanded) {
+          collapseExpandedDirectory(node, state);
+          return;
+        }
+
+        if (shouldSkipCollapsedExpansion(node, state)) {
+          return;
+        }
+
+        await loadChildrenForExpansion(node);
+
+        if (!isMountedRef.current) {
+          return;
+        }
+
+        // A stale async load that resolves after a later user interaction should be a no-op.
+        // If another action already expanded this path, avoid toggling it again.
+        if (!store.getState().expandedDirectoryPaths.has(node.path)) {
+          toggleDirectoryExpansion(node.path);
+        }
+      },
+      [
+        collapseExpandedDirectory,
+        loadChildrenForExpansion,
+        shouldSkipCollapsedExpansion,
+        store,
+        toggleDirectoryExpansion,
+      ]
+    );
+
+    const reportToggleExpandError = useCallback(
+      (node: IFileNode, error: unknown) => {
+        logger.error('Failed to toggle directory expansion', {
+          path: node.path,
+          error,
+        });
+        showToast({
+          title: 'Failed to load folder',
+          description: `Could not expand "${node.name}". Please try again.`,
+          variant: 'destructive',
+        });
+      },
+      [showToast]
+    );
+
+    const handleToggleExpand = useCallback(
+      (nodeId: string) => {
+        const node = fileNodeByPath.get(nodeId);
+        if (!node || node.type !== 'directory') {
+          return;
+        }
+        try {
+          const toggleState = getDirectoryToggleState(node);
+          void toggleDirectoryNode(node, toggleState).catch((error: unknown) => {
+            reportToggleExpandError(node, error);
+          });
+        } catch (error: unknown) {
+          reportToggleExpandError(node, error);
+        }
+      },
+      [fileNodeByPath, getDirectoryToggleState, reportToggleExpandError, toggleDirectoryNode]
+    );
+
+    const getNodeSelectionState = useCallback(
+      (rowData: FileTreeRowData): NodeSelectionState =>
+        computeNodeSelectionState(
+          rowData,
+          folderId,
+          selectedFilePaths,
+          selectedDirectoryCounts,
+          maxSelectionCount
+        ),
+      [folderId, selectedFilePaths, selectedDirectoryCounts, maxSelectionCount]
+    );
+
+    const handleNodeSelection = useCallback(
+      (rowData: FileTreeRowData) => {
+        if (!folderId) {
+          return;
+        }
+
+        const node = rowData.fileNode;
+        const selectionState = getNodeSelectionState(rowData);
+        if (selectionState.wouldExceedLimit) {
+          return;
+        }
+
+        if (node.type !== 'directory') {
+          toggleSelectedFile(folderId, node.path);
+          return;
+        }
+
+        if (shouldLoadDirectoryRecursively(node) && onSelectFolderRecursively) {
+          void onSelectFolderRecursively(node);
+          return;
+        }
+
+        const directoryTotalFiles = rowData.directoryTotalFiles;
+        if (directoryTotalFiles === 0) {
+          return;
+        }
+
+        const selectedCount = selectedDirectoryCounts.get(node.path) ?? 0;
+        const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
+        const selectionMutation = resolveDirectorySelectionMutation({
+          allFilePaths,
+          folderId,
+          selectedFilePaths,
+          selectedCount,
+          directoryTotalFiles,
+          maxSelectionCount,
+        });
+
+        if (selectionMutation.action === 'remove') {
+          removeMultipleSelectedFiles(folderId, selectionMutation.paths);
+          return;
+        }
+
+        if (selectionMutation.action === 'add') {
+          addMultipleSelectedFiles(folderId, selectionMutation.paths);
+        }
+      },
+      [
+        folderId,
+        getNodeSelectionState,
+        toggleSelectedFile,
+        onSelectFolderRecursively,
+        selectedFilePaths,
+        selectedDirectoryCounts,
+        removeMultipleSelectedFiles,
+        maxSelectionCount,
+        addMultipleSelectedFiles,
+      ]
+    );
+    const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);
+
+    // Recompute column cell closures when selection snapshots change so row reads
+    // stay render-pure under concurrent mode without render-phase ref mutation.
+    const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(
+      () => [
+        {
+          id: 'name',
+          className: '!p-0',
+          cell: ({ node, isExpanded }) => {
+            const rowData = node.data;
+            const fileNode = rowData.fileNode;
+            const selectionState = getNodeSelectionState(rowData);
+
+            return (
+              <div className="flex min-w-0 flex-1 items-center">
+                <div
+                  className="mr-2 flex w-4 items-center justify-center"
+                  title={
+                    rowData.isLoadingForSelection
+                      ? 'Loading folder contents...'
+                      : selectionState.wouldExceedLimit
+                        ? `Cannot select more than ${maxSelectionCount} files`
+                        : undefined
+                  }
+                >
+                  {rowData.isLoadingForSelection ? (
+                    <Loader2
+                      aria-label={`Loading ${fileNode.name} for selection`}
+                      className="h-4 w-4 animate-spin text-blue-500"
+                    />
+                  ) : (
+                    <LightweightCheckbox
+                      aria-label={`Select ${fileNode.name}`}
+                      checked={selectionState.checkboxState}
+                      className="h-4 w-4"
+                      disabled={selectionState.wouldExceedLimit}
+                      id={fileNode.path}
+                      onCheckedChange={() => handleNodeSelectionEvent(rowData)}
+                    />
+                  )}
+                </div>
+
+                <div className="mr-2 flex w-4 items-center justify-center">
+                  <TreeNodeIcon
+                    isExpanded={isExpanded}
+                    isLoading={rowData.isFileLoading}
+                    nodeName={fileNode.name}
+                    nodeType={fileNode.type}
+                  />
+                </div>
+
+                <div className="flex min-w-0 flex-1 items-center">
+                  {fileNode.isSymbolicLink && (
+                    <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
+                  )}
+                  <span className="truncate text-sm leading-4">{fileNode.name}</span>
+                  {rowData.isRuleSelected && (
+                    <Sparkles
+                      aria-label="Selected by rule"
+                      className="ml-1.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500 dark:text-amber-400"
+                    />
+                  )}
+                  {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
+                    <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
+                  )}
+                </div>
+              </div>
+            );
+          },
+        },
+      ],
+      [getNodeSelectionState, handleNodeSelectionEvent, maxSelectionCount]
+    );
+
     useEffect(() => {
       onRender?.();
     }, [onRender]);
-
-    // No cleanup needed anymore
 
     return (
       <div
         className="relative h-full min-h-0 flex-1 overflow-y-auto"
         data-testid="file-tree-scroll-container"
-        ref={containerRef}
       >
-        <div
-          aria-label="File tree"
-          className="file-tree relative"
-          data-testid="file-tree"
-          role="tree"
-          style={{ height: totalHeight }}
-        >
-          {renderedRows}
+        <div className="relative h-full" data-testid="file-tree">
+          <TreeTable
+            ariaLabel="File tree"
+            className="file-tree h-full min-h-0 flex-1"
+            columns={columns}
+            expandedIds={expandedDirectoryPaths}
+            maxHeight="none"
+            nodes={treeRows}
+            onToggleExpand={handleToggleExpand}
+            overscan={10}
+            rowHeight={ROW_HEIGHT}
+            selectionMode="none"
+            showHeader={false}
+            windowingStrategy="virtual"
+          />
         </div>
       </div>
     );
@@ -237,41 +1004,4 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
 OptimizedFileTree.displayName = 'OptimizedFileTree';
 
-// Lightweight memoization: rely on reference equality to avoid O(n) comparisons
-const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps) => {
-  if (prevProps.folderId !== nextProps.folderId) {
-    return false;
-  }
-  if (prevProps.onRender !== nextProps.onRender) {
-    return false;
-  }
-  if (prevProps.fileTree !== nextProps.fileTree) {
-    return false;
-  }
-  if (prevProps.loadingFiles !== nextProps.loadingFiles) {
-    return false;
-  }
-  // Include lazy loading props in comparison
-  if (prevProps.loadingPaths !== nextProps.loadingPaths) {
-    return false;
-  }
-  if (prevProps.onLoadChildren !== nextProps.onLoadChildren) {
-    return false;
-  }
-  if (prevProps.cancelChildLoading !== nextProps.cancelChildLoading) {
-    return false;
-  }
-  // Include recursive selection props in comparison
-  if (prevProps.onSelectFolderRecursively !== nextProps.onSelectFolderRecursively) {
-    return false;
-  }
-  if (prevProps.isLoadingForSelection !== nextProps.isLoadingForSelection) {
-    return false;
-  }
-  if (prevProps.loadingPathForSelection !== nextProps.loadingPathForSelection) {
-    return false;
-  }
-  return true;
-});
-
-export default OptimizedFileTreeMemoized;
+export default OptimizedFileTree;
