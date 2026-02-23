@@ -240,7 +240,7 @@ export function useBackgroundTokenIndexer({
     workerErrorLoggedRef.current = true;
     const normalized =
       error instanceof Error
-        ? { error: error.message, stack: error.stack }
+        ? { message: error.message, error: error.message, stack: error.stack }
         : { error: String(error) };
     logger.error('Background token indexer entered failed state', {
       context,
