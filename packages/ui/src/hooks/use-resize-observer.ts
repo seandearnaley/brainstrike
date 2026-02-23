@@ -28,6 +28,10 @@ export interface UseResizeObserverOptions {
  * @param onResize - Callback fired with the latest resize entry (debounced via RAF)
  * @param options - Optional configuration for the observer
  *
+ * @remarks
+ * Observation starts once `elementRef.current` points to an element. This supports
+ * refs that are `null` on the first render (for example, conditionally rendered targets).
+ *
  * @example
  * ```tsx
  * const containerRef = useRef<HTMLDivElement>(null);
@@ -56,37 +60,64 @@ export function useResizeObserver<T extends Element>(
       return;
     }
 
-    const element = elementRef.current;
-    if (!element) {
-      return;
-    }
+    let resizeRafId: ReturnType<typeof requestAnimationFrame> | null = null;
+    let attachPollRafId: ReturnType<typeof requestAnimationFrame> | null = null;
+    let attachPollCount = 0;
+    let resizeObserver: ResizeObserver | null = null;
+    const maxAttachPollAttempts = 120; // ~2 seconds at 60 fps
 
-    let rafId: ReturnType<typeof requestAnimationFrame> | null = null;
-
-    const observer = new ResizeObserver((entries) => {
-      // Cancel any pending animation frame to batch rapid resize events
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
+    const attachResizeObserver = (element: T): void => {
+      if (resizeObserver) {
+        return;
       }
 
-      // Schedule the callback for the next animation frame
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        // Only process the last entry since we're observing a single element
-        const entry = entries.at(-1);
-        if (entry) {
-          callbackRef.current(entry);
+      resizeObserver = new ResizeObserver((entries) => {
+        // Cancel any pending animation frame to batch rapid resize events
+        if (resizeRafId !== null) {
+          cancelAnimationFrame(resizeRafId);
         }
-      });
-    });
 
-    observer.observe(element);
+        // Schedule the callback for the next animation frame
+        resizeRafId = requestAnimationFrame(() => {
+          resizeRafId = null;
+          // Only process the last entry since we're observing a single element
+          const entry = entries.at(-1);
+          if (entry) {
+            callbackRef.current(entry);
+          }
+        });
+      });
+
+      resizeObserver.observe(element);
+    };
+
+    const tryAttachObserver = (): void => {
+      const element = elementRef.current;
+      if (element) {
+        attachResizeObserver(element);
+        return;
+      }
+      if (attachPollCount >= maxAttachPollAttempts) {
+        return;
+      }
+      attachPollCount += 1;
+      // Keep checking until the ref is populated, then attach once.
+      attachPollRafId = requestAnimationFrame(tryAttachObserver);
+    };
+
+    tryAttachObserver();
 
     return () => {
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
+      // Cancel any pending attachment-polling animation frame
+      if (attachPollRafId !== null) {
+        cancelAnimationFrame(attachPollRafId);
       }
-      observer.disconnect();
+
+      if (resizeRafId !== null) {
+        cancelAnimationFrame(resizeRafId);
+      }
+
+      resizeObserver?.disconnect();
     };
   }, [elementRef, disabled]);
 }

@@ -78,6 +78,55 @@ describe('useResizeObserver', () => {
     expect(mockObserve).not.toHaveBeenCalled();
   });
 
+  it('observes when ref is populated after initial mount', () => {
+    const ref = { current: null as HTMLDivElement | null };
+    const onResize = vi.fn();
+
+    renderHook(() => useResizeObserver(ref, onResize));
+
+    expect(mockObserve).not.toHaveBeenCalled();
+
+    const element = document.createElement('div');
+    ref.current = element;
+    rafCallback?.(performance.now());
+
+    expect(mockObserve).toHaveBeenCalledWith(element);
+  });
+
+  it('cancels pending attachment polling on unmount when ref never populates', () => {
+    const ref = { current: null as HTMLDivElement | null };
+    const onResize = vi.fn();
+
+    const { unmount } = renderHook(() => useResizeObserver(ref, onResize));
+
+    unmount();
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
+    expect(mockDisconnect).not.toHaveBeenCalled();
+  });
+
+  it('stops attachment polling after max attempts when ref never populates', () => {
+    const ref = { current: null as HTMLDivElement | null };
+    const onResize = vi.fn();
+
+    renderHook(() => useResizeObserver(ref, onResize));
+
+    // Drain the queued RAF polling callbacks; each callback schedules the next
+    // until the max poll limit is reached.
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (!rafCallback) {
+        break;
+      }
+      const callback = rafCallback;
+      rafCallback = null;
+      callback(performance.now());
+    }
+
+    expect(rafId).toBe(120);
+    expect(rafCallback).toBeNull();
+    expect(mockObserve).not.toHaveBeenCalled();
+  });
+
   it('disconnects observer on unmount', () => {
     const element = document.createElement('div');
     const ref = { current: element };
