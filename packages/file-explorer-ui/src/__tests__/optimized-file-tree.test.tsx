@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { memoizedFileExplorer } from '@brainstrike/utils';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -208,6 +209,64 @@ describe('OptimizedFileTree', () => {
 
     fireEvent.click(fileCheckbox);
     expect(fileCheckbox).toBeChecked();
+  });
+
+  it('does not recompute directory file counts on file-selection rerenders', () => {
+    const getFolderFileCountSpy = vi.spyOn(memoizedFileExplorer, 'getFolderFileCount');
+    try {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+
+      const initialCallCount = getFolderFileCountSpy.mock.calls.length;
+      const fileCheckbox = screen.getByLabelText('Select test.txt');
+
+      fireEvent.click(fileCheckbox);
+      fireEvent.click(fileCheckbox);
+
+      expect(getFolderFileCountSpy.mock.calls.length).toBe(initialCallCount);
+    } finally {
+      getFolderFileCountSpy.mockRestore();
+    }
+  });
+
+  it('selects all unselected files in a directory when capacity allows', async () => {
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().setMaxSelectionCount(2);
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByLabelText('Select src'));
+
+    const selectedKeys = Array.from(readyStore.getState().selectedFilePaths);
+    const selectedSourceFiles = selectedKeys.filter((key) => key.startsWith('root|@|/src/'));
+
+    expect(selectedKeys).toHaveLength(2);
+    expect(selectedSourceFiles).toHaveLength(2);
   });
 
   it('calls onRender callback when provided', () => {

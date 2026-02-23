@@ -50,6 +50,7 @@ interface IOptimizedFileTreeProps {
 
 interface FileTreeRowData {
   fileNode: IFileNode;
+  directoryTotalFiles: number;
   isChildrenLoading: boolean;
   isFileLoading: boolean;
   isLoadingForSelection: boolean;
@@ -77,6 +78,22 @@ interface NodeSelectionState {
   wouldExceedLimit: boolean;
 }
 
+type DirectorySelectionMutationAction = 'add' | 'remove' | 'none';
+
+interface DirectorySelectionMutationInput {
+  allFilePaths: string[];
+  folderId: string;
+  selectedFilePaths: Set<string>;
+  selectedCount: number;
+  directoryTotalFiles: number;
+  maxSelectionCount: number;
+}
+
+interface DirectorySelectionMutation {
+  action: DirectorySelectionMutationAction;
+  paths: string[];
+}
+
 interface DirectoryToggleState {
   isExpanded: boolean;
   isChildrenLoading: boolean;
@@ -89,6 +106,7 @@ const logger = createLogger('OptimizedFileTree');
 const MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES = 50_000;
 // Retain the most recently touched half to avoid a full cold-cache cliff.
 const SELECTED_PATH_ANCESTOR_CACHE_RETAIN_ENTRIES = 25_000;
+const EMPTY_SELECTION_PATHS: string[] = [];
 
 function incrementDirectoryCount(
   directoryCounts: Map<string, number>,
@@ -204,32 +222,29 @@ function useSelectedDirectoryCounts(
 }
 
 function computeDirectoryCheckboxState(
-  node: IFileNode,
+  directoryPath: string,
+  totalFiles: number,
   folderId: string,
   selectedDirectoryCounts: Map<string, number>
-): { checkboxState: boolean | 'indeterminate'; selectedCount: number; totalFiles: number } {
-  const totalFiles = fileExplorer.getFolderFileCount(node).count;
+): { checkboxState: boolean | 'indeterminate'; selectedCount: number } {
   if (totalFiles === 0) {
     return {
       checkboxState: false,
       selectedCount: 0,
-      totalFiles,
     };
   }
 
-  const selectedCount = folderId ? (selectedDirectoryCounts.get(node.path) ?? 0) : 0;
+  const selectedCount = folderId ? (selectedDirectoryCounts.get(directoryPath) ?? 0) : 0;
   if (selectedCount === 0) {
     return {
       checkboxState: false,
       selectedCount,
-      totalFiles,
     };
   }
 
   return {
     checkboxState: selectedCount === totalFiles ? true : 'indeterminate',
     selectedCount,
-    totalFiles,
   };
 }
 
@@ -249,14 +264,20 @@ function computeFileSelectionState(
 }
 
 function computeDirectorySelectionState(
-  node: IFileNode,
+  directoryPath: string,
+  directoryTotalFiles: number,
   folderId: string,
   selectedFilePaths: Set<string>,
   selectedDirectoryCounts: Map<string, number>,
   maxSelectionCount: number
 ): NodeSelectionState {
-  const directoryState = computeDirectoryCheckboxState(node, folderId, selectedDirectoryCounts);
-  const unselectedCount = Math.max(0, directoryState.totalFiles - directoryState.selectedCount);
+  const directoryState = computeDirectoryCheckboxState(
+    directoryPath,
+    directoryTotalFiles,
+    folderId,
+    selectedDirectoryCounts
+  );
+  const unselectedCount = Math.max(0, directoryTotalFiles - directoryState.selectedCount);
   return {
     checkboxState: directoryState.checkboxState,
     wouldExceedLimit: selectedFilePaths.size + unselectedCount > maxSelectionCount,
@@ -264,18 +285,20 @@ function computeDirectorySelectionState(
 }
 
 function computeNodeSelectionState(
-  node: IFileNode,
+  rowData: FileTreeRowData,
   folderId: string,
   selectedFilePaths: Set<string>,
   selectedDirectoryCounts: Map<string, number>,
   maxSelectionCount: number
 ): NodeSelectionState {
+  const node = rowData.fileNode;
   if (node.type === 'file') {
     return computeFileSelectionState(node, folderId, selectedFilePaths, maxSelectionCount);
   }
   if (node.type === 'directory') {
     return computeDirectorySelectionState(
-      node,
+      node.path,
+      rowData.directoryTotalFiles,
       folderId,
       selectedFilePaths,
       selectedDirectoryCounts,
@@ -322,10 +345,74 @@ function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): 
 
   return {
     fileNode: node,
+    directoryTotalFiles:
+      node.type === 'directory' ? fileExplorer.getFolderFileCount(node).count : 0,
     isChildrenLoading: isNodeChildrenLoading(node, loadingPaths),
     isFileLoading: isNodeFileLoading(node, folderId, loadingFiles),
     isLoadingForSelection: Boolean(isLoadingForSelection && loadingPathForSelection === node.path),
     isRuleSelected: isNodeRuleSelected(node, selectionModel),
+  };
+}
+
+function shouldLoadDirectoryRecursively(node: IFileNode): boolean {
+  return (
+    node.loadState !== 'loaded' ||
+    (node.children?.some((child) => child.type === 'directory' && child.loadState !== 'loaded') ??
+      false)
+  );
+}
+
+function resolveDirectorySelectionMutation({
+  allFilePaths,
+  folderId,
+  selectedFilePaths,
+  selectedCount,
+  directoryTotalFiles,
+  maxSelectionCount,
+}: DirectorySelectionMutationInput): DirectorySelectionMutation {
+  if (allFilePaths.length === 0) {
+    return {
+      action: 'none',
+      paths: EMPTY_SELECTION_PATHS,
+    };
+  }
+
+  if (selectedCount === directoryTotalFiles) {
+    return {
+      action: 'remove',
+      paths: allFilePaths,
+    };
+  }
+
+  const availableSlots = Math.max(0, maxSelectionCount - selectedFilePaths.size);
+  if (availableSlots === 0) {
+    return {
+      action: 'none',
+      paths: EMPTY_SELECTION_PATHS,
+    };
+  }
+
+  const pathsToSelect: string[] = [];
+  for (const path of allFilePaths) {
+    if (isPathSelectedInFolder(selectedFilePaths, folderId, path)) {
+      continue;
+    }
+    pathsToSelect.push(path);
+    if (pathsToSelect.length >= availableSlots) {
+      break;
+    }
+  }
+
+  if (pathsToSelect.length === 0) {
+    return {
+      action: 'none',
+      paths: EMPTY_SELECTION_PATHS,
+    };
+  }
+
+  return {
+    action: 'add',
+    paths: pathsToSelect,
   };
 }
 
@@ -367,14 +454,18 @@ function buildFileTreeRows(
 ): TreeNode<FileTreeRowData>[] {
   const rows: TreeNode<FileTreeRowData>[] = [];
   const { expandedDirectoryPaths } = options;
-  const stack: StackEntry[] = fileTree
-    .slice()
-    .reverse()
-    .map((node) => ({
+  const stack: StackEntry[] = [];
+  for (let index = fileTree.length - 1; index >= 0; index -= 1) {
+    const node = fileTree[index];
+    if (!node) {
+      continue;
+    }
+    stack.push({
       node,
       parentId: null,
       depth: 0,
-    }));
+    });
+  }
 
   while (stack.length > 0) {
     const entry = stack.pop();
@@ -635,9 +726,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
 
     const getNodeSelectionState = useCallback(
-      (node: IFileNode): NodeSelectionState =>
+      (rowData: FileTreeRowData): NodeSelectionState =>
         computeNodeSelectionState(
-          node,
+          rowData,
           folderId,
           selectedFilePaths,
           selectedDirectoryCounts,
@@ -647,12 +738,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
 
     const handleNodeSelection = useCallback(
-      (node: IFileNode) => {
+      (rowData: FileTreeRowData) => {
         if (!folderId) {
           return;
         }
 
-        const selectionState = getNodeSelectionState(node);
+        const node = rowData.fileNode;
+        const selectionState = getNodeSelectionState(rowData);
         if (selectionState.wouldExceedLimit) {
           return;
         }
@@ -662,37 +754,34 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
 
-        const needsRecursiveLoad =
-          node.loadState !== 'loaded' ||
-          (node.children?.some(
-            (child) => child.type === 'directory' && child.loadState !== 'loaded'
-          ) ??
-            false);
-
-        if (needsRecursiveLoad && onSelectFolderRecursively) {
+        if (shouldLoadDirectoryRecursively(node) && onSelectFolderRecursively) {
           void onSelectFolderRecursively(node);
           return;
         }
 
-        const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
-        if (allFilePaths.length === 0) {
+        const directoryTotalFiles = rowData.directoryTotalFiles;
+        if (directoryTotalFiles === 0) {
           return;
         }
 
         const selectedCount = selectedDirectoryCounts.get(node.path) ?? 0;
-        const isFullySelected = selectedCount === allFilePaths.length;
-        if (isFullySelected) {
-          removeMultipleSelectedFiles(folderId, allFilePaths);
+        const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
+        const selectionMutation = resolveDirectorySelectionMutation({
+          allFilePaths,
+          folderId,
+          selectedFilePaths,
+          selectedCount,
+          directoryTotalFiles,
+          maxSelectionCount,
+        });
+
+        if (selectionMutation.action === 'remove') {
+          removeMultipleSelectedFiles(folderId, selectionMutation.paths);
           return;
         }
 
-        const unselectedPaths = allFilePaths.filter(
-          (path) => !isPathSelectedInFolder(selectedFilePaths, folderId, path)
-        );
-        const availableSlots = Math.max(0, maxSelectionCount - selectedFilePaths.size);
-        const pathsToSelect = unselectedPaths.slice(0, availableSlots);
-        if (pathsToSelect.length > 0) {
-          addMultipleSelectedFiles(folderId, pathsToSelect);
+        if (selectionMutation.action === 'add') {
+          addMultipleSelectedFiles(folderId, selectionMutation.paths);
         }
       },
       [
@@ -719,7 +808,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           cell: ({ node, isExpanded }) => {
             const rowData = node.data;
             const fileNode = rowData.fileNode;
-            const selectionState = getNodeSelectionState(fileNode);
+            const selectionState = getNodeSelectionState(rowData);
 
             return (
               <div className="flex min-w-0 flex-1 items-center">
@@ -745,7 +834,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
                       className="h-4 w-4"
                       disabled={selectionState.wouldExceedLimit}
                       id={fileNode.path}
-                      onCheckedChange={() => handleNodeSelectionEvent(fileNode)}
+                      onCheckedChange={() => handleNodeSelectionEvent(rowData)}
                     />
                   )}
                 </div>
