@@ -425,6 +425,24 @@ describe('TokenCacheStore', () => {
       await store.setBatch([]);
       expect(mockDb.query).not.toHaveBeenCalledWith(expect.stringContaining('INSERT'));
     });
+
+    it('does not persist entries when a batch includes an invalid path', async () => {
+      const entries = [
+        createEntry({ filePath: 'valid.ts', tokenCount: 100 }),
+        createEntry({ filePath: '../escape.ts', tokenCount: 200 }),
+      ];
+
+      await expect(store.setBatch(entries)).rejects.toThrow(
+        'Token cache file path must not contain relative traversal segments'
+      );
+
+      const persisted = await store.get('folder-1', 'valid.ts');
+      expect(persisted).toBeNull();
+      expect(mockLoggerWarn).toHaveBeenCalledWith('Rejected unsafe token cache file path', {
+        filePath: '../escape.ts',
+        reason: 'Token cache file path must not contain relative traversal segments',
+      });
+    });
   });
 
   describe('delete', () => {

@@ -217,10 +217,16 @@ export class TokenCacheStore {
       return;
     }
 
+    // Validate all paths up-front so invalid batches fail before any writes begin.
+    const validatedEntries = entries.map((entry) => ({
+      ...entry,
+      filePath: this.validateFilePath(entry.filePath),
+    }));
+
     // Use a transaction for atomicity
     await this.db.query('BEGIN');
     try {
-      for (const entry of entries) {
+      for (const entry of validatedEntries) {
         await this.set(entry);
       }
       await this.db.query('COMMIT');
