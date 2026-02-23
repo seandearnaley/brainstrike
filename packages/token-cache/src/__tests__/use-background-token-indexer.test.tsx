@@ -232,6 +232,13 @@ describe('useBackgroundTokenIndexer', () => {
         ),
       })
     );
+    expect(mockLogger.error.mock.calls).toContainEqual([
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'worker.onerror',
+        error: expect.stringContaining('Worker runtime error: runtime boom'),
+      }),
+    ]);
   });
 
   it('routes worker error events through the terminal fail path', async () => {
