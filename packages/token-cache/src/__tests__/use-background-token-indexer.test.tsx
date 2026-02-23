@@ -279,6 +279,54 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
+  it('deduplicates terminal worker failure when both error handlers fire', async () => {
+    const onFileError = vi.fn();
+
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      worker.onerror?.(
+        new ErrorEvent('error', {
+          message: 'runtime boom',
+          filename: 'background-indexer.worker.js',
+          lineno: 31,
+          colno: 2,
+        })
+      );
+      worker.emitEvent(
+        'error',
+        new ErrorEvent('error', {
+          message: 'runtime boom',
+          filename: 'background-indexer.worker.js',
+          lineno: 31,
+          colno: 2,
+        })
+      );
+    });
+
+    expect(onFileError).toHaveBeenCalledTimes(1);
+    expect(onFileError).toHaveBeenCalledWith(
+      '__worker__',
+      expect.stringContaining('(worker.onerror): Worker runtime error: runtime boom')
+    );
+    expect(mockEmitIndexingError).toHaveBeenCalledTimes(1);
+    expect(mockEmitIndexingError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        compositeKey: '__worker__',
+        errorMessage: expect.stringContaining(
+          '(worker.onerror): Worker runtime error: runtime boom'
+        ),
+      })
+    );
+  });
+
   it('routes worker.onmessageerror through the terminal fail path', async () => {
     const onFileError = vi.fn();
 

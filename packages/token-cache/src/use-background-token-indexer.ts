@@ -426,6 +426,9 @@ export function useBackgroundTokenIndexer({
         }
       };
 
+      // Browser workers can dispatch both `onerror` and `addEventListener('error')`
+      // for the same failure event. We register both for context-rich diagnostics;
+      // failWorker is latched so terminal callbacks/telemetry still emit once.
       worker.onerror = (error) => {
         logger.error('Worker error', {
           error: error?.message,
