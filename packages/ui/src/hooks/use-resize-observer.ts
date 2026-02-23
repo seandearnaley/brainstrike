@@ -63,7 +63,6 @@ export function useResizeObserver<T extends Element>(
     let resizeRafId: ReturnType<typeof requestAnimationFrame> | null = null;
     let attachPollRafId: ReturnType<typeof requestAnimationFrame> | null = null;
     let resizeObserver: ResizeObserver | null = null;
-    let attachmentObserver: MutationObserver | null = null;
 
     const attachResizeObserver = (element: T): void => {
       if (resizeObserver) {
@@ -96,29 +95,14 @@ export function useResizeObserver<T extends Element>(
         attachResizeObserver(element);
         return;
       }
-
-      if (typeof MutationObserver !== 'undefined' && document.documentElement) {
-        attachmentObserver = new MutationObserver(() => {
-          const attachedElement = elementRef.current;
-          if (attachedElement) {
-            attachmentObserver?.disconnect();
-            attachmentObserver = null;
-            attachResizeObserver(attachedElement);
-          }
-        });
-
-        attachmentObserver.observe(document.documentElement, { childList: true, subtree: true });
-        return;
-      }
-
-      // Fallback for environments without MutationObserver.
+      // Keep checking until the ref is populated, then attach once.
       attachPollRafId = requestAnimationFrame(tryAttachObserver);
     };
 
     tryAttachObserver();
 
     return () => {
-      // Cancel any pending animation frame to batch rapid resize events
+      // Cancel any pending attachment-polling animation frame
       if (attachPollRafId !== null) {
         cancelAnimationFrame(attachPollRafId);
       }
@@ -127,7 +111,6 @@ export function useResizeObserver<T extends Element>(
         cancelAnimationFrame(resizeRafId);
       }
 
-      attachmentObserver?.disconnect();
       resizeObserver?.disconnect();
     };
   }, [elementRef, disabled]);
