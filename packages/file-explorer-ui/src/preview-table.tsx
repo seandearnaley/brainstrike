@@ -95,6 +95,7 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
         />
       )}
       <button
+        aria-description={`Group containing ${group.count} file${group.count === 1 ? '' : 's'}`}
         aria-expanded={!isCollapsed}
         aria-label={`${isCollapsed ? 'Expand group' : 'Collapse group'} ${group.groupLabel}`}
         className="inline-flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-left font-medium text-sm transition-colors hover:bg-muted"
