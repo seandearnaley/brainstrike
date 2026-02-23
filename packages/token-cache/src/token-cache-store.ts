@@ -36,6 +36,7 @@ function validateRelativeFilePath(filePath: string): string {
     throw new Error('Token cache file path must be relative');
   }
 
+  // Split on both separator styles so mixed paths are normalized before checks.
   const pathSegments = filePath.split(/[\\/]/);
   const hasTraversalSegments = pathSegments.some((segment) => segment === '.' || segment === '..');
   if (hasTraversalSegments) {
@@ -105,7 +106,7 @@ export class TokenCacheStore {
     try {
       const validatedPath = validateRelativeFilePath(filePath);
       if (validatedPath !== validatedPath.trim()) {
-        logger.warn(
+        logger.info(
           'Token cache file path has leading or trailing whitespace; preserving exact key',
           {
             filePath: validatedPath,
@@ -118,6 +119,37 @@ export class TokenCacheStore {
       logger.warn('Rejected unsafe token cache file path', { filePath, reason });
       throw error;
     }
+  }
+
+  private async upsertEntryWithValidatedPath(
+    entry: TokenCacheEntry,
+    validatedPath: string
+  ): Promise<void> {
+    await this.db.query(
+      `INSERT INTO file_token_cache
+       (folder_id, file_path, content_hash, file_size, mtime_ms,
+        token_count, counting_mode, model_encoding)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (folder_id, file_path)
+       DO UPDATE SET
+         content_hash = EXCLUDED.content_hash,
+         file_size = EXCLUDED.file_size,
+         mtime_ms = EXCLUDED.mtime_ms,
+         token_count = EXCLUDED.token_count,
+         counting_mode = EXCLUDED.counting_mode,
+         model_encoding = EXCLUDED.model_encoding,
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        entry.folderId,
+        validatedPath,
+        entry.contentHash,
+        entry.fileSize,
+        entry.mtimeMs,
+        entry.tokenCount,
+        entry.countingMode,
+        entry.modelEncoding,
+      ]
+    );
   }
 
   /**
@@ -182,31 +214,7 @@ export class TokenCacheStore {
    */
   async set(entry: TokenCacheEntry): Promise<void> {
     const validatedPath = this.validateFilePath(entry.filePath);
-    await this.db.query(
-      `INSERT INTO file_token_cache
-       (folder_id, file_path, content_hash, file_size, mtime_ms,
-        token_count, counting_mode, model_encoding)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (folder_id, file_path)
-       DO UPDATE SET
-         content_hash = EXCLUDED.content_hash,
-         file_size = EXCLUDED.file_size,
-         mtime_ms = EXCLUDED.mtime_ms,
-         token_count = EXCLUDED.token_count,
-         counting_mode = EXCLUDED.counting_mode,
-         model_encoding = EXCLUDED.model_encoding,
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        entry.folderId,
-        validatedPath,
-        entry.contentHash,
-        entry.fileSize,
-        entry.mtimeMs,
-        entry.tokenCount,
-        entry.countingMode,
-        entry.modelEncoding,
-      ]
-    );
+    await this.upsertEntryWithValidatedPath(entry, validatedPath);
   }
 
   /**
@@ -219,15 +227,15 @@ export class TokenCacheStore {
 
     // Validate all paths up-front so invalid batches fail before any writes begin.
     const validatedEntries = entries.map((entry) => ({
-      ...entry,
-      filePath: this.validateFilePath(entry.filePath),
+      entry,
+      validatedPath: this.validateFilePath(entry.filePath),
     }));
 
     // Use a transaction for atomicity
     await this.db.query('BEGIN');
     try {
-      for (const entry of validatedEntries) {
-        await this.set(entry);
+      for (const { entry, validatedPath } of validatedEntries) {
+        await this.upsertEntryWithValidatedPath(entry, validatedPath);
       }
       await this.db.query('COMMIT');
     } catch (error) {

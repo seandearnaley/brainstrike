@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockLoggerWarn } = vi.hoisted(() => ({
+const { mockLoggerWarn, mockLoggerInfo } = vi.hoisted(() => ({
   mockLoggerWarn: vi.fn(),
+  mockLoggerInfo: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils', () => ({
   createLogger: vi.fn(() => ({
     warn: mockLoggerWarn,
     error: vi.fn(),
-    info: vi.fn(),
+    info: mockLoggerInfo,
     debug: vi.fn(),
   })),
 }));
@@ -217,6 +218,7 @@ describe('TokenCacheStore', () => {
 
   beforeEach(() => {
     mockLoggerWarn.mockClear();
+    mockLoggerInfo.mockClear();
     mockDb = createMockDb();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     store = new TokenCacheStore(mockDb as any);
@@ -286,11 +288,11 @@ describe('TokenCacheStore', () => {
       expect(trimmedResult).toBeNull();
     });
 
-    it('warns when leading or trailing whitespace is preserved in cache keys', async () => {
+    it('logs info when leading or trailing whitespace is preserved in cache keys', async () => {
       const spacedPath = ' src/index.ts ';
       await store.set(createEntry({ filePath: spacedPath }));
 
-      expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect(mockLoggerInfo).toHaveBeenCalledWith(
         'Token cache file path has leading or trailing whitespace; preserving exact key',
         { filePath: spacedPath }
       );
