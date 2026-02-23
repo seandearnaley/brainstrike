@@ -19,6 +19,8 @@ const IGNORE_REGEX = new RegExp(
 const regexCache = new Map<string, RegExp>();
 // Cache compiled minimatch patterns to avoid recompilation overhead
 const minimatchCache = new Map<string, Minimatch>();
+// Cache compiled minimatch regex patterns to avoid recompilation overhead
+const minimatchReCache = new Map<string, RegExp | false>();
 
 /**
  * Utilities for filtering files and directories
@@ -35,11 +37,36 @@ export const fileFilter = {
    * Matches a string against a wildcard pattern
    */
   matchWildcard(str: string, pattern: string): boolean {
+    if (pattern === '') {
+      return str === '';
+    }
+
+    const regex = minimatchReCache.get(pattern);
+    if (regex) {
+      return (regex as RegExp).test(str);
+    }
+
+    if (regex === false) {
+      let matcher = minimatchCache.get(pattern);
+      if (!matcher) {
+        matcher = new Minimatch(pattern, { dot: true });
+        minimatchCache.set(pattern, matcher);
+      }
+      return matcher.match(str);
+    }
+
     let matcher = minimatchCache.get(pattern);
     if (!matcher) {
       matcher = new Minimatch(pattern, { dot: true });
       minimatchCache.set(pattern, matcher);
     }
+
+    const re = matcher.makeRe();
+    if (re) {
+      minimatchReCache.set(pattern, re);
+      return re.test(str);
+    }
+    minimatchReCache.set(pattern, false);
     return matcher.match(str);
   },
 
