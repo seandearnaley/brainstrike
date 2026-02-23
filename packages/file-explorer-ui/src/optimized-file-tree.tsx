@@ -305,7 +305,13 @@ function addChildrenToStack(
   expandedDirectoryPaths: Set<string>
 ): void {
   const { node, depth } = entry;
-  if (node.type !== 'directory' || !node.children || node.children.length === 0) {
+  // Only descend into expanded directories whose children are fully loaded.
+  if (
+    node.type !== 'directory' ||
+    node.loadState !== 'loaded' ||
+    !node.children ||
+    node.children.length === 0
+  ) {
     return;
   }
   if (!expandedDirectoryPaths.has(node.path)) {

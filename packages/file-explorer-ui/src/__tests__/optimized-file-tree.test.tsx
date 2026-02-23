@@ -1,8 +1,20 @@
 import type { IFileNode } from '@brainstrike/types';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import OptimizedFileTree from '../optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
+
+type FileExplorerStore = ReturnType<typeof useFileExplorerStoreContext>;
+
+function StoreHandleBridge({ onStoreReady }: { onStoreReady: (store: FileExplorerStore) => void }) {
+  const store = useFileExplorerStoreContext();
+  useEffect(() => {
+    onStoreReady(store);
+  }, [onStoreReady, store]);
+  return null;
+}
 
 describe('OptimizedFileTree', () => {
   const mockFileTree: IFileNode[] = [
@@ -103,6 +115,85 @@ describe('OptimizedFileTree', () => {
       resolveLoad?.();
       await Promise.resolve();
     });
+  });
+
+  it('does not materialize stale children when an expanded directory is not fully loaded', async () => {
+    let fileExplorerStore: FileExplorerStore | undefined;
+    const loadedDirectoryNode: IFileNode = {
+      name: 'workspace',
+      path: '/workspace',
+      type: 'directory',
+      isVisible: true,
+      handle: {} as FileSystemDirectoryHandle,
+      depth: 0,
+      selectionState: 'unchecked',
+      rootFolderId: 'root',
+      loadState: 'loaded',
+      children: [
+        {
+          name: 'stale-child.ts',
+          path: '/workspace/stale-child.ts',
+          type: 'file',
+          isVisible: true,
+          handle: {} as FileSystemFileHandle,
+          depth: 1,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+        },
+      ],
+    };
+    const loadedDirectoryTree: IFileNode[] = [loadedDirectoryNode];
+    const loadingDirectoryTree: IFileNode[] = [
+      {
+        ...loadedDirectoryNode,
+        loadState: 'loading',
+      },
+    ];
+
+    const { rerender } = render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={loadedDirectoryTree}
+          folderId="root"
+          loadingFiles={new Set()}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().toggleDirectoryExpansion('/workspace');
+      await Promise.resolve();
+    });
+    expect(screen.getByText('stale-child.ts')).toBeInTheDocument();
+
+    await act(async () => {
+      rerender(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree
+            fileTree={loadingDirectoryTree}
+            folderId="root"
+            loadingFiles={new Set()}
+          />
+        </FileExplorerTestWrapper>
+      );
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('button', { name: /collapse/i })).toBeInTheDocument();
+    expect(screen.queryByText('stale-child.ts')).not.toBeInTheDocument();
   });
 
   it('updates visible file checkbox state after selection changes', () => {

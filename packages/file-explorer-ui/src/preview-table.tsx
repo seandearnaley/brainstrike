@@ -6,7 +6,7 @@ import {
   type TreeTableColumn,
 } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
-import { memo, useCallback, useMemo, useRef } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import { ExtensionBadge } from './extension-badge';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
@@ -59,20 +59,20 @@ const EMPTY_EXPANDED_IDS = new Set<string>();
 const NOOP_TOGGLE_EXPAND = (): void => {};
 
 /**
- * Ref-backed callback wrapper for stable callback identity.
- * Intentionally sync ref during render because grouped cell selection lookups call this in render;
- * deferring ref updates to an effect introduces a one-render checkbox lag after selection updates.
- * Callbacks passed here must stay pure if invoked during render (e.g. selection lookups).
+ * Ref-backed callback wrapper for event handlers that need stable identity.
+ * Ref writes are committed in a layout effect to avoid render-time ref mutation
+ * hazards under concurrent rendering.
+ * Do not invoke the returned callback during render.
  * Do not use this as an effect dependency shortcut.
- * Do not use this stable wrapper as a useMemo dependency when callback identity changes
- * should trigger recomputation; depend on explicit state inputs instead.
  * TODO(BST-312): Replace with React's stable useEffectEvent once adopted in this codebase.
  */
-function useStableCallback<TArgs extends unknown[], TResult>(
+function useEventCallback<TArgs extends unknown[], TResult>(
   callback: (...args: TArgs) => TResult
 ): (...args: TArgs) => TResult {
   const callbackRef = useRef(callback);
-  callbackRef.current = callback;
+  useLayoutEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
 
   return useCallback((...args: TArgs) => callbackRef.current(...args), []);
 }
@@ -353,26 +353,20 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     pagination,
   } = props;
 
-  const onSortStable = useStableCallback(onSort);
-  const onSelectAllOnPageStable = useStableCallback(onSelectAllOnPage);
-  const onDeselectAllStable = useStableCallback(onDeselectAll);
-  const isAllSelectedStable = useStableCallback(isAllSelected);
-  const onToggleSelectionStable = useStableCallback(onToggleSelection);
-  const isPreviewSelectedStable = useStableCallback((compositeKey: string) =>
-    previewSelections.has(compositeKey)
-  );
-  const onFileClickStable = useStableCallback((compositeKey: string) => {
+  const onSortStable = useEventCallback(onSort);
+  const onSelectAllOnPageStable = useEventCallback(onSelectAllOnPage);
+  const onDeselectAllStable = useEventCallback(onDeselectAll);
+  const onToggleSelectionStable = useEventCallback(onToggleSelection);
+  const onFileClickStable = useEventCallback((compositeKey: string) => {
     onFileClick?.(compositeKey);
   });
-  const toggleGroupCollapseStable = useStableCallback(toggleGroupCollapse);
-  const isGroupFullySelectedStable = useStableCallback(isGroupFullySelected);
-  const isGroupPartiallySelectedStable = useStableCallback(isGroupPartiallySelected);
-  const handleGroupSelectAllStable = useStableCallback(handleGroupSelectAll);
-  const handleGroupDeselectAllStable = useStableCallback(handleGroupDeselectAll);
+  const toggleGroupCollapseStable = useEventCallback(toggleGroupCollapse);
+  const handleGroupSelectAllStable = useEventCallback(handleGroupSelectAll);
+  const handleGroupDeselectAllStable = useEventCallback(handleGroupDeselectAll);
 
   const isAllCurrentPageSelected = useMemo(
-    () => isAllSelectedStable(visibleFilesOnPage),
-    [isAllSelectedStable, visibleFilesOnPage]
+    () => isAllSelected(visibleFilesOnPage),
+    [isAllSelected, visibleFilesOnPage]
   );
 
   const groupedTreeNodes = useMemo(
@@ -401,8 +395,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         <GroupHeaderSummary
           group={group}
           isCollapsed={isCollapsed}
-          isFullySelected={isGroupFullySelectedStable(group)}
-          isPartiallySelected={isGroupPartiallySelectedStable(group)}
+          isFullySelected={isGroupFullySelected(group)}
+          isPartiallySelected={isGroupPartiallySelected(group)}
           onSelectionChange={(checked) => {
             if (checked) {
               handleGroupSelectAllStable(group);
@@ -418,8 +412,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     [
       primaryGroupColumn,
       collapsedGroups,
-      isGroupFullySelectedStable,
-      isGroupPartiallySelectedStable,
+      isGroupFullySelected,
+      isGroupPartiallySelected,
       handleGroupSelectAllStable,
       handleGroupDeselectAllStable,
       toggleGroupCollapseStable,
@@ -451,8 +445,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
             const group = node.data.group;
-            const isFullySelected = isGroupFullySelectedStable(group);
-            const isPartiallySelected = isGroupPartiallySelectedStable(group);
+            const isFullySelected = isGroupFullySelected(group);
+            const isPartiallySelected = isGroupPartiallySelected(group);
             const checkedState: boolean | 'indeterminate' = isFullySelected
               ? true
               : isPartiallySelected
@@ -479,7 +473,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
           return (
             <Checkbox
               aria-label={`Select ${item.path}`}
-              checked={isPreviewSelectedStable(item.compositeKey)}
+              checked={previewSelections.has(item.compositeKey)}
               onCheckedChange={(checked) =>
                 onToggleSelectionStable(item.compositeKey, checked === true)
               }
@@ -673,14 +667,14 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     handleGroupDeselectAllStable,
     handleGroupSelectAllStable,
     isAllCurrentPageSelected,
-    isGroupFullySelectedStable,
-    isGroupPartiallySelectedStable,
+    isGroupFullySelected,
+    isGroupPartiallySelected,
     onDeselectAllStable,
     onFileClickStable,
     onSelectAllOnPageStable,
     onSortStable,
     onToggleSelectionStable,
-    isPreviewSelectedStable,
+    previewSelections,
     renderGroupHeaderIfPrimary,
     sortDirection,
     sortField,

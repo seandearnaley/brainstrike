@@ -188,6 +188,43 @@ describe('PreviewTable grouped mode', () => {
     expect(onSortInitial).not.toHaveBeenCalled();
   });
 
+  it('reflects latest preview selections after rerender', () => {
+    const sharedProps = {
+      columnVisibility: DEFAULT_COLUMN_VISIBILITY,
+      sortField: 'path' as const,
+      sortDirection: 'asc' as const,
+      groupingConfig: 'directory',
+      groupedData: [DEFAULT_GROUP],
+      currentPageData: [] as TableRowData[],
+      collapsedGroups: new Set<string>(),
+      visibleFilesOnPage: [FILE_ONE, FILE_TWO],
+      onSort: vi.fn(),
+      onToggleSelection: vi.fn(),
+      onSelectAllOnPage: vi.fn(),
+      onDeselectAll: vi.fn(),
+      isAllSelected: vi.fn(() => false),
+      onFileClick: vi.fn(),
+      toggleGroupCollapse: vi.fn(),
+      isGroupFullySelected: () => false,
+      isGroupPartiallySelected: () => false,
+      handleGroupSelectAll: vi.fn(),
+      handleGroupDeselectAll: vi.fn(),
+      pagination: { startIndex: 0, endIndex: 20 },
+    };
+
+    const { rerender } = render(
+      <PreviewTable {...sharedProps} previewSelections={new Set<string>()} />
+    );
+
+    expect(screen.getByLabelText('Select src/file-one.ts')).not.toBeChecked();
+
+    rerender(
+      <PreviewTable {...sharedProps} previewSelections={new Set<string>([FILE_ONE.compositeKey])} />
+    );
+
+    expect(screen.getByLabelText('Select src/file-one.ts')).toBeChecked();
+  });
+
   it('preserves pagination semantics when skipping large groups before the page window', () => {
     const largeGroupItems = Array.from({ length: 100 }, (_, index) => ({
       ...FILE_ONE,
