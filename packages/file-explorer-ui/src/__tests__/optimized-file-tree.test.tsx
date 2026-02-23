@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { memoizedFileExplorer } from '@brainstrike/utils';
+import { encodeFileSelection, memoizedFileExplorer } from '@brainstrike/utils';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -211,6 +211,107 @@ describe('OptimizedFileTree', () => {
     expect(fileCheckbox).toBeChecked();
   });
 
+  it('updates directory checkbox state as nested selections change', async () => {
+    const loadedTree: IFileNode[] = [
+      {
+        name: 'src',
+        path: '/src',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'loaded',
+        children: [
+          {
+            name: 'file1.txt',
+            path: '/src/file1.txt',
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+          {
+            name: 'file2.txt',
+            path: '/src/file2.txt',
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+        ],
+      },
+      {
+        name: 'test.txt',
+        path: '/test.txt',
+        type: 'file',
+        isVisible: true,
+        handle: {} as FileSystemFileHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={loadedTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    const getDirectoryCheckbox = () => screen.getByLabelText('Select src');
+    expect(getDirectoryCheckbox()).toHaveAttribute('data-state', 'unchecked');
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(10);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      readyStore.getState().toggleSelectedFile('root', '/src/file1.txt');
+      await Promise.resolve();
+    });
+    expect(readyStore.getState().selectedFilePaths).toContain(
+      encodeFileSelection('root', '/src/file1.txt')
+    );
+    expect(getDirectoryCheckbox()).toHaveAttribute('data-state', 'indeterminate');
+
+    await act(async () => {
+      readyStore.getState().toggleSelectedFile('root', '/src/file2.txt');
+      await Promise.resolve();
+    });
+    expect(getDirectoryCheckbox()).toHaveAttribute('data-state', 'checked');
+
+    await act(async () => {
+      readyStore.getState().toggleSelectedFile('root', '/src/file1.txt');
+      await Promise.resolve();
+    });
+    expect(getDirectoryCheckbox()).toHaveAttribute('data-state', 'indeterminate');
+
+    await act(async () => {
+      readyStore.getState().toggleSelectedFile('root', '/src/file2.txt');
+      await Promise.resolve();
+    });
+    expect(getDirectoryCheckbox()).toHaveAttribute('data-state', 'unchecked');
+  });
+
   it('does not recompute directory file counts on file-selection rerenders', () => {
     const getFolderFileCountSpy = vi.spyOn(memoizedFileExplorer, 'getFolderFileCount');
     try {
@@ -267,6 +368,151 @@ describe('OptimizedFileTree', () => {
 
     expect(selectedKeys).toHaveLength(2);
     expect(selectedSourceFiles).toHaveLength(2);
+  });
+
+  it('removes all files in a fully selected directory on second toggle', async () => {
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(4);
+      await Promise.resolve();
+    });
+
+    const getSelectedSourceFiles = (): string[] =>
+      Array.from(readyStore.getState().selectedFilePaths).filter((key) =>
+        key.startsWith('root|@|/src/')
+      );
+
+    fireEvent.click(screen.getByLabelText('Select src'));
+    expect(getSelectedSourceFiles()).toHaveLength(2);
+
+    fireEvent.click(screen.getByLabelText('Select src'));
+    expect(getSelectedSourceFiles()).toHaveLength(0);
+  });
+
+  it('does not change selection when toggling an empty directory', async () => {
+    const treeWithEmptyDirectory: IFileNode[] = [
+      {
+        name: 'empty',
+        path: '/empty',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'loaded',
+        children: [],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={treeWithEmptyDirectory}
+          folderId="root"
+          loadingFiles={new Set()}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    expect(readyStore.getState().selectedFilePaths.size).toBe(0);
+    fireEvent.click(screen.getByLabelText('Select empty'));
+    expect(readyStore.getState().selectedFilePaths.size).toBe(0);
+  });
+
+  it('uses recursive directory selection callback for unloaded folders', async () => {
+    const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
+
+    render(
+      <FileExplorerTestWrapper>
+        <OptimizedFileTree
+          fileTree={mockFileTree}
+          folderId="root"
+          loadingFiles={new Set()}
+          onSelectFolderRecursively={onSelectFolderRecursively}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    fireEvent.click(screen.getByLabelText('Select src'));
+
+    expect(onSelectFolderRecursively).toHaveBeenCalledTimes(1);
+    expect(onSelectFolderRecursively).toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/src', type: 'directory' })
+    );
+  });
+
+  it('blocks new file selection when max selection capacity is reached', async () => {
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(1);
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByLabelText('Select test.txt'));
+    fireEvent.click(screen.getByLabelText('Select src'));
+
+    const selectedKeys = Array.from(readyStore.getState().selectedFilePaths);
+    expect(selectedKeys).toEqual([encodeFileSelection('root', '/test.txt')]);
   });
 
   it('calls onRender callback when provided', () => {

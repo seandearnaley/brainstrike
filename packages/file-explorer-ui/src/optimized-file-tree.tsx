@@ -194,21 +194,103 @@ function buildSelectedDirectoryCounts(
   return directoryCounts;
 }
 
+function applySelectionKeyDirectoryCountDelta(
+  directoryCounts: Map<string, number>,
+  selectionKey: string,
+  folderPrefix: string,
+  delta: 1 | -1,
+  selectedPathAncestorCache: Map<string, string[]>
+): void {
+  if (!selectionKey.startsWith(folderPrefix)) {
+    return;
+  }
+
+  const selectedPath = selectionKey.slice(folderPrefix.length);
+  if (!selectedPath) {
+    return;
+  }
+
+  const ancestorPaths = getAncestorDirectoryPaths(selectedPath, selectedPathAncestorCache);
+  for (const ancestorPath of ancestorPaths) {
+    const nextCount = (directoryCounts.get(ancestorPath) ?? 0) + delta;
+    if (nextCount <= 0) {
+      directoryCounts.delete(ancestorPath);
+      continue;
+    }
+    directoryCounts.set(ancestorPath, nextCount);
+  }
+}
+
+function applySelectedDirectoryCountDiff(
+  previousSelectedFilePaths: Set<string>,
+  nextSelectedFilePaths: Set<string>,
+  folderId: string,
+  currentDirectoryCounts: Map<string, number>,
+  selectedPathAncestorCache: Map<string, string[]>
+): Map<string, number> {
+  const nextDirectoryCounts = new Map(currentDirectoryCounts);
+  const folderPrefix = `${folderId}|@|`;
+
+  for (const selectionKey of previousSelectedFilePaths) {
+    if (nextSelectedFilePaths.has(selectionKey)) {
+      continue;
+    }
+    applySelectionKeyDirectoryCountDelta(
+      nextDirectoryCounts,
+      selectionKey,
+      folderPrefix,
+      -1,
+      selectedPathAncestorCache
+    );
+  }
+
+  for (const selectionKey of nextSelectedFilePaths) {
+    if (previousSelectedFilePaths.has(selectionKey)) {
+      continue;
+    }
+    applySelectionKeyDirectoryCountDelta(
+      nextDirectoryCounts,
+      selectionKey,
+      folderPrefix,
+      1,
+      selectedPathAncestorCache
+    );
+  }
+
+  return nextDirectoryCounts;
+}
+
 function useSelectedDirectoryCounts(
   selectedFilePaths: Set<string>,
   folderId: string
 ): Map<string, number> {
   const selectedPathAncestorCacheRef = useRef<Map<string, string[]>>(new Map());
+  const previousSelectedFilePathsRef = useRef<Set<string> | null>(null);
+  const previousFolderIdRef = useRef<string>(folderId);
+  const selectedDirectoryCountsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     return () => {
       selectedPathAncestorCacheRef.current.clear();
+      selectedDirectoryCountsRef.current.clear();
+      previousSelectedFilePathsRef.current = null;
     };
   }, []);
 
-  return useMemo(
-    () =>
-      buildSelectedDirectoryCounts(
+  return useMemo(() => {
+    const previousSelectedFilePaths = previousSelectedFilePathsRef.current;
+    const hasFolderChanged = previousFolderIdRef.current !== folderId;
+
+    if (!(folderId && selectedFilePaths.size > 0)) {
+      const emptyCounts = new Map<string, number>();
+      selectedDirectoryCountsRef.current = emptyCounts;
+      previousSelectedFilePathsRef.current = selectedFilePaths;
+      previousFolderIdRef.current = folderId;
+      return emptyCounts;
+    }
+
+    if (hasFolderChanged || !previousSelectedFilePaths) {
+      const rebuiltCounts = buildSelectedDirectoryCounts(
         selectedFilePaths,
         folderId,
         // Mutable cache by design: recomputation is keyed by selected paths/folder,
@@ -216,9 +298,28 @@ function useSelectedDirectoryCounts(
         // StrictMode may invoke this memo twice in development; cache writes stay
         // idempotent because each file path deterministically maps to ancestors.
         selectedPathAncestorCacheRef.current
-      ),
-    [selectedFilePaths, folderId]
-  );
+      );
+      selectedDirectoryCountsRef.current = rebuiltCounts;
+      previousSelectedFilePathsRef.current = selectedFilePaths;
+      previousFolderIdRef.current = folderId;
+      return rebuiltCounts;
+    }
+
+    if (previousSelectedFilePaths !== selectedFilePaths) {
+      const updatedCounts = applySelectedDirectoryCountDiff(
+        previousSelectedFilePaths,
+        selectedFilePaths,
+        folderId,
+        selectedDirectoryCountsRef.current,
+        selectedPathAncestorCacheRef.current
+      );
+      selectedDirectoryCountsRef.current = updatedCounts;
+    }
+
+    previousSelectedFilePathsRef.current = selectedFilePaths;
+    previousFolderIdRef.current = folderId;
+    return selectedDirectoryCountsRef.current;
+  }, [selectedFilePaths, folderId]);
 }
 
 function computeDirectoryCheckboxState(
