@@ -290,10 +290,13 @@ describe('TokenCacheStore', () => {
   describe('file path validation', () => {
     it('rejects unsafe paths before writes reach the database', async () => {
       const invalidPaths = [
+        '',
+        '   ',
         '/absolute/path.ts',
         '../escape.ts',
         'src/../escape.ts',
         'src//double-slash.ts',
+        'src/folder/',
         './relative-dot.ts',
         'C:\\secret.ts',
         '\\\\server\\share\\payload.ts',
@@ -309,10 +312,19 @@ describe('TokenCacheStore', () => {
     });
 
     it('rejects unsafe paths before read/delete queries execute', async () => {
+      await expect(store.get('folder-1', '')).rejects.toThrow(
+        'Token cache file path must not be empty'
+      );
+      await expect(store.get('folder-1', '   ')).rejects.toThrow(
+        'Token cache file path must not be empty'
+      );
       await expect(store.get('folder-1', '../escape.ts')).rejects.toThrow(
         'Token cache file path must not contain relative traversal segments'
       );
       await expect(store.get('folder-1', 'src//double.ts')).rejects.toThrow(
+        'Token cache file path must not contain empty segments'
+      );
+      await expect(store.get('folder-1', 'src/folder/')).rejects.toThrow(
         'Token cache file path must not contain empty segments'
       );
       await expect(store.getBatch('folder-1', ['safe.ts', '/absolute.ts'])).rejects.toThrow(
@@ -326,7 +338,7 @@ describe('TokenCacheStore', () => {
       );
 
       expect(mockDb.query).not.toHaveBeenCalled();
-      expect(mockLoggerWarn).toHaveBeenCalledTimes(5);
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(8);
     });
   });
 

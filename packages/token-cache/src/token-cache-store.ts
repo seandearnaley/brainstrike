@@ -18,6 +18,8 @@ const logger = createLogger('TokenCacheStore');
 const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
 
 function validateRelativeFilePath(filePath: string): string {
+  // Preserve path identity (including leading/trailing spaces) for cache keys.
+  // trim() is intentionally used only to reject empty/whitespace-only input.
   if (filePath.trim().length === 0) {
     throw new Error('Token cache file path must not be empty');
   }
