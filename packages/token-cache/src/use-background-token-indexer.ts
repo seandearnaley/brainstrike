@@ -240,9 +240,9 @@ export function useBackgroundTokenIndexer({
     workerErrorLoggedRef.current = true;
     const normalized =
       error instanceof Error
-        ? { message: error.message, stack: error.stack }
+        ? { error: error.message, stack: error.stack }
         : { error: String(error) };
-    logger.error('Background token indexer failed to initialize', {
+    logger.error('Background token indexer entered failed state', {
       context,
       ...normalized,
     });
@@ -333,10 +333,6 @@ export function useBackgroundTokenIndexer({
       }
 
       logWorkerErrorOnce(failure, context);
-      logger.error('Background token indexer entered failed state', {
-        context,
-        error: failure.message,
-      });
     },
     [emitTerminalIndexingError, logWorkerErrorOnce, rejectAllPendingBatchTrackers]
   );
