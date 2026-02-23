@@ -406,6 +406,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   );
 
   // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
+  // Grouped mode keeps column definitions reactive to live selection/sort snapshots.
+  // This favors correctness (no stale group summary/header state) over memo hit rate.
+  // If profiling shows this as a hotspot, split static structure from reactive cell state.
   const groupedColumns = useMemo<TreeTableColumn<PreviewTreeNodeData>[]>(() => {
     // Stable callback wrappers above keep parent callback identity churn out of this memo.
     // Remaining dependencies are stateful render inputs for cells/headers.
