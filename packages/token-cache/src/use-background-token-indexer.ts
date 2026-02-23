@@ -240,15 +240,13 @@ export function useBackgroundTokenIndexer({
     workerErrorLoggedRef.current = true;
     const normalized =
       error instanceof Error
-        ? { message: error.message, stack: error.stack }
+        ? // Keep both keys for log-schema compatibility while consolidating to one log event.
+          { message: error.message, error: error.message, stack: error.stack }
         : { error: String(error) };
-    logger.error('Background token indexer failed to initialize', {
+    logger.error('Background token indexer entered failed state', {
       context,
       ...normalized,
     });
-    // Double-log to console to avoid missing logger output in prod builds.
-    // biome-ignore lint/suspicious/noConsole: explicit visibility for stuck worker
-    console.error('[BackgroundTokenIndexer] init failure', { context, ...normalized });
   }, []);
 
   const emitTerminalIndexingError = useCallback((errorMessage: string) => {
@@ -336,10 +334,6 @@ export function useBackgroundTokenIndexer({
       }
 
       logWorkerErrorOnce(failure, context);
-      logger.error('Background token indexer entered failed state', {
-        context,
-        error: failure.message,
-      });
     },
     [emitTerminalIndexingError, logWorkerErrorOnce, rejectAllPendingBatchTrackers]
   );
@@ -429,6 +423,9 @@ export function useBackgroundTokenIndexer({
         }
       };
 
+      // Browser workers can dispatch both `onerror` and `addEventListener('error')`
+      // for the same failure event. We register both for context-rich diagnostics;
+      // failWorker is latched so terminal callbacks/telemetry still emit once.
       worker.onerror = (error) => {
         logger.error('Worker error', {
           error: error?.message,
@@ -436,15 +433,6 @@ export function useBackgroundTokenIndexer({
           lineno: error?.lineno,
           colno: (error as ErrorEvent | undefined)?.colno,
           type: (error as ErrorEvent | undefined)?.type,
-        });
-        // biome-ignore lint/suspicious/noConsole: explicit visibility for stuck worker
-        console.error('[BackgroundTokenIndexer] worker.onerror', {
-          message: error?.message,
-          filename: error?.filename,
-          lineno: error?.lineno,
-          colno: (error as ErrorEvent | undefined)?.colno,
-          type: (error as ErrorEvent | undefined)?.type,
-          errorObj: error,
         });
         failWorker(
           new Error(`Worker runtime error: ${error?.message ?? 'unknown worker error'}`),
@@ -461,15 +449,6 @@ export function useBackgroundTokenIndexer({
           colno: errEvent.colno,
           error: errEvent.error,
         });
-        // biome-ignore lint/suspicious/noConsole: explicit visibility
-        console.error('[BackgroundTokenIndexer] worker error event', {
-          type: errEvent.type,
-          message: errEvent.message,
-          filename: errEvent.filename,
-          lineno: errEvent.lineno,
-          colno: errEvent.colno,
-          error: errEvent.error,
-        });
         failWorker(
           new Error(`Worker error event: ${errEvent.message || 'unknown worker error event'}`),
           'worker.addEventListener(error)'
@@ -477,11 +456,6 @@ export function useBackgroundTokenIndexer({
       });
       worker.onmessageerror = (event) => {
         logger.error('Worker messageerror', { type: event.type, data: event.data });
-        // biome-ignore lint/suspicious/noConsole: explicit visibility for stuck worker
-        console.error('[BackgroundTokenIndexer] worker.onmessageerror', {
-          type: event.type,
-          data: event.data,
-        });
         failWorker(
           new Error('Worker message channel error (onmessageerror)'),
           'worker.onmessageerror'
@@ -494,8 +468,6 @@ export function useBackgroundTokenIndexer({
       readinessTimerRef.current = setTimeout(() => {
         if (!readyRef.current) {
           failWorker(new Error('Worker did not signal ready within 5s'), 'ready-timeout');
-          // biome-ignore lint/suspicious/noConsole: explicit visibility for failed worker
-          console.error('[BackgroundTokenIndexer] ready-timeout (5s)');
         }
       }, 5000);
 
@@ -515,8 +487,6 @@ export function useBackgroundTokenIndexer({
       };
     } catch (error) {
       logger.error('Failed to create worker', { error });
-      // biome-ignore lint/suspicious/noConsole: explicit visibility for stuck worker
-      console.error('[BackgroundTokenIndexer] createWorkerInstance failed', error);
       failWorker(error, 'createWorkerInstance');
       return;
     }
@@ -631,8 +601,10 @@ export function useBackgroundTokenIndexer({
         currentOnFileError(error.compositeKey, error.error);
       }
 
-      // biome-ignore lint/suspicious/noConsole: Error logging
-      console.warn('[BackgroundTokenIndexer] File error:', error.compositeKey, error.error);
+      logger.warn('Background token indexer file error', {
+        compositeKey: error.compositeKey,
+        error: error.error,
+      });
 
       // Check if all done
       if (pendingFilesRef.current.size === 0) {
