@@ -64,7 +64,7 @@ export function useResizeObserver<T extends Element>(
     let attachPollRafId: ReturnType<typeof requestAnimationFrame> | null = null;
     let attachPollCount = 0;
     let resizeObserver: ResizeObserver | null = null;
-    const maxAttachPollAttempts = 120;
+    const maxAttachPollAttempts = 120; // ~2 seconds at 60 fps
 
     const attachResizeObserver = (element: T): void => {
       if (resizeObserver) {
