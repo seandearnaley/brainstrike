@@ -6,8 +6,9 @@ import {
   type TreeTableColumn,
 } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
-import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { ExtensionBadge } from './extension-badge';
+import { useEventCallback } from './hooks/use-event-callback';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
 import { formatTokenCount } from './use-preview-panel-state';
@@ -57,25 +58,6 @@ const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
 const EMPTY_EXPANDED_IDS = new Set<string>();
 const NOOP_TOGGLE_EXPAND = (): void => {};
-
-/**
- * Ref-backed callback wrapper for event handlers that need stable identity.
- * Ref writes are committed in a layout effect to avoid render-time ref mutation
- * hazards under concurrent rendering.
- * Do not invoke the returned callback during render.
- * Do not use this as an effect dependency shortcut.
- * TODO(BST-312): Replace with React's stable useEffectEvent once adopted in this codebase.
- */
-function useEventCallback<TArgs extends unknown[], TResult>(
-  callback: (...args: TArgs) => TResult
-): (...args: TArgs) => TResult {
-  const callbackRef = useRef(callback);
-  useLayoutEffect(() => {
-    callbackRef.current = callback;
-  }, [callback]);
-
-  return useCallback((...args: TArgs) => callbackRef.current(...args), []);
-}
 
 interface GroupHeaderSummaryProps {
   group: GroupedData<TableRowData>;
@@ -171,6 +153,8 @@ function createGroupTreeNode(
 ): TreeNode<PreviewTreeNodeData> {
   // Group headers own expand/collapse semantics via GroupHeaderSummary button aria-expanded.
   // Rows stay non-hierarchical (`hasChildren: false`) in this flat migration projection.
+  // This intentionally leaves row-level aria-expanded/parent-child semantics incomplete
+  // until BST-312 models grouped rows as true tree parent/child nodes.
   return {
     id: `group:${groupKey}`,
     type: 'preview-group',

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useEventCallback } from './hooks/use-event-callback';
 // TODO(BST-312): extract ROW_HEIGHT into a shared constant and retire legacy row component.
 import { ROW_HEIGHT } from './optimized-file-tree-row';
 
@@ -171,6 +172,31 @@ function buildSelectedDirectoryCounts(
   }
 
   return directoryCounts;
+}
+
+function useSelectedDirectoryCounts(
+  selectedFilePaths: Set<string>,
+  folderId: string
+): Map<string, number> {
+  const selectedPathAncestorCacheRef = useRef<Map<string, string[]>>(new Map());
+
+  useEffect(() => {
+    return () => {
+      selectedPathAncestorCacheRef.current.clear();
+    };
+  }, []);
+
+  return useMemo(
+    () =>
+      buildSelectedDirectoryCounts(
+        selectedFilePaths,
+        folderId,
+        // Mutable cache by design: recomputation is keyed by selected paths/folder,
+        // while cache contents persist across runs to amortize ancestor parsing.
+        selectedPathAncestorCacheRef.current
+      ),
+    [selectedFilePaths, folderId]
+  );
 }
 
 function computeDirectoryCheckboxState(
@@ -438,28 +464,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // Dedupe in-flight directory loads between rapid expand interactions.
     // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());
-    const selectedPathAncestorCacheRef = useRef<Map<string, string[]>>(new Map());
     const isMountedRef = useRef(true);
     useEffect(() => {
       isMountedRef.current = true;
       return () => {
         isMountedRef.current = false;
         pendingChildLoadPathsRef.current.clear();
-        selectedPathAncestorCacheRef.current.clear();
       };
     }, []);
 
-    const selectedDirectoryCounts = useMemo(
-      () =>
-        buildSelectedDirectoryCounts(
-          selectedFilePaths,
-          folderId,
-          // Mutable cache by design: recomputation is keyed by selected paths/folder,
-          // while cache contents persist across runs to amortize ancestor parsing.
-          selectedPathAncestorCacheRef.current
-        ),
-      [selectedFilePaths, folderId]
-    );
+    const selectedDirectoryCounts = useSelectedDirectoryCounts(selectedFilePaths, folderId);
 
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.
@@ -616,11 +630,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         ),
       [folderId, selectedFilePaths, selectedDirectoryCounts, maxSelectionCount]
     );
-    // Keep ref writes render-synchronous so memoized columns read fresh
-    // selection state inside cell renderers without a one-render lag.
-    // TODO(BST-312): replace with useEffectEvent once adopted codebase-wide.
-    const getNodeSelectionStateRef = useRef(getNodeSelectionState);
-    getNodeSelectionStateRef.current = getNodeSelectionState;
 
     const handleNodeSelection = useCallback(
       (node: IFileNode) => {
@@ -683,14 +692,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         addMultipleSelectedFiles,
       ]
     );
-    // Keep action callbacks render-synchronous for the same reason as above:
-    // stable columns + fresh cell behavior during rapid selection churn.
-    // TODO(BST-312): replace with useEffectEvent once adopted codebase-wide.
-    const handleNodeSelectionRef = useRef(handleNodeSelection);
-    handleNodeSelectionRef.current = handleNodeSelection;
+    const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);
 
-    // Keep column identity stable across selection toggles; per-row selection
-    // reads/actions flow through ref-backed latest callbacks inside cell renderers.
+    // Recompute column cell closures when selection snapshots change so row reads
+    // stay render-pure under concurrent mode without render-phase ref mutation.
     const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(
       () => [
         {
@@ -699,7 +704,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           cell: ({ node, isExpanded }) => {
             const rowData = node.data;
             const fileNode = rowData.fileNode;
-            const selectionState = getNodeSelectionStateRef.current(fileNode);
+            const selectionState = getNodeSelectionState(fileNode);
 
             return (
               <div className="flex min-w-0 flex-1 items-center">
@@ -725,7 +730,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
                       className="h-4 w-4"
                       disabled={selectionState.wouldExceedLimit}
                       id={fileNode.path}
-                      onCheckedChange={() => handleNodeSelectionRef.current(fileNode)}
+                      onCheckedChange={() => handleNodeSelectionEvent(fileNode)}
                     />
                   )}
                 </div>
@@ -759,7 +764,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           },
         },
       ],
-      [maxSelectionCount]
+      [getNodeSelectionState, handleNodeSelectionEvent, maxSelectionCount]
     );
 
     useEffect(() => {

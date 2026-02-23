@@ -3,6 +3,7 @@ import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { LightweightCheckbox } from '@brainstrike/ui';
 import {
   countSelectedInDirectory,
+  createLogger,
   encodeFileSelection,
   memoizedFileExplorer as fileExplorer,
   isPathSelectedInFolder,
@@ -66,6 +67,8 @@ interface OptimizedFileTreeRowProps {
   isChildrenLoading?: boolean | undefined;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
+  /** Optional hook for surfacing lazy-load failures to parent UI */
+  onLoadChildrenError?: ((error: unknown, node: IFileNode) => void) | undefined;
   /** Select all files in a folder recursively, loading if needed */
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
@@ -75,6 +78,7 @@ interface OptimizedFileTreeRowProps {
 }
 
 const ROW_HEIGHT = 32;
+const logger = createLogger('OptimizedFileTreeRow');
 
 // Optimized comparison function for React.memo
 const areOptimizedFileTreeRowPropsEqual = (
@@ -111,7 +115,8 @@ const areOptimizedFileTreeRowPropsEqual = (
   if (
     prevProps.onToggleDirectoryExpansion !== nextProps.onToggleDirectoryExpansion ||
     prevProps.onToggleFileSelection !== nextProps.onToggleFileSelection ||
-    prevProps.onLoadChildren !== nextProps.onLoadChildren
+    prevProps.onLoadChildren !== nextProps.onLoadChildren ||
+    prevProps.onLoadChildrenError !== nextProps.onLoadChildrenError
   ) {
     return false;
   }
@@ -145,6 +150,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     children,
     isChildrenLoading,
     onLoadChildren,
+    onLoadChildrenError,
     onSelectFolderRecursively,
     isLoadingForSelection,
   }) => {
@@ -349,14 +355,30 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         if (needsLoad) {
           try {
             await onLoadChildren(node.path);
-          } catch {
+          } catch (error: unknown) {
+            if (onLoadChildrenError) {
+              onLoadChildrenError(error, node);
+            } else {
+              logger.error('Failed to load directory children before expansion', {
+                path: node.path,
+                error,
+              });
+            }
             return;
           }
         }
 
         onToggleDirectoryExpansion(node.path);
       },
-      [node.path, node.type, node.loadState, onToggleDirectoryExpansion, onLoadChildren]
+      [
+        node.path,
+        node.type,
+        node.loadState,
+        onToggleDirectoryExpansion,
+        onLoadChildren,
+        onLoadChildrenError,
+        node,
+      ]
     );
 
     const handleCheckboxChange = useCallback(() => {

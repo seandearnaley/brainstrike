@@ -99,6 +99,37 @@ it('triggers directory expansion callback', async () => {
   expect(onToggle).toHaveBeenCalledWith('/dir');
 });
 
+it('surfaces load errors and skips expansion when lazy loading fails', async () => {
+  const store = createStore();
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+  const user = userEvent.setup();
+  const onToggle = vi.fn();
+  const onLoadChildrenError = vi.fn();
+  const loadError = new Error('load failed');
+  const onLoadChildren = vi.fn(async () => {
+    throw loadError;
+  });
+
+  render(
+    <OptimizedFileTreeRow
+      {...baseDirProps}
+      node={{ ...baseDirNode, loadState: 'unloaded' }}
+      onLoadChildren={onLoadChildren}
+      onLoadChildrenError={onLoadChildrenError}
+      onToggleDirectoryExpansion={onToggle}
+    />
+  );
+
+  await user.click(screen.getByTestId(EXPAND_COLLAPSE_TEST_ID));
+
+  expect(onLoadChildren).toHaveBeenCalledWith('/dir');
+  expect(onToggle).not.toHaveBeenCalled();
+  expect(onLoadChildrenError).toHaveBeenCalledWith(
+    loadError,
+    expect.objectContaining({ path: '/dir' })
+  );
+});
+
 it('shows correct checkbox states for directory selection', () => {
   const selected = new Set([
     encodeFileSelection('root', '/dir/a.ts'),

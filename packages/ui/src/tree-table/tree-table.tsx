@@ -42,8 +42,10 @@ export const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
 const MIN_FALLBACK_VIRTUAL_ROWS = 1;
 // Performance-only fallback cache keyed by table container element.
 // WeakMap ensures container entries are reclaimed after unmount.
+// Shared module-level cache is intentional: container keying isolates instances
+// while avoiding per-instance fallback map allocation churn.
 // Each inner map is fully rebuilt from currently rendered rows on fallback miss,
-// so stale row refs are bounded to the interval between misses.
+// and invalidated on displayed-row updates to bound stale detached row refs.
 const rowFallbackLookupCache = new WeakMap<HTMLElement, Map<string, HTMLTableRowElement>>();
 
 /**
@@ -634,6 +636,16 @@ export function TreeTable<T>({
     [isPagedWindowing, rows, startIndex, endIndex]
   );
   const pendingPagedScrollNodeIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const container = parentRef.current;
+    if (!container) {
+      return;
+    }
+    // Invalidate fallback lookups when rendered rows change so detached row refs
+    // do not linger across page/window transitions.
+    rowFallbackLookupCache.delete(container);
+  }, [displayedRows]);
 
   const scrollPagedRowIntoView = React.useCallback((nodeId: string): boolean => {
     const parentElement = parentRef.current;
