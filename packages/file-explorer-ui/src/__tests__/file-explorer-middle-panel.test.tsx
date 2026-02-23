@@ -87,9 +87,8 @@ vi.mock('../use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
 }));
 vi.mock('@brainstrike/hooks', () => ({
-  useEventCallback: <TArgs extends unknown[], TResult>(
-    callback: (...args: TArgs) => TResult
-  ): ((...args: TArgs) => TResult) => callback,
+  useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
+    callback,
   usePagination: vi.fn(() => ({
     currentPage: 0,
     totalPages: 1,

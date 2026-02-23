@@ -494,9 +494,8 @@ vi.mock('@brainstrike/hooks', () => {
   const { useState, useEffect, useRef } = require('react');
 
   return {
-    useEventCallback: <TArgs extends unknown[], TResult>(
-      callback: (...args: TArgs) => TResult
-    ): ((...args: TArgs) => TResult) => callback,
+    useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
+      callback,
     usePagination: vi.fn((options: { totalItems: number; pageSize?: number }) => {
       const pageSize = options.pageSize || 50;
       const totalPages = Math.ceil(options.totalItems / pageSize);

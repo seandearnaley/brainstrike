@@ -17,9 +17,8 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 vi.mock('@brainstrike/hooks', () => ({
-  useEventCallback: <TArgs extends unknown[], TResult>(
-    callback: (...args: TArgs) => TResult
-  ): ((...args: TArgs) => TResult) => callback,
+  useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
+    callback,
   useReportGeneration: (args: unknown) => mockUseReportGeneration(args),
   useReportManager: (args: unknown) => mockUseReportManager(args),
 }));

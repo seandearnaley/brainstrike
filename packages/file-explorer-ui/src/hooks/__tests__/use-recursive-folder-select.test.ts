@@ -20,9 +20,8 @@ import { useRecursiveFolderSelect } from '../use-recursive-folder-select';
 
 // Mock the hooks module for filter fallback
 vi.mock('@brainstrike/hooks', () => ({
-  useEventCallback: <TArgs extends unknown[], TResult>(
-    callback: (...args: TArgs) => TResult
-  ): ((...args: TArgs) => TResult) => callback,
+  useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
+    callback,
   useFileFilters: () => ({
     applyFileFilters: vi.fn((tree: IFileNode[]) => tree),
   }),

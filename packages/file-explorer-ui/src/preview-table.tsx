@@ -7,7 +7,7 @@ import {
   type TreeTableColumn,
 } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { ExtensionBadge } from './extension-badge';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
@@ -90,9 +90,14 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
       )}
       <div className="inline-flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-0.5 font-medium text-sm">
         <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
-        <span className="truncate">{group.groupLabel}</span>
+        <span className="truncate">
+          {group.groupLabel}
+          <span className="sr-only">{` (${group.count} file${group.count === 1 ? '' : 's'})`}</span>
+        </span>
       </div>
-      <span className="text-muted-foreground text-xs">{group.count} files</span>
+      <span aria-hidden="true" className="text-muted-foreground text-xs">
+        {group.count} files
+      </span>
       <span className="whitespace-nowrap text-muted-foreground text-xs tabular-nums">
         {formatTokenCount(group.totalTokens)}
       </span>
@@ -113,6 +118,21 @@ interface BuildGroupedTreeNodesInput {
 interface BuildGroupedTreeNodesResult {
   nodes: TreeNode<PreviewTreeNodeData>[];
   expandedGroupNodeIds: Set<string>;
+}
+
+function areStringSetsEqual(left: Set<string>, right: Set<string>): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function resolveGroupNodeId(groupKey: string): string {
@@ -354,9 +374,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const onFileClickStable = useEventCallback((compositeKey: string) => {
     onFileClick?.(compositeKey);
   });
-  const toggleGroupCollapseStable = useEventCallback(toggleGroupCollapse);
   const handleGroupSelectAllStable = useEventCallback(handleGroupSelectAll);
   const handleGroupDeselectAllStable = useEventCallback(handleGroupDeselectAll);
+  const previousExpandedGroupNodeIdsRef = useRef<Set<string> | null>(null);
 
   const isAllCurrentPageSelected = useMemo(
     () => isAllSelected(visibleFilesOnPage),
@@ -372,6 +392,21 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       }),
     [groupedData, collapsedGroups, pagination]
   );
+
+  const stableExpandedGroupNodeIds = useMemo(() => {
+    const previousExpandedGroupNodeIds = previousExpandedGroupNodeIdsRef.current;
+    if (
+      previousExpandedGroupNodeIds &&
+      areStringSetsEqual(previousExpandedGroupNodeIds, groupedTree.expandedGroupNodeIds)
+    ) {
+      return previousExpandedGroupNodeIds;
+    }
+    return groupedTree.expandedGroupNodeIds;
+  }, [groupedTree.expandedGroupNodeIds]);
+
+  useEffect(() => {
+    previousExpandedGroupNodeIdsRef.current = stableExpandedGroupNodeIds;
+  }, [stableExpandedGroupNodeIds]);
 
   const primaryGroupColumn = useMemo(
     () => resolvePrimaryGroupColumn(columnVisibility),
@@ -414,7 +449,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       return;
     }
     const groupKey = nodeId.slice('group:'.length);
-    toggleGroupCollapseStable(groupKey);
+    toggleGroupCollapse(groupKey as GroupKey);
   });
 
   // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
@@ -784,7 +819,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         ariaLabel="Context explorer table"
         className="min-w-full"
         columns={groupedColumns}
-        expandedIds={groupedTree.expandedGroupNodeIds}
+        expandedIds={stableExpandedGroupNodeIds}
         maxHeight="none"
         nodes={groupedTree.nodes}
         onToggleExpand={onGroupedTreeToggleExpand}

@@ -1,7 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-
 import {
   type ColumnVisibility,
   type PreviewPanelPreferences,
@@ -28,9 +27,8 @@ vi.mock('@brainstrike/hooks', () => ({
     run: fn,
     flush: vi.fn().mockResolvedValue(undefined),
   }),
-  useEventCallback: <TArgs extends unknown[], TResult>(
-    callback: (...args: TArgs) => TResult
-  ): ((...args: TArgs) => TResult) => callback,
+  useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
+    callback,
 }));
 
 // Create a wrapper to provide necessary context

@@ -169,6 +169,7 @@ function createSelectedPathAncestorResolver(
   selectedPathAncestorCache: Map<string, string[]>
 ): SelectedPathAncestorResolver {
   let nextCache: Map<string, string[]> | null = null;
+  const touchedCacheHitPaths = new Set<string>();
 
   const getMutableCache = (): Map<string, string[]> => {
     if (!nextCache) {
@@ -177,11 +178,24 @@ function createSelectedPathAncestorResolver(
     return nextCache;
   };
 
+  const applyTouchedCacheHits = (cache: Map<string, string[]>): void => {
+    for (const touchedPath of touchedCacheHitPaths) {
+      const cachedAncestors = cache.get(touchedPath);
+      if (!cachedAncestors) {
+        continue;
+      }
+      // Refresh insertion order on hits so eviction remains LRU-oriented.
+      cache.delete(touchedPath);
+      cache.set(touchedPath, cachedAncestors);
+    }
+  };
+
   return {
     getAncestorPaths(filePath: string): string[] {
       const sourceCache = nextCache ?? selectedPathAncestorCache;
       const cachedAncestors = sourceCache.get(filePath);
       if (cachedAncestors) {
+        touchedCacheHitPaths.add(filePath);
         return cachedAncestors;
       }
 
@@ -193,7 +207,19 @@ function createSelectedPathAncestorResolver(
       return ancestorPaths;
     },
     getResolvedCache(): Map<string, string[]> {
-      return nextCache ?? selectedPathAncestorCache;
+      if (nextCache) {
+        if (touchedCacheHitPaths.size > 0) {
+          applyTouchedCacheHits(nextCache);
+        }
+        return nextCache;
+      }
+      if (touchedCacheHitPaths.size === 0) {
+        return selectedPathAncestorCache;
+      }
+
+      const refreshedCache = new Map(selectedPathAncestorCache);
+      applyTouchedCacheHits(refreshedCache);
+      return refreshedCache;
     },
   };
 }
