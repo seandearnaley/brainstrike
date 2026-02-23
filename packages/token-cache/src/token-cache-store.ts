@@ -5,6 +5,7 @@
  * Provides efficient batch queries and aggregations.
  */
 
+import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type {
   TokenCacheEntry,
@@ -12,6 +13,40 @@ import type {
   TokenCacheStoreOptions,
   TokenCountingMode,
 } from './types';
+
+const logger = createLogger('TokenCacheStore');
+const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
+const UNC_PATH_REGEX = /^\\\\/;
+
+function validateRelativeFilePath(filePath: string): string {
+  const trimmedPath = filePath.trim();
+  if (trimmedPath.length === 0) {
+    throw new Error('Token cache file path must not be empty');
+  }
+
+  if (trimmedPath.includes('\0')) {
+    throw new Error('Token cache file path must not contain null bytes');
+  }
+
+  const isAbsolutePath =
+    trimmedPath.startsWith('/') ||
+    trimmedPath.startsWith('\\') ||
+    WINDOWS_ABSOLUTE_PATH_REGEX.test(trimmedPath) ||
+    UNC_PATH_REGEX.test(trimmedPath);
+  if (isAbsolutePath) {
+    throw new Error('Token cache file path must be relative');
+  }
+
+  const pathSegments = trimmedPath.split(/[\\/]/);
+  const hasInvalidSegments = pathSegments.some(
+    (segment) => segment.length === 0 || segment === '.' || segment === '..'
+  );
+  if (hasInvalidSegments) {
+    throw new Error('Token cache file path must not contain relative traversal segments');
+  }
+
+  return trimmedPath;
+}
 
 /**
  * Database row type (snake_case from SQL)
@@ -64,14 +99,25 @@ export class TokenCacheStore {
     this.db = db;
   }
 
+  private validateFilePath(filePath: string): string {
+    try {
+      return validateRelativeFilePath(filePath);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      logger.warn('Rejected unsafe token cache file path', { filePath, reason });
+      throw error;
+    }
+  }
+
   /**
    * Get a single cached entry by folder and path.
    */
   async get(folderId: string, filePath: string): Promise<TokenCacheEntry | null> {
+    const validatedPath = this.validateFilePath(filePath);
     const result = await this.db.query<TokenCacheRow>(
       `SELECT * FROM file_token_cache
        WHERE folder_id = $1 AND file_path = $2`,
-      [folderId, filePath]
+      [folderId, validatedPath]
     );
 
     const row = result.rows[0];
@@ -90,13 +136,14 @@ export class TokenCacheStore {
     if (filePaths.length === 0) {
       return new Map();
     }
+    const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
     // Build parameterized query with placeholder array
-    const placeholders = filePaths.map((_, i) => `$${i + 2}`).join(',');
+    const placeholders = validatedPaths.map((_, i) => `$${i + 2}`).join(',');
     const result = await this.db.query<TokenCacheRow>(
       `SELECT * FROM file_token_cache
        WHERE folder_id = $1 AND file_path IN (${placeholders})`,
-      [folderId, ...filePaths]
+      [folderId, ...validatedPaths]
     );
 
     const map = new Map<string, TokenCacheEntry>();
@@ -123,6 +170,7 @@ export class TokenCacheStore {
    * Upsert a single cache entry.
    */
   async set(entry: TokenCacheEntry): Promise<void> {
+    const validatedPath = this.validateFilePath(entry.filePath);
     await this.db.query(
       `INSERT INTO file_token_cache
        (folder_id, file_path, content_hash, file_size, mtime_ms,
@@ -139,7 +187,7 @@ export class TokenCacheStore {
          updated_at = CURRENT_TIMESTAMP`,
       [
         entry.folderId,
-        entry.filePath,
+        validatedPath,
         entry.contentHash,
         entry.fileSize,
         entry.mtimeMs,
@@ -175,10 +223,11 @@ export class TokenCacheStore {
    * Delete a single cache entry.
    */
   async delete(folderId: string, filePath: string): Promise<boolean> {
+    const validatedPath = this.validateFilePath(filePath);
     const result = await this.db.query(
       `DELETE FROM file_token_cache
        WHERE folder_id = $1 AND file_path = $2`,
-      [folderId, filePath]
+      [folderId, validatedPath]
     );
 
     return (result.affectedRows ?? 0) > 0;
@@ -212,13 +261,14 @@ export class TokenCacheStore {
     if (filePaths.length === 0) {
       return 0;
     }
+    const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
-    const placeholders = filePaths.map((_, i) => `$${i + 2}`).join(',');
+    const placeholders = validatedPaths.map((_, i) => `$${i + 2}`).join(',');
     const result = await this.db.query<{ total: string }>(
       `SELECT COALESCE(SUM(token_count), 0) as total
        FROM file_token_cache
        WHERE folder_id = $1 AND file_path IN (${placeholders})`,
-      [folderId, ...filePaths]
+      [folderId, ...validatedPaths]
     );
 
     return Number(result.rows[0]?.total ?? 0);

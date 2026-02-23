@@ -1,4 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { mockLoggerWarn } = vi.hoisted(() => ({
+  mockLoggerWarn: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils', () => ({
+  createLogger: vi.fn(() => ({
+    warn: mockLoggerWarn,
+    error: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  })),
+}));
+
 import { TokenCacheStore } from '../token-cache-store';
 import type { TokenCacheEntry } from '../types';
 
@@ -250,6 +264,56 @@ describe('TokenCacheStore', () => {
 
       const result = await store.get('folder-1', 'src/index.ts');
       expect(result?.tokenCount).toBe(200);
+    });
+
+    it('accepts safe relative paths with special characters', async () => {
+      const specialPath = 'src/components/[id] (draft)#1.ts';
+      await store.set(createEntry({ filePath: specialPath }));
+
+      const result = await store.get('folder-1', specialPath);
+      expect(result?.filePath).toBe(specialPath);
+    });
+  });
+
+  describe('file path validation', () => {
+    it('rejects unsafe paths before writes reach the database', async () => {
+      const initialWarnCount = mockLoggerWarn.mock.calls.length;
+      const invalidPaths = [
+        '/absolute/path.ts',
+        '../escape.ts',
+        'src/../escape.ts',
+        'src//double-slash.ts',
+        './relative-dot.ts',
+        'C:\\secret.ts',
+        '\\\\server\\share\\payload.ts',
+        'src/\0null-byte.ts',
+      ];
+
+      for (const invalidPath of invalidPaths) {
+        await expect(store.set(createEntry({ filePath: invalidPath }))).rejects.toThrow();
+      }
+
+      expect(mockDb.query).not.toHaveBeenCalled();
+      expect(mockLoggerWarn.mock.calls.length - initialWarnCount).toBe(invalidPaths.length);
+    });
+
+    it('rejects unsafe paths before read/delete queries execute', async () => {
+      const initialWarnCount = mockLoggerWarn.mock.calls.length;
+      await expect(store.get('folder-1', '../escape.ts')).rejects.toThrow(
+        'Token cache file path must not contain relative traversal segments'
+      );
+      await expect(store.getBatch('folder-1', ['safe.ts', '/absolute.ts'])).rejects.toThrow(
+        'Token cache file path must be relative'
+      );
+      await expect(store.getTotalTokens('folder-1', ['safe.ts', './dot.ts'])).rejects.toThrow(
+        'Token cache file path must not contain relative traversal segments'
+      );
+      await expect(store.delete('folder-1', 'C:\\windows\\abs.ts')).rejects.toThrow(
+        'Token cache file path must be relative'
+      );
+
+      expect(mockDb.query).not.toHaveBeenCalled();
+      expect(mockLoggerWarn.mock.calls.length - initialWarnCount).toBe(4);
     });
   });
 
