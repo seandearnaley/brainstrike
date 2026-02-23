@@ -70,18 +70,17 @@ describe('layout-helpers (unit)', () => {
 
     try {
       await waitForAppLoad(page, 10_000);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('main-content selector missing after readiness check')
+      );
     } finally {
       if (hadCI) {
         process.env['CI'] = originalCI;
       } else {
         Reflect.deleteProperty(process.env, 'CI');
       }
+      warnSpy.mockRestore();
     }
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('main-content selector missing after readiness check')
-    );
-    warnSpy.mockRestore();
   });
 
   it('resetLayoutState clears state and reloads', async () => {

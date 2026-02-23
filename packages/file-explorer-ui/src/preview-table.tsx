@@ -88,10 +88,7 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
           onClick={(event) => event.stopPropagation()}
         />
       )}
-      <div
-        aria-description={`Group containing ${group.count} file${group.count === 1 ? '' : 's'}`}
-        className="inline-flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-0.5 font-medium text-sm"
-      >
+      <div className="inline-flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-0.5 font-medium text-sm">
         <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
         <span className="truncate">{group.groupLabel}</span>
       </div>

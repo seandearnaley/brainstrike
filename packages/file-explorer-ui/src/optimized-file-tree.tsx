@@ -394,9 +394,9 @@ function useSelectedDirectoryCounts(
 
   useEffect(() => {
     return () => {
-      selectedDirectoryCountSnapshotRef.current.selectedPathAncestorCache.clear();
-      selectedDirectoryCountSnapshotRef.current.selectedDirectoryCounts.clear();
-      selectedDirectoryCountSnapshotRef.current.selectedFilePaths = null;
+      selectedDirectoryCountSnapshotRef.current = createSelectedDirectoryCountSnapshot(
+        selectedDirectoryCountSnapshotRef.current.folderId
+      );
     };
   }, []);
 
