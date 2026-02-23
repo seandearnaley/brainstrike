@@ -83,7 +83,10 @@ interface DirectoryToggleState {
 }
 
 const logger = createLogger('OptimizedFileTree');
+// Bound ancestor-path cache growth for large workspaces (15k+ files) while
+// keeping hot paths resident across frequent selection changes.
 const MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES = 50_000;
+// Retain the most recently touched half to avoid a full cold-cache cliff.
 const SELECTED_PATH_ANCESTOR_CACHE_RETAIN_ENTRIES = 25_000;
 
 function incrementDirectoryCount(
@@ -607,6 +610,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         ),
       [folderId, selectedFilePaths, selectedDirectoryCounts, maxSelectionCount]
     );
+    // Keep ref writes render-synchronous so memoized columns read fresh
+    // selection state inside cell renderers without a one-render lag.
+    // TODO(BST-312): replace with useEffectEvent once adopted codebase-wide.
     const getNodeSelectionStateRef = useRef(getNodeSelectionState);
     getNodeSelectionStateRef.current = getNodeSelectionState;
 
@@ -671,6 +677,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         addMultipleSelectedFiles,
       ]
     );
+    // Keep action callbacks render-synchronous for the same reason as above:
+    // stable columns + fresh cell behavior during rapid selection churn.
+    // TODO(BST-312): replace with useEffectEvent once adopted codebase-wide.
     const handleNodeSelectionRef = useRef(handleNodeSelection);
     handleNodeSelectionRef.current = handleNodeSelection;
 

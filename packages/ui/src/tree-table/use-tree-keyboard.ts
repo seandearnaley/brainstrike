@@ -78,6 +78,8 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     isTableFocused = true,
     onScrollToNode,
   } = options;
+  // `rows` and `rowIndexById` are derived from the same memoized flatten pass in TreeTable,
+  // so index lookups stay in sync for a given render snapshot.
 
   // Track focused node (separate from selection)
   const [focusedId, setFocusedId] = React.useState<string | null>(null);

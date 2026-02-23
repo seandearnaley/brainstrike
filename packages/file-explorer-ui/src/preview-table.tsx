@@ -64,6 +64,8 @@ const NOOP_TOGGLE_EXPAND = (): void => {};
  * deferring ref updates to an effect introduces a one-render checkbox lag after selection updates.
  * Callbacks passed here must stay pure if invoked during render (e.g. selection lookups).
  * Do not use this as an effect dependency shortcut.
+ * Do not use this stable wrapper as a useMemo dependency when callback identity changes
+ * should trigger recomputation; depend on explicit state inputs instead.
  * TODO(BST-312): Replace with React's stable useEffectEvent once adopted in this codebase.
  */
 function useStableCallback<TArgs extends unknown[], TResult>(
@@ -229,6 +231,7 @@ function buildGroupedTreeNodes({
   // Current migration keeps grouped rows in a flat projection for shared table styling.
   // This means group and item rows both render at depth 0 until hierarchical tree rows are introduced.
   // PreviewTable therefore renders `ariaRole="grid"` (not `treegrid`) to avoid implying tree semantics.
+  // Trade-off: assistive tech reads groups/items as peer rows until parent/child rows are modeled.
   const nodes: TreeNode<PreviewTreeNodeData>[] = [];
   let visibleRowIndex = 0;
 
