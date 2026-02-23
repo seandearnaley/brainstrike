@@ -26,6 +26,7 @@ export * from './path-utils';
 export * from './perf-timing';
 export * from './performance-measure-guard';
 export * from './quick-filter-utils';
+export * from './relative-file-path';
 export * from './report-generator';
 export * from './safe-storage';
 export * from './selection-utils';

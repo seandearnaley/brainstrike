@@ -5,14 +5,18 @@ const { mockLoggerWarn, mockLoggerInfo } = vi.hoisted(() => ({
   mockLoggerInfo: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: vi.fn(() => ({
-    warn: mockLoggerWarn,
-    error: vi.fn(),
-    info: mockLoggerInfo,
-    debug: vi.fn(),
-  })),
-}));
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    createLogger: vi.fn(() => ({
+      warn: mockLoggerWarn,
+      error: vi.fn(),
+      info: mockLoggerInfo,
+      debug: vi.fn(),
+    })),
+  };
+});
 
 import { TokenCacheStore } from '../token-cache-store';
 import type { TokenCacheEntry } from '../types';
@@ -313,12 +317,14 @@ describe('TokenCacheStore', () => {
         'C:\\secret.ts',
         '\\\\server\\share\\payload.ts',
         'src/\0null-byte.ts',
+        'src/foo\tbar.ts',
       ];
 
       for (const invalidPath of invalidPaths) {
         await expect(store.set(createEntry({ filePath: invalidPath }))).rejects.toThrow();
       }
 
+      // Each write validates before query execution, so every invalid path short-circuits DB access.
       expect(mockDb.query).not.toHaveBeenCalled();
       expect(mockLoggerWarn).toHaveBeenCalledTimes(invalidPaths.length);
     });
@@ -332,6 +338,10 @@ describe('TokenCacheStore', () => {
         {
           run: () => store.get('folder-1', '   '),
           message: 'Token cache file path must not be empty',
+        },
+        {
+          run: () => store.get('folder-1', 'src/foo\tbar.ts'),
+          message: 'Token cache file path must not contain control characters',
         },
         {
           run: () => store.get('folder-1', '../escape.ts'),

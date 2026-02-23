@@ -5,7 +5,7 @@
  * Provides efficient batch queries and aggregations.
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, validateRelativeFilePath } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type {
   TokenCacheEntry,
@@ -15,42 +15,6 @@ import type {
 } from './types';
 
 const logger = createLogger('TokenCacheStore');
-const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
-
-function validateRelativeFilePath(filePath: string): string {
-  // Preserve path identity (including leading/trailing spaces) for cache keys.
-  // trim() is intentionally used only to reject empty/whitespace-only input.
-  if (filePath.trim().length === 0) {
-    throw new Error('Token cache file path must not be empty');
-  }
-
-  if (filePath.includes('\0')) {
-    throw new Error('Token cache file path must not contain null bytes');
-  }
-
-  const isAbsolutePath =
-    filePath.startsWith('/') ||
-    filePath.startsWith('\\') ||
-    WINDOWS_ABSOLUTE_PATH_REGEX.test(filePath);
-  if (isAbsolutePath) {
-    throw new Error('Token cache file path must be relative');
-  }
-
-  // Split on both separator styles so mixed paths are normalized before checks.
-  const pathSegments = filePath.split(/[\\/]/);
-  const hasTraversalSegments = pathSegments.some((segment) => segment === '.' || segment === '..');
-  if (hasTraversalSegments) {
-    throw new Error('Token cache file path must not contain relative traversal segments');
-  }
-
-  const hasEmptySegments = pathSegments.some((segment) => segment.length === 0);
-  if (hasEmptySegments) {
-    throw new Error('Token cache file path must not contain empty segments');
-  }
-
-  return filePath;
-}
-
 /**
  * Database row type (snake_case from SQL)
  */
@@ -125,6 +89,10 @@ export class TokenCacheStore {
     entry: TokenCacheEntry,
     validatedPath: string
   ): Promise<void> {
+    if (process.env['NODE_ENV'] !== 'production' && validatedPath !== entry.filePath) {
+      throw new Error('Invariant violated: validatedPath must equal entry.filePath');
+    }
+
     await this.db.query(
       `INSERT INTO file_token_cache
        (folder_id, file_path, content_hash, file_size, mtime_ms,
