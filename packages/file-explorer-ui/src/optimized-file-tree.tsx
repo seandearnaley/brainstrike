@@ -601,26 +601,37 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       ]
     );
 
+    const reportToggleExpandError = useCallback(
+      (node: IFileNode, error: unknown) => {
+        logger.error('Failed to toggle directory expansion', {
+          path: node.path,
+          error,
+        });
+        showToast({
+          title: 'Failed to load folder',
+          description: `Could not expand "${node.name}". Please try again.`,
+          variant: 'destructive',
+        });
+      },
+      [showToast]
+    );
+
     const handleToggleExpand = useCallback(
       (nodeId: string) => {
         const node = fileNodeByPath.get(nodeId);
         if (!node || node.type !== 'directory') {
           return;
         }
-        const toggleState = getDirectoryToggleState(node);
-        void toggleDirectoryNode(node, toggleState).catch((error: unknown) => {
-          logger.error('Failed to toggle directory expansion', {
-            path: node.path,
-            error,
+        try {
+          const toggleState = getDirectoryToggleState(node);
+          void toggleDirectoryNode(node, toggleState).catch((error: unknown) => {
+            reportToggleExpandError(node, error);
           });
-          showToast({
-            title: 'Failed to load folder',
-            description: `Could not expand "${node.name}". Please try again.`,
-            variant: 'destructive',
-          });
-        });
+        } catch (error: unknown) {
+          reportToggleExpandError(node, error);
+        }
       },
-      [fileNodeByPath, getDirectoryToggleState, toggleDirectoryNode, showToast]
+      [fileNodeByPath, getDirectoryToggleState, reportToggleExpandError, toggleDirectoryNode]
     );
 
     const getNodeSelectionState = useCallback(
