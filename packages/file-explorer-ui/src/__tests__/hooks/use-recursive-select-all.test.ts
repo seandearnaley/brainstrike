@@ -20,6 +20,9 @@ import type { FileSystemHandle } from '../../utils/worker-node-conversion';
 
 // Mock the hooks module
 vi.mock('@brainstrike/hooks', () => ({
+  useEventCallback: <TArgs extends unknown[], TResult>(
+    callback: (...args: TArgs) => TResult
+  ): ((...args: TArgs) => TResult) => callback,
   useFileFilters: () => ({
     applyFileFilters: vi.fn((tree: IFileNode[]) => tree),
   }),

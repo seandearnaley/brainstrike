@@ -28,6 +28,9 @@ vi.mock('@brainstrike/hooks', () => ({
     run: fn,
     flush: vi.fn().mockResolvedValue(undefined),
   }),
+  useEventCallback: <TArgs extends unknown[], TResult>(
+    callback: (...args: TArgs) => TResult
+  ): ((...args: TArgs) => TResult) => callback,
 }));
 
 // Create a wrapper to provide necessary context

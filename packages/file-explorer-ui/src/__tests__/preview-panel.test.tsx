@@ -1124,12 +1124,10 @@ describe('PreviewPanel', () => {
       const groupingSelect = screen.getByDisplayValue('No Grouping');
       fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
-      // Should have aria-expanded and aria-label on group buttons
-      const groupHeaders = screen.getAllByRole('button', { name: /Collapse group/ });
-      expect(groupHeaders.length).toBeGreaterThan(0);
-      for (const header of groupHeaders) {
-        expect(header).toHaveAttribute('aria-expanded');
-        expect(header).toHaveAttribute('aria-label');
+      const groupToggles = screen.getAllByRole('button', { name: 'Collapse' });
+      expect(groupToggles.length).toBeGreaterThan(0);
+      for (const toggle of groupToggles) {
+        expect(toggle).toHaveAttribute('aria-label');
       }
     });
 

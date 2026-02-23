@@ -11,6 +11,14 @@ interface ScopedLogger {
 
 let cachedExpect: PlaywrightExpect | null = null;
 let cachedLogger: Promise<ScopedLogger> | null = null;
+const DEFAULT_LOCAL_APP_LOAD_TIMEOUT_MS = 20_000;
+const DEFAULT_CI_APP_LOAD_TIMEOUT_MS = 55_000;
+const DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS = 2000;
+const DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS = 5000;
+
+function resolveErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 async function getLogger(): Promise<ScopedLogger> {
   if (!cachedLogger) {
@@ -25,6 +33,16 @@ async function getLogger(): Promise<ScopedLogger> {
 
 function logWarn(message: string, context?: Record<string, unknown>): void {
   void getLogger().then((logger) => logger.warn(message, context));
+}
+
+export function resolveWaitForAppLoadTimeout(timeout: number, isCI: boolean): number {
+  return isCI
+    ? Math.max(timeout, DEFAULT_CI_APP_LOAD_TIMEOUT_MS)
+    : Math.max(timeout, DEFAULT_LOCAL_APP_LOAD_TIMEOUT_MS);
+}
+
+export function resolveNetworkIdleTimeout(isCI: boolean): number {
+  return isCI ? DEFAULT_CI_NETWORK_IDLE_TIMEOUT_MS : DEFAULT_LOCAL_NETWORK_IDLE_TIMEOUT_MS;
 }
 
 async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
@@ -127,12 +145,11 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  */
 export async function waitForAppLoad(page: Page, timeout = 10_000) {
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
-  // CI needs significantly more time for:
-  // 1. Initial page load
-  // 2. JS bundle download and parsing (15MB+ vendor bundle)
-  // 3. React hydration
-  // 4. Panel rendering with react-resizable-panels
-  const effectiveTimeout = isCI ? Math.max(timeout, 55_000) : Math.max(timeout, 20_000);
+  // Contract:
+  // - Local runs use a 20s floor to tolerate hydration + initial panel layout.
+  // - CI runs use a 55s floor for slower runners and production bundle startup.
+  // Caller-provided timeout can only raise these floors, never lower them.
+  const effectiveTimeout = resolveWaitForAppLoadTimeout(timeout, isCI);
   const panelReadySelector = [
     '#middle-panel',
     '[data-panel-id="middle-panel"]',
@@ -167,9 +184,19 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // Best-effort wait for network to settle - important for production builds
   // that may have deferred script loading. Use short timeout since apps with
   // background workers often never reach networkidle state.
-  const networkIdleTimeout = isCI ? 5000 : 2000;
-  await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch(() => {
+  const networkIdleTimeout = resolveNetworkIdleTimeout(isCI);
+  await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch((error) => {
     // networkidle timeout is expected when app has background activity - continue
+    if (isCI) {
+      const errorMessage = resolveErrorMessage(error);
+      console.warn(
+        `[waitForAppLoad] networkidle wait exceeded ${networkIdleTimeout}ms; continuing. ${errorMessage}`
+      );
+      logWarn('waitForAppLoad networkidle timeout', {
+        timeoutMs: networkIdleTimeout,
+        error: errorMessage,
+      });
+    }
   });
 
   // Wait for the main layout structure to be present
@@ -216,7 +243,19 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
       state: 'attached',
       timeout: effectiveTimeout,
     })
-    .catch(() => {
+    .catch((error) => {
+      const errorMessage = resolveErrorMessage(error);
+      logWarn('Main content panel selector did not attach after primary readiness check.', {
+        selector: '#main-content-panel, [data-panel-id="main-content-panel"]',
+        timeoutMs: effectiveTimeout,
+        isCI,
+        error: errorMessage,
+      });
+      if (isCI) {
+        console.warn(
+          `[waitForAppLoad] main-content selector missing after readiness check (timeout ${effectiveTimeout}ms). ${errorMessage}`
+        );
+      }
       // Some environments expose the main shell without explicit panel IDs.
       // The readiness selector above already validated visible app content.
     });

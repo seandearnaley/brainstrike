@@ -84,24 +84,40 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
 }
 
 describe('PreviewTable grouped mode', () => {
-  it('renders grouped rows in a grid with accessible group toggle state', () => {
+  it('renders grouped rows with tree hierarchy semantics', () => {
     renderGroupedPreviewTable();
 
-    expect(screen.getByRole('grid', { name: 'Context explorer table' })).toBeInTheDocument();
+    expect(screen.getByRole('treegrid', { name: 'Context explorer table' })).toBeInTheDocument();
 
-    const toggle = screen.getByRole('button', { name: /collapse group src/i });
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const groupRow = screen.getByRole('button', { name: 'Collapse' }).closest('tr');
+    const firstItemRow = screen.getByText('file-one.ts').closest('tr');
+
+    expect(groupRow).toHaveAttribute('aria-level', '1');
+    expect(groupRow).toHaveAttribute('aria-expanded', 'true');
+    expect(firstItemRow).toHaveAttribute('aria-level', '2');
   });
 
-  it('toggles group collapse via button click and keeps toggle focusable', () => {
+  it('toggles group collapse via tree expand control and keeps toggle focusable', () => {
     const toggleGroupCollapse = vi.fn();
     renderGroupedPreviewTable({ toggleGroupCollapse });
 
-    const toggle = screen.getByRole('button', { name: /collapse group src/i });
+    const toggle = screen.getByRole('button', { name: 'Collapse' });
     fireEvent.click(toggle);
 
     toggle.focus();
     expect(toggle).toHaveFocus();
+
+    expect(toggleGroupCollapse).toHaveBeenCalledTimes(1);
+    expect(toggleGroupCollapse).toHaveBeenCalledWith('src');
+  });
+
+  it('supports keyboard-driven collapse on grouped rows', () => {
+    const toggleGroupCollapse = vi.fn();
+    renderGroupedPreviewTable({ toggleGroupCollapse });
+
+    const tree = screen.getByRole('treegrid', { name: 'Context explorer table' });
+    fireEvent.keyDown(tree, { key: 'ArrowDown' });
+    fireEvent.keyDown(tree, { key: 'ArrowLeft' });
 
     expect(toggleGroupCollapse).toHaveBeenCalledTimes(1);
     expect(toggleGroupCollapse).toHaveBeenCalledWith('src');
@@ -150,7 +166,7 @@ describe('PreviewTable grouped mode', () => {
       pagination: { startIndex: 1, endIndex: 2 },
     });
 
-    expect(screen.queryByRole('button', { name: /collapse group src/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
     expect(screen.getByText('file-one.ts')).toBeInTheDocument();
   });
 
@@ -260,7 +276,7 @@ describe('PreviewTable grouped mode', () => {
       pagination: { startIndex: 101, endIndex: 103 },
     });
 
-    expect(screen.getByRole('button', { name: /collapse group tail/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
     expect(screen.getByText('trailing-file.tsx')).toBeInTheDocument();
     expect(screen.queryByText('large-file-0.ts')).not.toBeInTheDocument();
   });

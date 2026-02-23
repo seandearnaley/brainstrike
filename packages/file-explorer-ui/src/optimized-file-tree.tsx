@@ -1,4 +1,5 @@
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useEventCallback } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import {
   LightweightCheckbox,
@@ -23,7 +24,6 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
-import { useEventCallback } from './hooks/use-event-callback';
 // TODO(BST-312): extract ROW_HEIGHT into a shared constant and retire legacy row component.
 import { ROW_HEIGHT } from './optimized-file-tree-row';
 
@@ -108,6 +108,23 @@ const MAX_SELECTED_PATH_ANCESTOR_CACHE_ENTRIES = 50_000;
 const SELECTED_PATH_ANCESTOR_CACHE_RETAIN_ENTRIES = 25_000;
 const EMPTY_SELECTION_PATHS: string[] = [];
 
+interface SelectedDirectoryCountBuildResult {
+  directoryCounts: Map<string, number>;
+  selectedPathAncestorCache: Map<string, string[]>;
+}
+
+interface SelectedDirectoryCountSnapshot {
+  folderId: string;
+  selectedFilePaths: Set<string> | null;
+  selectedDirectoryCounts: Map<string, number>;
+  selectedPathAncestorCache: Map<string, string[]>;
+}
+
+interface SelectedPathAncestorResolver {
+  getAncestorPaths: (filePath: string) => string[];
+  getResolvedCache: () => Map<string, string[]>;
+}
+
 function incrementDirectoryCount(
   directoryCounts: Map<string, number>,
   directoryPath: string
@@ -137,18 +154,7 @@ function evictOldestAncestorCacheEntries(selectedPathAncestorCache: Map<string, 
   }
 }
 
-function getAncestorDirectoryPaths(
-  filePath: string,
-  selectedPathAncestorCache: Map<string, string[]>
-): string[] {
-  const cachedAncestors = selectedPathAncestorCache.get(filePath);
-  if (cachedAncestors) {
-    // Refresh insertion order so frequent paths survive bounded eviction.
-    selectedPathAncestorCache.delete(filePath);
-    selectedPathAncestorCache.set(filePath, cachedAncestors);
-    return cachedAncestors;
-  }
-
+function computeAncestorDirectoryPaths(filePath: string): string[] {
   const ancestorPaths: string[] = [];
   let separatorIndex = filePath.lastIndexOf('/');
   while (separatorIndex > 0) {
@@ -156,23 +162,56 @@ function getAncestorDirectoryPaths(
     separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
   }
 
-  // Guard long-running sessions against unbounded path growth.
-  evictOldestAncestorCacheEntries(selectedPathAncestorCache);
-  selectedPathAncestorCache.set(filePath, ancestorPaths);
   return ancestorPaths;
+}
+
+function createSelectedPathAncestorResolver(
+  selectedPathAncestorCache: Map<string, string[]>
+): SelectedPathAncestorResolver {
+  let nextCache: Map<string, string[]> | null = null;
+
+  const getMutableCache = (): Map<string, string[]> => {
+    if (!nextCache) {
+      nextCache = new Map(selectedPathAncestorCache);
+    }
+    return nextCache;
+  };
+
+  return {
+    getAncestorPaths(filePath: string): string[] {
+      const sourceCache = nextCache ?? selectedPathAncestorCache;
+      const cachedAncestors = sourceCache.get(filePath);
+      if (cachedAncestors) {
+        return cachedAncestors;
+      }
+
+      const ancestorPaths = computeAncestorDirectoryPaths(filePath);
+      const mutableCache = getMutableCache();
+      // Guard long-running sessions against unbounded path growth.
+      evictOldestAncestorCacheEntries(mutableCache);
+      mutableCache.set(filePath, ancestorPaths);
+      return ancestorPaths;
+    },
+    getResolvedCache(): Map<string, string[]> {
+      return nextCache ?? selectedPathAncestorCache;
+    },
+  };
 }
 
 function buildSelectedDirectoryCounts(
   selectedFilePaths: Set<string>,
   folderId: string,
-  selectedPathAncestorCache?: Map<string, string[]>
-): Map<string, number> {
+  selectedPathAncestorCache: Map<string, string[]>
+): SelectedDirectoryCountBuildResult {
   const directoryCounts = new Map<string, number>();
   if (!(folderId && selectedFilePaths.size > 0)) {
-    return directoryCounts;
+    return {
+      directoryCounts,
+      selectedPathAncestorCache,
+    };
   }
 
-  const ancestorCache = selectedPathAncestorCache ?? new Map<string, string[]>();
+  const selectedPathResolver = createSelectedPathAncestorResolver(selectedPathAncestorCache);
   const folderPrefix = `${folderId}|@|`;
   for (const selectionKey of selectedFilePaths) {
     if (!selectionKey.startsWith(folderPrefix)) {
@@ -185,13 +224,16 @@ function buildSelectedDirectoryCounts(
       continue;
     }
 
-    const ancestorPaths = getAncestorDirectoryPaths(selectedPath, ancestorCache);
+    const ancestorPaths = selectedPathResolver.getAncestorPaths(selectedPath);
     for (const ancestorPath of ancestorPaths) {
       incrementDirectoryCount(directoryCounts, ancestorPath);
     }
   }
 
-  return directoryCounts;
+  return {
+    directoryCounts,
+    selectedPathAncestorCache: selectedPathResolver.getResolvedCache(),
+  };
 }
 
 function applySelectionKeyDirectoryCountDelta(
@@ -199,7 +241,7 @@ function applySelectionKeyDirectoryCountDelta(
   selectionKey: string,
   folderPrefix: string,
   delta: 1 | -1,
-  selectedPathAncestorCache: Map<string, string[]>
+  selectedPathResolver: SelectedPathAncestorResolver
 ): void {
   if (!selectionKey.startsWith(folderPrefix)) {
     return;
@@ -210,7 +252,7 @@ function applySelectionKeyDirectoryCountDelta(
     return;
   }
 
-  const ancestorPaths = getAncestorDirectoryPaths(selectedPath, selectedPathAncestorCache);
+  const ancestorPaths = selectedPathResolver.getAncestorPaths(selectedPath);
   for (const ancestorPath of ancestorPaths) {
     const nextCount = (directoryCounts.get(ancestorPath) ?? 0) + delta;
     if (nextCount <= 0) {
@@ -227,8 +269,9 @@ function applySelectedDirectoryCountDiff(
   folderId: string,
   currentDirectoryCounts: Map<string, number>,
   selectedPathAncestorCache: Map<string, string[]>
-): Map<string, number> {
+): SelectedDirectoryCountBuildResult {
   const nextDirectoryCounts = new Map(currentDirectoryCounts);
+  const selectedPathResolver = createSelectedPathAncestorResolver(selectedPathAncestorCache);
   const folderPrefix = `${folderId}|@|`;
 
   for (const selectionKey of previousSelectedFilePaths) {
@@ -240,7 +283,7 @@ function applySelectedDirectoryCountDiff(
       selectionKey,
       folderPrefix,
       -1,
-      selectedPathAncestorCache
+      selectedPathResolver
     );
   }
 
@@ -253,73 +296,111 @@ function applySelectedDirectoryCountDiff(
       selectionKey,
       folderPrefix,
       1,
-      selectedPathAncestorCache
+      selectedPathResolver
     );
   }
 
-  return nextDirectoryCounts;
+  return {
+    directoryCounts: nextDirectoryCounts,
+    selectedPathAncestorCache: selectedPathResolver.getResolvedCache(),
+  };
+}
+
+function createSelectedDirectoryCountSnapshot(folderId: string): SelectedDirectoryCountSnapshot {
+  return {
+    folderId,
+    selectedFilePaths: null,
+    selectedDirectoryCounts: new Map(),
+    selectedPathAncestorCache: new Map(),
+  };
+}
+
+function computeSelectedDirectoryCountSnapshot(
+  previousSnapshot: SelectedDirectoryCountSnapshot,
+  selectedFilePaths: Set<string>,
+  folderId: string
+): SelectedDirectoryCountSnapshot {
+  if (
+    previousSnapshot.folderId === folderId &&
+    previousSnapshot.selectedFilePaths === selectedFilePaths
+  ) {
+    return previousSnapshot;
+  }
+
+  const hasFolderChanged = previousSnapshot.folderId !== folderId;
+
+  if (!(folderId && selectedFilePaths.size > 0)) {
+    return {
+      folderId,
+      selectedFilePaths,
+      selectedDirectoryCounts: new Map(),
+      selectedPathAncestorCache: hasFolderChanged
+        ? new Map()
+        : previousSnapshot.selectedPathAncestorCache,
+    };
+  }
+
+  if (hasFolderChanged || !previousSnapshot.selectedFilePaths) {
+    const rebuiltCounts = buildSelectedDirectoryCounts(
+      selectedFilePaths,
+      folderId,
+      hasFolderChanged ? new Map() : previousSnapshot.selectedPathAncestorCache
+    );
+    return {
+      folderId,
+      selectedFilePaths,
+      selectedDirectoryCounts: rebuiltCounts.directoryCounts,
+      selectedPathAncestorCache: rebuiltCounts.selectedPathAncestorCache,
+    };
+  }
+
+  const updatedCounts = applySelectedDirectoryCountDiff(
+    previousSnapshot.selectedFilePaths,
+    selectedFilePaths,
+    folderId,
+    previousSnapshot.selectedDirectoryCounts,
+    previousSnapshot.selectedPathAncestorCache
+  );
+
+  return {
+    folderId,
+    selectedFilePaths,
+    selectedDirectoryCounts: updatedCounts.directoryCounts,
+    selectedPathAncestorCache: updatedCounts.selectedPathAncestorCache,
+  };
 }
 
 function useSelectedDirectoryCounts(
   selectedFilePaths: Set<string>,
   folderId: string
 ): Map<string, number> {
-  const selectedPathAncestorCacheRef = useRef<Map<string, string[]>>(new Map());
-  const previousSelectedFilePathsRef = useRef<Set<string> | null>(null);
-  const previousFolderIdRef = useRef<string>(folderId);
-  const selectedDirectoryCountsRef = useRef<Map<string, number>>(new Map());
+  const selectedDirectoryCountSnapshotRef = useRef<SelectedDirectoryCountSnapshot>(
+    createSelectedDirectoryCountSnapshot(folderId)
+  );
+
+  const nextSnapshot = useMemo(
+    () =>
+      computeSelectedDirectoryCountSnapshot(
+        selectedDirectoryCountSnapshotRef.current,
+        selectedFilePaths,
+        folderId
+      ),
+    [selectedFilePaths, folderId]
+  );
+
+  useEffect(() => {
+    selectedDirectoryCountSnapshotRef.current = nextSnapshot;
+  }, [nextSnapshot]);
 
   useEffect(() => {
     return () => {
-      selectedPathAncestorCacheRef.current.clear();
-      selectedDirectoryCountsRef.current.clear();
-      previousSelectedFilePathsRef.current = null;
+      selectedDirectoryCountSnapshotRef.current.selectedPathAncestorCache.clear();
+      selectedDirectoryCountSnapshotRef.current.selectedDirectoryCounts.clear();
+      selectedDirectoryCountSnapshotRef.current.selectedFilePaths = null;
     };
   }, []);
 
-  return useMemo(() => {
-    const previousSelectedFilePaths = previousSelectedFilePathsRef.current;
-    const hasFolderChanged = previousFolderIdRef.current !== folderId;
-
-    if (!(folderId && selectedFilePaths.size > 0)) {
-      const emptyCounts = new Map<string, number>();
-      selectedDirectoryCountsRef.current = emptyCounts;
-      previousSelectedFilePathsRef.current = selectedFilePaths;
-      previousFolderIdRef.current = folderId;
-      return emptyCounts;
-    }
-
-    if (hasFolderChanged || !previousSelectedFilePaths) {
-      const rebuiltCounts = buildSelectedDirectoryCounts(
-        selectedFilePaths,
-        folderId,
-        // Mutable cache by design: recomputation is keyed by selected paths/folder,
-        // while cache contents persist across runs to amortize ancestor parsing.
-        // StrictMode may invoke this memo twice in development; cache writes stay
-        // idempotent because each file path deterministically maps to ancestors.
-        selectedPathAncestorCacheRef.current
-      );
-      selectedDirectoryCountsRef.current = rebuiltCounts;
-      previousSelectedFilePathsRef.current = selectedFilePaths;
-      previousFolderIdRef.current = folderId;
-      return rebuiltCounts;
-    }
-
-    if (previousSelectedFilePaths !== selectedFilePaths) {
-      const updatedCounts = applySelectedDirectoryCountDiff(
-        previousSelectedFilePaths,
-        selectedFilePaths,
-        folderId,
-        selectedDirectoryCountsRef.current,
-        selectedPathAncestorCacheRef.current
-      );
-      selectedDirectoryCountsRef.current = updatedCounts;
-    }
-
-    previousSelectedFilePathsRef.current = selectedFilePaths;
-    previousFolderIdRef.current = folderId;
-    return selectedDirectoryCountsRef.current;
-  }, [selectedFilePaths, folderId]);
+  return nextSnapshot.selectedDirectoryCounts;
 }
 
 function computeDirectoryCheckboxState(
