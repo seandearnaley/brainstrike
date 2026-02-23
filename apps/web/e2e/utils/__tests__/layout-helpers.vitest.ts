@@ -55,6 +55,7 @@ describe('layout-helpers (unit)', () => {
 
   it('logs CI diagnostics when panel-id selector fallback is missing', async () => {
     const originalCI = process.env['CI'];
+    const hadCI = Object.hasOwn(process.env, 'CI');
     process.env['CI'] = 'true';
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const page = {
@@ -70,10 +71,10 @@ describe('layout-helpers (unit)', () => {
     try {
       await waitForAppLoad(page, 10_000);
     } finally {
-      if (originalCI === undefined) {
-        process.env['CI'] = undefined;
-      } else {
+      if (hadCI) {
         process.env['CI'] = originalCI;
+      } else {
+        Reflect.deleteProperty(process.env, 'CI');
       }
     }
 
