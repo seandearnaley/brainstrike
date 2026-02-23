@@ -240,7 +240,8 @@ export function useBackgroundTokenIndexer({
     workerErrorLoggedRef.current = true;
     const normalized =
       error instanceof Error
-        ? { message: error.message, error: error.message, stack: error.stack }
+        ? // Keep both keys for log-schema compatibility while consolidating to one log event.
+          { message: error.message, error: error.message, stack: error.stack }
         : { error: String(error) };
     logger.error('Background token indexer entered failed state', {
       context,

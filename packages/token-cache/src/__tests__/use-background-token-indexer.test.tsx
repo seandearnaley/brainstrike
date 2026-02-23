@@ -390,6 +390,13 @@ describe('useBackgroundTokenIndexer', () => {
         ),
       })
     );
+    expect(mockLogger.error.mock.calls).toContainEqual([
+      'Background token indexer entered failed state',
+      expect.objectContaining({
+        context: 'ready-timeout',
+        error: 'Worker did not signal ready within 5s',
+      }),
+    ]);
   });
 
   it('routes worker creation failure through the terminal fail path', () => {
