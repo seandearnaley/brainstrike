@@ -216,6 +216,7 @@ describe('TokenCacheStore', () => {
   let mockDb: ReturnType<typeof createMockDb>;
 
   beforeEach(() => {
+    mockLoggerWarn.mockClear();
     mockDb = createMockDb();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     store = new TokenCacheStore(mockDb as any);
@@ -273,11 +274,21 @@ describe('TokenCacheStore', () => {
       const result = await store.get('folder-1', specialPath);
       expect(result?.filePath).toBe(specialPath);
     });
+
+    it('preserves significant leading and trailing whitespace in file paths', async () => {
+      const spacedPath = ' src/index.ts ';
+      await store.set(createEntry({ filePath: spacedPath }));
+
+      const spacedResult = await store.get('folder-1', spacedPath);
+      expect(spacedResult?.filePath).toBe(spacedPath);
+
+      const trimmedResult = await store.get('folder-1', 'src/index.ts');
+      expect(trimmedResult).toBeNull();
+    });
   });
 
   describe('file path validation', () => {
     it('rejects unsafe paths before writes reach the database', async () => {
-      const initialWarnCount = mockLoggerWarn.mock.calls.length;
       const invalidPaths = [
         '/absolute/path.ts',
         '../escape.ts',
@@ -294,13 +305,15 @@ describe('TokenCacheStore', () => {
       }
 
       expect(mockDb.query).not.toHaveBeenCalled();
-      expect(mockLoggerWarn.mock.calls.length - initialWarnCount).toBe(invalidPaths.length);
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(invalidPaths.length);
     });
 
     it('rejects unsafe paths before read/delete queries execute', async () => {
-      const initialWarnCount = mockLoggerWarn.mock.calls.length;
       await expect(store.get('folder-1', '../escape.ts')).rejects.toThrow(
         'Token cache file path must not contain relative traversal segments'
+      );
+      await expect(store.get('folder-1', 'src//double.ts')).rejects.toThrow(
+        'Token cache file path must not contain empty segments'
       );
       await expect(store.getBatch('folder-1', ['safe.ts', '/absolute.ts'])).rejects.toThrow(
         'Token cache file path must be relative'
@@ -313,7 +326,7 @@ describe('TokenCacheStore', () => {
       );
 
       expect(mockDb.query).not.toHaveBeenCalled();
-      expect(mockLoggerWarn.mock.calls.length - initialWarnCount).toBe(4);
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(5);
     });
   });
 

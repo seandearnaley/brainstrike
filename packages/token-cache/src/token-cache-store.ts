@@ -16,36 +16,36 @@ import type {
 
 const logger = createLogger('TokenCacheStore');
 const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
-const UNC_PATH_REGEX = /^\\\\/;
 
 function validateRelativeFilePath(filePath: string): string {
-  const trimmedPath = filePath.trim();
-  if (trimmedPath.length === 0) {
+  if (filePath.trim().length === 0) {
     throw new Error('Token cache file path must not be empty');
   }
 
-  if (trimmedPath.includes('\0')) {
+  if (filePath.includes('\0')) {
     throw new Error('Token cache file path must not contain null bytes');
   }
 
   const isAbsolutePath =
-    trimmedPath.startsWith('/') ||
-    trimmedPath.startsWith('\\') ||
-    WINDOWS_ABSOLUTE_PATH_REGEX.test(trimmedPath) ||
-    UNC_PATH_REGEX.test(trimmedPath);
+    filePath.startsWith('/') ||
+    filePath.startsWith('\\') ||
+    WINDOWS_ABSOLUTE_PATH_REGEX.test(filePath);
   if (isAbsolutePath) {
     throw new Error('Token cache file path must be relative');
   }
 
-  const pathSegments = trimmedPath.split(/[\\/]/);
-  const hasInvalidSegments = pathSegments.some(
-    (segment) => segment.length === 0 || segment === '.' || segment === '..'
-  );
-  if (hasInvalidSegments) {
+  const pathSegments = filePath.split(/[\\/]/);
+  const hasTraversalSegments = pathSegments.some((segment) => segment === '.' || segment === '..');
+  if (hasTraversalSegments) {
     throw new Error('Token cache file path must not contain relative traversal segments');
   }
 
-  return trimmedPath;
+  const hasEmptySegments = pathSegments.some((segment) => segment.length === 0);
+  if (hasEmptySegments) {
+    throw new Error('Token cache file path must not contain empty segments');
+  }
+
+  return filePath;
 }
 
 /**
