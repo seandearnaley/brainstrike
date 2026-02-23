@@ -105,6 +105,27 @@ describe('useResizeObserver', () => {
     expect(mockDisconnect).not.toHaveBeenCalled();
   });
 
+  it('stops attachment polling after max attempts when ref never populates', () => {
+    const ref = { current: null as HTMLDivElement | null };
+    const onResize = vi.fn();
+
+    renderHook(() => useResizeObserver(ref, onResize));
+
+    // Drain the queued RAF polling callbacks; each callback schedules the next
+    // until the max poll limit is reached.
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (!rafCallback) {
+        break;
+      }
+      const callback = rafCallback;
+      rafCallback = null;
+      callback(performance.now());
+    }
+
+    expect(rafId).toBe(120);
+    expect(rafCallback).toBeNull();
+  });
+
   it('disconnects observer on unmount', () => {
     const element = document.createElement('div');
     const ref = { current: element };
