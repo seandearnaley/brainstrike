@@ -285,6 +285,16 @@ describe('TokenCacheStore', () => {
       const trimmedResult = await store.get('folder-1', 'src/index.ts');
       expect(trimmedResult).toBeNull();
     });
+
+    it('warns when leading or trailing whitespace is preserved in cache keys', async () => {
+      const spacedPath = ' src/index.ts ';
+      await store.set(createEntry({ filePath: spacedPath }));
+
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        'Token cache file path has leading or trailing whitespace; preserving exact key',
+        { filePath: spacedPath }
+      );
+    });
   });
 
   describe('file path validation', () => {
@@ -312,33 +322,47 @@ describe('TokenCacheStore', () => {
     });
 
     it('rejects unsafe paths before read/delete queries execute', async () => {
-      await expect(store.get('folder-1', '')).rejects.toThrow(
-        'Token cache file path must not be empty'
-      );
-      await expect(store.get('folder-1', '   ')).rejects.toThrow(
-        'Token cache file path must not be empty'
-      );
-      await expect(store.get('folder-1', '../escape.ts')).rejects.toThrow(
-        'Token cache file path must not contain relative traversal segments'
-      );
-      await expect(store.get('folder-1', 'src//double.ts')).rejects.toThrow(
-        'Token cache file path must not contain empty segments'
-      );
-      await expect(store.get('folder-1', 'src/folder/')).rejects.toThrow(
-        'Token cache file path must not contain empty segments'
-      );
-      await expect(store.getBatch('folder-1', ['safe.ts', '/absolute.ts'])).rejects.toThrow(
-        'Token cache file path must be relative'
-      );
-      await expect(store.getTotalTokens('folder-1', ['safe.ts', './dot.ts'])).rejects.toThrow(
-        'Token cache file path must not contain relative traversal segments'
-      );
-      await expect(store.delete('folder-1', 'C:\\windows\\abs.ts')).rejects.toThrow(
-        'Token cache file path must be relative'
-      );
+      const guardedOperations = [
+        {
+          run: () => store.get('folder-1', ''),
+          message: 'Token cache file path must not be empty',
+        },
+        {
+          run: () => store.get('folder-1', '   '),
+          message: 'Token cache file path must not be empty',
+        },
+        {
+          run: () => store.get('folder-1', '../escape.ts'),
+          message: 'Token cache file path must not contain relative traversal segments',
+        },
+        {
+          run: () => store.get('folder-1', 'src//double.ts'),
+          message: 'Token cache file path must not contain empty segments',
+        },
+        {
+          run: () => store.get('folder-1', 'src/folder/'),
+          message: 'Token cache file path must not contain empty segments',
+        },
+        {
+          run: () => store.getBatch('folder-1', ['safe.ts', '/absolute.ts']),
+          message: 'Token cache file path must be relative',
+        },
+        {
+          run: () => store.getTotalTokens('folder-1', ['safe.ts', './dot.ts']),
+          message: 'Token cache file path must not contain relative traversal segments',
+        },
+        {
+          run: () => store.delete('folder-1', 'C:\\windows\\abs.ts'),
+          message: 'Token cache file path must be relative',
+        },
+      ];
+
+      for (const { run, message } of guardedOperations) {
+        await expect(run()).rejects.toThrow(message);
+      }
 
       expect(mockDb.query).not.toHaveBeenCalled();
-      expect(mockLoggerWarn).toHaveBeenCalledTimes(8);
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(guardedOperations.length);
     });
   });
 

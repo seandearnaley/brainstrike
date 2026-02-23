@@ -103,7 +103,16 @@ export class TokenCacheStore {
 
   private validateFilePath(filePath: string): string {
     try {
-      return validateRelativeFilePath(filePath);
+      const validatedPath = validateRelativeFilePath(filePath);
+      if (validatedPath !== validatedPath.trim()) {
+        logger.warn(
+          'Token cache file path has leading or trailing whitespace; preserving exact key',
+          {
+            filePath: validatedPath,
+          }
+        );
+      }
+      return validatedPath;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       logger.warn('Rejected unsafe token cache file path', { filePath, reason });
