@@ -5,11 +5,13 @@
  * Provides type-safe database operations for file token caching.
  */
 
+import { validateRelativeFilePath } from '@brainstrike/utils';
 import { and, count, eq, inArray, sql, sum } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { fileTokenCache } from '../../schema/index.js';
 
 type DrizzleDb = PgliteDatabase;
+const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
 
 /**
  * Token counting mode
@@ -54,14 +56,21 @@ export interface TokenCacheStats {
 export class DrizzleTokenCacheStore {
   constructor(private readonly db: DrizzleDb) {}
 
+  private validateFilePath(filePath: string): string {
+    return validateRelativeFilePath(filePath, { label: TOKEN_CACHE_FILE_PATH_LABEL });
+  }
+
   /**
    * Get a single cached entry by folder and path.
    */
   async get(folderId: string, filePath: string): Promise<TokenCacheEntry | null> {
+    const validatedPath = this.validateFilePath(filePath);
     const [row] = await this.db
       .select()
       .from(fileTokenCache)
-      .where(and(eq(fileTokenCache.folderId, folderId), eq(fileTokenCache.filePath, filePath)));
+      .where(
+        and(eq(fileTokenCache.folderId, folderId), eq(fileTokenCache.filePath, validatedPath))
+      );
 
     return row ? this.fromRow(row) : null;
   }
@@ -74,12 +83,13 @@ export class DrizzleTokenCacheStore {
     if (filePaths.length === 0) {
       return new Map();
     }
+    const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
     const rows = await this.db
       .select()
       .from(fileTokenCache)
       .where(
-        and(eq(fileTokenCache.folderId, folderId), inArray(fileTokenCache.filePath, filePaths))
+        and(eq(fileTokenCache.folderId, folderId), inArray(fileTokenCache.filePath, validatedPaths))
       );
 
     const map = new Map<string, TokenCacheEntry>();
@@ -106,11 +116,12 @@ export class DrizzleTokenCacheStore {
    * Upsert a single cache entry.
    */
   async set(entry: TokenCacheEntry): Promise<void> {
+    const validatedPath = this.validateFilePath(entry.filePath);
     await this.db
       .insert(fileTokenCache)
       .values({
         folderId: entry.folderId,
-        filePath: entry.filePath,
+        filePath: validatedPath,
         contentHash: entry.contentHash,
         fileSize: String(entry.fileSize),
         mtimeMs: entry.mtimeMs !== null ? String(entry.mtimeMs) : null,
@@ -141,10 +152,15 @@ export class DrizzleTokenCacheStore {
       return;
     }
 
+    const validatedEntries = entries.map((entry) => ({
+      entry,
+      validatedPath: this.validateFilePath(entry.filePath),
+    }));
+
     // Convert entries to insert format
-    const values = entries.map((entry) => ({
+    const values = validatedEntries.map(({ entry, validatedPath }) => ({
       folderId: entry.folderId,
-      filePath: entry.filePath,
+      filePath: validatedPath,
       contentHash: entry.contentHash,
       fileSize: String(entry.fileSize),
       mtimeMs: entry.mtimeMs !== null ? String(entry.mtimeMs) : null,
@@ -176,9 +192,10 @@ export class DrizzleTokenCacheStore {
    * Delete a single cache entry.
    */
   async delete(folderId: string, filePath: string): Promise<boolean> {
+    const validatedPath = this.validateFilePath(filePath);
     const result = await this.db
       .delete(fileTokenCache)
-      .where(and(eq(fileTokenCache.folderId, folderId), eq(fileTokenCache.filePath, filePath)))
+      .where(and(eq(fileTokenCache.folderId, folderId), eq(fileTokenCache.filePath, validatedPath)))
       .returning();
 
     return result.length > 0;
@@ -216,12 +233,13 @@ export class DrizzleTokenCacheStore {
     if (filePaths.length === 0) {
       return 0;
     }
+    const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
     const [result] = await this.db
       .select({ total: sum(fileTokenCache.tokenCount) })
       .from(fileTokenCache)
       .where(
-        and(eq(fileTokenCache.folderId, folderId), inArray(fileTokenCache.filePath, filePaths))
+        and(eq(fileTokenCache.folderId, folderId), inArray(fileTokenCache.filePath, validatedPaths))
       );
 
     return Number(result?.total ?? 0);

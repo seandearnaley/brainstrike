@@ -5,6 +5,7 @@
  * Provides efficient batch queries and aggregations.
  */
 
+import { createLogger, validateRelativeFilePath } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type {
   TokenCacheEntry,
@@ -12,6 +13,9 @@ import type {
   TokenCacheStoreOptions,
   TokenCountingMode,
 } from './types';
+
+const logger = createLogger('TokenCacheStore');
+const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
 
 /**
  * Database row type (snake_case from SQL)
@@ -64,14 +68,67 @@ export class TokenCacheStore {
     this.db = db;
   }
 
+  private validateFilePath(filePath: string): string {
+    try {
+      const validatedPath = validateRelativeFilePath(filePath, {
+        label: TOKEN_CACHE_FILE_PATH_LABEL,
+      });
+      if (validatedPath !== validatedPath.trim()) {
+        logger.info(
+          'Token cache file path has leading or trailing whitespace; preserving exact key',
+          {
+            filePath: validatedPath,
+          }
+        );
+      }
+      return validatedPath;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      logger.warn('Rejected unsafe token cache file path', { filePath, reason });
+      throw error;
+    }
+  }
+
+  private async upsertEntryWithValidatedPath(
+    entry: TokenCacheEntry,
+    validatedPath: string
+  ): Promise<void> {
+    await this.db.query(
+      `INSERT INTO file_token_cache
+       (folder_id, file_path, content_hash, file_size, mtime_ms,
+        token_count, counting_mode, model_encoding)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (folder_id, file_path)
+       DO UPDATE SET
+         content_hash = EXCLUDED.content_hash,
+         file_size = EXCLUDED.file_size,
+         mtime_ms = EXCLUDED.mtime_ms,
+         token_count = EXCLUDED.token_count,
+         counting_mode = EXCLUDED.counting_mode,
+         model_encoding = EXCLUDED.model_encoding,
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        entry.folderId,
+        validatedPath,
+        entry.contentHash,
+        entry.fileSize,
+        entry.mtimeMs,
+        entry.tokenCount,
+        entry.countingMode,
+        entry.modelEncoding,
+      ]
+    );
+  }
+
   /**
    * Get a single cached entry by folder and path.
    */
   async get(folderId: string, filePath: string): Promise<TokenCacheEntry | null> {
+    const validatedPath = this.validateFilePath(filePath);
     const result = await this.db.query<TokenCacheRow>(
       `SELECT * FROM file_token_cache
        WHERE folder_id = $1 AND file_path = $2`,
-      [folderId, filePath]
+      [folderId, validatedPath]
     );
 
     const row = result.rows[0];
@@ -90,13 +147,14 @@ export class TokenCacheStore {
     if (filePaths.length === 0) {
       return new Map();
     }
+    const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
     // Build parameterized query with placeholder array
-    const placeholders = filePaths.map((_, i) => `$${i + 2}`).join(',');
+    const placeholders = validatedPaths.map((_, i) => `$${i + 2}`).join(',');
     const result = await this.db.query<TokenCacheRow>(
       `SELECT * FROM file_token_cache
        WHERE folder_id = $1 AND file_path IN (${placeholders})`,
-      [folderId, ...filePaths]
+      [folderId, ...validatedPaths]
     );
 
     const map = new Map<string, TokenCacheEntry>();
@@ -123,31 +181,8 @@ export class TokenCacheStore {
    * Upsert a single cache entry.
    */
   async set(entry: TokenCacheEntry): Promise<void> {
-    await this.db.query(
-      `INSERT INTO file_token_cache
-       (folder_id, file_path, content_hash, file_size, mtime_ms,
-        token_count, counting_mode, model_encoding)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (folder_id, file_path)
-       DO UPDATE SET
-         content_hash = EXCLUDED.content_hash,
-         file_size = EXCLUDED.file_size,
-         mtime_ms = EXCLUDED.mtime_ms,
-         token_count = EXCLUDED.token_count,
-         counting_mode = EXCLUDED.counting_mode,
-         model_encoding = EXCLUDED.model_encoding,
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        entry.folderId,
-        entry.filePath,
-        entry.contentHash,
-        entry.fileSize,
-        entry.mtimeMs,
-        entry.tokenCount,
-        entry.countingMode,
-        entry.modelEncoding,
-      ]
-    );
+    const validatedPath = this.validateFilePath(entry.filePath);
+    await this.upsertEntryWithValidatedPath(entry, validatedPath);
   }
 
   /**
@@ -158,11 +193,17 @@ export class TokenCacheStore {
       return;
     }
 
+    // Validate all paths up-front so invalid batches fail before any writes begin.
+    const validatedEntries = entries.map((entry) => ({
+      entry,
+      validatedPath: this.validateFilePath(entry.filePath),
+    }));
+
     // Use a transaction for atomicity
     await this.db.query('BEGIN');
     try {
-      for (const entry of entries) {
-        await this.set(entry);
+      for (const { entry, validatedPath } of validatedEntries) {
+        await this.upsertEntryWithValidatedPath(entry, validatedPath);
       }
       await this.db.query('COMMIT');
     } catch (error) {
@@ -175,10 +216,11 @@ export class TokenCacheStore {
    * Delete a single cache entry.
    */
   async delete(folderId: string, filePath: string): Promise<boolean> {
+    const validatedPath = this.validateFilePath(filePath);
     const result = await this.db.query(
       `DELETE FROM file_token_cache
        WHERE folder_id = $1 AND file_path = $2`,
-      [folderId, filePath]
+      [folderId, validatedPath]
     );
 
     return (result.affectedRows ?? 0) > 0;
@@ -212,13 +254,14 @@ export class TokenCacheStore {
     if (filePaths.length === 0) {
       return 0;
     }
+    const validatedPaths = filePaths.map((filePath) => this.validateFilePath(filePath));
 
-    const placeholders = filePaths.map((_, i) => `$${i + 2}`).join(',');
+    const placeholders = validatedPaths.map((_, i) => `$${i + 2}`).join(',');
     const result = await this.db.query<{ total: string }>(
       `SELECT COALESCE(SUM(token_count), 0) as total
        FROM file_token_cache
        WHERE folder_id = $1 AND file_path IN (${placeholders})`,
-      [folderId, ...filePaths]
+      [folderId, ...validatedPaths]
     );
 
     return Number(result.rows[0]?.total ?? 0);

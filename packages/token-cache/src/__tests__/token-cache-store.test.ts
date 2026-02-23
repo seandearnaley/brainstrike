@@ -1,4 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { mockLoggerWarn, mockLoggerInfo } = vi.hoisted(() => ({
+  mockLoggerWarn: vi.fn(),
+  mockLoggerInfo: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    createLogger: vi.fn(() => ({
+      warn: mockLoggerWarn,
+      error: vi.fn(),
+      info: mockLoggerInfo,
+      debug: vi.fn(),
+    })),
+  };
+});
+
 import { TokenCacheStore } from '../token-cache-store';
 import type { TokenCacheEntry } from '../types';
 
@@ -202,6 +221,8 @@ describe('TokenCacheStore', () => {
   let mockDb: ReturnType<typeof createMockDb>;
 
   beforeEach(() => {
+    mockLoggerWarn.mockClear();
+    mockLoggerInfo.mockClear();
     mockDb = createMockDb();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     store = new TokenCacheStore(mockDb as any);
@@ -250,6 +271,110 @@ describe('TokenCacheStore', () => {
 
       const result = await store.get('folder-1', 'src/index.ts');
       expect(result?.tokenCount).toBe(200);
+    });
+
+    it('accepts safe relative paths with special characters', async () => {
+      const specialPath = 'src/components/[id] (draft)#1.ts';
+      await store.set(createEntry({ filePath: specialPath }));
+
+      const result = await store.get('folder-1', specialPath);
+      expect(result?.filePath).toBe(specialPath);
+    });
+
+    it('preserves significant leading and trailing whitespace in file paths', async () => {
+      const spacedPath = ' src/index.ts ';
+      await store.set(createEntry({ filePath: spacedPath }));
+
+      const spacedResult = await store.get('folder-1', spacedPath);
+      expect(spacedResult?.filePath).toBe(spacedPath);
+
+      const trimmedResult = await store.get('folder-1', 'src/index.ts');
+      expect(trimmedResult).toBeNull();
+    });
+
+    it('logs info when leading or trailing whitespace is preserved in cache keys', async () => {
+      const spacedPath = ' src/index.ts ';
+      await store.set(createEntry({ filePath: spacedPath }));
+
+      expect(mockLoggerInfo).toHaveBeenCalledWith(
+        'Token cache file path has leading or trailing whitespace; preserving exact key',
+        { filePath: spacedPath }
+      );
+    });
+  });
+
+  describe('file path validation', () => {
+    it('rejects unsafe paths before writes reach the database', async () => {
+      const invalidPaths = [
+        '',
+        '   ',
+        '/absolute/path.ts',
+        '../escape.ts',
+        'src/../escape.ts',
+        'src//double-slash.ts',
+        'src/folder/',
+        './relative-dot.ts',
+        'C:\\secret.ts',
+        '\\\\server\\share\\payload.ts',
+        'src/\0null-byte.ts',
+        'src/foo\tbar.ts',
+      ];
+
+      for (const invalidPath of invalidPaths) {
+        await expect(store.set(createEntry({ filePath: invalidPath }))).rejects.toThrow();
+      }
+
+      // Each write validates before query execution, so every invalid path short-circuits DB access.
+      expect(mockDb.query).not.toHaveBeenCalled();
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(invalidPaths.length);
+    });
+
+    it('rejects unsafe paths before read/delete queries execute', async () => {
+      const guardedOperations = [
+        {
+          run: () => store.get('folder-1', ''),
+          message: 'Token cache file path must not be empty',
+        },
+        {
+          run: () => store.get('folder-1', '   '),
+          message: 'Token cache file path must not be empty',
+        },
+        {
+          run: () => store.get('folder-1', 'src/foo\tbar.ts'),
+          message: 'Token cache file path must not contain control characters',
+        },
+        {
+          run: () => store.get('folder-1', '../escape.ts'),
+          message: 'Token cache file path must not contain relative traversal segments',
+        },
+        {
+          run: () => store.get('folder-1', 'src//double.ts'),
+          message: 'Token cache file path must not contain empty segments',
+        },
+        {
+          run: () => store.get('folder-1', 'src/folder/'),
+          message: 'Token cache file path must not contain empty segments',
+        },
+        {
+          run: () => store.getBatch('folder-1', ['safe.ts', '/absolute.ts']),
+          message: 'Token cache file path must be relative',
+        },
+        {
+          run: () => store.getTotalTokens('folder-1', ['safe.ts', './dot.ts']),
+          message: 'Token cache file path must not contain relative traversal segments',
+        },
+        {
+          run: () => store.delete('folder-1', 'C:\\windows\\abs.ts'),
+          message: 'Token cache file path must be relative',
+        },
+      ];
+
+      for (const { run, message } of guardedOperations) {
+        await expect(run()).rejects.toThrow(message);
+      }
+
+      expect(mockDb.query).not.toHaveBeenCalled();
+      expect(mockLoggerWarn).toHaveBeenCalledTimes(guardedOperations.length);
     });
   });
 
@@ -311,6 +436,24 @@ describe('TokenCacheStore', () => {
     it('handles empty batch', async () => {
       await store.setBatch([]);
       expect(mockDb.query).not.toHaveBeenCalledWith(expect.stringContaining('INSERT'));
+    });
+
+    it('does not persist entries when a batch includes an invalid path', async () => {
+      const entries = [
+        createEntry({ filePath: 'valid.ts', tokenCount: 100 }),
+        createEntry({ filePath: '../escape.ts', tokenCount: 200 }),
+      ];
+
+      await expect(store.setBatch(entries)).rejects.toThrow(
+        'Token cache file path must not contain relative traversal segments'
+      );
+
+      const persisted = await store.get('folder-1', 'valid.ts');
+      expect(persisted).toBeNull();
+      expect(mockLoggerWarn).toHaveBeenCalledWith('Rejected unsafe token cache file path', {
+        filePath: '../escape.ts',
+        reason: 'Token cache file path must not contain relative traversal segments',
+      });
     });
   });
 
