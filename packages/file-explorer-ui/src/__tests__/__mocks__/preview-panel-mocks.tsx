@@ -632,6 +632,8 @@ export const createHooksModuleMock = () => {
   const { useState } = reactModule;
 
   return {
+    useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
+      callback,
     usePagination: vi.fn((options: UsePaginationOptions) => {
       const pageSize = options.pageSize ?? 50;
       const totalPages = Math.ceil(options.totalItems / pageSize);

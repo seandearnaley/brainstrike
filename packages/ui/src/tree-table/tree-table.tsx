@@ -74,6 +74,14 @@ interface ResolveWindowingStrategyOptions {
   autoPagedRowThreshold: number;
 }
 
+/**
+ * Resolves runtime row-windowing mode.
+ *
+ * Auto strategy is intentionally conservative:
+ * - `browse` context always stays virtual (smooth sequential navigation).
+ * - `search` context can switch to paged mode once row count crosses the threshold.
+ * - Threshold values are clamped to >= 1 to avoid invalid paging math.
+ */
 function resolveWindowingStrategy({
   strategy,
   autoWindowingContext,
@@ -258,6 +266,10 @@ function resolveTotalRowCount(rowCount: number, showHeader: boolean): number {
 
 function resolveTableAriaRole(ariaRole: TreeTableProps<unknown>['ariaRole']): 'treegrid' | 'grid' {
   return ariaRole === 'grid' ? 'grid' : 'treegrid';
+}
+
+function resolvePaginationTotalItems(isPagedWindowing: boolean, rowCount: number): number {
+  return isPagedWindowing ? rowCount : 0;
 }
 
 interface TreeTableViewportProps {
@@ -551,10 +563,14 @@ export function TreeTable<T>({
   const isPagedWindowing = resolvedWindowingStrategy === 'paged';
 
   const [pageSize, setInternalPageSize] = useResolvedPageSize(pagination);
+  // Keep pagination state dormant when not in paged mode.
+  // This avoids page-bound recalculation churn for virtual/none strategies
+  // while preserving hook ordering and stable page state when mode flips.
+  const paginationTotalItems = resolvePaginationTotalItems(isPagedWindowing, rows.length);
 
   const { currentPage, totalPages, startIndex, endIndex, goToPage, resetToFirstPage } =
     usePagination({
-      totalItems: rows.length,
+      totalItems: paginationTotalItems,
       pageSize,
     });
 

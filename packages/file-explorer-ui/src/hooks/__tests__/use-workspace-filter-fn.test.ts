@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@brainstrike/hooks', () => ({
+  useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
+    callback,
   useFileFilters: () => ({
     applyFileFilters: mocks.applyFileFilters,
   }),

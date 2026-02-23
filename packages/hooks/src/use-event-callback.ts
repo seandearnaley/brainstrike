@@ -3,17 +3,22 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 /**
- * Ref-backed callback wrapper for event handlers that need stable identity.
- * Ref writes are committed in a layout effect to avoid render-time ref mutation
- * hazards under concurrent rendering.
- * Do not invoke the returned callback during render.
- * Do not use this as an effect dependency shortcut.
- * TODO(BST-312): Replace with React's stable useEffectEvent once adopted in this codebase.
+ * Returns a stable callback identity that always invokes the latest callback.
+ *
+ * - Safe for SSR: falls back to `useEffect` when `window` is unavailable.
+ * - Safe for concurrent rendering: callback ref updates happen in an effect,
+ *   never during render.
+ *
+ * Intended for event handlers only.
+ * Do not invoke this callback during render and do not use it to bypass effect dependencies.
+ *
+ * TODO(BST-320): Replace with React's native `useEffectEvent` once adopted.
  */
 export function useEventCallback<TArgs extends unknown[], TResult>(
   callback: (...args: TArgs) => TResult
 ): (...args: TArgs) => TResult {
   const callbackRef = useRef(callback);
+
   useIsomorphicLayoutEffect(() => {
     callbackRef.current = callback;
   }, [callback]);

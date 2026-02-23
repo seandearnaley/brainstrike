@@ -227,6 +227,7 @@ export interface TreeTableProps<T> {
   /**
    * Row threshold for auto strategy to switch to paged mode.
    * Values < 1 are clamped to 1.
+   * Auto mode only considers this threshold in `search` context.
    * In search mode, pass `0` to force paged mode whenever at least one row is present.
    */
   autoPagedRowThreshold?: number;
@@ -262,7 +263,7 @@ export interface TreeTableProps<T> {
   ariaLabel?: string;
   /** ARIA role for the table container */
   ariaRole?: 'treegrid' | 'grid';
-  /** Whether to render the header row */
+  /** Whether to render the header row. Prefer this prop over CSS-only header hiding. */
   showHeader?: boolean;
 
   // Checkbox

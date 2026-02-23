@@ -1,3 +1,4 @@
+import { useEventCallback } from '@brainstrike/hooks';
 import {
   Checkbox,
   SortableTableHeader,
@@ -5,10 +6,9 @@ import {
   TreeTable,
   type TreeTableColumn,
 } from '@brainstrike/ui';
-import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
-import { memo, useCallback, useMemo } from 'react';
+import { FolderOpen } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { ExtensionBadge } from './extension-badge';
-import { useEventCallback } from './hooks/use-event-callback';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
 import { formatTokenCount } from './use-preview-panel-state';
@@ -56,27 +56,21 @@ type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
-const EMPTY_EXPANDED_IDS = new Set<string>();
-const NOOP_TOGGLE_EXPAND = (): void => {};
 
 interface GroupHeaderSummaryProps {
   group: GroupedData<TableRowData>;
-  isCollapsed: boolean;
   showInlineCheckbox: boolean;
   isFullySelected: boolean;
   isPartiallySelected: boolean;
   onSelectionChange: (checked: boolean) => void;
-  onToggleCollapse: () => void;
 }
 
 const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSummaryComponent({
   group,
-  isCollapsed,
   showInlineCheckbox,
   isFullySelected,
   isPartiallySelected,
   onSelectionChange,
-  onToggleCollapse,
 }) {
   const checkboxState: boolean | 'indeterminate' = isFullySelected
     ? true
@@ -94,22 +88,16 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
           onClick={(event) => event.stopPropagation()}
         />
       )}
-      <button
-        aria-description={`Group containing ${group.count} file${group.count === 1 ? '' : 's'}`}
-        aria-expanded={!isCollapsed}
-        aria-label={`${isCollapsed ? 'Expand group' : 'Collapse group'} ${group.groupLabel}`}
-        className="inline-flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-left font-medium text-sm transition-colors hover:bg-muted"
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggleCollapse();
-        }}
-        type="button"
-      >
-        {isCollapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
-        <FolderOpen className="size-4 text-muted-foreground" />
-        <span className="truncate">{group.groupLabel}</span>
-      </button>
-      <span className="text-muted-foreground text-xs">{group.count} files</span>
+      <div className="inline-flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-0.5 font-medium text-sm">
+        <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
+        <span className="truncate">
+          {group.groupLabel}
+          <span className="sr-only">{` (${group.count} file${group.count === 1 ? '' : 's'})`}</span>
+        </span>
+      </div>
+      <span aria-hidden="true" className="text-muted-foreground text-xs">
+        {group.count} files
+      </span>
       <span className="whitespace-nowrap text-muted-foreground text-xs tabular-nums">
         {formatTokenCount(group.totalTokens)}
       </span>
@@ -125,6 +113,34 @@ interface BuildGroupedTreeNodesInput {
   groupedData: GroupedData<TableRowData>[];
   collapsedGroups: Set<string>;
   pagination: { startIndex: number; endIndex: number };
+}
+
+interface BuildGroupedTreeNodesResult {
+  nodes: TreeNode<PreviewTreeNodeData>[];
+  expandedGroupNodeIds: Set<string>;
+}
+
+function areStringSetsEqual(left: Set<string>, right: Set<string>): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function resolveGroupNodeId(groupKey: string): string {
+  return `group:${groupKey}`;
+}
+
+function resolveItemNodeId(compositeKey: string): string {
+  return `item:${compositeKey}`;
 }
 
 function isRowInsidePageWindow(
@@ -152,16 +168,13 @@ function createGroupTreeNode(
   group: GroupedData<TableRowData>,
   groupKey: string
 ): TreeNode<PreviewTreeNodeData> {
-  // Group headers own expand/collapse semantics via GroupHeaderSummary button aria-expanded.
-  // Rows stay non-hierarchical (`hasChildren: false`) in this flat migration projection.
-  // This intentionally leaves row-level aria-expanded/parent-child semantics incomplete
-  // until BST-312 models grouped rows as true tree parent/child nodes.
+  const groupNodeId = resolveGroupNodeId(groupKey);
   return {
-    id: `group:${groupKey}`,
+    id: groupNodeId,
     type: 'preview-group',
     depth: 0,
     parentId: null,
-    hasChildren: false,
+    hasChildren: group.items.length > 0,
     data: {
       kind: 'group',
       group,
@@ -169,12 +182,12 @@ function createGroupTreeNode(
   };
 }
 
-function createItemTreeNode(item: TableRowData): TreeNode<PreviewTreeNodeData> {
+function createItemTreeNode(item: TableRowData, parentId: string): TreeNode<PreviewTreeNodeData> {
   return {
-    id: `item:${item.compositeKey}`,
+    id: resolveItemNodeId(item.compositeKey),
     type: 'preview-item',
-    depth: 0,
-    parentId: null,
+    depth: 1,
+    parentId,
     hasChildren: false,
     data: {
       kind: 'item',
@@ -186,6 +199,7 @@ function createItemTreeNode(item: TableRowData): TreeNode<PreviewTreeNodeData> {
 function appendVisibleGroupItems(
   nodes: TreeNode<PreviewTreeNodeData>[],
   group: GroupedData<TableRowData>,
+  groupNodeId: string,
   visibleRowIndex: number,
   pagination: { startIndex: number; endIndex: number }
 ): number {
@@ -201,7 +215,7 @@ function appendVisibleGroupItems(
     if (!item) {
       continue;
     }
-    nodes.push(createItemTreeNode(item));
+    nodes.push(createItemTreeNode(item, groupNodeId));
   }
 
   return visibleRowIndex + group.items.length;
@@ -211,19 +225,22 @@ function buildGroupedTreeNodes({
   groupedData,
   collapsedGroups,
   pagination,
-}: BuildGroupedTreeNodesInput): TreeNode<PreviewTreeNodeData>[] {
-  // TODO(BST-312): model grouped rows as parent/child tree nodes instead of a flat projection.
-  // Current migration keeps grouped rows in a flat projection for shared table styling.
-  // This means group and item rows both render at depth 0 until hierarchical tree rows are introduced.
-  // PreviewTable therefore renders `ariaRole="grid"` (not `treegrid`) to avoid implying tree semantics.
-  // Trade-off: assistive tech reads groups/items as peer rows until parent/child rows are modeled.
+}: BuildGroupedTreeNodesInput): BuildGroupedTreeNodesResult {
   const nodes: TreeNode<PreviewTreeNodeData>[] = [];
+  const expandedGroupNodeIds = new Set<string>();
   let visibleRowIndex = 0;
 
   for (const group of groupedData) {
     const groupKey = String(group.groupKey);
+    const groupNodeId = resolveGroupNodeId(groupKey);
     const isCollapsed = collapsedGroups.has(groupKey);
     const groupVisibleRowCount = resolveGroupVisibleRowCount(group, isCollapsed);
+    const pageStartsInsideItems =
+      !isCollapsed &&
+      pagination.startIndex > visibleRowIndex &&
+      pagination.startIndex < visibleRowIndex + groupVisibleRowCount;
+    const shouldRenderGroupRow =
+      isRowInsidePageWindow(visibleRowIndex, pagination) || pageStartsInsideItems;
 
     // Fast-path: skip whole groups that are fully before the requested page window.
     // This avoids O(startIndex) item-by-item scans for large grouped datasets.
@@ -236,8 +253,11 @@ function buildGroupedTreeNodes({
       break;
     }
 
-    if (isRowInsidePageWindow(visibleRowIndex, pagination)) {
+    if (shouldRenderGroupRow) {
       nodes.push(createGroupTreeNode(group, groupKey));
+      if (!isCollapsed && group.items.length > 0) {
+        expandedGroupNodeIds.add(groupNodeId);
+      }
     }
     visibleRowIndex += 1;
 
@@ -248,14 +268,23 @@ function buildGroupedTreeNodes({
       continue;
     }
 
-    visibleRowIndex = appendVisibleGroupItems(nodes, group, visibleRowIndex, pagination);
+    visibleRowIndex = appendVisibleGroupItems(
+      nodes,
+      group,
+      groupNodeId,
+      visibleRowIndex,
+      pagination
+    );
 
     if (hasReachedPageEnd(visibleRowIndex, pagination)) {
       break;
     }
   }
 
-  return nodes;
+  return {
+    nodes,
+    expandedGroupNodeIds,
+  };
 }
 
 function resolvePrimaryGroupColumn(columnVisibility: ColumnVisibility): GroupColumnId {
@@ -345,16 +374,16 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const onFileClickStable = useEventCallback((compositeKey: string) => {
     onFileClick?.(compositeKey);
   });
-  const toggleGroupCollapseStable = useEventCallback(toggleGroupCollapse);
   const handleGroupSelectAllStable = useEventCallback(handleGroupSelectAll);
   const handleGroupDeselectAllStable = useEventCallback(handleGroupDeselectAll);
+  const previousExpandedGroupNodeIdsRef = useRef<Set<string> | null>(null);
 
   const isAllCurrentPageSelected = useMemo(
     () => isAllSelected(visibleFilesOnPage),
     [isAllSelected, visibleFilesOnPage]
   );
 
-  const groupedTreeNodes = useMemo(
+  const groupedTree = useMemo(
     () =>
       buildGroupedTreeNodes({
         groupedData,
@@ -363,6 +392,21 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       }),
     [groupedData, collapsedGroups, pagination]
   );
+
+  const stableExpandedGroupNodeIds = useMemo(() => {
+    const previousExpandedGroupNodeIds = previousExpandedGroupNodeIdsRef.current;
+    if (
+      previousExpandedGroupNodeIds &&
+      areStringSetsEqual(previousExpandedGroupNodeIds, groupedTree.expandedGroupNodeIds)
+    ) {
+      return previousExpandedGroupNodeIds;
+    }
+    return groupedTree.expandedGroupNodeIds;
+  }, [groupedTree.expandedGroupNodeIds]);
+
+  useEffect(() => {
+    previousExpandedGroupNodeIdsRef.current = stableExpandedGroupNodeIds;
+  }, [stableExpandedGroupNodeIds]);
 
   const primaryGroupColumn = useMemo(
     () => resolvePrimaryGroupColumn(columnVisibility),
@@ -374,12 +418,9 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       if (primaryGroupColumn !== columnId) {
         return null;
       }
-
-      const isCollapsed = collapsedGroups.has(String(group.groupKey));
       return (
         <GroupHeaderSummary
           group={group}
-          isCollapsed={isCollapsed}
           isFullySelected={isGroupFullySelected(group)}
           isPartiallySelected={isGroupPartiallySelected(group)}
           onSelectionChange={(checked) => {
@@ -389,22 +430,27 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
             }
             handleGroupDeselectAllStable(group);
           }}
-          onToggleCollapse={() => toggleGroupCollapseStable(group.groupKey)}
           showInlineCheckbox={!columnVisibility.checkbox}
         />
       );
     },
     [
       primaryGroupColumn,
-      collapsedGroups,
       isGroupFullySelected,
       isGroupPartiallySelected,
       handleGroupSelectAllStable,
       handleGroupDeselectAllStable,
-      toggleGroupCollapseStable,
       columnVisibility.checkbox,
     ]
   );
+
+  const onGroupedTreeToggleExpand = useEventCallback((nodeId: string) => {
+    if (!nodeId.startsWith('group:')) {
+      return;
+    }
+    const groupKey = nodeId.slice('group:'.length);
+    toggleGroupCollapse(groupKey as GroupKey);
+  });
 
   // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
   // Grouped mode keeps column definitions reactive to live selection/sort snapshots.
@@ -766,19 +812,17 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     );
   }
 
-  // Group rows are flattened and always visible in this mode; expansion is intentionally disabled.
-  // Render as `grid` instead of `treegrid` to avoid implying a hierarchical ARIA model.
+  // Group rows are modeled as parent nodes with item children for true tree semantics.
   return (
     <div className="flex min-h-0 flex-1 overflow-auto">
       <TreeTable
         ariaLabel="Context explorer table"
-        ariaRole="grid"
         className="min-w-full"
         columns={groupedColumns}
-        expandedIds={EMPTY_EXPANDED_IDS}
+        expandedIds={stableExpandedGroupNodeIds}
         maxHeight="none"
-        nodes={groupedTreeNodes}
-        onToggleExpand={NOOP_TOGGLE_EXPAND}
+        nodes={groupedTree.nodes}
+        onToggleExpand={onGroupedTreeToggleExpand}
         rowClassName={rowClassName}
         selectionMode="none"
         windowingStrategy="none"
