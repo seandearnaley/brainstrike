@@ -11,6 +11,7 @@ import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { fileTokenCache } from '../../schema/index.js';
 
 type DrizzleDb = PgliteDatabase;
+const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
 
 /**
  * Token counting mode
@@ -56,7 +57,7 @@ export class DrizzleTokenCacheStore {
   constructor(private readonly db: DrizzleDb) {}
 
   private validateFilePath(filePath: string): string {
-    return validateRelativeFilePath(filePath);
+    return validateRelativeFilePath(filePath, { label: TOKEN_CACHE_FILE_PATH_LABEL });
   }
 
   /**

@@ -15,6 +15,8 @@ import type {
 } from './types';
 
 const logger = createLogger('TokenCacheStore');
+const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
+
 /**
  * Database row type (snake_case from SQL)
  */
@@ -68,7 +70,9 @@ export class TokenCacheStore {
 
   private validateFilePath(filePath: string): string {
     try {
-      const validatedPath = validateRelativeFilePath(filePath);
+      const validatedPath = validateRelativeFilePath(filePath, {
+        label: TOKEN_CACHE_FILE_PATH_LABEL,
+      });
       if (validatedPath !== validatedPath.trim()) {
         logger.info(
           'Token cache file path has leading or trailing whitespace; preserving exact key',
@@ -89,10 +93,6 @@ export class TokenCacheStore {
     entry: TokenCacheEntry,
     validatedPath: string
   ): Promise<void> {
-    if (process.env['NODE_ENV'] !== 'production' && validatedPath !== entry.filePath) {
-      throw new Error('Invariant violated: validatedPath must equal entry.filePath');
-    }
-
     await this.db.query(
       `INSERT INTO file_token_cache
        (folder_id, file_path, content_hash, file_size, mtime_ms,
