@@ -124,10 +124,7 @@ it('surfaces load errors and skips expansion when lazy loading fails', async () 
 
   expect(onLoadChildren).toHaveBeenCalledWith('/dir');
   expect(onToggle).not.toHaveBeenCalled();
-  expect(onLoadChildrenError).toHaveBeenCalledWith(
-    loadError,
-    expect.objectContaining({ path: '/dir' })
-  );
+  expect(onLoadChildrenError).toHaveBeenCalledWith(loadError, '/dir');
 });
 
 it('shows correct checkbox states for directory selection', () => {

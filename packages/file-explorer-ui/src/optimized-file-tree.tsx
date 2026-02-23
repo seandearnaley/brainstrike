@@ -103,6 +103,8 @@ function evictOldestAncestorCacheEntries(selectedPathAncestorCache: Map<string, 
   }
 
   // Keep the most recently touched half to avoid a full cache cliff.
+  // Linear key-iterator eviction is intentional here to avoid allocating a
+  // large transient key array during high-cardinality cache churn.
   let entriesToEvict = Math.max(
     1,
     selectedPathAncestorCache.size - SELECTED_PATH_ANCESTOR_CACHE_RETAIN_ENTRIES
@@ -193,6 +195,8 @@ function useSelectedDirectoryCounts(
         folderId,
         // Mutable cache by design: recomputation is keyed by selected paths/folder,
         // while cache contents persist across runs to amortize ancestor parsing.
+        // StrictMode may invoke this memo twice in development; cache writes stay
+        // idempotent because each file path deterministically maps to ancestors.
         selectedPathAncestorCacheRef.current
       ),
     [selectedFilePaths, folderId]

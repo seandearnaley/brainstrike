@@ -68,7 +68,7 @@ interface OptimizedFileTreeRowProps {
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
   /** Optional hook for surfacing lazy-load failures to parent UI */
-  onLoadChildrenError?: ((error: unknown, node: IFileNode) => void) | undefined;
+  onLoadChildrenError?: ((error: unknown, nodePath: string) => void) | undefined;
   /** Select all files in a folder recursively, loading if needed */
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
@@ -357,7 +357,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
             await onLoadChildren(node.path);
           } catch (error: unknown) {
             if (onLoadChildrenError) {
-              onLoadChildrenError(error, node);
+              onLoadChildrenError(error, node.path);
             } else {
               logger.error('Failed to load directory children before expansion', {
                 path: node.path,
@@ -377,7 +377,6 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         onToggleDirectoryExpansion,
         onLoadChildren,
         onLoadChildrenError,
-        node,
       ]
     );
 
