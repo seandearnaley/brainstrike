@@ -124,6 +124,7 @@ describe('useResizeObserver', () => {
 
     expect(rafId).toBe(120);
     expect(rafCallback).toBeNull();
+    expect(mockObserve).not.toHaveBeenCalled();
   });
 
   it('disconnects observer on unmount', () => {
