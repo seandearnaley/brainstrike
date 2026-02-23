@@ -6,6 +6,9 @@ import { useResizeObserver } from '../hooks/use-resize-observer';
 let mockResizeObserverCallback: ResizeObserverCallback | null = null;
 let mockObserve: ReturnType<typeof vi.fn>;
 let mockDisconnect: ReturnType<typeof vi.fn>;
+let mockMutationObserverCallback: MutationCallback | null = null;
+let mockMutationObserve: ReturnType<typeof vi.fn>;
+let mockMutationDisconnect: ReturnType<typeof vi.fn>;
 
 // Mock ResizeObserver
 class MockResizeObserver {
@@ -15,6 +18,16 @@ class MockResizeObserver {
   observe = mockObserve;
   unobserve = vi.fn();
   disconnect = mockDisconnect;
+}
+
+// Mock MutationObserver
+class MockMutationObserver {
+  constructor(callback: MutationCallback) {
+    mockMutationObserverCallback = callback;
+  }
+  observe = mockMutationObserve;
+  disconnect = mockMutationDisconnect;
+  takeRecords = vi.fn<() => MutationRecord[]>(() => []);
 }
 
 // Mock requestAnimationFrame
@@ -39,12 +52,16 @@ describe('useResizeObserver', () => {
   beforeEach(() => {
     mockObserve = vi.fn();
     mockDisconnect = vi.fn();
+    mockMutationObserve = vi.fn();
+    mockMutationDisconnect = vi.fn();
     mockResizeObserverCallback = null;
+    mockMutationObserverCallback = null;
     rafCallback = null;
     rafId = 0;
 
     // Setup ResizeObserver mock
     vi.stubGlobal('ResizeObserver', MockResizeObserver);
+    vi.stubGlobal('MutationObserver', MockMutationObserver);
 
     // Setup requestAnimationFrame mock
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
@@ -76,6 +93,22 @@ describe('useResizeObserver', () => {
     renderHook(() => useResizeObserver(ref, onResize));
 
     expect(mockObserve).not.toHaveBeenCalled();
+  });
+
+  it('observes when ref is populated after initial mount', () => {
+    const ref = { current: null as HTMLDivElement | null };
+    const onResize = vi.fn();
+
+    renderHook(() => useResizeObserver(ref, onResize));
+
+    expect(mockObserve).not.toHaveBeenCalled();
+    expect(mockMutationObserve).toHaveBeenCalledTimes(1);
+
+    const element = document.createElement('div');
+    ref.current = element;
+    mockMutationObserverCallback?.([], {} as MutationObserver);
+
+    expect(mockObserve).toHaveBeenCalledWith(element);
   });
 
   it('disconnects observer on unmount', () => {
