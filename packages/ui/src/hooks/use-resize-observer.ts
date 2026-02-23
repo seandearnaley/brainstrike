@@ -64,7 +64,7 @@ export function useResizeObserver<T extends Element>(
     let attachPollRafId: ReturnType<typeof requestAnimationFrame> | null = null;
     let attachPollCount = 0;
     let resizeObserver: ResizeObserver | null = null;
-    const MaxAttachPollAttempts = 120;
+    const maxAttachPollAttempts = 120;
 
     const attachResizeObserver = (element: T): void => {
       if (resizeObserver) {
@@ -97,7 +97,7 @@ export function useResizeObserver<T extends Element>(
         attachResizeObserver(element);
         return;
       }
-      if (attachPollCount >= MaxAttachPollAttempts) {
+      if (attachPollCount >= maxAttachPollAttempts) {
         return;
       }
       attachPollCount += 1;
