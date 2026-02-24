@@ -39,19 +39,21 @@ function normalizePath(path: string): string {
   return path.startsWith('/') ? path.slice(1) : path;
 }
 
-function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
-  return [...nodes].sort((a, b) => {
-    if (a.type !== b.type) {
-      return a.type === 'directory' ? -1 : 1;
-    }
+export function compareFileNodes(a: IFileNode, b: IFileNode): number {
+  if (a.type !== b.type) {
+    return a.type === 'directory' ? -1 : 1;
+  }
 
-    const nameA = a.name.replace(/^\./, '').toLowerCase();
-    const nameB = b.name.replace(/^\./, '').toLowerCase();
-    return nameA.localeCompare(nameB, undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    });
+  const nameA = a.name.replace(/^\./, '').toLowerCase();
+  const nameB = b.name.replace(/^\./, '').toLowerCase();
+  return nameA.localeCompare(nameB, undefined, {
+    numeric: true,
+    sensitivity: 'base',
   });
+}
+
+function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
+  return [...nodes].sort(compareFileNodes);
 }
 
 function addNodeToLines(node: IFileNode, lines: string[]): void {
@@ -102,7 +104,7 @@ function filterTreeNode(
     return shouldIncludeFile(path, compiledInclude) ? node : null;
   }
 
-  const childNodes = node.children ? sortFileNodes(node.children) : [];
+  const childNodes = node.children || [];
   const visibleChildren: IFileNode[] = [];
 
   for (const child of childNodes) {
@@ -121,6 +123,9 @@ function filterTreeNode(
   ) {
     return null;
   }
+
+  // Sort children after filtering to reduce number of comparisons
+  visibleChildren.sort(compareFileNodes);
 
   return {
     ...node,
