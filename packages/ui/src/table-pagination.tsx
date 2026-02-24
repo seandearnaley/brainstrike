@@ -394,7 +394,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   const endItem = Math.min((currentPage + 1) * effectivePageSize, totalItems);
 
   const handleContainerResize = useCallback((entry: ResizeObserverEntry) => {
-    const width = entry.contentRect.width;
+    const width = Math.round(entry.contentRect.width);
     if (!Number.isFinite(width) || width <= 0) {
       return;
     }
@@ -425,11 +425,14 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
 
   const isFirstPage = currentPage === 0;
   const isLastPage = currentPage === totalPages - 1 || totalPages === 0;
-  const resolvedDensity = useMemo(() => {
-    const nextDensity = resolvePaginationDensity(density, containerWidth, autoDensityRef.current);
-    autoDensityRef.current = nextDensity;
-    return nextDensity;
-  }, [density, containerWidth]);
+  const resolvedDensity = useMemo(
+    () => resolvePaginationDensity(density, containerWidth, autoDensityRef.current),
+    [density, containerWidth]
+  );
+
+  useIsomorphicLayoutEffect(() => {
+    autoDensityRef.current = resolvedDensity;
+  }, [resolvedDensity]);
 
   const isReducedDensity = resolvedDensity !== 'full';
   const isMiniDensity = resolvedDensity === 'mini';
