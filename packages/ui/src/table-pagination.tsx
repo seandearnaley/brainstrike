@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from './button';
 import { useResizeObserver } from './hooks/use-resize-observer';
 import { Input } from './input';
@@ -11,19 +11,32 @@ const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500, 1000] as const;
 const DEFAULT_FALLBACK_PAGE_SIZE = 50;
 const COMPACT_PAGINATION_BREAKPOINT = 640;
 const MINI_PAGINATION_BREAKPOINT = 500;
+const PAGINATION_DENSITY_HYSTERESIS_PX = 20;
 
 type PaginationDensity = 'auto' | 'full' | 'compact' | 'mini';
 type ResolvedPaginationDensity = Exclude<PaginationDensity, 'auto'>;
 
-function resolvePaginationDensity(
-  density: PaginationDensity,
-  containerWidth: number | null
+function resolveAutoPaginationDensity(
+  containerWidth: number | null,
+  currentDensity: ResolvedPaginationDensity
 ): ResolvedPaginationDensity {
-  if (density !== 'auto') {
-    return density;
-  }
   // Tests and initial renders can report zero width; default to full until we get real dimensions.
   if (containerWidth === null || containerWidth <= 0 || !Number.isFinite(containerWidth)) {
+    return currentDensity;
+  }
+  if (currentDensity === 'mini') {
+    if (containerWidth <= MINI_PAGINATION_BREAKPOINT + PAGINATION_DENSITY_HYSTERESIS_PX) {
+      return 'mini';
+    }
+    return containerWidth <= COMPACT_PAGINATION_BREAKPOINT ? 'compact' : 'full';
+  }
+  if (currentDensity === 'compact') {
+    if (containerWidth <= MINI_PAGINATION_BREAKPOINT) {
+      return 'mini';
+    }
+    if (containerWidth <= COMPACT_PAGINATION_BREAKPOINT + PAGINATION_DENSITY_HYSTERESIS_PX) {
+      return 'compact';
+    }
     return 'full';
   }
   if (containerWidth <= MINI_PAGINATION_BREAKPOINT) {
@@ -33,6 +46,17 @@ function resolvePaginationDensity(
     return 'compact';
   }
   return 'full';
+}
+
+function resolvePaginationDensity(
+  density: PaginationDensity,
+  containerWidth: number | null,
+  currentDensity: ResolvedPaginationDensity
+): ResolvedPaginationDensity {
+  if (density !== 'auto') {
+    return density;
+  }
+  return resolveAutoPaginationDensity(containerWidth, currentDensity);
 }
 
 function resolvePageSizeSelectWidthClass(density: ResolvedPaginationDensity): string {
@@ -288,6 +312,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   const [editValue, setEditValue] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
+  const [autoDensity, setAutoDensity] = useState<ResolvedPaginationDensity>('full');
   const displayPage = currentPage + 1;
 
   // When focused, show user's edit; when not focused, always show current page
@@ -372,14 +397,24 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     setContainerWidth((previousWidth) => (previousWidth === width ? previousWidth : width));
   }, []);
 
-  useResizeObserver(containerRef, handleContainerResize, { disabled: density !== 'auto' });
+  const shouldHide = totalPages <= 1 && !onPageSizeChange;
+  useResizeObserver(containerRef, handleContainerResize, {
+    disabled: density !== 'auto' || shouldHide,
+  });
 
   const isFirstPage = currentPage === 0;
   const isLastPage = currentPage === totalPages - 1 || totalPages === 0;
   const resolvedDensity = useMemo(
-    () => resolvePaginationDensity(density, containerWidth),
-    [density, containerWidth]
+    () => resolvePaginationDensity(density, containerWidth, autoDensity),
+    [density, containerWidth, autoDensity]
   );
+  useEffect(() => {
+    if (density !== 'auto' || resolvedDensity === autoDensity) {
+      return;
+    }
+    setAutoDensity(resolvedDensity);
+  }, [density, resolvedDensity, autoDensity]);
+
   const isCompactDensity = resolvedDensity !== 'full';
   const isMiniDensity = resolvedDensity === 'mini';
   const shouldRenderRangeSummary = !isMiniDensity && (showItemRange || pageInfo !== undefined);
@@ -396,7 +431,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     [showItemRange, pageInfo, totalItems, resolvedDensity, startItem, endItem]
   );
 
-  if (totalPages <= 1 && !onPageSizeChange) {
+  if (shouldHide) {
     return null;
   }
 

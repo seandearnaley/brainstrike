@@ -20,8 +20,7 @@ describe('CollectionBrowser', () => {
     const root = container.firstElementChild;
     expect(root).toHaveClass('min-w-0');
 
-    const treeRegion = root?.querySelector('.relative.flex.min-h-0.min-w-0.flex-1.overflow-hidden');
-    expect(treeRegion).toBeInTheDocument();
+    expect(screen.getByTestId('collection-tree-region')).toHaveClass('min-w-0');
   });
 
   it('renders loading state', () => {
