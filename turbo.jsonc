@@ -35,7 +35,8 @@
       // Ensures the package is built before tests are run.
       "dependsOn": ["build"],
       // Tests can be sensitive to NODE_ENV, but build cache should not be globally invalidated by it.
-      "env": ["NODE_ENV"],
+      // TURBO_TEST_MODE differentiates plain test runs from coverage runs for cache keys.
+      "env": ["NODE_ENV", "TURBO_TEST_MODE"],
       // Tests may emit coverage/test artifacts when invoked with coverage flags.
       // Declaring these outputs lets Turbo restore artifacts on cache hits.
       "outputs": ["coverage/**", "test-results/**"],
@@ -137,10 +138,11 @@
 
     // --- Test:Coverage Task --- //
     "test:coverage": {
+      // Kept for package-level coverage entry points; CI currently invokes `test` with coverage flags.
       // Ensures the package is built before coverage tests are run.
       "dependsOn": ["build"],
-      // Coverage runs should hash NODE_ENV without invalidating unrelated tasks globally.
-      "env": ["NODE_ENV"],
+      // Coverage runs should hash NODE_ENV + explicit test mode without invalidating unrelated tasks globally.
+      "env": ["NODE_ENV", "TURBO_TEST_MODE"],
       // Coverage output artifacts (e.g., coverage reports).
       "outputs": ["coverage/**", "test-results/**"],
       // Only show logs from cache misses and errors

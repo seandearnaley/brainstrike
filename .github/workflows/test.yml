@@ -133,6 +133,7 @@ jobs:
           echo "| Test | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
         env:
           NODE_ENV: "test"
+          TURBO_TEST_MODE: "coverage"
 
       - name: Enforce package coverage thresholds
         if: steps.unit-tests.outputs.has_coverage == 'true'
