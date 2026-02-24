@@ -907,6 +907,23 @@ describe('TreeTable', () => {
   });
 
   describe('styling', () => {
+    it('keeps root and viewport wrappers shrinkable for narrow side panels', () => {
+      const { container } = render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const root = container.firstElementChild;
+      expect(root).toHaveClass('min-w-0');
+
+      const viewport = root?.firstElementChild;
+      expect(viewport).toHaveClass('min-w-0');
+    });
+
     it('applies className to container', () => {
       render(
         <TreeTable

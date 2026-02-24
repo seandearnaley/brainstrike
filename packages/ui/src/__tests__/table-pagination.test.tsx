@@ -173,4 +173,42 @@ describe('TablePagination', () => {
 
     expect(screen.getByText('No items')).toBeInTheDocument();
   });
+
+  it('uses compact density when explicitly requested', () => {
+    render(
+      <TablePagination
+        currentPage={1}
+        density="compact"
+        onPageChange={vi.fn()}
+        onPageSizeChange={vi.fn()}
+        pageSize={50}
+        totalItems={300}
+        totalPages={6}
+      />
+    );
+
+    // Compact mode hides "Show" label and uses shortened range summary.
+    expect(screen.queryByText('Show')).not.toBeInTheDocument();
+    expect(screen.getByText('51-100/300')).toBeInTheDocument();
+  });
+
+  it('uses mini density when explicitly requested', () => {
+    render(
+      <TablePagination
+        currentPage={1}
+        density="mini"
+        onPageChange={vi.fn()}
+        onPageSizeChange={vi.fn()}
+        pageSize={50}
+        totalItems={300}
+        totalPages={6}
+      />
+    );
+
+    // Mini mode removes first/last controls and hides range text to fit narrow panels.
+    expect(screen.queryByRole('button', { name: 'Go to first page' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Go to last page' })).not.toBeInTheDocument();
+    expect(screen.queryByText('51-100/300')).not.toBeInTheDocument();
+    expect(screen.getByText('/6')).toBeInTheDocument();
+  });
 });

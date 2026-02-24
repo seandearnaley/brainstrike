@@ -9,6 +9,8 @@ import {
 } from '../../stores/collection-browser-store';
 import { CollectionBrowserView } from '../collection-browser-view';
 
+const collectionBrowserPropsSpy = vi.fn<(props: Record<string, unknown>) => void>();
+
 vi.mock('../../contexts/semantic-search-context', () => ({
   useSemanticSearch: () => ({
     searchResults: [],
@@ -29,18 +31,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     </button>
   );
 
-  const CollectionBrowser = ({
-    data,
-    onSelect,
-    onSelectedIdChange,
-    multiSelectEnabled,
-    onDoubleClick,
-    onContextMenu,
-    bulkActions,
-    onMultiSelect,
-    showCheckbox,
-    contextNodeIds,
-  }: {
+  const CollectionBrowser = (props: {
     data: { files: Array<{ id: string }> };
     onSelect?: (nodeId: string, nodeType: string, nodeData: unknown) => void;
     onSelectedIdChange?: (id: string | null) => void;
@@ -56,7 +47,27 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     onMultiSelect?: (ids: Set<string>) => void;
     showCheckbox?: boolean;
     contextNodeIds?: Set<string>;
+    treeWindowingStrategy?: string;
+    treePagination?: {
+      pageSize?: number;
+      pageSizeOptions?: readonly number[];
+      showControls?: boolean;
+      showItemRange?: boolean;
+    };
   }) => {
+    collectionBrowserPropsSpy(props as Record<string, unknown>);
+    const {
+      data,
+      onSelect,
+      onSelectedIdChange,
+      multiSelectEnabled,
+      onDoubleClick,
+      onContextMenu,
+      bulkActions,
+      onMultiSelect,
+      showCheckbox,
+      contextNodeIds,
+    } = props;
     const firstFile = data.files[0];
 
     return (
@@ -234,6 +245,7 @@ describe('CollectionBrowserView', () => {
   beforeEach(() => {
     __resetCollectionBrowserStoreForTests();
     vi.clearAllMocks();
+    collectionBrowserPropsSpy.mockClear();
   });
 
   it('renders inspector panel only while an inspectable node is selected', async () => {
@@ -315,6 +327,28 @@ describe('CollectionBrowserView', () => {
 
     // 3 bulk actions: Expand, Collapse, Copy IDs
     expect(screen.getByTestId('bulk-actions-count')).toHaveTextContent('3');
+  });
+
+  it('uses paged tree windowing with explicit pagination defaults', () => {
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        records={TEST_RECORDS}
+      />
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
+    expect(latestProps).toMatchObject({
+      treeWindowingStrategy: 'paged',
+      treePagination: {
+        pageSize: 50,
+        pageSizeOptions: [25, 50, 100, 250],
+        showControls: true,
+        showItemRange: true,
+      },
+    });
   });
 
   it('handles double-click by toggling expansion for file nodes', async () => {

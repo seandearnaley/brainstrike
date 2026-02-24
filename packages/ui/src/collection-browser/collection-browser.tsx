@@ -236,8 +236,11 @@ export function CollectionBrowser({
   }
 
   return (
-    <div className={cn('relative flex flex-col bg-background', className)} style={{ height }}>
-      <div className="relative flex-1 overflow-hidden">
+    <div
+      className={cn('relative flex min-h-0 min-w-0 flex-col bg-background', className)}
+      style={{ height }}
+    >
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {isSearching && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
             <div className="text-muted-foreground text-sm">Searching...</div>

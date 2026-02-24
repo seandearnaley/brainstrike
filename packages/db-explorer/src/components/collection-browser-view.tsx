@@ -61,6 +61,15 @@ const NODE_ID_PREFIXES = [
   'embedding',
 ] as const satisfies readonly NodeIdPrefix[];
 const NODE_ID_PREFIX_PATTERN = new RegExp(`^(${NODE_ID_PREFIXES.join('|')})-(.+)$`);
+// Collection browser is filter/search-heavy, so paged rendering is more stable than virtual rows.
+const EMBEDDING_TREE_PAGE_SIZE = 50;
+const EMBEDDING_TREE_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
+const EMBEDDING_TREE_PAGINATION = {
+  pageSize: EMBEDDING_TREE_PAGE_SIZE,
+  pageSizeOptions: EMBEDDING_TREE_PAGE_SIZE_OPTIONS,
+  showControls: true,
+  showItemRange: true,
+} as const;
 
 function isNodeIdPrefix(value: string): value is NodeIdPrefix {
   return NODE_ID_PREFIXES.some((prefix) => prefix === value);
@@ -863,7 +872,7 @@ export function CollectionBrowserView({
         <Group onLayoutChange={handleLayoutChange} orientation="horizontal">
           {/* Main browser */}
           <Panel
-            className="min-w-0"
+            className="min-h-0 min-w-0"
             defaultSize={`${
               hasInspectableSelection && !isInspectorCollapsed ? 100 - inspectorWidth : 100
             }%`}
@@ -892,6 +901,8 @@ export function CollectionBrowserView({
               searchMode={searchMode}
               selectedId={selectedId}
               showCheckbox={showCheckbox && multiSelectEnabled}
+              treePagination={EMBEDDING_TREE_PAGINATION}
+              treeWindowingStrategy="paged"
               {...(sortState ? { sortState } : {})}
               {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
               {...(groupBy !== 'none' ? { groupBy } : {})}
