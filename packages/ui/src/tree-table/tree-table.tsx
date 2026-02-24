@@ -286,7 +286,7 @@ function TreeTableViewport({
   children,
 }: TreeTableViewportProps): React.ReactElement {
   return (
-    <div className={className} ref={parentRef} style={{ maxHeight, height: '100%' }}>
+    <div className={cn('min-w-0', className)} ref={parentRef} style={{ maxHeight, height: '100%' }}>
       {children}
     </div>
   );
@@ -898,8 +898,12 @@ export function TreeTable<T>({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <TreeTableViewport className="overflow-auto" maxHeight={maxHeight} parentRef={parentRef}>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <TreeTableViewport
+        className="min-w-0 overflow-auto"
+        maxHeight={maxHeight}
+        parentRef={parentRef}
+      >
         <Table
           aria-colcount={columns.length}
           aria-label={ariaLabel}

@@ -14,6 +14,15 @@ function makeFilters(overrides: Partial<CollectionBrowserFilters> = {}): Collect
 }
 
 describe('CollectionBrowser', () => {
+  it('keeps collection browser wrappers shrinkable in narrow layouts', () => {
+    const { container } = render(<CollectionBrowser data={{ files: [], chunks: [] }} />);
+
+    const root = container.firstElementChild;
+    expect(root).toHaveClass('min-w-0');
+
+    expect(screen.getByTestId('collection-tree-region')).toHaveClass('min-w-0');
+  });
+
   it('renders loading state', () => {
     render(<CollectionBrowser data={{ files: [], chunks: [] }} isLoading={true} />);
     expect(screen.getByText('Loading...')).toBeInTheDocument();
