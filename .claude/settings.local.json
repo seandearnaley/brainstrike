@@ -287,7 +287,6 @@
       "Bash(gh repo view:*)",
       "Bash(npx js-yaml:*)",
       "Bash(do echo \"=== $pkg ===\")",
-      "Bash(/tmp/monitor-pr-668.sh:*)",
       "Bash(gh pr:*)"
     ],
     "deny": [],
