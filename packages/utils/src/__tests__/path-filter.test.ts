@@ -15,6 +15,7 @@ vi.mock('../logger', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 
+// fileFilter uses module-level caches; tests asserting warn counts should use unique invalid patterns.
 describe('fileFilter', () => {
   describe('shouldIgnorePath', () => {
     it('should ignore paths containing default patterns', () => {

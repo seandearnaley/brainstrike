@@ -17,7 +17,7 @@ const IGNORE_REGEX = new RegExp(
 
 // Cache compiled regex and wildcard matchers to avoid repeated compilation work.
 // Intentionally unbounded: expected pattern cardinality is small in this flow.
-// If that assumption changes, migrate all three caches to a bounded/LRU strategy.
+// If that assumption changes, migrate these module-level cache structures to bounded/LRU behavior.
 const regexCache = new Map<string, RegExp>();
 // Track known-invalid regex patterns so we only log once per pattern.
 const invalidRegexPatterns = new Set<string>();
