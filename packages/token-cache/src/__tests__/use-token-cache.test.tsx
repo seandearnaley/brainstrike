@@ -92,6 +92,20 @@ describe('useTokenCache', () => {
     expect(value).toBe(123);
   });
 
+  it('normalizes absolute paths for hot cache lookups', () => {
+    const { result } = renderCacheHook();
+    const absolutePath = '/Users/me/brainstrike copy 2/scripts/merge-coverage.js';
+
+    act(() => {
+      result.current.updateHotCache('brainstrike copy 2', absolutePath, 321);
+    });
+
+    expect(result.current.getTokenCount('brainstrike copy 2', absolutePath)).toBe(321);
+    expect(result.current.getTokenCount('brainstrike copy 2', 'scripts/merge-coverage.js')).toBe(
+      321
+    );
+  });
+
   it('returns null and triggers background count when not cached', async () => {
     const { result, rerender } = renderCacheHook();
 
@@ -148,6 +162,23 @@ describe('useTokenCache', () => {
       resolveExec?.();
     });
     await flushMicrotasks();
+  });
+
+  it('does not duplicate deferred work for absolute-path requests', async () => {
+    const absolutePath = '/Users/me/project/src/file.txt';
+    const { result, rerender } = renderCacheHook();
+
+    await act(async () => {
+      expect(result.current.getTokenCount('project', absolutePath, 'content')).toBeNull();
+      expect(result.current.getTokenCount('project', absolutePath, 'content')).toBeNull();
+    });
+
+    await act(async () => {
+      rerender();
+    });
+
+    await flushMicrotasks();
+    expect(workerPool.exec).toHaveBeenCalledTimes(1);
   });
 
   it('uses persistent cache when hash matches and counting mode matches', async () => {
@@ -217,6 +248,64 @@ describe('useTokenCache', () => {
     expect(store.set).toHaveBeenCalledTimes(1);
     expect(onTokenResolved).toHaveBeenCalledWith('folder', 'file.txt', 5);
     expect(result.current.getTokenCount('folder', 'file.txt')).toBe(5);
+  });
+
+  it('normalizes absolute paths before store access and persistence', async () => {
+    const absolutePath = '/Users/me/brainstrike copy 2/scripts/merge-coverage.js';
+    const normalizedPath = 'scripts/merge-coverage.js';
+    const { result, rerender } = renderCacheHook();
+
+    await act(async () => {
+      expect(result.current.getTokenCount('brainstrike copy 2', absolutePath, 'hello')).toBeNull();
+    });
+
+    await act(async () => {
+      rerender();
+    });
+
+    await flushMicrotasks();
+
+    expect(store.get).toHaveBeenCalledWith('brainstrike copy 2', normalizedPath);
+    expect(workerPool.exec).toHaveBeenCalledWith('countTokens', [
+      expect.objectContaining({ id: `brainstrike copy 2::${normalizedPath}` }),
+    ]);
+    expect(store.set).toHaveBeenCalledWith(
+      expect.objectContaining({ folderId: 'brainstrike copy 2', filePath: normalizedPath })
+    );
+  });
+
+  it('skips unsafe traversal paths and does not queue background work', async () => {
+    const traversalPath = '/Users/me/project/../secret.txt';
+    const { result, rerender } = renderCacheHook();
+
+    await act(async () => {
+      expect(result.current.getTokenCount('project', traversalPath, 'secret')).toBeNull();
+    });
+
+    await act(async () => {
+      rerender();
+    });
+
+    await flushMicrotasks();
+
+    expect(workerPool.exec).not.toHaveBeenCalled();
+    expect(store.get).not.toHaveBeenCalled();
+    expect(result.current.isLoading('project', traversalPath)).toBe(false);
+    expect(result.current.getFileSize('project', traversalPath)).toBeUndefined();
+  });
+
+  it('filters unsafe traversal paths when aggregating total tokens', async () => {
+    const { result } = renderCacheHook();
+    store.getTotalTokens.mockResolvedValueOnce(7);
+
+    await expect(
+      result.current.getTotalTokens('project', [
+        '/Users/me/project/src/file-a.ts',
+        '/Users/me/project/../secret.txt',
+      ])
+    ).resolves.toBe(7);
+
+    expect(store.getTotalTokens).toHaveBeenCalledWith('project', ['src/file-a.ts']);
   });
 
   it('updateHotCache bumps cacheVersion once after debounce', () => {
@@ -421,7 +510,7 @@ describe('useTokenCache', () => {
     const { result } = renderCacheHook();
     const total = await result.current.getTotalTokens('folder', []);
     expect(total).toBe(0);
-    expect(store.getTotalTokens).toHaveBeenCalledWith('folder', []);
+    expect(store.getTotalTokens).not.toHaveBeenCalled();
   });
 
   it('queueForCounting enqueues multiple files with metadata', async () => {

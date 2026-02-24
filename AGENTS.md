@@ -8,89 +8,15 @@ Key principles:
 - The user and the agent can both be wrong; correctness > agreement.
 - Prefer saying “I don’t know yet; let me check X” over guessing.
 
-Always treat this file as authoritative and current.
-
----
-
 > **Project Context:** Local-First (Edge-State/CRDT) • AI-Native (MCP/RAG-Optimized) • Web-Second
 > *Warning: Latency-critical operations should avoid round-trip API dependencies. Assume state resides on the client.*
 
 ---
 
-Do not start dev servers or heavy processes unless explicitly requested.
-
----
-
-## REPO OVERVIEW
-
-- Monorepo with Turborepo + pnpm.
-- Apps:
-  - apps/web: React + Vite
-  - apps/desktop: Electron
-- Shared packages in packages/
-  - queue: embedding queue (workerpool + p-queue fallback)
-  - embedding-worker: Transformers.js worker; exposes resolveEmbeddingWorkerUrl()
-  ...etc
-
-Always confirm locations with semantic search before editing.
-
----
-
-## BUILD, TEST, AND DEV COMMANDS
-
-Use these unless instructions differ in the repo:
-
-- Install:
-  - pnpm install
-- Dev (web):
-  - pnpm dev --filter @brainstrike/web
-- Build all:
-  - pnpm build
-- Lint/Format:
-  - pnpm lint
-  - pnpm format
-- Type check:
-  - pnpm type-check
-- Unit/Integration:
-  - pnpm test
-  - pnpm test --filter <pkg>
-- Web E2E:
-  - pnpm test:e2e
-  - pnpm test:e2e:ui
-  - pnpm test:e2e:debug
-
-Use:
-- pnpm turbo run <task> --filter <pkg>
-to leverage caching; avoid full-repo runs unless necessary.
-
-
-@brainstrike/desktop:dev: ➜  Local:   http://localhost:8081/
-@brainstrike/desktop:dev: ➜  Network: use --host to expose
-@brainstrike/web:dev:   ➜  Local:   http://localhost:8080/
-
----
-
 NOTE: On this team, the bar is that your final code has a clean build, lint, type check, and unit tests all passing together. That means after you make a change, you’re responsible for running the full suite again and iterating until **everything** is green in the same run. CI is there to double-check, not to tell you what you broke.
 
-## ELECTRON E2E (PLAYWRIGHT) / HEADLESS LINUX
-
-Electron needs a display; in CI/headless use Xvfb.
-
-- Local (with DISPLAY):
-  - pnpm -w build
-  - pnpm --filter @brainstrike/desktop run test:e2e
-- Headless Linux (CI/Docker/WSL/etc.):
-  - Debian/Ubuntu:
-    - apt-get update && apt-get install -y xvfb
-  - Alpine:
-    - apk add --no-cache xvfb xvfb-run xorg-server dbus
-  - Then:
-    - pnpm --filter @brainstrike/desktop run test:e2e:ci
-      (wraps with scripts/run-with-xvfb.sh)
-
 Playwright:
-- Run headless.
-- Do not modify playwright.config.*.
+- Run non interactively.
 - Prefer role/text/data-testid selectors over raw CSS.
 
 ---

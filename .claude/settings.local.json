@@ -286,7 +286,8 @@
       "Bash(git remote get-url:*)",
       "Bash(gh repo view:*)",
       "Bash(npx js-yaml:*)",
-      "Bash(do echo \"=== $pkg ===\")"
+      "Bash(do echo \"=== $pkg ===\")",
+      "Bash(gh pr:*)"
     ],
     "deny": [],
     "ask": []
