@@ -112,10 +112,6 @@ export const fileFilter = {
       return (str: string) => regex.test(str);
     }
 
-    if (pattern === '') {
-      return (str: string) => str === '';
-    }
-
     const matcher = getOrCreateWildcardMatcher(pattern);
     return (str: string) => matcher.match(str);
   },
