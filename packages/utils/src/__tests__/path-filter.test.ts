@@ -4,17 +4,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { fileFilter } from '../path-filter';
 
 // Mock the logger
-const mockLogger = {
+const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
-};
+}));
 
 vi.mock('../logger', () => ({
   createLogger: vi.fn(() => mockLogger),
 }));
 
+// fileFilter uses module-level caches; tests asserting warn counts should use unique invalid patterns.
 describe('fileFilter', () => {
   describe('shouldIgnorePath', () => {
     it('should ignore paths containing default patterns', () => {
@@ -147,6 +148,11 @@ describe('fileFilter', () => {
       // Second call - cache hit (should work identically)
       expect(fileFilter.matchWildcard(file2, pattern)).toBe(true);
     });
+
+    it('should preserve minimatch edge-case semantics', () => {
+      // This case diverges if wildcard matching is routed through matcher.makeRe().test().
+      expect(fileFilter.matchWildcard('foo', 'foo/**')).toBe(false);
+    });
   });
 
   describe('matchRegex', () => {
@@ -175,7 +181,7 @@ describe('fileFilter', () => {
     });
 
     it('should handle invalid regex patterns gracefully', () => {
-      expect(fileFilter.matchRegex('test-string', '[')).toBe(false);
+      expect(fileFilter.matchRegex('test-string', '[single-invalid-regex-test')).toBe(false);
 
       expect(mockLogger.warn).toHaveBeenCalled();
     });
@@ -184,12 +190,29 @@ describe('fileFilter', () => {
     it('should handle various invalid regex patterns', () => {
       mockLogger.warn.mockClear();
 
-      const invalidPatterns = ['[', '(', '+', '*', '(?'];
+      const invalidPatterns = [
+        '[various-invalid-regex-bracket',
+        '(various-invalid-regex-paren',
+        'various-invalid-regex-trailing-backslash\\',
+        'various-invalid-regex-range{2,1}',
+        '(?various-invalid-regex-group',
+      ];
       for (const pattern of invalidPatterns) {
         expect(fileFilter.matchRegex('test', pattern)).toBe(false);
       }
 
       expect(mockLogger.warn).toHaveBeenCalledTimes(invalidPatterns.length);
+    });
+
+    it('should only warn once for repeated invalid regex patterns', () => {
+      mockLogger.warn.mockClear();
+
+      // Unique pattern keeps this test isolated from module-level invalid-pattern cache state.
+      const invalidPattern = '[dedupe-invalid-regex-test';
+      expect(fileFilter.matchRegex('test', invalidPattern)).toBe(false);
+      expect(fileFilter.matchRegex('test', invalidPattern)).toBe(false);
+
+      expect(mockLogger.warn).toHaveBeenCalledTimes(1);
     });
 
     // NEW: Test edge cases for empty strings
@@ -208,6 +231,13 @@ describe('fileFilter', () => {
       expect(matcher('/src/index.js')).toBe(false);
     });
 
+    it('should preserve empty wildcard pattern semantics when creating matchers', () => {
+      const matcher = fileFilter.createMatcher('', false);
+
+      expect(matcher('')).toBe(true);
+      expect(matcher('/src/index.ts')).toBe(false);
+    });
+
     it('should create regex matcher functions', () => {
       const matcher = fileFilter.createMatcher('\\.tsx$', true);
 
@@ -218,7 +248,7 @@ describe('fileFilter', () => {
     it('should return a false matcher and warn for invalid regex patterns', () => {
       mockLogger.warn.mockClear();
 
-      const matcher = fileFilter.createMatcher('[', true);
+      const matcher = fileFilter.createMatcher('[create-matcher-invalid-regex-test', true);
 
       expect(matcher('/src/Button.tsx')).toBe(false);
       expect(mockLogger.warn).toHaveBeenCalledTimes(1);

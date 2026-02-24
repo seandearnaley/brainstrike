@@ -15,10 +15,57 @@ const IGNORE_REGEX = new RegExp(
   `(?:^|[\\\\/])(?:${DEFAULT_IGNORE_PATTERNS.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?:$|[\\\\/])`
 );
 
-// Cache compiled regex patterns to avoid recompilation overhead
+// Module-level caches for compiled regex, wildcard matchers, and known-invalid patterns.
+// Intentionally unbounded: expected pattern cardinality is small in this flow.
+// If that assumption changes, migrate these cache structures to bounded/LRU behavior.
 const regexCache = new Map<string, RegExp>();
-// Cache compiled minimatch patterns to avoid recompilation overhead
+const invalidRegexPatterns = new Set<string>();
 const minimatchCache = new Map<string, Minimatch>();
+
+const getLogger = (): ReturnType<typeof createLogger> => createLogger('fileFilter');
+
+const getOrCreateWildcardMatcher = (pattern: string): Minimatch => {
+  let matcher = minimatchCache.get(pattern);
+  if (!matcher) {
+    matcher = new Minimatch(pattern, { dot: true });
+    minimatchCache.set(pattern, matcher);
+  }
+  return matcher;
+};
+
+const getRegexMatcher = (pattern: string): RegExp | null => {
+  const cachedRegex = regexCache.get(pattern);
+  if (cachedRegex) {
+    return cachedRegex;
+  }
+
+  if (invalidRegexPatterns.has(pattern)) {
+    return null;
+  }
+
+  try {
+    // Patterns are expected to come from trusted filter configuration.
+    // If this ever becomes untrusted input, add complexity safeguards.
+    const regex = new RegExp(pattern);
+    regexCache.set(pattern, regex);
+    return regex;
+  } catch (error: unknown) {
+    invalidRegexPatterns.add(pattern);
+    getLogger().warn(`Invalid regex pattern: ${pattern}`, error);
+    return null;
+  }
+};
+
+const matchWildcardPattern = (str: string, pattern: string): boolean => {
+  if (pattern === '') {
+    // Fast path: avoid constructing a Minimatch instance for empty patterns.
+    // Empty patterns can come from blank include/exclude inputs; preserve Minimatch('') semantics.
+    return str === '';
+  }
+
+  const matcher = getOrCreateWildcardMatcher(pattern);
+  return matcher.match(str);
+};
 
 /**
  * Utilities for filtering files and directories
@@ -35,14 +82,15 @@ export const fileFilter = {
    * Matches a string against a wildcard pattern
    */
   matchWildcard(str: string, pattern: string): boolean {
-    return this.createMatcher(pattern, false)(str);
+    return matchWildcardPattern(str, pattern);
   },
 
   /**
    * Matches a string against a regex pattern
    */
   matchRegex(str: string, pattern: string): boolean {
-    return this.createMatcher(pattern, true)(str);
+    const regex = getRegexMatcher(pattern);
+    return regex ? regex.test(str) : false;
   },
 
   /**
@@ -50,29 +98,14 @@ export const fileFilter = {
    */
   createMatcher(pattern: string, useRegex: boolean): (str: string) => boolean {
     if (useRegex) {
-      const cachedRegex = regexCache.get(pattern);
-      if (cachedRegex) {
-        return (str: string) => cachedRegex.test(str);
-      }
-
-      try {
-        const regex = new RegExp(pattern);
-        regexCache.set(pattern, regex);
-        return (str: string) => regex.test(str);
-      } catch (error) {
-        const logger = createLogger('fileFilter');
-        logger.warn(`Invalid regex pattern: ${pattern}`, error);
+      const regex = getRegexMatcher(pattern);
+      if (!regex) {
         return () => false;
       }
+      return (str: string) => regex.test(str);
     }
 
-    const cachedMatcher = minimatchCache.get(pattern);
-    if (cachedMatcher) {
-      return (str: string) => cachedMatcher.match(str);
-    }
-
-    const matcher = new Minimatch(pattern, { dot: true });
-    minimatchCache.set(pattern, matcher);
+    const matcher = getOrCreateWildcardMatcher(pattern);
     return (str: string) => matcher.match(str);
   },
 
