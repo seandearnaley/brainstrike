@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { TablePagination } from '../table-pagination';
@@ -225,5 +225,121 @@ describe('TablePagination', () => {
     expect(screen.queryByRole('button', { name: 'Go to last page' })).not.toBeInTheDocument();
     expect(screen.queryByText('51-100/300')).not.toBeInTheDocument();
     expect(screen.getByText('/6')).toBeInTheDocument();
+  });
+
+  it('adapts auto density with resize transitions and hysteresis', async () => {
+    const observedCallbacks: ResizeObserverCallback[] = [];
+    class TestResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        observedCallbacks.push(callback);
+      }
+      disconnect = vi.fn();
+      observe = vi.fn();
+      unobserve = vi.fn();
+    }
+
+    const originalResizeObserver = window.ResizeObserver;
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback: FrameRequestCallback): number => {
+        callback(0);
+        return 1;
+      });
+
+    Object.defineProperty(window, 'ResizeObserver', {
+      configurable: true,
+      writable: true,
+      value: TestResizeObserver,
+    });
+
+    try {
+      render(
+        <TablePagination
+          currentPage={1}
+          density="auto"
+          onPageChange={vi.fn()}
+          onPageSizeChange={vi.fn()}
+          pageSize={50}
+          totalItems={300}
+          totalPages={6}
+        />
+      );
+
+      const emitResize = (width: number): void => {
+        const callback = observedCallbacks.at(-1);
+        if (!callback) {
+          throw new Error('ResizeObserver callback was not registered');
+        }
+        callback(
+          [
+            {
+              contentRect: { width } as DOMRectReadOnly,
+            } as ResizeObserverEntry,
+          ],
+          {} as ResizeObserver
+        );
+      };
+
+      await waitFor(() => {
+        expect(observedCallbacks.length).toBeGreaterThan(0);
+      });
+
+      act(() => {
+        emitResize(620);
+      });
+      await waitFor(() => {
+        expect(screen.queryByText('Show')).not.toBeInTheDocument();
+        expect(screen.getByText('51-100/300')).toBeInTheDocument();
+      });
+
+      act(() => {
+        emitResize(495);
+      });
+      await waitFor(() => {
+        expect(screen.getByText('/6')).toBeInTheDocument();
+      });
+
+      // Mini mode should persist inside the 20px hysteresis band (<=520px).
+      act(() => {
+        emitResize(510);
+      });
+      await waitFor(() => {
+        expect(screen.getByText('/6')).toBeInTheDocument();
+      });
+
+      // Crossing beyond hysteresis transitions mini -> compact.
+      act(() => {
+        emitResize(530);
+      });
+      await waitFor(() => {
+        expect(screen.queryByText('/6')).not.toBeInTheDocument();
+        expect(screen.getByText('51-100/300')).toBeInTheDocument();
+      });
+
+      // Compact should persist inside its upper hysteresis band (<=660px).
+      act(() => {
+        emitResize(650);
+      });
+      await waitFor(() => {
+        expect(screen.queryByText('Show')).not.toBeInTheDocument();
+        expect(screen.getByText('51-100/300')).toBeInTheDocument();
+      });
+
+      // Exiting the hysteresis band transitions compact -> full.
+      act(() => {
+        emitResize(661);
+      });
+      await waitFor(() => {
+        expect(screen.getByText('Show')).toBeInTheDocument();
+        expect(screen.getByText('51-100 of 300')).toBeInTheDocument();
+      });
+    } finally {
+      Object.defineProperty(window, 'ResizeObserver', {
+        configurable: true,
+        writable: true,
+        value: originalResizeObserver,
+      });
+      requestAnimationFrameSpy.mockRestore();
+    }
   });
 });

@@ -96,24 +96,24 @@ interface PageSizeControlProps {
   onPageSizeChange: ((value: string) => void) | undefined;
   pageSize: number | undefined;
   actualPageSizeOptions: readonly number[];
-  isCompactDensity: boolean;
+  isReducedDensity: boolean;
   resolvedDensity: ResolvedPaginationDensity;
 }
 
-function PageSizeControl({
+const PageSizeControl = memo(function PageSizeControl({
   onPageSizeChange,
   pageSize,
   actualPageSizeOptions,
-  isCompactDensity,
+  isReducedDensity,
   resolvedDensity,
-}: PageSizeControlProps): React.ReactNode {
-  if (!(onPageSizeChange && pageSize !== undefined)) {
+}: PageSizeControlProps) {
+  if (!onPageSizeChange || pageSize === undefined) {
     return null;
   }
 
   return (
     <>
-      {!isCompactDensity && <span className="text-muted-foreground text-xs">Show</span>}
+      {!isReducedDensity && <span className="text-muted-foreground text-xs">Show</span>}
       <Select onValueChange={onPageSizeChange} value={String(pageSize)}>
         <SelectTrigger
           aria-label="Items per page"
@@ -134,11 +134,12 @@ function PageSizeControl({
       </Select>
     </>
   );
-}
+});
+PageSizeControl.displayName = 'PageSizeControl';
 
 interface NavigationControlsProps {
   isMiniDensity: boolean;
-  isCompactDensity: boolean;
+  isReducedDensity: boolean;
   isFirstPage: boolean;
   isLastPage: boolean;
   totalPages: number;
@@ -154,9 +155,9 @@ interface NavigationControlsProps {
   onInputKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }
 
-function NavigationControls({
+const NavigationControls = memo(function NavigationControls({
   isMiniDensity,
-  isCompactDensity,
+  isReducedDensity,
   isFirstPage,
   isLastPage,
   totalPages,
@@ -170,7 +171,7 @@ function NavigationControls({
   onInputChange,
   onInputFocus,
   onInputKeyDown,
-}: NavigationControlsProps): React.ReactNode {
+}: NavigationControlsProps) {
   return (
     <div className="flex shrink-0 items-center justify-center gap-1">
       {!isMiniDensity && (
@@ -201,7 +202,7 @@ function NavigationControls({
           aria-label="Page number"
           className={cn(
             'h-7 px-2 text-center text-xs tabular-nums',
-            isMiniDensity ? 'w-11 px-1.5' : isCompactDensity ? 'w-12' : 'w-14'
+            isMiniDensity ? 'w-11 px-1.5' : isReducedDensity ? 'w-12' : 'w-14'
           )}
           disabled={totalPages === 0}
           max={totalPages}
@@ -250,17 +251,18 @@ function NavigationControls({
       </span>
     </div>
   );
-}
+});
+NavigationControls.displayName = 'NavigationControls';
 
 interface RangeSummaryProps {
   shouldRenderRangeSummary: boolean;
   rangeSummary: string;
 }
 
-function RangeSummary({
+const RangeSummary = memo(function RangeSummary({
   shouldRenderRangeSummary,
   rangeSummary,
-}: RangeSummaryProps): React.ReactNode {
+}: RangeSummaryProps) {
   if (!shouldRenderRangeSummary) {
     return null;
   }
@@ -271,7 +273,8 @@ function RangeSummary({
       </span>
     </div>
   );
-}
+});
+RangeSummary.displayName = 'RangeSummary';
 
 interface TablePaginationProps {
   /** Current page index (0-based) */
@@ -428,7 +431,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     return nextDensity;
   }, [density, containerWidth]);
 
-  const isCompactDensity = resolvedDensity !== 'full';
+  const isReducedDensity = resolvedDensity !== 'full';
   const isMiniDensity = resolvedDensity === 'mini';
   const shouldRenderRangeSummary = !isMiniDensity && (showItemRange || pageInfo !== undefined);
   const rangeSummary = useMemo(
@@ -457,7 +460,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
       <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
         <PageSizeControl
           actualPageSizeOptions={actualPageSizeOptions}
-          isCompactDensity={isCompactDensity}
+          isReducedDensity={isReducedDensity}
           onPageSizeChange={onPageSizeChange ? handlePageSizeChange : undefined}
           pageSize={pageSize}
           resolvedDensity={resolvedDensity}
@@ -467,10 +470,10 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
       {/* Center: Navigation controls */}
       <NavigationControls
         inputValue={inputValue}
-        isCompactDensity={isCompactDensity}
         isFirstPage={isFirstPage}
         isLastPage={isLastPage}
         isMiniDensity={isMiniDensity}
+        isReducedDensity={isReducedDensity}
         onGoToFirstPage={goToFirstPage}
         onGoToLastPage={goToLastPage}
         onGoToNextPage={goToNextPage}
