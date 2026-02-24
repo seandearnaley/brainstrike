@@ -63,10 +63,6 @@ const matchWildcardPattern = (str: string, pattern: string): boolean => {
   return matcher.match(str);
 };
 
-const createWildcardMatcher = (pattern: string): ((str: string) => boolean) => {
-  return (str: string) => matchWildcardPattern(str, pattern);
-};
-
 /**
  * Utilities for filtering files and directories
  */
@@ -105,7 +101,7 @@ export const fileFilter = {
       return (str: string) => regex.test(str);
     }
 
-    return createWildcardMatcher(pattern);
+    return (str: string) => matchWildcardPattern(str, pattern);
   },
 
   /**

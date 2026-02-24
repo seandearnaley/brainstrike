@@ -189,6 +189,7 @@ describe('fileFilter', () => {
     it('should handle various invalid regex patterns', () => {
       mockLogger.warn.mockClear();
 
+      // '[' is intentionally excluded here because it is cached by the prior invalid-regex test.
       const invalidPatterns = ['(', '+', '*', '(?'];
       for (const pattern of invalidPatterns) {
         expect(fileFilter.matchRegex('test', pattern)).toBe(false);
