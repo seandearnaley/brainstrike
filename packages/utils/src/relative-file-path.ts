@@ -1,4 +1,5 @@
 const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
+const WINDOWS_DRIVE_PREFIX_REGEX = /^[a-zA-Z]:\//;
 const LAST_ASCII_CONTROL_CHARACTER_CODE = 0x1f;
 const DELETE_CHARACTER_CODE = 0x7f;
 const DEFAULT_PATH_LABEL = 'File path';
@@ -16,6 +17,61 @@ function hasControlCharacters(value: string): boolean {
   }
 
   return false;
+}
+
+function findFolderSegmentIndex(segments: readonly string[], folderId: string): number {
+  if (!folderId) {
+    return -1;
+  }
+
+  const exactIndex = segments.indexOf(folderId);
+  if (exactIndex !== -1) {
+    return exactIndex;
+  }
+
+  const folderLower = folderId.toLowerCase();
+  return segments.findIndex((segment) => segment.toLowerCase() === folderLower);
+}
+
+/**
+ * Best-effort normalization from absolute paths to folder-relative paths.
+ * This keeps cache/storage keys stable when callers accidentally pass absolute
+ * filesystem paths for files that belong to a known workspace folder.
+ */
+export function normalizeFilePathForFolder(filePath: string, folderId: string): string {
+  const normalizedForChecks = filePath.replace(/\\/g, '/');
+  const isAbsolutePath =
+    normalizedForChecks.startsWith('/') ||
+    normalizedForChecks.startsWith('//') ||
+    WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedForChecks);
+  if (!isAbsolutePath) {
+    return filePath;
+  }
+
+  const segments = normalizedForChecks.split('/').filter((segment) => segment.length > 0);
+  const folderIndex = findFolderSegmentIndex(segments, folderId);
+  if (folderIndex !== -1 && folderIndex < segments.length - 1) {
+    return segments.slice(folderIndex + 1).join('/');
+  }
+
+  if (normalizedForChecks.startsWith('//')) {
+    // UNC-style path: //server/share/<path> -> <path>
+    if (segments.length > 2) {
+      return segments.slice(2).join('/');
+    }
+    return segments.join('/');
+  }
+
+  if (WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedForChecks)) {
+    // Drive-rooted path: C:/<path> -> <path>
+    if (segments.length > 1) {
+      return segments.slice(1).join('/');
+    }
+    return segments.join('/');
+  }
+
+  // Unix rooted path: /<path> -> <path>
+  return normalizedForChecks.replace(/^\/+/, '');
 }
 
 /**

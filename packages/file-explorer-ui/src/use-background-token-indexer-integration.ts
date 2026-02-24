@@ -17,6 +17,7 @@ import {
   decodeFileSelection,
   encodeFileSelection,
   isBinaryFile,
+  normalizeFilePathForFolder,
 } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
@@ -525,7 +526,7 @@ export function useBackgroundTokenIndexerIntegration({
       const electronFilesToRead: Array<{
         compositeKey: string;
         folderId: string;
-        path: string;
+        filePath: string;
         handle: ElectronFileHandle;
       }> = [];
       let skippedNoHandle = 0;
@@ -553,11 +554,12 @@ export function useBackgroundTokenIndexerIntegration({
         }
 
         // Decode key early so we can use index lookup
-        const { folderId, path } = decodeFileSelection(compositeKey);
+        const { folderId, path: selectionPath } = decodeFileSelection(compositeKey);
+        const normalizedFilePath = normalizeFilePathForFolder(selectionPath, folderId);
 
         // Try FileTreeIndex first (O(1) lookup), then fall back to local map
         const indexGetHandleFn = indexGetHandleRef.current;
-        let handleInfo = indexGetHandleFn?.(folderId, path);
+        let handleInfo = indexGetHandleFn?.(folderId, selectionPath);
         if (!handleInfo) {
           // Fall back to local map
           handleInfo = fileHandleMapRef.current.get(compositeKey);
@@ -599,7 +601,7 @@ export function useBackgroundTokenIndexerIntegration({
           filesToIndex.push({
             compositeKey,
             folderId,
-            filePath: path,
+            filePath: normalizedFilePath,
             fileHandle: handleInfo.webHandle,
           });
         } else if (handleInfo.electronHandle) {
@@ -607,7 +609,7 @@ export function useBackgroundTokenIndexerIntegration({
           electronFilesToRead.push({
             compositeKey,
             folderId,
-            path,
+            filePath: normalizedFilePath,
             handle: handleInfo.electronHandle,
           });
         }
@@ -628,13 +630,13 @@ export function useBackgroundTokenIndexerIntegration({
         for (let i = 0; i < electronFilesToRead.length; i += BatchSize) {
           const batch = electronFilesToRead.slice(i, i + BatchSize);
           const results = await Promise.all(
-            batch.map(async ({ compositeKey, folderId, path, handle }) => {
+            batch.map(async ({ compositeKey, folderId, filePath, handle }) => {
               try {
                 const content = await fileReader(handle);
-                return { compositeKey, folderId, path, content, error: null };
+                return { compositeKey, folderId, filePath, content, error: null };
               } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                return { compositeKey, folderId, path, content: null, error: message };
+                return { compositeKey, folderId, filePath, content: null, error: message };
               }
             })
           );
@@ -657,7 +659,7 @@ export function useBackgroundTokenIndexerIntegration({
             filesToIndex.push({
               compositeKey: result.compositeKey,
               folderId: result.folderId,
-              filePath: result.path,
+              filePath: result.filePath,
               content: result.content,
               fileSize: new Blob([result.content]).size,
             });
@@ -937,9 +939,23 @@ export function useBackgroundTokenIndexerIntegration({
       if (!keys) {
         continue;
       }
-      const paths = keys.map((key) => decodeFileSelection(key).path);
+
+      const normalizedPathToCompositeKey = new Map<string, string>();
+      const normalizedPaths = Array.from(
+        new Set(
+          keys.map((key) => {
+            const { path } = decodeFileSelection(key);
+            const normalizedPath = normalizeFilePathForFolder(path, folderId);
+            if (!normalizedPathToCompositeKey.has(normalizedPath)) {
+              normalizedPathToCompositeKey.set(normalizedPath, key);
+            }
+            return normalizedPath;
+          })
+        )
+      );
+
       void cache.store
-        .getBatch(folderId, paths)
+        .getBatch(folderId, normalizedPaths)
         .then((entries) => {
           // Use ref to get latest cache instance in async callback
           const currentCache = tokenCacheRef.current;
@@ -950,7 +966,8 @@ export function useBackgroundTokenIndexerIntegration({
           let hydrated = 0;
           let skipped = 0;
           for (const [path, entry] of entries.entries()) {
-            const compositeKey = encodeFileSelection(folderId, path);
+            const compositeKey =
+              normalizedPathToCompositeKey.get(path) ?? encodeFileSelection(folderId, path);
             if (indexedFilesRef.current.has(compositeKey)) {
               skipped++;
             } else {
@@ -962,7 +979,7 @@ export function useBackgroundTokenIndexerIntegration({
           if (hydrated > 0 || entries.size > 0) {
             logger.debug('Warm cache: hydrated from store', {
               folderId,
-              requested: paths.length,
+              requested: normalizedPaths.length,
               foundInStore: entries.size,
               hydrated,
               skippedAlreadyIndexed: skipped,

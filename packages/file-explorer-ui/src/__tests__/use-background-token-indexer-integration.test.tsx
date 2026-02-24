@@ -448,6 +448,35 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       // Reset for other tests
       mockBackgroundIndexer.isReady = true;
     });
+
+    it('normalizes absolute selection paths before dispatching to the indexer', () => {
+      const absolutePath = '/Users/me/brainstrike copy 2/scripts/merge-coverage.js';
+      const absoluteKey = encodeFileSelection('brainstrike copy 2', absolutePath);
+      const treeWithAbsolutePath: IFileNode[] = [
+        {
+          name: 'merge-coverage.js',
+          path: absolutePath,
+          type: 'file',
+          handle: webHandle,
+          depth: 0,
+          selectionState: 'unchecked' as const,
+          rootFolderId: 'brainstrike copy 2',
+        },
+      ];
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: treeWithAbsolutePath,
+          selectedFiles: new Set([absoluteKey]),
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      flushTimers();
+
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock.mock.calls[0]?.[0][0]?.filePath).toBe('scripts/merge-coverage.js');
+    });
   });
 
   describe('cache hydration', () => {

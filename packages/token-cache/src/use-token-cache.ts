@@ -5,7 +5,7 @@
  * Manages hot cache (in-memory) and cold cache (PGlite) with background worker.
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, normalizeFilePathForFolder } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const logger = createLogger('TokenCache');
@@ -140,6 +140,10 @@ function createCacheKey(folderId: string, filePath: string): string {
   return `${folderId}::${filePath}`;
 }
 
+function normalizeCachePath(folderId: string, filePath: string): string {
+  return normalizeFilePathForFolder(filePath, folderId);
+}
+
 // Temporary diagnostics: surface hot-cache hits/misses for a single file to confirm UI read path.
 // NOTE: keep scoped to a single key to avoid noisy logs; remove after validation.
 const DIAG_KEY = (process.env['TOKEN_CACHE_DIAG_KEY'] as string | undefined) ?? '';
@@ -230,7 +234,8 @@ export function useTokenCache({
       fileSize?: number,
       mtimeMs?: number
     ) => {
-      const key = createCacheKey(folderId, filePath);
+      const normalizedFilePath = normalizeCachePath(folderId, filePath);
+      const key = createCacheKey(folderId, normalizedFilePath);
 
       // Already processing
       if (pendingRequests.current.has(key)) {
@@ -242,7 +247,7 @@ export function useTokenCache({
 
       try {
         // Check persistent cache
-        const cached = await store.get(folderId, filePath);
+        const cached = await store.get(folderId, normalizedFilePath);
 
         if (cached) {
           // Validate cache with content hash
@@ -253,7 +258,7 @@ export function useTokenCache({
             hotCache.current.set(key, cached.tokenCount);
             fileSizeCache.current.set(key, cached.fileSize);
             debouncedSetVersion();
-            onTokenResolved?.(folderId, filePath, cached.tokenCount);
+            onTokenResolved?.(folderId, normalizedFilePath, cached.tokenCount);
             return;
           }
         }
@@ -270,7 +275,7 @@ export function useTokenCache({
         // Store in persistent cache
         const entry: TokenCacheEntry = {
           folderId,
-          filePath,
+          filePath: normalizedFilePath,
           contentHash: result.contentHash,
           fileSize: fileSize ?? new Blob([content]).size,
           mtimeMs: mtimeMs ?? null,
@@ -285,10 +290,10 @@ export function useTokenCache({
         hotCache.current.set(key, result.tokenCount);
         fileSizeCache.current.set(key, entry.fileSize);
         debouncedSetVersion();
-        onTokenResolved?.(folderId, filePath, result.tokenCount);
+        onTokenResolved?.(folderId, normalizedFilePath, result.tokenCount);
       } catch (error) {
         // Log error but don't crash - token count will show as loading
-        logger.error('Failed to count tokens', { folderId, filePath, error });
+        logger.error('Failed to count tokens', { folderId, filePath: normalizedFilePath, error });
       } finally {
         pendingRequests.current.delete(key);
         setLoadingCount((c) => c - 1);
@@ -325,7 +330,8 @@ export function useTokenCache({
    */
   const getTokenCount = useCallback(
     (folderId: string, filePath: string, content?: string): number | null => {
-      const key = createCacheKey(folderId, filePath);
+      const normalizedFilePath = normalizeCachePath(folderId, filePath);
+      const key = createCacheKey(folderId, normalizedFilePath);
 
       // Check hot cache first
       const cached = hotCache.current.get(key);
@@ -359,7 +365,8 @@ export function useTokenCache({
    * Get file size (synchronous, returns cached or undefined)
    */
   const getFileSize = useCallback((folderId: string, filePath: string): number | undefined => {
-    const key = createCacheKey(folderId, filePath);
+    const normalizedFilePath = normalizeCachePath(folderId, filePath);
+    const key = createCacheKey(folderId, normalizedFilePath);
     return fileSizeCache.current.get(key);
   }, []);
 
@@ -368,7 +375,10 @@ export function useTokenCache({
    */
   const getTotalTokens = useCallback(
     async (folderId: string, filePaths: string[]): Promise<number> =>
-      store.getTotalTokens(folderId, filePaths),
+      store.getTotalTokens(
+        folderId,
+        filePaths.map((filePath) => normalizeCachePath(folderId, filePath))
+      ),
     [store]
   );
 
@@ -377,7 +387,7 @@ export function useTokenCache({
    */
   const isLoading = useCallback(
     (folderId: string, filePath: string): boolean =>
-      pendingRequests.current.has(createCacheKey(folderId, filePath)),
+      pendingRequests.current.has(createCacheKey(folderId, normalizeCachePath(folderId, filePath))),
     []
   );
 
@@ -436,7 +446,7 @@ export function useTokenCache({
   const invalidate = useCallback(
     (folderId: string, filePaths: string[]) => {
       for (const filePath of filePaths) {
-        const key = createCacheKey(folderId, filePath);
+        const key = createCacheKey(folderId, normalizeCachePath(folderId, filePath));
         hotCache.current.delete(key);
         fileSizeCache.current.delete(key);
       }
@@ -451,7 +461,7 @@ export function useTokenCache({
    */
   const updateHotCache = useCallback(
     (folderId: string, filePath: string, tokenCount: number) => {
-      const key = createCacheKey(folderId, filePath);
+      const key = createCacheKey(folderId, normalizeCachePath(folderId, filePath));
       const existing = hotCache.current.get(key);
       if (existing === tokenCount) {
         // Already cached with same value - no update needed
@@ -469,7 +479,7 @@ export function useTokenCache({
    */
   const updateFileSizeCache = useCallback(
     (folderId: string, filePath: string, fileSize: number) => {
-      const key = createCacheKey(folderId, filePath);
+      const key = createCacheKey(folderId, normalizeCachePath(folderId, filePath));
       const existing = fileSizeCache.current.get(key);
       if (existing === fileSize) {
         // Already cached with same value - no update needed

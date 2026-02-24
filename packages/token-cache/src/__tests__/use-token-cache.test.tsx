@@ -92,6 +92,20 @@ describe('useTokenCache', () => {
     expect(value).toBe(123);
   });
 
+  it('normalizes absolute paths for hot cache lookups', () => {
+    const { result } = renderCacheHook();
+    const absolutePath = '/Users/me/brainstrike copy 2/scripts/merge-coverage.js';
+
+    act(() => {
+      result.current.updateHotCache('brainstrike copy 2', absolutePath, 321);
+    });
+
+    expect(result.current.getTokenCount('brainstrike copy 2', absolutePath)).toBe(321);
+    expect(result.current.getTokenCount('brainstrike copy 2', 'scripts/merge-coverage.js')).toBe(
+      321
+    );
+  });
+
   it('returns null and triggers background count when not cached', async () => {
     const { result, rerender } = renderCacheHook();
 
@@ -217,6 +231,30 @@ describe('useTokenCache', () => {
     expect(store.set).toHaveBeenCalledTimes(1);
     expect(onTokenResolved).toHaveBeenCalledWith('folder', 'file.txt', 5);
     expect(result.current.getTokenCount('folder', 'file.txt')).toBe(5);
+  });
+
+  it('normalizes absolute paths before store access and persistence', async () => {
+    const absolutePath = '/Users/me/brainstrike copy 2/scripts/merge-coverage.js';
+    const normalizedPath = 'scripts/merge-coverage.js';
+    const { result, rerender } = renderCacheHook();
+
+    await act(async () => {
+      expect(result.current.getTokenCount('brainstrike copy 2', absolutePath, 'hello')).toBeNull();
+    });
+
+    await act(async () => {
+      rerender();
+    });
+
+    await flushMicrotasks();
+
+    expect(store.get).toHaveBeenCalledWith('brainstrike copy 2', normalizedPath);
+    expect(workerPool.exec).toHaveBeenCalledWith('countTokens', [
+      expect.objectContaining({ id: `brainstrike copy 2::${normalizedPath}` }),
+    ]);
+    expect(store.set).toHaveBeenCalledWith(
+      expect.objectContaining({ folderId: 'brainstrike copy 2', filePath: normalizedPath })
+    );
   });
 
   it('updateHotCache bumps cacheVersion once after debounce', () => {
