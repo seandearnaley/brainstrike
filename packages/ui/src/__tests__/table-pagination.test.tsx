@@ -113,6 +113,21 @@ describe('TablePagination', () => {
     expect(screen.getByRole('combobox', { name: 'Items per page' })).toBeInTheDocument();
   });
 
+  it('does not render page size selector when pageSize is provided without onPageSizeChange', () => {
+    render(
+      <TablePagination
+        currentPage={0}
+        onPageChange={vi.fn()}
+        pageSize={25}
+        totalItems={100}
+        totalPages={4}
+      />
+    );
+
+    expect(screen.queryByText('Show')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Items per page' })).not.toBeInTheDocument();
+  });
+
   // Skip: Radix Select has jsdom compatibility issues (hasPointerCapture not implemented).
   // The callback wiring is tested via integration tests.
   // biome-ignore lint/suspicious/noSkippedTests: Radix Select requires browser environment

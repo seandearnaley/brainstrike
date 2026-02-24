@@ -445,7 +445,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
         <PageSizeControl
           actualPageSizeOptions={actualPageSizeOptions}
           isCompactDensity={isCompactDensity}
-          onPageSizeChange={handlePageSizeChange}
+          onPageSizeChange={onPageSizeChange ? handlePageSizeChange : undefined}
           pageSize={pageSize}
           resolvedDensity={resolvedDensity}
         />
