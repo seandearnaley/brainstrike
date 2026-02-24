@@ -164,6 +164,23 @@ describe('useTokenCache', () => {
     await flushMicrotasks();
   });
 
+  it('does not duplicate deferred work for absolute-path requests', async () => {
+    const absolutePath = '/Users/me/project/src/file.txt';
+    const { result, rerender } = renderCacheHook();
+
+    await act(async () => {
+      expect(result.current.getTokenCount('project', absolutePath, 'content')).toBeNull();
+      expect(result.current.getTokenCount('project', absolutePath, 'content')).toBeNull();
+    });
+
+    await act(async () => {
+      rerender();
+    });
+
+    await flushMicrotasks();
+    expect(workerPool.exec).toHaveBeenCalledTimes(1);
+  });
+
   it('uses persistent cache when hash matches and counting mode matches', async () => {
     const cachedEntry: TokenCacheEntry = {
       folderId: 'folder',

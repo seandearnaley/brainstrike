@@ -317,7 +317,8 @@ export function useTokenCache({
     deferredLoadQueue.current = [];
 
     for (const { folderId, filePath, content } of toProcess) {
-      const key = createCacheKey(folderId, filePath);
+      const normalizedFilePath = normalizeCachePath(folderId, filePath);
+      const key = createCacheKey(folderId, normalizedFilePath);
       // Double-check it's not already pending or cached
       if (!(pendingRequests.current.has(key) || hotCache.current.has(key))) {
         void loadOrCount(folderId, filePath, content);

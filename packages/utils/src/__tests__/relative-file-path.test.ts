@@ -34,4 +34,24 @@ describe('normalizeFilePathForFolder', () => {
   it('strips leading slash when folder id is not present', () => {
     expect(normalizeFilePathForFolder('/src/index.ts', 'project')).toBe('src/index.ts');
   });
+
+  it('handles empty folder id by stripping root prefix only', () => {
+    const absolutePath = '/Users/me/workspace/project/src/index.ts';
+    expect(normalizeFilePathForFolder(absolutePath, '')).toBe(
+      'Users/me/workspace/project/src/index.ts'
+    );
+  });
+
+  it('preserves traversal segments for downstream validation', () => {
+    const normalized = normalizeFilePathForFolder('/Users/me/project/../secret.txt', 'project');
+    expect(normalized).toBe('../secret.txt');
+    expect(() => validateRelativeFilePath(normalized)).toThrow(
+      'File path must not contain relative traversal segments'
+    );
+  });
+
+  it('uses the first matching folder segment when names repeat', () => {
+    const duplicatedPath = '/a/project/project/src/file.ts';
+    expect(normalizeFilePathForFolder(duplicatedPath, 'project')).toBe('project/src/file.ts');
+  });
 });
