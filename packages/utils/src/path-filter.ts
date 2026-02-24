@@ -35,30 +35,14 @@ export const fileFilter = {
    * Matches a string against a wildcard pattern
    */
   matchWildcard(str: string, pattern: string): boolean {
-    let matcher = minimatchCache.get(pattern);
-    if (!matcher) {
-      matcher = new Minimatch(pattern, { dot: true });
-      minimatchCache.set(pattern, matcher);
-    }
-    return matcher.match(str);
+    return this.createMatcher(pattern, false)(str);
   },
 
   /**
    * Matches a string against a regex pattern
    */
   matchRegex(str: string, pattern: string): boolean {
-    let regex = regexCache.get(pattern);
-    if (!regex) {
-      try {
-        regex = new RegExp(pattern);
-        regexCache.set(pattern, regex);
-      } catch (_error) {
-        const logger = createLogger('fileFilter');
-        logger.warn(`Invalid regex pattern: ${pattern}`, _error);
-        return false;
-      }
-    }
-    return regex.test(str);
+    return this.createMatcher(pattern, true)(str);
   },
 
   /**
@@ -66,32 +50,36 @@ export const fileFilter = {
    */
   createMatcher(pattern: string, useRegex: boolean): (str: string) => boolean {
     if (useRegex) {
-      let regex = regexCache.get(pattern);
-      if (!regex) {
-        try {
-          regex = new RegExp(pattern);
-          regexCache.set(pattern, regex);
-        } catch (_error) {
-          const logger = createLogger('fileFilter');
-          logger.warn(`Invalid regex pattern: ${pattern}`, _error);
-          return () => false;
-        }
+      const cachedRegex = regexCache.get(pattern);
+      if (cachedRegex) {
+        return (str: string) => cachedRegex.test(str);
       }
-      const definedRegex = regex as RegExp;
-      return (str: string) => definedRegex.test(str);
+
+      try {
+        const regex = new RegExp(pattern);
+        regexCache.set(pattern, regex);
+        return (str: string) => regex.test(str);
+      } catch (error) {
+        const logger = createLogger('fileFilter');
+        logger.warn(`Invalid regex pattern: ${pattern}`, error);
+        return () => false;
+      }
     }
 
-    let matcher = minimatchCache.get(pattern);
-    if (!matcher) {
-      matcher = new Minimatch(pattern, { dot: true });
-      minimatchCache.set(pattern, matcher);
+    const cachedMatcher = minimatchCache.get(pattern);
+    if (cachedMatcher) {
+      return (str: string) => cachedMatcher.match(str);
     }
-    const definedMatcher = matcher as Minimatch;
-    return (str: string) => definedMatcher.match(str);
+
+    const matcher = new Minimatch(pattern, { dot: true });
+    minimatchCache.set(pattern, matcher);
+    return (str: string) => matcher.match(str);
   },
 
   /**
    * Checks if a path matches any of the provided matchers
+   *
+   * @internal Internal recursive helper used by filterNode.
    */
   _matchesAny(path: string, matchers: ((str: string) => boolean)[]): boolean {
     for (const matcher of matchers) {
@@ -104,6 +92,8 @@ export const fileFilter = {
 
   /**
    * Internal recursive filter function using pre-compiled matchers
+   *
+   * @internal Internal recursive helper used by filterNode.
    */
   _filterNodeRecursive(
     node: IFileNode,
