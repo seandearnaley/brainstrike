@@ -18,6 +18,7 @@ import {
   encodeFileSelection,
   isBinaryFile,
   normalizeFilePathForFolder,
+  validateRelativeFilePath,
 } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
@@ -532,6 +533,7 @@ export function useBackgroundTokenIndexerIntegration({
       let skippedNoHandle = 0;
       let skippedBinary = 0;
       let skippedTooLarge = 0;
+      let skippedInvalidPath = 0;
 
       // DEBUG: Log sample keys from map and selection to diagnose mismatch
       const mapKeys = Array.from(fileHandleMapRef.current.keys()).slice(0, 3);
@@ -555,9 +557,28 @@ export function useBackgroundTokenIndexerIntegration({
 
         // Decode key early so we can use index lookup
         const { folderId, path: selectionPath } = decodeFileSelection(compositeKey);
-        const normalizedFilePath = normalizeFilePathForFolder(selectionPath, folderId);
+        let normalizedFilePath: string;
+        try {
+          normalizedFilePath = validateRelativeFilePath(
+            normalizeFilePathForFolder(selectionPath, folderId),
+            {
+              label: 'Token cache file path',
+            }
+          );
+        } catch (error) {
+          skippedInvalidPath++;
+          logger.warn('Skipping file with unsafe path for background indexing', {
+            compositeKey,
+            folderId,
+            selectionPath,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          continue;
+        }
 
         // Try FileTreeIndex first (O(1) lookup), then fall back to local map
+        // NOTE: Use selectionPath (not normalizedFilePath) because FileTreeIndex
+        // stores handles keyed by original file-tree node paths.
         const indexGetHandleFn = indexGetHandleRef.current;
         let handleInfo = indexGetHandleFn?.(folderId, selectionPath);
         if (!handleInfo) {
@@ -672,6 +693,7 @@ export function useBackgroundTokenIndexerIntegration({
         skippedNoHandle,
         skippedBinary,
         skippedTooLarge,
+        skippedInvalidPath,
         electronFiles: electronFilesToRead.length,
         webFiles: filesToIndex.filter((f) => f.fileHandle).length,
       });
@@ -941,18 +963,35 @@ export function useBackgroundTokenIndexerIntegration({
       }
 
       const normalizedPathToCompositeKey = new Map<string, string>();
-      const normalizedPaths = Array.from(
-        new Set(
-          keys.map((key) => {
-            const { path } = decodeFileSelection(key);
-            const normalizedPath = normalizeFilePathForFolder(path, folderId);
-            if (!normalizedPathToCompositeKey.has(normalizedPath)) {
-              normalizedPathToCompositeKey.set(normalizedPath, key);
-            }
-            return normalizedPath;
-          })
-        )
-      );
+      const normalizedPaths: string[] = [];
+      const normalizedPathSet = new Set<string>();
+      for (const key of keys) {
+        const { path } = decodeFileSelection(key);
+        let normalizedPath: string;
+        try {
+          normalizedPath = validateRelativeFilePath(normalizeFilePathForFolder(path, folderId), {
+            label: 'Token cache file path',
+          });
+        } catch (error) {
+          logger.warn('Skipping warm-cache lookup for unsafe path', {
+            folderId,
+            path,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          continue;
+        }
+        if (!normalizedPathToCompositeKey.has(normalizedPath)) {
+          normalizedPathToCompositeKey.set(normalizedPath, key);
+        }
+        if (!normalizedPathSet.has(normalizedPath)) {
+          normalizedPathSet.add(normalizedPath);
+          normalizedPaths.push(normalizedPath);
+        }
+      }
+
+      if (normalizedPaths.length === 0) {
+        continue;
+      }
 
       void cache.store
         .getBatch(folderId, normalizedPaths)

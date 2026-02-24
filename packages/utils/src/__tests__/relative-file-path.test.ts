@@ -50,8 +50,8 @@ describe('normalizeFilePathForFolder', () => {
     );
   });
 
-  it('uses the first matching folder segment when names repeat', () => {
+  it('uses the deepest matching folder segment when names repeat', () => {
     const duplicatedPath = '/a/project/project/src/file.ts';
-    expect(normalizeFilePathForFolder(duplicatedPath, 'project')).toBe('project/src/file.ts');
+    expect(normalizeFilePathForFolder(duplicatedPath, 'project')).toBe('src/file.ts');
   });
 });

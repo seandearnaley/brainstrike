@@ -477,6 +477,34 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(indexFilesMock).toHaveBeenCalledTimes(1);
       expect(indexFilesMock.mock.calls[0]?.[0][0]?.filePath).toBe('scripts/merge-coverage.js');
     });
+
+    it('skips unsafe traversal paths before dispatching to the indexer', () => {
+      const traversalPath = '/Users/me/project/../secret.txt';
+      const traversalKey = encodeFileSelection('project', traversalPath);
+      const treeWithTraversalPath: IFileNode[] = [
+        {
+          name: 'secret.txt',
+          path: traversalPath,
+          type: 'file',
+          handle: webHandle,
+          depth: 0,
+          selectionState: 'unchecked' as const,
+          rootFolderId: 'project',
+        },
+      ];
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: treeWithTraversalPath,
+          selectedFiles: new Set([traversalKey]),
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      flushTimers();
+
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
   });
 
   describe('cache hydration', () => {

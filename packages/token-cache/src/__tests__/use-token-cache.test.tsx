@@ -274,6 +274,40 @@ describe('useTokenCache', () => {
     );
   });
 
+  it('skips unsafe traversal paths and does not queue background work', async () => {
+    const traversalPath = '/Users/me/project/../secret.txt';
+    const { result, rerender } = renderCacheHook();
+
+    await act(async () => {
+      expect(result.current.getTokenCount('project', traversalPath, 'secret')).toBeNull();
+    });
+
+    await act(async () => {
+      rerender();
+    });
+
+    await flushMicrotasks();
+
+    expect(workerPool.exec).not.toHaveBeenCalled();
+    expect(store.get).not.toHaveBeenCalled();
+    expect(result.current.isLoading('project', traversalPath)).toBe(false);
+    expect(result.current.getFileSize('project', traversalPath)).toBeUndefined();
+  });
+
+  it('filters unsafe traversal paths when aggregating total tokens', async () => {
+    const { result } = renderCacheHook();
+    store.getTotalTokens.mockResolvedValueOnce(7);
+
+    await expect(
+      result.current.getTotalTokens('project', [
+        '/Users/me/project/src/file-a.ts',
+        '/Users/me/project/../secret.txt',
+      ])
+    ).resolves.toBe(7);
+
+    expect(store.getTotalTokens).toHaveBeenCalledWith('project', ['src/file-a.ts']);
+  });
+
   it('updateHotCache bumps cacheVersion once after debounce', () => {
     const { result } = renderCacheHook();
 
@@ -476,7 +510,7 @@ describe('useTokenCache', () => {
     const { result } = renderCacheHook();
     const total = await result.current.getTotalTokens('folder', []);
     expect(total).toBe(0);
-    expect(store.getTotalTokens).toHaveBeenCalledWith('folder', []);
+    expect(store.getTotalTokens).not.toHaveBeenCalled();
   });
 
   it('queueForCounting enqueues multiple files with metadata', async () => {

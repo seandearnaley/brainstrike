@@ -24,13 +24,20 @@ function findFolderSegmentIndex(segments: readonly string[], folderId: string): 
     return -1;
   }
 
-  const exactIndex = segments.indexOf(folderId);
-  if (exactIndex !== -1) {
-    return exactIndex;
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    if (segments[i] === folderId) {
+      return i;
+    }
   }
 
   const folderLower = folderId.toLowerCase();
-  return segments.findIndex((segment) => segment.toLowerCase() === folderLower);
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    if (segments[i]?.toLowerCase() === folderLower) {
+      return i;
+    }
+  }
+
+  return -1;
 }
 
 /**
@@ -41,9 +48,7 @@ function findFolderSegmentIndex(segments: readonly string[], folderId: string): 
 export function normalizeFilePathForFolder(filePath: string, folderId: string): string {
   const normalizedForChecks = filePath.replace(/\\/g, '/');
   const isAbsolutePath =
-    normalizedForChecks.startsWith('/') ||
-    normalizedForChecks.startsWith('//') ||
-    WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedForChecks);
+    normalizedForChecks.startsWith('/') || WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedForChecks);
   if (!isAbsolutePath) {
     return filePath;
   }
