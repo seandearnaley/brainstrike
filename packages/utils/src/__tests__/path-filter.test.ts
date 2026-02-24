@@ -1,15 +1,16 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import type { FileFilterOptions } from '@brainstrike/types';
+import { Minimatch } from 'minimatch';
 import { describe, expect, it, vi } from 'vitest';
 import { fileFilter } from '../path-filter';
 
 // Mock the logger
-const mockLogger = {
+const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
-};
+}));
 
 vi.mock('../logger', () => ({
   createLogger: vi.fn(() => mockLogger),
@@ -147,6 +148,47 @@ describe('fileFilter', () => {
       // Second call - cache hit (should work identically)
       expect(fileFilter.matchWildcard(file2, pattern)).toBe(true);
     });
+
+    it('should cache makeRe() results for wildcard patterns', () => {
+      const makeReSpy = vi.spyOn(Minimatch.prototype, 'makeRe');
+      const pattern = '**/*.cached-makere-hit.ts';
+
+      makeReSpy.mockClear();
+      expect(fileFilter.matchWildcard('/src/one.cached-makere-hit.ts', pattern)).toBe(true);
+      const callsAfterFirstMatch = makeReSpy.mock.calls.length;
+      expect(callsAfterFirstMatch).toBeGreaterThan(0);
+
+      expect(fileFilter.matchWildcard('/src/two.cached-makere-hit.ts', pattern)).toBe(true);
+      expect(makeReSpy.mock.calls.length).toBe(callsAfterFirstMatch);
+
+      makeReSpy.mockRestore();
+    });
+
+    it('should cache makeRe() failures and reuse matcher.match fallback', () => {
+      const pattern = '**/*.cached-makere-fallback.ts';
+      const originalMakeRe = Minimatch.prototype.makeRe;
+      const makeReSpy = vi.spyOn(Minimatch.prototype, 'makeRe').mockImplementation(function (
+        this: Minimatch
+      ): ReturnType<Minimatch['makeRe']> {
+        if (this.pattern === pattern) {
+          return false;
+        }
+        return originalMakeRe.call(this);
+      });
+
+      expect(fileFilter.matchWildcard('/src/one.cached-makere-fallback.ts', pattern)).toBe(true);
+      expect(fileFilter.matchWildcard('/src/two.cached-makere-fallback.ts', pattern)).toBe(true);
+
+      const forcedPatternCalls = makeReSpy.mock.instances.reduce<number>((count, instance) => {
+        if (instance instanceof Minimatch && instance.pattern === pattern) {
+          return count + 1;
+        }
+        return count;
+      }, 0);
+      expect(forcedPatternCalls).toBe(1);
+
+      makeReSpy.mockRestore();
+    });
   });
 
   describe('matchRegex', () => {
@@ -184,12 +226,22 @@ describe('fileFilter', () => {
     it('should handle various invalid regex patterns', () => {
       mockLogger.warn.mockClear();
 
-      const invalidPatterns = ['[', '(', '+', '*', '(?'];
+      const invalidPatterns = ['(', '+', '*', '(?'];
       for (const pattern of invalidPatterns) {
         expect(fileFilter.matchRegex('test', pattern)).toBe(false);
       }
 
       expect(mockLogger.warn).toHaveBeenCalledTimes(invalidPatterns.length);
+    });
+
+    it('should only warn once for repeated invalid regex patterns', () => {
+      mockLogger.warn.mockClear();
+
+      const invalidPattern = '[dedupe-invalid-regex-test';
+      expect(fileFilter.matchRegex('test', invalidPattern)).toBe(false);
+      expect(fileFilter.matchRegex('test', invalidPattern)).toBe(false);
+
+      expect(mockLogger.warn).toHaveBeenCalledTimes(1);
     });
 
     // NEW: Test edge cases for empty strings
@@ -218,7 +270,7 @@ describe('fileFilter', () => {
     it('should return a false matcher and warn for invalid regex patterns', () => {
       mockLogger.warn.mockClear();
 
-      const matcher = fileFilter.createMatcher('[', true);
+      const matcher = fileFilter.createMatcher('[create-matcher-invalid-regex-test', true);
 
       expect(matcher('/src/Button.tsx')).toBe(false);
       expect(mockLogger.warn).toHaveBeenCalledTimes(1);
