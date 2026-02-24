@@ -200,6 +200,31 @@ describe('fileFilter', () => {
     });
   });
 
+  describe('createMatcher', () => {
+    it('should create wildcard matcher functions', () => {
+      const matcher = fileFilter.createMatcher('**/*.ts', false);
+
+      expect(matcher('/src/index.ts')).toBe(true);
+      expect(matcher('/src/index.js')).toBe(false);
+    });
+
+    it('should create regex matcher functions', () => {
+      const matcher = fileFilter.createMatcher('\\.tsx$', true);
+
+      expect(matcher('/src/Button.tsx')).toBe(true);
+      expect(matcher('/src/Button.ts')).toBe(false);
+    });
+
+    it('should return a false matcher and warn for invalid regex patterns', () => {
+      mockLogger.warn.mockClear();
+
+      const matcher = fileFilter.createMatcher('[', true);
+
+      expect(matcher('/src/Button.tsx')).toBe(false);
+      expect(mockLogger.warn).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('filterNode', () => {
     // Test for a simple file node that will match the filters
     it('should filter out ignored paths', () => {
