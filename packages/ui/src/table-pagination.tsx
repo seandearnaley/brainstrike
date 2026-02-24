@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from './button';
 import { useResizeObserver } from './hooks/use-resize-observer';
 import { Input } from './input';
@@ -15,6 +15,7 @@ const PAGINATION_DENSITY_HYSTERESIS_PX = 20;
 
 type PaginationDensity = 'auto' | 'full' | 'compact' | 'mini';
 type ResolvedPaginationDensity = Exclude<PaginationDensity, 'auto'>;
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 function resolveAutoPaginationDensity(
   containerWidth: number | null,
@@ -312,7 +313,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   const [editValue, setEditValue] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
-  const [autoDensity, setAutoDensity] = useState<ResolvedPaginationDensity>('full');
+  const autoDensityRef = useRef<ResolvedPaginationDensity>('full');
   const displayPage = currentPage + 1;
 
   // When focused, show user's edit; when not focused, always show current page
@@ -397,6 +398,23 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     setContainerWidth((previousWidth) => (previousWidth === width ? previousWidth : width));
   }, []);
 
+  useIsomorphicLayoutEffect(() => {
+    // Reduce initial-density flash by measuring once on mount before paint when possible.
+    if (density !== 'auto') {
+      autoDensityRef.current = density;
+      return;
+    }
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+    const width = container.getBoundingClientRect().width;
+    if (!Number.isFinite(width) || width <= 0) {
+      return;
+    }
+    setContainerWidth((previousWidth) => (previousWidth === width ? previousWidth : width));
+  }, [density]);
+
   const shouldHide = totalPages <= 1 && !onPageSizeChange;
   useResizeObserver(containerRef, handleContainerResize, {
     disabled: density !== 'auto' || shouldHide,
@@ -404,16 +422,11 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
 
   const isFirstPage = currentPage === 0;
   const isLastPage = currentPage === totalPages - 1 || totalPages === 0;
-  const resolvedDensity = useMemo(
-    () => resolvePaginationDensity(density, containerWidth, autoDensity),
-    [density, containerWidth, autoDensity]
-  );
-  useEffect(() => {
-    if (density !== 'auto' || resolvedDensity === autoDensity) {
-      return;
-    }
-    setAutoDensity(resolvedDensity);
-  }, [density, resolvedDensity, autoDensity]);
+  const resolvedDensity = useMemo(() => {
+    const nextDensity = resolvePaginationDensity(density, containerWidth, autoDensityRef.current);
+    autoDensityRef.current = nextDensity;
+    return nextDensity;
+  }, [density, containerWidth]);
 
   const isCompactDensity = resolvedDensity !== 'full';
   const isMiniDensity = resolvedDensity === 'mini';
