@@ -62,13 +62,25 @@ jobs:
       - name: Type check
         run: |
           START=$SECONDS
-          pnpm run type-check
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
+            echo "Running affected type-check for PR against origin/${GITHUB_BASE_REF}"
+            pnpm turbo run type-check --filter="...[origin/${GITHUB_BASE_REF}]" --summarize --log-order=grouped --cache-dir=.turbo
+          else
+            echo "Running full type-check"
+            pnpm run type-check
+          fi
           echo "| Type check | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Build all packages
         run: |
           START=$SECONDS
-          TAILWIND_DEBUG=1 pnpm run build
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
+            echo "Running affected build for PR against origin/${GITHUB_BASE_REF} plus @brainstrike/web for CSS validation"
+            TAILWIND_DEBUG=1 pnpm turbo run build --filter="...[origin/${GITHUB_BASE_REF}]" --filter="@brainstrike/web" --summarize --log-order=grouped --cache-dir=.turbo
+          else
+            echo "Running full build"
+            TAILWIND_DEBUG=1 pnpm run build
+          fi
           echo "| Build | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Validate CSS bundle
@@ -99,18 +111,36 @@ jobs:
           find packages apps -type d -name "coverage" -maxdepth 3 -prune -exec rm -rf {} +
 
       - name: Run unit tests with coverage
+        id: unit-tests
         run: |
           START=$SECONDS
-          pnpm run test:coverage
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
+            echo "Running affected unit coverage for PR against origin/${GITHUB_BASE_REF}"
+            pnpm turbo run test --filter="...[origin/${GITHUB_BASE_REF}]" --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text
+          else
+            echo "Running full unit coverage"
+            pnpm run test:coverage
+          fi
+
+          COVERAGE_FILES=$(find packages apps -type f -path "*/coverage/coverage-final.json" | wc -l | tr -d ' ')
+          echo "coverage_files=${COVERAGE_FILES}" >> "$GITHUB_OUTPUT"
+          if [ "$COVERAGE_FILES" -gt 0 ]; then
+            echo "has_coverage=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_coverage=false" >> "$GITHUB_OUTPUT"
+            echo "No coverage-final.json files generated (likely no affected test tasks)."
+          fi
           echo "| Test | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
         env:
           NODE_ENV: "test"
+          TURBO_TEST_MODE: "coverage"
 
       - name: Enforce package coverage thresholds
+        if: steps.unit-tests.outputs.has_coverage == 'true'
         run: pnpm coverage:enforce
 
       - name: Comment PR with Coverage Summary
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -640,8 +670,8 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
-      - name: Build packages (required for Knip)
-        run: pnpm run build
+      - name: Build Knip prerequisites
+        run: pnpm turbo run build --filter=@brainstrike/build-utils --filter=@brainstrike/server-config --summarize --log-order=grouped --cache-dir=.turbo
 
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high
