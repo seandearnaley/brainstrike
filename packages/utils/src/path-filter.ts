@@ -21,12 +21,6 @@ const regexCache = new Map<string, RegExp>();
 const invalidRegexPatterns = new Set<string>();
 // Cache compiled minimatch patterns to avoid recompilation overhead
 const minimatchCache = new Map<string, Minimatch>();
-// Cache compiled minimatch regex patterns to avoid recompilation overhead.
-// Cache value semantics:
-// - RegExp: fast regex path from matcher.makeRe()
-// - false: matcher.makeRe() failed; fall back to matcher.match()
-// - undefined: cache miss
-const minimatchReCache = new Map<string, RegExp | false>();
 
 const fileFilterLogger = createLogger('fileFilter');
 
@@ -65,23 +59,7 @@ const matchWildcardPattern = (str: string, pattern: string): boolean => {
     return str === '';
   }
 
-  const cachedRegex = minimatchReCache.get(pattern);
-  if (cachedRegex !== undefined) {
-    if (cachedRegex === false) {
-      const matcher = getOrCreateWildcardMatcher(pattern);
-      return matcher.match(str);
-    }
-    return cachedRegex.test(str);
-  }
-
   const matcher = getOrCreateWildcardMatcher(pattern);
-  const compiledRegex = matcher.makeRe();
-  if (compiledRegex) {
-    minimatchReCache.set(pattern, compiledRegex);
-    return compiledRegex.test(str);
-  }
-
-  minimatchReCache.set(pattern, false);
   return matcher.match(str);
 };
 

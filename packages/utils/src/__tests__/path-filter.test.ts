@@ -1,6 +1,5 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import type { FileFilterOptions } from '@brainstrike/types';
-import { Minimatch } from 'minimatch';
 import { describe, expect, it, vi } from 'vitest';
 import { fileFilter } from '../path-filter';
 
@@ -149,45 +148,9 @@ describe('fileFilter', () => {
       expect(fileFilter.matchWildcard(file2, pattern)).toBe(true);
     });
 
-    it('should cache makeRe() results for wildcard patterns', () => {
-      const makeReSpy = vi.spyOn(Minimatch.prototype, 'makeRe');
-      const pattern = '**/*.cached-makere-hit.ts';
-
-      makeReSpy.mockClear();
-      expect(fileFilter.matchWildcard('/src/one.cached-makere-hit.ts', pattern)).toBe(true);
-      const callsAfterFirstMatch = makeReSpy.mock.calls.length;
-      expect(callsAfterFirstMatch).toBeGreaterThan(0);
-
-      expect(fileFilter.matchWildcard('/src/two.cached-makere-hit.ts', pattern)).toBe(true);
-      expect(makeReSpy.mock.calls.length).toBe(callsAfterFirstMatch);
-
-      makeReSpy.mockRestore();
-    });
-
-    it('should cache makeRe() failures and reuse matcher.match fallback', () => {
-      const pattern = '**/*.cached-makere-fallback.ts';
-      const originalMakeRe = Minimatch.prototype.makeRe;
-      const makeReSpy = vi.spyOn(Minimatch.prototype, 'makeRe').mockImplementation(function (
-        this: Minimatch
-      ): ReturnType<Minimatch['makeRe']> {
-        if (this.pattern === pattern) {
-          return false;
-        }
-        return originalMakeRe.call(this);
-      });
-
-      expect(fileFilter.matchWildcard('/src/one.cached-makere-fallback.ts', pattern)).toBe(true);
-      expect(fileFilter.matchWildcard('/src/two.cached-makere-fallback.ts', pattern)).toBe(true);
-
-      const forcedPatternCalls = makeReSpy.mock.instances.reduce<number>((count, instance) => {
-        if (instance instanceof Minimatch && instance.pattern === pattern) {
-          return count + 1;
-        }
-        return count;
-      }, 0);
-      expect(forcedPatternCalls).toBe(1);
-
-      makeReSpy.mockRestore();
+    it('should preserve minimatch edge-case semantics', () => {
+      expect(fileFilter.matchWildcard('foo', 'foo/**')).toBe(false);
+      expect(fileFilter.matchWildcard('src//file.js', 'src/*.js')).toBe(true);
     });
   });
 
