@@ -20,6 +20,7 @@ const IGNORE_REGEX = new RegExp(
 // If that assumption changes, migrate these module-level cache structures to bounded/LRU behavior.
 const regexCache = new Map<string, RegExp>();
 // Track known-invalid regex patterns so we only log once per pattern.
+// Intentionally unbounded under the same low-cardinality assumption as regexCache/minimatchCache.
 const invalidRegexPatterns = new Set<string>();
 const minimatchCache = new Map<string, Minimatch>();
 
@@ -67,6 +68,7 @@ const getRegexMatcher = (pattern: string): RegExp | null => {
 const matchWildcardPattern = (str: string, pattern: string): boolean => {
   if (pattern === '') {
     // Fast path: avoid constructing a Minimatch instance for empty patterns.
+    // Empty patterns can come from blank include/exclude inputs; preserve Minimatch('') semantics.
     return str === '';
   }
 
