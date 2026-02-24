@@ -231,6 +231,13 @@ describe('fileFilter', () => {
       expect(matcher('/src/index.js')).toBe(false);
     });
 
+    it('should preserve empty wildcard pattern semantics when creating matchers', () => {
+      const matcher = fileFilter.createMatcher('', false);
+
+      expect(matcher('')).toBe(true);
+      expect(matcher('/src/index.ts')).toBe(false);
+    });
+
     it('should create regex matcher functions', () => {
       const matcher = fileFilter.createMatcher('\\.tsx$', true);
 
