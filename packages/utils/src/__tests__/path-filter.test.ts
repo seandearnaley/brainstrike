@@ -149,6 +149,7 @@ describe('fileFilter', () => {
     });
 
     it('should preserve minimatch edge-case semantics', () => {
+      // This case diverges if wildcard matching is routed through matcher.makeRe().test().
       expect(fileFilter.matchWildcard('foo', 'foo/**')).toBe(false);
     });
   });
@@ -188,7 +189,13 @@ describe('fileFilter', () => {
     it('should handle various invalid regex patterns', () => {
       mockLogger.warn.mockClear();
 
-      const invalidPatterns = ['[', '(', '+', '*', '(?'];
+      const invalidPatterns = [
+        '[various-invalid-regex-bracket',
+        '(various-invalid-regex-paren',
+        '+various-invalid-regex-plus',
+        '*various-invalid-regex-star',
+        '(?various-invalid-regex-group',
+      ];
       for (const pattern of invalidPatterns) {
         expect(fileFilter.matchRegex('test', pattern)).toBe(false);
       }

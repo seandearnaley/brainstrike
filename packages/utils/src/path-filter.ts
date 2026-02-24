@@ -20,9 +20,18 @@ const regexCache = new Map<string, RegExp>();
 // Track known-invalid regex patterns so we only log once per pattern.
 const invalidRegexPatterns = new Set<string>();
 // Cache compiled minimatch patterns to avoid recompilation overhead
+// Intentionally unbounded: expected pattern cardinality is small in this flow.
+// If this assumption changes, move to a bounded/LRU strategy.
 const minimatchCache = new Map<string, Minimatch>();
 
-const fileFilterLogger = createLogger('fileFilter');
+let logger: ReturnType<typeof createLogger> | undefined;
+
+const getLogger = (): ReturnType<typeof createLogger> => {
+  if (!logger) {
+    logger = createLogger('fileFilter');
+  }
+  return logger;
+};
 
 const getOrCreateWildcardMatcher = (pattern: string): Minimatch => {
   let matcher = minimatchCache.get(pattern);
@@ -49,13 +58,14 @@ const getRegexMatcher = (pattern: string): RegExp | null => {
     return regex;
   } catch (error: unknown) {
     invalidRegexPatterns.add(pattern);
-    fileFilterLogger.warn(`Invalid regex pattern: ${pattern}`, error);
+    getLogger().warn(`Invalid regex pattern: ${pattern}`, error);
     return null;
   }
 };
 
 const matchWildcardPattern = (str: string, pattern: string): boolean => {
   if (pattern === '') {
+    // Fast path: avoid constructing a Minimatch instance for empty patterns.
     return str === '';
   }
 
@@ -101,7 +111,12 @@ export const fileFilter = {
       return (str: string) => regex.test(str);
     }
 
-    return (str: string) => matchWildcardPattern(str, pattern);
+    if (pattern === '') {
+      return (str: string) => str === '';
+    }
+
+    const matcher = getOrCreateWildcardMatcher(pattern);
+    return (str: string) => matcher.match(str);
   },
 
   /**
