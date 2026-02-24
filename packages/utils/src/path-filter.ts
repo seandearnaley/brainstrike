@@ -60,29 +60,33 @@ const getRegexMatcher = (pattern: string): RegExp | null => {
   }
 };
 
-const createWildcardMatcher = (pattern: string): ((str: string) => boolean) => {
+const matchWildcardPattern = (str: string, pattern: string): boolean => {
   if (pattern === '') {
-    return (str: string) => str === '';
+    return str === '';
   }
 
   const cachedRegex = minimatchReCache.get(pattern);
-  if (cachedRegex) {
-    return (str: string) => cachedRegex.test(str);
+  if (cachedRegex !== undefined) {
+    if (cachedRegex === false) {
+      const matcher = getOrCreateWildcardMatcher(pattern);
+      return matcher.match(str);
+    }
+    return cachedRegex.test(str);
   }
 
   const matcher = getOrCreateWildcardMatcher(pattern);
-  if (cachedRegex === false) {
-    return (str: string) => matcher.match(str);
-  }
-
   const compiledRegex = matcher.makeRe();
   if (compiledRegex) {
     minimatchReCache.set(pattern, compiledRegex);
-    return (str: string) => compiledRegex.test(str);
+    return compiledRegex.test(str);
   }
 
   minimatchReCache.set(pattern, false);
-  return (str: string) => matcher.match(str);
+  return matcher.match(str);
+};
+
+const createWildcardMatcher = (pattern: string): ((str: string) => boolean) => {
+  return (str: string) => matchWildcardPattern(str, pattern);
 };
 
 /**
@@ -100,7 +104,7 @@ export const fileFilter = {
    * Matches a string against a wildcard pattern
    */
   matchWildcard(str: string, pattern: string): boolean {
-    return createWildcardMatcher(pattern)(str);
+    return matchWildcardPattern(str, pattern);
   },
 
   /**
