@@ -15,13 +15,12 @@ const IGNORE_REGEX = new RegExp(
   `(?:^|[\\\\/])(?:${DEFAULT_IGNORE_PATTERNS.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?:$|[\\\\/])`
 );
 
-// Cache compiled regex patterns to avoid recompilation overhead
+// Cache compiled regex and wildcard matchers to avoid repeated compilation work.
+// Intentionally unbounded: expected pattern cardinality is small in this flow.
+// If that assumption changes, migrate all three caches to a bounded/LRU strategy.
 const regexCache = new Map<string, RegExp>();
 // Track known-invalid regex patterns so we only log once per pattern.
 const invalidRegexPatterns = new Set<string>();
-// Cache compiled minimatch patterns to avoid recompilation overhead
-// Intentionally unbounded: expected pattern cardinality is small in this flow.
-// If this assumption changes, move to a bounded/LRU strategy.
 const minimatchCache = new Map<string, Minimatch>();
 
 let logger: ReturnType<typeof createLogger> | undefined;
@@ -53,6 +52,8 @@ const getRegexMatcher = (pattern: string): RegExp | null => {
   }
 
   try {
+    // Patterns are expected to come from trusted filter configuration.
+    // If this ever becomes untrusted input, add complexity safeguards.
     const regex = new RegExp(pattern);
     regexCache.set(pattern, regex);
     return regex;

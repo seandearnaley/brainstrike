@@ -206,6 +206,7 @@ describe('fileFilter', () => {
     it('should only warn once for repeated invalid regex patterns', () => {
       mockLogger.warn.mockClear();
 
+      // Unique pattern keeps this test isolated from module-level invalid-pattern cache state.
       const invalidPattern = '[dedupe-invalid-regex-test';
       expect(fileFilter.matchRegex('test', invalidPattern)).toBe(false);
       expect(fileFilter.matchRegex('test', invalidPattern)).toBe(false);
