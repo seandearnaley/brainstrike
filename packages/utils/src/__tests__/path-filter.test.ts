@@ -193,8 +193,8 @@ describe('fileFilter', () => {
       const invalidPatterns = [
         '[various-invalid-regex-bracket',
         '(various-invalid-regex-paren',
-        '+various-invalid-regex-plus',
-        '*various-invalid-regex-star',
+        'various-invalid-regex-trailing-backslash\\',
+        'various-invalid-regex-range{2,1}',
         '(?various-invalid-regex-group',
       ];
       for (const pattern of invalidPatterns) {

@@ -15,23 +15,14 @@ const IGNORE_REGEX = new RegExp(
   `(?:^|[\\\\/])(?:${DEFAULT_IGNORE_PATTERNS.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?:$|[\\\\/])`
 );
 
-// Cache compiled regex and wildcard matchers to avoid repeated compilation work.
+// Module-level caches for compiled regex, wildcard matchers, and known-invalid patterns.
 // Intentionally unbounded: expected pattern cardinality is small in this flow.
-// If that assumption changes, migrate these module-level cache structures to bounded/LRU behavior.
+// If that assumption changes, migrate these cache structures to bounded/LRU behavior.
 const regexCache = new Map<string, RegExp>();
-// Track known-invalid regex patterns so we only log once per pattern.
-// Intentionally unbounded under the same low-cardinality assumption as regexCache/minimatchCache.
 const invalidRegexPatterns = new Set<string>();
 const minimatchCache = new Map<string, Minimatch>();
 
-let logger: ReturnType<typeof createLogger> | undefined;
-
-const getLogger = (): ReturnType<typeof createLogger> => {
-  if (!logger) {
-    logger = createLogger('fileFilter');
-  }
-  return logger;
-};
+const getLogger = (): ReturnType<typeof createLogger> => createLogger('fileFilter');
 
 const getOrCreateWildcardMatcher = (pattern: string): Minimatch => {
   let matcher = minimatchCache.get(pattern);
