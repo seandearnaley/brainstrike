@@ -100,7 +100,6 @@ describe('CollectionBrowser windowing configuration', () => {
     expect(treeTableProps.windowingStrategy).toBe('auto');
     expect(treeTableProps.autoWindowingContext).toBe('search');
     expect(treeTableProps.pagination).toMatchObject({
-      pageSize: 50,
       pageSizeOptions: [25, 50, 100, 250],
       pageInfo: 'semantic results',
       showControls: true,

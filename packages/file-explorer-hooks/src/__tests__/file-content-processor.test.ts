@@ -1,6 +1,7 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import { resetFileSizeConfig, setFileSizeConfig } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createFileContentProcessor,
   DirectFileContentProcessor,
@@ -62,6 +63,14 @@ const mockRequest = {
 describe('DirectFileContentProcessor', () => {
   const KNOWN_OVERSIZED_FILE_BYTES = 2_000_000;
 
+  beforeEach(() => {
+    resetFileSizeConfig();
+  });
+
+  afterEach(() => {
+    resetFileSizeConfig();
+  });
+
   it('should process files sequentially', async () => {
     const processor = new DirectFileContentProcessor();
     const mockReadFile = vi.mocked(mockFileSystemAdapter.readFile);
@@ -118,6 +127,32 @@ describe('DirectFileContentProcessor', () => {
 
     expect(results['root1|@|/test.txt']).toMatch('File too large');
     expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it('should respect configured max size for direct reads', async () => {
+    const processor = new DirectFileContentProcessor();
+    const mockReadFile = vi.mocked(mockFileSystemAdapter.readFile);
+    const { fileContent, fileExplorer } = await import('@brainstrike/utils');
+
+    setFileSizeConfig({ maxFileSize: KNOWN_OVERSIZED_FILE_BYTES + 1024 });
+    mockReadFile.mockResolvedValue('file content');
+    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('txt');
+    vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
+    vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+    vi.mocked(fileContent.isTextContent).mockReturnValue(true);
+
+    const oversizedByDefaultRequest = {
+      ...mockRequest,
+      fileNode: {
+        ...mockFileNode,
+        size: KNOWN_OVERSIZED_FILE_BYTES,
+      },
+    };
+
+    const results = await processor.processFiles([oversizedByDefaultRequest]);
+
+    expect(results['root1|@|/test.txt']).toBe('file content');
+    expect(mockReadFile).toHaveBeenCalledTimes(1);
   });
 
   it('should handle file read errors', async () => {

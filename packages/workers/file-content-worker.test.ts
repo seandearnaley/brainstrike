@@ -1,5 +1,9 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
-import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
+import {
+  DEFAULT_MAX_FILE_SIZE,
+  resetFileSizeConfig,
+  setFileSizeConfig,
+} from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/test-utils';
 import * as utils from '@brainstrike/utils';
 import { fileContent } from '@brainstrike/utils';
@@ -44,11 +48,13 @@ describe('file-content-worker', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     MockFileSystemAdapter.clearMockData();
+    resetFileSizeConfig();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     MockFileSystemAdapter.clearMockData();
+    resetFileSizeConfig();
   });
   it('reads text files', async () => {
     const adapter = new MockFileSystemAdapter();
@@ -91,6 +97,25 @@ describe('file-content-worker', () => {
 
     expect(results[req.compositeKey]).toMatch('File too large');
     expect(readSpy).not.toHaveBeenCalled();
+  });
+
+  it('respects runtime file-size config when maxFileSize option is not provided', async () => {
+    setFileSizeConfig({ maxFileSize: DEFAULT_MAX_FILE_SIZE * 2 });
+
+    const adapter = new MockFileSystemAdapter();
+    const readSpy = vi.spyOn(adapter, 'readFile');
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/within-configured-limit.txt');
+    req.handle.size = DEFAULT_MAX_FILE_SIZE + 1;
+    MockFileSystemAdapter.setMockFileContent(
+      '/within-configured-limit.txt',
+      'configured-limit-content'
+    );
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toBe('configured-limit-content');
+    expect(readSpy).toHaveBeenCalledTimes(1);
   });
 
   it('returns binary error for binary extension', async () => {
@@ -191,6 +216,25 @@ describe('file-content-worker', () => {
     const results = await worker([req]);
 
     expect(results[req.compositeKey]).toBe('File exceeds preview size limit');
+  });
+
+  it('maps non-Error TOO_LARGE objects from adapter reads', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/too-large-object.txt');
+    const oversizedError = {
+      code: 'TOO_LARGE' as const,
+      message: 'Object-based too large error',
+    };
+
+    MockFileSystemAdapter.setMockReadFileError(
+      '/too-large-object.txt',
+      oversizedError as unknown as Error
+    );
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toBe('Object-based too large error');
   });
 
   it('reports progress for failed files', async () => {

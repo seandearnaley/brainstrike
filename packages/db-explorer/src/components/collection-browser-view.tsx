@@ -62,10 +62,8 @@ const NODE_ID_PREFIXES = [
 ] as const satisfies readonly NodeIdPrefix[];
 const NODE_ID_PREFIX_PATTERN = new RegExp(`^(${NODE_ID_PREFIXES.join('|')})-(.+)$`);
 // Collection browser is filter/search-heavy, so paged rendering is more stable than virtual rows.
-const EMBEDDING_TREE_PAGE_SIZE = 50;
 const EMBEDDING_TREE_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
 const EMBEDDING_TREE_PAGINATION = {
-  pageSize: EMBEDDING_TREE_PAGE_SIZE,
   pageSizeOptions: EMBEDDING_TREE_PAGE_SIZE_OPTIONS,
   showControls: true,
   showItemRange: true,

@@ -1,5 +1,10 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import { AccessError, DEFAULT_MAX_FILE_SIZE, formatFileSize } from '@brainstrike/file-system';
+import {
+  AccessError,
+  DEFAULT_MAX_FILE_SIZE,
+  formatFileSize,
+  getFileSizeConfig,
+} from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
 import {
   createLogger,
@@ -56,8 +61,12 @@ function isTooLargeAccessError(error: unknown): error is AccessError {
 
 function getTooLargeMessage(error: unknown): string | null {
   // This helper classifies raw adapter errors. FileContentError instances are re-thrown upstream.
-  if (hasTooLargeCode(error) && error instanceof Error) {
-    return error.message;
+  if (hasTooLargeCode(error)) {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    const message = (error as { message?: unknown }).message;
+    return typeof message === 'string' ? message : 'File too large';
   }
   if (isTooLargeAccessError(error)) {
     return error.message;
@@ -65,11 +74,25 @@ function getTooLargeMessage(error: unknown): string | null {
   return null;
 }
 
+function normalizeMaxFileSize(maxFileSize: unknown): number {
+  if (typeof maxFileSize !== 'number' || !Number.isFinite(maxFileSize) || maxFileSize <= 0) {
+    return DEFAULT_MAX_FILE_SIZE;
+  }
+  return maxFileSize;
+}
+
 export function createFileContentWorker({
   fileSystemAdapter,
   concurrency = 3, // Reduced from 5 to prevent main thread saturation
-  maxFileSize = DEFAULT_MAX_FILE_SIZE,
+  maxFileSize,
 }: FileContentWorkerOptions) {
+  const getEffectiveMaxFileSize = (): number => {
+    if (maxFileSize !== undefined) {
+      return normalizeMaxFileSize(maxFileSize);
+    }
+    return normalizeMaxFileSize(getFileSizeConfig().maxFileSize);
+  };
+
   async function runQueue(queue: FileReadRequest[], onProgress?: (e: ProgressEvent) => void) {
     const results: Record<string, string> = {};
     let index = 0;
@@ -116,10 +139,11 @@ export function createFileContentWorker({
   }
 
   async function processRequest(req: FileReadRequest): Promise<{ key: string; content: string }> {
+    const effectiveMaxFileSize = getEffectiveMaxFileSize();
     const knownFileSize = getKnownFileSize(req);
-    if (knownFileSize !== null && knownFileSize > maxFileSize) {
+    if (knownFileSize !== null && knownFileSize > effectiveMaxFileSize) {
       throw new FileContentError(
-        `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(maxFileSize)})`,
+        `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(effectiveMaxFileSize)})`,
         req.path,
         'TOO_LARGE'
       );

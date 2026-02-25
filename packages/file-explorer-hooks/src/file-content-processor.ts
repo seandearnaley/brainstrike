@@ -1,5 +1,5 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import { DEFAULT_MAX_FILE_SIZE, formatFileSize } from '@brainstrike/file-system';
+import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
@@ -28,6 +28,18 @@ function getKnownFileSize(size: unknown): number | null {
     return null;
   }
   return size;
+}
+
+function getConfiguredMaxFileSize(): number {
+  const configuredMaxFileSize = getFileSizeConfig().maxFileSize;
+  if (
+    typeof configuredMaxFileSize !== 'number' ||
+    !Number.isFinite(configuredMaxFileSize) ||
+    configuredMaxFileSize <= 0
+  ) {
+    return DEFAULT_MAX_FILE_SIZE;
+  }
+  return configuredMaxFileSize;
 }
 
 /**
@@ -110,10 +122,11 @@ export class DirectFileContentProcessor implements FileContentProcessor {
   private async processFile(request: FileContentRequest): Promise<string> {
     const { fileNode, fileSystemAdapter } = request;
     const knownFileSize = getKnownFileSize(fileNode.size);
+    const maxFileSize = getConfiguredMaxFileSize();
 
-    if (knownFileSize !== null && knownFileSize > DEFAULT_MAX_FILE_SIZE) {
+    if (knownFileSize !== null && knownFileSize > maxFileSize) {
       throw new FileContentError(
-        `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(DEFAULT_MAX_FILE_SIZE)})`,
+        `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(maxFileSize)})`,
         fileNode.path,
         'TOO_LARGE'
       );
