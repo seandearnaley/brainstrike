@@ -591,7 +591,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               {/* Collapsible content - Preset selector + Filter chips */}
               <div
                 className={cn(
-                  'overflow-hidden transition-all duration-200 ease-out',
+                  'overflow-hidden transition-[max-height,opacity] duration-200 ease-out',
                   isFiltersExpanded ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
                 )}
                 id="view-filters-content"

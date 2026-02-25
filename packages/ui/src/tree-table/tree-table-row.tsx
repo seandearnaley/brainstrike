@@ -181,7 +181,7 @@ function TreeTableRowInner<T>({
       aria-selected={isSelected}
       aria-setsize={isTreegrid ? aria.ariaSetSize : undefined}
       className={cn(
-        'cursor-pointer transition-colors',
+        'cursor-pointer',
         isGroupHeader && 'bg-muted/50',
         isSelected && !isGroupHeader && 'bg-accent',
         isHighlighted && !isSelected && !isGroupHeader && 'bg-yellow-50 dark:bg-yellow-950/20',
