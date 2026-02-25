@@ -66,10 +66,8 @@ export default defineConfig({
       output: {
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
-            // Group vendor dependencies
             return 'vendor';
           }
-          // Explicitly return undefined for other modules to keep them in the default chunk
           return;
         },
       },

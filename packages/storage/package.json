@@ -2,6 +2,7 @@
   "name": "@brainstrike/storage",
   "version": "0.1.0",
   "description": "Platform-aware storage adapters for web and desktop",
+  "sideEffects": false,
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

@@ -26,7 +26,7 @@ const getNavItemStyles = (isActive: boolean): string =>
     'relative flex items-center justify-center',
     'h-12 w-12 rounded-lg',
     // Transitions for smooth interactions
-    'transition-all duration-200 ease-out',
+    'transition-[transform,background-color,color] duration-200 ease-out',
     // Hover state - uses accent color for consistent look with theme toggle
     'hover:bg-accent hover:text-accent-foreground hover:shadow-sm',
     // Active press state

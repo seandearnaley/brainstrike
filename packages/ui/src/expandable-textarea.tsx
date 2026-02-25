@@ -8,6 +8,9 @@
 import * as React from 'react';
 import { cn } from './lib/utils';
 
+const useIsomorphicLayoutEffect =
+  typeof window === 'undefined' ? React.useEffect : React.useLayoutEffect;
+
 export interface ExpandableTextareaProps {
   /** Current value */
   value: string;
@@ -61,32 +64,43 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [height, setHeight] = React.useState<number | undefined>(undefined);
 
-  // Calculate line height once on mount
+  // Cache computed style measurements to avoid layout thrashing on every keystroke.
   const lineHeightRef = React.useRef<number>(20); // Default fallback
+  const paddingRef = React.useRef<number>(0);
+  const hasMeasuredRef = React.useRef(false);
 
-  // Update height when value changes
-  React.useEffect(() => {
+  // Measure line-height and vertical padding once on mount.
+  useIsomorphicLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || hasMeasuredRef.current) {
+      return;
+    }
+    const computedStyle = window.getComputedStyle(textarea);
+    const lh = Number.parseInt(computedStyle.lineHeight, 10);
+    if (!Number.isNaN(lh)) {
+      lineHeightRef.current = lh;
+    }
+    const pt = Number.parseInt(computedStyle.paddingTop, 10) || 0;
+    const pb = Number.parseInt(computedStyle.paddingBottom, 10) || 0;
+    paddingRef.current = pt + pb;
+    hasMeasuredRef.current = true;
+  }, []);
+
+  // Update height when value changes — uses cached measurements to avoid getComputedStyle.
+  // useIsomorphicLayoutEffect prevents a visible one-frame flash at 'auto' height.
+  useIsomorphicLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) {
       return;
     }
 
-    // Get computed line height
-    const computedStyle = window.getComputedStyle(textarea);
-    const lineHeight = Number.parseInt(computedStyle.lineHeight, 10);
-    if (!Number.isNaN(lineHeight)) {
-      lineHeightRef.current = lineHeight;
-    }
-
-    // Get padding
-    const paddingTop = Number.parseInt(computedStyle.paddingTop, 10) || 0;
-    const paddingBottom = Number.parseInt(computedStyle.paddingBottom, 10) || 0;
-    const verticalPadding = paddingTop + paddingBottom;
+    const currentLineHeight = lineHeightRef.current;
+    const verticalPadding = paddingRef.current;
 
     // Calculate min and max heights
     // Use provided minHeight prop if available, otherwise calculate from minRows
-    const calculatedMinHeight = minHeight ?? lineHeightRef.current * minRows + verticalPadding;
-    const calculatedMaxHeight = lineHeightRef.current * maxRows + verticalPadding;
+    const calculatedMinHeight = minHeight ?? currentLineHeight * minRows + verticalPadding;
+    const calculatedMaxHeight = currentLineHeight * maxRows + verticalPadding;
 
     // Reset height to auto to get accurate scrollHeight
     textarea.style.height = 'auto';
@@ -96,7 +110,7 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
     // This ensures the textarea matches adjacent elements like buttons
     const isSingleLine = !value.includes('\n');
     const useFixedMin =
-      minHeight && isSingleLine && scrollHeight <= calculatedMinHeight + lineHeightRef.current;
+      minHeight && isSingleLine && scrollHeight <= calculatedMinHeight + currentLineHeight;
 
     // Clamp to min/max
     const newHeight = useFixedMin
