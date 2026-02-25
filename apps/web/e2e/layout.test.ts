@@ -128,23 +128,20 @@ test.describe('Application Layout', () => {
     test('should have resizable panels', async ({ page }) => {
       const elements = getPanelElements(page);
 
-      // Verify horizontal resize handles are present (left panel boundary).
-      // react-resizable-panels v4 exposes role=separator and data-panel-group-direction.
-      // Keep legacy fallback selector for older markup during transitions.
-      const horizontalResizeHandles = page.locator(
-        '[role="separator"][data-panel-group-direction="horizontal"], [aria-orientation="horizontal"] [data-separator]'
-      );
-      await expect(horizontalResizeHandles.first()).toBeVisible();
+      // Verify the main left/right panel divider is present.
+      // In current react-resizable-panels markup, this separator is vertical.
+      const verticalResizeHandles = page.locator('[role="separator"][aria-orientation="vertical"]');
+      await expect(verticalResizeHandles.first()).toBeVisible();
 
       // Show console to get vertical resize handle
       await elements.showConsoleShim.click();
       await expect(elements.consolePanel).toBeVisible();
 
-      // Should have console resize handle (vertical direction).
-      const verticalResizeHandles = page.locator(
-        '[role="separator"][data-panel-group-direction="vertical"], [aria-orientation="vertical"] [data-separator]'
+      // Console divider between main content and console is horizontal.
+      const horizontalResizeHandles = page.locator(
+        '[role="separator"][aria-orientation="horizontal"]'
       );
-      await expect(verticalResizeHandles.first()).toBeVisible();
+      await expect(horizontalResizeHandles.first()).toBeVisible();
     });
 
     test('should maintain panel structure integrity', async ({ page }) => {
