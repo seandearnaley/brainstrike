@@ -54,4 +54,19 @@ describe('usePreviewPanelPreferences', () => {
     expect(result.current.footerMode).toBe('compact');
     expect(result.current.footerHeight).toBe(88);
   });
+
+  it('prefers inferred mode when stored mode and height disagree', () => {
+    localStorage.setItem(
+      'previewPanelPreferences.v1',
+      JSON.stringify({
+        footerMode: 'compact',
+        footerHeight: 360,
+      })
+    );
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.footerMode).toBe('expanded');
+    expect(result.current.footerHeight).toBe(360);
+  });
 });

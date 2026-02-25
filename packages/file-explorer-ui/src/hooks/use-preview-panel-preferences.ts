@@ -241,15 +241,11 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
   }
   const footerMode = sanitizeFooterMode(stored.footerMode);
   const footerHeight = sanitizeFooterHeight(stored.footerHeight);
-  if (footerMode !== undefined) {
-    sanitized.footerMode = footerMode;
-  }
   if (footerHeight !== undefined) {
     sanitized.footerHeight = footerHeight;
-    if (footerMode === undefined) {
-      sanitized.footerMode = inferPreviewFooterMode(footerHeight);
-    }
+    sanitized.footerMode = inferPreviewFooterMode(footerHeight);
   } else if (footerMode !== undefined) {
+    sanitized.footerMode = footerMode;
     sanitized.footerHeight = getPreviewFooterModeHeight(footerMode);
   }
 

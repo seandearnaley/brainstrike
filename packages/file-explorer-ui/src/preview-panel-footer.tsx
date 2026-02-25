@@ -98,11 +98,9 @@ function buildSparklinePoints(
   const path = pathSegments.join(' ');
   const firstPoint = points[0];
   const lastPoint = points.at(-1);
-
-  if (!(firstPoint && lastPoint)) {
+  if (firstPoint === undefined || lastPoint === undefined) {
     return null;
   }
-
   const areaPath = `M ${firstPoint.x} ${height - padding} ${lineCommands.join(' ')} L ${lastPoint.x} ${height - padding} Z`;
 
   return {
@@ -641,10 +639,12 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     const [isResizing, setIsResizing] = useState(false);
     const [draftHeight, setDraftHeight] = useState<number | null>(null);
     const [usageHistory, setUsageHistory] = useState<number[]>([]);
+    const usageHistoryRef = useRef<number[]>([tokenUsage.usedTokens]);
     const dragSessionRef = useRef<DragSession | null>(null);
     const queuedHeightRef = useRef<number>(clampPreviewFooterHeight(footerHeight));
     const animationFrameRef = useRef<number | null>(null);
     const lastExpandedHeightRef = useRef<number>(getPreviewFooterModeHeight('expanded'));
+    const hasBodyResizeLockRef = useRef(false);
 
     const committedHeight = clampPreviewFooterHeight(footerHeight);
     const committedMode = inferPreviewFooterMode(committedHeight);
@@ -675,20 +675,30 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         : 0;
 
     useEffect(() => {
-      setUsageHistory((previousHistory) => {
-        const latest = previousHistory.at(-1);
-        if (latest === tokenUsage.usedTokens) {
-          return previousHistory;
-        }
+      const previousHistory = usageHistoryRef.current;
+      const latest = previousHistory.at(-1);
+      if (latest === tokenUsage.usedTokens) {
+        return;
+      }
 
-        const nextHistory = [...previousHistory, tokenUsage.usedTokens];
-        if (nextHistory.length <= FOOTER_INSIGHT_HISTORY_LIMIT) {
-          return nextHistory;
-        }
+      const nextHistory = [...previousHistory, tokenUsage.usedTokens];
+      usageHistoryRef.current =
+        nextHistory.length <= FOOTER_INSIGHT_HISTORY_LIMIT
+          ? nextHistory
+          : nextHistory.slice(-FOOTER_INSIGHT_HISTORY_LIMIT);
 
-        return nextHistory.slice(-FOOTER_INSIGHT_HISTORY_LIMIT);
-      });
-    }, [tokenUsage.usedTokens]);
+      if (isExpanded) {
+        setUsageHistory(usageHistoryRef.current);
+      }
+    }, [isExpanded, tokenUsage.usedTokens]);
+
+    useEffect(() => {
+      if (!isExpanded) {
+        return;
+      }
+
+      setUsageHistory(usageHistoryRef.current);
+    }, [isExpanded]);
 
     useEffect(() => {
       if (committedMode !== 'expanded') {
@@ -697,6 +707,15 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
       lastExpandedHeightRef.current = committedHeight;
     }, [committedHeight, committedMode]);
+
+    const releaseResizeLockIfHeld = useCallback(() => {
+      if (!hasBodyResizeLockRef.current) {
+        return;
+      }
+
+      releaseBodyResizeLock();
+      hasBodyResizeLockRef.current = false;
+    }, []);
 
     const commitHeight = useCallback(
       (height: number) => {
@@ -764,7 +783,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         dragSessionRef.current = null;
         setIsResizing(false);
         setDraftHeight(null);
-        releaseBodyResizeLock();
+        releaseResizeLockIfHeld();
         commitHeightRef.current(finalHeight);
       };
 
@@ -784,10 +803,16 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         }
         if (dragSessionRef.current) {
           dragSessionRef.current = null;
-          releaseBodyResizeLock();
+          releaseResizeLockIfHeld();
         }
       };
-    }, [isResizing]);
+    }, [isResizing, releaseResizeLockIfHeld]);
+
+    useEffect(() => {
+      return () => {
+        releaseResizeLockIfHeld();
+      };
+    }, [releaseResizeLockIfHeld]);
 
     const handleResizeStart = useCallback(
       (event: ReactPointerEvent<HTMLElement>) => {
@@ -800,7 +825,10 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
         event.preventDefault();
         event.currentTarget.setPointerCapture?.(event.pointerId);
-        acquireBodyResizeLock();
+        if (!hasBodyResizeLockRef.current) {
+          acquireBodyResizeLock();
+          hasBodyResizeLockRef.current = true;
+        }
 
         queuedHeightRef.current = effectiveHeight;
         dragSessionRef.current = {
@@ -880,7 +908,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         }`}
         style={{
           height: `${effectiveHeight}px`,
-          willChange: isResizing ? 'height' : undefined,
         }}
       >
         <div className="flex h-7 items-center gap-2 border-b bg-muted/20 px-2">
