@@ -9,6 +9,8 @@ describe('usePreviewPanelPreferences', () => {
     sortDirection: 'asc' as const,
     sortField: 'path' as const,
     useTapestryRangesForContextOutput: true,
+    footerMode: 'default' as const,
+    footerHeight: 152,
   };
 
   it('sanitizes stored preferences', () => {
@@ -21,6 +23,8 @@ describe('usePreviewPanelPreferences', () => {
         groupingConfig: 'folder',
         activeTab: 'unknown',
         collapsedGroups: ['keep', 12, null],
+        footerMode: 'not-a-mode',
+        footerHeight: 9999,
       })
     );
 
@@ -33,5 +37,7 @@ describe('usePreviewPanelPreferences', () => {
     expect(result.current.columnVisibility.size).toBe(false);
     expect(result.current.columnVisibility.tokens).toBe(true);
     expect(Array.from(result.current.collapsedGroups)).toEqual(['keep']);
+    expect(result.current.footerMode).toBe('default');
+    expect(result.current.footerHeight).toBe(360);
   });
 });

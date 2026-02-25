@@ -188,6 +188,34 @@ describe('PreviewPanel', () => {
       ).not.toBeInTheDocument();
     });
 
+    it('renders footer resize handle and mode controls', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      expect(
+        screen.getByRole('separator', { name: /resize context explorer footer/i })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /compact footer mode/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /balanced footer mode/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /insights footer mode/i })).toBeInTheDocument();
+    });
+
+    it('switches to compact footer mode and hides advanced toggles', async () => {
+      const user = userEvent.setup();
+      render(<PreviewPanel {...mockProps} />);
+
+      expect(
+        screen.getByRole('switch', { name: /use tapestry ranges in context output/i })
+      ).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /compact footer mode/i }));
+
+      expect(
+        screen.queryByRole('switch', { name: /use tapestry ranges in context output/i })
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /download context/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /copy context/i })).toBeInTheDocument();
+    });
+
     it('disables context buttons when no files are selected', () => {
       const onDownloadReport = vi.fn();
       const onCopyReport = vi.fn();
