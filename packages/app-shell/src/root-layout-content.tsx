@@ -7,7 +7,7 @@ import {
 import { type PanelTab, usePanelLayoutStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
-import { type ReactElement, type ReactNode, useCallback, useMemo, useRef } from 'react';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
@@ -129,6 +129,15 @@ export function RootLayoutContent({
   // setState → panelState changes → RootLayoutContent re-renders → PanelLayoutProvider
   // creates new context → IdeLayout re-renders.
   const sizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up pending debounce on unmount to prevent stale setState calls.
+  useEffect(() => {
+    return () => {
+      if (sizeDebounceRef.current) {
+        clearTimeout(sizeDebounceRef.current);
+      }
+    };
+  }, []);
 
   const handlePanelLayoutChange = useCallback(
     (state: PanelLayoutState) => {

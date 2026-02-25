@@ -689,9 +689,16 @@ export function TreeTable<T>({
     useFlushSync: false,
   });
 
-  // ResizeObserver for container sizing
-  useResizeObserver(parentRef, () => {
-    if (isVirtualWindowing) {
+  // ResizeObserver for container sizing — only re-measure when HEIGHT changes.
+  // Width changes (from panel drag) don't affect vertical virtualization.
+  const lastHeightRef = React.useRef<number>(0);
+  useResizeObserver(parentRef, (entry) => {
+    if (!isVirtualWindowing) {
+      return;
+    }
+    const nextHeight = entry.contentRect.height;
+    if (nextHeight !== lastHeightRef.current) {
+      lastHeightRef.current = nextHeight;
       rowVirtualizer.measure();
     }
   });
