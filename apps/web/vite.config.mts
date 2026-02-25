@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '@brainstrike/utils';
@@ -12,6 +13,8 @@ import { defineConfig } from 'vitest/config';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const pinoBrowserPath = require.resolve('pino/browser.js');
 const viteLogger = createLogger('WebViteConfig');
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
@@ -170,14 +173,8 @@ export default defineConfig({
       '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
       '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
       // Force pino to browser build to avoid dynamic require of node libs
-      pino: path.resolve(
-        __dirname,
-        '../../node_modules/.pnpm/pino@10.1.1/node_modules/pino/browser.js'
-      ),
-      'pino/browser.js': path.resolve(
-        __dirname,
-        '../../node_modules/.pnpm/pino@10.1.1/node_modules/pino/browser.js'
-      ),
+      pino: pinoBrowserPath,
+      'pino/browser.js': pinoBrowserPath,
       // Agent client-safe exports (no Mastra dependencies)
       '@brainstrike/agent/client': path.resolve(__dirname, '../../packages/agent/src/client.ts'),
       // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports

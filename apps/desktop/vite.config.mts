@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findPGliteWasm, fullReloadOnCompilerHotspots } from '@brainstrike/build-utils';
@@ -10,6 +11,8 @@ import wasm from 'vite-plugin-wasm';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const pinoBrowserPath = require.resolve('pino/browser.js');
 
 const wasmPath = findPGliteWasm(__dirname);
 
@@ -135,17 +138,11 @@ export default defineConfig({
       {
         // Force pino to browser build to avoid dynamic require of node libs in renderer
         find: 'pino',
-        replacement: path.resolve(
-          __dirname,
-          '../../node_modules/.pnpm/pino@10.1.1/node_modules/pino/browser.js'
-        ),
+        replacement: pinoBrowserPath,
       },
       {
         find: 'pino/browser.js',
-        replacement: path.resolve(
-          __dirname,
-          '../../node_modules/.pnpm/pino@10.1.1/node_modules/pino/browser.js'
-        ),
+        replacement: pinoBrowserPath,
       },
       // Agent client-safe exports (no Mastra dependencies)
       {
