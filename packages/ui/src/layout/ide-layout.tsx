@@ -1107,9 +1107,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="h-[calc(100%-2.5rem)] overflow-hidden contain-content">
-                    {leftPanelContent}
-                  </div>
+                  <div className="h-[calc(100%-2.5rem)] overflow-hidden">{leftPanelContent}</div>
                 </div>
               </Panel>
               <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
@@ -1126,7 +1124,7 @@ export const IdeLayout = React.memo(function IdeLayout({
             >
               <Panel className="bg-background" id="main-content-panel" minSize="30%">
                 <div className="flex h-full flex-col">
-                  <div className="min-h-0 flex-1 contain-content">{children}</div>
+                  <div className="min-h-0 flex-1">{children}</div>
                   {/* Show console toggle when collapsed - inside main content panel */}
                   {hasConsole && !showConsole && (
                     <div className="flex shrink-0 items-center justify-center border-border border-t bg-muted/30 py-1">
@@ -1180,9 +1178,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
-                      <div className="h-[calc(100%-2.5rem)] overflow-auto contain-content">
-                        {consoleContent}
-                      </div>
+                      <div className="h-[calc(100%-2.5rem)] overflow-auto">{consoleContent}</div>
                     </div>
                   </Panel>
                 </>
@@ -1222,7 +1218,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                       <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="flex h-[calc(100%-2.5rem)] flex-col overflow-hidden contain-content">
+                  <div className="flex h-[calc(100%-2.5rem)] flex-col overflow-hidden">
                     {rightPanelContent}
                   </div>
                 </div>

@@ -286,11 +286,7 @@ function TreeTableViewport({
   children,
 }: TreeTableViewportProps): React.ReactElement {
   return (
-    <div
-      className={cn('min-w-0 contain-content', className)}
-      ref={parentRef}
-      style={{ maxHeight, height: '100%' }}
-    >
+    <div className={cn('min-w-0', className)} ref={parentRef} style={{ maxHeight, height: '100%' }}>
       {children}
     </div>
   );
