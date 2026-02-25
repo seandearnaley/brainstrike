@@ -12,20 +12,8 @@ import type {
   PanelPersistenceState,
 } from '@brainstrike/ui';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import { isFileReadErrorPayload } from './file-read-errors';
 import type { LoggingSettingsPayload } from './logging-shared';
-
-interface FileReadErrorPayload {
-  code: 'TOO_LARGE';
-  message: string;
-}
-
-function isFileReadErrorPayload(value: unknown): value is FileReadErrorPayload {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const candidate = value as { code?: unknown; message?: unknown };
-  return candidate.code === 'TOO_LARGE' && typeof candidate.message === 'string';
-}
 
 function unwrapFileReadResult(result: unknown): string {
   if (typeof result === 'string') {

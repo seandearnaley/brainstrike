@@ -188,6 +188,22 @@ describe('ipc-handlers filesystem endpoints', () => {
     });
   });
 
+  it('fs:readFile maps TOO_LARGE coded errors to structured payloads', async () => {
+    const handler = handlers.get('fs:readFile');
+    const realFile = { id: 'real-file', path: '/users/test/large.json' } as unknown as FileHandle;
+    const codedError = Object.assign(new Error('Size limit exceeded by adapter'), {
+      code: 'TOO_LARGE' as const,
+    });
+    vi.mocked(fsAdapter.readFile).mockRejectedValueOnce(codedError);
+
+    const result = await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
+
+    expect(result).toEqual({
+      code: 'TOO_LARGE',
+      message: 'Size limit exceeded by adapter',
+    });
+  });
+
   it('fs:exists rejects null bytes', async () => {
     const handler = handlers.get('fs:exists');
     const result = await handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/\0oops');

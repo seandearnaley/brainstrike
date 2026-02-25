@@ -17,6 +17,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
+import { createFileReadErrorPayload } from './file-read-errors';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // import { getDatabase } from './db-main'; // Disabled - using renderer process database
@@ -45,19 +46,23 @@ const liveSubscriptionOwnerListeners = new Set<number>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
 
-interface FileReadErrorPayload {
-  code: 'TOO_LARGE';
-  message: string;
-}
-
-function createFileReadErrorPayload(message: string): FileReadErrorPayload {
-  return {
-    code: 'TOO_LARGE',
-    message,
-  };
+function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { code?: unknown };
+  return candidate.code === 'TOO_LARGE';
 }
 
 function getFileTooLargeMessage(error: unknown): string | null {
+  if (hasTooLargeCode(error)) {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    const message = (error as { message?: unknown }).message;
+    return typeof message === 'string' ? message : 'File too large';
+  }
+
   if (error instanceof AccessError && error.operation === 'read') {
     return error.message.includes('File too large') ? error.message : null;
   }

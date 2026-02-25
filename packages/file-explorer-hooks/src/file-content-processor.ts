@@ -23,6 +23,13 @@ export interface FileContentRequest {
   fileSystemAdapter: FileSystemAdapter;
 }
 
+function getKnownFileSize(size: unknown): number | null {
+  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
+    return null;
+  }
+  return size;
+}
+
 /**
  * Worker-based file content processor for production use
  */
@@ -63,8 +70,9 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
       _internal: fileNode.handle,
     };
 
-    if (typeof fileNode.size === 'number') {
-      fileHandle.size = fileNode.size;
+    const knownFileSize = getKnownFileSize(fileNode.size);
+    if (knownFileSize !== null) {
+      fileHandle.size = knownFileSize;
     }
 
     return fileHandle;
@@ -101,10 +109,11 @@ export class DirectFileContentProcessor implements FileContentProcessor {
 
   private async processFile(request: FileContentRequest): Promise<string> {
     const { fileNode, fileSystemAdapter } = request;
+    const knownFileSize = getKnownFileSize(fileNode.size);
 
-    if (typeof fileNode.size === 'number' && fileNode.size > DEFAULT_MAX_FILE_SIZE) {
+    if (knownFileSize !== null && knownFileSize > DEFAULT_MAX_FILE_SIZE) {
       throw new FileContentError(
-        `File too large: ${formatFileSize(fileNode.size)} (max: ${formatFileSize(DEFAULT_MAX_FILE_SIZE)})`,
+        `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(DEFAULT_MAX_FILE_SIZE)})`,
         fileNode.path,
         'TOO_LARGE'
       );
@@ -123,8 +132,8 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       _internal: fileNode.handle,
     };
 
-    if (typeof fileNode.size === 'number') {
-      fileHandle.size = fileNode.size;
+    if (knownFileSize !== null) {
+      fileHandle.size = knownFileSize;
     }
 
     const content = await fileSystemAdapter.readFile(fileHandle);

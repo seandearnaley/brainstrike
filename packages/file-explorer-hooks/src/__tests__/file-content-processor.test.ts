@@ -203,6 +203,36 @@ describe('DirectFileContentProcessor', () => {
       total: 2,
     });
   });
+
+  it('should ignore non-finite size metadata in direct reads', async () => {
+    const processor = new DirectFileContentProcessor();
+    const mockReadFile = vi.mocked(mockFileSystemAdapter.readFile);
+    mockReadFile.mockClear();
+    const { fileContent, fileExplorer } = await import('@brainstrike/utils');
+    mockReadFile.mockResolvedValue('file content');
+    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('txt');
+    vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
+    vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+    vi.mocked(fileContent.isTextContent).mockReturnValue(true);
+
+    const requestWithInvalidSize = {
+      ...mockRequest,
+      fileNode: {
+        ...mockFileNode,
+        size: Number.POSITIVE_INFINITY,
+      },
+    };
+
+    const results = await processor.processFiles([requestWithInvalidSize]);
+
+    expect(results).toEqual({
+      'root1|@|/test.txt': 'file content',
+    });
+
+    const firstCall = mockReadFile.mock.calls[0]?.[0] as { size?: number };
+    expect(firstCall).toBeDefined();
+    expect(firstCall?.size).toBeUndefined();
+  });
 });
 
 describe('WorkerFileContentProcessor', () => {
@@ -248,6 +278,28 @@ describe('WorkerFileContentProcessor', () => {
     await processor.processFiles([mockRequest], onProgress);
 
     expect(mockWorker).toHaveBeenCalledWith(expect.any(Array), onProgress);
+  });
+
+  it('should omit non-finite size metadata from worker handles', async () => {
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const processor = new WorkerFileContentProcessor(mockFileSystemAdapter);
+    const requestWithInvalidSize = {
+      ...mockRequest,
+      fileNode: {
+        ...mockFileNode,
+        size: Number.NaN,
+      },
+    };
+
+    await processor.processFiles([requestWithInvalidSize]);
+
+    const workerRequest = mockWorker.mock.calls[0]?.[0]?.[0] as {
+      handle?: { size?: number };
+    };
+    expect(workerRequest?.handle?.size).toBeUndefined();
   });
 });
 

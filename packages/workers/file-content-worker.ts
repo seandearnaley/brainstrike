@@ -55,9 +55,7 @@ function isTooLargeAccessError(error: unknown): error is AccessError {
 }
 
 function getTooLargeMessage(error: unknown): string | null {
-  if (error instanceof FileContentError && error.code === 'TOO_LARGE') {
-    return error.message;
-  }
+  // This helper classifies raw adapter errors. FileContentError instances are re-thrown upstream.
   if (hasTooLargeCode(error) && error instanceof Error) {
     return error.message;
   }
