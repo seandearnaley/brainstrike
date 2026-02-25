@@ -110,46 +110,16 @@ export default defineConfig({
     outDir: 'dist', // Output directory for the build - cache bust
     assetsDir: 'assets', // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
-    target: 'es2022',
+    target: 'es2020',
     assetsInlineLimit: 0,
     rollupOptions: {
       external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
         manualChunks: (id) => {
-          if (!id.includes('node_modules')) {
-            return undefined;
+          if (id.includes('node_modules')) {
+            return 'vendor';
           }
-          // Extract the bare package name from the resolved module path.
-          // Scoped: node_modules/@scope/pkg/… → @scope/pkg
-          // Bare:   node_modules/pkg/…        → pkg
-          const nmIdx = id.lastIndexOf('node_modules/');
-          const afterNm = nmIdx >= 0 ? id.slice(nmIdx + 'node_modules/'.length) : '';
-          let pkgName = '';
-          if (afterNm.startsWith('@')) {
-            const parts = afterNm.split('/');
-            pkgName = `${parts[0]}/${parts[1]}`;
-          } else {
-            pkgName = afterNm.split('/')[0] ?? '';
-          }
-
-          const vendorChunks: [string[], string][] = [
-            [['@electric-sql/pglite'], 'vendor-pglite'],
-            [['@huggingface/transformers'], 'vendor-transformers'],
-            [['@langchain'], 'vendor-langchain'],
-            [['@babel/parser'], 'vendor-babel-parser'],
-            [['shiki', '@shikijs'], 'vendor-shiki'],
-            [['@assistant-ui'], 'vendor-assistant-ui'],
-            [['workerpool'], 'vendor-workerpool'],
-            [['@radix-ui'], 'vendor-radix'],
-            [['react-router-dom', 'react-router'], 'vendor-router'],
-            [['react', 'react-dom', 'scheduler'], 'vendor-react'],
-          ];
-          for (const [patterns, chunk] of vendorChunks) {
-            if (patterns.some((p) => pkgName === p || pkgName.startsWith(`${p}/`))) {
-              return chunk;
-            }
-          }
-          return 'vendor-misc';
+          return;
         },
       },
     },
