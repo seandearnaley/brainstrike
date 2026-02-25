@@ -19,17 +19,17 @@ type FixtureCapableAdapter = FileSystemAdapter & {
 };
 
 interface InlineFixtureToast {
-  title: string;
   description: string;
+  title: string;
   variant?: 'default' | 'destructive';
 }
 
 interface UseInlineFixtureEffectOptions {
-  fileSystemAdapter: FileSystemAdapter;
+  clearRootDirectory: (() => void) | undefined;
   devInlineFixtureEnabled: boolean;
+  fileSystemAdapter: FileSystemAdapter;
   setDevInlineFixtureEnabled: (enabled: boolean) => void;
   setRootDirectoryHandle: ((handle: DirectoryHandle | null) => void) | undefined;
-  clearRootDirectory: (() => void) | undefined;
   showToast: ((toast: InlineFixtureToast) => void) | undefined;
   strings: {
     successTitle: string;
@@ -42,8 +42,8 @@ interface UseInlineFixtureEffectOptions {
 }
 
 interface InlineFixtureState {
-  isLoading: boolean;
   isAvailable: boolean;
+  isLoading: boolean;
 }
 
 /**

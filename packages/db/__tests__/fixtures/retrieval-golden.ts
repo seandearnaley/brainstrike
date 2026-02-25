@@ -1,21 +1,21 @@
 export interface RetrievalGoldenChunk {
-  id: string;
   content: string;
   embedding: number[];
+  id: string;
 }
 
 export interface RetrievalGoldenFile {
+  chunks: RetrievalGoldenChunk[];
   id: string;
   name: string;
   path: string;
-  chunks: RetrievalGoldenChunk[];
 }
 
 export interface RetrievalGoldenQuery {
-  id: string;
-  text: string;
   embedding: number[];
   expectedFilePaths: string[];
+  id: string;
+  text: string;
 }
 
 export interface RetrievalGoldenDataset {

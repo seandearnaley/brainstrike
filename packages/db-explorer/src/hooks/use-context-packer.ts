@@ -32,6 +32,10 @@ export interface UseContextPackerOptions {
    */
   budgetTokens?: number;
   /**
+   * Custom token estimation function (default: countTokensHeuristic)
+   */
+  estimateTokens?: (content: string) => number;
+  /**
    * Maximum number of chunks to include (optional)
    */
   maxChunks?: number;
@@ -40,10 +44,6 @@ export interface UseContextPackerOptions {
    * Falls back to heuristic estimation if not provided.
    */
   tokenCountLookup?: TokenCountLookup;
-  /**
-   * Custom token estimation function (default: countTokensHeuristic)
-   */
-  estimateTokens?: (content: string) => number;
 }
 
 export type ContextPackerFunction = (

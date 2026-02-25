@@ -17,13 +17,13 @@ interface FileStatusRow {
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   file_path: string;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  searchable_chunks: string | number;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  total_chunks: string | number;
+  last_indexed: string | null;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   other_collections: string | number;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  last_indexed: string | null;
+  searchable_chunks: string | number;
+  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
+  total_chunks: string | number;
 }
 
 /**

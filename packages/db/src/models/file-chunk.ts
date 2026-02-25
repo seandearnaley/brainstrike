@@ -1,67 +1,67 @@
 export interface FileChunk {
-  id: string;
-  fileRecordId: string;
   chunkIndex: number;
+  chunkSize: number;
+  chunkType: 'text' | 'code' | 'sentence' | 'recursive';
   content: string;
   contentHash: string;
-  tokenCount: number;
-  chunkType: 'text' | 'code' | 'sentence' | 'recursive';
-  chunkSize: number;
+  createdAt: string;
   embedding?: number[];
+  embeddingHash?: string;
   embeddingSetId?: string;
   embeddingUpdatedAt?: string;
-  embeddingHash?: string;
-  createdAt: string;
+  fileRecordId: string;
+  id: string;
+  tokenCount: number;
   updatedAt: string;
 }
 
 export interface FileChunkInsert {
-  id: string;
-  fileRecordId: string;
   chunkIndex: number;
+  chunkSize: number;
+  chunkType: 'text' | 'code' | 'sentence' | 'recursive';
   content: string;
   contentHash: string;
-  tokenCount: number;
-  chunkType: 'text' | 'code' | 'sentence' | 'recursive';
-  chunkSize: number;
+  createdAt: string;
   embedding?: number[];
+  embeddingHash?: string;
   embeddingSetId?: string;
   embeddingUpdatedAt?: string;
-  embeddingHash?: string;
-  createdAt: string;
+  fileRecordId: string;
+  id: string;
+  tokenCount: number;
   updatedAt: string;
 }
 
 export interface FileChunkUpdate {
-  id: string;
+  chunkSize?: number;
+  chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
   content?: string;
   contentHash?: string;
-  tokenCount?: number;
-  chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
-  chunkSize?: number;
   embedding?: number[];
+  embeddingHash?: string;
   embeddingSetId?: string;
   embeddingUpdatedAt?: string;
-  embeddingHash?: string;
+  id: string;
+  tokenCount?: number;
   updatedAt: string;
 }
 
 export interface ChunkSearchResult {
   chunk: FileChunk;
-  similarity: number;
   rank: number;
+  similarity: number;
 }
 
 export interface ChunkSearchOptions {
-  limit?: number;
-  threshold?: number;
-  fileRecordId?: string;
   chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
   embeddingSetId?: string;
   /** Optional allowlist of file paths to scope results (relative to project root). */
   filePaths?: readonly string[];
+  fileRecordId?: string;
+  limit?: number;
   /** Optional snapshot id referencing a persisted selection allowlist. */
   selectionSnapshotId?: string;
+  threshold?: number;
 }
 
 /**
@@ -76,22 +76,18 @@ export type FTSQueryMode = 'plain' | 'websearch' | 'phrase';
  * Options for full-text search on file chunks
  */
 export interface FTSSearchOptions {
-  /** Maximum number of results to return (default: 10) */
-  limit?: number;
-  /** Minimum FTS rank score threshold (default: 0, no threshold) */
-  threshold?: number;
-  /** Filter by specific file record ID */
-  fileRecordId?: string;
   /** Filter by chunk type */
   chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
   /** Optional allowlist of file paths to scope results */
   filePaths?: readonly string[];
-  /** Optional snapshot id referencing a persisted selection allowlist */
-  selectionSnapshotId?: string;
-  /** Query parsing mode (default: 'websearch' for user-friendly syntax) */
-  queryMode?: FTSQueryMode;
+  /** Filter by specific file record ID */
+  fileRecordId?: string;
   /** Text search configuration/language (default: 'english') */
   language?: string;
+  /** Maximum number of results to return (default: 10) */
+  limit?: number;
+  /** Query parsing mode (default: 'websearch' for user-friendly syntax) */
+  queryMode?: FTSQueryMode;
   /**
    * Ranking normalization flags (PostgreSQL ts_rank normalization)
    * - 0: Default (no normalization)
@@ -104,6 +100,10 @@ export interface FTSSearchOptions {
    * Can be combined with | (e.g., 1|2 for both normalizations)
    */
   rankNormalization?: number;
+  /** Optional snapshot id referencing a persisted selection allowlist */
+  selectionSnapshotId?: string;
+  /** Minimum FTS rank score threshold (default: 0, no threshold) */
+  threshold?: number;
 }
 
 /**
@@ -112,10 +112,10 @@ export interface FTSSearchOptions {
 export interface FTSSearchResult {
   /** The matched chunk */
   chunk: FileChunk;
-  /** FTS relevance rank score (higher = more relevant) */
-  rank: number;
-  /** Position in result set (1-indexed) */
-  position: number;
   /** Headline snippet with search terms highlighted (if requested) */
   headline?: string;
+  /** Position in result set (1-indexed) */
+  position: number;
+  /** FTS relevance rank score (higher = more relevant) */
+  rank: number;
 }

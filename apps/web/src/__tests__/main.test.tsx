@@ -63,8 +63,8 @@ vi.mock('@brainstrike/utils', () => ({
 
 // Mock queue telemetry
 interface MockQueueTelemetrySink {
-  flush: () => Promise<void>;
   dispose: () => Promise<void>;
+  flush: () => Promise<void>;
 }
 
 const initializeQueueTelemetrySinkMock = vi.fn(

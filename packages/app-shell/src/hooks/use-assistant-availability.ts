@@ -69,8 +69,8 @@ export async function resolveAssistantStatusUrl(): Promise<string> {
   }
 
   interface AssistantBridge {
-    url?: string;
     getUrl?: () => Promise<string>;
+    url?: string;
   }
 
   const assistantBridge = (window as unknown as { assistant?: AssistantBridge }).assistant;
@@ -98,8 +98,8 @@ export async function resolveAssistantStatusUrl(): Promise<string> {
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
 interface FetchAssistantStatusStateOptions {
-  signal: AbortSignal;
   fetchImpl?: typeof fetch;
+  signal: AbortSignal;
 }
 
 export async function fetchAssistantStatusState({

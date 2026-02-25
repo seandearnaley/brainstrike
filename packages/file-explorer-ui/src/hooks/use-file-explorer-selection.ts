@@ -3,8 +3,8 @@ import { useMemo } from 'react';
 import { useSelectionManager } from '../use-selection-manager-context';
 
 interface UseFileExplorerSelectionParams {
-  quickFilteredTree: IFileNode[] | null;
   onSelectionLimitExceeded: () => void;
+  quickFilteredTree: IFileNode[] | null;
 }
 
 export function useFileExplorerSelection({

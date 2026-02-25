@@ -9,30 +9,30 @@ import * as React from 'react';
 import { cn } from './lib/utils';
 
 export interface ExpandableTextareaProps {
-  /** Current value */
-  value: string;
-  /** Callback when value changes */
-  onChange: (value: string) => void;
-  /** Placeholder text */
-  placeholder?: string;
-  /** Minimum number of rows (default: 1) */
-  minRows?: number;
-  /** Maximum number of rows (default: 6) */
-  maxRows?: number;
-  /** Fixed minimum height in pixels (overrides minRows calculation) */
-  minHeight?: number;
-  /** Keyboard event handler */
-  onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-  /** Maximum input length */
-  maxLength?: number;
+  /** Aria label for accessibility */
+  'aria-label'?: string;
   /** Custom class name */
   className?: string;
   /** Whether the textarea is disabled */
   disabled?: boolean;
   /** ID for the textarea */
   id?: string;
-  /** Aria label for accessibility */
-  'aria-label'?: string;
+  /** Maximum input length */
+  maxLength?: number;
+  /** Maximum number of rows (default: 6) */
+  maxRows?: number;
+  /** Fixed minimum height in pixels (overrides minRows calculation) */
+  minHeight?: number;
+  /** Minimum number of rows (default: 1) */
+  minRows?: number;
+  /** Callback when value changes */
+  onChange: (value: string) => void;
+  /** Keyboard event handler */
+  onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  /** Placeholder text */
+  placeholder?: string;
+  /** Current value */
+  value: string;
 }
 
 /**

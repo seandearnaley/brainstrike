@@ -9,11 +9,11 @@ import { formatDirPathForDisplay, splitFilePath } from './utils/path-display';
 import { formatPreviewFileSize } from './utils/preview-formatters';
 
 interface PreviewTableRowProps {
-  item: TableRowData;
-  isSelected: boolean;
-  onToggleSelection: (compositeKey: string, checked: boolean) => void;
-  onFileClick?: ((compositeKey: string) => void) | undefined;
   columnVisibility: ColumnVisibility;
+  isSelected: boolean;
+  item: TableRowData;
+  onFileClick?: ((compositeKey: string) => void) | undefined;
+  onToggleSelection: (compositeKey: string, checked: boolean) => void;
 }
 
 export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableRowComponent({

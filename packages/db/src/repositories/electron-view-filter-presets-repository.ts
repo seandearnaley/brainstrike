@@ -15,17 +15,17 @@ import type { ElectronDbAPI } from './electron-file-record-repository.js';
 import type { IViewFilterPresetsRepository } from './interfaces.js';
 
 interface DbRow {
-  id: string;
-  name: string;
-  description: string | null;
-  icon: string;
-  includes: string[];
-  excludes: string[];
-  use_regex: boolean;
-  is_default: boolean;
-  sort_order: number;
   created_at: string;
+  description: string | null;
+  excludes: string[];
+  icon: string;
+  id: string;
+  includes: string[];
+  is_default: boolean;
+  name: string;
+  sort_order: number;
   updated_at: string;
+  use_regex: boolean;
 }
 
 /**

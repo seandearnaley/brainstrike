@@ -12,22 +12,22 @@ import * as React from 'react';
 import { useMemo } from 'react';
 
 export interface ScanningStatusProps {
-  /** Whether scanning is in progress */
-  isScanning: boolean;
-  /** Depth-based progress information */
-  depthProgress?: DepthProgress | undefined;
-  /** Current path being scanned */
-  currentPath?: string | undefined;
-  /** Progress percentage (0-100) */
-  percentage?: number | undefined;
   /** Whether the operation can be cancelled */
   cancellable?: boolean | undefined;
-  /** Whether cancellation is in progress */
-  isCancelling?: boolean | undefined;
-  /** Callback to cancel the operation */
-  onCancel?: (() => void) | undefined;
   /** Additional CSS classes */
   className?: string | undefined;
+  /** Current path being scanned */
+  currentPath?: string | undefined;
+  /** Depth-based progress information */
+  depthProgress?: DepthProgress | undefined;
+  /** Whether cancellation is in progress */
+  isCancelling?: boolean | undefined;
+  /** Whether scanning is in progress */
+  isScanning: boolean;
+  /** Callback to cancel the operation */
+  onCancel?: (() => void) | undefined;
+  /** Progress percentage (0-100) */
+  percentage?: number | undefined;
 }
 
 /**

@@ -12,12 +12,12 @@ import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 // Logger mock type for test purposes - uses generic Mock for variadic logging functions
 type LogFn = Mock<(...args: unknown[]) => void>;
 interface MockLogger {
-  error: LogFn;
-  warn: LogFn;
-  info: LogFn;
   debug: LogFn;
-  trace: LogFn;
+  error: LogFn;
   fatal: LogFn;
+  info: LogFn;
+  trace: LogFn;
+  warn: LogFn;
 }
 
 const loggerMock = vi.hoisted<MockLogger>(() => ({

@@ -2,7 +2,6 @@ import type { ChunkingStrategy } from '@brainstrike/db';
 import type { ImportProgress } from '@brainstrike/ui';
 
 export interface EnhancedImportProgress extends ImportProgress {
-  phase: 'importing' | 'chunking' | 'embedding' | 'complete';
   chunkingProgress?: {
     filesProcessed: number;
     totalFiles: number;
@@ -16,6 +15,7 @@ export interface EnhancedImportProgress extends ImportProgress {
     currentChunk?: string | undefined;
     modelName: string;
   };
+  phase: 'importing' | 'chunking' | 'embedding' | 'complete';
   queueProgress?: {
     pending: number;
     processed: number;
@@ -33,11 +33,11 @@ export interface EnhancedImportProgress extends ImportProgress {
 }
 
 export interface EnhancedImportResult {
-  id: string;
-  imported: boolean;
-  existed: boolean;
-  error?: string;
+  chunkingStrategy?: ChunkingStrategy;
   chunksCreated: number;
   chunksWithEmbeddings?: number;
-  chunkingStrategy?: ChunkingStrategy;
+  error?: string;
+  existed: boolean;
+  id: string;
+  imported: boolean;
 }

@@ -7,11 +7,11 @@ const MAX_QUERY_TOKENS = 8;
 
 export interface WebDocEntry {
   id: string;
-  title: string;
-  summary: string;
-  url: string;
-  tags: readonly string[];
   sections: readonly string[];
+  summary: string;
+  tags: readonly string[];
+  title: string;
+  url: string;
   versionIntroduced?: string;
 }
 
@@ -22,21 +22,21 @@ type IndexedDoc = WebDocEntry & {
 };
 
 export interface SearchResult {
-  id: string;
-  title: string;
-  summary: string;
-  url: string;
   highlight: string;
-  tags: readonly string[];
+  id: string;
   score: number;
+  summary: string;
+  tags: readonly string[];
+  title: string;
+  url: string;
 }
 
 export interface SearchResponse {
-  query: string;
   limit: number;
-  totalResults: number;
-  tookMs: number;
+  query: string;
   results: readonly SearchResult[];
+  tookMs: number;
+  totalResults: number;
 }
 
 export interface DocSummaryResponse {

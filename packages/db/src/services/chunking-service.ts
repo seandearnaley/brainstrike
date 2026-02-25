@@ -9,35 +9,35 @@ const logger = createLogger('ChunkingService');
 export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
 
 export interface ChunkingOptions {
-  strategy: ChunkingStrategy;
-  maxTokens?: number;
-  overlap?: number;
-  separators?: string[];
-  fileName?: string;
-  filePath?: string;
   // When true, allows chunking beyond maxChunkableSize using the streaming API
   allowLargeFiles?: boolean;
+  fileName?: string;
+  filePath?: string;
   // When true, honor the provided strategy without applying file-type heuristics
   forceStrategy?: boolean;
-  // Optional token counter for token-true sizing and reporting
-  tokenCounter?: (text: string) => Promise<number>;
-  // If true, derive character limits from measured chars/token for this content
-  tokenTrueSizing?: boolean;
+  // Skip file-type recommendations and only enforce global safety caps when true
+  ignoreFileTypeRecommendations?: boolean;
+  maxTokens?: number;
   // Optional override for the global max token budget per chunk
   maxTokensCap?: number;
   // Notify caller which strategy was actually used after file/extension heuristics
   onStrategyResolved?: (strategy: ChunkingStrategy) => void;
-  // Skip file-type recommendations and only enforce global safety caps when true
-  ignoreFileTypeRecommendations?: boolean;
+  overlap?: number;
+  separators?: string[];
+  strategy: ChunkingStrategy;
+  // Optional token counter for token-true sizing and reporting
+  tokenCounter?: (text: string) => Promise<number>;
+  // If true, derive character limits from measured chars/token for this content
+  tokenTrueSizing?: boolean;
 }
 
 export interface ChunkingResult {
-  chunks: FileChunkInsert[];
-  totalTokens: number;
   avgTokensPerChunk: number;
-  strategyUsed: ChunkingStrategy;
+  chunks: FileChunkInsert[];
   skipped?: boolean;
   skipReason?: string;
+  strategyUsed: ChunkingStrategy;
+  totalTokens: number;
 }
 
 // File patterns that should be skipped or handled differently (path or name)
@@ -1198,8 +1198,8 @@ function findBalancedSplitPoint(content: string): number {
 
 function splitMarkdownIntoBlocks(content: string) {
   interface Block {
-    text: string;
     meta: { isFence?: boolean; heading?: string };
+    text: string;
   }
   const blocks: Block[] = [];
   const lines = content.split(/\r?\n/);

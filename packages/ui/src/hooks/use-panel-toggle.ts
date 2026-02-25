@@ -4,9 +4,9 @@ interface UsePanelToggleOptions {
   focusRef?: RefObject<HTMLElement | null>;
   // Callback invoked on user-initiated actions to lift any initialization gate
   liftInitGate?: () => void;
+  onBeforeHide?: () => void;
   // Optional callback before toggling visibility (useful when panel is unmounted)
   onBeforeShow?: () => void;
-  onBeforeHide?: () => void;
 }
 
 function liftInitGate(fn?: () => void) {

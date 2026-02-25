@@ -14,27 +14,27 @@ export type ParameterType = 'string' | 'number' | 'boolean' | 'array' | 'object'
  * Single parameter definition for UI display.
  */
 export interface ToolParameterDisplay {
-  name: string;
-  type: ParameterType;
-  description: string;
-  required: boolean;
+  arrayItemType?: ParameterType;
   default?: unknown;
+  description: string;
   enumValues?: string[];
-  minLength?: number;
+  max?: number;
   maxLength?: number;
   min?: number;
-  max?: number;
-  arrayItemType?: ParameterType;
+  minLength?: number;
+  name: string;
+  required: boolean;
+  type: ParameterType;
 }
 
 /**
  * Complete schema display info for a tool.
  */
 export interface ToolSchemaDisplay {
-  toolId: string;
   description: string;
   parameters: ToolParameterDisplay[];
   returns: string;
+  toolId: string;
 }
 
 /**

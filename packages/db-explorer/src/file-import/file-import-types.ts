@@ -15,15 +15,15 @@ export interface FileSystemPort {
 }
 
 export interface FileImportDependencies {
-  readonly repository: FileImportRepositoryPort | null;
   readonly fileSystem: FileSystemPort | null;
+  readonly repository: FileImportRepositoryPort | null;
 }
 
 export interface FileImportContext {
-  readonly selectedFilePaths: Set<string>;
-  readonly fileTree: IFileNode[];
-  readonly fileContents: Record<string, string>;
   readonly embeddingSetId?: string; // Collection to associate files with
+  readonly fileContents: Record<string, string>;
+  readonly fileTree: IFileNode[];
+  readonly selectedFilePaths: Set<string>;
 }
 
 export interface FileImportCallbacks {
@@ -31,6 +31,6 @@ export interface FileImportCallbacks {
 }
 
 export interface FileImportOutcome {
-  readonly results: FileImportResult[];
   readonly progress: ImportProgress;
+  readonly results: FileImportResult[];
 }

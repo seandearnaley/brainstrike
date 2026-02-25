@@ -1,10 +1,6 @@
 import type React from 'react';
 
 export interface ModelPickerModel {
-  id: string;
-  providerId: string;
-  name: string;
-  description?: string | null;
   capabilities: {
     type: 'llm' | 'embedding';
     streaming?: boolean;
@@ -13,48 +9,51 @@ export interface ModelPickerModel {
   };
   // Extended metadata (optional, for future)
   contextWindow?: number;
+  description?: string | null;
+  id: string;
+  name: string;
   pricePer1MTokensInput?: number;
   pricePer1MTokensOutput?: number;
+  providerId: string;
 }
 
 export interface ModelPickerProvider {
+  icon?: string | null;
   id: string;
   name: string;
-  icon?: string | null;
 }
 
 export type ModelType = 'llm' | 'embedding' | 'all';
 export type ModelPickerSelectionMode = 'single' | 'multi';
 
 export interface TriggerRenderProps {
-  value?: string | string[] | undefined;
-  models: ModelPickerModel[];
-  providers: ModelPickerProvider[];
-  placeholder?: string | undefined;
   disabled?: boolean | undefined;
+  models: ModelPickerModel[];
+  placeholder?: string | undefined;
+  providers: ModelPickerProvider[];
+  value?: string | string[] | undefined;
 }
 
 export interface ItemRenderProps {
-  model: ModelPickerModel;
   isSelected: boolean;
+  model: ModelPickerModel;
   onSelect: () => void;
 }
 
 export interface ModelPickerProps {
-  /** Models to display (typically from useModelRegistryStore) */
-  models: ModelPickerModel[];
+  /** Additional CSS classes */
+  className?: string;
 
-  /** Providers for grouping (typically from useModelRegistryStore) */
-  providers: ModelPickerProvider[];
+  /** Disable the picker */
+  disabled?: boolean;
 
   /** Selection mode */
   mode?: ModelPickerSelectionMode; // default: 'single'
+  /** Models to display (typically from useModelRegistryStore) */
+  models: ModelPickerModel[];
 
   /** Filter by model type */
   modelType?: ModelType; // default: 'all'
-
-  /** Currently selected model ID(s) */
-  value?: string | string[];
 
   /** Callback when selection changes */
   onChange?: (value: string | string[]) => void;
@@ -62,21 +61,21 @@ export interface ModelPickerProps {
   /** Placeholder text when nothing selected */
   placeholder?: string; // default: 'Select a model...'
 
-  /** Disable the picker */
-  disabled?: boolean;
-
-  /** Show search input */
-  searchable?: boolean; // default: true
-
-  /** Custom trigger render (headless mode) */
-  renderTrigger?: (props: TriggerRenderProps) => React.ReactNode;
+  /** Providers for grouping (typically from useModelRegistryStore) */
+  providers: ModelPickerProvider[];
 
   /** Custom item render */
   renderItem?: (props: ItemRenderProps) => React.ReactNode;
 
-  /** Additional CSS classes */
-  className?: string;
+  /** Custom trigger render (headless mode) */
+  renderTrigger?: (props: TriggerRenderProps) => React.ReactNode;
+
+  /** Show search input */
+  searchable?: boolean; // default: true
 
   /** Size variant */
   size?: 'sm' | 'default' | 'lg';
+
+  /** Currently selected model ID(s) */
+  value?: string | string[];
 }

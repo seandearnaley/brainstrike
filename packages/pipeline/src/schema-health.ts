@@ -54,56 +54,56 @@ export interface HealthCheckDb {
  * Result of checking a single table's health.
  */
 export interface TableHealthResult {
-  /** Table name */
-  table: string;
   /** Whether the table exists */
   exists: boolean;
-  /** Row count if table exists */
-  rowCount?: number;
   /** Any issues detected */
   issues: string[];
+  /** Row count if table exists */
+  rowCount?: number;
+  /** Table name */
+  table: string;
 }
 
 /**
  * Overall pipeline schema health summary.
  */
 export interface SchemaHealthSummary {
-  /** Whether the schema is healthy overall */
-  healthy: boolean;
   /** Timestamp of the health check */
   checkedAt: string;
-  /** Individual table results */
-  tables: TableHealthResult[];
-  /** Aggregated list of all issues */
-  issues: string[];
   /** Corruption metrics */
   corruption: CorruptionMetrics;
+  /** Whether the schema is healthy overall */
+  healthy: boolean;
+  /** Aggregated list of all issues */
+  issues: string[];
+  /** Individual table results */
+  tables: TableHealthResult[];
 }
 
 /**
  * Metrics about potential corruption.
  */
 export interface CorruptionMetrics {
-  /** Chunks without valid file_record references */
-  orphanedChunks: number;
-  /** Jobs stuck in 'running' state past lease expiry */
-  stuckJobs: number;
   /** Chunks referencing non-existent embedding sets */
   invalidEmbeddingSetRefs: number;
   /** Jobs with invalid or unparseable payloads */
   invalidJobPayloads: number;
+  /** Chunks without valid file_record references */
+  orphanedChunks: number;
+  /** Jobs stuck in 'running' state past lease expiry */
+  stuckJobs: number;
 }
 
 /**
  * Result of a recovery operation.
  */
 export interface RecoveryResult {
-  /** Whether recovery succeeded */
-  success: boolean;
-  /** Number of items recovered/cleaned */
-  recoveredCount: number;
   /** Error message if recovery failed */
   error?: string;
+  /** Number of items recovered/cleaned */
+  recoveredCount: number;
+  /** Whether recovery succeeded */
+  success: boolean;
 }
 
 /**
@@ -111,14 +111,38 @@ export interface RecoveryResult {
  */
 export interface SchemaHealthChecker {
   /**
-   * Check if all required pipeline tables exist.
+   * Cancel all running and queued jobs.
+   * Useful for recovery when worker state is lost.
+   * @returns Number of jobs canceled
    */
-  checkTablesExist(): Promise<TableHealthResult[]>;
+  cancelAllPendingJobs(): Promise<RecoveryResult>;
 
   /**
    * Check overall schema health including corruption detection.
    */
   checkHealth(): Promise<SchemaHealthSummary>;
+  /**
+   * Check if all required pipeline tables exist.
+   */
+  checkTablesExist(): Promise<TableHealthResult[]>;
+
+  /**
+   * Delete orphaned chunks.
+   * @returns Number of chunks deleted
+   */
+  cleanOrphanedChunks(): Promise<RecoveryResult>;
+
+  /**
+   * Clear all embedding-related data for a full reindex.
+   * Clears: file_chunks, job_queue (embed jobs), resets file_records embedding fields.
+   * @returns Recovery result with counts
+   */
+  clearForReindex(): Promise<RecoveryResult>;
+
+  /**
+   * Count chunks referencing non-existent embedding sets.
+   */
+  countInvalidEmbeddingSetRefs(): Promise<number>;
 
   /**
    * Count orphaned chunks (chunks without valid file records).
@@ -132,36 +156,11 @@ export interface SchemaHealthChecker {
   countStuckJobs(leaseTimeoutMs?: number): Promise<number>;
 
   /**
-   * Count chunks referencing non-existent embedding sets.
-   */
-  countInvalidEmbeddingSetRefs(): Promise<number>;
-
-  /**
-   * Delete orphaned chunks.
-   * @returns Number of chunks deleted
-   */
-  cleanOrphanedChunks(): Promise<RecoveryResult>;
-
-  /**
    * Reset stuck jobs back to 'queued' state.
    * @param leaseTimeoutMs - Consider jobs stuck after this many ms
    * @returns Number of jobs recovered
    */
   recoverStuckJobs(leaseTimeoutMs?: number): Promise<RecoveryResult>;
-
-  /**
-   * Cancel all running and queued jobs.
-   * Useful for recovery when worker state is lost.
-   * @returns Number of jobs canceled
-   */
-  cancelAllPendingJobs(): Promise<RecoveryResult>;
-
-  /**
-   * Clear all embedding-related data for a full reindex.
-   * Clears: file_chunks, job_queue (embed jobs), resets file_records embedding fields.
-   * @returns Recovery result with counts
-   */
-  clearForReindex(): Promise<RecoveryResult>;
 }
 
 // =============================================================================

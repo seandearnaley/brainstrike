@@ -33,22 +33,44 @@ interface WorkerPoolLike {
  * Options for useTokenCache hook
  */
 export interface UseTokenCacheOptions {
-  /** Token cache store instance */
-  store: TokenCacheStore;
-  /** File hasher instance */
-  hasher: FileHasher;
-  /** Worker pool instance (minimal interface, compatible with workerpool.Pool) */
-  workerPool: WorkerPoolLike;
   /** Current counting mode preference */
   countingMode: TokenCountingMode;
+  /** File hasher instance */
+  hasher: FileHasher;
   /** Callback when token count is resolved */
   onTokenResolved?: (folderId: string, filePath: string, tokenCount: number) => void;
+  /** Token cache store instance */
+  store: TokenCacheStore;
+  /** Worker pool instance (minimal interface, compatible with workerpool.Pool) */
+  workerPool: WorkerPoolLike;
 }
 
 /**
  * Return type for useTokenCache hook
  */
 export interface UseTokenCacheReturn {
+  /**
+   * Version counter that increments when cache updates.
+   * Use as a dependency in useMemo/useEffect to trigger re-renders on cache changes.
+   */
+  cacheVersion: number;
+
+  /**
+   * Clear hot cache (in-memory).
+   * Does not affect persistent cache.
+   */
+  clearHotCache: () => void;
+
+  /**
+   * Get file size from persistent cache.
+   * Returns cached value if available, otherwise undefined.
+   * This is useful as a fallback when fileNodeCache hasn't loaded yet.
+   *
+   * @param folderId - Root folder identifier
+   * @param filePath - Relative file path
+   * @returns File size in bytes or undefined if not cached
+   */
+  getFileSize: (folderId: string, filePath: string) => number | undefined;
   /**
    * Get token count for a file.
    * Returns cached value if available, otherwise triggers background count.
@@ -61,21 +83,21 @@ export interface UseTokenCacheReturn {
   getTokenCount: (folderId: string, filePath: string, content?: string) => number | null;
 
   /**
-   * Get file size from persistent cache.
-   * Returns cached value if available, otherwise undefined.
-   * This is useful as a fallback when fileNodeCache hasn't loaded yet.
-   *
-   * @param folderId - Root folder identifier
-   * @param filePath - Relative file path
-   * @returns File size in bytes or undefined if not cached
-   */
-  getFileSize: (folderId: string, filePath: string) => number | undefined;
-
-  /**
    * Get aggregated token count for multiple files.
    * Uses SQL SUM for efficiency.
    */
   getTotalTokens: (folderId: string, filePaths: string[]) => Promise<number>;
+
+  /**
+   * Invalidate cache for specific files.
+   * Use when file content has changed.
+   */
+  invalidate: (folderId: string, filePaths: string[]) => void;
+
+  /**
+   * Check if any token counting is in progress.
+   */
+  isAnyLoading: boolean;
 
   /**
    * Check if a file's token count is currently being computed.
@@ -83,9 +105,10 @@ export interface UseTokenCacheReturn {
   isLoading: (folderId: string, filePath: string) => boolean;
 
   /**
-   * Check if any token counting is in progress.
+   * Preload token counts from persistent cache.
+   * Call this when folder is selected to warm the hot cache.
    */
-  isAnyLoading: boolean;
+  preloadFolder: (folderId: string) => Promise<void>;
 
   /**
    * Queue files for background token counting.
@@ -101,40 +124,16 @@ export interface UseTokenCacheReturn {
   ) => void;
 
   /**
-   * Preload token counts from persistent cache.
-   * Call this when folder is selected to warm the hot cache.
-   */
-  preloadFolder: (folderId: string) => Promise<void>;
-
-  /**
-   * Clear hot cache (in-memory).
-   * Does not affect persistent cache.
-   */
-  clearHotCache: () => void;
-
-  /**
-   * Invalidate cache for specific files.
-   * Use when file content has changed.
-   */
-  invalidate: (folderId: string, filePaths: string[]) => void;
-
-  /**
-   * Update hot cache directly.
-   * Used by background indexer to populate cache without re-counting.
-   */
-  updateHotCache: (folderId: string, filePath: string, tokenCount: number) => void;
-
-  /**
    * Update file size cache directly.
    * Used by background indexer to populate cache without re-counting.
    */
   updateFileSizeCache: (folderId: string, filePath: string, fileSize: number) => void;
 
   /**
-   * Version counter that increments when cache updates.
-   * Use as a dependency in useMemo/useEffect to trigger re-renders on cache changes.
+   * Update hot cache directly.
+   * Used by background indexer to populate cache without re-counting.
    */
-  cacheVersion: number;
+  updateHotCache: (folderId: string, filePath: string, tokenCount: number) => void;
 }
 
 /**

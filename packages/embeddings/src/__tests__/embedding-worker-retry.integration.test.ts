@@ -16,9 +16,9 @@ import type {
 vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
 
 interface FlakyServiceOptions {
-  shouldFail: (attempt: number) => boolean;
-  errorMessage: string;
   embeddingValue: number;
+  errorMessage: string;
+  shouldFail: (attempt: number) => boolean;
   totalTokens: number;
 }
 

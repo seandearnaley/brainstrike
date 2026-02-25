@@ -15,11 +15,11 @@ const logger = createLogger('QueueCli');
 
 interface Args {
   cmd: 'stats' | 'requeue' | 'clear' | 'prune' | 'help';
-  queue?: string;
-  limit?: number;
   db?: string;
-  states?: string[];
+  limit?: number;
   olderThan?: string;
+  queue?: string;
+  states?: string[];
 }
 
 function parseStates(tokens: string[], start: number): { values: string[]; next: number } {

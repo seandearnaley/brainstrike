@@ -67,9 +67,9 @@ export interface EmbeddingCacheInterface {
  */
 export interface CachedEmbedding {
   contentHash: string;
-  modelKey: string;
-  embedding: number[];
   dimensions: number;
+  embedding: number[];
+  modelKey: string;
 }
 
 const workerLogger = createLogger('EmbeddingWorker');
@@ -78,13 +78,13 @@ const workerLogger = createLogger('EmbeddingWorker');
  * Raw model row from the database
  */
 interface DbModelRow {
+  capabilities: string | { type: string; defaultDimension?: number } | null;
+  description: string | null;
   id: string;
+  name: string;
+  parameters: string | { size?: string; contextWindow?: number } | null;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   provider_id: string;
-  name: string;
-  description: string | null;
-  capabilities: string | { type: string; defaultDimension?: number } | null;
-  parameters: string | { size?: string; contextWindow?: number } | null;
 }
 
 /**
@@ -262,24 +262,24 @@ type HostedProviderConfig = Extract<
 >;
 
 export interface EmbeddingWorkerOptions {
-  db: IDatabase;
-  queue?: string; // default: 'embeddings'
-  concurrency?: number; // default: 1..4
-  leaseMs?: number; // default: 60000
-  heartbeatIntervalMs?: number; // default: 10000
-  modelKey?: string | undefined; // default: registry default
-  distance?: Distance; // default: 'cosine'
-  workerId?: string; // optional
-  log?: (msg: string, meta?: unknown) => void;
-  service?: EmbeddingService; // optional DI for tests or custom backends
-  metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
-  enable?: boolean; // explicit runtime toggle; overrides env flag
-  device?: 'webgpu' | 'wasm'; // preferred device for transformers backend
-  reinitEveryN?: number; // reinitialize service every N successes (default disabled unless env/option set)
   cacheDir?: string; // directory to cache/load models from
-  onDownloadProgress?: (modelId: string, progress: number) => void;
+  concurrency?: number; // default: 1..4
+  db: IDatabase;
+  device?: 'webgpu' | 'wasm'; // preferred device for transformers backend
+  distance?: Distance; // default: 'cosine'
   /** Optional embedding cache for content-level deduplication (BST-170) */
   embeddingCache?: EmbeddingCacheInterface;
+  enable?: boolean; // explicit runtime toggle; overrides env flag
+  heartbeatIntervalMs?: number; // default: 10000
+  leaseMs?: number; // default: 60000
+  log?: (msg: string, meta?: unknown) => void;
+  metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
+  modelKey?: string | undefined; // default: registry default
+  onDownloadProgress?: (modelId: string, progress: number) => void;
+  queue?: string; // default: 'embeddings'
+  reinitEveryN?: number; // reinitialize service every N successes (default disabled unless env/option set)
+  service?: EmbeddingService; // optional DI for tests or custom backends
+  workerId?: string; // optional
 }
 
 export interface EmbeddingWorkerController {
@@ -288,12 +288,12 @@ export interface EmbeddingWorkerController {
 
 interface EmbedChunkPayload {
   chunkId: string;
-  fileRecordId?: string;
+  dimensionParameter?: ProviderDimensionParameter | null;
   embeddingSetId?: string | null;
   expectedDimension?: number; // Expected embedding dimension; falls back to model metadata when omitted
+  fileRecordId?: string;
   modelKey?: string | null;
   provider?: EmbeddingProviderType | null;
-  dimensionParameter?: ProviderDimensionParameter | null;
 }
 
 async function sha256Hex(input: string): Promise<string> {
@@ -1271,8 +1271,8 @@ export async function startEmbeddingWorker(
   }
 
   interface LoadedChunkItem {
-    job: ClaimedJob;
     chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>;
+    job: ClaimedJob;
     payload: EmbedChunkPayload;
   }
 

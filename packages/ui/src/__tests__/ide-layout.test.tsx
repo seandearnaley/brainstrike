@@ -33,10 +33,10 @@ vi.mock('react-resizable-panels', () => {
   // v4 API: onLayoutChanged (past tense) is called after pointer release
   // onLayoutChange fires on every pointer move and is NOT recommended for persistence
   interface GroupProps {
-    orientation?: string;
-    onLayoutChanged?: (layout: { [id: string]: number }) => void;
-    groupRef?: React.RefObject<{ setLayout: Mock } | null>;
     children?: React.ReactNode;
+    groupRef?: React.RefObject<{ setLayout: Mock } | null>;
+    onLayoutChanged?: (layout: { [id: string]: number }) => void;
+    orientation?: string;
   }
 
   const Group = ({ orientation, onLayoutChanged, groupRef, children }: GroupProps) => {
@@ -63,20 +63,20 @@ vi.mock('react-resizable-panels', () => {
 
   // v4 API: isExpanded() removed, only isCollapsed() exists
   interface MockImperativeHandle {
-    isCollapsed: () => boolean;
-    expand: () => void;
     collapse: () => void;
+    expand: () => void;
+    isCollapsed: () => boolean;
   }
 
   // v4 API: onCollapse/onExpand props removed, uses panelRef instead of ref
   interface PanelProps extends React.HTMLAttributes<HTMLDivElement> {
     children?: React.ReactNode;
-    panelRef?: React.RefObject<MockImperativeHandle | null>;
-    defaultSize?: number;
-    minSize?: number;
-    maxSize?: number;
-    collapsible?: boolean;
     collapsedSize?: number;
+    collapsible?: boolean;
+    defaultSize?: number;
+    maxSize?: number;
+    minSize?: number;
+    panelRef?: React.RefObject<MockImperativeHandle | null>;
   }
 
   const Panel = ({

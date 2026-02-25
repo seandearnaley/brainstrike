@@ -8,13 +8,13 @@ import type { ModelPickerModel, ModelPickerProvider } from './types';
 
 interface ModelPickerContentProps {
   models: ModelPickerModel[];
-  providers: ModelPickerProvider[];
-  selectedValues: string[];
+  onSearchChange: (value: string) => void;
   onSelect: (value: string) => void;
-  theme: 'light' | 'dark';
+  providers: ModelPickerProvider[];
   searchable?: boolean;
   searchQuery: string;
-  onSearchChange: (value: string) => void;
+  selectedValues: string[];
+  theme: 'light' | 'dark';
 }
 
 export function ModelPickerContent({

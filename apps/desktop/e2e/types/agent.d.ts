@@ -1,30 +1,30 @@
 declare module '@brainstrike/agent' {
   export interface AgentMessagePartText {
-    type: 'text';
     text: string;
+    type: 'text';
   }
   export interface AgentMessagePartTool {
-    type: `tool-${string}`;
-    state: 'input-available' | 'input-streaming' | 'output-available' | 'output-error';
+    errorText?: string;
     input?: unknown;
     output?: unknown;
-    errorText?: string;
+    state: 'input-available' | 'input-streaming' | 'output-available' | 'output-error';
+    type: `tool-${string}`;
   }
   export type AgentMessagePart = AgentMessagePartText | AgentMessagePartTool;
 
   export interface AgentMessage {
     id: string;
-    role: 'user' | 'assistant' | 'system';
     parts: AgentMessagePart[];
+    role: 'user' | 'assistant' | 'system';
   }
 
   export interface RuntimeData {
+    mastraTools?: unknown;
+    mcpConfig?: unknown;
+    mcpEnabled?: boolean;
+    model?: string;
     projectId?: string;
     provider?: string;
-    model?: string;
-    mcpEnabled?: boolean;
-    mcpConfig?: unknown;
-    mastraTools?: unknown;
   }
 
   export interface StreamChunkText {
@@ -32,20 +32,20 @@ declare module '@brainstrike/agent' {
     value: string;
   }
   export interface StreamChunkTool {
-    type: 'tool-event';
     name: string;
-    status: 'start' | 'progress' | 'success' | 'error';
     payload?: unknown;
+    status: 'start' | 'progress' | 'success' | 'error';
+    type: 'tool-event';
   }
   export interface StreamChunkFinish {
     type: 'finish';
     usage: { promptTokens: number; completionTokens: number };
   }
   export interface StreamChunkMessageFinish {
-    type: 'message-finish';
     finishReason: 'stop';
-    usage: { promptTokens: number; completionTokens: number };
     path: readonly number[];
+    type: 'message-finish';
+    usage: { promptTokens: number; completionTokens: number };
   }
   export type StreamChunk =
     | StreamChunkText

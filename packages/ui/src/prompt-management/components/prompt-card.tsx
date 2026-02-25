@@ -12,12 +12,12 @@ import { cn } from '../../lib/utils';
 import type { Category, Prompt } from '../types';
 
 interface PromptCardProps {
-  prompt: Prompt;
   category?: Category | undefined;
-  onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
   onCopy: (content: string) => void;
+  onDelete: (id: string) => void;
+  onEdit: (id: string) => void;
+  onToggleFavorite: (id: string) => void;
+  prompt: Prompt;
 }
 
 export function PromptCard({

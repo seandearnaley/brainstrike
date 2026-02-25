@@ -38,15 +38,13 @@ const LAYOUT_INIT_SLOW_THRESHOLD_MS = 100;
 
 // Layout handler configuration
 interface LayoutHandlerConfig {
+  consoleContent?: React.ReactNode | undefined;
+  isInitialRenderRef?: React.RefObject<boolean> | undefined;
   leftPanelContent?: React.ReactNode | undefined;
   rightPanelContent?: React.ReactNode | undefined;
-  consoleContent?: React.ReactNode | undefined;
-  showLeftPanel?: boolean | undefined;
-  showRightPanel?: boolean | undefined;
-  showConsole?: boolean | undefined;
+  safeConsoleSize?: number | undefined;
   safeLeftSize?: number | undefined;
   safeRightSize?: number | undefined;
-  safeConsoleSize?: number | undefined;
   saveLayout?:
     | ((
         sizes: number[],
@@ -55,7 +53,9 @@ interface LayoutHandlerConfig {
         showRightPanel?: boolean
       ) => void)
     | undefined;
-  isInitialRenderRef?: React.RefObject<boolean> | undefined;
+  showConsole?: boolean | undefined;
+  showLeftPanel?: boolean | undefined;
+  showRightPanel?: boolean | undefined;
 }
 
 function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerConfig {
@@ -204,22 +204,22 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
 
 // Configuration for initial layout application
 interface InitialLayoutConfig {
-  horizontalGroupRef: React.RefObject<GroupImperativeHandle | null>;
-  verticalGroupRef: React.RefObject<GroupImperativeHandle | null>;
-  leftPanelRef: React.RefObject<PanelImperativeHandle | null>;
-  rightPanelRef: React.RefObject<PanelImperativeHandle | null>;
   consolePanelRef: React.RefObject<PanelImperativeHandle | null>;
   hasAppliedInitialLayout: React.RefObject<boolean>;
-  isInitialRenderRef: React.RefObject<boolean>;
+  hasConsole: boolean;
   hasExplorer: boolean;
   hasTools: boolean;
-  hasConsole: boolean;
-  showLeftPanel: boolean;
-  showRightPanel: boolean;
-  showConsole: boolean;
+  horizontalGroupRef: React.RefObject<GroupImperativeHandle | null>;
+  isInitialRenderRef: React.RefObject<boolean>;
+  leftPanelRef: React.RefObject<PanelImperativeHandle | null>;
+  rightPanelRef: React.RefObject<PanelImperativeHandle | null>;
+  safeConsoleSize: number;
   safeLeftSize: number;
   safeRightSize: number;
-  safeConsoleSize: number;
+  showConsole: boolean;
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
+  verticalGroupRef: React.RefObject<GroupImperativeHandle | null>;
 }
 
 // Helper: Apply horizontal layout via Group imperative API
@@ -304,22 +304,22 @@ function safeTogglePanelVisibility(
 }
 
 interface InitialLayoutApplicationConfig {
-  horizontalGroupRef: GroupImperativeHandle | null;
-  verticalGroupRef: GroupImperativeHandle | null;
-  leftPanelRef: React.RefObject<PanelImperativeHandle | null>;
-  rightPanelRef: React.RefObject<PanelImperativeHandle | null>;
   consolePanelRef: React.RefObject<PanelImperativeHandle | null>;
   hasAppliedInitialLayout: React.RefObject<boolean>;
-  isInitialRenderRef: React.RefObject<boolean>;
+  hasConsole: boolean;
   hasExplorer: boolean;
   hasTools: boolean;
-  hasConsole: boolean;
-  showLeftPanel: boolean;
-  showRightPanel: boolean;
-  showConsole: boolean;
+  horizontalGroupRef: GroupImperativeHandle | null;
+  isInitialRenderRef: React.RefObject<boolean>;
+  leftPanelRef: React.RefObject<PanelImperativeHandle | null>;
+  rightPanelRef: React.RefObject<PanelImperativeHandle | null>;
+  safeConsoleSize: number;
   safeLeftSize: number;
   safeRightSize: number;
-  safeConsoleSize: number;
+  showConsole: boolean;
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
+  verticalGroupRef: GroupImperativeHandle | null;
 }
 
 function applyInitialLayout(config: InitialLayoutApplicationConfig): void {
@@ -570,25 +570,25 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
 
 // Panel toggle handler configuration
 interface PanelToggleConfig {
+  hideConsoleButtonRef: React.RefObject<HTMLButtonElement | null>;
+  hideExplorerButtonRef: React.RefObject<HTMLButtonElement | null>;
+  hideToolsPanelButtonRef: React.RefObject<HTMLButtonElement | null>;
+  isInitialRenderRef: React.RefObject<boolean>;
+  safeConsoleSize: number;
   safeLeftSize: number;
   safeRightSize: number;
-  safeConsoleSize: number;
-  showConsole: boolean;
-  showLeftPanel: boolean;
-  showRightPanel: boolean;
   saveLayout: (
     sizes: number[],
     showConsole?: boolean,
     showLeftPanel?: boolean,
     showRightPanel?: boolean
   ) => void;
+  showConsole: boolean;
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
   toggleConsole: () => void;
   toggleLeftPanel: () => void;
   toggleRightPanel: () => void;
-  isInitialRenderRef: React.RefObject<boolean>;
-  hideExplorerButtonRef: React.RefObject<HTMLButtonElement | null>;
-  hideToolsPanelButtonRef: React.RefObject<HTMLButtonElement | null>;
-  hideConsoleButtonRef: React.RefObject<HTMLButtonElement | null>;
 }
 
 // Custom hook for panel toggle handlers - extracted to reduce component complexity
@@ -839,10 +839,10 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
 
 export interface IdeLayoutProps {
   children: React.ReactNode;
+  className?: string;
+  consoleContent?: React.ReactNode;
   leftPanelContent?: React.ReactNode;
   rightPanelContent?: React.ReactNode;
-  consoleContent?: React.ReactNode;
-  className?: string;
 }
 
 export const IdeLayout = React.memo(function IdeLayout({

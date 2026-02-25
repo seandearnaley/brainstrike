@@ -79,96 +79,81 @@ type UseFileExplorerProps = Record<string, never>;
 
 /** Progress state for restoring expanded directories on app startup */
 export interface RestorationProgress {
+  /** Current directory path being restored */
+  currentPath: string | null;
   /** Number of directories restored so far */
   loaded: number;
   /** Total number of directories to restore */
   total: number;
-  /** Current directory path being restored */
-  currentPath: string | null;
 }
 
 interface UseFileExplorerReturn {
-  /** Filtered tree currently visible in the explorer */
-  fileTree: IFileNode[];
-  /** Unfiltered tree from the file-system source */
-  unfilteredFileTree?: IFileNode[];
-  handleRootDirectorySelect: () => Promise<DirectoryHandle | null>;
-  isLoading: boolean;
-  error: Error | null;
-  fileContents: { [path: string]: string };
-  loadingFiles: Set<string>;
   applyFileFilters: (
     includeFilters: string[],
     excludeFilters: string[],
     useRegex: boolean
   ) => IFileNode[];
-  filterError: string | null;
-  rootDirectoryHandle: DirectoryHandle | null;
-  isFileSystemAccessSupported: () => { supported: boolean; reason: string };
-  loadFileContent: (path: string) => Promise<void>;
-  /** Load content for multiple files at once (batch loading for report generation) */
-  loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
-  refreshFileExplorer: () => Promise<void>;
-  isInitialLoad: boolean;
-  clearFileContents: (compositeKeys: string[]) => void;
-  loadingProgress: LoadingProgressState | null;
+  /** Cancel loading for a specific directory (e.g., on collapse) */
+  cancelChildLoading: (path: string) => void;
+  /** Cancel expand-all operation */
+  cancelExpandAll: () => void;
   /** Whether the current operation can be cancelled */
   cancellable: boolean;
   /** Cancel the current loading operation */
   cancelOperation: () => void;
-  /** Whether the operation is currently being cancelled */
-  isCancelling: boolean;
-  clearRootDirectory: () => void;
-  /** Set root directory handle from external source (e.g., restore banner) */
-  setRootDirectoryHandle: (handle: DirectoryHandle | null) => void;
-  /** Set of paths currently loading their children (lazy loading) */
-  loadingPaths: Set<string>;
-  /** Load children of a directory on expand (lazy loading) */
-  loadChildren: (path: string) => Promise<void>;
-  /** Cancel loading for a specific directory (e.g., on collapse) */
-  cancelChildLoading: (path: string) => void;
-  /** Refresh a specific directory */
-  refreshDirectory: (path: string) => Promise<void>;
-  /** Progressively expand all directories (loads everything) */
-  expandAllProgressively: (
-    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
-  ) => Promise<void>;
-  /** Cancel expand-all operation */
-  cancelExpandAll: () => void;
-  /** Whether expand-all is in progress */
-  isExpandingAll: boolean;
-  /** Progress of expand-all operation */
-  expandAllProgress: { loaded: number; total: number } | null;
-  /** Whether expanded directories are being restored from persisted state */
-  isRestoringExpandedPaths: boolean;
-  /** Progress of expanded directory restoration */
-  restorationProgress: RestorationProgress | null;
-  /**
-   * Set the access loading state.
-   * Used by restore flow to signal that a restore is in progress, which
-   * prevents the stale state clearing effect from clearing expanded paths
-   * while waiting for browser permission dialog.
-   */
-  setAccessLoading: (loading: boolean) => void;
+  /** Cancel the current recursive selection operation */
+  cancelRecursiveSelect: () => void;
+  /** Cancel the current select all operation */
+  cancelSelectAll: () => void;
   /**
    * Whether files can be loaded without a file tree (Electron with readFileByPath).
    * When true, tab content loading can proceed even before the tree is loaded.
    */
   canLoadWithoutTree: boolean;
-  /** Select all files in a folder recursively, loading if needed */
-  selectFolderRecursively: (
-    node: IFileNode,
-    folderId: string,
-    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-    maxSelectionCount: number,
-    currentSelectionSize: number
-  ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
-  /** Cancel the current recursive selection operation */
-  cancelRecursiveSelect: () => void;
+  clearFileContents: (compositeKeys: string[]) => void;
+  clearRootDirectory: () => void;
+  error: Error | null;
+  /** Progress of expand-all operation */
+  expandAllProgress: { loaded: number; total: number } | null;
+  /** Progressively expand all directories (loads everything) */
+  expandAllProgressively: (
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+  ) => Promise<void>;
+  fileContents: { [path: string]: string };
+  /** Filtered tree currently visible in the explorer */
+  fileTree: IFileNode[];
+  filterError: string | null;
+  handleRootDirectorySelect: () => Promise<DirectoryHandle | null>;
+  /** Whether the operation is currently being cancelled */
+  isCancelling: boolean;
+  /** Whether expand-all is in progress */
+  isExpandingAll: boolean;
+  isFileSystemAccessSupported: () => { supported: boolean; reason: string };
+  isInitialLoad: boolean;
+  isLoading: boolean;
+  /** Whether the tree is being loaded for select all */
+  isLoadingForSelectAll: boolean;
   /** Whether a subtree is being loaded for selection */
   isLoadingForSelection: boolean;
+  /** Whether expanded directories are being restored from persisted state */
+  isRestoringExpandedPaths: boolean;
+  /** Load children of a directory on expand (lazy loading) */
+  loadChildren: (path: string) => Promise<void>;
+  loadFileContent: (path: string) => Promise<void>;
+  loadingFiles: Set<string>;
   /** Path of the folder being loaded for selection (if any) */
   loadingPathForSelection: string | null;
+  /** Set of paths currently loading their children (lazy loading) */
+  loadingPaths: Set<string>;
+  loadingProgress: LoadingProgressState | null;
+  /** Load content for multiple files at once (batch loading for report generation) */
+  loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
+  /** Refresh a specific directory */
+  refreshDirectory: (path: string) => Promise<void>;
+  refreshFileExplorer: () => Promise<void>;
+  /** Progress of expanded directory restoration */
+  restorationProgress: RestorationProgress | null;
+  rootDirectoryHandle: DirectoryHandle | null;
   /**
    * Select all files in the provided tree, loading if needed.
    * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.
@@ -186,10 +171,25 @@ interface UseFileExplorerReturn {
     cancelled?: boolean;
     error?: string;
   }>;
-  /** Cancel the current select all operation */
-  cancelSelectAll: () => void;
-  /** Whether the tree is being loaded for select all */
-  isLoadingForSelectAll: boolean;
+  /** Select all files in a folder recursively, loading if needed */
+  selectFolderRecursively: (
+    node: IFileNode,
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number,
+    currentSelectionSize: number
+  ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
+  /**
+   * Set the access loading state.
+   * Used by restore flow to signal that a restore is in progress, which
+   * prevents the stale state clearing effect from clearing expanded paths
+   * while waiting for browser permission dialog.
+   */
+  setAccessLoading: (loading: boolean) => void;
+  /** Set root directory handle from external source (e.g., restore banner) */
+  setRootDirectoryHandle: (handle: DirectoryHandle | null) => void;
+  /** Unfiltered tree from the file-system source */
+  unfilteredFileTree?: IFileNode[];
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {

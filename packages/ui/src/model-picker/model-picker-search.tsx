@@ -3,10 +3,10 @@ import { Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface ModelPickerSearchProps {
-  value?: string;
+  className?: string;
   onValueChange?: (value: string) => void;
   placeholder?: string;
-  className?: string;
+  value?: string;
 }
 
 export function ModelPickerSearch({

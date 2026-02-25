@@ -31,31 +31,31 @@ const SelectAllLoadingIndicator = () => (
 );
 
 interface FileExplorerSidebarProps {
-  rootDirectoryHandle: DirectoryHandle | null;
-  treeError: Error | null;
-  filterError: Error | null;
-  quickFilteredTree: IFileNode[] | null;
-  loadingFiles: Set<string>;
-  isLoading: boolean;
-  isInitialLoad: boolean;
+  /** Cancel loading for a directory (called on collapse) */
+  cancelChildLoading?: (path: string) => void;
   currentFolderId: string | null;
-  onTreeRender?: () => void;
+  filterError: Error | null;
+  isInitialLoad: boolean;
+  isLoading: boolean;
+  /** Whether the entire tree is being loaded for select all */
+  isLoadingForSelectAll?: boolean;
+  /** Whether a folder is being loaded for selection */
+  isLoadingForSelection?: boolean;
+  loadingFiles: Set<string>;
+  /** Path of the folder being loaded for selection */
+  loadingPathForSelection?: string | null;
   /** Set of paths currently loading their children (lazy loading) */
   loadingPaths?: Set<string>;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: (path: string) => Promise<void>;
-  /** Cancel loading for a directory (called on collapse) */
-  cancelChildLoading?: (path: string) => void;
   /** Select all files in a folder recursively, loading if needed */
   onSelectFolderRecursively?: (
     node: IFileNode
   ) => Promise<{ success: boolean; filePaths: string[] }>;
-  /** Whether a folder is being loaded for selection */
-  isLoadingForSelection?: boolean;
-  /** Path of the folder being loaded for selection */
-  loadingPathForSelection?: string | null;
-  /** Whether the entire tree is being loaded for select all */
-  isLoadingForSelectAll?: boolean;
+  onTreeRender?: () => void;
+  quickFilteredTree: IFileNode[] | null;
+  rootDirectoryHandle: DirectoryHandle | null;
+  treeError: Error | null;
 }
 
 const ErrorDisplay = ({

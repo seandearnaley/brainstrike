@@ -9,9 +9,9 @@ const VERSION_DEBOUNCE_MS = 50;
 
 interface StoreMock {
   get: ReturnType<typeof vi.fn>;
-  set: ReturnType<typeof vi.fn>;
-  getTotalTokens: ReturnType<typeof vi.fn>;
   getAllForFolder: ReturnType<typeof vi.fn>;
+  getTotalTokens: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
 }
 
 interface WorkerPoolMock {
@@ -19,8 +19,8 @@ interface WorkerPoolMock {
 }
 
 interface HasherMock {
-  init: ReturnType<typeof vi.fn>;
   hashContent: ReturnType<typeof vi.fn>;
+  init: ReturnType<typeof vi.fn>;
 }
 
 const createStoreMock = (): StoreMock => ({

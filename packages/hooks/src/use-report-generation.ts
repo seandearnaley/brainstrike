@@ -9,34 +9,34 @@ import { useCallback, useRef, useState } from 'react';
 export type { ContextLineRange } from '@brainstrike/utils';
 
 export interface ContextGenerationOverrides {
+  projectTreeUsesViewFilters?: boolean;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
   useTapestryRanges?: boolean;
-  projectTreeUsesViewFilters?: boolean;
 }
 
 interface UseReportGenerationProps {
-  selectedFiles: Set<string>;
-  fileContents: { [path: string]: string };
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | undefined;
-  fileSystemAdapter?: FileSystemAdapter;
-  includeFilters: string[];
   excludeFilters: string[];
-  useRegex: boolean;
-  includeProjectTree: boolean;
-  projectTreeUsesViewFilters?: boolean;
+  fileContents: { [path: string]: string };
+  fileSystemAdapter?: FileSystemAdapter;
   folderSummaryThreshold: number;
-  /**
-   * Optional callback to load missing file contents before report generation.
-   * When provided, the hook will load content for selected files that aren't
-   * already in fileContents before generating the report.
-   */
-  loadMissingContent?: (compositeKeys: string[]) => Promise<void>;
   /**
    * Optional callback to get current file contents from state.
    * Used after loadMissingContent to get the fresh state with loaded content.
    * If not provided, the static fileContents prop is used.
    */
   getFileContents?: () => { [path: string]: string };
+  includeFilters: string[];
+  includeProjectTree: boolean;
+  /**
+   * Optional callback to load missing file contents before report generation.
+   * When provided, the hook will load content for selected files that aren't
+   * already in fileContents before generating the report.
+   */
+  loadMissingContent?: (compositeKeys: string[]) => Promise<void>;
+  projectTreeUsesViewFilters?: boolean;
+  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | undefined;
+  selectedFiles: Set<string>;
+  useRegex: boolean;
 }
 
 export function useReportGeneration({

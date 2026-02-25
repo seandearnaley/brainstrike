@@ -3,12 +3,8 @@ import { FactoryResetPanel } from './factory-reset-panel';
 import { InlineFixtureSettingsPanel } from './inline-fixture-settings-panel';
 
 export interface FactoryResetSettingsSectionProps {
-  /** Whether running on web platform. Defaults to true. */
-  isWebPlatform?: boolean | undefined;
   /** Whether stored folders exist */
   hasStoredFolders?: boolean | undefined;
-  /** Callback to clear stored folders */
-  onClearStoredFolders?: (() => void) | undefined;
   /** Inline fixture settings (developer feature) */
   inlineFixtureSetting?:
     | {
@@ -18,6 +14,10 @@ export interface FactoryResetSettingsSectionProps {
         onChange: (checked: boolean) => void;
       }
     | undefined;
+  /** Whether running on web platform. Defaults to true. */
+  isWebPlatform?: boolean | undefined;
+  /** Callback to clear stored folders */
+  onClearStoredFolders?: (() => void) | undefined;
 }
 
 export function FactoryResetSettingsSection({

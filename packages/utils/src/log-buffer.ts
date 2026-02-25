@@ -4,6 +4,12 @@ export type LogBufferSubscriber = (records: readonly LogRecord[]) => void;
 
 export interface LogBufferOptions {
   /**
+   * Maximum size of args to store (in characters when stringified).
+   * Larger args will be truncated. Set to 0 to disable.
+   * Default: 1000
+   */
+  maxArgSize?: number;
+  /**
    * Maximum number of records to keep in the buffer.
    * Default: 1000
    */
@@ -14,13 +20,6 @@ export interface LogBufferOptions {
    * Default: false (clone args for safety)
    */
   skipArgCloning?: boolean;
-
-  /**
-   * Maximum size of args to store (in characters when stringified).
-   * Larger args will be truncated. Set to 0 to disable.
-   * Default: 1000
-   */
-  maxArgSize?: number;
 }
 
 export class LogBuffer {

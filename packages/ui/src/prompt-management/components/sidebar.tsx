@@ -7,10 +7,10 @@ import type { Category, PromptFilter } from '../types';
 
 interface SidebarProps {
   categories: Category[];
-  filter: PromptFilter;
-  onFilterChange: (updates: Partial<PromptFilter>) => void;
-  onAddPrompt: () => void;
   className?: string;
+  filter: PromptFilter;
+  onAddPrompt: () => void;
+  onFilterChange: (updates: Partial<PromptFilter>) => void;
 }
 
 export function Sidebar({

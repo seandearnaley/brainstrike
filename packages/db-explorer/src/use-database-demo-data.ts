@@ -38,31 +38,31 @@ function resolveStorageLocation(
 }
 
 export interface DatabaseInfo {
+  connected: boolean;
   location: string;
   testResult: string;
-  connected: boolean;
 }
 
 export interface UseDatabaseDemoDataOptions {
-  repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
-  chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
-  toast: ReturnType<typeof useToast>['toast'];
-  database?: ReturnType<typeof usePGliteDatabase>;
   activeCollectionId: string | null;
+  chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  database?: ReturnType<typeof usePGliteDatabase>;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
   isImporting?: boolean;
+  repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  toast: ReturnType<typeof useToast>['toast'];
 }
 
 interface DatabaseLoaders {
-  loadRecords: () => Promise<void>;
   loadChunks: () => Promise<void>;
+  loadRecords: () => Promise<void>;
 }
 
 export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
-  records: FileRecord[];
   chunks: FileChunk[];
-  refreshing: boolean;
   dbInfo: DatabaseInfo | null;
+  records: FileRecord[];
+  refreshing: boolean;
   setDbInfo: (info: DatabaseInfo | null) => void;
 }
 
@@ -125,69 +125,69 @@ const FILE_CHUNKS_LIVE_QUERY = `
 `.trim();
 
 interface FileRecordRow {
+  chunkingStrategy: string | null;
+  chunksCount: number | null;
+  chunksProcessedAt: string | null;
+  content: string | null;
+  contentHash: string | null;
+  createdAt: string;
+  embeddingSetId: string | null;
+  /** Boolean flag - embedding exists but not fetched for performance */
+  hasEmbedding: boolean;
   id: string;
   name: string;
   path: string;
-  size: number;
-  createdAt: string;
-  updatedAt: string;
-  content: string | null;
-  contentHash: string | null;
-  tokenCount: number | null;
   processedAt: string | null;
-  chunksProcessedAt: string | null;
-  chunksCount: number | null;
-  chunkingStrategy: string | null;
-  /** Boolean flag - embedding exists but not fetched for performance */
-  hasEmbedding: boolean;
-  embeddingSetId: string | null;
+  size: number;
+  tokenCount: number | null;
+  updatedAt: string;
 }
 
 interface FileChunkRow {
-  id: string;
-  fileRecordId: string;
   chunkIndex: number;
+  chunkSize: number;
+  chunkType: FileChunk['chunkType'];
   content: string;
   contentHash: string;
-  tokenCount: number;
-  chunkType: FileChunk['chunkType'];
-  chunkSize: number;
-  /** Boolean flag - embedding exists but not fetched for performance */
-  hasEmbedding: boolean;
+  createdAt: string;
   /** Embedding dimensions - computed from ARRAY_LENGTH for display without fetching full vector */
   embeddingDimensions: number;
+  embeddingHash: string | null;
   embeddingSetId: string | null;
   embeddingUpdatedAt: string | null;
-  embeddingHash: string | null;
-  createdAt: string;
+  fileRecordId: string;
+  /** Boolean flag - embedding exists but not fetched for performance */
+  hasEmbedding: boolean;
+  id: string;
+  tokenCount: number;
   updatedAt: string;
 }
 
 interface CachedRecordSummary {
+  chunksCount: number | undefined;
+  createdAt: string;
+  embeddingSetId: string | undefined;
   id: string;
   name: string;
   path: string;
   size: number;
-  createdAt: string;
-  updatedAt: string;
   tokenCount: number | undefined;
-  chunksCount: number | undefined;
-  embeddingSetId: string | undefined;
+  updatedAt: string;
 }
 
 interface CachedChunkSummary {
-  id: string;
-  fileRecordId: string;
   chunkIndex: number;
-  tokenCount: number;
   chunkType: FileChunk['chunkType'];
   embeddingSetId: string | undefined;
+  fileRecordId: string;
+  id: string;
+  tokenCount: number;
 }
 
 interface CollectionFileDataSnapshot {
+  chunks: CachedChunkSummary[];
   collectionId: string;
   records: CachedRecordSummary[];
-  chunks: CachedChunkSummary[];
 }
 
 // NOTE: Embedding normalization functions (coerceNumericArray, parseStringEmbedding,

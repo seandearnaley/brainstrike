@@ -5,12 +5,12 @@ import { createLogger } from '@brainstrike/utils';
 const logger = createLogger('ToolPersistence');
 
 export interface FileSystemAdapter {
-  readFile(filePath: string, encoding: 'utf-8'): Promise<string>;
-  writeFile(filePath: string, content: string, encoding: 'utf-8'): Promise<void>;
-  mkdir(dirPath: string, options: { recursive: boolean }): Promise<unknown>;
-  unlink(filePath: string): Promise<void>;
-  join(...segments: string[]): string;
   dirname(filePath: string): string;
+  join(...segments: string[]): string;
+  mkdir(dirPath: string, options: { recursive: boolean }): Promise<unknown>;
+  readFile(filePath: string, encoding: 'utf-8'): Promise<string>;
+  unlink(filePath: string): Promise<void>;
+  writeFile(filePath: string, content: string, encoding: 'utf-8'): Promise<void>;
 }
 
 const defaultFs: FileSystemAdapter = {
@@ -23,10 +23,10 @@ const defaultFs: FileSystemAdapter = {
 };
 
 export interface ToolPreferences {
-  enabledTools: string[];
   disabledTools: string[];
-  version: number;
+  enabledTools: string[];
   lastUpdated: number;
+  version: number;
 }
 
 /**

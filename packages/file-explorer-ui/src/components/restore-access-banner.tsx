@@ -6,10 +6,10 @@ export type RestoreAccessBannerVariant = 'pending' | 'denied' | 'stale';
 
 export interface RestoreAccessBannerProps {
   folderName: string;
-  variant: RestoreAccessBannerVariant;
-  onRestore: () => void;
   onChooseDifferent: () => void;
   onDismiss: () => void;
+  onRestore: () => void;
+  variant: RestoreAccessBannerVariant;
 }
 
 const variantCopy: Record<RestoreAccessBannerVariant, { title: string; description: string }> = {

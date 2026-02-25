@@ -21,13 +21,13 @@ import type { LocalLlmMessage, LocalLlmToolDefinition } from './types';
 interface LocalLanguageModelSettings {
   maxNewTokens?: number;
   temperature?: number;
-  topP?: number;
   topK?: number;
+  topP?: number;
 }
 
 interface TextPart {
-  type: 'text';
   text: string;
+  type: 'text';
 }
 
 /**

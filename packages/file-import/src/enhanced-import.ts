@@ -41,14 +41,14 @@ const modelConfigCache = new Map<
 >();
 
 interface DbModelRow {
+  capabilities: string | object;
   id: string;
   providerId: string;
-  capabilities: string | object;
 }
 
 interface ModelCapabilities {
-  type?: string;
   defaultDimension?: number;
+  type?: string;
 }
 
 type EmbeddingModelDefinition = Extract<ProviderModelDefinition, { type: 'embedding' }>;
@@ -149,11 +149,6 @@ function dispatchEmbeddingSetUpdateEvent(id: string): void {
 }
 
 export interface EmbeddingJobQueuePort {
-  /**
-   * Reset queue progress counters before starting a new import session.
-   * Implementations that don't track progress can omit this.
-   */
-  resetProgress?: () => void;
   enqueueBatch(
     chunks: FileChunk[],
     fileRecordId: string,
@@ -166,6 +161,11 @@ export interface EmbeddingJobQueuePort {
       dimensionParameter?: ProviderDimensionParameter | null;
     }
   ): Promise<void>;
+  /**
+   * Reset queue progress counters before starting a new import session.
+   * Implementations that don't track progress can omit this.
+   */
+  resetProgress?: () => void;
 }
 
 export interface SqlExecutorPort {
@@ -174,10 +174,10 @@ export interface SqlExecutorPort {
 }
 
 export interface BaseImportRunnerRequest<TFileNode = unknown> {
-  selectedFilePaths: Set<string>;
-  fileTree: TFileNode[];
   fileContents: Record<string, string>;
+  fileTree: TFileNode[];
   onProgress: (progress: ImportProgress) => void;
+  selectedFilePaths: Set<string>;
 }
 
 export type BaseImportRunner<TFileNode = unknown> = (
@@ -185,40 +185,40 @@ export type BaseImportRunner<TFileNode = unknown> = (
 ) => Promise<FileImportResult[]>;
 
 interface ChunkingDependencies {
-  repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
+  repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
 }
 
 interface ChunkingConfiguration {
-  enabled: boolean;
-  deps: ChunkingDependencies;
-  strategy?: ChunkingStrategy;
-  strategyExplicit?: boolean;
-  chunkSize?: number;
-  chunkOverlap?: number;
-  useStreamingForLargeFiles?: boolean;
-  streamBatchSize?: number;
-  tokenTrueSizing?: boolean;
-  tokenLimit?: number;
   // Worker port for off-main-thread chunking
   chunkingWorkerPort?: import('./chunking-worker-port').ChunkingWorkerPort;
+  chunkOverlap?: number;
+  chunkSize?: number;
+  deps: ChunkingDependencies;
+  enabled: boolean;
+  strategy?: ChunkingStrategy;
+  strategyExplicit?: boolean;
+  streamBatchSize?: number;
+  tokenLimit?: number;
+  tokenTrueSizing?: boolean;
+  useStreamingForLargeFiles?: boolean;
 }
 
 interface EmbeddingConfiguration {
+  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
   enabled: boolean;
   model?: string;
-  provider?: EmbeddingProviderType;
-  service: SimpleEmbeddingService | null;
-  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
-  resolveTargetEmbeddingSetId?: () => string | null | undefined;
   onResolvedTargetSetId?: (id: string) => void;
+  provider?: EmbeddingProviderType;
+  resolveTargetEmbeddingSetId?: () => string | null | undefined;
+  service: SimpleEmbeddingService | null;
 }
 
 type EmbeddingDistance = 'cosine' | 'l2' | 'ip';
 
 interface ProgressHandlers {
-  update: (updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null) => void;
   emit?: (progress: EnhancedImportProgress) => void;
+  update: (updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null) => void;
 }
 
 interface RunEnhancedImportPorts {
@@ -227,18 +227,18 @@ interface RunEnhancedImportPorts {
 }
 
 interface RunEnhancedImportParams<TFileNode = unknown> {
+  baseImportRunner: BaseImportRunner<TFileNode>;
+  chunking: ChunkingConfiguration;
+  embedding?: EmbeddingConfiguration;
+  ports?: RunEnhancedImportPorts;
+  processChunkingImpl?: typeof processChunking;
+  processEmbeddingsImpl?: typeof processEmbeddings;
+  progressHandlers: ProgressHandlers;
   request: {
     selectedFilePaths: Set<string>;
     fileTree: TFileNode[];
     fileContents: Record<string, string>;
   };
-  baseImportRunner: BaseImportRunner<TFileNode>;
-  chunking: ChunkingConfiguration;
-  embedding?: EmbeddingConfiguration;
-  ports?: RunEnhancedImportPorts;
-  progressHandlers: ProgressHandlers;
-  processChunkingImpl?: typeof processChunking;
-  processEmbeddingsImpl?: typeof processEmbeddings;
 }
 
 function toEnhancedImportProgress(progress: ImportProgress): EnhancedImportProgress {
@@ -290,10 +290,10 @@ async function resolveModelKeyFromTargetSet(
 }
 
 interface EnsureEmbeddingSetParams {
-  modelKey: string;
-  modelId: string;
   dimensions: number;
   distance: EmbeddingDistance;
+  modelId: string;
+  modelKey: string;
   preferredId?: string | undefined;
   provider: EmbeddingProviderType;
 }
@@ -485,12 +485,12 @@ async function insertEmbeddingSet(
 }
 
 interface ResolvedEmbeddingModel {
+  dimensionParameter?: ProviderDimensionParameter;
   modelId?: string;
   modelKey?: string;
-  targetSetId: string | null;
   provider?: EmbeddingProviderType;
   targetDimension?: number;
-  dimensionParameter?: ProviderDimensionParameter;
+  targetSetId: string | null;
 }
 
 function createResolvedEmbeddingModelState(
@@ -762,17 +762,17 @@ function parseModelCapabilities(value: unknown, modelId: string): ModelCapabilit
 
 interface ChunkingOptionsConfig {
   chunking: ChunkingConfiguration;
-  queuePort: EmbeddingJobQueuePort | null;
-  runInTransaction: SqlExecutorPort['runInTransaction'] | undefined;
+  dimensionParameter?: ProviderDimensionParameter;
   embedding: EmbeddingConfiguration | undefined;
   embeddingModelId?: string;
   embeddingModelKey?: string;
-  targetSetId: string | undefined;
-  provider?: EmbeddingProviderType;
-  targetDimension?: number;
-  dimensionParameter?: ProviderDimensionParameter;
-  update: ProgressHandlers['update'];
   processEmbeddingsImpl: typeof processEmbeddings;
+  provider?: EmbeddingProviderType;
+  queuePort: EmbeddingJobQueuePort | null;
+  runInTransaction: SqlExecutorPort['runInTransaction'] | undefined;
+  targetDimension?: number;
+  targetSetId: string | undefined;
+  update: ProgressHandlers['update'];
 }
 
 function buildChunkingOptions(
@@ -847,15 +847,15 @@ function buildChunkingOptions(
 }
 
 interface QueueOptionParams {
+  readonly dimensionParameter?: ProviderDimensionParameter;
+  readonly embedding: EmbeddingConfiguration | undefined;
+  readonly embeddingModelKey?: string;
+  readonly provider?: EmbeddingProviderType;
   readonly queueActive: boolean;
   readonly queuePort: EmbeddingJobQueuePort | null;
   readonly runInTransaction: SqlExecutorPort['runInTransaction'] | undefined;
-  readonly embedding: EmbeddingConfiguration | undefined;
-  readonly embeddingModelKey?: string;
-  readonly targetSetId: string | undefined;
-  readonly provider?: EmbeddingProviderType;
   readonly targetDimension?: number;
-  readonly dimensionParameter?: ProviderDimensionParameter;
+  readonly targetSetId: string | undefined;
 }
 
 function attachQueueOptions(

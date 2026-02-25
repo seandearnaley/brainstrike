@@ -23,10 +23,10 @@ interface ProviderOption {
 }
 
 interface ApiKeysState {
-  rawProvider: string;
   apiKey: string;
-  providersWithSecrets: string[];
   busy: boolean;
+  providersWithSecrets: string[];
+  rawProvider: string;
 }
 
 type ApiKeysAction =

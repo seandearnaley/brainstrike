@@ -7,15 +7,14 @@ import { create } from 'zustand';
  */
 interface SecretsState {
   /**
+   * Call this after saving or deleting an API key to notify subscribers.
+   */
+  notifySecretsChanged: () => void;
+  /**
    * Incremented whenever secrets are added, removed, or modified.
    * Components can use this as a dependency to trigger re-fetching of available providers.
    */
   secretsVersion: number;
-
-  /**
-   * Call this after saving or deleting an API key to notify subscribers.
-   */
-  notifySecretsChanged: () => void;
 }
 
 export const useSecretsStore = create<SecretsState>()((set) => ({

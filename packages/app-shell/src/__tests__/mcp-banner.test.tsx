@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { McpBanner } from '../mcp-banner';
 
 interface McpConfig {
-  path: string;
   exists: boolean;
+  path: string;
   servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
 }
 

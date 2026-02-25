@@ -4,9 +4,9 @@ import { vi } from 'vitest';
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown | Promise<unknown>;
 
 interface IpcMainMock {
+  __invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   handle: Mock<(channel: string, handler: IpcHandler) => void>;
   removeHandler: Mock<(channel: string) => void>;
-  __invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
 }
 
 export function createIpcMainMock(): IpcMainMock {
@@ -34,8 +34,8 @@ interface IpcRendererMock {
   invoke: Mock<(_channel: string, ..._args: unknown[]) => Promise<unknown>>;
   on: Mock;
   once: Mock;
-  removeListener: Mock;
   removeAllListeners: Mock;
+  removeListener: Mock;
   send: Mock;
 }
 
@@ -63,15 +63,15 @@ export function createContextBridgeMock(): ContextBridgeMock {
 }
 
 interface AppMock {
-  whenReady: Mock<() => Promise<void>>;
-  isReady: Mock<() => boolean>;
   getAppPath: Mock<() => string>;
   getPath: Mock<(key: string) => string>;
   getVersion: Mock<() => string>;
   isPackaged: boolean;
-  quit: Mock;
+  isReady: Mock<() => boolean>;
   on: Mock;
   once: Mock;
+  quit: Mock;
+  whenReady: Mock<() => Promise<void>>;
 }
 
 export function createAppMock(opts?: {
@@ -114,9 +114,9 @@ export function createScreenMock(): ScreenMock {
 
 interface ElectronMocks {
   app: AppMock;
+  contextBridge: ContextBridgeMock;
   ipcMain: IpcMainMock;
   ipcRenderer: IpcRendererMock;
-  contextBridge: ContextBridgeMock;
   screen: ScreenMock;
 }
 

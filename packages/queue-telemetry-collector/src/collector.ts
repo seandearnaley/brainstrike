@@ -9,31 +9,31 @@ const DEFAULT_MAX_STORED_BATCHES = 100;
 const WAIT_FOR_BATCH_TIMEOUT_MS = 5000;
 
 export interface QueueTelemetryBatch {
-  readonly runtime: QueueTelemetryRuntime;
-  readonly sentAt: Date;
-  readonly receivedAt: Date;
   readonly events: readonly QueueTelemetryEvent[];
   readonly metadata: Readonly<Record<string, unknown>> | null;
+  readonly receivedAt: Date;
+  readonly runtime: QueueTelemetryRuntime;
+  readonly sentAt: Date;
 }
 
 export interface QueueTelemetryCollectorOptions {
-  readonly host?: string;
-  readonly port?: number;
-  readonly path?: string;
   readonly apiKey?: string;
+  readonly host?: string;
   readonly maxBodyBytes?: number;
   readonly maxStoredBatches?: number;
   readonly onBatch?: (batch: QueueTelemetryBatch) => Promise<void> | void;
+  readonly path?: string;
+  readonly port?: number;
 }
 
 export interface QueueTelemetryCollector {
+  clearBatches(): void;
+  getEndpoint(): string | null;
+  isRunning(): boolean;
+  listBatches(): readonly QueueTelemetryBatch[];
+  nextBatch(options?: { readonly timeoutMs?: number }): Promise<QueueTelemetryBatch>;
   start(): Promise<void>;
   stop(): Promise<void>;
-  isRunning(): boolean;
-  getEndpoint(): string | null;
-  listBatches(): readonly QueueTelemetryBatch[];
-  clearBatches(): void;
-  nextBatch(options?: { readonly timeoutMs?: number }): Promise<QueueTelemetryBatch>;
 }
 
 type BatchListener = (batch: QueueTelemetryBatch) => void;
@@ -155,8 +155,8 @@ export function createQueueTelemetryCollector(
   };
 
   interface ValidationError {
-    status: number;
     message: string;
+    status: number;
   }
 
   const isValidationError = (value: unknown): value is ValidationError =>

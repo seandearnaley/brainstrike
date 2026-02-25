@@ -3,10 +3,10 @@ import { CheckCircle, FileText, Layers, X } from 'lucide-react';
 import type { EnhancedImportProgress } from '../types';
 
 interface ImportProgressBarProps {
-  progress: EnhancedImportProgress;
-  onClose?: () => void;
-  onCancel?: () => void;
   isCancelling?: boolean;
+  onCancel?: () => void;
+  onClose?: () => void;
+  progress: EnhancedImportProgress;
 }
 
 /**

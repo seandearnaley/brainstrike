@@ -36,13 +36,13 @@ interface MockQueueMetrics {
   readonly active: number;
   readonly completed: number;
   readonly failed: number;
-  readonly totalEnqueued: number;
   readonly lastError: string | null;
-  readonly progress: Record<string, unknown>;
-  readonly throughputPerMinute: number;
   readonly latencyAvgMs: number | null;
   readonly latencyP50Ms: number | null;
   readonly latencyP95Ms: number | null;
+  readonly progress: Record<string, unknown>;
+  readonly throughputPerMinute: number;
+  readonly totalEnqueued: number;
   readonly windowErrorCount: number;
 }
 

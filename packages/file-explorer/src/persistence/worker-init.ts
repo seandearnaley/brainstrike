@@ -2,8 +2,8 @@ import { createLogger } from '@brainstrike/utils';
 import { resolveWorkerStorageUrl, WorkerStorage } from './worker-storage';
 
 export interface WorkerInitResult {
-  workerStorage: WorkerStorage | null;
   useWorker: boolean;
+  workerStorage: WorkerStorage | null;
 }
 
 const logger = createLogger('Persistence');

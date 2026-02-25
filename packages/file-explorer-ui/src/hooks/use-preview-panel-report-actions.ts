@@ -7,17 +7,17 @@ import type { ContextExportOptions } from '../context-export-options';
 import type { useFileExplorerStoreContext } from '../file-explorer-provider';
 
 interface UsePreviewPanelReportActionsInput {
-  store: ReturnType<typeof useFileExplorerStoreContext>;
-  selectedFiles: Set<string>;
-  fileContents: Record<string, string>;
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
-  includeFilters: string[];
   excludeFilters: string[];
-  useRegex: boolean;
-  includeProjectTree: boolean;
-  projectTreeUsesViewFilters?: boolean;
+  fileContents: Record<string, string>;
   folderSummaryThreshold: number;
+  includeFilters: string[];
+  includeProjectTree: boolean;
   loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
+  projectTreeUsesViewFilters?: boolean;
+  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
+  selectedFiles: Set<string>;
+  store: ReturnType<typeof useFileExplorerStoreContext>;
+  useRegex: boolean;
 }
 
 // Strip UI-only range fields (id, color) before passing ranges to context generation.

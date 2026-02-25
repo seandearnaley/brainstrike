@@ -17,10 +17,10 @@ import type { LoggingSettingsPayload } from '../../../logging-shared';
 import { getRendererLogBuffer } from '../../log-buffer';
 
 interface LoggingSettingsState {
-  loading: boolean;
-  syncing: boolean;
   error: string | null;
   fileCapabilities: LoggingSettingsSectionProps['fileCapabilities'];
+  loading: boolean;
+  syncing: boolean;
 }
 
 type LoggingSettingsAction =

@@ -198,17 +198,17 @@ export function sanitizeStreamChunk<T extends StreamChunk>(chunk: T): T {
 
 interface JsonBufferLike {
   __type: 'Buffer';
-  encoding: 'base64';
   data: string;
+  encoding: 'base64';
   size: number;
 }
 
 interface JsonTypedArrayLike {
   __type: string;
-  encoding: 'base64' | 'array';
-  data: string | number[];
-  byteOffset: number;
   byteLength: number;
+  byteOffset: number;
+  data: string | number[];
+  encoding: 'base64' | 'array';
 }
 
 interface JsonMapLike {

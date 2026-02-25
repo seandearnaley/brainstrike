@@ -14,12 +14,12 @@ import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface FolderSelectionDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  node: IFileNode;
   fileCount: number;
+  node: IFileNode;
   onConfirm: () => void;
+  onOpenChange: (open: boolean) => void;
   onToggleFileSelection: (path: string) => void;
+  open: boolean;
 }
 
 export function FolderSelectionDialog({

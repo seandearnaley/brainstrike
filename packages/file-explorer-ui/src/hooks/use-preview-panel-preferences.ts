@@ -32,32 +32,32 @@ export const DEFAULT_PAGE_SIZE = 50;
 const VALID_PAGE_SIZES = new Set([10, 25, 50, 100, 250, 500, 1000]);
 
 interface StoredPreferences {
-  columnVisibility?: Partial<ColumnVisibility>;
-  sortField?: keyof TableRowData;
-  sortDirection?: 'asc' | 'desc';
-  groupingConfig?: string;
   activeTab?: string;
   collapsedGroups?: string[];
+  columnVisibility?: Partial<ColumnVisibility>;
+  groupingConfig?: string;
   pageSize?: number;
+  sortDirection?: 'asc' | 'desc';
+  sortField?: keyof TableRowData;
   useTapestryRangesForContextOutput?: boolean;
 }
 
 interface PreviewPanelPreferences {
-  columnVisibility: ColumnVisibility;
-  sortField: keyof TableRowData;
-  sortDirection: 'asc' | 'desc';
-  groupingConfig: string;
   activeTab: string;
   collapsedGroups: Set<string>;
+  columnVisibility: ColumnVisibility;
+  groupingConfig: string;
   pageSize: number;
+  sortDirection: 'asc' | 'desc';
+  sortField: keyof TableRowData;
   useTapestryRangesForContextOutput: boolean;
 }
 
 interface PreviewPanelPreferencesDefaults {
-  sortField: keyof TableRowData;
-  sortDirection: 'asc' | 'desc';
-  groupingConfig: string;
   activeTab: string;
+  groupingConfig: string;
+  sortDirection: 'asc' | 'desc';
+  sortField: keyof TableRowData;
   useTapestryRangesForContextOutput: boolean;
 }
 
@@ -219,13 +219,13 @@ function isQuotaExceeded(error: unknown): boolean {
 }
 
 interface PreviewPanelPreferencesSetters {
-  setColumnVisibility: Dispatch<SetStateAction<ColumnVisibility>>;
-  setSortField: Dispatch<SetStateAction<keyof TableRowData>>;
-  setSortDirection: Dispatch<SetStateAction<'asc' | 'desc'>>;
-  setGroupingConfig: Dispatch<SetStateAction<string>>;
   setActiveTab: Dispatch<SetStateAction<string>>;
   setCollapsedGroups: Dispatch<SetStateAction<Set<string>>>;
+  setColumnVisibility: Dispatch<SetStateAction<ColumnVisibility>>;
+  setGroupingConfig: Dispatch<SetStateAction<string>>;
   setPageSize: Dispatch<SetStateAction<number>>;
+  setSortDirection: Dispatch<SetStateAction<'asc' | 'desc'>>;
+  setSortField: Dispatch<SetStateAction<keyof TableRowData>>;
   setUseTapestryRangesForContextOutput: Dispatch<SetStateAction<boolean>>;
 }
 

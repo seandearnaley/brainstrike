@@ -9,15 +9,15 @@ import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
 interface ViewFilterPresetRow {
-  id: string;
-  name: string;
   description: string | null;
-  icon: string;
-  includes: string[];
   excludes: string[];
-  use_regex: boolean;
+  icon: string;
+  id: string;
+  includes: string[];
   is_default: boolean;
+  name: string;
   sort_order: number;
+  use_regex: boolean;
 }
 
 describe('View Filter Presets Migration (027)', () => {

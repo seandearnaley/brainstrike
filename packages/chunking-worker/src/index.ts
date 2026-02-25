@@ -56,8 +56,8 @@ export type {
 } from './shared';
 
 interface ImportMetaLike {
-  url?: string;
   dirname?: string;
+  url?: string;
 }
 
 const IMPORT_META_OVERRIDE_KEY = '__BRAINSTRIKE_IMPORT_META__';

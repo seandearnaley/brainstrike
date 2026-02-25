@@ -16,9 +16,9 @@ const IGNORED_PATTERNS = [
 ] as const;
 
 export interface ContextLineRange {
-  startLine: number;
   endLine: number;
   isActive?: boolean;
+  startLine: number;
 }
 
 export interface ContextGenerationOptions {
@@ -30,9 +30,9 @@ export interface ContextGenerationOptions {
 // File tree processing configuration
 interface FileTreeProcessingConfig {
   depth: number;
+  maxDepth: number;
   rootFolderId: string;
   visitedPaths: Set<string>;
-  maxDepth: number;
 }
 
 function shouldIgnorePath(pathString: string): boolean {

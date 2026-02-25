@@ -20,16 +20,16 @@ import type { UnifiedToolMetadata } from './unified-registry';
  * Budget allocation percentages.
  */
 export interface BudgetAllocation {
-  /** Reserved for system prompt (15%) */
-  systemPrompt: number;
-  /** Reserved for model response (10%) */
-  responseBuffer: number;
-  /** Reserved for critical tools - always loaded (15%) */
-  criticalTools: number;
   /** Available for conditional tools (35%) */
   conditionalTools: number;
   /** Available for context and results (25%) */
   contextResults: number;
+  /** Reserved for critical tools - always loaded (15%) */
+  criticalTools: number;
+  /** Reserved for model response (10%) */
+  responseBuffer: number;
+  /** Reserved for system prompt (15%) */
+  systemPrompt: number;
 }
 
 /**
@@ -47,10 +47,10 @@ export const DEFAULT_BUDGET_ALLOCATION: BudgetAllocation = {
  * Options for creating a token budget manager.
  */
 export interface TokenBudgetManagerOptions {
-  /** Total context window size in tokens */
-  contextWindowTokens: number;
   /** Custom budget allocation (defaults to DEFAULT_BUDGET_ALLOCATION) */
   allocation?: Partial<BudgetAllocation>;
+  /** Total context window size in tokens */
+  contextWindowTokens: number;
   /** Custom token estimation function */
   estimateTokens?: (text: string) => number;
 }
@@ -59,24 +59,22 @@ export interface TokenBudgetManagerOptions {
  * Result of tool selection within budget.
  */
 export interface ToolSelectionResult {
+  /** Budget that was available for selection */
+  budgetAvailable: number;
   /** Tools selected for loading */
   selectedTools: UnifiedToolMetadata[];
   /** Tools that were skipped due to budget constraints */
   skippedTools: UnifiedToolMetadata[];
-  /** Total tokens used by selected tools */
-  tokensUsed: number;
   /** Remaining token budget */
   tokensRemaining: number;
-  /** Budget that was available for selection */
-  budgetAvailable: number;
+  /** Total tokens used by selected tools */
+  tokensUsed: number;
 }
 
 /**
  * Budget utilization report.
  */
 export interface BudgetUtilizationReport {
-  /** Total context window size */
-  contextWindowTokens: number;
   /** Tokens allocated to each category */
   allocatedTokens: {
     systemPrompt: number;
@@ -85,13 +83,15 @@ export interface BudgetUtilizationReport {
     conditionalTools: number;
     contextResults: number;
   };
+  /** Total context window size */
+  contextWindowTokens: number;
+  /** Remaining tokens after tool loading */
+  remainingForContext: number;
   /** Actual token usage */
   usedTokens: {
     criticalTools: number;
     conditionalTools: number;
   };
-  /** Remaining tokens after tool loading */
-  remainingForContext: number;
   /** Utilization percentage */
   utilizationPercent: number;
 }

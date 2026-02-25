@@ -14,14 +14,14 @@
 
 /** Cached file metadata entry */
 export interface MetadataCacheEntry {
-  /** File size in bytes */
-  size: number;
-  /** Modification time in milliseconds since epoch */
-  mtimeMs: number;
-  /** Whether this is a directory */
-  isDirectory: boolean;
   /** When this entry was cached (for TTL) */
   cachedAt: number;
+  /** Whether this is a directory */
+  isDirectory: boolean;
+  /** Modification time in milliseconds since epoch */
+  mtimeMs: number;
+  /** File size in bytes */
+  size: number;
 }
 
 /** Configuration for the metadata cache */
@@ -34,20 +34,20 @@ export interface MetadataCacheConfig {
 
 /** Statistics for cache monitoring */
 export interface MetadataCacheStats {
-  /** Current number of entries */
-  size: number;
-  /** Maximum allowed entries */
-  maxEntries: number;
-  /** Cache hit count */
-  hits: number;
-  /** Cache miss count */
-  misses: number;
-  /** TTL expiration count */
-  expirations: number;
   /** LRU eviction count */
   evictions: number;
+  /** TTL expiration count */
+  expirations: number;
   /** Hit rate as percentage (0-100) */
   hitRate: number;
+  /** Cache hit count */
+  hits: number;
+  /** Maximum allowed entries */
+  maxEntries: number;
+  /** Cache miss count */
+  misses: number;
+  /** Current number of entries */
+  size: number;
 }
 
 /** Default configuration values */

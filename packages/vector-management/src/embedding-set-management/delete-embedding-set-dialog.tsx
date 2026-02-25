@@ -15,11 +15,11 @@ import type { PGlite } from '@electric-sql/pglite';
 import { useState } from 'react';
 
 interface DeleteEmbeddingSetDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   db: PGlite | null;
   embeddingSet: (EmbeddingSet & { chunkCount: number }) | null;
+  onOpenChange: (open: boolean) => void;
   onSetDeleted?: (setId: string) => void;
+  open: boolean;
 }
 
 const logger = createLogger('DeleteEmbeddingSetDialog');

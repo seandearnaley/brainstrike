@@ -58,12 +58,12 @@ function MetricBadge({ label, value, variant = 'default' }: MetricBadgeProps): R
 }
 
 interface CompactStatusProps {
-  readonly totalQueued: number;
-  readonly totalRunning: number;
-  readonly totalFailed: number;
   readonly hasErrors: boolean;
   readonly isActive: boolean;
   readonly isOpen: boolean;
+  readonly totalFailed: number;
+  readonly totalQueued: number;
+  readonly totalRunning: number;
 }
 
 function CompactStatus({

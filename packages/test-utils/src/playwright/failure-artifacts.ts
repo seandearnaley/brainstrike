@@ -17,50 +17,50 @@ import type { Page, TestInfo } from '@playwright/test';
  * Console message entry with structured data
  */
 export interface ConsoleLogEntry {
-  type: 'error' | 'warning' | 'log' | 'info' | 'debug';
+  location?: string;
   text: string;
   timestamp: number;
-  location?: string;
+  type: 'error' | 'warning' | 'log' | 'info' | 'debug';
 }
 
 /**
  * Network request summary for debugging
  */
 export interface NetworkRequestEntry {
-  url: string;
+  failed: boolean;
+  failureReason?: string | undefined;
   method: string;
   status: number | null;
   timing: number | null;
-  failed: boolean;
-  failureReason?: string | undefined;
+  url: string;
 }
 
 /**
  * Application state snapshot
  */
 export interface AppStateSnapshot {
-  url: string;
-  title: string;
-  viewportSize: { width: number; height: number } | null;
   localStorage: Record<string, string>;
   timestamp: number;
+  title: string;
+  url: string;
+  viewportSize: { width: number; height: number } | null;
 }
 
 /**
  * Complete failure diagnostic bundle
  */
 export interface FailureDiagnostics {
-  testName: string;
-  testFile: string;
-  timestamp: string;
-  duration: number;
-  retryCount: number;
-  error?: string | undefined;
-  stack?: string | undefined;
-  consoleLogs: ConsoleLogEntry[];
-  networkRequests: NetworkRequestEntry[];
   appState: AppStateSnapshot | null;
+  consoleLogs: ConsoleLogEntry[];
   domSnapshot?: string | undefined;
+  duration: number;
+  error?: string | undefined;
+  networkRequests: NetworkRequestEntry[];
+  retryCount: number;
+  stack?: string | undefined;
+  testFile: string;
+  testName: string;
+  timestamp: string;
 }
 
 /**
@@ -377,11 +377,11 @@ export function createFailureCollector(page: Page): FailureArtifactCollector {
  * Summary of test health metrics for the entire suite
  */
 export interface TestHealthMetrics {
+  averageTestDuration: number;
+  commonErrors: Array<{ message: string; count: number }>;
+  flakyTests: string[];
   totalConsoleErrors: number;
   totalFailedRequests: number;
-  averageTestDuration: number;
-  flakyTests: string[];
-  commonErrors: Array<{ message: string; count: number }>;
 }
 
 /**

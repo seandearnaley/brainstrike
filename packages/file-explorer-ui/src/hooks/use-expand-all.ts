@@ -165,14 +165,8 @@ export interface ExpandAllState {
 }
 
 export interface UseExpandAllOptions {
-  /** Ref to worker port for expand-all commands (use ref to get current value at call time) */
-  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
   /** Ref to handle map for rehydrating worker tree */
   handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
-  /** Root folder ID for expand-all scope */
-  rootFolderId: string;
-  /** Callback when tree is updated after expand-all */
-  onTreeUpdate: (tree: IFileNode[]) => void;
   /** Callback when error occurs */
   onError?: (error: Error) => void;
   /**
@@ -182,17 +176,23 @@ export interface UseExpandAllOptions {
    * @param parentPath - Always null for expand-all (starts from root)
    */
   onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
+  /** Callback when tree is updated after expand-all */
+  onTreeUpdate: (tree: IFileNode[]) => void;
+  /** Root folder ID for expand-all scope */
+  rootFolderId: string;
+  /** Ref to worker port for expand-all commands (use ref to get current value at call time) */
+  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
 }
 
 export interface UseExpandAllReturn {
-  /** Whether expand-all is in progress */
-  isExpandingAll: boolean;
+  /** Cancel expand-all operation */
+  cancelExpandAll: () => void;
   /** Start expand-all operation */
   expandAllProgressively: (
     setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
   ) => Promise<void>;
-  /** Cancel expand-all operation */
-  cancelExpandAll: () => void;
+  /** Whether expand-all is in progress */
+  isExpandingAll: boolean;
   /** Ref to check if expand-all is active (for use in effects) */
   isExpandingAllRef: React.RefObject<boolean>;
 }

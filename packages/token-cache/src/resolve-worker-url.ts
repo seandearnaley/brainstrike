@@ -7,8 +7,8 @@
  * The worker TypeScript source is compiled to JavaScript by tsup during the package build.
  */
 interface ImportMetaLike {
-  url?: string;
   dirname?: string;
+  url?: string;
 }
 
 function readImportMetaOverride(): ImportMetaLike | null {

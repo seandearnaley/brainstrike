@@ -50,8 +50,8 @@ interface DbHandle extends IDatabase {
 }
 
 interface QueryExecutor {
-  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 }
 
@@ -60,20 +60,20 @@ type EmbeddingSetsRepo = import('./repositories/interfaces.js').IEmbeddingSetsRe
 type ViewFilterPresetsRepo = import('./repositories/interfaces.js').IViewFilterPresetsRepository;
 
 interface DbContextValue {
-  fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
-  embeddingSetsRepository: EmbeddingSetsRepo | null;
-  viewFilterPresetsRepository: ViewFilterPresetsRepo | null;
-  drizzleDb: DrizzleDb | null; // Drizzle instance for direct access
-  error: Error | null;
-  ready: boolean;
-  initializing: boolean; // Whether database initialization is in progress
-  db: DbHandle | null;
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
-  initializeDatabase: () => Promise<void>; // Lazy initialization trigger
-  vectorEnabled: boolean; // Whether pgvector extension is available
-  factoryReset: () => Promise<void>; // Close DB, wipe state, reinitialize
   clearQueuesAndEmbeddingSets: () => Promise<void>; // Helper to purge job_queue and embedding_sets
+  db: DbHandle | null;
+  drizzleDb: DrizzleDb | null; // Drizzle instance for direct access
+  embeddingSetsRepository: EmbeddingSetsRepo | null;
+  error: Error | null;
+  factoryReset: () => Promise<void>; // Close DB, wipe state, reinitialize
+  fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  initializeDatabase: () => Promise<void>; // Lazy initialization trigger
+  initializing: boolean; // Whether database initialization is in progress
+  ready: boolean;
+  vectorEnabled: boolean; // Whether pgvector extension is available
+  viewFilterPresetsRepository: ViewFilterPresetsRepo | null;
 }
 
 interface DbProviderProps {

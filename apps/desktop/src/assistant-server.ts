@@ -23,8 +23,8 @@ type AssistantUiMessage = AssistantUiMessageStrict;
 
 type AssistantRoute = 'status' | 'assistant' | 'not-found';
 interface AssistantRequestPayload {
-  rawMessages: AssistantUiMessage[];
   data: RuntimeData | undefined;
+  rawMessages: AssistantUiMessage[];
 }
 interface AgentStreamSuccess {
   ok: true;
@@ -32,8 +32,8 @@ interface AgentStreamSuccess {
 }
 interface AgentStreamFailure {
   ok: false;
-  status: number;
   payload: { error: string; message: string };
+  status: number;
 }
 type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
@@ -58,8 +58,8 @@ const MAX_TREE_CONTEXT_ROWS = 5000;
 const MAX_CONTEXT_REPORT_CHARS = 60_000;
 
 export interface AssistantServerOptions {
-  listen?: boolean;
   host?: string;
+  listen?: boolean;
 }
 
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
@@ -179,9 +179,9 @@ async function handleAssistantPost(
 }
 
 interface PreparedAssistantPostRequest {
+  apiKey: string;
   messages: AgentMessage[];
   runtimeData: RuntimeData;
-  apiKey: string;
 }
 
 async function prepareAssistantPostRequest(
@@ -507,8 +507,8 @@ async function resumeStreamIfAvailable(
 }
 
 interface FileContextRow {
-  path: string;
   content: string | null;
+  path: string;
 }
 
 interface PathContextRow {

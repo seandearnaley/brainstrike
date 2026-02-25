@@ -2,12 +2,12 @@ import type { IFileNode } from '@brainstrike/types';
 import { Checkbox, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 
 interface NodeCheckboxProps {
-  node: IFileNode;
   checked: boolean | 'indeterminate';
   disabled: boolean;
+  maxSelectionCount: number;
+  node: IFileNode;
   onSelect: () => void;
   wouldExceedLimit: boolean;
-  maxSelectionCount: number;
 }
 
 export function NodeCheckbox({

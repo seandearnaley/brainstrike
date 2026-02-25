@@ -7,17 +7,17 @@ interface SqlClient {
 }
 
 interface EmbeddingSetRow {
-  id: string;
-  modelKey: string;
-  modelId: string;
+  createdAt: string;
   dimensions: number;
   distance: string;
-  createdAt: string;
+  id: string;
+  modelId: string;
+  modelKey: string;
 }
 
 interface ChunkCountRow {
-  embeddingSetId: string;
   count: number;
+  embeddingSetId: string;
 }
 
 type NormalizedRow = EmbeddingSetRow & {

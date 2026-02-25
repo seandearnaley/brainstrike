@@ -1,11 +1,25 @@
 {
   "name": "@brainstrike/file-system",
-  "version": "0.1.0",
   "description": "Platform-aware file system adapters for web and desktop",
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/platform-utils": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "idb": "^8.0.3"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "^9.5.1",
+    "@stryker-mutator/typescript-checker": "^9.5.1",
+    "@stryker-mutator/vitest-runner": "^9.5.1",
+    "@types/node": "^25.3.0",
+    "electron": "^40.6.1",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.7.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -18,35 +32,21 @@
       "require": "./dist/path-validation.cjs"
     }
   },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "optionalDependencies": {
+    "chokidar": "^5.0.0"
+  },
   "scripts": {
     "build": "tsc && tsup",
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose & tsup --watch",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "pnpm -w test:coverage",
     "mutation": "npx @stryker-mutator/core run",
+    "test": "vitest run",
+    "test:coverage": "pnpm -w test:coverage",
+    "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "dependencies": {
-    "@brainstrike/platform-utils": "workspace:*",
-    "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "idb": "^8.0.1"
-  },
-  "optionalDependencies": {
-    "chokidar": "^5.0.0"
-  },
-  "devDependencies": {
-    "@stryker-mutator/core": "^9.4.0",
-    "@stryker-mutator/typescript-checker": "^9.4.0",
-    "@stryker-mutator/vitest-runner": "^9.4.0",
-    "@types/node": "^25.0.8",
-    "electron": "^39.2.7",
-    "fake-indexeddb": "^5.0.2",
-    "happy-dom": "20.1.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
-  }
+  "type": "module",
+  "types": "./dist/index.d.ts"
 }

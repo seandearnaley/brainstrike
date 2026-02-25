@@ -14,37 +14,37 @@ import { ChevronDown, Play, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import type { BackfillProgress } from './vector-status/use-vector-queue-state';
 
 export interface EmbeddingActionsDropdownProps {
-  /** Handler for backfill action */
-  onBackfill: () => Promise<void>;
-  /** Handler for retry failed jobs */
-  onRetryFailed: () => Promise<void>;
-  /** Handler for clear queue (failed/queued items) */
-  onClearQueue: () => Promise<void>;
-  /** Handler for wipe queue (all items) */
-  onWipeQueue: () => Promise<void>;
-
-  /** Whether database is available */
-  hasDb: boolean;
   /** Whether a backfill is in progress */
   backfilling: boolean;
   /** Progress of current backfill operation */
   backfillProgress: BackfillProgress;
-  /** Number of failed jobs in queue */
-  failedCount: number;
+  /** Additional className */
+  className?: string;
   /** Coverage stats for tooltip */
   coverage: { total: number; withSet: number };
+  /** Whether backfill is disabled */
+  disabled?: boolean;
+  /** Disabled reason tooltip */
+  disabledReason?: string;
+  /** Number of failed jobs in queue */
+  failedCount: number;
+
+  /** Whether database is available */
+  hasDb: boolean;
+  /** Handler for backfill action */
+  onBackfill: () => Promise<void>;
+  /** Handler for clear queue (failed/queued items) */
+  onClearQueue: () => Promise<void>;
+  /** Handler for retry failed jobs */
+  onRetryFailed: () => Promise<void>;
+  /** Handler for wipe queue (all items) */
+  onWipeQueue: () => Promise<void>;
   /** Queue counts for tooltip */
   queueCounts: { queued: number; running: number };
   /** Whether worker is starting */
   startingWorker?: boolean;
   /** Whether clicking will auto-start worker (web only) */
   willAutoStartWorker?: boolean;
-  /** Whether backfill is disabled */
-  disabled?: boolean;
-  /** Disabled reason tooltip */
-  disabledReason?: string;
-  /** Additional className */
-  className?: string;
 }
 
 /**

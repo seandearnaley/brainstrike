@@ -7,12 +7,16 @@ export type ProviderRuntime = 'hosted' | 'gateway' | 'local' | 'browser';
 export type ProviderModelType = 'llm' | 'embedding';
 
 export interface ProviderCapabilities {
-  llm: boolean;
   embeddings: boolean;
+  llm: boolean;
   streaming: boolean;
 }
 
 interface BaseModelDefinition {
+  /**
+   * Flag a sensible default for the given model type.
+   */
+  default?: boolean;
   /**
    * Provider-specific model identifier (as accepted by the upstream API).
    */
@@ -21,60 +25,56 @@ interface BaseModelDefinition {
    * Optional human-friendly label when the upstream ID is cryptic.
    */
   label?: string;
-  /**
-   * Flag a sensible default for the given model type.
-   */
-  default?: boolean;
 }
 
 export interface LlmModelDefinition extends BaseModelDefinition {
-  type: 'llm';
   /**
    * Some providers restrict streaming; surface this so the UI can badge support.
    */
   supportsStreaming?: boolean;
+  type: 'llm';
 }
 
 export interface EmbeddingModelDefinition extends BaseModelDefinition {
-  type: 'embedding';
-  /**
-   * Canonical output dimensionality when no overrides are supplied.
-   */
-  defaultDimension: number;
   /**
    * Known discrete dimensions offered by this model (if fixed).
    */
   availableDimensions?: readonly number[];
   /**
-   * Indicates whether the provider exposes a parameter to customise the dimension.
+   * Canonical output dimensionality when no overrides are supplied.
    */
-  supportsCustomDimensions?: boolean;
+  defaultDimension: number;
   /**
    * Name of the parameter used to tune embedding dimension. Used by workers.
    */
   dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
   /**
+   * Indicates whether the provider exposes a parameter to customise the dimension.
+   */
+  supportsCustomDimensions?: boolean;
+  /**
    * Whether the model can natively (or via parameterisation) produce the project
    * standard 768 dimensional vectors.
    */
   supportsStandardDimension: boolean;
+  type: 'embedding';
 }
 
 export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinition;
 
 export interface ProviderDefinition {
-  id: ProviderId;
-  displayName: string;
-  runtime: ProviderRuntime;
   capabilities: ProviderCapabilities;
-  /**
-   * Ordered list of models covering both chat and embeddings.
-   */
-  models: readonly ProviderModelDefinition[];
+  displayName: string;
   /**
    * Environment variable keys (most preferred first) for secret discovery.
    */
   envKeys?: readonly string[];
+  id: ProviderId;
+  /**
+   * Ordered list of models covering both chat and embeddings.
+   */
+  models: readonly ProviderModelDefinition[];
+  runtime: ProviderRuntime;
 }
 
 export type ProviderId =

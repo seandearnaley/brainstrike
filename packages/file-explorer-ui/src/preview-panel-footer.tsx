@@ -16,40 +16,40 @@ import { TokenSummaryBar } from './token-summary-bar';
 import type { TokenCountingState } from './use-token-counting';
 
 export interface TokenUsageMetrics {
+  activeRangeFilesCount: number;
   budget: number;
-  selectedTokens: number;
-  sourceSelectedTokens: number;
   includedTreeTokens: number;
-  usedTokens: number;
-  treePercent: number;
-  selectedPercent: number;
-  usedPercent: number;
-  treeLabel: string;
-  remainingLabel: string;
   isOverBudget: boolean;
   rangeAdjustedFilesCount: number;
-  activeRangeFilesCount: number;
+  remainingLabel: string;
+  selectedPercent: number;
+  selectedTokens: number;
+  sourceSelectedTokens: number;
+  treeLabel: string;
+  treePercent: number;
+  usedPercent: number;
+  usedTokens: number;
 }
 
 interface PreviewPanelFooterProps {
-  totalFiles: number;
-  tokenCounting: TokenCountingState;
-  tokenUsage: TokenUsageMetrics;
+  folderSummaryThreshold?: number;
   includeProjectTree: boolean;
-  projectTreeUsesViewFilters: boolean;
-  useTapestryRanges: boolean;
-  treeLoading?: boolean;
-  /** BST-153: Number of files still being indexed (for "estimating..." state) */
-  selectedTokensPendingCount?: number;
-  onTokenBudgetChange?: ((budget: number) => void) | undefined;
-  selectedFilesCount: number;
+  onCopyContext?: (() => void) | undefined;
+  onDownloadContext?: (() => void) | undefined;
+  onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
   onProjectTreeUsesViewFiltersChange?: ((checked: boolean) => void) | undefined;
+  onTokenBudgetChange?: ((budget: number) => void) | undefined;
   onUseTapestryRangesChange?: ((checked: boolean) => void) | undefined;
-  onDownloadContext?: (() => void) | undefined;
-  onCopyContext?: (() => void) | undefined;
-  folderSummaryThreshold?: number;
-  onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
+  projectTreeUsesViewFilters: boolean;
+  selectedFilesCount: number;
+  /** BST-153: Number of files still being indexed (for "estimating..." state) */
+  selectedTokensPendingCount?: number;
+  tokenCounting: TokenCountingState;
+  tokenUsage: TokenUsageMetrics;
+  totalFiles: number;
+  treeLoading?: boolean;
+  useTapestryRanges: boolean;
 }
 
 export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(

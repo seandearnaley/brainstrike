@@ -3,11 +3,11 @@ import { fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
 import { useCallback, useMemo, useState } from 'react';
 
 export interface UseFileTreeNodeSelectionProps {
-  node: IFileNode;
   folderId: string;
-  selectedFilePaths: Set<string>;
   maxSelectionCount: number;
+  node: IFileNode;
   onToggleFileSelection: (path: string) => void;
+  selectedFilePaths: Set<string>;
 }
 
 export interface FolderInfo {
@@ -19,11 +19,11 @@ export interface FolderInfo {
 export interface UseFileTreeNodeSelectionReturn {
   checkboxState: boolean | 'indeterminate';
   folderInfo: FolderInfo | null;
-  showSelectionDialog: boolean;
-  setShowSelectionDialog: React.Dispatch<React.SetStateAction<boolean>>;
-  handleNodeSelection: () => void;
-  wouldExceedLimit: boolean;
   getAllFilePaths: (dirNode: IFileNode) => string[];
+  handleNodeSelection: () => void;
+  setShowSelectionDialog: React.Dispatch<React.SetStateAction<boolean>>;
+  showSelectionDialog: boolean;
+  wouldExceedLimit: boolean;
 }
 
 export function useFileTreeNodeSelection({

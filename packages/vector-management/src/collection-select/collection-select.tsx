@@ -8,19 +8,19 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
  * Row shape returned by the collections query
  */
 export interface CollectionRow {
-  id: string;
-  modelKey: string;
-  modelId: string;
+  category: string | null;
+  chunkCount: string | number;
+  createdAt: string;
+  description: string | null;
   dimensions: number;
   distance: string;
-  createdAt: string;
-  name: string | null;
-  description: string | null;
-  tags: string | null;
-  category: string | null;
-  fileCount: string | number;
-  chunkCount: string | number;
   embeddingCount: string | number;
+  fileCount: string | number;
+  id: string;
+  modelId: string;
+  modelKey: string;
+  name: string | null;
+  tags: string | null;
 }
 
 /**
@@ -32,22 +32,22 @@ export interface CollectionRow {
  * - embeddingCount: Number of chunks with embeddings in this collection
  */
 export interface CollectionWithDocCount {
-  id: string;
-  modelKey: string;
-  modelId: string;
-  dimensions: number;
-  distance: 'cosine' | 'l2' | 'ip';
-  createdAt: string;
-  name: string | null;
-  description: string | null;
-  tags: string | null;
   category: string | null;
-  /** Number of files imported into this collection */
-  fileCount: number;
   /** Number of chunks in this collection */
   chunkCount: number;
+  createdAt: string;
+  description: string | null;
+  dimensions: number;
+  distance: 'cosine' | 'l2' | 'ip';
   /** Number of embeddings in this collection */
   embeddingCount: number;
+  /** Number of files imported into this collection */
+  fileCount: number;
+  id: string;
+  modelId: string;
+  modelKey: string;
+  name: string | null;
+  tags: string | null;
 }
 
 /**
@@ -108,6 +108,16 @@ const SIZE_STYLES = {
 
 export interface CollectionSelectProps {
   /**
+   * Pre-fetched collections data. If provided, skips internal useCollections hook.
+   * Use this to avoid duplicate queries when parent already has the data.
+   */
+  collections?: CollectionWithDocCount[];
+
+  /**
+   * Additional className for the content dropdown
+   */
+  contentClassName?: string;
+  /**
    * Database instance for querying collections.
    * Required if collections/loading/error are not provided (will fetch internally).
    * Ignored if collections are provided externally.
@@ -115,25 +125,20 @@ export interface CollectionSelectProps {
   db?: ReturnType<typeof usePGliteDatabase>;
 
   /**
-   * Currently selected collection ID
+   * Custom empty state to render when no collections exist
+   * If not provided, the select will be disabled with the placeholder text
    */
-  selectedId: string | null;
+  emptyState?: React.ReactNode;
 
   /**
-   * Callback when selection changes
+   * Error state (used when collections are provided externally)
    */
-  onSelectionChange: (id: string | null) => void;
+  error?: Error | null;
 
   /**
-   * Size variant - 'compact' for tight spaces like Vector Status,
-   * 'default' for full-size like Database Explorer
+   * Loading state (used when collections are provided externally)
    */
-  size?: CollectionSelectSize;
-
-  /**
-   * Placeholder text when no collection is selected
-   */
-  placeholder?: string;
+  loading?: boolean;
 
   /**
    * Placeholder text when loading
@@ -146,36 +151,30 @@ export interface CollectionSelectProps {
   onError?: (error: Error) => void;
 
   /**
+   * Callback when selection changes
+   */
+  onSelectionChange: (id: string | null) => void;
+
+  /**
+   * Placeholder text when no collection is selected
+   */
+  placeholder?: string;
+
+  /**
+   * Currently selected collection ID
+   */
+  selectedId: string | null;
+
+  /**
+   * Size variant - 'compact' for tight spaces like Vector Status,
+   * 'default' for full-size like Database Explorer
+   */
+  size?: CollectionSelectSize;
+
+  /**
    * Additional className for the trigger
    */
   triggerClassName?: string;
-
-  /**
-   * Additional className for the content dropdown
-   */
-  contentClassName?: string;
-
-  /**
-   * Custom empty state to render when no collections exist
-   * If not provided, the select will be disabled with the placeholder text
-   */
-  emptyState?: React.ReactNode;
-
-  /**
-   * Pre-fetched collections data. If provided, skips internal useCollections hook.
-   * Use this to avoid duplicate queries when parent already has the data.
-   */
-  collections?: CollectionWithDocCount[];
-
-  /**
-   * Loading state (used when collections are provided externally)
-   */
-  loading?: boolean;
-
-  /**
-   * Error state (used when collections are provided externally)
-   */
-  error?: Error | null;
 }
 
 /**
@@ -256,8 +255,8 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting;
   // Track loading/error state for initial fetch
   interface FetchState {
-    loading: boolean;
     error: Error | null;
+    loading: boolean;
   }
   type FetchAction =
     | { type: 'start' }

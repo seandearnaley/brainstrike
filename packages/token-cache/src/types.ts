@@ -13,24 +13,24 @@ export type TokenCountingMode = 'accurate' | 'heuristic';
  * Entry stored in the persistent token cache (PGlite)
  */
 export interface TokenCacheEntry {
-  /** Root folder identifier */
-  folderId: string;
-  /** Relative file path within the folder */
-  filePath: string;
   /** xxHash64 of file content for change detection */
   contentHash: string;
+  /** Mode used for counting ('accurate' = tiktoken, 'heuristic' = char/4) */
+  countingMode: TokenCountingMode;
+  /** Timestamp when entry was created */
+  createdAt?: string;
+  /** Relative file path within the folder */
+  filePath: string;
   /** File size in bytes */
   fileSize: number;
+  /** Root folder identifier */
+  folderId: string;
+  /** Encoding used for accurate mode (e.g., 'o200k_base') */
+  modelEncoding: string | null;
   /** File modification time in milliseconds (optional) */
   mtimeMs: number | null;
   /** Cached token count */
   tokenCount: number;
-  /** Mode used for counting ('accurate' = tiktoken, 'heuristic' = char/4) */
-  countingMode: TokenCountingMode;
-  /** Encoding used for accurate mode (e.g., 'o200k_base') */
-  modelEncoding: string | null;
-  /** Timestamp when entry was created */
-  createdAt?: string;
   /** Timestamp when entry was last updated */
   updatedAt?: string;
 }
@@ -39,10 +39,10 @@ export interface TokenCacheEntry {
  * Request to count tokens for a file
  */
 export interface TokenCountRequest {
-  /** Unique identifier for this request */
-  id: string;
   /** File content to count tokens for */
   content: string;
+  /** Unique identifier for this request */
+  id: string;
   /** Counting mode to use */
   mode: TokenCountingMode;
 }
@@ -51,40 +51,40 @@ export interface TokenCountRequest {
  * Result of token counting operation
  */
 export interface TokenCountResult {
-  /** Request identifier */
-  id: string;
-  /** Number of tokens counted */
-  tokenCount: number;
   /** xxHash64 of content */
   contentHash: string;
+  /** Request identifier */
+  id: string;
   /** Mode that was used */
   mode: TokenCountingMode;
+  /** Number of tokens counted */
+  tokenCount: number;
 }
 
 /**
  * Progress event emitted during batch token counting
  */
 export interface TokenCountProgress {
-  type: 'progress';
   /** Number of items completed */
   completed: number;
-  /** Total items to process */
-  total: number;
   /** Current item being processed (optional) */
   currentId?: string;
+  /** Total items to process */
+  total: number;
+  type: 'progress';
 }
 
 /**
  * Error event from token counting worker
  */
 export interface TokenCountError {
-  type: 'error';
+  /** Error cause/stack (optional) */
+  cause?: string;
   /** Request identifier that failed */
   id: string;
   /** Error message */
   message: string;
-  /** Error cause/stack (optional) */
-  cause?: string;
+  type: 'error';
 }
 
 /**
@@ -96,14 +96,14 @@ export type TokenWorkerMessage = TokenCountProgress | TokenCountError;
  * Statistics about the token cache
  */
 export interface TokenCacheStats {
-  /** Total number of cached entries */
-  entryCount: number;
-  /** Total tokens across all cached files */
-  totalTokens: number;
   /** Number of entries using accurate counting */
   accurateCount: number;
+  /** Total number of cached entries */
+  entryCount: number;
   /** Number of entries using heuristic counting */
   heuristicCount: number;
+  /** Total tokens across all cached files */
+  totalTokens: number;
 }
 
 /**
@@ -118,8 +118,8 @@ export interface TokenCacheStoreOptions {
  * File metadata for quick cache validation
  */
 export interface FileMetadata {
-  /** File size in bytes */
-  size: number;
   /** Modification time in milliseconds (if available) */
   mtimeMs?: number;
+  /** File size in bytes */
+  size: number;
 }

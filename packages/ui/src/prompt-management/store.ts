@@ -4,27 +4,26 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import type { Category, Prompt, PromptFilter, PromptRevision } from './types';
 
 interface PromptState {
-  prompts: Prompt[];
-  categories: Category[];
-  filter: PromptFilter;
-  selectedPromptId: string | null;
-  isSidebarOpen: boolean;
+  addCategory: (category: Omit<Category, 'id'>) => void;
 
   // Actions
   addPrompt: (prompt: Omit<Prompt, 'id' | 'createdAt' | 'updatedAt' | 'revisions'>) => void;
-  updatePrompt: (id: string, updates: Partial<Prompt>) => void;
-  deletePrompt: (id: string) => void;
-  ratePrompt: (id: string, rating: number) => void;
-  toggleFavorite: (id: string) => void;
   addRevision: (promptId: string, revision: Omit<PromptRevision, 'id' | 'timestamp'>) => void;
-
-  addCategory: (category: Omit<Category, 'id'>) => void;
-  updateCategory: (id: string, updates: Partial<Category>) => void;
+  categories: Category[];
   deleteCategory: (id: string) => void;
+  deletePrompt: (id: string) => void;
+  filter: PromptFilter;
+  isSidebarOpen: boolean;
+  prompts: Prompt[];
+  ratePrompt: (id: string, rating: number) => void;
+  selectedPromptId: string | null;
 
   setFilter: (filter: Partial<PromptFilter>) => void;
   setSelectedPromptId: (id: string | null) => void;
+  toggleFavorite: (id: string) => void;
   toggleSidebar: () => void;
+  updateCategory: (id: string, updates: Partial<Category>) => void;
+  updatePrompt: (id: string, updates: Partial<Prompt>) => void;
 }
 
 const DEFAULT_CATEGORIES: Category[] = [

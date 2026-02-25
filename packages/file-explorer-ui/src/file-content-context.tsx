@@ -3,17 +3,17 @@ import { createContext, useContext, useMemo } from 'react';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 
 interface FileContentContextType {
-  fileContents: { [compositeKey: string]: string };
-  isLoading: boolean;
   error: Error | null;
+  fileContents: { [compositeKey: string]: string };
   handleFileContentLoading: (compositeKeys: string[]) => Promise<void>;
+  isLoading: boolean;
 }
 
 const FileContentContext = createContext<FileContentContextType | null>(null);
 
 export interface FileContentProviderProps {
-  fileTree: IFileNode[];
   children: React.ReactNode;
+  fileTree: IFileNode[];
 }
 
 export function FileContentProvider({ fileTree, children }: FileContentProviderProps) {

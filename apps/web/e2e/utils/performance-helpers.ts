@@ -4,24 +4,24 @@ import type { Page } from '@playwright/test';
 
 export interface PerformanceMetric {
   name: string;
-  value: number;
-  threshold: number;
-  unit: string;
-  timestamp: number;
   passed: boolean;
+  threshold: number;
+  timestamp: number;
+  unit: string;
+  value: number;
 }
 
 export interface MemoryInfo {
-  used: number;
-  total: number;
   limit: number;
+  total: number;
+  used: number;
 }
 
 export interface RenderMetrics {
-  totalRenders: number;
   averageRenderTime: number;
   maxRenderTime: number;
   renderTimes: number[];
+  totalRenders: number;
 }
 
 /**

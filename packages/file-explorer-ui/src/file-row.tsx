@@ -11,13 +11,13 @@ export interface FileRowItem {
 }
 
 export interface FileRowProps {
-  item: FileRowItem;
-  isSelected: boolean;
+  formatFileSize: (bytes?: number) => string;
   isLoading: boolean;
-  onToggleSelection: (checked: boolean) => void;
+  isSelected: boolean;
+  item: FileRowItem;
   onRemove: () => void;
   onShowDetail: () => void;
-  formatFileSize: (bytes?: number) => string;
+  onToggleSelection: (checked: boolean) => void;
 }
 
 export const FileRow = memo<FileRowProps>(function FileRow({

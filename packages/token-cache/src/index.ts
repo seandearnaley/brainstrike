@@ -87,18 +87,18 @@ export { useTokenCache } from './use-token-cache';
  * Using inline type to avoid runtime import of workerpool.
  */
 export interface WorkerPoolOptions {
-  minWorkers?: number | 'max';
-  maxWorkers?: number;
+  forkArgs?: string[];
+  forkOpts?: object;
   maxQueueSize?: number;
-  workerType?: 'auto' | 'web' | 'process' | 'thread';
+  maxWorkers?: number;
+  minWorkers?: number | 'max';
+  onCreateWorker?: () => { on: unknown; forkArgs?: string[] };
+  onTerminateWorker?: () => void;
   workerOpts?: {
     type?: 'classic' | 'module';
   };
   workerTerminateTimeout?: number;
-  forkArgs?: string[];
-  forkOpts?: object;
-  onCreateWorker?: () => { on: unknown; forkArgs?: string[] };
-  onTerminateWorker?: () => void;
+  workerType?: 'auto' | 'web' | 'process' | 'thread';
 }
 
 /**
@@ -106,7 +106,6 @@ export interface WorkerPoolOptions {
  */
 export interface WorkerPoolInterface {
   exec: (method: string, params: unknown[]) => Promise<unknown>;
-  terminate: (force?: boolean, timeout?: number) => Promise<void>;
   stats: () => {
     totalWorkers: number;
     busyWorkers: number;
@@ -114,6 +113,7 @@ export interface WorkerPoolInterface {
     pendingTasks: number;
     activeTasks: number;
   };
+  terminate: (force?: boolean, timeout?: number) => Promise<void>;
 }
 
 // Lazy-loaded workerpool module to avoid loading worker_threads in browser/test environments

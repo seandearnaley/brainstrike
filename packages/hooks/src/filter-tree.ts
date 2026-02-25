@@ -35,8 +35,8 @@ export function filterTreeIterative(
 
   interface Frame {
     node: IFileNode;
-    state: 'enter' | 'exit';
     parentChildren: IFileNode[];
+    state: 'enter' | 'exit';
     tempChildren?: IFileNode[];
   }
 

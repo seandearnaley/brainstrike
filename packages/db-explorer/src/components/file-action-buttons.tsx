@@ -3,11 +3,11 @@ import { RefreshCw, Zap } from 'lucide-react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
 
 interface FileActionButtonsProps {
-  status: FileCollectionStatus;
   /** Handler for making file searchable - if undefined, button is disabled */
   onMakeSearchable?: ((fileId: string) => void) | undefined;
   /** Handler for re-indexing file - if undefined, button is disabled */
   onReindex?: ((fileId: string) => void) | undefined;
+  status: FileCollectionStatus;
 }
 
 /**

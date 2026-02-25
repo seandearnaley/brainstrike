@@ -159,8 +159,8 @@ export type Result<T, E = EmbeddingProviderError> =
  * Input for embedding generation
  */
 export interface EmbeddingInput {
-  text: string | string[];
   modelId: string;
+  text: string | string[];
 }
 
 /**
@@ -173,31 +173,31 @@ export type DistanceMetric = 'cosine' | 'l2' | 'ip';
  * Used for embedding-set creation and validation (BST-167)
  */
 export interface ProviderMetadata {
-  /** Provider identifier (e.g., 'local', 'openai', 'google', 'cohere', 'voyage') */
-  providerId: EmbeddingProviderType;
-  /** Model key/identifier used for embedding generation */
-  modelKey: string;
-  /** Expected embedding dimensions */
-  dimensions: number;
-  /** Distance metric for similarity calculations (defaults to 'cosine') */
-  distance: DistanceMetric;
-  /** Optional display name for the model */
-  displayName?: string;
   /** Optional context window size */
   contextWindow?: number;
+  /** Expected embedding dimensions */
+  dimensions: number;
+  /** Optional display name for the model */
+  displayName?: string;
+  /** Distance metric for similarity calculations (defaults to 'cosine') */
+  distance: DistanceMetric;
+  /** Model key/identifier used for embedding generation */
+  modelKey: string;
+  /** Provider identifier (e.g., 'local', 'openai', 'google', 'cohere', 'voyage') */
+  providerId: EmbeddingProviderType;
 }
 
 /**
  * Output from embedding generation
  */
 export interface EmbeddingOutput {
-  embedding: number[];
-  embeddings?: number[][];
   dimensions: number;
-  modelId: string;
-  provider: EmbeddingProviderType;
   /** Distance metric used (defaults to 'cosine') */
   distance?: DistanceMetric;
+  embedding: number[];
+  embeddings?: number[][];
+  modelId: string;
+  provider: EmbeddingProviderType;
   usage?: {
     inputTokens: number;
     totalTokens?: number;

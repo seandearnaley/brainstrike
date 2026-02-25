@@ -61,8 +61,8 @@ export interface ChunkSearchResultInput {
     fileRecordId: string;
     embeddingSetId?: string;
   };
-  similarity: number;
   rank: number;
+  similarity: number;
 }
 
 /**
@@ -79,10 +79,10 @@ export interface FileRecordInfo {
  * Embedding set metadata.
  */
 export interface EmbeddingSetInfo {
-  modelKey: string;
-  modelId: string;
   dimensions: number;
   distance: string | null;
+  modelId: string;
+  modelKey: string;
 }
 
 /**
@@ -97,17 +97,17 @@ export interface RetrievalSelectionState {
  * Result returned by the retrieval tool.
  */
 export interface RetrievalToolResult {
-  query: string;
+  budget: number;
+  chunks: PackedContextChunk[];
+  context: string;
   embeddingSetId: string;
   limit: number;
-  threshold: number;
-  selectionSnapshotId?: string;
-  totalTokens: number;
-  budget: number;
+  query: string;
   remainingTokens: number;
+  selectionSnapshotId?: string;
   skipped: number;
-  context: string;
-  chunks: PackedContextChunk[];
+  threshold: number;
+  totalTokens: number;
 }
 
 /**
@@ -116,16 +116,41 @@ export interface RetrievalToolResult {
  */
 export interface RetrievalToolDependencies {
   /**
-   * Resolves embedding set metadata by ID.
-   * @throws Error with safe message on failure
+   * Optional: Creates a selection snapshot for large file path lists.
+   * If not provided, large selections will be passed inline (may fail).
    */
-  resolveEmbeddingSet: (embeddingSetId: string) => Promise<EmbeddingSetInfo>;
+  createSelectionSnapshot?: (filePaths: readonly string[]) => Promise<string>;
+
+  /**
+   * Optional: Token estimation function for context packing.
+   * Defaults to a heuristic estimate if not provided.
+   */
+  estimateTokens?: (text: string) => number;
 
   /**
    * Generates a query embedding vector using the specified model.
    * @throws Error with safe message on failure
    */
   generateQueryEmbedding: (embeddingSet: EmbeddingSetInfo, query: string) => Promise<number[]>;
+
+  /**
+   * Optional: Logger for debugging.
+   */
+  logger?: {
+    debug: (message: string, context?: Record<string, unknown>) => void;
+    warn: (message: string, context?: Record<string, unknown>) => void;
+    error: (message: string, context?: Record<string, unknown>) => void;
+  };
+  /**
+   * Resolves embedding set metadata by ID.
+   * @throws Error with safe message on failure
+   */
+  resolveEmbeddingSet: (embeddingSetId: string) => Promise<EmbeddingSetInfo>;
+
+  /**
+   * Resolves file record information for a list of file record IDs.
+   */
+  resolveFileRecords: (fileRecordIds: string[]) => Promise<Map<string, FileRecordInfo>>;
 
   /**
    * Searches for similar chunks using the provided embedding.
@@ -140,32 +165,6 @@ export interface RetrievalToolDependencies {
       selectionSnapshotId?: string;
     }
   ) => Promise<ChunkSearchResultInput[]>;
-
-  /**
-   * Resolves file record information for a list of file record IDs.
-   */
-  resolveFileRecords: (fileRecordIds: string[]) => Promise<Map<string, FileRecordInfo>>;
-
-  /**
-   * Optional: Creates a selection snapshot for large file path lists.
-   * If not provided, large selections will be passed inline (may fail).
-   */
-  createSelectionSnapshot?: (filePaths: readonly string[]) => Promise<string>;
-
-  /**
-   * Optional: Token estimation function for context packing.
-   * Defaults to a heuristic estimate if not provided.
-   */
-  estimateTokens?: (text: string) => number;
-
-  /**
-   * Optional: Logger for debugging.
-   */
-  logger?: {
-    debug: (message: string, context?: Record<string, unknown>) => void;
-    warn: (message: string, context?: Record<string, unknown>) => void;
-    error: (message: string, context?: Record<string, unknown>) => void;
-  };
 }
 
 /**

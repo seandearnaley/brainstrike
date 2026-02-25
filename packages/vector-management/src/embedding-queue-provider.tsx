@@ -21,21 +21,21 @@ import {
 
 interface ProgressSnapshot {
   readonly id: string;
-  readonly progress: number;
   readonly phase: string;
+  readonly progress: number;
 }
 
 interface QueueMetrics {
   readonly active: number;
   readonly completed: number;
   readonly failed: number;
-  readonly totalEnqueued: number;
   readonly lastError: string | null;
-  readonly progress: Record<string, ProgressSnapshot>;
-  readonly throughputPerMinute: number;
   readonly latencyAvgMs: number | null;
   readonly latencyP50Ms: number | null;
   readonly latencyP95Ms: number | null;
+  readonly progress: Record<string, ProgressSnapshot>;
+  readonly throughputPerMinute: number;
+  readonly totalEnqueued: number;
   readonly windowErrorCount: number;
 }
 
@@ -173,8 +173,8 @@ const INITIAL_METRICS: QueueMetrics = {
 };
 
 interface EmbeddingQueueContextValue {
-  queue: QueueAdapter;
   metrics: QueueMetrics;
+  queue: QueueAdapter;
 }
 
 const EmbeddingQueueContext = createContext<EmbeddingQueueContextValue | null>(null);

@@ -1,14 +1,24 @@
 {
   "name": "@brainstrike/selection-rules",
+  "description": "Rule-based file selection schema and utilities for BrainStrike",
   "version": "0.1.0",
+  "dependencies": {
+    "minimatch": "^10.2.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "^9.5.1",
+    "@stryker-mutator/typescript-checker": "^9.5.1",
+    "@stryker-mutator/vitest-runner": "^9.5.1",
+    "@swc/core": "^1.15.13",
+    "@types/node": "^25.3.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
   "engines": {
     "node": ">=22"
   },
-  "description": "Rule-based file selection schema and utilities for BrainStrike",
-  "private": true,
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -16,35 +26,25 @@
       "require": "./dist/index.js"
     }
   },
+  "license": "ISC",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "private": true,
   "scripts": {
     "build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
-    "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "clean": "rm -rf dist .tsbuildinfo",
+    "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "lint": "pnpm run --dir=../.. lint",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run",
-    "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage",
-    "test:mutation": "stryker run"
+    "test:mutation": "stryker run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "dependencies": {
-    "minimatch": "^10.1.1",
-    "zod": "^4.3.5"
-  },
-  "devDependencies": {
-    "@stryker-mutator/core": "^9.4.0",
-    "@stryker-mutator/typescript-checker": "^9.4.0",
-    "@stryker-mutator/vitest-runner": "^9.4.0",
-    "@swc/core": "^1.15.8",
-    "@types/node": "^25.0.8",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
-  },
-  "license": "ISC",
   "turbo": {
     "outputs": [
       "dist/**"
     ]
-  }
+  },
+  "types": "./dist/index.d.ts"
 }

@@ -18,9 +18,9 @@ export interface EncodedChunk {
 }
 
 export interface StoredChunk {
-  sequence: number;
-  payload: Uint8Array;
   chunk: EncodedChunk;
+  payload: Uint8Array;
+  sequence: number;
 }
 
 const encoder = new TextEncoder();

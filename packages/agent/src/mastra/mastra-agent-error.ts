@@ -7,9 +7,9 @@ export type MastraAgentErrorCode =
   | 'mcp_tool_discovery_timeout';
 
 export interface MastraAgentErrorOptions {
-  readonly detail?: string;
   readonly cause?: unknown;
   readonly context?: Record<string, unknown>;
+  readonly detail?: string;
 }
 
 export class MastraAgentError extends Error {

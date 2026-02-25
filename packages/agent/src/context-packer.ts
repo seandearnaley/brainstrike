@@ -1,42 +1,42 @@
 import { countTokensHeuristic } from '@brainstrike/utils';
 
 interface OffsetRange {
-  start?: number;
   end?: number;
+  start?: number;
 }
 
 export interface ContextPackerChunk {
-  id: string;
-  content: string;
-  tokenCount?: number | null;
-  filePath?: string;
-  fileName?: string;
   chunkIndex?: number;
-  startOffset?: number;
+  content: string;
   endOffset?: number;
-  score?: number;
+  fileName?: string;
+  filePath?: string;
+  id: string;
   metadata?: Record<string, unknown>;
+  score?: number;
+  startOffset?: number;
+  tokenCount?: number | null;
 }
 
 export interface PackedContextChunk {
-  id: string;
-  content: string;
-  tokenCount: number;
-  filePath?: string;
-  fileName?: string;
   chunkIndex?: number;
-  offsets?: OffsetRange;
-  score?: number;
+  content: string;
+  fileName?: string;
+  filePath?: string;
+  id: string;
   metadata?: Record<string, unknown>;
+  offsets?: OffsetRange;
   rank: number;
+  score?: number;
+  tokenCount: number;
 }
 
 export interface ContextPackerResult {
-  chunks: readonly PackedContextChunk[];
-  totalTokens: number;
   budget: number;
+  chunks: readonly PackedContextChunk[];
   remainingTokens: number;
   skipped: number;
+  totalTokens: number;
 }
 
 /**
@@ -44,8 +44,8 @@ export interface ContextPackerResult {
  */
 export interface ContextPackerOptions {
   budgetTokens: number;
-  maxChunks?: number;
   estimateTokens?: (content: string) => number;
+  maxChunks?: number;
 }
 
 function normalizeTokenCount(value: number | null | undefined): number | undefined {

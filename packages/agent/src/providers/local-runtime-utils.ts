@@ -1,17 +1,17 @@
 export interface FetchJsonResult {
-  readonly response: Response;
-  readonly payload: unknown | undefined;
-  readonly parseError: Error | null;
   readonly latencyMs: number;
+  readonly parseError: Error | null;
+  readonly payload: unknown | undefined;
+  readonly response: Response;
 }
 
 export interface FetchJsonWithTimeoutOptions {
-  readonly fetchImpl: typeof fetch;
-  readonly timeoutMs: number;
-  readonly signal?: AbortSignal;
-  readonly method?: 'GET' | 'POST';
   readonly body?: string;
+  readonly fetchImpl: typeof fetch;
   readonly headers?: Record<string, string>;
+  readonly method?: 'GET' | 'POST';
+  readonly signal?: AbortSignal;
+  readonly timeoutMs: number;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

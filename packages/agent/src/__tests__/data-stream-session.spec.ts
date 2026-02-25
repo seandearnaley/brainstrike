@@ -715,6 +715,6 @@ describe('AssistantDataStreamSession', () => {
 });
 
 interface Usage {
-  promptTokens: number;
   completionTokens: number;
+  promptTokens: number;
 }

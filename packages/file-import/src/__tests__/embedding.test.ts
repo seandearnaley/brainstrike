@@ -5,10 +5,10 @@ import { initializeEmbeddingService, processChunkEmbedding, processEmbeddings } 
 import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 
 interface MockEmbeddingService {
+  generateDocEmbedding?: Mock<(text: string) => Promise<{ embedding: Float32Array }>>;
+  generateEmbedding: Mock<(text: string) => Promise<{ embedding: Float32Array }>>;
   getStatus: Mock<() => string>;
   initializeWithModel: Mock<(model: string) => Promise<void>>;
-  generateEmbedding: Mock<(text: string) => Promise<{ embedding: Float32Array }>>;
-  generateDocEmbedding?: Mock<(text: string) => Promise<{ embedding: Float32Array }>>;
 }
 
 interface MockChunkRepository {

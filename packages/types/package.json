@@ -1,14 +1,16 @@
 {
   "name": "@brainstrike/types",
+  "description": "Shared TypeScript types for Brainstrike monorepo",
   "version": "0.1.0",
+  "devDependencies": {
+    "@swc/core": "^1.15.13",
+    "@types/node": "^25.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
   "engines": {
     "node": ">=22"
   },
-  "description": "Shared TypeScript types for Brainstrike monorepo",
-  "private": true,
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -16,26 +18,24 @@
       "require": "./dist/index.js"
     }
   },
+  "license": "ISC",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "private": true,
   "scripts": {
     "build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
-    "dev": "tsup src/index.ts --format esm,cjs --out-dir dist && tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "clean": "rm -rf dist .tsbuildinfo",
+    "dev": "tsup src/index.ts --format esm,cjs --out-dir dist && tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "lint": "pnpm run --dir=../.. lint",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run",
+    "test:coverage": "pnpm -w test:coverage",
     "test:watch": "vitest",
-    "test:coverage": "pnpm -w test:coverage"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "devDependencies": {
-    "@swc/core": "^1.15.8",
-    "@types/node": "^25.0.8",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
-  },
-  "license": "ISC",
   "turbo": {
     "outputs": [
       "dist/**"
     ]
-  }
+  },
+  "types": "./dist/index.d.ts"
 }

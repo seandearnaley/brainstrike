@@ -4,10 +4,10 @@ import type { ResolvedTheme } from '../hooks/use-resolved-theme';
  * Color configuration for collection items.
  */
 export interface CollectionColorResult {
-  /** Primary color for the collection (border, accent, badge) */
-  primary: string;
   /** Background color (subtle tint for hover/selected states) */
   background: string;
+  /** Primary color for the collection (border, accent, badge) */
+  primary: string;
 }
 
 /**

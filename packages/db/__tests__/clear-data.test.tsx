@@ -16,11 +16,11 @@ type TransactionCallback = (tx: { query: QueryMock }) => Promise<unknown> | unkn
 type TransactionMock = Mock<[callback: TransactionCallback], Promise<unknown>>;
 
 interface MockDb {
-  query: QueryMock;
-  exec: Mock<[string], Promise<unknown>>;
   close: Mock<[], Promise<void>>;
-  transaction?: TransactionMock;
   closed?: boolean;
+  exec: Mock<[string], Promise<unknown>>;
+  query: QueryMock;
+  transaction?: TransactionMock;
 }
 
 function createMockDb(overrides: Partial<MockDb> = {}): MockDb {

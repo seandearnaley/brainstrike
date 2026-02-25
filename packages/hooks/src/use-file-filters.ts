@@ -10,8 +10,8 @@ import {
 } from './filter-engine';
 
 interface RegexCache extends PatternCache {
-  lastIncludePatterns: string[];
   lastExcludePatterns: string[];
+  lastIncludePatterns: string[];
   lastUseRegex: boolean;
 }
 

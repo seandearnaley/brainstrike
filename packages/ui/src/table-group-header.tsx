@@ -3,16 +3,16 @@ import { memo, type ReactNode, useCallback } from 'react';
 import { Checkbox } from './checkbox';
 
 interface TableGroupHeaderProps {
+  colSpan?: number;
   groupKey: string | number;
   groupLabel: string;
+  icon?: ReactNode;
   isCollapsed: boolean;
   isFullySelected: boolean;
   isPartiallySelected: boolean;
-  onToggleCollapse: () => void;
   onSelectionChange: (selected: boolean) => void;
-  icon?: ReactNode;
+  onToggleCollapse: () => void;
   stats?: ReactNode;
-  colSpan?: number;
 }
 
 export const TableGroupHeader = memo<TableGroupHeaderProps>(function TableGroupHeaderComponent({

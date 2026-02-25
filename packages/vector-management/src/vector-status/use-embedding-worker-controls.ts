@@ -3,22 +3,22 @@ import { startEmbeddingWorker } from '@brainstrike/embeddings';
 import { useCallback, useRef, useState } from 'react';
 
 export interface UseEmbeddingWorkerControlsParams {
+  activeEmbeddingSetId: string | null;
   db: EmbeddingWorkerOptions['db'] | null;
   devicePreference: 'webgpu' | 'wasm';
-  reinitEveryN: number;
-  activeEmbeddingSetId: string | null;
   onBackfill: () => Promise<void>;
+  reinitEveryN: number;
   toast: (options: { title: string; description?: string; variant?: 'destructive' }) => void;
 }
 
 export interface UseEmbeddingWorkerControlsResult {
-  workerLocalRunning: boolean;
-  startingWorker: boolean;
-  startWorkerError: string | null;
   clearWorkerError: () => void;
-  startWorker: () => Promise<void>;
-  stopWorker: () => Promise<void>;
   resetWorker: () => Promise<void>;
+  startingWorker: boolean;
+  startWorker: () => Promise<void>;
+  startWorkerError: string | null;
+  stopWorker: () => Promise<void>;
+  workerLocalRunning: boolean;
 }
 
 function dispatchQueueDrainedEvent(): void {

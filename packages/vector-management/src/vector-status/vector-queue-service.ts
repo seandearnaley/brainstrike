@@ -21,12 +21,12 @@ export interface CoverageSnapshot {
  * Used to track job queue activity and determine UI state (e.g., button disabled states).
  */
 export interface QueueCounts {
+  /** Number of jobs that encountered errors and failed */
+  failed: number;
   /** Number of jobs waiting to be processed */
   queued: number;
   /** Number of jobs currently being processed by workers */
   running: number;
-  /** Number of jobs that encountered errors and failed */
-  failed: number;
   /** Number of jobs that completed successfully */
   succeeded: number;
 }
@@ -50,14 +50,14 @@ export interface LatencyStats {
 export interface VectorQueueSnapshot {
   /** Coverage statistics for the active embedding set, null if no active set */
   coverage: CoverageSnapshot | null;
-  /** Current job counts across all queue states */
-  queueCounts: QueueCounts;
-  /** Jobs processed per minute (throughput rate) */
-  throughput: number;
   /** Most recent error message, null if no errors */
   lastError: string | null;
   /** Latency performance statistics */
   latency: LatencyStats;
+  /** Current job counts across all queue states */
+  queueCounts: QueueCounts;
+  /** Jobs processed per minute (throughput rate) */
+  throughput: number;
 }
 
 export interface VectorQueueDatabase {
@@ -65,9 +65,9 @@ export interface VectorQueueDatabase {
 }
 
 export interface VectorQueueServiceDependencies {
+  chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'>;
   db: VectorQueueDatabase;
   jobQueue: Pick<JobQueue, 'getQueueStats' | 'clear' | 'requeueFailed'>;
-  chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'>;
 }
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
@@ -75,8 +75,8 @@ export type BackfillProgressHandler = (done: number, total: number) => void;
 export const EMBEDDINGS_QUEUE = 'embeddings';
 
 interface EmbeddingSetJobMetadata {
-  modelKey: string;
   expectedDimension: number;
+  modelKey: string;
 }
 
 const logger = createLogger('VectorQueueService');
@@ -122,13 +122,8 @@ export interface ReembedResult {
 }
 
 export interface VectorQueueService {
-  refresh(activeSetId: string | null): Promise<VectorQueueSnapshot>;
-  /**
-   * Validates that the API key is available for the embedding set's model.
-   * Call this before backfill to prevent enqueueing jobs that will fail.
-   */
-  validateApiKeyForSet(embeddingSetId: string): Promise<ApiKeyValidation>;
   backfill(activeSetId: string, onProgress: BackfillProgressHandler): Promise<QueueCounts>;
+  clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
   /**
    * Re-embed workflow: clears existing embeddings and triggers backfill.
    * Use this when switching models or when embeddings need to be regenerated.
@@ -156,8 +151,13 @@ export interface VectorQueueService {
    * @returns Result with cleared count and final queue counts
    */
   reembedSet(embeddingSetId: string, onProgress: BackfillProgressHandler): Promise<ReembedResult>;
+  refresh(activeSetId: string | null): Promise<VectorQueueSnapshot>;
   retryFailed(limit: number): Promise<void>;
-  clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
+  /**
+   * Validates that the API key is available for the embedding set's model.
+   * Call this before backfill to prevent enqueueing jobs that will fail.
+   */
+  validateApiKeyForSet(embeddingSetId: string): Promise<ApiKeyValidation>;
   wipeQueue(): Promise<void>;
 }
 
@@ -363,9 +363,9 @@ export function createVectorQueueService(
 }
 
 interface BackfillCandidate {
-  id: string;
-  fileRecordId: string;
   contentHash: string;
+  fileRecordId: string;
+  id: string;
 }
 
 async function resolveEmbeddingSetJobMetadata(

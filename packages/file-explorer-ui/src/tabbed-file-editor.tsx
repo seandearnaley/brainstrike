@@ -19,29 +19,29 @@ import type { FileTab } from './hooks/use-tab-manager';
 import { useEditorViewStateStore } from './stores/editor-view-state-store';
 
 export interface TabStripAction {
+  enabled?: boolean;
+  icon?: React.ReactNode;
   id: string;
   label: string;
-  icon?: React.ReactNode;
-  shortcutHint?: string;
-  enabled?: boolean;
-  visible?: boolean;
   onSelect: () => void;
+  shortcutHint?: string;
+  visible?: boolean;
 }
 
 interface TabbedFileEditorProps {
-  tabs: FileTab[];
   activeTabId: string | null;
-  fileContents: { [compositeKey: string]: string };
-  loadingFiles: Set<string>;
-  onTabClick: (tabId: string) => void;
-  onTabClose: (tabId: string) => void;
-  onLoadFileContent: (compositeKey: string) => void;
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
-  tabStripActions?: TabStripAction[];
-  /** BST-307: Map of composite key to restoration status for persisted tabs */
-  tabStatuses?: Map<string, TabFileStatus>;
+  fileContents: { [compositeKey: string]: string };
   /** BST-307: Get status message for a tab (used for tooltips) */
   getTabStatusMessage?: (compositeKey: string) => string | null;
+  loadingFiles: Set<string>;
+  onLoadFileContent: (compositeKey: string) => void;
+  onTabClick: (tabId: string) => void;
+  onTabClose: (tabId: string) => void;
+  /** BST-307: Map of composite key to restoration status for persisted tabs */
+  tabStatuses?: Map<string, TabFileStatus>;
+  tabStripActions?: TabStripAction[];
+  tabs: FileTab[];
 }
 
 /** Get the appropriate icon for a tab based on its status */
@@ -63,17 +63,17 @@ function getTabIcon(isLoading: boolean, tabStatus: TabFileStatus | undefined): R
 }
 
 interface TabContentNodeProps {
-  isLoading: boolean;
   content: string | undefined;
+  handleContentScroll: (compositeKey: string, e: React.UIEvent<HTMLPreElement>) => void;
   isActive: boolean;
-  tab: FileTab;
-  path: string;
-  text: string | undefined;
-  truncated: boolean;
+  isLoading: boolean;
   /** Callback with the pre element when active, null when inactive */
   onActiveElement: (el: HTMLPreElement | null) => void;
-  handleContentScroll: (compositeKey: string, e: React.UIEvent<HTMLPreElement>) => void;
+  path: string;
+  tab: FileTab;
   tabStatus: TabFileStatus | undefined;
+  text: string | undefined;
+  truncated: boolean;
 }
 
 function TabContentNode({

@@ -78,30 +78,30 @@ export type TabRestoreStatus =
 
 /** Information about a tab being restored */
 export interface TabRestoreInfo {
-  /** Tab ID (unique per session) */
-  tabId: string;
   /** Composite key encoding folderId and path */
   compositeKey: string;
-  /** File path relative to root folder */
-  path: string;
-  /** Root folder ID this file belongs to */
-  folderId: string;
-  /** Current restoration status */
-  status: TabRestoreStatus;
-  /** The file handle if restored, null otherwise */
-  handle: FileSystemFileHandle | null;
   /** Error message if restoration failed */
   error?: string;
+  /** Root folder ID this file belongs to */
+  folderId: string;
+  /** The file handle if restored, null otherwise */
+  handle: FileSystemFileHandle | null;
+  /** File path relative to root folder */
+  path: string;
+  /** Current restoration status */
+  status: TabRestoreStatus;
+  /** Tab ID (unique per session) */
+  tabId: string;
 }
 
 /** Result of attempting to restore all tabs */
 export interface TabRestoreResult {
-  /** Tabs that were successfully restored */
-  restored: TabRestoreInfo[];
   /** Tabs that need user permission */
   needsPermission: TabRestoreInfo[];
   /** Tabs whose files were not found */
   notFound: TabRestoreInfo[];
+  /** Tabs that were successfully restored */
+  restored: TabRestoreInfo[];
 }
 
 /** Interface for the file handle cache (matches WebHandleCache) */

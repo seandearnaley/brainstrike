@@ -13,8 +13,8 @@ import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explo
 import { useFileSystem } from '../use-file-system-context';
 
 interface ExposedHooks {
-  store: ReturnType<typeof useFileExplorerStoreContext>;
   fs: ReturnType<typeof useFileSystem>;
+  store: ReturnType<typeof useFileExplorerStoreContext>;
 }
 
 function HookExposer({ onReady }: { onReady: (hooks: ExposedHooks) => void }) {

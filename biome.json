@@ -81,8 +81,7 @@
         "noFloatingPromises": "error",
         "noLeakedRender": "off",
         "noShadow": "off",
-        "noIncrementDecrement": "off",
-        "useMaxParams": "off"
+        "noIncrementDecrement": "off"
       }
     }
   },
@@ -170,7 +169,8 @@
           },
           "suspicious": {
             "noExplicitAny": "off",
-            "noConsole": "off"
+            "noConsole": "off",
+            "noSkippedTests": "off"
           }
         }
       }

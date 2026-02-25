@@ -27,11 +27,11 @@ type EmbeddingSetWithStats = EmbeddingSet & {
 };
 
 interface ManageEmbeddingSetsDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   db: PGlite | null;
-  repository: IEmbeddingSetsRepository | null;
+  onOpenChange: (open: boolean) => void;
   onSetSelected?: (setId: string) => void;
+  open: boolean;
+  repository: IEmbeddingSetsRepository | null;
 }
 
 // Helper function to map database row to EmbeddingSetWithStats
@@ -105,12 +105,12 @@ function dbModelToPickerModel(dbModel: DbModel): ModelPickerModel {
 const logger = createLogger('ManageEmbeddingSetsDialog');
 
 interface DialogState {
-  sets: EmbeddingSetWithStats[];
-  loading: boolean;
   createDialogOpen: boolean;
-  renameDialogOpen: boolean;
   deleteDialogOpen: boolean;
+  loading: boolean;
+  renameDialogOpen: boolean;
   selectedSet: EmbeddingSetWithStats | null;
+  sets: EmbeddingSetWithStats[];
 }
 
 type DialogAction =

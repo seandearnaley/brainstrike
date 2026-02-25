@@ -109,11 +109,11 @@ test.describe('File Explorer', () => {
 
   test.describe('filtering', () => {
     interface FilterScenario {
-      title: string;
-      query: string;
-      expectedVisible: string[];
-      expectedHidden: string[];
       before?: (ctx: { page: Page; explorer: FileExplorerPage }) => Promise<void>;
+      expectedHidden: string[];
+      expectedVisible: string[];
+      query: string;
+      title: string;
     }
 
     const tree: FileTree = {
@@ -210,10 +210,10 @@ test.describe('File Explorer', () => {
 
   test.describe('settings persistence', () => {
     interface SettingsScenario {
-      name: string;
-      tree: FileTree;
-      options?: Partial<ExplorerBootstrapOptions>;
       execute: (ctx: { page: Page; explorer: FileExplorerPage }) => Promise<void>;
+      name: string;
+      options?: Partial<ExplorerBootstrapOptions>;
+      tree: FileTree;
     }
 
     const settingsScenarios: SettingsScenario[] = [

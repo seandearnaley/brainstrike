@@ -5,9 +5,9 @@ import * as React from 'react';
 type ExtensionBadgeSize = 'default' | 'compact';
 
 interface ExtensionBadgeProps {
+  className?: string;
   extension: string;
   size?: ExtensionBadgeSize;
-  className?: string;
 }
 
 const sizeStyles: Record<ExtensionBadgeSize, { badge: string; label: string }> = {

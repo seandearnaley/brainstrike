@@ -9,11 +9,11 @@ import type { FileExplorerState, SelectionMode } from '@brainstrike/types';
 import type { GetState, SetState } from '../types/store-types';
 
 export interface SelectionModelActions {
-  setSelectionMode: (mode: SelectionMode) => void;
-  setSelectionRules: (ruleSetJson: string) => void;
   clearSelectionRules: () => void;
   commitRulesToExplicit: () => void;
   setMaterializedPaths: (paths: Set<string>) => void;
+  setSelectionMode: (mode: SelectionMode) => void;
+  setSelectionRules: (ruleSetJson: string) => void;
 }
 
 export const createSelectionModelActions = (

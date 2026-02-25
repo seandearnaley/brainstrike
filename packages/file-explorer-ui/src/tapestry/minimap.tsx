@@ -8,6 +8,12 @@ import { getTapestryRenderMetrics } from './utils';
 
 interface MinimapProps {
   file: FileTapestry;
+  getGlobalIndex: (rangeId: string) => number;
+  isSelected: boolean;
+  onMoveRange?: (fileId: string, rangeId: string, newStartLine: number, newEndLine: number) => void;
+  onRequestFileContent?: (compositeKey: string) => void;
+  onToggleRange: (fileId: string, rangeId: string) => void;
+  onToggleSelection: (compositeKey: string, checked: boolean) => void;
   scale: number;
   smartStart: (
     mode: InteractionMode,
@@ -17,21 +23,15 @@ interface MinimapProps {
     initialRange?: TapestryRange,
     clickedLine?: number
   ) => void;
-  onToggleRange: (fileId: string, rangeId: string) => void;
-  onMoveRange?: (fileId: string, rangeId: string, newStartLine: number, newEndLine: number) => void;
-  getGlobalIndex: (rangeId: string) => number;
-  isSelected: boolean;
-  onToggleSelection: (compositeKey: string, checked: boolean) => void;
-  onRequestFileContent?: (compositeKey: string) => void;
 }
 
 type RangeKeyAction = { type: 'noop' } | { type: 'toggle' } | { type: 'move'; startLine: number };
 
 interface PreviewState {
-  previewStartLine: number;
-  previewLines: string[];
-  remainingLines: number;
   hasPreviewLines: boolean;
+  previewLines: string[];
+  previewStartLine: number;
+  remainingLines: number;
   showLoadingState: boolean;
   showRemainingLines: boolean;
 }

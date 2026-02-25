@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 
 export interface PageWrapperProps {
-  title: string;
-  description?: string;
   children: ReactNode;
   className?: string;
+  description?: string;
+  title: string;
 }
 
 export function PageWrapper({ title, description, children, className = '' }: PageWrapperProps) {

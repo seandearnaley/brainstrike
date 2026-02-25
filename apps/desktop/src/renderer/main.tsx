@@ -146,9 +146,9 @@ if (rendererTelemetrySink) {
 declare global {
   interface Window {
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
-    __BRAINSTRIKE_READY__?: boolean;
-    // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_DESKTOP_REACT_ROOT__?: ReactRoot;
+    // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
+    __BRAINSTRIKE_READY__?: boolean;
   }
 }
 

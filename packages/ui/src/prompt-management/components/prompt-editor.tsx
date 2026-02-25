@@ -16,23 +16,23 @@ const DEFAULT_AVAILABLE_MODELS: ModelPickerModel[] = [];
 const DEFAULT_PROVIDERS: ModelPickerProvider[] = [];
 
 interface PromptEditorProps {
+  availableModels?: ModelPickerModel[];
+  categories: Category[];
   isOpen: boolean;
   onClose: () => void;
-  prompt?: Prompt | null;
-  categories: Category[];
-  availableModels?: ModelPickerModel[];
-  providers?: ModelPickerProvider[];
   onSave: (promptData: Partial<Prompt>) => void;
+  prompt?: Prompt | null;
+  providers?: ModelPickerProvider[];
 }
 
 interface FormState {
-  title: string;
-  content: string;
   categoryId: string;
-  tags: string[];
-  tagInput: string;
+  content: string;
   model: string;
+  tagInput: string;
+  tags: string[];
   temperature: number;
+  title: string;
 }
 
 type FormAction =

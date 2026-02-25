@@ -35,10 +35,10 @@ export type ViewFilterPresetIcon =
  * Icon metadata for display in the icon picker.
  */
 export interface IconOption {
-  /** Lucide icon name */
-  name: ViewFilterPresetIcon;
   /** Human-readable label */
   label: string;
+  /** Lucide icon name */
+  name: ViewFilterPresetIcon;
 }
 
 /**
@@ -66,39 +66,39 @@ export const PRESET_ICON_OPTIONS: readonly IconOption[] = [
  * This replaces the previous separate includeFilters/excludeFilters/useRegex fields.
  */
 export interface ViewFilterPreset {
-  /** Unique identifier */
-  id: string;
-  /** Display name */
-  name: string;
-  /** Optional description */
-  description: string | null;
-  /** Lucide icon name */
-  icon: ViewFilterPresetIcon;
-  /** Include patterns (glob or regex based on useRegex) */
-  includes: string[];
-  /** Exclude patterns (glob or regex based on useRegex) */
-  excludes: string[];
-  /** Whether patterns are regex (true) or glob (false) */
-  useRegex: boolean;
-  /** Whether this is a built-in default preset (cannot be deleted) */
-  isDefault: boolean;
-  /** Sort order for display */
-  sortOrder: number;
   /** Creation timestamp */
   createdAt: Date;
+  /** Optional description */
+  description: string | null;
+  /** Exclude patterns (glob or regex based on useRegex) */
+  excludes: string[];
+  /** Lucide icon name */
+  icon: ViewFilterPresetIcon;
+  /** Unique identifier */
+  id: string;
+  /** Include patterns (glob or regex based on useRegex) */
+  includes: string[];
+  /** Whether this is a built-in default preset (cannot be deleted) */
+  isDefault: boolean;
+  /** Display name */
+  name: string;
+  /** Sort order for display */
+  sortOrder: number;
   /** Last update timestamp */
   updatedAt: Date;
+  /** Whether patterns are regex (true) or glob (false) */
+  useRegex: boolean;
 }
 
 /**
  * Data required to create a new preset.
  */
 export interface CreateViewFilterPresetInput {
-  name: string;
   description?: string;
+  excludes: string[];
   icon?: ViewFilterPresetIcon;
   includes: string[];
-  excludes: string[];
+  name: string;
   useRegex?: boolean;
 }
 
@@ -106,13 +106,13 @@ export interface CreateViewFilterPresetInput {
  * Data for updating an existing preset.
  */
 export interface UpdateViewFilterPresetInput {
-  name?: string;
   description?: string | null;
+  excludes?: string[];
   icon?: ViewFilterPresetIcon;
   includes?: string[];
-  excludes?: string[];
-  useRegex?: boolean;
+  name?: string;
   sortOrder?: number;
+  useRegex?: boolean;
 }
 
 // ============================================================================

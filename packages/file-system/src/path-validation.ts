@@ -29,13 +29,13 @@ export type PathValidationResult =
   | { ok: false; error: PathValidationError };
 
 export interface PathValidationOptions {
-  rootDir?: string;
-  requestedPath: unknown;
-  fallbackPath?: string;
   allowMissing?: boolean;
-  maxTraversal?: number;
   blockSensitiveDirectories?: boolean;
+  fallbackPath?: string;
+  maxTraversal?: number;
   platform?: NodeJS.Platform;
+  requestedPath: unknown;
+  rootDir?: string;
 }
 
 export function expandHome(p: string): string {

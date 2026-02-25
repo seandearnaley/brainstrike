@@ -45,12 +45,12 @@ const DEFAULT_GROUP: GroupedData<TableRowData> = {
 interface PreviewTableTestOverrides {
   collapsedGroups?: Set<string>;
   groupedData?: GroupedData<TableRowData>[];
-  pagination?: { startIndex: number; endIndex: number };
-  previewSelections?: Set<string>;
+  handleGroupDeselectAll?: (group: GroupedData<TableRowData>) => void;
+  handleGroupSelectAll?: (group: GroupedData<TableRowData>) => void;
   isGroupFullySelected?: (group: GroupedData<TableRowData>) => boolean;
   isGroupPartiallySelected?: (group: GroupedData<TableRowData>) => boolean;
-  handleGroupSelectAll?: (group: GroupedData<TableRowData>) => void;
-  handleGroupDeselectAll?: (group: GroupedData<TableRowData>) => void;
+  pagination?: { startIndex: number; endIndex: number };
+  previewSelections?: Set<string>;
   toggleGroupCollapse?: (groupKey: string | number) => void;
 }
 

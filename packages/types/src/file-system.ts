@@ -22,19 +22,15 @@ export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
  * Represents a file or directory in the file system
  */
 export interface IFileNode {
-  name: string;
-  path: string;
-  type: FileNodeType;
-  handle: FileSystemFileHandle | FileSystemDirectoryHandle;
-  depth: number;
-  selectionState: SelectionState;
   children?: IFileNode[];
-  isVisible?: boolean;
-  rootFolderId: string;
-  size?: number;
-  lastModified?: number;
-  isSymbolicLink?: boolean;
+  depth: number;
+  handle: FileSystemFileHandle | FileSystemDirectoryHandle;
   isDepthTruncated?: boolean;
+  isSymbolicLink?: boolean;
+  isVisible?: boolean;
+  lastModified?: number;
+  /** Error message when loadState is 'error' */
+  loadError?: string;
   /**
    * Loading state for directories (lazy loading).
    * - undefined: Not applicable (files) or legacy nodes
@@ -44,16 +40,20 @@ export interface IFileNode {
    * - 'error': Failed to load children
    */
   loadState?: DirectoryLoadState;
-  /** Error message when loadState is 'error' */
-  loadError?: string;
+  name: string;
+  path: string;
+  rootFolderId: string;
+  selectionState: SelectionState;
+  size?: number;
+  type: FileNodeType;
 }
 
 /**
  * Options for file filtering
  */
 export interface FileFilterOptions {
-  includeFilters: string[];
   excludeFilters: string[];
+  includeFilters: string[];
   useRegex: boolean;
 }
 
@@ -61,9 +61,9 @@ export interface FileFilterOptions {
  * Result of a file tree operation
  */
 export interface FileTreeResult {
-  nodes: IFileNode[];
-  isComplete: boolean;
   error?: Error;
+  isComplete: boolean;
+  nodes: IFileNode[];
 }
 
 /**
@@ -72,30 +72,30 @@ export interface FileTreeResult {
 export interface DepthProgress {
   /** Deepest depth currently being processed */
   currentDepth: number;
-  /** Maximum depth encountered so far */
-  maxDepthSeen: number;
-  /** Estimated total depth (starts at 5, adjusts dynamically) */
-  estimatedMaxDepth: number;
   /** Number of directories fully processed */
   directoriesCompleted: number;
   /** Number of directories still in queue */
   directoriesRemaining: number;
+  /** Estimated total depth (starts at 5, adjusts dynamically) */
+  estimatedMaxDepth: number;
   /** Total files discovered so far */
   filesFound: number;
+  /** Maximum depth encountered so far */
+  maxDepthSeen: number;
 }
 
 /**
  * Metadata emitted with each streaming tree snapshot
  */
 export interface StreamMeta {
-  /** Whether this is the final snapshot (tree complete) */
-  isComplete: boolean;
   /** Current depth-based progress */
   depthProgress: DepthProgress;
-  /** Total nodes (files + directories) discovered */
-  totalNodesDiscovered: number;
   /** Milliseconds elapsed since loading started */
   elapsedMs: number;
+  /** Whether this is the final snapshot (tree complete) */
+  isComplete: boolean;
+  /** Total nodes (files + directories) discovered */
+  totalNodesDiscovered: number;
 }
 
 /**
@@ -116,21 +116,21 @@ declare global {
 
 // Cross-package compatible handle types used by stores and UI
 export interface DirectoryHandle {
-  path: string;
-  name: string;
-  kind: 'directory';
-  platform: 'web' | 'electron';
   _internal?: unknown;
+  kind: 'directory';
+  name: string;
+  path: string;
+  platform: 'web' | 'electron';
 }
 
 export interface FileHandle {
-  path: string;
-  name: string;
+  _internal?: unknown;
   kind: 'file';
-  size?: number;
+  name: string;
+  path: string;
   platform: 'web' | 'electron';
   rootFolderId?: string;
-  _internal?: unknown;
+  size?: number;
 }
 
 /**
@@ -138,15 +138,15 @@ export interface FileHandle {
  */
 export interface DirectoryReadOptions {
   /**
-   * When false, adapters may skip expensive metadata calls (size/lastModified).
-   * Defaults to true for backward compatibility.
-   */
-  includeMetadata?: boolean;
-  /**
    * Maximum number of concurrent metadata operations (fs.stat/getFile, etc.).
    * Values <= 0 or non-finite are treated as "unlimited".
    */
   concurrency?: number;
+  /**
+   * When false, adapters may skip expensive metadata calls (size/lastModified).
+   * Defaults to true for backward compatibility.
+   */
+  includeMetadata?: boolean;
 }
 
 /**
@@ -179,38 +179,19 @@ export type DirectoryStreamCallback = (
 ) => void;
 
 export interface FileSystemChange {
-  type: 'added' | 'removed' | 'modified';
-  path: string;
   kind: 'file' | 'directory';
+  path: string;
+  type: 'added' | 'removed' | 'modified';
 }
 
 /**
  * Platform-agnostic adapter contract implemented by web/electron shims.
  */
 export interface FileSystemAdapter {
+  exists(path: string): Promise<boolean>;
   /** Platform identifier for this adapter */
   readonly platform?: 'web' | 'electron';
-  requestDirectoryAccess(): Promise<DirectoryHandle>;
   readDirectory(handle: DirectoryHandle, options?: DirectoryReadOptions): Promise<IFileNode[]>;
-  readFile(handle: FileHandle): Promise<string>;
-  /**
-   * Read a file directly by its absolute path.
-   *
-   * This method is available on platforms with direct file system access (Electron)
-   * and allows reading files without needing a handle from the file tree.
-   * Useful for restoring persisted file tabs before the tree is loaded.
-   *
-   * @param absolutePath - The absolute path to the file
-   * @returns The file contents as a string
-   * @throws Error if the file doesn't exist or cannot be read
-   */
-  readFileByPath?(absolutePath: string): Promise<string>;
-  exists(path: string): Promise<boolean>;
-  watchDirectory?(
-    handle: DirectoryHandle,
-    callback: (changes: FileSystemChange[]) => void
-  ): () => void;
-  restoreLastFolder?(): Promise<DirectoryHandle | null>;
   /**
    * Stream directory contents with batched callbacks (BST-147).
    *
@@ -240,4 +221,23 @@ export interface FileSystemAdapter {
     onBatch: DirectoryStreamCallback,
     options?: StreamingDirectoryReadOptions
   ): Promise<void>;
+  readFile(handle: FileHandle): Promise<string>;
+  /**
+   * Read a file directly by its absolute path.
+   *
+   * This method is available on platforms with direct file system access (Electron)
+   * and allows reading files without needing a handle from the file tree.
+   * Useful for restoring persisted file tabs before the tree is loaded.
+   *
+   * @param absolutePath - The absolute path to the file
+   * @returns The file contents as a string
+   * @throws Error if the file doesn't exist or cannot be read
+   */
+  readFileByPath?(absolutePath: string): Promise<string>;
+  requestDirectoryAccess(): Promise<DirectoryHandle>;
+  restoreLastFolder?(): Promise<DirectoryHandle | null>;
+  watchDirectory?(
+    handle: DirectoryHandle,
+    callback: (changes: FileSystemChange[]) => void
+  ): () => void;
 }

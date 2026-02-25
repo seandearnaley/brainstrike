@@ -9,31 +9,31 @@ import * as React from 'react';
 import type { FlattenedRow, SortState, TreeNode, UseTreeKeyboardResult } from './types';
 
 interface UseTreeTableHandlersOptions<T> {
-  rows: FlattenedRow<T>[];
-  rowIndexById: Map<string, number>;
-  nodeById: Map<string, TreeNode<T>>;
   keyboard: UseTreeKeyboardResult;
-  selectionMode: 'single' | 'multi' | 'none';
-  selectedId: string | null;
   multiSelectedIds: Set<string>;
-  rowClassName?: string | ((node: TreeNode<T>) => string) | undefined;
-  sortState?: SortState | undefined;
-  onSelect?: ((id: string | null) => void) | undefined;
+  nodeById: Map<string, TreeNode<T>>;
   onMultiSelectChange?: ((ids: Set<string>) => void) | undefined;
-  onSortChange?: ((columnId: string, direction: 'asc' | 'desc' | null) => void) | undefined;
-  onRowDoubleClick?: ((nodeId: string, node: TreeNode<T>) => void) | undefined;
   onRowContextMenu?:
     | ((nodeId: string, node: TreeNode<T>, event: React.MouseEvent) => void)
     | undefined;
+  onRowDoubleClick?: ((nodeId: string, node: TreeNode<T>) => void) | undefined;
+  onSelect?: ((id: string | null) => void) | undefined;
+  onSortChange?: ((columnId: string, direction: 'asc' | 'desc' | null) => void) | undefined;
+  rowClassName?: string | ((node: TreeNode<T>) => string) | undefined;
+  rowIndexById: Map<string, number>;
+  rows: FlattenedRow<T>[];
   rowVirtualizer: { measureElement: (el: HTMLTableRowElement | null) => void };
+  selectedId: string | null;
+  selectionMode: 'single' | 'multi' | 'none';
+  sortState?: SortState | undefined;
 }
 
 export interface UseTreeTableHandlersResult<T> {
-  handleRowClick: (nodeId: string, event: React.MouseEvent) => void;
-  handleRowDoubleClick: (nodeId: string) => void;
-  handleRowContextMenu: (nodeId: string, event: React.MouseEvent) => void;
-  handleSortClick: (columnId: string) => void;
   getRowClassName: (node: TreeNode<T>) => string;
+  handleRowClick: (nodeId: string, event: React.MouseEvent) => void;
+  handleRowContextMenu: (nodeId: string, event: React.MouseEvent) => void;
+  handleRowDoubleClick: (nodeId: string) => void;
+  handleSortClick: (columnId: string) => void;
   measureRow: (element: HTMLTableRowElement | null) => void;
 }
 

@@ -2,12 +2,12 @@ import { ArrowDown, ArrowUp } from 'lucide-react';
 import { memo } from 'react';
 
 interface SortableTableHeaderProps<T> {
-  field: T;
-  title: string;
-  sortField?: T;
-  sortDirection?: 'asc' | 'desc';
-  onSort: (field: T) => void;
   className?: string;
+  field: T;
+  onSort: (field: T) => void;
+  sortDirection?: 'asc' | 'desc';
+  sortField?: T;
+  title: string;
 }
 
 function SortableTableHeaderComponent<T extends string | number | symbol>({

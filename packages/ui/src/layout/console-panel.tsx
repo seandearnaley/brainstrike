@@ -4,11 +4,11 @@ import { Panel, type PanelImperativeHandle, Separator } from 'react-resizable-pa
 import { Button } from '../button';
 
 interface ConsolePanelProps {
-  panelRef: React.RefObject<PanelImperativeHandle | null>;
   content: React.ReactNode;
+  defaultSize: number | string;
   hideButtonRef: React.RefObject<HTMLButtonElement | null>;
   onHide: () => void;
-  defaultSize: number | string;
+  panelRef: React.RefObject<PanelImperativeHandle | null>;
 }
 
 export function ConsolePanel({

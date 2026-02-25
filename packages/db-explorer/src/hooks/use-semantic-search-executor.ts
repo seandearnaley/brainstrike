@@ -42,8 +42,8 @@ const DEFAULT_VECTOR_WEIGHT = 1.0;
 const DEFAULT_FTS_WEIGHT = 1.0;
 
 interface SearchEmbedder {
-  embedQuery: (text: string) => Promise<{ embedding: number[] }>;
   dispose?: () => Promise<void> | void;
+  embedQuery: (text: string) => Promise<{ embedding: number[] }>;
 }
 
 type EmbedderError =

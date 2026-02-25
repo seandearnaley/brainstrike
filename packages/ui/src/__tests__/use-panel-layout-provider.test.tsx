@@ -10,27 +10,27 @@ vi.mock('react-resizable-panels', () => {
   const { useImperativeHandle } = React;
 
   interface GroupProps {
-    orientation?: string;
-    onLayoutChanged?: (layout: { [id: string]: number }) => void;
     children?: React.ReactNode;
+    onLayoutChanged?: (layout: { [id: string]: number }) => void;
+    orientation?: string;
   }
 
   const Group = ({ children }: GroupProps) => <div data-testid="panel-group">{children}</div>;
 
   interface MockImperativeHandle {
-    isCollapsed: () => boolean;
-    expand: () => void;
     collapse: () => void;
+    expand: () => void;
+    isCollapsed: () => boolean;
   }
 
   interface PanelProps extends React.HTMLAttributes<HTMLDivElement> {
     children?: React.ReactNode;
-    panelRef?: React.RefObject<MockImperativeHandle | null>;
-    defaultSize?: number;
-    minSize?: number;
-    maxSize?: number;
-    collapsible?: boolean;
     collapsedSize?: number;
+    collapsible?: boolean;
+    defaultSize?: number;
+    maxSize?: number;
+    minSize?: number;
+    panelRef?: React.RefObject<MockImperativeHandle | null>;
   }
 
   const Panel = ({ children, panelRef, ...props }: PanelProps) => {

@@ -6,9 +6,9 @@ import { encodeFileSelection } from '@brainstrike/utils';
  * Used when running in Electron environment where files are accessed by path.
  */
 export interface ElectronFileHandle {
-  path: string;
-  name: string;
   kind: 'file';
+  name: string;
+  path: string;
   platform: 'electron';
 }
 
@@ -17,14 +17,14 @@ export interface ElectronFileHandle {
  * Supports both Web File System Access API handles and Electron path-based handles.
  */
 export interface HandleInfo {
-  /** Web File System Access API handle (browser environment) */
-  webHandle?: FileSystemFileHandle;
   /** Electron path-based handle (desktop environment) */
   electronHandle?: ElectronFileHandle;
   /** File name for binary detection and display */
   fileName: string;
   /** File size in bytes (if known) for large file filtering */
   fileSize: number | undefined;
+  /** Web File System Access API handle (browser environment) */
+  webHandle?: FileSystemFileHandle;
 }
 
 /**
@@ -32,12 +32,12 @@ export interface HandleInfo {
  * Provides O(1) access to tree metrics without traversal.
  */
 export interface FileTreeIndexStats {
-  /** Total number of nodes (files + directories) in the index */
-  totalNodes: number;
-  /** Total number of file nodes */
-  totalFiles: number;
   /** Total number of directory nodes */
   totalDirectories: number;
+  /** Total number of file nodes */
+  totalFiles: number;
+  /** Total number of nodes (files + directories) in the index */
+  totalNodes: number;
 }
 
 /**

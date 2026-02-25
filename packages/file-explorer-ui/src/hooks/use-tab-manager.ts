@@ -3,15 +3,15 @@ import { type FileTabState, useTabManagerStore } from '../stores/tab-manager-sto
 export type FileTab = FileTabState;
 
 export interface UseTabManagerReturn {
-  tabs: FileTab[];
   activeTabId: string | null;
-  openTab: (path: string, tabId: string, compositeKey: string) => void;
-  closeTab: (tabId: string) => void;
-  setActiveTab: (tabId: string) => void;
-  updateTabContent: (tabId: string, content: string) => void;
-  setTabLoading: (tabId: string, isLoading: boolean) => void;
-  setTabError: (tabId: string, error: string) => void;
   clearTabs: () => void;
+  closeTab: (tabId: string) => void;
+  openTab: (path: string, tabId: string, compositeKey: string) => void;
+  setActiveTab: (tabId: string) => void;
+  setTabError: (tabId: string, error: string) => void;
+  setTabLoading: (tabId: string, isLoading: boolean) => void;
+  tabs: FileTab[];
+  updateTabContent: (tabId: string, content: string) => void;
 }
 
 export function useTabManager(): UseTabManagerReturn {

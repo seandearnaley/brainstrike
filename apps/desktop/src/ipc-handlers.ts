@@ -34,10 +34,10 @@ interface RegisterIpcHandlerOptions {
 }
 
 interface LiveSubscriptionRecord {
-  id: number;
-  mode: 'query' | 'incremental';
   handle: LiveQuery<unknown>;
+  id: number;
   listener: (results: LiveQueryResults<unknown>) => void;
+  mode: 'query' | 'incremental';
   webContentsId: number;
 }
 
@@ -164,12 +164,12 @@ function isMissingRelationError(error: unknown): boolean {
 }
 
 interface LiveQueryPayload {
-  query: string;
-  params?: readonly unknown[];
   key?: string;
+  limit?: number;
   mode?: 'query' | 'incremental';
   offset?: number;
-  limit?: number;
+  params?: readonly unknown[];
+  query: string;
 }
 
 /**

@@ -34,50 +34,50 @@ export const SAFE_EMBEDDING_SETS_ERRORS = new Set<string>(
  * Embedding set information returned by list operation.
  */
 export interface EmbeddingSetInfo {
-  /** Unique identifier */
-  id: string;
-  /** Model key (provider::model format) */
-  modelKey: string;
-  /** Model identifier */
-  modelId: string;
-  /** Vector dimensions */
-  dimensions: number;
-  /** Distance metric */
-  distance: string;
-  /** Human-readable name */
-  name?: string;
-  /** Description */
-  description?: string;
-  /** Tags for categorization */
-  tags?: string;
   /** Category */
   category?: string;
   /** Creation timestamp */
   createdAt: string;
+  /** Description */
+  description?: string;
+  /** Vector dimensions */
+  dimensions: number;
+  /** Distance metric */
+  distance: string;
+  /** Unique identifier */
+  id: string;
+  /** Model identifier */
+  modelId: string;
+  /** Model key (provider::model format) */
+  modelKey: string;
+  /** Human-readable name */
+  name?: string;
+  /** Tags for categorization */
+  tags?: string;
 }
 
 /**
  * Coverage statistics for an embedding set.
  */
 export interface EmbeddingSetCoverage {
-  /** Total chunks in the set */
-  totalChunks: number;
-  /** Chunks with embeddings */
-  embeddedChunks: number;
   /** Coverage percentage (0-100) */
   coveragePercent: number;
+  /** Chunks with embeddings */
+  embeddedChunks: number;
+  /** Total chunks in the set */
+  totalChunks: number;
 }
 
 /**
  * Result returned by the list embedding sets tool.
  */
 export interface ListEmbeddingSetsToolResult {
-  /** List of embedding sets */
-  sets: EmbeddingSetInfo[];
   /** Total count */
   count: number;
   /** Coverage stats per set (if includeStats was true) */
   coverageStats?: Record<string, EmbeddingSetCoverage>;
+  /** List of embedding sets */
+  sets: EmbeddingSetInfo[];
 }
 
 /**
@@ -86,10 +86,10 @@ export interface ListEmbeddingSetsToolResult {
 export interface CreateEmbeddingSetToolResult {
   /** Whether the set was created (false if already existed) */
   created: boolean;
-  /** The created or existing embedding set */
-  set: EmbeddingSetInfo;
   /** Human-readable message */
   message: string;
+  /** The created or existing embedding set */
+  set: EmbeddingSetInfo;
 }
 
 /**
@@ -97,11 +97,6 @@ export interface CreateEmbeddingSetToolResult {
  * Platform-specific implementations provide these callbacks.
  */
 export interface EmbeddingSetsToolDependencies {
-  /**
-   * Lists all embedding sets.
-   */
-  listSets: () => Promise<EmbeddingSetInfo[]>;
-
   /**
    * Creates a new embedding set.
    * @param modelKey - Model key (provider::model format)
@@ -120,6 +115,10 @@ export interface EmbeddingSetsToolDependencies {
    * Returns a map of setId -> coverage stats.
    */
   getCoverageStats?: () => Promise<Record<string, EmbeddingSetCoverage>>;
+  /**
+   * Lists all embedding sets.
+   */
+  listSets: () => Promise<EmbeddingSetInfo[]>;
 
   /**
    * Optional logger for debugging.
@@ -187,20 +186,20 @@ async function runCreateEmbeddingSet(
  * Mastra tool type for list.
  */
 interface ListMastraTool {
-  id: string;
   description: string;
-  inputSchema: typeof ListEmbeddingSetsInputSchema;
   execute: (context: ToolContext<ListEmbeddingSetsInput>) => Promise<ListEmbeddingSetsToolResult>;
+  id: string;
+  inputSchema: typeof ListEmbeddingSetsInputSchema;
 }
 
 /**
  * Mastra tool type for create.
  */
 interface CreateMastraTool {
-  id: string;
   description: string;
-  inputSchema: typeof CreateEmbeddingSetInputSchema;
   execute: (context: ToolContext<CreateEmbeddingSetInput>) => Promise<CreateEmbeddingSetToolResult>;
+  id: string;
+  inputSchema: typeof CreateEmbeddingSetInputSchema;
 }
 
 /**

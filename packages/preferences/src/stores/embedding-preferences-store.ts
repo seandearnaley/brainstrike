@@ -32,9 +32,23 @@ interface EmbeddingPreferencesData {
  */
 interface EmbeddingPreferencesActions {
   /**
+   * Get the currently selected model composite key
+   */
+  // Global selection APIs removed - selection is per-collection/embedding-set
+
+  /**
+   * Get list of enabled models for a provider
+   */
+  getEnabledModels: (provider: EmbeddingProviderType) => string[];
+  /**
    * Enable or disable a specific model for a provider
    */
   setModelEnabled: (provider: EmbeddingProviderType, model: string, enabled: boolean) => void;
+
+  /**
+   * Set preferred runtime for embedding operations
+   */
+  setPreferredRuntime: (runtime: 'browser' | 'hosted') => void;
 
   /**
    * Enable or disable multiple models for a provider at once
@@ -44,21 +58,6 @@ interface EmbeddingPreferencesActions {
     models: readonly string[],
     enabled: boolean
   ) => void;
-
-  /**
-   * Get the currently selected model composite key
-   */
-  // Global selection APIs removed - selection is per-collection/embedding-set
-
-  /**
-   * Get list of enabled models for a provider
-   */
-  getEnabledModels: (provider: EmbeddingProviderType) => string[];
-
-  /**
-   * Set preferred runtime for embedding operations
-   */
-  setPreferredRuntime: (runtime: 'browser' | 'hosted') => void;
 }
 
 type Store = EmbeddingPreferencesData & EmbeddingPreferencesActions;

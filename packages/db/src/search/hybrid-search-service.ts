@@ -23,59 +23,59 @@ import { createRankedList, type FusedResult, fuseRankedLists, type RRFOptions } 
  * any repository implementation (Drizzle, Electron, PGlite) to be used.
  */
 export interface HybridSearchRepository {
+  /** Full-text keyword search */
+  fullTextSearch(query: string, options: FTSSearchOptions): Promise<FTSSearchResult[]>;
   /** Vector similarity search */
   searchSimilar(
     queryEmbedding: number[],
     options: ChunkSearchOptions
   ): Promise<ChunkSearchResult[]>;
-  /** Full-text keyword search */
-  fullTextSearch(query: string, options: FTSSearchOptions): Promise<FTSSearchResult[]>;
 }
 
 /**
  * Options for hybrid search
  */
 export interface HybridSearchOptions {
-  /** Maximum number of final results to return (default: 10) */
-  limit?: number;
-
-  // === Vector Search Options ===
-  /** Minimum similarity threshold for vector search (default: 0.5) */
-  vectorThreshold?: number;
-  /** Number of results to fetch from vector search before fusion (default: 50) */
-  vectorLimit?: number;
-  /** Weight for vector search results in RRF (default: 1.0) */
-  vectorWeight?: number;
+  /** Filter by chunk type */
+  chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
   /** Required: embedding set ID for dimension matching */
   embeddingSetId: string;
-
-  // === Full-Text Search Options ===
-  /** Minimum rank threshold for FTS (default: 0) */
-  ftsThreshold?: number;
-  /** Number of results to fetch from FTS before fusion (default: 50) */
-  ftsLimit?: number;
-  /** Weight for FTS results in RRF (default: 1.0) */
-  ftsWeight?: number;
-  /** FTS query parsing mode (default: 'websearch') */
-  ftsQueryMode?: FTSQueryMode;
-  /** FTS language configuration (default: 'english') */
-  ftsLanguage?: string;
+  /** Optional allowlist of file paths */
+  filePaths?: readonly string[];
 
   // === Common Filters ===
   /** Filter by specific file record ID */
   fileRecordId?: string;
-  /** Filter by chunk type */
-  chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
-  /** Optional allowlist of file paths */
-  filePaths?: readonly string[];
-  /** Optional snapshot ID for selection filtering */
-  selectionSnapshotId?: string;
+  /** FTS language configuration (default: 'english') */
+  ftsLanguage?: string;
+  /** Number of results to fetch from FTS before fusion (default: 50) */
+  ftsLimit?: number;
+  /** FTS query parsing mode (default: 'websearch') */
+  ftsQueryMode?: FTSQueryMode;
+
+  // === Full-Text Search Options ===
+  /** Minimum rank threshold for FTS (default: 0) */
+  ftsThreshold?: number;
+  /** Weight for FTS results in RRF (default: 1.0) */
+  ftsWeight?: number;
+  /** Maximum number of final results to return (default: 10) */
+  limit?: number;
+  /** Minimum sources required for result inclusion (default: 1) */
+  minSourceCount?: number;
 
   // === RRF Options ===
   /** RRF k constant (default: 60) */
   rrfK?: number;
-  /** Minimum sources required for result inclusion (default: 1) */
-  minSourceCount?: number;
+  /** Optional snapshot ID for selection filtering */
+  selectionSnapshotId?: string;
+  /** Number of results to fetch from vector search before fusion (default: 50) */
+  vectorLimit?: number;
+
+  // === Vector Search Options ===
+  /** Minimum similarity threshold for vector search (default: 0.5) */
+  vectorThreshold?: number;
+  /** Weight for vector search results in RRF (default: 1.0) */
+  vectorWeight?: number;
 }
 
 /**
@@ -84,48 +84,48 @@ export interface HybridSearchOptions {
 export interface HybridSearchResult {
   /** The matched chunk */
   chunk: FileChunk;
-  /** Combined RRF score (higher = better) */
-  rrfScore: number;
-  /** Number of search methods that found this chunk (1 or 2) */
-  sourceCount: number;
-  /** Vector similarity score (if found by vector search) */
-  vectorSimilarity?: number;
   /** FTS rank score (if found by FTS) */
   ftsRank?: number;
   /** Headline snippet from FTS (if available) */
   headline?: string;
   /** Position in final result set (1-indexed) */
   position: number;
+  /** Combined RRF score (higher = better) */
+  rrfScore: number;
+  /** Number of search methods that found this chunk (1 or 2) */
+  sourceCount: number;
+  /** Vector similarity score (if found by vector search) */
+  vectorSimilarity?: number;
 }
 
 /**
  * Metadata about the hybrid search execution
  */
 export interface HybridSearchMetadata {
-  /** Number of results from vector search before fusion */
-  vectorResultCount: number;
   /** Number of results from FTS before fusion */
   ftsResultCount: number;
-  /** Number of results after fusion */
-  fusedResultCount: number;
-  /** Time taken for vector search (ms) */
-  vectorSearchMs: number;
   /** Time taken for FTS (ms) */
   ftsSearchMs: number;
+  /** Number of results after fusion */
+  fusedResultCount: number;
   /** Time taken for fusion (ms) */
   fusionMs: number;
   /** Total time (ms) */
   totalMs: number;
+  /** Number of results from vector search before fusion */
+  vectorResultCount: number;
+  /** Time taken for vector search (ms) */
+  vectorSearchMs: number;
 }
 
 /**
  * Complete response from hybrid search
  */
 export interface HybridSearchResponse {
-  /** Search results */
-  results: HybridSearchResult[];
   /** Execution metadata */
   metadata: HybridSearchMetadata;
+  /** Search results */
+  results: HybridSearchResult[];
 }
 
 /**

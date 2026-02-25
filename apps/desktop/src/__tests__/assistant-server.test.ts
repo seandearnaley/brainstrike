@@ -67,10 +67,10 @@ vi.mock('../assistant-server/assistant-tools', () => ({
 describe('assistant-server', () => {
   let server: { url: string; stop: () => Promise<void> } | undefined;
   interface RequestInput {
+    body?: string;
+    headers?: http.IncomingHttpHeaders;
     method: string;
     url: string;
-    headers?: http.IncomingHttpHeaders;
-    body?: string;
   }
 
   class MockRequest extends Readable {

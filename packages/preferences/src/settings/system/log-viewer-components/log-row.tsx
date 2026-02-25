@@ -5,9 +5,9 @@ import { memo } from 'react';
 import type { LogRecordRow } from './log-utils';
 
 interface LogRowProps {
+  measureRow: (node: HTMLTableRowElement | null) => void;
   row: Row<LogRecordRow>;
   virtualRow: VirtualItem;
-  measureRow: (node: HTMLTableRowElement | null) => void;
   wrapLines: boolean;
 }
 

@@ -2,22 +2,21 @@ import type { ChunkingStrategy, FileChunk, FileRecord, ImportProgress } from '@b
 
 export interface ChunkSearchResult {
   chunk: FileChunk;
-  similarity: number;
   fileRecord: FileRecord;
+  similarity: number;
 }
 
 export interface EnhancedImportResult {
-  id: string;
-  imported: boolean;
-  existed: boolean;
-  error?: string;
+  chunkingStrategy?: ChunkingStrategy;
   chunksCreated: number;
   chunksWithEmbeddings?: number;
-  chunkingStrategy?: ChunkingStrategy;
+  error?: string;
+  existed: boolean;
+  id: string;
+  imported: boolean;
 }
 
 export interface EnhancedImportProgress extends ImportProgress {
-  phase: 'importing' | 'chunking' | 'embedding' | 'complete';
   chunkingProgress?: {
     filesProcessed: number;
     totalFiles: number;
@@ -31,6 +30,7 @@ export interface EnhancedImportProgress extends ImportProgress {
     currentChunk?: string | undefined;
     modelName: string;
   };
+  phase: 'importing' | 'chunking' | 'embedding' | 'complete';
   queueProgress?: {
     pending: number;
     processed: number;
@@ -48,52 +48,52 @@ export interface EnhancedImportProgress extends ImportProgress {
 }
 
 export interface ImportProgressDisplayProps {
-  progress: EnhancedImportProgress;
   onClose: () => void;
+  progress: EnhancedImportProgress;
 }
 
 export interface SettingsPanelProps {
+  className?: string;
   importSettings: ImportSettings;
   onFactoryReset?: (() => Promise<void>) | undefined;
-  className?: string;
 }
 
 export interface ExportButtonsProps {
-  records: FileRecord[];
   chunks: FileChunk[];
   exportHandlers: ExportHandlers;
+  records: FileRecord[];
 }
 
 export interface ImportSettings {
-  enableChunking: boolean;
-  setEnableChunking: (value: boolean) => void;
   chunkingStrategy: ChunkingStrategy;
-  setChunkingStrategy: (value: ChunkingStrategy) => void;
   chunkingStrategyExplicit: boolean;
-  chunkSize: number;
-  setChunkSize: (value: number) => void;
   chunkOverlap: number;
-  setChunkOverlap: (value: number) => void;
-  tokenTrueSizing: boolean;
-  setTokenTrueSizing: (value: boolean) => void;
+  chunkSize: number;
   chunkTokenLimit: number;
+  enableChunking: boolean;
+  setChunkingStrategy: (value: ChunkingStrategy) => void;
+  setChunkOverlap: (value: number) => void;
+  setChunkSize: (value: number) => void;
   setChunkTokenLimit: (value: number) => void;
+  setEnableChunking: (value: boolean) => void;
+  setTokenTrueSizing: (value: boolean) => void;
+  tokenTrueSizing: boolean;
 }
 
 export interface ExportHandlers {
-  handleExportFiles: () => void;
+  handleExportAll: () => Promise<void>;
   handleExportChunks: () => void;
   handleExportEmbeddings: () => void;
-  handleExportAll: () => Promise<void>;
+  handleExportFiles: () => void;
 }
 
 export interface SearchFunctionality {
-  searchQuery: string;
-  setSearchQuery: (query: string) => void;
-  searchResults: ChunkSearchResult[];
-  searching: boolean;
-  searchThreshold: number;
-  setSearchThreshold: (threshold: number) => void;
   handleSearch: () => Promise<void>;
   hasSearched: boolean;
+  searching: boolean;
+  searchQuery: string;
+  searchResults: ChunkSearchResult[];
+  searchThreshold: number;
+  setSearchQuery: (query: string) => void;
+  setSearchThreshold: (threshold: number) => void;
 }

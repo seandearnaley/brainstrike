@@ -18,10 +18,10 @@ import {
 type WindowHandlers = Map<string, (...args: unknown[]) => void>;
 
 interface MockBrowserWindow {
-  isFullScreen: () => boolean;
-  isMaximized: () => boolean;
   getBounds: () => DesktopWindowBounds;
   getNormalBounds: () => DesktopWindowBounds;
+  isFullScreen: () => boolean;
+  isMaximized: () => boolean;
   on: (event: string, handler: (...args: unknown[]) => void) => void;
 }
 

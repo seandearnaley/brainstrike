@@ -17,26 +17,26 @@ export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
  * Uses handleKey (the path) for main thread handle lookup.
  */
 export interface WorkerFileNode {
+  /** Children (for directories) */
+  children?: WorkerFileNode[];
+  /** Nesting depth from root */
+  depth: number;
+  /** Last modification time (for files) */
+  lastModified?: number;
+  /** Error message if load failed */
+  loadError?: string;
+  /** Load state for directories */
+  loadState?: DirectoryLoadState;
   /** File or directory name */
   name: string;
   /** Full path (also used as handleKey for handle lookup) */
   path: string;
-  /** Node type */
-  type: 'file' | 'directory';
-  /** Nesting depth from root */
-  depth: number;
   /** Root folder identifier */
   rootFolderId: string;
-  /** Load state for directories */
-  loadState?: DirectoryLoadState;
-  /** Error message if load failed */
-  loadError?: string;
-  /** Children (for directories) */
-  children?: WorkerFileNode[];
   /** File size in bytes (for files) */
   size?: number;
-  /** Last modification time (for files) */
-  lastModified?: number;
+  /** Node type */
+  type: 'file' | 'directory';
 }
 
 // ============================================================================
@@ -47,43 +47,43 @@ export interface WorkerFileNode {
  * Initialize the worker with root-level nodes.
  */
 export interface InitMessage {
-  type: 'init';
   payload: {
     rootNodes: WorkerFileNode[];
     folderId: string;
   };
+  type: 'init';
 }
 
 /**
  * Result of loading a directory from the main thread.
  */
 export interface LoadResultMessage {
-  type: 'loadResult';
   payload: {
     path: string;
     children: WorkerFileNode[];
   };
+  type: 'loadResult';
 }
 
 /**
  * Result of a failed directory load.
  */
 export interface LoadErrorMessage {
-  type: 'loadError';
   payload: {
     path: string;
     error: string;
   };
+  type: 'loadError';
 }
 
 /**
  * Start expand-all operation.
  */
 export interface ExpandAllMessage {
-  type: 'expandAll';
   payload: {
     folderId: string;
   };
+  type: 'expandAll';
 }
 
 /**
@@ -97,10 +97,10 @@ export interface CollapseAllMessage {
  * Toggle expansion of a single directory.
  */
 export interface ToggleExpandMessage {
-  type: 'toggleExpand';
   payload: {
     path: string;
   };
+  type: 'toggleExpand';
 }
 
 /**
@@ -115,11 +115,11 @@ export interface AbortMessage {
  * Unlike expandAll which does BFS discovery, this loads only the requested paths.
  */
 export interface LoadPathsMessage {
-  type: 'loadPaths';
   payload: {
     /** Directory paths to load (should be sorted by depth, shallowest first) */
     paths: string[];
   };
+  type: 'loadPaths';
 }
 
 /**
@@ -127,23 +127,23 @@ export interface LoadPathsMessage {
  * Like expandAll but scoped to a subtree starting from the given path.
  */
 export interface LoadSubtreeMessage {
-  type: 'loadSubtree';
   payload: {
     /** Root path of the subtree to load */
     startPath: string;
   };
+  type: 'loadSubtree';
 }
 
 /**
  * Update the tree with new nodes (e.g., after single directory load).
  */
 export interface UpdateTreeMessage {
-  type: 'updateTree';
   payload: {
     path: string;
     children: WorkerFileNode[];
     loadState: DirectoryLoadState;
   };
+  type: 'updateTree';
 }
 
 /**
@@ -152,11 +152,11 @@ export interface UpdateTreeMessage {
  * and the set of expanded paths.
  */
 export interface FlattenTreeMessage {
-  type: 'flattenTree';
   payload: {
     /** Paths that should be considered expanded (from UI state) */
     expandedPaths: string[];
   };
+  type: 'flattenTree';
 }
 
 /**
@@ -190,70 +190,70 @@ export interface WorkerReadyMessage {
  * Request main thread to load directories (I/O needs FileSystemHandle).
  */
 export interface RequestLoadMessage {
-  type: 'requestLoad';
   payload: {
     /** Request ID for correlation */
     requestId: string;
     /** Directory paths to load */
     paths: string[];
   };
+  type: 'requestLoad';
 }
 
 /**
  * Updated tree snapshot for React state sync.
  */
 export interface TreeSnapshotMessage {
-  type: 'treeSnapshot';
   payload: {
     tree: WorkerFileNode[];
     expandedPaths: string[];
   };
+  type: 'treeSnapshot';
 }
 
 /**
  * Progress update during expand-all.
  */
 export interface ProgressMessage {
-  type: 'progress';
   payload: {
     loaded: number;
     total: number;
     currentPath: string;
   };
+  type: 'progress';
 }
 
 /**
  * Expand-all operation completed.
  */
 export interface CompleteMessage {
-  type: 'complete';
   payload: {
     tree: WorkerFileNode[];
     expandedPaths: string[];
     /** Number of directories actually loaded (0 means all were cached) */
     loadedCount: number;
   };
+  type: 'complete';
 }
 
 /**
  * Error occurred in worker.
  */
 export interface ErrorMessage {
-  type: 'error';
   payload: {
     message: string;
     path?: string;
   };
+  type: 'error';
 }
 
 /**
  * Log message from worker for debugging.
  */
 export interface WorkerLogMessage {
-  type: 'log';
+  data?: Record<string, unknown>;
   level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
-  data?: Record<string, unknown>;
+  type: 'log';
 }
 
 /**
@@ -261,10 +261,10 @@ export interface WorkerLogMessage {
  * Contains the node data plus computed depth for indentation.
  */
 export interface FlattenedNode {
-  /** The node data */
-  node: WorkerFileNode;
   /** Nesting depth (0 = root level) */
   depth: number;
+  /** The node data */
+  node: WorkerFileNode;
 }
 
 /**
@@ -272,7 +272,6 @@ export interface FlattenedNode {
  * Sent in response to FlattenTreeMessage.
  */
 export interface FlattenedResultMessage {
-  type: 'flattenedResult';
   payload: {
     /** Flattened list of visible nodes for virtualized rendering */
     nodes: FlattenedNode[];
@@ -281,6 +280,7 @@ export interface FlattenedResultMessage {
     /** Duration of the flatten operation in ms (for perf monitoring) */
     durationMs: number;
   };
+  type: 'flattenedResult';
 }
 
 /**
@@ -304,7 +304,7 @@ export type WorkerToMainMessage =
  * Result of loading a single directory.
  */
 export interface BatchLoadResult {
-  path: string;
   children?: WorkerFileNode[];
   error?: string;
+  path: string;
 }

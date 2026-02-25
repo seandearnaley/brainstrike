@@ -1,11 +1,11 @@
 const LOCAL_PROVIDER_IDS: ReadonlySet<string> = new Set(['local', 'transformers']);
 
 export interface LocalModelLike {
-  providerId?: unknown;
-  isEnabled?: unknown;
   capabilities?: {
     type?: unknown;
   } | null;
+  isEnabled?: unknown;
+  providerId?: unknown;
 }
 
 export function isLocalModelProviderId(providerId: string): boolean {

@@ -8,9 +8,9 @@ interface MockFileHandle {
 }
 
 interface MockDirectoryHandle {
+  entries: () => AsyncIterableIterator<[string, MockFileHandle | MockDirectoryHandle]>;
   kind: 'directory';
   name: string;
-  entries: () => AsyncIterableIterator<[string, MockFileHandle | MockDirectoryHandle]>;
   // Define other methods if necessary
 }
 

@@ -7,8 +7,8 @@ type ContextKey = string; // e.g., folderId, file path, or compositeKey
 export interface InspectorFields {
   // Example fields; add/extend as inspector grows
   includeInReport: boolean;
-  summaryLevel: number; // e.g., 1..10
   note: string;
+  summaryLevel: number; // e.g., 1..10
 }
 
 interface InspectorData {
@@ -16,10 +16,10 @@ interface InspectorData {
 }
 
 interface InspectorActions {
+  clear: (ctx?: ContextKey) => void;
+  getFields: (ctx: ContextKey) => InspectorFields | undefined;
   setFields: (ctx: ContextKey, fields: InspectorFields) => void;
   updateFields: (ctx: ContextKey, patch: Partial<InspectorFields>) => void;
-  getFields: (ctx: ContextKey) => InspectorFields | undefined;
-  clear: (ctx?: ContextKey) => void;
 }
 
 export type InspectorViewStore = InspectorData & InspectorActions;

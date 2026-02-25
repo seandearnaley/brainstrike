@@ -33,23 +33,23 @@ const LOG_LEVEL_OPTIONS: LogLevel[] = [
 ];
 
 interface FileCapabilities {
-  fileLoggingSupported: boolean;
   canSelectDestination: boolean;
-  reason?: string | null;
   defaultDestination?: string | null;
+  fileLoggingSupported: boolean;
+  reason?: string | null;
 }
 
 export interface LoggingSettingsSectionProps {
-  runtime: 'browser' | 'electron-renderer';
-  fileCapabilities?: FileCapabilities;
   busy?: boolean;
+  fileCapabilities?: FileCapabilities;
+  logSource?: LogSourceAdapter;
   onCommitPreferences?: (
     preferences: LoggingPreferences
   ) => Promise<LoggingPreferences | undefined>;
-  onSelectLogDestination?: () => Promise<string | null>;
   onOpenLogDestination?: (target: string | null) => Promise<boolean>;
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
-  logSource?: LogSourceAdapter;
+  onSelectLogDestination?: () => Promise<string | null>;
+  runtime: 'browser' | 'electron-renderer';
 }
 
 export type { LogSourceAdapter };
@@ -274,10 +274,10 @@ export function LoggingSettingsSection({
 }
 
 interface GeneralLoggingCardProps {
+  applyUpdates: (updates: Partial<LoggingPreferences>) => Promise<void>;
+  logLevelItems: ReactNode;
   pending: boolean;
   preferences: LoggingPreferences;
-  logLevelItems: ReactNode;
-  applyUpdates: (updates: Partial<LoggingPreferences>) => Promise<void>;
 }
 
 function GeneralLoggingCard({
@@ -372,14 +372,14 @@ function GeneralLoggingCard({
 }
 
 interface FileLoggingCardProps {
-  pending: boolean;
-  preferences: LoggingPreferences;
-  logLevelItems: ReactNode;
+  applyNestedUpdates: (updates: Partial<LoggingPreferences['file']>) => Promise<void>;
   fileCapabilities: FileCapabilities | undefined;
   fileDestinationLabel: { label: string; hint?: string };
-  onSelectDestination: () => Promise<void>;
+  logLevelItems: ReactNode;
   onOpenDestination: () => Promise<void>;
-  applyNestedUpdates: (updates: Partial<LoggingPreferences['file']>) => Promise<void>;
+  onSelectDestination: () => Promise<void>;
+  pending: boolean;
+  preferences: LoggingPreferences;
 }
 
 function FileLoggingCard({
@@ -510,10 +510,10 @@ function FileLoggingCard({
 }
 
 interface AdvancedLoggingCardProps {
-  pending: boolean;
-  preferences: LoggingPreferences;
   onRedactChange: (value: string) => Promise<void>;
   onReset: () => Promise<void>;
+  pending: boolean;
+  preferences: LoggingPreferences;
 }
 
 function AdvancedLoggingCard({

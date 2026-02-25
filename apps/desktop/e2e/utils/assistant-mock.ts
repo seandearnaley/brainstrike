@@ -9,12 +9,12 @@ const DEFAULT_MODELS: Record<string, string> = {
 } as const;
 
 export interface AssistantMockOptions {
-  readonly provider?: string;
   readonly apiKey?: string;
-  readonly message?: string;
   readonly errorMessage?: string;
-  readonly variant?: 'simple' | 'detailed' | 'tool' | 'tool-error' | 'stream-error';
+  readonly message?: string;
   readonly models?: Record<string, string>;
+  readonly provider?: string;
+  readonly variant?: 'simple' | 'detailed' | 'tool' | 'tool-error' | 'stream-error';
 }
 
 const defaultOptions: Required<AssistantMockOptions> = {

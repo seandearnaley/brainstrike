@@ -298,9 +298,9 @@ async function estimateSelectionTokenCountFromDb(
 }
 
 interface McpToolDescriptor {
-  id: string;
   description?: string;
   enabled: boolean;
+  id: string;
 }
 
 type McpToolMap = Record<string, McpToolDescriptor[]>;
@@ -435,8 +435,8 @@ function buildProviderOptions(
 }
 
 interface McpState {
-  tools: AssistantToolMenuItem[];
   loading: boolean;
+  tools: AssistantToolMenuItem[];
 }
 
 type McpAction =
@@ -456,8 +456,8 @@ function mcpReducer(_state: McpState, action: McpAction): McpState {
 }
 
 interface TokenEstimateState {
-  selectionTokensFromDb: number;
   projectTreeTokensEstimate: number;
+  selectionTokensFromDb: number;
 }
 
 type TokenEstimateAction =

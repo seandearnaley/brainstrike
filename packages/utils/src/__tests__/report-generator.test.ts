@@ -10,11 +10,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateReport, generateReportFromAdapter } from '../report-generator';
 
 interface MockFileEntry {
-  name: string;
-  type: 'file' | 'directory';
-  content?: string;
-  size?: number;
   children?: Record<string, MockFileEntry>;
+  content?: string;
+  name: string;
+  size?: number;
+  type: 'file' | 'directory';
 }
 
 class MockFileSystemAdapter implements FileSystemAdapter {

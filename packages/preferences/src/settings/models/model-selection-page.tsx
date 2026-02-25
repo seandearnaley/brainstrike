@@ -16,8 +16,8 @@ type ToastFn = ReturnType<typeof useToast>['toast'];
 
 interface DownloadDeps {
   modelCacheDir: string | null;
-  setDownloadProgress: (modelId: string, progress: number) => void;
   setDownloading: (modelId: string, isDownloading: boolean) => void;
+  setDownloadProgress: (modelId: string, progress: number) => void;
   toast: ToastFn;
 }
 

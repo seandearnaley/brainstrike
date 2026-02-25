@@ -28,8 +28,8 @@ const REFRESH_ANIMATION_DURATION_MS = 500;
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
 
 interface StatusBadgeProps {
-  readonly status: StatusVariant;
   readonly label: string;
+  readonly status: StatusVariant;
 }
 
 function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
@@ -48,12 +48,12 @@ function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
 }
 
 interface DiagnosticCardProps {
-  readonly title: string;
+  readonly children?: ReactElement;
   readonly description?: string;
   readonly icon: ReactElement;
   readonly status: StatusVariant;
   readonly statusLabel: string;
-  readonly children?: ReactElement;
+  readonly title: string;
 }
 
 function DiagnosticCard({
@@ -146,9 +146,9 @@ function DatabaseStatusSection(): ReactElement {
  * Worker health section with status indicators.
  */
 interface WorkerStatusSectionProps {
+  readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
   readonly tokenCacheOperational?: boolean | undefined;
   readonly tokenCachePersisted?: boolean | undefined;
-  readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
 }
 
 function WorkerStatusSection({
@@ -206,14 +206,14 @@ function WorkerStatusSection({
 }
 
 export interface SystemDiagnosticsPanelProps {
-  /** Token cache operational status (from TokenCacheContext) */
-  readonly tokenCacheOperational?: boolean | undefined;
-  /** Token cache persistence status (from TokenCacheContext) */
-  readonly tokenCachePersisted?: boolean | undefined;
   /** Token cache persistence mode (from TokenCacheContext) */
   readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
   /** Show refresh button for queue metrics */
   readonly showQueueRefresh?: boolean | undefined;
+  /** Token cache operational status (from TokenCacheContext) */
+  readonly tokenCacheOperational?: boolean | undefined;
+  /** Token cache persistence status (from TokenCacheContext) */
+  readonly tokenCachePersisted?: boolean | undefined;
 }
 
 /**

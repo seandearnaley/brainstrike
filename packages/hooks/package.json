@@ -1,13 +1,37 @@
 {
   "name": "@brainstrike/hooks",
   "version": "0.1.0",
+  "dependencies": {
+    "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/workers": "workspace:*",
+    "file-saver": "2.0.5",
+    "minimatch": "^10.2.3",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@stryker-mutator/api": "^9.5.1",
+    "@stryker-mutator/core": "^9.5.1",
+    "@stryker-mutator/typescript-checker": "^9.5.1",
+    "@stryker-mutator/vitest-runner": "^9.5.1",
+    "@swc/core": "^1.15.13",
+    "@testing-library/react": "^16.3.2",
+    "@types/file-saver": "2.0.7",
+    "@types/node": "^25.3.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "happy-dom": "^20.7.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
   "engines": {
     "node": ">=22"
   },
-  "private": true,
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -15,60 +39,36 @@
       "require": "./dist/index.js"
     }
   },
-  "sideEffects": false,
-  "license": "MIT",
   "files": [
     "dist/**"
   ],
-  "scripts": {
-    "build": "tsc && tsup",
-    "dev": "tsup src/index.ts --format esm,cjs --watch",
-    "clean": "rm -rf dist .tsbuildinfo",
-    "lint": "pnpm run --dir=../.. lint",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "pnpm -w test:coverage",
-    "mutation": "npx @stryker-mutator/core run"
-  },
-  "dependencies": {
-    "@brainstrike/file-system": "workspace:*",
-    "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "@brainstrike/workers": "workspace:*",
-    "file-saver": "2.0.5",
-    "minimatch": "^10.1.1",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "peerDependencies": {
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
-  "devDependencies": {
-    "@types/file-saver": "2.0.7",
-    "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/api": "^9.4.0",
-    "@stryker-mutator/core": "^9.4.0",
-    "@stryker-mutator/typescript-checker": "^9.4.0",
-    "@stryker-mutator/vitest-runner": "^9.4.0",
-    "@swc/core": "^1.15.8",
-    "@testing-library/react": "^16.3.1",
-    "@types/node": "^25.0.8",
-    "@types/react": "^19.2.8",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.2",
-    "happy-dom": "20.1.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
-  },
-  "peerDependencies": {
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1"
-  },
+  "private": true,
   "publishConfig": {
     "access": "public"
   },
+  "scripts": {
+    "build": "tsc && tsup",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "dev": "tsup src/index.ts --format esm,cjs --watch",
+    "lint": "pnpm run --dir=../.. lint",
+    "mutation": "npx @stryker-mutator/core run",
+    "test": "vitest run",
+    "test:coverage": "pnpm -w test:coverage",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+  },
+  "sideEffects": false,
   "turbo": {
     "outputs": [
       "dist/**"
     ]
-  }
+  },
+  "types": "./dist/index.d.ts"
 }

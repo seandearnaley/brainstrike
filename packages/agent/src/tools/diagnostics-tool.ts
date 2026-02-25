@@ -33,28 +33,32 @@ export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
  * Individual component health result.
  */
 export interface ComponentHealth {
-  /** Component name */
-  name: string;
-  /** Health status */
-  status: HealthStatus;
+  /** Last check timestamp */
+  checkedAt: string;
+  /** Error details if unhealthy */
+  error?: string;
   /** Human-readable message */
   message: string;
   /** Additional metrics */
   metrics?: Record<string, number | string>;
-  /** Error details if unhealthy */
-  error?: string;
-  /** Last check timestamp */
-  checkedAt: string;
+  /** Component name */
+  name: string;
+  /** Health status */
+  status: HealthStatus;
 }
 
 /**
  * Database diagnostics.
  */
 export interface DatabaseDiagnostics {
-  /** Overall database health */
-  status: HealthStatus;
   /** Connection status */
   connected: boolean;
+  /** Recent migrations */
+  lastMigration?: string;
+  /** Database size in bytes */
+  sizeBytes: number;
+  /** Overall database health */
+  status: HealthStatus;
   /** Table counts */
   tables: {
     fileRecords: number;
@@ -62,18 +66,12 @@ export interface DatabaseDiagnostics {
     embeddings: number;
     embeddingSets: number;
   };
-  /** Database size in bytes */
-  sizeBytes: number;
-  /** Recent migrations */
-  lastMigration?: string;
 }
 
 /**
  * Queue diagnostics.
  */
 export interface QueueDiagnostics {
-  /** Overall queue health */
-  status: HealthStatus;
   /** Durable queue (job persistence) */
   durableQueue: {
     queued: number;
@@ -86,70 +84,72 @@ export interface QueueDiagnostics {
     pending: number;
     processing: number;
   };
-  /** Jobs per minute throughput */
-  throughput: number;
   /** Recent errors */
   recentErrors: string[];
+  /** Overall queue health */
+  status: HealthStatus;
+  /** Jobs per minute throughput */
+  throughput: number;
 }
 
 /**
  * Worker diagnostics.
  */
 export interface WorkerDiagnostics {
-  /** Overall worker health */
-  status: HealthStatus;
-  /** Whether workers are running */
-  isRunning: boolean;
   /** Active worker count */
   activeWorkers: number;
+  /** Whether workers are running */
+  isRunning: boolean;
+  /** Last activity timestamp */
+  lastActivityAt?: string;
   /** Processing statistics */
   stats: {
     chunksProcessed: number;
     embeddingsGenerated: number;
     averageLatencyMs: number;
   };
-  /** Last activity timestamp */
-  lastActivityAt?: string;
+  /** Overall worker health */
+  status: HealthStatus;
 }
 
 /**
  * Storage diagnostics.
  */
 export interface StorageDiagnostics {
+  /** Available space in bytes (null if unknown) */
+  availableBytes: number | null;
+  /** Whether storage is writable */
+  isWritable: boolean;
   /** Overall storage health */
   status: HealthStatus;
   /** Storage type */
   type: string;
-  /** Available space in bytes (null if unknown) */
-  availableBytes: number | null;
   /** Used space in bytes */
   usedBytes: number;
-  /** Whether storage is writable */
-  isWritable: boolean;
 }
 
 /**
  * Result returned by the diagnostics tool.
  */
 export interface SystemDiagnosticsToolResult {
-  /** Overall system health */
-  overallStatus: HealthStatus;
   /** Categories that were checked */
   categoriesChecked: string[];
-  /** Timestamp of the diagnostic run */
-  timestamp: string;
   /** Database diagnostics (if requested) */
   database?: DatabaseDiagnostics;
+  /** Specific issues found */
+  issues: string[];
+  /** Overall system health */
+  overallStatus: HealthStatus;
   /** Queue diagnostics (if requested) */
   queue?: QueueDiagnostics;
-  /** Worker diagnostics (if requested) */
-  worker?: WorkerDiagnostics;
   /** Storage diagnostics (if requested) */
   storage?: StorageDiagnostics;
   /** Human-readable summary */
   summary: string;
-  /** Specific issues found */
-  issues: string[];
+  /** Timestamp of the diagnostic run */
+  timestamp: string;
+  /** Worker diagnostics (if requested) */
+  worker?: WorkerDiagnostics;
 }
 
 /**
@@ -168,14 +168,14 @@ export interface DiagnosticsToolDependencies {
   getQueueHealth?: () => Promise<QueueDiagnostics>;
 
   /**
-   * Gets worker diagnostics.
-   */
-  getWorkerHealth?: () => Promise<WorkerDiagnostics>;
-
-  /**
    * Gets storage diagnostics.
    */
   getStorageHealth?: () => Promise<StorageDiagnostics>;
+
+  /**
+   * Gets worker diagnostics.
+   */
+  getWorkerHealth?: () => Promise<WorkerDiagnostics>;
 
   /**
    * Optional logger for debugging.
@@ -453,10 +453,10 @@ async function runSystemDiagnostics(
  * Mastra tool type.
  */
 interface MastraTool {
-  id: string;
   description: string;
-  inputSchema: typeof SystemDiagnosticsInputSchema;
   execute: (context: ToolContext<SystemDiagnosticsInput>) => Promise<SystemDiagnosticsToolResult>;
+  id: string;
+  inputSchema: typeof SystemDiagnosticsInputSchema;
 }
 
 /**

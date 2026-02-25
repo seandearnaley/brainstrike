@@ -10,14 +10,13 @@ import { useCallback, useEffect, useRef } from 'react';
 
 interface SearchCollectionSelectorProps {
   /**
-   * The database instance for querying collections
-   */
-  db: ReturnType<typeof usePGliteDatabase>;
-
-  /**
    * Currently active collection ID
    */
   activeCollectionId: string | null;
+  /**
+   * The database instance for querying collections
+   */
+  db: ReturnType<typeof usePGliteDatabase>;
 
   /**
    * Callback when collection selection changes
@@ -30,14 +29,14 @@ interface SearchCollectionSelectorProps {
   onCreateCollection: () => void;
 
   /**
-   * Callback when edit is clicked on a collection
-   */
-  onEditCollection: (collection: CollectionPickerCollection) => void;
-
-  /**
    * Callback when delete is clicked on a collection
    */
   onDeleteCollection: (collection: CollectionPickerCollection) => void;
+
+  /**
+   * Callback when edit is clicked on a collection
+   */
+  onEditCollection: (collection: CollectionPickerCollection) => void;
 }
 
 /**

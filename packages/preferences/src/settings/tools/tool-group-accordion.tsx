@@ -29,32 +29,32 @@ export type McpConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 
  * Props for the ToolGroupAccordion component.
  */
 export interface ToolGroupAccordionProps {
+  /** Children content (tool list) */
+  children: ReactNode;
+  /** MCP connection status (only for MCP groups) */
+  connectionStatus?: McpConnectionStatus;
+  /** Description of the tool group */
+  description: string;
+  /** Number of enabled tools in the group */
+  enabledCount: number;
+  /** Error message (only for MCP groups with error status) */
+  errorMessage?: string;
   /** Unique identifier for the accordion item */
   id: string;
   /** Display label for the group */
   label: string;
-  /** Description of the tool group */
-  description: string;
-  /** Source of the tools ('native' or 'mcp') */
-  source: 'native' | 'mcp';
-  /** Number of enabled tools in the group */
-  enabledCount: number;
-  /** Total number of tools in the group */
-  totalCount: number;
-  /** Children content (tool list) */
-  children: ReactNode;
-  /** Callback for enabling all tools in the group */
-  onEnableAll: () => void;
   /** Callback for disabling all tools in the group */
   onDisableAll: () => void;
-  /** MCP connection status (only for MCP groups) */
-  connectionStatus?: McpConnectionStatus;
-  /** Error message (only for MCP groups with error status) */
-  errorMessage?: string;
-  /** Callback for refreshing MCP connection (only for MCP groups) */
-  onRefreshConnection?: () => void;
+  /** Callback for enabling all tools in the group */
+  onEnableAll: () => void;
   /** Callback for opening MCP config file (only for MCP groups) */
   onOpenConfigFile?: () => void;
+  /** Callback for refreshing MCP connection (only for MCP groups) */
+  onRefreshConnection?: () => void;
+  /** Source of the tools ('native' or 'mcp') */
+  source: 'native' | 'mcp';
+  /** Total number of tools in the group */
+  totalCount: number;
 }
 
 /**

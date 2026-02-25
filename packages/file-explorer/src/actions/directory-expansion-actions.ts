@@ -2,10 +2,10 @@ import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import type { GetState, SetState } from '../types/store-types';
 
 export interface DirectoryExpansionActions {
+  collapseAllDirectories: () => void;
+  expandAllDirectories: (fileTree: IFileNode[]) => void;
   setExpandedPaths: (paths: ReadonlySet<string>) => void;
   toggleDirectoryExpansion: (path: string) => void;
-  expandAllDirectories: (fileTree: IFileNode[]) => void;
-  collapseAllDirectories: () => void;
 }
 
 /**

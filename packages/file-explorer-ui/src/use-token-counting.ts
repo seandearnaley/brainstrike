@@ -10,10 +10,10 @@ export type TokenCountingMode = 'accurate' | 'heuristic';
 export type TokenCountingReason = 'preference-disabled' | 'runtime-fallback' | null;
 
 export interface TokenCountingState {
+  countTokens: (content: string) => Promise<number>;
+  loading: boolean;
   mode: TokenCountingMode;
   reason: TokenCountingReason;
-  loading: boolean;
-  countTokens: (content: string) => Promise<number>;
 }
 
 let runtimeSupportPromise: Promise<boolean> | null = null;

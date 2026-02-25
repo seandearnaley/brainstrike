@@ -14,13 +14,13 @@ interface LoadingProgress {
 }
 
 interface ScanningStatusPropsInput {
-  loadingProgress: LoadingProgress | null | undefined;
-  isExpandingAll: boolean;
-  expandAllProgress: ExpandProgress | null | undefined;
-  cancellable: boolean;
-  isCancelling: boolean;
   cancelExpandAll: () => void;
+  cancellable: boolean;
+  expandAllProgress: ExpandProgress | null | undefined;
   handleCancelOperation: () => void;
+  isCancelling: boolean;
+  isExpandingAll: boolean;
+  loadingProgress: LoadingProgress | null | undefined;
 }
 
 type ScanningStatusProps = {

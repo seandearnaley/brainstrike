@@ -23,25 +23,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 const logger = createLogger('useViewFilterPresets');
 
 interface UseViewFilterPresetsResult {
-  /** All presets ordered by sort order */
-  presets: ViewFilterPreset[];
-  /** Whether the query is loading */
-  loading: boolean;
-  /** Error if query failed */
-  error: Error | null;
   /** Create a new preset */
   createPreset: (input: CreateViewFilterPresetInput) => Promise<ViewFilterPreset>;
+  /** Delete a preset (cannot delete default presets) */
+  deletePreset: (id: string) => Promise<boolean>;
+  /** Error if query failed */
+  error: Error | null;
+  /** Get a specific preset by ID */
+  getPreset: (id: string) => ViewFilterPreset | undefined;
+  /** Whether the query is loading */
+  loading: boolean;
+  /** All presets ordered by sort order */
+  presets: ViewFilterPreset[];
+  /** Refresh presets from database (useful for Electron after external changes) */
+  refresh: () => Promise<void>;
   /** Update an existing preset */
   updatePreset: (
     id: string,
     input: UpdateViewFilterPresetInput
   ) => Promise<ViewFilterPreset | null>;
-  /** Delete a preset (cannot delete default presets) */
-  deletePreset: (id: string) => Promise<boolean>;
-  /** Get a specific preset by ID */
-  getPreset: (id: string) => ViewFilterPreset | undefined;
-  /** Refresh presets from database (useful for Electron after external changes) */
-  refresh: () => Promise<void>;
 }
 
 /**

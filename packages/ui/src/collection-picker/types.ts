@@ -5,73 +5,72 @@
  * to allow easy integration without type mapping.
  */
 export interface CollectionPickerCollection {
-  /** Unique collection identifier */
-  id: string;
-  /** Full model key (e.g., "openai::text-embedding-3-small") */
-  modelKey: string;
-  /** Model ID without provider prefix */
-  modelId: string;
+  /** Collection category (optional) */
+  category: string | null;
+  /** Number of chunks */
+  chunkCount: number;
+  /** ISO timestamp of collection creation */
+  createdAt: string;
+  /** Collection description (optional) */
+  description: string | null;
   /** Embedding dimensions (e.g., 1536) */
   dimensions: number;
   /** Distance metric for similarity search */
   distance: 'cosine' | 'l2' | 'ip';
-  /** ISO timestamp of collection creation */
-  createdAt: string;
-  /** User-friendly name (optional) */
-  name: string | null;
-  /** Collection description (optional) */
-  description: string | null;
-  /** Comma-separated tags (optional) */
-  tags: string | null;
-  /** Collection category (optional) */
-  category: string | null;
-  /** Number of files imported into this collection */
-  fileCount: number;
-  /** Number of chunks */
-  chunkCount: number;
   /** Number of embeddings generated */
   embeddingCount: number;
+  /** Number of files imported into this collection */
+  fileCount: number;
+  /** Unique collection identifier */
+  id: string;
+  /** Model ID without provider prefix */
+  modelId: string;
+  /** Full model key (e.g., "openai::text-embedding-3-small") */
+  modelKey: string;
+  /** User-friendly name (optional) */
+  name: string | null;
+  /** Comma-separated tags (optional) */
+  tags: string | null;
 }
 
 /**
  * Props for the CollectionPicker component.
  */
 export interface CollectionPickerProps {
+  /** Additional className */
+  className?: string;
   /** List of collections to display */
   collections: CollectionPickerCollection[];
-
-  /** Currently selected collection ID */
-  selectedId: string | null;
-
-  /** Callback when a collection is selected (click to select, click again to deselect) */
-  onSelect: (id: string | null) => void;
-
-  /** Callback when edit is clicked on a collection */
-  onEdit: (collection: CollectionPickerCollection) => void;
-
-  /** Callback when delete is clicked on a collection */
-  onDelete: (collection: CollectionPickerCollection) => void;
-
-  /** Callback when create button is clicked */
-  onCreate: () => void;
-
-  /** Loading state */
-  loading?: boolean;
 
   /** Custom empty state component */
   emptyState?: React.ReactNode;
 
-  /** Maximum height for the scrollable area (default: 280px) */
-  maxHeight?: string;
-
-  /** Whether to show the header with label and create button */
-  showHeader?: boolean;
-
   /** Label text for the header */
   headerLabel?: string;
 
-  /** Additional className */
-  className?: string;
+  /** Loading state */
+  loading?: boolean;
+
+  /** Maximum height for the scrollable area (default: 280px) */
+  maxHeight?: string;
+
+  /** Callback when create button is clicked */
+  onCreate: () => void;
+
+  /** Callback when delete is clicked on a collection */
+  onDelete: (collection: CollectionPickerCollection) => void;
+
+  /** Callback when edit is clicked on a collection */
+  onEdit: (collection: CollectionPickerCollection) => void;
+
+  /** Callback when a collection is selected (click to select, click again to deselect) */
+  onSelect: (id: string | null) => void;
+
+  /** Currently selected collection ID */
+  selectedId: string | null;
+
+  /** Whether to show the header with label and create button */
+  showHeader?: boolean;
 }
 
 /**
@@ -84,20 +83,20 @@ export interface CollectionPickerItemProps {
   /** Unique ID for accessibility */
   id?: string;
 
-  /** Whether this collection is currently selected */
-  isSelected: boolean;
-
   /** Whether this collection currently has keyboard focus */
   isFocused?: boolean;
 
-  /** Callback when this collection is clicked */
-  onSelect: (id: string) => void;
+  /** Whether this collection is currently selected */
+  isSelected: boolean;
+
+  /** Callback when delete button is clicked */
+  onDelete: (collection: CollectionPickerCollection) => void;
 
   /** Callback when edit button is clicked */
   onEdit: (collection: CollectionPickerCollection) => void;
 
-  /** Callback when delete button is clicked */
-  onDelete: (collection: CollectionPickerCollection) => void;
+  /** Callback when this collection is clicked */
+  onSelect: (id: string) => void;
 }
 
 /**

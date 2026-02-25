@@ -8,8 +8,8 @@ import {
 } from '../utils/file-explorer-utils';
 
 export interface FolderStateActions {
-  setCurrentFolderId: (folderId: string | null) => void;
   hydrateFolderState: (folderId: string) => void;
+  setCurrentFolderId: (folderId: string | null) => void;
 }
 
 /** Build the state update for restoring an existing folder */

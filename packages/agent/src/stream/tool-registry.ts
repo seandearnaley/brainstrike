@@ -2,8 +2,8 @@ import { cloneJsonSafe } from './json';
 
 export interface ToolCallControllerLike {
   argsText: { append: (text: string) => void };
-  setResponse: (options: { result: unknown; isError: boolean }) => void;
   close: () => void;
+  setResponse: (options: { result: unknown; isError: boolean }) => void;
 }
 
 export interface ToolRegistryEntry<TController extends ToolCallControllerLike> {

@@ -6,16 +6,16 @@ import {
 } from '@brainstrike/utils';
 
 export interface ReportGenerationRequest {
-  selectedFiles: Set<string>;
-  fileContents: Record<string, string>;
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
-  includeFilters: string[];
   excludeFilters: string[];
-  useRegex: boolean;
+  fileContents: Record<string, string>;
+  folderSummaryThreshold: number;
+  includeFilters: string[];
   includeProjectTree: boolean;
   projectTreeUsesViewFilters?: boolean;
-  folderSummaryThreshold: number;
+  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
+  selectedFiles: Set<string>;
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
+  useRegex: boolean;
   useTapestryRanges?: boolean;
 }
 

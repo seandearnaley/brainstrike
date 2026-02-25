@@ -3,37 +3,37 @@ import { createLogger } from '@brainstrike/utils';
 import { useCallback } from 'react';
 
 export interface DatabaseErrorBoundaryOptions {
-  toast: ReturnType<typeof useToast>['toast'];
-  onError?: (error: Error) => void;
   fallbackMessage?: string;
+  onError?: (error: Error) => void;
+  toast: ReturnType<typeof useToast>['toast'];
 }
 
 export type DatabaseOperation<T> = () => Promise<T>;
 
 // Types for multiple operations
 export interface DatabaseOperationItem<T = unknown> {
-  operation: DatabaseOperation<T>;
-  name: string;
   critical?: boolean;
+  name: string;
+  operation: DatabaseOperation<T>;
 }
 
 export interface MultipleOperationsResult<T = unknown> {
-  results: (T | null)[];
   allSucceeded: boolean;
   failedCount: number;
+  results: (T | null)[];
 }
 
 export interface ErrorCategories {
-  isNetworkError: boolean;
   isAuthError: boolean;
-  isValidationError: boolean;
-  isTransactionError: boolean;
   isDatabaseNotReady: boolean;
+  isNetworkError: boolean;
+  isTransactionError: boolean;
+  isValidationError: boolean;
 }
 
 export interface ClearOperationResult {
-  deletedFiles: number;
   deletedChunks: number;
+  deletedFiles: number;
 }
 
 const logger = createLogger('useDatabaseErrorBoundary');

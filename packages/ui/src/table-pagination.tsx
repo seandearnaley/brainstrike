@@ -93,10 +93,10 @@ function formatRangeSummary(args: {
 }
 
 interface PageSizeControlProps {
-  onPageSizeChange: ((value: string) => void) | undefined;
-  pageSize: number | undefined;
   actualPageSizeOptions: readonly number[];
   isReducedDensity: boolean;
+  onPageSizeChange: ((value: string) => void) | undefined;
+  pageSize: number | undefined;
   resolvedDensity: ResolvedPaginationDensity;
 }
 
@@ -138,21 +138,21 @@ const PageSizeControl = memo(function PageSizeControl({
 PageSizeControl.displayName = 'PageSizeControl';
 
 interface NavigationControlsProps {
-  isMiniDensity: boolean;
-  isReducedDensity: boolean;
+  inputValue: string;
   isFirstPage: boolean;
   isLastPage: boolean;
-  totalPages: number;
-  totalItems: number;
-  inputValue: string;
+  isMiniDensity: boolean;
+  isReducedDensity: boolean;
   onGoToFirstPage: () => void;
-  onGoToPreviousPage: () => void;
-  onGoToNextPage: () => void;
   onGoToLastPage: () => void;
+  onGoToNextPage: () => void;
+  onGoToPreviousPage: () => void;
   onInputBlur: () => void;
   onInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onInputFocus: () => void;
   onInputKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  totalItems: number;
+  totalPages: number;
 }
 
 const NavigationControls = memo(function NavigationControls({
@@ -255,8 +255,8 @@ const NavigationControls = memo(function NavigationControls({
 NavigationControls.displayName = 'NavigationControls';
 
 interface RangeSummaryProps {
-  shouldRenderRangeSummary: boolean;
   rangeSummary: string;
+  shouldRenderRangeSummary: boolean;
 }
 
 const RangeSummary = memo(function RangeSummary({
@@ -279,24 +279,24 @@ RangeSummary.displayName = 'RangeSummary';
 interface TablePaginationProps {
   /** Current page index (0-based) */
   currentPage: number;
-  /** Total number of pages */
-  totalPages: number;
-  /** Total number of items across all pages */
-  totalItems: number;
+  /** Pagination density. Use `auto` to adapt to container width. */
+  density?: PaginationDensity;
   /** Callback when page changes */
   onPageChange: (page: number) => void;
+  /** Callback when page size changes */
+  onPageSizeChange?: (pageSize: number) => void;
   /** Optional additional page info text */
   pageInfo?: string;
   /** Current page size (items per page) */
   pageSize?: number;
-  /** Callback when page size changes */
-  onPageSizeChange?: (pageSize: number) => void;
   /** Available page size options */
   pageSizeOptions?: readonly number[];
   /** Whether to show the item range display (e.g., "Showing 1-50 of 500") */
   showItemRange?: boolean;
-  /** Pagination density. Use `auto` to adapt to container width. */
-  density?: PaginationDensity;
+  /** Total number of items across all pages */
+  totalItems: number;
+  /** Total number of pages */
+  totalPages: number;
 }
 
 export const TablePagination = memo<TablePaginationProps>(function TablePaginationComponent({

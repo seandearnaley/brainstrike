@@ -13,12 +13,12 @@ import type * as React from 'react';
 export type RestoreAccessModalVariant = 'pending' | 'denied' | 'stale';
 
 export interface RestoreAccessModalProps {
-  isOpen: boolean;
   folderName: string;
-  variant: RestoreAccessModalVariant;
+  isOpen: boolean;
   isRestoring?: boolean;
-  onRestore: () => void;
   onDismiss: () => void;
+  onRestore: () => void;
+  variant: RestoreAccessModalVariant;
 }
 
 const variantCopy = {

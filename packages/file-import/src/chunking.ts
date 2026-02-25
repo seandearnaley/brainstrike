@@ -45,45 +45,45 @@ export function getChunkingStrategy(
 }
 
 interface ChunkingDeps {
-  repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
+  repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
 }
 
 interface ChunkingOptions {
   chunkingStrategy?: ChunkingStrategy;
   chunkingStrategyExplicit?: boolean;
-  chunkSize?: number;
+  // Worker port for off-main-thread chunking
+  chunkingWorkerPort?: import('./chunking-worker-port').ChunkingWorkerPort;
   chunkOverlap?: number;
-  forceStrategy?: boolean;
-  updateProgress: (
-    updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null
-  ) => void;
-  tokenTrueSizing?: boolean;
-  tokenLimit?: number;
-  // Target embedding set ID to associate chunks with a specific collection
-  targetEmbeddingSetId?: string;
+  chunkSize?: number;
   // Phase 3: optional queue producer injection
   embedQueueEnabled?: boolean;
   enqueueJobsForChunks?: (chunks: FileChunk[], fileRecordId: string) => Promise<void>;
-  // Post-review: support transactional enqueue with chunk insert
-  runInTransaction?: <T>(fn: (tx: IDatabase) => Promise<T>) => Promise<T>;
   enqueueJobsForChunksTx?: (
     tx: IDatabase,
     chunks: FileChunk[],
     fileRecordId: string
   ) => Promise<void>;
+  forceStrategy?: boolean;
+  // Post-review: support transactional enqueue with chunk insert
+  runInTransaction?: <T>(fn: (tx: IDatabase) => Promise<T>) => Promise<T>;
+  streamBatchSize?: number;
+  // Target embedding set ID to associate chunks with a specific collection
+  targetEmbeddingSetId?: string;
+  tokenLimit?: number;
+  tokenTrueSizing?: boolean;
+  updateProgress: (
+    updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null
+  ) => void;
   // Phase 5: opt-in streaming for large files
   useStreamingForLargeFiles?: boolean;
-  streamBatchSize?: number;
-  // Worker port for off-main-thread chunking
-  chunkingWorkerPort?: import('./chunking-worker-port').ChunkingWorkerPort;
 }
 
 interface ChunkingProgressSnapshot {
-  filesProcessed: number;
-  totalFiles: number;
   chunksCreated: number;
+  filesProcessed: number;
   strategyUsed?: ChunkingStrategy;
+  totalFiles: number;
 }
 
 function createChunkingProgressScheduler(
@@ -213,8 +213,8 @@ async function updateFileRecordWithChunkInfo(
 }
 
 interface ChunkingSkipResult {
-  enhancedResult: EnhancedImportResult;
   chunksCreated: number;
+  enhancedResult: EnhancedImportResult;
   strategyUsed: ChunkingStrategy;
 }
 

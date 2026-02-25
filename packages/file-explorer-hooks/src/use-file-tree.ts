@@ -14,10 +14,10 @@ const PROGRESS_BATCH_SIZE = 25;
 const DEFAULT_BATCH_SIZE = 100;
 
 export interface LoadingProgressState {
-  loaded: number;
-  total: number;
   currentPath?: string;
+  loaded: number;
   phase: 'counting' | 'loading';
+  total: number;
 }
 
 export interface UseFileTreeOptions {
@@ -25,37 +25,37 @@ export interface UseFileTreeOptions {
 }
 
 interface ProcessingStats {
-  successCount: number;
   failCount: number;
+  successCount: number;
 }
 
 interface StackItem {
   handle: DirectoryHandle;
-  parent: IFileNode[];
   isRoot: boolean;
+  parent: IFileNode[];
   path: string;
 }
 
 interface ProcessingContext {
-  rootFolderId: string;
   batchSize: number;
   fileSystemAdapter: ReturnType<typeof useAdapters>['fileSystemAdapter'];
-  updateProgress: (path?: string) => void;
-  processFile: (
-    entry: IFileNode,
-    relativePath: string,
-    directoryHandle: DirectoryHandle,
-    rootFolderId: string
-  ) => IFileNode;
   processDirectory: (
     entry: IFileNode,
     relativePath: string,
     directoryHandle: DirectoryHandle,
     rootFolderId: string
   ) => IFileNode;
+  processFile: (
+    entry: IFileNode,
+    relativePath: string,
+    directoryHandle: DirectoryHandle,
+    rootFolderId: string
+  ) => IFileNode;
+  rootFolderId: string;
+  rootNodesRef: React.MutableRefObject<IFileNode[]>;
   setFileTree: (nodes: IFileNode[]) => void;
   sortFileNodes: (nodes: IFileNode[]) => IFileNode[];
-  rootNodesRef: React.MutableRefObject<IFileNode[]>;
+  updateProgress: (path?: string) => void;
 }
 
 export function useFileTree(

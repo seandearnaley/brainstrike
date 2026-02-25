@@ -6,87 +6,87 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
  * Cached collection data - persists across component unmounts during imports
  */
 export interface CachedCollection {
-  id: string;
-  modelKey: string;
-  modelId: string;
+  category: string | null;
+  chunkCount: number;
+  createdAt: string;
+  description: string | null;
   dimensions: number;
   distance: 'cosine' | 'l2' | 'ip';
-  createdAt: string;
-  name: string | null;
-  description: string | null;
-  tags: string | null;
-  category: string | null;
-  fileCount: number;
-  chunkCount: number;
   embeddingCount: number;
+  fileCount: number;
+  id: string;
+  modelId: string;
+  modelKey: string;
+  name: string | null;
+  tags: string | null;
 }
 
 /**
  * Minimal file record for caching - excludes large fields like content/embedding
  */
 export interface CachedFileRecord {
+  chunksCount: number | undefined;
+  createdAt: string;
+  embeddingSetId: string | undefined;
   id: string;
   name: string;
   path: string;
   size: number;
-  createdAt: string;
-  updatedAt: string;
   tokenCount: number | undefined;
-  chunksCount: number | undefined;
-  embeddingSetId: string | undefined;
+  updatedAt: string;
 }
 
 /**
  * Minimal file chunk for caching - excludes large fields like content/embedding
  */
 export interface CachedFileChunk {
-  id: string;
-  fileRecordId: string;
   chunkIndex: number;
-  tokenCount: number;
   chunkType: 'text' | 'sentence' | 'recursive' | 'code';
   embeddingSetId: string | undefined;
+  fileRecordId: string;
+  id: string;
+  tokenCount: number;
 }
 
 /**
  * Per-collection cache entry
  */
 interface CollectionDataCache {
+  chunks: CachedFileChunk[];
   collectionId: string;
   records: CachedFileRecord[];
-  chunks: CachedFileChunk[];
 }
 
 interface VectorStatusUIData {
   activeEmbeddingSetId: string | null;
-  /** When true, live queries should be paused to avoid performance degradation during bulk operations */
-  isImporting: boolean;
-  /** When true, embeddings are actively being generated (from any source). */
-  isEmbeddingActive: boolean;
-  /** When true, the local embedding queue adapter is processing tasks. */
-  isEmbeddingQueueActive: boolean;
-  /** When true, the job_queue has embedding work pending (queued/running). */
-  isJobQueueActive: boolean;
   /** Cached collections data - persists across component unmounts during bulk operations */
   cachedCollections: CachedCollection[];
   /** Cached file data for active collection - persists across component unmounts */
   cachedFileData: CollectionDataCache | null;
+  /** When true, embeddings are actively being generated (from any source). */
+  isEmbeddingActive: boolean;
+  /** When true, the local embedding queue adapter is processing tasks. */
+  isEmbeddingQueueActive: boolean;
+  /** When true, live queries should be paused to avoid performance degradation during bulk operations */
+  isImporting: boolean;
+  /** When true, the job_queue has embedding work pending (queued/running). */
+  isJobQueueActive: boolean;
   /** Whether database schema has been verified - persists across component unmounts */
   schemaVerified: boolean;
 }
 
 interface VectorStatusUIActions {
-  setActiveEmbeddingSetId: (id: string | null) => void;
-  setIsImporting: (importing: boolean) => void;
-  setIsEmbeddingQueueActive: (active: boolean) => void;
-  setIsJobQueueActive: (active: boolean) => void;
-  setCachedCollections: (collections: CachedCollection[]) => void;
   /**
    * Remove a collection from the cache by ID.
    * Uses functional state update to avoid stale closure bugs in async handlers.
    */
   removeCachedCollection: (collectionId: string) => void;
+  setActiveEmbeddingSetId: (id: string | null) => void;
+  setCachedCollections: (collections: CachedCollection[]) => void;
   setCachedFileData: (data: CollectionDataCache | null) => void;
+  setIsEmbeddingQueueActive: (active: boolean) => void;
+  setIsImporting: (importing: boolean) => void;
+  setIsJobQueueActive: (active: boolean) => void;
   setSchemaVerified: (verified: boolean) => void;
 }
 

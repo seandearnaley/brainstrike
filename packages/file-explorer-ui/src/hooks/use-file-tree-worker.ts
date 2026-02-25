@@ -115,17 +115,17 @@ export interface WorkerProgressUpdate {
 export interface UseFileTreeWorkerOptions {
   /** File system adapter for I/O operations */
   fileSystemAdapter: FileSystemAdapter | null;
-  /** Callback when progress updates occur */
-  onProgress?: (loaded: number, total: number) => void;
   /** Callback when errors occur */
   onError?: (error: Error) => void;
+  /** Callback when progress updates occur */
+  onProgress?: (loaded: number, total: number) => void;
 }
 
 export interface UseFileTreeWorkerReturn {
-  /** Worker port for sending commands */
-  portRef: React.RefObject<FileTreeWorkerPort | null>;
   /** Handle map for file system handles */
   handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  /** Worker port for sending commands */
+  portRef: React.RefObject<FileTreeWorkerPort | null>;
   /** Current root directory handle ref (for use in handlers) */
   rootHandleRef: React.RefObject<DirectoryHandle | null>;
   /** Update the root handle ref */

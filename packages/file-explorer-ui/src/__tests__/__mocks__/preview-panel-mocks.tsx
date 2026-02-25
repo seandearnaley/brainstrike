@@ -7,74 +7,74 @@ interface MockComponentProps extends Record<string, unknown> {
 }
 
 interface MockSortableHeaderProps extends MockComponentProps {
-  title: string;
-  onSort: (field: string) => void;
   field: string;
-  sortField?: string;
+  onSort: (field: string) => void;
   sortDirection?: 'asc' | 'desc';
+  sortField?: string;
+  title: string;
 }
 
 interface MockTablePaginationProps extends MockComponentProps {
   currentPage: number;
-  totalPages: number;
-  onPageChange: (page: number) => void;
-  totalItems?: number;
-  pageInfo?: string;
   maxPageButtons?: number;
-  pageSize?: number;
+  onPageChange: (page: number) => void;
   onPageSizeChange?: (size: number) => void;
+  pageInfo?: string;
+  pageSize?: number;
+  totalItems?: number;
+  totalPages: number;
 }
 
 interface MockTableGroupHeaderProps extends MockComponentProps {
-  groupLabel: string;
-  onToggleCollapse: () => void;
-  onSelectionChange: (selected: boolean) => void;
-  isCollapsed?: boolean;
-  isGroupSelected?: boolean;
-  isIndeterminate?: boolean;
   filesInGroup?: number;
   groupKey?: string | number;
+  groupLabel: string;
+  isCollapsed?: boolean;
   isFullySelected?: boolean;
+  isGroupSelected?: boolean;
+  isIndeterminate?: boolean;
   isPartiallySelected?: boolean;
+  onSelectionChange: (selected: boolean) => void;
+  onToggleCollapse: () => void;
 }
 
 interface MockTreeNode {
-  id: string;
-  type: string;
-  depth: number;
   data: unknown;
-  parentId: string | null;
+  depth: number;
   hasChildren: boolean;
+  id: string;
+  parentId: string | null;
+  type: string;
 }
 
 interface MockTreeTableCellProps {
-  node: MockTreeNode;
   depth: number;
   isExpanded: boolean;
-  isSelected: boolean;
   isHighlighted: boolean;
   isInContext: boolean;
+  isSelected: boolean;
+  node: MockTreeNode;
   rowIndex: number;
 }
 
 interface MockTreeTableColumn {
-  id: string;
-  header?: React.ReactNode;
   cell: (props: MockTreeTableCellProps) => React.ReactNode;
+  header?: React.ReactNode;
+  id: string;
 }
 
 interface MockTreeTableProps extends MockComponentProps {
   ariaLabel?: string;
   className?: string;
   columns: MockTreeTableColumn[];
-  nodes: MockTreeNode[];
   expandedIds: Set<string>;
+  nodes: MockTreeNode[];
   onToggleExpand: (nodeId: string) => void;
 }
 
 interface TabsContextValue {
-  value?: string;
   onValueChange?: (value: string) => void;
+  value?: string;
 }
 
 type TabsProps = MockComponentProps & {
@@ -97,8 +97,8 @@ type TabsContentProps = MockComponentProps & {
 const TabsContext = React.createContext<TabsContextValue | null>(null);
 
 interface UsePaginationOptions {
-  totalItems: number;
   pageSize?: number;
+  totalItems: number;
 }
 
 interface PaginationState {
@@ -139,8 +139,8 @@ export const resetPreviewPanelPaginationMockState = () => {
 };
 
 interface UsePreviewPanelStateMockReturn {
-  usePreviewPanelState: Mock;
   formatTokenCount: (tokens: number) => string;
+  usePreviewPanelState: Mock;
 }
 
 export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn => ({

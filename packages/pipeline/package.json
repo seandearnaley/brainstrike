@@ -1,20 +1,28 @@
 {
   "name": "@brainstrike/pipeline",
-  "version": "0.0.1",
-  "private": true,
-  "type": "module",
   "description": "Indexing pipeline orchestrator for File → Chunk → Embed → Vector flows",
+  "version": "0.0.1",
+  "dependencies": {
+    "@brainstrike/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "files": [
     "dist"
   ],
+  "main": "./dist/index.js",
+  "private": true,
   "scripts": {
     "build": "tsc --build",
     "clean": "rm -rf dist .tsbuildinfo",
@@ -24,14 +32,6 @@
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"
   },
-  "dependencies": {
-    "@brainstrike/utils": "workspace:*"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
-  },
-  "engines": {
-    "node": ">=22"
-  }
+  "type": "module",
+  "types": "./dist/index.d.ts"
 }

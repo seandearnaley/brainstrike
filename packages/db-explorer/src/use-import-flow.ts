@@ -12,6 +12,7 @@ import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 import { getActiveEmbeddingSetId } from './vector-preferences';
 
 export interface UseImportFlowOptions {
+  embeddingQueue?: QueueAdapter | null;
   importSettings: {
     enableChunking: boolean;
     chunkingStrategy: ChunkingStrategy;
@@ -21,25 +22,24 @@ export interface UseImportFlowOptions {
     tokenTrueSizing: boolean;
     chunkTokenLimit: number;
   };
-  toast: ReturnType<typeof useToast>['toast'];
-  onImportComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   onChunkRepositoryChange?: (
     repository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null
   ) => void;
-  embeddingQueue?: QueueAdapter | null;
+  onImportComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   resolveActiveCollectionId?: () => string | null;
+  toast: ReturnType<typeof useToast>['toast'];
 }
 
 export interface UseImportFlowResult {
-  handleImportClick: () => void;
-  handleCancelImport: () => void;
-  isImporting: boolean;
-  isCancelling: boolean;
-  progress: EnhancedImportProgress | null;
-  showImportProgress: boolean;
-  setShowImportProgress: (show: boolean) => void;
-  selectedFileCount: number;
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  handleCancelImport: () => void;
+  handleImportClick: () => void;
+  isCancelling: boolean;
+  isImporting: boolean;
+  progress: EnhancedImportProgress | null;
+  selectedFileCount: number;
+  setShowImportProgress: (show: boolean) => void;
+  showImportProgress: boolean;
 }
 
 export function useImportFlow({

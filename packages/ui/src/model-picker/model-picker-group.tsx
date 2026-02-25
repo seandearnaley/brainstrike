@@ -4,10 +4,10 @@ import { getProviderColor } from './utils/provider-colors';
 import { ProviderIcon } from './utils/provider-icons';
 
 interface ModelPickerGroupProps {
-  provider: ModelPickerProvider;
   children: React.ReactNode;
-  theme?: 'light' | 'dark';
   modelCount?: number;
+  provider: ModelPickerProvider;
+  theme?: 'light' | 'dark';
 }
 
 export function ModelPickerGroup({

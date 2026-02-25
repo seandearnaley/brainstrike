@@ -15,8 +15,8 @@ interface PendingFile {
 }
 
 interface ErrorEntry {
-  file: string;
   error: string;
+  file: string;
 }
 
 const IMPORT_PROCESS_LABEL = 'Import Process';

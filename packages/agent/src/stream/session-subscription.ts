@@ -4,8 +4,8 @@ import type { StoredChunk } from './data-stream-codes';
 const logger = createLogger('AgentDataStream');
 
 export interface SessionLike {
-  pullEvent(index: number): StoredChunk | undefined;
   isClosed(): boolean;
+  pullEvent(index: number): StoredChunk | undefined;
   removeSubscription(subscription: SessionSubscription): void;
 }
 

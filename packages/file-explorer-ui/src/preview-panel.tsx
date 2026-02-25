@@ -110,14 +110,28 @@ function getTokenUsageMetrics(args: {
 }
 
 interface PreviewPanelProps {
-  selectedFiles: Set<string>;
-  fileContents: { [compositeKey: string]: string };
-  loadingFiles: Set<string>;
-  onSelectionChange: (files: Set<string>) => void;
-  fileSizes?: { [compositeKey: string]: number };
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
-  tokenCounting: TokenCountingState;
   estimateTokenCost?: (tokens: number) => number;
+  fileContents: { [compositeKey: string]: string };
+  fileSizes?: { [compositeKey: string]: number };
+  folderSummaryThreshold?: number;
+  includeProjectTree?: boolean;
+  loadingFiles: Set<string>;
+  onCopyContext?: (options: ContextExportOptions) => void;
+  /** @deprecated Use `onCopyContext` instead. */
+  onCopyReport?: () => void;
+  onDownloadContext?: (options: ContextExportOptions) => void;
+  // TODO(context-migration): remove legacy report-named callbacks after downstream migration.
+  /** @deprecated Use `onDownloadContext` instead. */
+  onDownloadReport?: () => void;
+  onFileClick?: (compositeKey: string) => void;
+  onFolderSummaryThresholdChange?: (threshold: number) => void;
+  onIncludeProjectTreeChange?: (checked: boolean) => void;
+  onProjectTreeUsesViewFiltersChange?: (checked: boolean) => void;
+  onRequestFileContent?: (compositeKey: string) => void;
+  onSelectionChange: (files: Set<string>) => void;
+  onTokenBudgetChange?: (budget: number) => void;
+  pageSize?: number;
   performUndoableAction: (
     key: string,
     itemKey: string,
@@ -128,26 +142,12 @@ interface PreviewPanelProps {
       onUndo: (key: string, snapshot: Set<string>) => void;
     }
   ) => void;
-  onFileClick?: (compositeKey: string) => void;
-  pageSize?: number;
-  // TODO(context-migration): remove legacy report-named callbacks after downstream migration.
-  /** @deprecated Use `onDownloadContext` instead. */
-  onDownloadReport?: () => void;
-  /** @deprecated Use `onCopyContext` instead. */
-  onCopyReport?: () => void;
-  onDownloadContext?: (options: ContextExportOptions) => void;
-  onCopyContext?: (options: ContextExportOptions) => void;
-  includeProjectTree?: boolean;
-  onIncludeProjectTreeChange?: (checked: boolean) => void;
-  projectTreeUsesViewFilters?: boolean;
-  onProjectTreeUsesViewFiltersChange?: (checked: boolean) => void;
   projectTreeTokenCount?: number;
   projectTreeTokenCountLoading?: boolean;
+  projectTreeUsesViewFilters?: boolean;
+  selectedFiles: Set<string>;
   tokenBudget?: number;
-  onTokenBudgetChange?: (budget: number) => void;
-  folderSummaryThreshold?: number;
-  onFolderSummaryThresholdChange?: (threshold: number) => void;
-  onRequestFileContent?: (compositeKey: string) => void;
+  tokenCounting: TokenCountingState;
 }
 
 function createDefaultTapestryRanges(compositeKey: string, totalLines: number): TapestryRange[] {

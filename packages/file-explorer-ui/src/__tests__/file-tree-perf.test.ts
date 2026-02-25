@@ -33,10 +33,10 @@ import { describe, expect, it } from 'vitest';
  * Used to measure performance outside React context.
  */
 interface TreeNode {
-  path: string;
-  type: string;
   children?: TreeNode[];
   isVisible?: boolean;
+  path: string;
+  type: string;
 }
 
 function flattenTree(

@@ -25,40 +25,40 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 }));
 
 interface SecretsApi {
+  clearAll?: () => Promise<{ success: boolean; message?: string }>;
+  deleteKey: (provider: string) => Promise<void>;
+  getKey: (provider: string) => Promise<string | null>;
   list: () => Promise<string[]>;
   listStored: () => Promise<string[]>;
   saveKey: (provider: string, key: string) => Promise<{ ok?: boolean; error?: string } | undefined>;
-  getKey: (provider: string) => Promise<string | null>;
-  deleteKey: (provider: string) => Promise<void>;
-  clearAll?: () => Promise<{ success: boolean; message?: string }>;
 }
 
 interface McpApi {
+  disableServerTools: (serverName: string) => Promise<void>;
+  disableTools: (ids: string[]) => Promise<void>;
+  enableServerTools: (serverName: string) => Promise<void>;
+  enableTools: (ids: string[]) => Promise<void>;
   getConfig: () => Promise<{ path: string; exists: boolean; servers: never[] }>;
   getPath?: () => Promise<string>;
-  selectPath: () => Promise<string | null>;
-  setPath: (path: string | null) => Promise<{ success: boolean; path: string }>;
-  readConfigText?: () => Promise<{
-    path: string;
-    exists: boolean;
-    created: boolean;
-    content: string;
-  }>;
-  writeConfigText?: (
-    content: string
-  ) => Promise<{ success: true; path: string } | { success: false; path: string; error: string }>;
-  listTools: () => Promise<Record<string, never[]>>;
   getToolStats: () => Promise<{
     total: number;
     enabled: number;
     disabled: number;
     servers: number;
   }>;
-  disableTools: (ids: string[]) => Promise<void>;
-  enableTools: (ids: string[]) => Promise<void>;
-  enableServerTools: (serverName: string) => Promise<void>;
-  disableServerTools: (serverName: string) => Promise<void>;
+  listTools: () => Promise<Record<string, never[]>>;
+  readConfigText?: () => Promise<{
+    path: string;
+    exists: boolean;
+    created: boolean;
+    content: string;
+  }>;
   resetTools: () => Promise<void>;
+  selectPath: () => Promise<string | null>;
+  setPath: (path: string | null) => Promise<{ success: boolean; path: string }>;
+  writeConfigText?: (
+    content: string
+  ) => Promise<{ success: true; path: string } | { success: false; path: string; error: string }>;
 }
 
 const getWindowWithExtensions = () =>

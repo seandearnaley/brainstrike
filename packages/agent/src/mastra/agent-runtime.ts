@@ -19,19 +19,19 @@ import { sanitizeTools } from './tool-sanitizer';
 
 export interface MastraAgentRuntimeOptions {
   instructions?: string;
-  model?: string;
-  runtime?: RuntimeData;
   mcpConfig?: McpConfig;
-  tools?: ToolsInput;
   // Optional timeout (ms) for initial MCP tool discovery
   mcpTimeoutMs?: number;
+  model?: string;
   resolved?: ResolvedRuntimeConfiguration;
+  runtime?: RuntimeData;
+  tools?: ToolsInput;
 }
 
 export interface MastraAgentRuntime {
   agent: Agent;
-  mcpClient?: MCPClient;
   dispose: () => Promise<void>;
+  mcpClient?: MCPClient;
   toolNameMap: Map<string, string>;
   /** True if the language model declares AI SDK V1 */
   usesLegacyModel: boolean;
@@ -232,20 +232,15 @@ Provide concise answers after using tools.`,
 }
 
 interface UsageLike {
-  promptTokens?: number;
   completionTokens?: number;
   inputTokens?: number;
+  promptTokens?: number;
 }
 
 /** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
 interface MastraStreamPart {
-  type: string;
-  text?: string;
-  textDelta?: string;
   delta?: string;
-  usage?: UsageLike;
   error?: unknown;
-  tripwireReason?: string;
   payload?: {
     text?: string;
     textDelta?: string;
@@ -255,6 +250,11 @@ interface MastraStreamPart {
     output?: { usage?: UsageLike };
     metadata?: { usage?: UsageLike };
   };
+  text?: string;
+  textDelta?: string;
+  tripwireReason?: string;
+  type: string;
+  usage?: UsageLike;
 }
 
 function asMastraStreamPart(part: unknown): MastraStreamPart {
@@ -397,9 +397,9 @@ async function initializeMastraRuntime(
 }
 
 interface StreamIterationParams {
+  messages: AgentMessage[];
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
-  messages: AgentMessage[];
   sanitizedNameMap?: Map<string, string>;
   useLegacyStream: boolean;
 }
@@ -407,8 +407,8 @@ interface StreamIterationParams {
 interface StreamGeneratorParams {
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
-  stream: NodeReadableStream<unknown> | ReadableStream<unknown>;
   sanitizedNameMap?: Map<string, string>;
+  stream: NodeReadableStream<unknown> | ReadableStream<unknown>;
 }
 
 interface StreamResultLike {

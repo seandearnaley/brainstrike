@@ -27,13 +27,13 @@ type LogHandler = (
 type FlattenedResultHandler = (nodes: FlattenedNode[], count: number, durationMs: number) => void;
 
 interface PendingOperation {
+  operationId: number;
+  reject: (error: Error) => void;
   resolve: (result: {
     tree: WorkerFileNode[];
     expandedPaths: string[];
     loadedCount: number;
   }) => void;
-  reject: (error: Error) => void;
-  operationId: number;
 }
 
 /**
@@ -94,8 +94,11 @@ function sendLoadErrors(worker: Worker, paths: string[], err: unknown): void {
  * Port abstraction for communicating with the file tree worker.
  */
 export interface FileTreeWorkerPort {
-  /** Initialize worker with root nodes */
-  init(rootNodes: WorkerFileNode[], folderId: string): void;
+  /** Abort current operation */
+  abort(): void;
+
+  /** Collapse all directories */
+  collapseAll(): void;
 
   /** Start expand-all operation */
   expandAll(folderId: string): Promise<{
@@ -103,6 +106,14 @@ export interface FileTreeWorkerPort {
     expandedPaths: string[];
     loadedCount: number;
   }>;
+
+  /** Request worker to flatten tree with given expanded paths */
+  flattenTree(expandedPaths: string[]): void;
+  /** Initialize worker with root nodes */
+  init(rootNodes: WorkerFileNode[], folderId: string): void;
+
+  /** Check if worker is ready */
+  isReady(): boolean;
 
   /** Load specific paths (for restoration) */
   loadPaths(paths: string[]): Promise<{
@@ -118,53 +129,41 @@ export interface FileTreeWorkerPort {
     loadedCount: number;
   }>;
 
-  /** Collapse all directories */
-  collapseAll(): void;
-
-  /** Abort current operation */
-  abort(): void;
-
-  /** Update tree with loaded children (single directory) */
-  updateTree(path: string, children: WorkerFileNode[]): void;
-
-  /** Send load results back to worker */
-  sendLoadResult(path: string, children: WorkerFileNode[]): void;
-
-  /** Send load error back to worker */
-  sendLoadError(path: string, error: string): void;
-
-  /** Register handler for load requests from worker */
-  onRequestLoad(
-    handler: (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>
-  ): () => void;
-
-  /** Register handler for progress updates */
-  onProgress(handler: (loaded: number, total: number, currentPath: string) => void): () => void;
-
-  /** Register handler for tree snapshots */
-  onTreeSnapshot(handler: (tree: WorkerFileNode[], expandedPaths: string[]) => void): () => void;
-
   /** Register handler for errors */
   onError(handler: (message: string, path?: string) => void): () => void;
-
-  /** Register handler for log messages */
-  onLog(
-    handler: (level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown) => void
-  ): () => void;
 
   /** Register handler for flattened tree results */
   onFlattenedResult(
     handler: (nodes: FlattenedNode[], count: number, durationMs: number) => void
   ): () => void;
 
-  /** Request worker to flatten tree with given expanded paths */
-  flattenTree(expandedPaths: string[]): void;
+  /** Register handler for log messages */
+  onLog(
+    handler: (level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown) => void
+  ): () => void;
 
-  /** Check if worker is ready */
-  isReady(): boolean;
+  /** Register handler for progress updates */
+  onProgress(handler: (loaded: number, total: number, currentPath: string) => void): () => void;
+
+  /** Register handler for load requests from worker */
+  onRequestLoad(
+    handler: (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>
+  ): () => void;
+
+  /** Register handler for tree snapshots */
+  onTreeSnapshot(handler: (tree: WorkerFileNode[], expandedPaths: string[]) => void): () => void;
+
+  /** Send load error back to worker */
+  sendLoadError(path: string, error: string): void;
+
+  /** Send load results back to worker */
+  sendLoadResult(path: string, children: WorkerFileNode[]): void;
 
   /** Terminate the worker */
   terminate(): void;
+
+  /** Update tree with loaded children (single directory) */
+  updateTree(path: string, children: WorkerFileNode[]): void;
 }
 
 /**

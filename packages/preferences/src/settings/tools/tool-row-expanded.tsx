@@ -17,10 +17,10 @@ import type { ToolDisplayMetadata, ToolExecutionResult } from './types';
  * Props for the ToolRowExpanded component.
  */
 export interface ToolRowExpandedProps {
-  /** Tool metadata to display */
-  tool: ToolDisplayMetadata;
   /** Optional callback to execute tool tests (shows playground when provided) */
   onExecuteTest?: (toolId: string, input: unknown) => Promise<ToolExecutionResult>;
+  /** Tool metadata to display */
+  tool: ToolDisplayMetadata;
 }
 
 /**

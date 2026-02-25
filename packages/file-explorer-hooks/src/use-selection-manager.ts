@@ -8,10 +8,10 @@ import type { FileExplorerState } from '@brainstrike/types'; // Import the state
 import { useCallback } from 'react';
 
 interface UseSelectionManagerParams {
-  selectedFilePaths: FileExplorerState['selectedFilePaths'];
   maxSelectionCount: FileExplorerState['maxSelectionCount'];
-  setSelectedFiles: FileExplorerState['setSelectedFiles'];
   onSelectionLimitExceeded: () => void;
+  selectedFilePaths: FileExplorerState['selectedFilePaths'];
+  setSelectedFiles: FileExplorerState['setSelectedFiles'];
 }
 
 export const useSelectionManager = ({

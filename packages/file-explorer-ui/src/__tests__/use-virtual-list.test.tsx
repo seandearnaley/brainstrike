@@ -9,9 +9,9 @@ let resizeObserverCallback: ResizeObserverCallbackRef = null;
 
 interface TestComponentProps {
   itemCount: number;
-  rowHeight: number;
-  overscan?: number;
   onUpdate: (range: { start: number; end: number }) => void;
+  overscan?: number;
+  rowHeight: number;
 }
 
 function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestComponentProps) {

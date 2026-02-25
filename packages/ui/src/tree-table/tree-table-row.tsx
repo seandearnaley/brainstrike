@@ -33,10 +33,10 @@ const GROUP_HEADER_DATA_SHAPE = { groupLabel: '', itemCount: 0 } satisfies TreeT
  * Props for the GroupHeaderCell component.
  */
 interface GroupHeaderCellProps<T> {
-  node: TreeNode<TreeTableGroupHeaderData>;
-  isExpanded: boolean;
-  onExpandClick: (event: React.MouseEvent) => void;
   columns: TreeTableColumn<T>[];
+  isExpanded: boolean;
+  node: TreeNode<TreeTableGroupHeaderData>;
+  onExpandClick: (event: React.MouseEvent) => void;
 }
 
 /**
@@ -235,13 +235,13 @@ function TreeTableRowInner<T>({
  * which includes indentation, checkbox, and the expand/collapse toggle.
  */
 interface TreeTableCellInternalProps<T> {
-  row: FlattenedRow<T>;
+  checkboxState: 'checked' | 'unchecked' | 'indeterminate';
   column: TreeTableColumn<T>;
   columnIndex: number;
-  onExpandClick: (event: React.MouseEvent) => void;
-  showCheckbox: boolean;
-  checkboxState: 'checked' | 'unchecked' | 'indeterminate';
   onCheckboxChange: (() => void) | undefined;
+  onExpandClick: (event: React.MouseEvent) => void;
+  row: FlattenedRow<T>;
+  showCheckbox: boolean;
 }
 
 function TreeTableCellComponent<T>({

@@ -5,33 +5,31 @@ export type EmbeddingDeviceHint = EmbeddingDevice;
 export type EmbeddingDType = 'fp16' | 'q4' | 'fp32';
 
 export interface EmbedWorkerRequest {
-  readonly type: 'embed';
-  readonly id: string;
-  readonly model: string;
-  readonly texts: readonly string[];
-  readonly truncateDim?: number;
-  readonly dtype?: EmbeddingDType;
   readonly deviceHint: EmbeddingDeviceHint;
+  readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
+  readonly dtype?: EmbeddingDType;
+  readonly id: string;
   /**
    * Optional upper bound for batch sizing. Disclosed so the queue can tweak for stress tests.
    */
   readonly maxBatchSize?: number;
+  readonly model: string;
   readonly provider?: string;
   readonly targetDimension?: number;
-  readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
+  readonly texts: readonly string[];
+  readonly truncateDim?: number;
+  readonly type: 'embed';
 }
 
 export interface EmbedWorkerProgress {
-  readonly type: 'progress';
   readonly id: string;
-  readonly progress: number;
   readonly phase: 'initializing' | 'embedding' | 'complete';
+  readonly progress: number;
+  readonly type: 'progress';
 }
 
 export interface EmbedWorkerSuccess {
-  readonly type: 'result';
   readonly id: string;
-  readonly vectors: readonly Float32Array[];
   readonly metadata: {
     readonly model: string;
     readonly device: EmbeddingDevice;
@@ -41,14 +39,16 @@ export interface EmbedWorkerSuccess {
     readonly fallbackApplied: boolean;
     readonly dimensions: number;
   };
+  readonly type: 'result';
+  readonly vectors: readonly Float32Array[];
 }
 
 export interface EmbedWorkerError {
-  readonly type: 'error';
-  readonly id: string;
-  readonly message: string;
   /** Serialized error cause for debugging (string instead of unknown for safe workerpool serialization) */
   readonly cause?: string | undefined;
+  readonly id: string;
+  readonly message: string;
+  readonly type: 'error';
 }
 
 /**

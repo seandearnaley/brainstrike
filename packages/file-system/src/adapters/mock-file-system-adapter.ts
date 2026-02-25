@@ -8,11 +8,11 @@ import type {
 } from '../types';
 
 export interface MockFileEntry {
-  name: string;
-  type: 'file' | 'directory';
-  content?: string;
-  size?: number;
   children?: Record<string, MockFileEntry>;
+  content?: string;
+  name: string;
+  size?: number;
+  type: 'file' | 'directory';
 }
 
 // Navigation helper functions

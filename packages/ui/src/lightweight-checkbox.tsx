@@ -7,8 +7,8 @@ export type CheckedState = boolean | 'indeterminate';
 export interface LightweightCheckboxProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'checked' | 'onChange'> {
   checked?: CheckedState;
-  onCheckedChange?: (checked: CheckedState) => void;
   className?: string;
+  onCheckedChange?: (checked: CheckedState) => void;
 }
 
 /**

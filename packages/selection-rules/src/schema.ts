@@ -55,26 +55,25 @@ export type CapStrategy =
 
 /** Base rule structure shared by all rule types */
 export interface SelectionRuleBase {
-  /** Unique identifier for the rule (UUID recommended) */
-  id: string;
-
-  /** Rule type determines evaluation behavior */
-  type: SelectionRuleType;
-
-  /** Human-readable description for UI display */
-  label?: string;
+  /** ISO 8601 creation timestamp */
+  createdAt: string;
 
   /** Rule is active when true (default: true if omitted) */
   enabled?: boolean;
+  /** Unique identifier for the rule (UUID recommended) */
+  id: string;
 
-  /** ISO 8601 creation timestamp */
-  createdAt: string;
+  /** Human-readable description for UI display */
+  label?: string;
 
   /**
    * Priority within same type (higher = evaluated first).
    * Default: 0. Rules with same priority use creation order.
    */
   priority?: number;
+
+  /** Rule type determines evaluation behavior */
+  type: SelectionRuleType;
 }
 
 // ============================================================================
@@ -226,8 +225,8 @@ export interface SelectionRuleSetMetadata {
   /** ISO 8601 creation timestamp */
   createdAt: string;
 
-  /** ISO 8601 last update timestamp */
-  updatedAt: string;
+  /** Optional description of the rule set */
+  description?: string;
 
   /**
    * Source of migration (if migrated from v0).
@@ -235,8 +234,8 @@ export interface SelectionRuleSetMetadata {
    */
   migratedFrom?: 'explicit-set';
 
-  /** Optional description of the rule set */
-  description?: string;
+  /** ISO 8601 last update timestamp */
+  updatedAt: string;
 }
 
 /**
@@ -246,20 +245,19 @@ export interface SelectionRuleSetMetadata {
  * Rules are evaluated in type precedence order, then by priority within type.
  */
 export interface SelectionRuleSet {
-  /** Schema version for migrations */
-  version: SelectionRulesSchemaVersion;
-
   /** Associated folder ID (workspace context) */
   folderId: string;
+
+  /** Rule set metadata */
+  metadata: SelectionRuleSetMetadata;
 
   /**
    * Ordered list of rules.
    * Order matters for rules of the same type and priority.
    */
   rules: SelectionRule[];
-
-  /** Rule set metadata */
-  metadata: SelectionRuleSetMetadata;
+  /** Schema version for migrations */
+  version: SelectionRulesSchemaVersion;
 }
 
 // ============================================================================
@@ -284,26 +282,25 @@ export interface MaterializationWarning {
  * This is the "contract" downstream consumers receive.
  */
 export interface MaterializedSelection {
-  /**
-   * Final set of selected file paths.
-   * Paths are relative to folderId, NOT composite keys.
-   */
-  paths: Set<string>;
-
   /** IDs of rules that contributed to the selection */
   appliedRules: string[];
 
   /** Whether a cap rule was applied */
   capped: boolean;
 
+  /** Timestamp of materialization (for caching) */
+  materializedAt: string;
+
   /** Original count before cap (equals paths.size if not capped) */
   originalCount: number;
+  /**
+   * Final set of selected file paths.
+   * Paths are relative to folderId, NOT composite keys.
+   */
+  paths: Set<string>;
 
   /** Any warnings during materialization */
   warnings: MaterializationWarning[];
-
-  /** Timestamp of materialization (for caching) */
-  materializedAt: string;
 }
 
 // ============================================================================

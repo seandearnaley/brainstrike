@@ -23,8 +23,8 @@ export type IndexerTelemetryEventType = 'indexed_file' | 'indexing_error' | 'ind
  * Base fields shared by all indexer telemetry events
  */
 interface IndexerTelemetryEventBase {
-  readonly timestamp: number;
   readonly event: IndexerTelemetryEventType;
+  readonly timestamp: number;
 }
 
 /**
@@ -109,23 +109,23 @@ export function addIndexerTelemetryListener(listener: IndexerTelemetryListener):
  * Aggregated snapshot of indexer telemetry within a time window
  */
 export interface IndexerTelemetrySnapshot {
+  /** Average indexing time (ms), excludes cache hits */
+  readonly averageLatencyMs: number | null;
+  /** Cache hit rate (0-1) */
+  readonly cacheHitRate: number | null;
+  /** Number of indexing errors in window */
+  readonly errorCount: number;
   readonly events: readonly IndexerTelemetryEvent[];
   /** Files indexed per minute (excludes cache hits) */
   readonly indexedPerMinute: number;
-  /** Files indexed per minute (includes cache hits) */
-  readonly totalFilesPerMinute: number;
-  /** Average indexing time (ms), excludes cache hits */
-  readonly averageLatencyMs: number | null;
   /** 50th percentile latency (ms) */
   readonly latencyP50Ms: number | null;
   /** 95th percentile latency (ms) */
   readonly latencyP95Ms: number | null;
+  /** Files indexed per minute (includes cache hits) */
+  readonly totalFilesPerMinute: number;
   /** Total tokens indexed in window */
   readonly totalTokensIndexed: number;
-  /** Number of indexing errors in window */
-  readonly errorCount: number;
-  /** Cache hit rate (0-1) */
-  readonly cacheHitRate: number | null;
 }
 
 function computePercentile(values: readonly number[], percentile: number): number | null {

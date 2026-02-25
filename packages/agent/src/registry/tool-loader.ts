@@ -21,21 +21,21 @@ const logger = createLogger('ToolLoader');
  * Result of loading tools for an agent session.
  */
 export interface ToolLoadingResult {
-  /** Tools that were loaded and are available */
-  loadedTools: UnifiedToolMetadata[];
   /** Tools that were not loaded due to budget constraints */
   budgetSkippedTools: UnifiedToolMetadata[];
-  /** Deferred tools available for on-demand loading */
-  deferredTools: UnifiedToolMetadata[];
-  /** Total tokens used by loaded tools */
-  tokensUsed: number;
-  /** Token budget that was available */
-  tokenBudget: number;
   /** Breakdown by tier */
   byTier: {
     critical: ToolSelectionResult;
     conditional: ToolSelectionResult;
   };
+  /** Deferred tools available for on-demand loading */
+  deferredTools: UnifiedToolMetadata[];
+  /** Tools that were loaded and are available */
+  loadedTools: UnifiedToolMetadata[];
+  /** Token budget that was available */
+  tokenBudget: number;
+  /** Total tokens used by loaded tools */
+  tokensUsed: number;
 }
 
 /**
@@ -44,14 +44,14 @@ export interface ToolLoadingResult {
 export interface ToolLoadingOptions {
   /** Token budget manager for budget-aware loading */
   budgetManager?: TokenBudgetManager;
-  /** Override which tiers to load (defaults to critical + conditional) */
-  loadTiers?: ToolLoadingTier[];
-  /** Filter to specific tool IDs */
-  toolIds?: string[];
   /** Exclude specific tool IDs */
   excludeToolIds?: string[];
+  /** Override which tiers to load (defaults to critical + conditional) */
+  loadTiers?: ToolLoadingTier[];
   /** Only load tools from specific source */
   source?: 'native' | 'mcp';
+  /** Filter to specific tool IDs */
+  toolIds?: string[];
 }
 
 /**

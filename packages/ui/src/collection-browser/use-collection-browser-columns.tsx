@@ -73,9 +73,9 @@ function formatFileSize(bytes: number): string {
 }
 
 interface UseCollectionBrowserColumnsOptions {
+  semanticMatchIds: Set<string>;
   showScoreColumn: boolean;
   similarityScores: Map<string, number>;
-  semanticMatchIds: Set<string>;
 }
 
 export function useCollectionBrowserColumns({

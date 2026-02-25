@@ -7,8 +7,8 @@ interface McpStatus {
 }
 
 interface McpState {
-  status: McpStatus | null;
   error: string | null;
+  status: McpStatus | null;
 }
 
 type McpAction =

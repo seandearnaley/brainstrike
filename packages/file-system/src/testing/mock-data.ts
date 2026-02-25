@@ -8,13 +8,8 @@ export const TEST_DIRECTORY_HANDLE_ID = 'mock-directory-handle';
 
 // Using a looser type here to avoid strict dependency on IFileNode which might need FileSystemHandle
 export interface SerializableFileNode {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  size?: number;
+  children?: SerializableFileNode[];
   depth: number;
-  selectionState: 'unchecked';
-  rootFolderId: string;
   handle: {
     id: string;
     kind: 'file' | 'directory';
@@ -22,7 +17,12 @@ export interface SerializableFileNode {
     path: string;
     platform: 'electron';
   };
-  children?: SerializableFileNode[];
+  name: string;
+  path: string;
+  rootFolderId: string;
+  selectionState: 'unchecked';
+  size?: number;
+  type: 'file' | 'directory';
 }
 
 /**

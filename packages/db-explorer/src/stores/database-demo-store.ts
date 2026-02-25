@@ -3,20 +3,20 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 interface DatabaseDemoData {
-  showSettings: boolean;
   expandedFileIds: string[];
   searchQuery: string;
   searchThreshold: number;
+  showSettings: boolean;
 }
 
 interface DatabaseDemoActions {
-  setShowSettings: (v: boolean) => void;
   addExpanded: (id: string) => void;
+  clearExpanded: () => void;
   removeExpanded: (id: string) => void;
   setExpanded: (ids: string[]) => void;
-  clearExpanded: () => void;
   setSearchQuery: (q: string) => void;
   setSearchThreshold: (t: number) => void;
+  setShowSettings: (v: boolean) => void;
 }
 
 export type DatabaseDemoStore = DatabaseDemoData & DatabaseDemoActions;

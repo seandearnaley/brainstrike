@@ -2,8 +2,8 @@ import type { RefObject } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 export interface VirtualRange {
-  start: number;
   end: number;
+  start: number;
 }
 
 export interface UseVirtualListOptions {
@@ -13,8 +13,8 @@ export interface UseVirtualListOptions {
 
 export interface UseVirtualListReturn {
   containerRef: RefObject<HTMLDivElement | null>;
-  range: VirtualRange;
   offset: number;
+  range: VirtualRange;
   totalHeight: number;
 }
 

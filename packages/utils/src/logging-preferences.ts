@@ -7,20 +7,20 @@ import {
 import type { LoggerRuntime } from './logging-initializer';
 
 export interface FileLoggingPreferences {
-  enabled: boolean;
-  destination: string | null;
-  level: LogLevel;
   append: boolean;
+  destination: string | null;
+  enabled: boolean;
+  level: LogLevel;
   mkdir: boolean;
 }
 
 export interface LoggingPreferences {
-  level: LogLevel;
-  consoleLevel: LogLevel;
-  includeTimestamp: boolean;
   consoleEnabled: boolean;
-  redactPaths: readonly string[];
+  consoleLevel: LogLevel;
   file: FileLoggingPreferences;
+  includeTimestamp: boolean;
+  level: LogLevel;
+  redactPaths: readonly string[];
 }
 
 export function createDefaultLoggingPreferences(

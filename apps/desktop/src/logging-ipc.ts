@@ -3,13 +3,13 @@ import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 export interface LoggingIpcHandlers {
+  getBufferedLogs: () => readonly LogRecord[];
   getState: () => LoggingSettingsPayload;
+  openDestination: (target: string | null) => Promise<boolean>;
+  selectDestination: () => Promise<string | null>;
   setPreferences: (
     preferences: LoggingPreferences
   ) => LoggingSettingsPayload | Promise<LoggingSettingsPayload>;
-  selectDestination: () => Promise<string | null>;
-  openDestination: (target: string | null) => Promise<boolean>;
-  getBufferedLogs: () => readonly LogRecord[];
 }
 
 export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {

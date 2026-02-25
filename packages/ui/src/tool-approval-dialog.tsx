@@ -25,16 +25,16 @@ import { ScrollArea } from './scroll-area';
  * Tool information for the approval dialog.
  */
 export interface ToolApprovalInfo {
-  /** Tool identifier */
-  id: string;
-  /** Human-readable tool name */
-  name: string;
-  /** Description of what the tool does */
-  description: string;
-  /** Input parameters being passed to the tool */
-  input: Record<string, unknown>;
   /** Category of the tool */
   category?: string;
+  /** Description of what the tool does */
+  description: string;
+  /** Tool identifier */
+  id: string;
+  /** Input parameters being passed to the tool */
+  input: Record<string, unknown>;
+  /** Human-readable tool name */
+  name: string;
   /** Estimated impact or risk level */
   riskLevel?: 'low' | 'medium' | 'high';
 }
@@ -50,18 +50,18 @@ export interface ToolApprovalResult {
 }
 
 export interface ToolApprovalDialogProps {
-  /** Whether the dialog is open */
-  open: boolean;
-  /** Tool information to display */
-  tool: ToolApprovalInfo;
-  /** Called when the dialog is closed (approved or cancelled) */
-  onResult: (result: ToolApprovalResult) => void;
-  /** Optional: custom title */
-  title?: string;
   /** Optional: custom description */
   description?: string;
+  /** Called when the dialog is closed (approved or cancelled) */
+  onResult: (result: ToolApprovalResult) => void;
+  /** Whether the dialog is open */
+  open: boolean;
   /** Optional: whether to show the "don't ask again" checkbox */
   showDontAskAgain?: boolean;
+  /** Optional: custom title */
+  title?: string;
+  /** Tool information to display */
+  tool: ToolApprovalInfo;
 }
 
 /**
@@ -218,16 +218,16 @@ export interface UseToolApprovalOptions {
 }
 
 export interface UseToolApprovalResult {
-  /** Request approval for a tool */
-  requestApproval: (tool: ToolApprovalInfo) => Promise<ToolApprovalResult>;
-  /** Currently pending tool (if any) */
-  pendingTool: ToolApprovalInfo | null;
-  /** Whether approval is pending */
-  isPending: boolean;
-  /** Resolve the pending approval with a result */
-  resolvePending: (result: ToolApprovalResult) => void;
   /** Clear the pending approval */
   clearPending: () => void;
+  /** Whether approval is pending */
+  isPending: boolean;
+  /** Currently pending tool (if any) */
+  pendingTool: ToolApprovalInfo | null;
+  /** Request approval for a tool */
+  requestApproval: (tool: ToolApprovalInfo) => Promise<ToolApprovalResult>;
+  /** Resolve the pending approval with a result */
+  resolvePending: (result: ToolApprovalResult) => void;
 }
 
 /**

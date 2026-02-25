@@ -18,32 +18,32 @@ interface ChunkRepository {
 }
 
 interface BrowserQueuePortOptions {
-  queue: QueueAdapter;
   chunkRepository: ChunkRepository | null;
   deviceHint: EmbeddingDeviceHint;
   dispatchDrainEvent?: (embeddingSetId: string | null) => void;
   dispatchProgressEvent?: (detail: QueueProgressEventDetail) => void;
+  queue: QueueAdapter;
 }
 
 const logger = createLogger('FileImport:BrowserQueuePort');
 const HASHER = 'sha256';
 
 interface ProgressTrackerState {
-  totalQueued: number;
-  processed: number;
   failed: number;
   lastError: string | null;
+  processed: number;
+  totalQueued: number;
 }
 
 type ProgressTrackerDispatch = (detail: QueueProgressEventDetail) => void;
 
 interface QueueProgressArgs {
   chunkId: string;
-  model: string;
-  embeddingSetId: string | null;
-  pending: number;
   elapsedMs?: number;
+  embeddingSetId: string | null;
   errorMessage?: string;
+  model: string;
+  pending: number;
 }
 
 function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
@@ -111,18 +111,18 @@ function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
 }
 
 export interface QueueProgressEventDetail {
-  readonly queue: 'embeddings';
   readonly chunkId: string;
-  readonly status: 'queued' | 'completed' | 'error';
-  readonly model: string;
+  readonly elapsedMs?: number;
   readonly embeddingSetId: string | null;
+  readonly errorMessage?: string;
+  readonly failed: number;
+  readonly lastError: string | null;
+  readonly model: string;
   readonly pending: number;
   readonly processed: number;
-  readonly failed: number;
+  readonly queue: 'embeddings';
+  readonly status: 'queued' | 'completed' | 'error';
   readonly totalQueued: number;
-  readonly lastError: string | null;
-  readonly elapsedMs?: number;
-  readonly errorMessage?: string;
 }
 
 export function createBrowserEmbeddingQueuePort({
@@ -198,21 +198,21 @@ export function createBrowserEmbeddingQueuePort({
 
 interface ScheduleChunkArgs {
   chunk: FileChunk;
+  dimensionParameter?: ProviderDimensionParameter;
   model: string;
-  targetEmbeddingSetId: string | null;
+  provider?: EmbeddingProviderType;
   repository: ChunkRepository;
   targetDimension?: number;
-  dimensionParameter?: ProviderDimensionParameter;
-  provider?: EmbeddingProviderType;
+  targetEmbeddingSetId: string | null;
 }
 
 interface SchedulerDependencies {
-  queue: QueueAdapter;
   chunkRepository: ChunkRepository | null;
   deviceHint: EmbeddingDeviceHint;
-  pendingChunks: Set<string>;
   dispatchDrainEvent: (embeddingSetId: string | null) => void;
+  pendingChunks: Set<string>;
   progressTracker: ReturnType<typeof createQueueProgressTracker>;
+  queue: QueueAdapter;
 }
 
 function createChunkScheduler({
@@ -267,18 +267,18 @@ function createChunkScheduler({
 }
 
 interface ChunkTaskContext {
-  queue: QueueAdapter;
   chunk: FileChunk;
+  deviceHint: EmbeddingDeviceHint;
+  dimensionParameter: ProviderDimensionParameter | null;
+  emitDrain: (embeddingSetId: string | null) => void;
   model: string;
-  targetEmbeddingSetId: string | null;
+  pendingChunks: Set<string>;
+  progressTracker: ReturnType<typeof createQueueProgressTracker>;
+  provider: EmbeddingProviderType | null;
+  queue: QueueAdapter;
   repository: ChunkRepository;
   targetDimension: number;
-  dimensionParameter: ProviderDimensionParameter | null;
-  provider: EmbeddingProviderType | null;
-  deviceHint: EmbeddingDeviceHint;
-  progressTracker: ReturnType<typeof createQueueProgressTracker>;
-  pendingChunks: Set<string>;
-  emitDrain: (embeddingSetId: string | null) => void;
+  targetEmbeddingSetId: string | null;
 }
 
 async function runChunkTask(context: ChunkTaskContext): Promise<void> {
@@ -350,12 +350,12 @@ async function runChunkTask(context: ChunkTaskContext): Promise<void> {
 }
 
 interface ScheduleBatchContext {
-  model: string;
-  repository: ChunkRepository;
-  targetEmbeddingSetId: string | null;
-  targetDimension: number;
   dimensionParameter: ProviderDimensionParameter | null;
+  model: string;
   provider: EmbeddingProviderType | null;
+  repository: ChunkRepository;
+  targetDimension: number;
+  targetEmbeddingSetId: string | null;
 }
 
 function scheduleChunksBatch(
@@ -432,10 +432,10 @@ async function produceEmbedding(
 }
 
 interface PersistArgs {
-  repository: ChunkRepository;
   chunk: FileChunk;
-  model: string;
   embedding: number[];
+  model: string;
+  repository: ChunkRepository;
   targetEmbeddingSetId: string | null;
 }
 
@@ -471,8 +471,8 @@ interface LogSuccessArgs {
 
 interface LogFailureArgs {
   chunk: FileChunk;
-  model: string;
   error: unknown;
+  model: string;
 }
 
 function logSuccess({ chunk, model, startedAt }: LogSuccessArgs) {

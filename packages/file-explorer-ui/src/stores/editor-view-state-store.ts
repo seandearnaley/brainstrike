@@ -10,11 +10,11 @@ interface EditorViewStateData {
 }
 
 interface EditorViewStateActions {
-  setScrollTop: (key: Key, top: number) => void;
-  getScrollTop: (key: Key) => number;
-  setSelection: (key: Key, start: number, end: number) => void;
-  getSelection: (key: Key) => { start: number; end: number } | undefined;
   clear: (key?: Key) => void;
+  getScrollTop: (key: Key) => number;
+  getSelection: (key: Key) => { start: number; end: number } | undefined;
+  setScrollTop: (key: Key, top: number) => void;
+  setSelection: (key: Key, start: number, end: number) => void;
 }
 
 export type EditorViewStateStore = EditorViewStateData & EditorViewStateActions;

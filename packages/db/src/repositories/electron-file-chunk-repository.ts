@@ -20,35 +20,35 @@ import type { ElectronDbAPI } from './electron-file-record-repository';
 
 // Type definition for database row returned by Electron IPC
 interface FileChunkRow {
-  id: string;
-  file_record_id: string;
   chunk_index: number;
+  chunk_size: number;
+  chunk_type: 'text' | 'code' | 'sentence' | 'recursive';
   content: string;
   content_hash: string;
-  token_count: number;
-  chunk_type: 'text' | 'code' | 'sentence' | 'recursive';
-  chunk_size: number;
+  created_at: string;
   embedding?: string;
+  embedding_hash?: string | null;
   // Phase 2 columns
   embedding_set_id?: string | null;
   embedding_updated_at?: string | null;
-  embedding_hash?: string | null;
-  created_at: string;
+  file_record_id: string;
+  id: string;
+  token_count: number;
   updated_at: string;
 }
 
 // Type for search result rows with additional fields
 interface FileChunkSearchRow extends FileChunkRow {
-  similarity: string;
   rank: string;
+  similarity: string;
 }
 
 // Type for stats query rows
 interface FileChunkStatsRow {
-  total_chunks: string;
-  chunks_with_embeddings: string;
   average_token_count: string;
   chunk_type: string;
+  chunks_with_embeddings: string;
+  total_chunks: string;
   type_count: string;
 }
 

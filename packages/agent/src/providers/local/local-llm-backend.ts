@@ -17,17 +17,17 @@ const logger = createLogger('LocalLlmBackend');
 
 // Transformers.js types (dynamically imported)
 interface ProgressInfo {
-  status: string;
-  loaded?: number;
-  total?: number;
   file?: string;
+  loaded?: number;
+  status: string;
+  total?: number;
 }
 
 // Chat message for pipeline input
 // Includes all standard chat roles - pipeline handles them appropriately
 interface ChatMessage {
-  role: 'user' | 'assistant' | 'system' | 'developer' | 'tool';
   content: string;
+  role: 'user' | 'assistant' | 'system' | 'developer' | 'tool';
 }
 
 // Pipeline output for text generation
@@ -38,6 +38,7 @@ interface TextGenerationOutput {
 
 // Text generation pipeline type
 interface TextGenerationPipeline {
+  dispose?: () => Promise<void>;
   (
     messages: ChatMessage[] | string,
     options?: {
@@ -56,7 +57,6 @@ interface TextGenerationPipeline {
       return_full_text?: boolean;
     }
   ): Promise<TextGenerationOutput[]>;
-  dispose?: () => Promise<void>;
 }
 
 // Pipeline factory function type
@@ -87,9 +87,9 @@ interface AutoTokenizerFactory {
 }
 
 interface TransformersModule {
-  pipeline: PipelineFunction;
   // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
   AutoTokenizer: AutoTokenizerFactory;
+  pipeline: PipelineFunction;
 }
 
 /**
@@ -919,10 +919,10 @@ export function isModelAllowed(modelId: string): boolean {
  * These are verified after download to detect tampering or corruption.
  */
 interface ModelChecksums {
-  /** SHA256 hash of the model's main ONNX file */
-  onnxSha256: string;
   /** Optional config.json hash for additional verification */
   configSha256?: string;
+  /** SHA256 hash of the model's main ONNX file */
+  onnxSha256: string;
 }
 
 /**
@@ -1360,7 +1360,6 @@ function supportsToolCalling(modelId: string): boolean {
  * Tool definition type (matches LocalLlmToolDefinition from types.ts)
  */
 interface ToolDefinition {
-  type: 'function';
   function: {
     name: string;
     description: string;
@@ -1370,6 +1369,7 @@ interface ToolDefinition {
       required?: string[];
     };
   };
+  type: 'function';
 }
 
 /**
@@ -2134,10 +2134,10 @@ export class LocalLlmBackend {
     let completedFiles = 0;
 
     interface DownloadProgressData {
-      stage: 'downloading' | 'ready';
-      progress: number;
-      message: string;
       file?: string;
+      message: string;
+      progress: number;
+      stage: 'downloading' | 'ready';
     }
 
     const updateProgress = (filename: string, fileProgress?: number) => {

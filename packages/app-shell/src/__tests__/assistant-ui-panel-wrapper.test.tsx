@@ -109,24 +109,24 @@ vi.mock('@brainstrike/preferences', async () => {
   ];
 
   interface AssistantPreferencesState {
-    selectedProvider: SupportedProvider | null;
-    selectedModel: string | null;
-    modelsByProvider: Record<string, string>;
-    enabledModelsByProvider: Record<string, string[]>;
-    providerSettings: Record<string, Record<string, unknown>>;
-    setModel: (compositeKey: string) => void;
     clearModel: () => void;
+    enabledModelsByProvider: Record<string, string[]>;
     getAvailableProviders: () => Promise<SupportedProvider[]>;
-    getLocalRuntimeStatuses: () => Promise<{
-      ollama: { state: 'unavailable'; checkedAt: number; message: string };
-      lmstudio: { state: 'unavailable'; checkedAt: number; message: string };
-    }>;
     getLocalRuntimeModels: () => Promise<{
       ollama: LocalRuntimeModelCatalogState;
       lmstudio: LocalRuntimeModelCatalogState;
     }>;
-    getSelectedProvider: () => SupportedProvider | null;
+    getLocalRuntimeStatuses: () => Promise<{
+      ollama: { state: 'unavailable'; checkedAt: number; message: string };
+      lmstudio: { state: 'unavailable'; checkedAt: number; message: string };
+    }>;
     getSelectedModel: () => string | null;
+    getSelectedProvider: () => SupportedProvider | null;
+    modelsByProvider: Record<string, string>;
+    providerSettings: Record<string, Record<string, unknown>>;
+    selectedModel: string | null;
+    selectedProvider: SupportedProvider | null;
+    setModel: (compositeKey: string) => void;
     setProviderSettings: (providerId: string, updates: Record<string, unknown>) => void;
   }
 
@@ -677,15 +677,15 @@ const renderAssistantPanel = async (providers: string[], afterRender?: () => Pro
 };
 
 interface McpToolDescriptor {
-  id: string;
   description?: string;
   enabled: boolean;
+  id: string;
 }
 
 interface McpApi {
-  listTools: () => Promise<Record<string, McpToolDescriptor[]>>;
-  enableTools?: (toolIds: string[]) => Promise<void>;
   disableTools?: (toolIds: string[]) => Promise<void>;
+  enableTools?: (toolIds: string[]) => Promise<void>;
+  listTools: () => Promise<Record<string, McpToolDescriptor[]>>;
 }
 
 const setMcpApi = (overrides: Partial<McpApi> = {}) => {

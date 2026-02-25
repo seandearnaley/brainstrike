@@ -4,8 +4,8 @@ import type { DirectoryHandle, FileHandle, IFileNode } from './file-system';
  * Result of a database test operation
  */
 export interface DatabaseTestResult {
-  success: boolean;
   message: string;
+  success: boolean;
 }
 
 export type DatabaseInitFailureCategory =
@@ -24,31 +24,31 @@ export type DatabaseInitStage =
   | 'runtime-corruption-recovery';
 
 export interface DatabaseInitFailureSnapshot {
-  stage: DatabaseInitStage;
   category: DatabaseInitFailureCategory;
-  timestamp: string;
-  message: string;
-  stack?: string;
-  name?: string;
   code?: string;
+  message: string;
+  name?: string;
+  stack?: string;
+  stage: DatabaseInitStage;
+  timestamp: string;
 }
 
 export interface DatabaseDiagnosticsSnapshot {
-  nodeEnv: string | null;
-  databaseProfile: string | null;
-  dataDir: string;
   appDataDir: string;
-  initializationAttemptCount: number;
-  initializationInFlight: boolean;
-  hasDatabaseHandle: boolean;
   databaseLockHeld: boolean;
   databaseLockPath: string | null;
+  databaseProfile: string | null;
+  dataDir: string;
+  hasDatabaseHandle: boolean;
+  initializationAttemptCount: number;
+  initializationInFlight: boolean;
+  lastInitializationFailure: DatabaseInitFailureSnapshot | null;
   lastInitializationStartedAt: string | null;
   lastInitializationSucceededAt: string | null;
-  lastInitializationFailure: DatabaseInitFailureSnapshot | null;
-  runtimeCorruptionRecoveryCount: number;
   lastRuntimeCorruptionAt: string | null;
   lastRuntimeCorruptionContext: string | null;
+  nodeEnv: string | null;
+  runtimeCorruptionRecoveryCount: number;
 }
 
 /**
@@ -62,18 +62,18 @@ export interface QueryResult<T = unknown> {
  * Storage API exposed via Electron IPC
  */
 export interface ElectronStorageAPI {
-  getItem: (key: string) => Promise<string | null>;
-  setItem: (key: string, value: string) => Promise<void>;
-  removeItem: (key: string) => Promise<void>;
   clear: () => Promise<void>;
   getAllKeys: () => Promise<string[]>;
+  getItem: (key: string) => Promise<string | null>;
+  removeItem: (key: string) => Promise<void>;
+  setItem: (key: string, value: string) => Promise<void>;
 }
 
 /**
  * File system API exposed via Electron IPC
  */
 export interface ElectronFileSystemAPI {
-  requestDirectoryAccess: () => Promise<DirectoryHandle>;
+  exists: (path: string) => Promise<boolean>;
   readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
   readFile: (handle: FileHandle) => Promise<string>;
   /**
@@ -81,7 +81,7 @@ export interface ElectronFileSystemAPI {
    * Useful for loading persisted file tabs before the file tree is available.
    */
   readFileByPath: (absolutePath: string) => Promise<string>;
-  exists: (path: string) => Promise<boolean>;
+  requestDirectoryAccess: () => Promise<DirectoryHandle>;
   restoreLastFolder: () => Promise<DirectoryHandle | null>;
   saveLastFolder: (folderPath: string) => Promise<void>;
 }
@@ -93,46 +93,6 @@ export interface ElectronFileSystemAPI {
  */
 export interface ElectronDatabaseAPI {
   /**
-   * Basic connectivity check
-   */
-  ping?: () => Promise<unknown>;
-
-  /**
-   * Snapshot of database initialization diagnostics from main process.
-   */
-  diagnostics?: () => Promise<DatabaseDiagnosticsSnapshot>;
-
-  /**
-   * Test database connection health
-   */
-  test?: () => Promise<DatabaseTestResult>;
-
-  /**
-   * Execute a parameterized SQL query and return results
-   */
-  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<QueryResult<T>>;
-
-  /**
-   * Execute a SQL statement without returning rows (INSERT, UPDATE, DELETE, etc.)
-   */
-  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
-
-  /**
-   * Execute multiple statements within a transaction
-   */
-  transaction?: <T>(fn: (tx: ElectronDatabaseAPI) => Promise<T>) => Promise<T>;
-
-  /**
-   * Close database connection
-   */
-  close?: () => Promise<void>;
-
-  /**
-   * Get database file path (if applicable)
-   */
-  getPath?: () => Promise<string | null>;
-
-  /**
    * Clear all stored data (desktop only)
    */
   clearAll?: (confirmationToken?: string) => Promise<{
@@ -143,15 +103,59 @@ export interface ElectronDatabaseAPI {
   }>;
 
   /**
+   * Close database connection
+   */
+  close?: () => Promise<void>;
+
+  /**
+   * Snapshot of database initialization diagnostics from main process.
+   */
+  diagnostics?: () => Promise<DatabaseDiagnosticsSnapshot>;
+
+  /**
+   * Execute a SQL statement without returning rows (INSERT, UPDATE, DELETE, etc.)
+   */
+  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+
+  /**
+   * Get database file path (if applicable)
+   */
+  getPath?: () => Promise<string | null>;
+  /**
+   * Basic connectivity check
+   */
+  ping?: () => Promise<unknown>;
+
+  /**
+   * Execute a parameterized SQL query and return results
+   */
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<QueryResult<T>>;
+
+  /**
    * Reset the local database (desktop only)
    */
   resetLocal?: () => Promise<{ success: boolean; message?: string }>;
+
+  /**
+   * Test database connection health
+   */
+  test?: () => Promise<DatabaseTestResult>;
+
+  /**
+   * Execute multiple statements within a transaction
+   */
+  transaction?: <T>(fn: (tx: ElectronDatabaseAPI) => Promise<T>) => Promise<T>;
 }
 
 /**
  * Live query IPC helpers
  */
 export interface ElectronLiveQueryAPI {
+  onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => () => void;
+  refresh: (payload: { id: number; offset?: number; limit?: number }) => Promise<{
+    success: boolean;
+    message?: string;
+  }>;
   start: (options: {
     query: string;
     params?: readonly unknown[];
@@ -161,11 +165,6 @@ export interface ElectronLiveQueryAPI {
     limit?: number;
   }) => Promise<{ id: number; initialResults: { rows: unknown[]; totalCount?: number } }>;
   stop: (id: number) => Promise<{ success: boolean } | undefined>;
-  refresh: (payload: { id: number; offset?: number; limit?: number }) => Promise<{
-    success: boolean;
-    message?: string;
-  }>;
-  onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => () => void;
 }
 
 /**
@@ -174,8 +173,8 @@ export interface ElectronLiveQueryAPI {
 export type AssistantSelectionMode = 'replace' | 'add' | 'remove';
 
 export interface AssistantSelectionUpdatePayload {
-  folderId: string;
   filePaths: string[];
+  folderId: string;
   mode: AssistantSelectionMode;
 }
 
@@ -186,14 +185,10 @@ export interface AssistantSelectionUpdatePayload {
  */
 export interface ElectronAPI {
   /**
-   * Key/value storage bridge
+   * Legacy alias for database operations
+   * @deprecated Prefer using the `db` property exposed by the preload script.
    */
-  storage: ElectronStorageAPI;
-
-  /**
-   * File system bridge
-   */
-  fileSystem: ElectronFileSystemAPI;
+  database?: ElectronDatabaseAPI;
 
   /**
    * Database operations
@@ -206,21 +201,24 @@ export interface ElectronAPI {
   dbLive?: ElectronLiveQueryAPI;
 
   /**
-   * Panel layout persistence
+   * File system bridge
    */
-  saveLayout: (state: unknown) => Promise<{ success: boolean; message?: string }>;
-  loadLayout: () => Promise<{ success: boolean; data?: unknown; message?: string }>;
+  fileSystem: ElectronFileSystemAPI;
 
   /**
    * Database path lookup (legacy)
    */
   getUserDataPath?: () => Promise<string>;
+  loadLayout: () => Promise<{ success: boolean; data?: unknown; message?: string }>;
 
   /**
-   * Legacy alias for database operations
-   * @deprecated Prefer using the `db` property exposed by the preload script.
+   * Application paths
    */
-  database?: ElectronDatabaseAPI;
+  paths?: {
+    userData: string;
+    documents: string;
+    temp: string;
+  };
 
   /**
    * Platform information
@@ -232,13 +230,13 @@ export interface ElectronAPI {
   };
 
   /**
-   * Application paths
+   * Panel layout persistence
    */
-  paths?: {
-    userData: string;
-    documents: string;
-    temp: string;
-  };
+  saveLayout: (state: unknown) => Promise<{ success: boolean; message?: string }>;
+  /**
+   * Key/value storage bridge
+   */
+  storage: ElectronStorageAPI;
 }
 
 /**

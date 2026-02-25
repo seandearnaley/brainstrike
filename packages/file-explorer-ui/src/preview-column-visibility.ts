@@ -2,11 +2,11 @@ import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import type { TableRowData } from './utils/grouping-configs';
 
 export interface ColumnConfig {
-  id: keyof ColumnVisibility;
-  label: string;
   accessor: keyof TableRowData | 'checkbox';
   canHide: boolean;
   defaultVisible: boolean;
+  id: keyof ColumnVisibility;
+  label: string;
 }
 
 export const COLUMN_CONFIGS: ColumnConfig[] = [

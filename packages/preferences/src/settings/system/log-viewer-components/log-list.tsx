@@ -14,11 +14,11 @@ import { LogRow } from './log-row';
 import type { LogRecordRow } from './log-utils';
 
 interface LogListProps {
-  table: ReactTableInstance<LogRecordRow>;
-  rows: Row<LogRecordRow>[];
-  logsLoading: boolean;
   autoScroll: boolean;
   autoScrollAnchor: 'start' | 'end';
+  logsLoading: boolean;
+  rows: Row<LogRecordRow>[];
+  table: ReactTableInstance<LogRecordRow>;
   wrapLines: boolean;
 }
 

@@ -4,18 +4,18 @@ import { cn } from '../lib/utils';
 export type StatusBarItemStatus = 'connected' | 'disconnected' | 'loading' | 'warning';
 
 export interface StatusBarItemProps {
+  /** Additional CSS classes */
+  className?: string;
   /** Icon component to display */
   icon?: React.ComponentType<{ className?: string }>;
   /** Label text */
   label?: string;
-  /** Value text (displayed after label) */
-  value?: string;
   /** Status determines the color styling */
   status?: StatusBarItemStatus;
-  /** Additional CSS classes */
-  className?: string;
   /** Test ID for testing */
   testId?: string;
+  /** Value text (displayed after label) */
+  value?: string;
 }
 
 const statusClasses: Record<StatusBarItemStatus, string> = {

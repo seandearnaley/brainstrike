@@ -92,22 +92,22 @@ function parseNodeId(nodeId: string): {
 }
 
 export interface CollectionBrowserViewProps {
-  /** File records */
-  records: FileRecord[];
-  /** File chunks */
-  chunks: FileChunk[];
-  /** Pending chunk IDs (being embedded) */
-  pendingChunkIds?: Set<string>;
   /** Active collection ID */
   activeCollectionId: string | null;
-  /** Loading state */
-  isLoading?: boolean;
+  /** File chunks */
+  chunks: FileChunk[];
   /** Height of the browser */
   height?: number | string;
-  /** Called when a file is selected */
-  onFileSelect?: (fileId: string, file: FileRecord) => void;
+  /** Loading state */
+  isLoading?: boolean;
   /** Called when a chunk is selected */
   onChunkSelect?: (chunkId: string, chunk: FileChunk) => void;
+  /** Called when a file is selected */
+  onFileSelect?: (fileId: string, file: FileRecord) => void;
+  /** Pending chunk IDs (being embedded) */
+  pendingChunkIds?: Set<string>;
+  /** File records */
+  records: FileRecord[];
 }
 
 /**

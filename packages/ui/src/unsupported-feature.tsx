@@ -2,10 +2,10 @@ import type { ReactNode } from 'react';
 import { cn } from './lib/utils';
 
 export interface UnsupportedFeatureProps {
-  /** The title to display */
-  title: string;
   /** A descriptive message or ReactNode to explain the unsupported feature */
   description: ReactNode;
+  /** The title to display */
+  title: string;
 }
 
 /**

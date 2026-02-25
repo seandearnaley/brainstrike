@@ -3,16 +3,16 @@ import { cn } from './lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
 export interface NavigationItem {
-  name: string;
   icon: ComponentType<{ className?: string }>;
+  name: string;
   path: string;
 }
 
 export interface NavigationSidebarProps extends React.HTMLAttributes<HTMLElement> {
-  items: NavigationItem[];
-  currentPath: string;
-  children?: ReactNode;
   ariaLabel?: string;
+  children?: ReactNode;
+  currentPath: string;
+  items: NavigationItem[];
   onItemClick?: (path: string) => void;
 }
 

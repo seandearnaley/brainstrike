@@ -5,22 +5,22 @@ import { useAssistantPreferencesStore } from '../stores/assistant-preferences-st
 type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
 
 export interface UseLocalRuntimeEmbeddingModelCatalogOptions {
-  readonly verifyEmbeddingDimensions?: boolean;
-  readonly maxVerificationModels?: number;
   readonly enabled?: boolean;
+  readonly maxVerificationModels?: number;
+  readonly verifyEmbeddingDimensions?: boolean;
 }
 
 export interface UseLocalRuntimeEmbeddingModelCatalogResult {
   readonly catalog: LocalRuntimeModelCatalogMap | null;
-  readonly isLoading: boolean;
   readonly error: string | null;
+  readonly isLoading: boolean;
   readonly refresh: (options?: { force?: boolean }) => Promise<void>;
 }
 
 interface RuntimeCatalogRequestState {
   readonly catalog: LocalRuntimeModelCatalogMap | null;
-  readonly isLoading: boolean;
   readonly error: string | null;
+  readonly isLoading: boolean;
 }
 
 function toErrorMessage(error: unknown): string {

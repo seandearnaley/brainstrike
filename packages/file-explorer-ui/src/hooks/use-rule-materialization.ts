@@ -110,17 +110,17 @@ function createTreeAdapterFromNodes(nodes: IFileNode[]): TreeAdapter {
 }
 
 export interface UseRuleMaterializationProps {
-  /** The file tree to evaluate rules against */
-  fileTree: IFileNode[];
   /** Whether materialization is enabled (can be disabled during loading) */
   enabled?: boolean;
+  /** The file tree to evaluate rules against */
+  fileTree: IFileNode[];
 }
 
 export interface UseRuleMaterializationReturn {
-  /** Whether rules are currently being evaluated */
-  isEvaluating: boolean;
   /** Error from rule evaluation, if any */
   evaluationError: Error | null;
+  /** Whether rules are currently being evaluated */
+  isEvaluating: boolean;
   /** Number of files matched by current rules */
   matchedCount: number;
 }

@@ -40,10 +40,10 @@ import {
  * Minimal file node representation for the engine.
  */
 export interface FileNode {
-  /** Relative path from folder root */
-  path: string;
   /** Whether this is a directory */
   isDirectory: boolean;
+  /** Relative path from folder root */
+  path: string;
 }
 
 /**
@@ -69,19 +69,19 @@ export interface TreeAdapter {
   getFilesUnderRoot(root: string, maxDepth?: number): Iterable<string>;
 
   /**
+   * Get total file count (for optimization).
+   *
+   * @returns Total number of files (non-directories)
+   */
+  getTotalFileCount(): number;
+
+  /**
    * Check if a path exists in the tree.
    *
    * @param path - Path to check
    * @returns true if path exists
    */
   pathExists(path: string): boolean;
-
-  /**
-   * Get total file count (for optimization).
-   *
-   * @returns Total number of files (non-directories)
-   */
-  getTotalFileCount(): number;
 }
 
 // ============================================================================

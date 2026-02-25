@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface UsePaginationOptions {
-  totalItems: number;
-  pageSize?: number;
   initialPage?: number;
+  pageSize?: number;
+  totalItems: number;
 }
 
 interface UsePaginationReturn {
   currentPage: number;
-  totalPages: number;
-  startIndex: number;
   endIndex: number;
-  goToPage: (page: number) => void;
   goToNextPage: () => void;
+  goToPage: (page: number) => void;
   goToPreviousPage: () => void;
-  resetToFirstPage: () => void;
   isFirstPage: boolean;
   isLastPage: boolean;
+  resetToFirstPage: () => void;
+  startIndex: number;
+  totalPages: number;
 }
 
 export function usePagination({

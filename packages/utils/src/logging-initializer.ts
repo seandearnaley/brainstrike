@@ -10,24 +10,24 @@ import {
 export type LoggerRuntime = 'browser' | 'electron-main' | 'electron-renderer';
 
 export interface FileLoggingOptions {
+  append?: boolean;
   destination: string;
   level?: LogLevel;
   mkdir?: boolean;
-  append?: boolean;
 }
 
 export interface InitializeLoggingOptions {
-  runtime: LoggerRuntime;
-  level?: LogLevel;
-  consoleLevel?: LogLevel;
-  includeTimestamp?: boolean;
-  scopeKey?: string;
   appName?: string;
   appVersion?: string;
   baseBindings?: Record<string, unknown>;
+  consoleLevel?: LogLevel;
+  customTransports?: readonly CustomTransportConfig[];
   enableDebugInProduction?: boolean;
   file?: FileLoggingOptions;
-  customTransports?: readonly CustomTransportConfig[];
+  includeTimestamp?: boolean;
+  level?: LogLevel;
+  runtime: LoggerRuntime;
+  scopeKey?: string;
 }
 
 function resolveBaseBindings(options: InitializeLoggingOptions): Record<string, unknown> {

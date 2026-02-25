@@ -11,15 +11,15 @@ import { readProviderSecretKey, resolveProviderEnvKey } from './provider-api-key
 // Minimal local types to avoid cross-project TS coupling during type-check
 interface AgentMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
   parts: Array<{ type: 'text'; text: string }>;
+  role: 'user' | 'assistant' | 'system';
 }
 interface RuntimeData {
+  mcpConfig?: McpConfig;
+  mcpEnabled?: boolean;
+  model?: string;
   projectId?: string;
   provider?: string;
-  model?: string;
-  mcpEnabled?: boolean;
-  mcpConfig?: McpConfig;
 }
 type StreamChunk =
   | { type: 'text-delta'; value: string }

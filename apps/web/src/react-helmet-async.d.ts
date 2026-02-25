@@ -9,28 +9,28 @@ declare module 'react-helmet-async' {
     async?: boolean;
     base?: Record<string, unknown>;
     bodyAttributes?: Record<string, unknown>;
+    children?: ReactNode;
     defaultTitle?: string;
     defer?: boolean;
     encodeSpecialCharacters?: boolean;
     htmlAttributes?: Record<string, unknown>;
-    onChangeClientState?: (newState: unknown, addedTags: unknown, removedTags: unknown) => void;
     link?: Record<string, unknown>[];
     meta?: Record<string, unknown>[];
     noscript?: Record<string, unknown>[];
+    onChangeClientState?: (newState: unknown, addedTags: unknown, removedTags: unknown) => void;
+    prioritizeSeoTags?: boolean;
     script?: Record<string, unknown>[];
     style?: Record<string, unknown>[];
     title?: string;
     titleAttributes?: Record<string, unknown>;
     titleTemplate?: string;
-    prioritizeSeoTags?: boolean;
-    children?: ReactNode;
   }
 
   export class Helmet extends Component<HelmetProps> {}
 
   export interface ProviderProps {
-    context?: unknown;
     children?: ReactNode;
+    context?: unknown;
   }
 
   export class HelmetProvider extends Component<ProviderProps> {}

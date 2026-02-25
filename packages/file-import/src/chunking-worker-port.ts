@@ -41,31 +41,20 @@ function isTerminalTokenizerError(errorMessage: string): boolean {
  * Callbacks for batch processing events.
  */
 export interface ChunkingBatchCallbacks {
+  onFileComplete?: (fileRecordId: string, result: ChunkResult) => void;
+  onFileError?: (fileRecordId: string, error: string) => void;
   onProgress?: (
     fileRecordId: string,
     chunksCreated: number,
     currentIndex: number,
     total: number
   ) => void;
-  onFileComplete?: (fileRecordId: string, result: ChunkResult) => void;
-  onFileError?: (fileRecordId: string, error: string) => void;
 }
 
 /**
  * Port interface for interacting with the chunking worker.
  */
 export interface ChunkingWorkerPort {
-  /**
-   * Chunk a single file.
-   */
-  chunkFile(
-    fileRecordId: string,
-    content: string,
-    fileName: string,
-    filePath: string,
-    options: ChunkingRequestOptions
-  ): Promise<ChunkResult>;
-
   /**
    * Chunk multiple files in a batch.
    */
@@ -79,6 +68,16 @@ export interface ChunkingWorkerPort {
     options: ChunkingRequestOptions,
     callbacks?: ChunkingBatchCallbacks
   ): Promise<ChunkResult[]>;
+  /**
+   * Chunk a single file.
+   */
+  chunkFile(
+    fileRecordId: string,
+    content: string,
+    fileName: string,
+    filePath: string,
+    options: ChunkingRequestOptions
+  ): Promise<ChunkResult>;
 
   /**
    * Check if the worker is ready to receive requests.

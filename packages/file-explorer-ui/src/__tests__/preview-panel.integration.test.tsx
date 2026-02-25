@@ -22,30 +22,30 @@ const mockUsePreviewPanelState = vi.mocked(
 ).usePreviewPanelState;
 
 interface TabsContextValue {
-  value?: string;
   onValueChange?: (value: string) => void;
+  value?: string;
 }
 
 interface TabsProps {
   children: React.ReactNode;
-  value?: string;
   defaultValue?: string;
   onValueChange?: (value: string) => void;
+  value?: string;
   [key: string]: unknown;
 }
 
 interface TabsTriggerProps {
   children: React.ReactNode;
-  value: string;
   disabled?: boolean;
   onClick?: () => void;
+  value: string;
   [key: string]: unknown;
 }
 
 interface TabsContentProps {
   children: React.ReactNode;
-  value: string;
   forceMount?: boolean;
+  value: string;
   [key: string]: unknown;
 }
 
@@ -59,8 +59,8 @@ interface MockBadgeProps {
 
 interface MockButtonProps {
   children: React.ReactNode;
-  onClick?: () => void;
   disabled?: boolean;
+  onClick?: () => void;
   [key: string]: unknown;
 }
 

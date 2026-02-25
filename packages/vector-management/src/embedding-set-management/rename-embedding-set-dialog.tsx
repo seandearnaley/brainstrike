@@ -15,11 +15,11 @@ import { createLogger } from '@brainstrike/utils';
 import { useState } from 'react';
 
 interface RenameEmbeddingSetDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  repository: IEmbeddingSetsRepository | null;
   embeddingSet: EmbeddingSet | null;
+  onOpenChange: (open: boolean) => void;
   onSetRenamed?: (setId: string) => void;
+  open: boolean;
+  repository: IEmbeddingSetsRepository | null;
 }
 
 // Helper to build metadata object with only non-empty fields

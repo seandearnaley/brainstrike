@@ -63,14 +63,14 @@ export type EmbeddingCacheLookupResult =
  * Cache statistics for monitoring and eviction decisions
  */
 export interface EmbeddingCacheStats {
+  /** Newest entry timestamp */
+  newestAccessedAt: Date | null;
+  /** Oldest entry timestamp */
+  oldestAccessedAt: Date | null;
   /** Total entries in cache */
   totalEntries: number;
   /** Total cache hits (sum of accessCount) */
   totalHits: number;
-  /** Oldest entry timestamp */
-  oldestAccessedAt: Date | null;
-  /** Newest entry timestamp */
-  newestAccessedAt: Date | null;
 }
 
 /**

@@ -6,8 +6,8 @@ type Key = string; // compositeKey (folderId:path)
 
 export interface CursorSelection {
   cursor: number; // caret index in content
-  selectionStart: number;
   selectionEnd: number;
+  selectionStart: number;
 }
 
 interface EditorCursorData {
@@ -15,9 +15,9 @@ interface EditorCursorData {
 }
 
 interface EditorCursorActions {
-  setSelection: (key: Key, sel: CursorSelection) => void;
-  getSelection: (key: Key) => CursorSelection | undefined;
   clear: (key?: Key) => void;
+  getSelection: (key: Key) => CursorSelection | undefined;
+  setSelection: (key: Key, sel: CursorSelection) => void;
 }
 
 export type EditorCursorStore = EditorCursorData & EditorCursorActions;

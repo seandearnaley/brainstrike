@@ -8,10 +8,10 @@ import type { PanelPersistenceState } from '../types/panel';
 export type PanelLayoutState = PanelPersistenceState;
 
 export interface PanelLayoutProviderProps {
-  children: ReactNode;
-  initialState?: PanelLayoutState;
   adapter?: PanelPersistenceAdapter | null;
+  children: ReactNode;
   controlledState?: PanelLayoutState;
+  initialState?: PanelLayoutState;
   onChange?: (state: PanelLayoutState) => void;
 }
 

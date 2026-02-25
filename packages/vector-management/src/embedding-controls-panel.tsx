@@ -6,8 +6,6 @@ import { EmbeddingStatusBar } from './embedding-status-bar';
 import { useEmbeddingControls } from './use-embedding-controls';
 
 export interface EmbeddingControlsPanelProps {
-  /** The embedding queue adapter (passed from app) */
-  embeddingQueue?: QueueAdapter | null;
   /** Chunk repository with coverage methods */
   chunkRepository?: {
     getCoverageForSet: (
@@ -15,12 +13,14 @@ export interface EmbeddingControlsPanelProps {
     ) => Promise<{ totalChunks: number; chunksWithEmbeddingsForSet: number }>;
     clearEmbeddingsForSet: (embeddingSetId: string) => Promise<number>;
   } | null;
-  /** Whether to show the status bar (default: true) */
-  showStatusBar?: boolean;
-  /** Whether to show the actions dropdown (default: true) */
-  showActionsDropdown?: boolean;
   /** Additional className for the container */
   className?: string;
+  /** The embedding queue adapter (passed from app) */
+  embeddingQueue?: QueueAdapter | null;
+  /** Whether to show the actions dropdown (default: true) */
+  showActionsDropdown?: boolean;
+  /** Whether to show the status bar (default: true) */
+  showStatusBar?: boolean;
 }
 
 /**

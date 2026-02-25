@@ -10,9 +10,9 @@ export interface AdaptersContextValue {
 export const AdaptersContext = createContext<AdaptersContextValue | null>(null);
 
 export interface AdaptersProviderProps {
+  children: ReactNode;
   fileSystemAdapter: FileSystemAdapter;
   storageAdapter: StorageAdapter;
-  children: ReactNode;
 }
 
 export function AdaptersProvider({

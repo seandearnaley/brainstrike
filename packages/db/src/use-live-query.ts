@@ -8,11 +8,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePGliteDatabase } from './db-provider.js';
 
 interface BaseLiveQueryOptions {
-  readonly query: string;
-  readonly params?: readonly unknown[];
-  readonly offset?: number;
-  readonly limit?: number;
   readonly enabled?: boolean;
+  readonly limit?: number;
+  readonly offset?: number;
+  readonly params?: readonly unknown[];
+  readonly query: string;
 }
 
 type IncrementalOptions = BaseLiveQueryOptions & {
@@ -35,10 +35,10 @@ export type UsePGliteLiveQueryOptions<T> = (IncrementalOptions | StandardOptions
 };
 
 export interface LiveQueryHookResult<T> {
-  readonly rows: T[];
-  readonly loading: boolean;
   readonly error: Error | null;
+  readonly loading: boolean;
   readonly refresh: () => Promise<void>;
+  readonly rows: T[];
 }
 
 interface LiveSubscription<T> {
@@ -48,12 +48,12 @@ interface LiveSubscription<T> {
 }
 
 interface ElectronLiveQueryStartOptions {
-  mode: 'query' | 'incremental';
-  query: string;
-  params?: readonly unknown[] | null;
   key?: string;
-  offset?: number;
   limit?: number;
+  mode: 'query' | 'incremental';
+  offset?: number;
+  params?: readonly unknown[] | null;
+  query: string;
 }
 
 interface ElectronLiveQueryStartResult<T> {
@@ -68,15 +68,15 @@ interface ElectronLiveQueryUpdate<T> {
 
 interface ElectronLiveQueryRefreshPayload {
   id: number;
-  offset?: number;
   limit?: number;
+  offset?: number;
 }
 
 interface ElectronLiveBridge {
+  onUpdate(callback: (payload: ElectronLiveQueryUpdate<unknown>) => void): () => void;
+  refresh(payload: ElectronLiveQueryRefreshPayload): Promise<void>;
   start<T>(options: ElectronLiveQueryStartOptions): Promise<ElectronLiveQueryStartResult<T>>;
   stop(id: number): Promise<void>;
-  refresh(payload: ElectronLiveQueryRefreshPayload): Promise<void>;
-  onUpdate(callback: (payload: ElectronLiveQueryUpdate<unknown>) => void): () => void;
 }
 
 type LiveSource =

@@ -13,16 +13,16 @@ export type SetStateAction<T> = T | ((prevState: T) => T);
 export type Dispatch<A> = (value: A) => void;
 
 export interface ThrottledSetState<T> {
-  /** Update state (throttled) */
-  update: Dispatch<SetStateAction<T>>;
-  /** Force immediate flush of pending update */
-  flush: () => void;
   /** Cancel any pending update */
   cancel: () => void;
-  /** Get current pending value (if any) */
-  getPending: () => T | undefined;
+  /** Force immediate flush of pending update */
+  flush: () => void;
   /** Get diagnostic info about timer state (for testing/debugging) */
   getDiagnostics: () => ThrottledStateDiagnostics;
+  /** Get current pending value (if any) */
+  getPending: () => T | undefined;
+  /** Update state (throttled) */
+  update: Dispatch<SetStateAction<T>>;
 }
 
 /**

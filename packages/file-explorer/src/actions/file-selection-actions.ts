@@ -11,10 +11,10 @@ const logger = createLogger('FileSelectionActions');
 export interface ChunkedSelectionOptions {
   /** Number of files to process per chunk (default: DEFAULT_SELECTION_CHUNK_SIZE = 100) */
   chunkSize?: number;
-  /** AbortSignal for cancellation */
-  signal?: AbortSignal;
   /** Callback for progress updates (filesProcessed, totalFiles) */
   onProgress?: (processed: number, total: number) => void;
+  /** AbortSignal for cancellation */
+  signal?: AbortSignal;
 }
 
 export interface ChunkedSelectionResult {
@@ -27,13 +27,7 @@ export interface ChunkedSelectionResult {
 }
 
 export interface FileSelectionActions {
-  setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;
-  addSelectedFile: (folderId: string | null, path: string) => void;
-  removeSelectedFile: (folderId: string | null, path: string) => void;
-  toggleSelectedFile: (folderId: string | null, path: string) => void;
-  clearSelectedFiles: () => void;
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
-  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   /**
    * Add multiple files with chunked processing to avoid blocking the main thread.
    * Uses requestIdleCallback to process files in batches, keeping the UI responsive.
@@ -55,6 +49,12 @@ export interface FileSelectionActions {
     paths: string[],
     options?: ChunkedSelectionOptions
   ) => Promise<ChunkedSelectionResult>;
+  addSelectedFile: (folderId: string | null, path: string) => void;
+  clearSelectedFiles: () => void;
+  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  removeSelectedFile: (folderId: string | null, path: string) => void;
+  setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;
+  toggleSelectedFile: (folderId: string | null, path: string) => void;
 }
 
 /** Schedule work during browser idle time with error handling. */
@@ -87,9 +87,9 @@ function scheduleChunk(): Promise<void> {
 }
 
 interface ComputeKeysResult {
+  cancelled: boolean;
   computedKeys: string[];
   processedCount: number;
-  cancelled: boolean;
   wasCapped: boolean;
 }
 
