@@ -3,6 +3,7 @@ export const PREVIEW_FOOTER_MODES = ['compact', 'default', 'expanded'] as const;
 export type PreviewFooterMode = (typeof PREVIEW_FOOTER_MODES)[number];
 
 export const PREVIEW_FOOTER_HEIGHTS = {
+  // Slight undershoot while dragging keeps the resize handle usable before snapping to compact mode.
   min: 78,
   compact: 88,
   default: 152,

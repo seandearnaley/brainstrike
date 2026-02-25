@@ -38,6 +38,10 @@ const SVG_ID_INVALID_CHARACTERS = /[^a-zA-Z0-9_-]/g;
 const BODY_RESIZE_LOCKS_ATTRIBUTE = 'data-preview-footer-resize-locks';
 
 function acquireBodyResizeLock(): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
   const locks = Number.parseInt(document.body.getAttribute(BODY_RESIZE_LOCKS_ATTRIBUTE) ?? '0', 10);
   const nextLocks = Number.isNaN(locks) ? 1 : locks + 1;
 
@@ -49,6 +53,10 @@ function acquireBodyResizeLock(): void {
 }
 
 function releaseBodyResizeLock(): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
   const locks = Number.parseInt(document.body.getAttribute(BODY_RESIZE_LOCKS_ATTRIBUTE) ?? '0', 10);
 
   if (Number.isNaN(locks) || locks <= 1) {
@@ -69,7 +77,7 @@ interface TokenUsageSparklineProps {
 function buildSparklinePoints(
   history: number[],
   budget: number
-): { path: string; areaPath: string } | null {
+): { polylinePoints: string; areaPath: string } | null {
   if (history.length < 2) {
     return null;
   }
@@ -79,6 +87,7 @@ function buildSparklinePoints(
   const padding = 4;
   let maxValue = Math.max(1, budget);
   let minValue = 0;
+  // Keep this defensive range logic in case upstream usage metrics emit temporary negatives.
   for (const value of history) {
     if (value > maxValue) {
       maxValue = value;
@@ -103,7 +112,7 @@ function buildSparklinePoints(
     pathSegments.push(`${point.x},${point.y}`);
     lineCommands.push(`L ${point.x} ${point.y}`);
   }
-  const path = pathSegments.join(' ');
+  const polylinePoints = pathSegments.join(' ');
   const firstPoint = points[0];
   const lastPoint = points.at(-1);
   if (firstPoint === undefined || lastPoint === undefined) {
@@ -112,7 +121,7 @@ function buildSparklinePoints(
   const areaPath = `M ${firstPoint.x} ${height - padding} ${lineCommands.join(' ')} L ${lastPoint.x} ${height - padding} Z`;
 
   return {
-    path,
+    polylinePoints,
     areaPath,
   };
 }
@@ -165,7 +174,7 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
           <path d={geometry.areaPath} fill={`url(#${gradientFillId})`} />
           <polyline
             fill="none"
-            points={geometry.path}
+            points={geometry.polylinePoints}
             stroke={isOverBudget ? 'hsl(var(--destructive))' : 'hsl(var(--primary))'}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -664,6 +673,10 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         : restingMode;
     const isCompact = effectiveMode === 'compact';
     const isExpanded = effectiveMode === 'expanded';
+    const isExpandedRef = useRef(isExpanded);
+    isExpandedRef.current = isExpanded;
+    const usedTokensRef = useRef(tokenUsage.usedTokens);
+    usedTokensRef.current = tokenUsage.usedTokens;
 
     const meterSize = isExpanded ? 'lg' : isCompact ? 'sm' : 'md';
 
@@ -682,15 +695,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
     useEffect(() => {
       const previousHistory = usageHistoryRef.current;
-      if (previousHistory.length === 0) {
-        const seededHistory = [tokenUsage.usedTokens];
-        usageHistoryRef.current = seededHistory;
-        if (isExpanded) {
-          setUsageHistory(seededHistory);
-        }
-        return;
-      }
-
       const latest = previousHistory.at(-1);
       if (latest === tokenUsage.usedTokens) {
         return;
@@ -702,10 +706,10 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           ? nextHistory
           : nextHistory.slice(-FOOTER_INSIGHT_HISTORY_LIMIT);
 
-      if (isExpanded) {
+      if (isExpandedRef.current) {
         setUsageHistory(usageHistoryRef.current);
       }
-    }, [isExpanded, tokenUsage.usedTokens]);
+    }, [tokenUsage.usedTokens]);
 
     useEffect(() => {
       if (!isExpanded) {
@@ -713,10 +717,10 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       }
 
       if (usageHistoryRef.current.length === 0) {
-        usageHistoryRef.current = [tokenUsage.usedTokens];
+        usageHistoryRef.current = [usedTokensRef.current];
       }
       setUsageHistory(usageHistoryRef.current);
-    }, [isExpanded, tokenUsage.usedTokens]);
+    }, [isExpanded]);
 
     useEffect(() => {
       if (committedMode !== 'expanded') {
@@ -828,6 +832,10 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
     useEffect(() => {
       return () => {
+        if (animationFrameRef.current !== null) {
+          window.cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
         releaseResizeLockIfHeld();
       };
     }, [releaseResizeLockIfHeld]);
