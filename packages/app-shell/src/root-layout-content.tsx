@@ -7,7 +7,7 @@ import {
 import { type PanelTab, usePanelLayoutStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
-import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react';
+import { type ReactElement, type ReactNode, useCallback, useMemo, useRef } from 'react';
 import { shallow } from 'zustand/shallow';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
@@ -109,20 +109,25 @@ export function RootLayoutContent({
     shallow
   );
 
+  // Use a ref for sizes fallback to avoid recreating this callback on every resize drag frame.
+  const sizesRef = useRef(panelState.sizes);
+  sizesRef.current = panelState.sizes;
+
   const handlePanelLayoutChange = useCallback(
     (state: PanelLayoutState) => {
+      const fallback = sizesRef.current;
       setState({
         sizes: [
-          (state.sizes?.[0] as number | undefined) ?? panelState.sizes[0],
-          (state.sizes?.[1] as number | undefined) ?? panelState.sizes[1],
-          (state.sizes?.[2] as number | undefined) ?? panelState.sizes[2],
+          (state.sizes?.[0] as number | undefined) ?? fallback[0],
+          (state.sizes?.[1] as number | undefined) ?? fallback[1],
+          (state.sizes?.[2] as number | undefined) ?? fallback[2],
         ] as [number, number, number],
         showConsole: state.showConsole,
         showLeftPanel: state.showLeftPanel,
         showRightPanel: state.showRightPanel,
       });
     },
-    [setState, panelState.sizes]
+    [setState]
   );
 
   return (

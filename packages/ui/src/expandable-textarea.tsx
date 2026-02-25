@@ -87,7 +87,8 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
   }, []);
 
   // Update height when value changes — uses cached measurements to avoid getComputedStyle.
-  React.useEffect(() => {
+  // useIsomorphicLayoutEffect prevents a visible one-frame flash at 'auto' height.
+  useIsomorphicLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) {
       return;

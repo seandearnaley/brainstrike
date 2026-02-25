@@ -16,7 +16,7 @@ const Progress = ({
     {...props}
   >
     <div
-      className="h-full w-full flex-1 bg-primary transition-[width]"
+      className="h-full w-full flex-1 bg-primary transition-transform"
       style={{
         transform: `translateX(-${100 - (value || 0)}%)`,
       }}
