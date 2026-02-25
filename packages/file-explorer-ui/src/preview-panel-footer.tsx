@@ -35,6 +35,30 @@ import type { TokenCountingState } from './use-token-counting';
 
 const FOOTER_INSIGHT_HISTORY_LIMIT = 24;
 const SVG_ID_INVALID_CHARACTERS = /[^a-zA-Z0-9_-]/g;
+const BODY_RESIZE_LOCKS_ATTRIBUTE = 'data-preview-footer-resize-locks';
+
+function acquireBodyResizeLock(): void {
+  const locks = Number.parseInt(document.body.getAttribute(BODY_RESIZE_LOCKS_ATTRIBUTE) ?? '0', 10);
+  const nextLocks = Number.isNaN(locks) ? 1 : locks + 1;
+
+  if (nextLocks === 1) {
+    document.body.classList.add('select-none', 'cursor-row-resize');
+  }
+
+  document.body.setAttribute(BODY_RESIZE_LOCKS_ATTRIBUTE, String(nextLocks));
+}
+
+function releaseBodyResizeLock(): void {
+  const locks = Number.parseInt(document.body.getAttribute(BODY_RESIZE_LOCKS_ATTRIBUTE) ?? '0', 10);
+
+  if (Number.isNaN(locks) || locks <= 1) {
+    document.body.removeAttribute(BODY_RESIZE_LOCKS_ATTRIBUTE);
+    document.body.classList.remove('select-none', 'cursor-row-resize');
+    return;
+  }
+
+  document.body.setAttribute(BODY_RESIZE_LOCKS_ATTRIBUTE, String(locks - 1));
+}
 
 interface TokenUsageSparklineProps {
   history: number[];
@@ -65,8 +89,13 @@ function buildSparklinePoints(
     return { x, y };
   });
 
-  const path = points.map((point) => `${point.x},${point.y}`).join(' ');
-  const lineCommands = points.map((point) => `L ${point.x} ${point.y}`).join(' ');
+  let path = '';
+  let lineCommands = '';
+  for (const point of points) {
+    const pointCoordinates = `${point.x},${point.y}`;
+    path = path ? `${path} ${pointCoordinates}` : pointCoordinates;
+    lineCommands += `L ${point.x} ${point.y} `;
+  }
   const firstPoint = points[0];
   const lastPoint = points.at(-1);
 
@@ -74,7 +103,7 @@ function buildSparklinePoints(
     return null;
   }
 
-  const areaPath = `M ${firstPoint.x} ${height - padding} ${lineCommands} L ${lastPoint.x} ${height - padding} Z`;
+  const areaPath = `M ${firstPoint.x} ${height - padding} ${lineCommands.trimEnd()} L ${lastPoint.x} ${height - padding} Z`;
 
   return {
     path,
@@ -615,7 +644,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     const dragSessionRef = useRef<DragSession | null>(null);
     const queuedHeightRef = useRef<number>(clampPreviewFooterHeight(footerHeight));
     const animationFrameRef = useRef<number | null>(null);
-    const previousBodyStylesRef = useRef<{ userSelect: string; cursor: string } | null>(null);
     const lastExpandedHeightRef = useRef<number>(getPreviewFooterModeHeight('expanded'));
 
     const committedHeight = clampPreviewFooterHeight(footerHeight);
@@ -670,14 +698,8 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       lastExpandedHeightRef.current = committedHeight;
     }, [committedHeight, committedMode]);
 
-    const restoreBodyStyles = useCallback(() => {
-      if (!previousBodyStylesRef.current) {
-        return;
-      }
-
-      document.body.style.userSelect = previousBodyStylesRef.current.userSelect;
-      document.body.style.cursor = previousBodyStylesRef.current.cursor;
-      previousBodyStylesRef.current = null;
+    const releaseResizeLock = useCallback(() => {
+      releaseBodyResizeLock();
     }, []);
 
     const commitHeight = useCallback(
@@ -741,7 +763,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         dragSessionRef.current = null;
         setIsResizing(false);
         setDraftHeight(null);
-        restoreBodyStyles();
+        releaseResizeLock();
         commitHeight(finalHeight);
       };
 
@@ -761,10 +783,10 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         }
         if (dragSessionRef.current) {
           dragSessionRef.current = null;
-          restoreBodyStyles();
+          releaseResizeLock();
         }
       };
-    }, [commitHeight, isResizing, restoreBodyStyles]);
+    }, [commitHeight, isResizing, releaseResizeLock]);
 
     const handleResizeStart = useCallback(
       (event: ReactPointerEvent<HTMLElement>) => {
@@ -777,16 +799,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
         event.preventDefault();
         event.currentTarget.setPointerCapture?.(event.pointerId);
-
-        if (previousBodyStylesRef.current === null) {
-          previousBodyStylesRef.current = {
-            userSelect: document.body.style.userSelect,
-            cursor: document.body.style.cursor,
-          };
-        }
-
-        document.body.style.userSelect = 'none';
-        document.body.style.cursor = 'row-resize';
+        acquireBodyResizeLock();
 
         queuedHeightRef.current = effectiveHeight;
         dragSessionRef.current = {
