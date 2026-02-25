@@ -89,13 +89,13 @@ function buildSparklinePoints(
     return { x, y };
   });
 
-  let path = '';
-  let lineCommands = '';
+  const pathSegments: string[] = [];
+  const lineCommands: string[] = [];
   for (const point of points) {
-    const pointCoordinates = `${point.x},${point.y}`;
-    path = path ? `${path} ${pointCoordinates}` : pointCoordinates;
-    lineCommands += `L ${point.x} ${point.y} `;
+    pathSegments.push(`${point.x},${point.y}`);
+    lineCommands.push(`L ${point.x} ${point.y}`);
   }
+  const path = pathSegments.join(' ');
   const firstPoint = points[0];
   const lastPoint = points.at(-1);
 
@@ -103,7 +103,7 @@ function buildSparklinePoints(
     return null;
   }
 
-  const areaPath = `M ${firstPoint.x} ${height - padding} ${lineCommands.trimEnd()} L ${lastPoint.x} ${height - padding} Z`;
+  const areaPath = `M ${firstPoint.x} ${height - padding} ${lineCommands.join(' ')} L ${lastPoint.x} ${height - padding} Z`;
 
   return {
     path,
@@ -640,7 +640,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
     const [isResizing, setIsResizing] = useState(false);
     const [draftHeight, setDraftHeight] = useState<number | null>(null);
-    const [usageHistory, setUsageHistory] = useState<number[]>([tokenUsage.usedTokens]);
+    const [usageHistory, setUsageHistory] = useState<number[]>([]);
     const dragSessionRef = useRef<DragSession | null>(null);
     const queuedHeightRef = useRef<number>(clampPreviewFooterHeight(footerHeight));
     const animationFrameRef = useRef<number | null>(null);
@@ -698,10 +698,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       lastExpandedHeightRef.current = committedHeight;
     }, [committedHeight, committedMode]);
 
-    const releaseResizeLock = useCallback(() => {
-      releaseBodyResizeLock();
-    }, []);
-
     const commitHeight = useCallback(
       (height: number) => {
         const nextHeight = clampPreviewFooterHeight(height);
@@ -720,6 +716,11 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       },
       [committedHeight, footerMode, onFooterHeightChange, onFooterModeChange]
     );
+    const commitHeightRef = useRef(commitHeight);
+
+    useEffect(() => {
+      commitHeightRef.current = commitHeight;
+    }, [commitHeight]);
 
     useEffect(() => {
       if (!isResizing) {
@@ -763,8 +764,8 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         dragSessionRef.current = null;
         setIsResizing(false);
         setDraftHeight(null);
-        releaseResizeLock();
-        commitHeight(finalHeight);
+        releaseBodyResizeLock();
+        commitHeightRef.current(finalHeight);
       };
 
       window.addEventListener('pointermove', handlePointerMove);
@@ -783,10 +784,10 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         }
         if (dragSessionRef.current) {
           dragSessionRef.current = null;
-          releaseResizeLock();
+          releaseBodyResizeLock();
         }
       };
-    }, [commitHeight, isResizing, releaseResizeLock]);
+    }, [isResizing]);
 
     const handleResizeStart = useCallback(
       (event: ReactPointerEvent<HTMLElement>) => {

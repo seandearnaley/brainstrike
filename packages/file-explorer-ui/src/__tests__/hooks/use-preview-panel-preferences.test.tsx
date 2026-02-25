@@ -40,4 +40,18 @@ describe('usePreviewPanelPreferences', () => {
     expect(result.current.footerMode).toBe('expanded');
     expect(result.current.footerHeight).toBe(360);
   });
+
+  it('hydrates canonical height when only footer mode is stored', () => {
+    localStorage.setItem(
+      'previewPanelPreferences.v1',
+      JSON.stringify({
+        footerMode: 'compact',
+      })
+    );
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.footerMode).toBe('compact');
+    expect(result.current.footerHeight).toBe(88);
+  });
 });

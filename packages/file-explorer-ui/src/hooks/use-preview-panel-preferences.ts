@@ -7,6 +7,7 @@ import {
 } from '../preview-column-visibility';
 import {
   clampPreviewFooterHeight,
+  getPreviewFooterModeHeight,
   inferPreviewFooterMode,
   PREVIEW_FOOTER_MODES,
   type PreviewFooterMode,
@@ -248,6 +249,8 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
     if (footerMode === undefined) {
       sanitized.footerMode = inferPreviewFooterMode(footerHeight);
     }
+  } else if (footerMode !== undefined) {
+    sanitized.footerHeight = getPreviewFooterModeHeight(footerMode);
   }
 
   return sanitized;

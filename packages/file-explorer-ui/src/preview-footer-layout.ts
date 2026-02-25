@@ -32,6 +32,7 @@ export function getPreviewFooterModeHeight(mode: PreviewFooterMode): number {
 
 export function inferPreviewFooterMode(height: number): PreviewFooterMode {
   const clamped = clampPreviewFooterHeight(height);
+  // Midpoints define deterministic snap zones. Exact threshold values bias toward the smaller mode.
   const compactThreshold = (PREVIEW_FOOTER_HEIGHTS.compact + PREVIEW_FOOTER_HEIGHTS.default) / 2;
   const expandedThreshold = (PREVIEW_FOOTER_HEIGHTS.default + PREVIEW_FOOTER_HEIGHTS.expanded) / 2;
 
