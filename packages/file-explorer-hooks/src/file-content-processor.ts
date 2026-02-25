@@ -53,7 +53,7 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
     const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
     const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
-    return {
+    const fileHandle: FileHandle = {
       path: fileNode.path,
       name: fileNode.name,
       kind: 'file',
@@ -61,6 +61,12 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
       rootFolderId: fileNode.rootFolderId,
       _internal: fileNode.handle,
     };
+
+    if (typeof fileNode.size === 'number') {
+      fileHandle.size = fileNode.size;
+    }
+
+    return fileHandle;
   }
 }
 
@@ -107,6 +113,10 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       rootFolderId: fileNode.rootFolderId,
       _internal: fileNode.handle,
     };
+
+    if (typeof fileNode.size === 'number') {
+      fileHandle.size = fileNode.size;
+    }
 
     const content = await fileSystemAdapter.readFile(fileHandle);
     const extension = fileExplorer.getFileExtension(fileNode.path);

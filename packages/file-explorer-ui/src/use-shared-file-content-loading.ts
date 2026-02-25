@@ -1,5 +1,6 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileHandle } from '@brainstrike/file-system';
+import { DEFAULT_MAX_FILE_SIZE, formatFileSize } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, decodeFileSelection } from '@brainstrike/utils';
@@ -23,7 +24,7 @@ function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): File
   const handlePlatform = (fileNode.handle as { platform?: Platform }).platform;
   const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
-  return {
+  const fileHandle: FileHandle = {
     path: fileNode.path,
     name: fileNode.name,
     kind: 'file',
@@ -31,6 +32,12 @@ function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): File
     rootFolderId: fileNode.rootFolderId,
     _internal: fileNode.handle,
   };
+
+  if (typeof fileNode.size === 'number') {
+    fileHandle.size = fileNode.size;
+  }
+
+  return fileHandle;
 }
 
 // File node validation helper
@@ -164,6 +171,14 @@ function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
 function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
   const adapter = fileSystemAdapter as { readFileByPath?: unknown };
   return typeof adapter.readFileByPath === 'function';
+}
+
+function isKnownFileSizeTooLarge(size: number | undefined): size is number {
+  return typeof size === 'number' && Number.isFinite(size) && size > DEFAULT_MAX_FILE_SIZE;
+}
+
+function buildTooLargeFileMessage(size: number): string {
+  return `File too large: ${formatFileSize(size)} (max: ${formatFileSize(DEFAULT_MAX_FILE_SIZE)})`;
 }
 
 function markFileLoading(
@@ -397,6 +412,17 @@ async function prepareFileReadRequest(
       loadingPathsRef,
       setLoadingFiles,
     });
+  }
+
+  if (isKnownFileSizeTooLarge(fileNode.size)) {
+    logger.debug('Skipping oversized file before read', {
+      path,
+      folderId,
+      size: fileNode.size,
+      max: DEFAULT_MAX_FILE_SIZE,
+    });
+    setFileContent(compositeKey, buildTooLargeFileMessage(fileNode.size));
+    return null;
   }
 
   markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);

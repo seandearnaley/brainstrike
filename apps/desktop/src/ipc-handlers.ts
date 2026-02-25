@@ -41,6 +41,13 @@ const liveSubscriptionOwnerListeners = new Set<number>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
 
+function getFileTooLargeMessage(error: unknown): string | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+  return error.message.startsWith('File too large:') ? error.message : null;
+}
+
 const panelPersistenceStateSchema = z.object({
   sizes: z.array(
     z.number().superRefine((value, ctx) => {
@@ -290,7 +297,19 @@ export function registerIpcHandlers(
     ) {
       return 'Mock file content for testing purposes\nThis is a test file.\n';
     }
-    return fileSystem.readFile(handle);
+    try {
+      return await fileSystem.readFile(handle);
+    } catch (error) {
+      const tooLargeMessage = getFileTooLargeMessage(error);
+      if (!tooLargeMessage) {
+        throw error;
+      }
+      logger.debug('Skipping oversized file read', {
+        path: handle.path,
+        message: tooLargeMessage,
+      });
+      return tooLargeMessage;
+    }
   });
 
   // BST-307: Direct path-based file reading for persisted tab restoration
@@ -306,7 +325,19 @@ export function registerIpcHandlers(
       throw new Error(`Invalid path: ${resolved.error}`);
     }
 
-    return fileSystem.readFileByPath(resolved.path);
+    try {
+      return await fileSystem.readFileByPath(resolved.path);
+    } catch (error) {
+      const tooLargeMessage = getFileTooLargeMessage(error);
+      if (!tooLargeMessage) {
+        throw error;
+      }
+      logger.debug('Skipping oversized file read by path', {
+        path: resolved.path,
+        message: tooLargeMessage,
+      });
+      return tooLargeMessage;
+    }
   });
 
   registerHandler('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {

@@ -172,6 +172,18 @@ describe('ipc-handlers filesystem endpoints', () => {
     expect(fsAdapter.readFile).toHaveBeenCalledWith(realFile);
   });
 
+  it('fs:readFile returns size-limit message for oversized files', async () => {
+    const handler = handlers.get('fs:readFile');
+    const realFile = { id: 'real-file', path: '/users/test/large.json' } as unknown as FileHandle;
+    vi.mocked(fsAdapter.readFile).mockRejectedValueOnce(
+      new Error('File too large: 1.1MB (max: 750KB)')
+    );
+
+    const result = await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
+
+    expect(result).toBe('File too large: 1.1MB (max: 750KB)');
+  });
+
   it('fs:exists rejects null bytes', async () => {
     const handler = handlers.get('fs:exists');
     const result = await handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/\0oops');
@@ -214,6 +226,20 @@ describe('ipc-handlers filesystem endpoints', () => {
       const content = await handler?.({} as unknown as IpcMainInvokeEvent, '/users/test/file.txt');
       expect(content).toBe('file content by path');
       expect(fsAdapter.readFileByPath).toHaveBeenCalledWith('/users/test/file.txt');
+    });
+
+    it('returns size-limit message instead of throwing for oversized files', async () => {
+      const handler = handlers.get('fs:readFileByPath');
+      vi.mocked(fsAdapter.readFileByPath).mockRejectedValueOnce(
+        new Error('File too large: 1.1MB (max: 750KB)')
+      );
+
+      const result = await handler?.(
+        {} as unknown as IpcMainInvokeEvent,
+        '/users/test/large-file.json'
+      );
+
+      expect(result).toBe('File too large: 1.1MB (max: 750KB)');
     });
 
     it('rejects null bytes in path', async () => {

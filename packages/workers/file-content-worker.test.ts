@@ -1,3 +1,5 @@
+import type { FileSystemAdapter } from '@brainstrike/file-system';
+import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/test-utils';
 import * as utils from '@brainstrike/utils';
 import { fileContent } from '@brainstrike/utils';
@@ -12,16 +14,29 @@ vi.spyOn(console, 'error').mockImplementation(() => {});
 
 function createRequest(path: string) {
   const node = createFileNode({ path });
+  const handle: {
+    path: string;
+    name: string;
+    kind: 'file';
+    size?: number;
+    platform: 'web';
+    _internal: FileSystemFileHandle | FileSystemDirectoryHandle;
+  } = {
+    path: node.path,
+    name: node.name,
+    kind: 'file',
+    platform: 'web',
+    _internal: node.handle,
+  };
+
+  if (typeof node.size === 'number') {
+    handle.size = node.size;
+  }
+
   return {
     compositeKey: `root|@|${path}`,
     path,
-    handle: {
-      path: node.path,
-      name: node.name,
-      kind: 'file' as const,
-      platform: 'web' as const,
-      _internal: node.handle,
-    },
+    handle,
   };
 }
 
@@ -43,6 +58,39 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
     expect(results[req.compositeKey]).toBe('hello');
+  });
+
+  it('prefers handle-based reads when a handle is available', async () => {
+    const readFile = vi.fn(async () => 'from-handle');
+    const readFileByPath = vi.fn(async () => 'from-path');
+    const adapter = {
+      readFile,
+      readFileByPath,
+      requestDirectoryAccess: vi.fn(),
+      readDirectory: vi.fn(),
+      exists: vi.fn(),
+    } as unknown as FileSystemAdapter;
+
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/prefers-handle.txt');
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toBe('from-handle');
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(readFileByPath).not.toHaveBeenCalled();
+  });
+
+  it('skips known oversized files before adapter reads are attempted', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const readSpy = vi.spyOn(adapter, 'readFile');
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/large.txt');
+    req.handle.size = DEFAULT_MAX_FILE_SIZE + 1;
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toMatch('File too large');
+    expect(readSpy).not.toHaveBeenCalled();
   });
 
   it('returns binary error for binary extension', async () => {

@@ -1,5 +1,5 @@
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { DEFAULT_MAX_FILE_SIZE, MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
@@ -346,6 +346,28 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(readSpy).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toMatch('Folder mismatch');
+  });
+
+  it('skips oversized files before queueing worker reads', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const fileNode = createFileNode({ path: '/too-large.txt', rootFolderId: 'root1' });
+    fileNode.size = DEFAULT_MAX_FILE_SIZE + 1;
+    const compositeKey = encodeFileSelection('root1', '/too-large.txt');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+      rerender();
+    });
+
+    expect(result.current.fileContents[compositeKey]).toMatch('File too large');
+    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
   });
 
   it('retries when handle is missing on first lookup', async () => {

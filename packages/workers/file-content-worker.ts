@@ -1,4 +1,5 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import { DEFAULT_MAX_FILE_SIZE, formatFileSize } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
 import {
   createLogger,
@@ -24,13 +25,27 @@ export interface ProgressEvent {
 export interface FileContentWorkerOptions {
   fileSystemAdapter: FileSystemAdapter;
   concurrency?: number;
+  maxFileSize?: number;
 }
 
 const logger = createLogger('FileContentWorker');
 
+function getKnownFileSize(request: FileReadRequest): number | null {
+  const size = request.handle?.size;
+  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
+    return null;
+  }
+  return size;
+}
+
+function isFileTooLargeMessage(message: string): boolean {
+  return message.startsWith('File too large:');
+}
+
 export function createFileContentWorker({
   fileSystemAdapter,
   concurrency = 3, // Reduced from 5 to prevent main thread saturation
+  maxFileSize = DEFAULT_MAX_FILE_SIZE,
 }: FileContentWorkerOptions) {
   async function runQueue(queue: FileReadRequest[], onProgress?: (e: ProgressEvent) => void) {
     const results: Record<string, string> = {};
@@ -78,17 +93,33 @@ export function createFileContentWorker({
   }
 
   async function processRequest(req: FileReadRequest): Promise<{ key: string; content: string }> {
+    const knownFileSize = getKnownFileSize(req);
+    if (knownFileSize !== null && knownFileSize > maxFileSize) {
+      throw new FileContentError(
+        `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(maxFileSize)})`,
+        req.path,
+        'TOO_LARGE'
+      );
+    }
+
     let content: string;
     try {
-      // Prefer readFileByPath when available (Electron) - allows reading without a tree handle
-      if (fileSystemAdapter.readFileByPath) {
-        content = await fileSystemAdapter.readFileByPath(req.path);
-      } else if (req.handle) {
+      // Prefer handle-based reads when available so we can use metadata already loaded in the tree.
+      if (req.handle) {
         content = await fileSystemAdapter.readFile(req.handle);
+      } else if (fileSystemAdapter.readFileByPath) {
+        // Fallback for persisted tabs / paths that don't have a tree handle yet.
+        content = await fileSystemAdapter.readFileByPath(req.path);
       } else {
         throw new Error('No handle available and readFileByPath not supported');
       }
     } catch (error) {
+      if (error instanceof FileContentError) {
+        throw error;
+      }
+      if (error instanceof Error && isFileTooLargeMessage(error.message)) {
+        throw new FileContentError(error.message, req.path, 'TOO_LARGE');
+      }
       logger.warn('Failed to read file content via adapter', { error, path: req.path });
       throw new FileContentError('Error accessing file', req.path, 'LOADING_ERROR');
     }
