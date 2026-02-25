@@ -124,6 +124,33 @@ export const fileFilter = {
   },
 
   /**
+   * Helper to filter children of a directory
+   *
+   * @internal Internal recursive helper used by _filterNodeRecursive.
+   */
+  _filterChildren(
+    children: IFileNode[],
+    includeMatchers: ((str: string) => boolean)[],
+    excludeMatchers: ((str: string) => boolean)[]
+  ): { filteredChildren: IFileNode[]; hasChanges: boolean } {
+    const filteredChildren: IFileNode[] = [];
+    let hasChanges = false;
+
+    for (const child of children) {
+      const filtered = this._filterNodeRecursive(child, includeMatchers, excludeMatchers);
+      if (filtered) {
+        filteredChildren.push(filtered);
+        if (filtered !== child) {
+          hasChanges = true;
+        }
+      } else {
+        hasChanges = true;
+      }
+    }
+    return { filteredChildren, hasChanges };
+  },
+
+  /**
    * Internal recursive filter function using pre-compiled matchers
    *
    * @internal Internal recursive helper used by filterNode.
@@ -145,13 +172,11 @@ export const fileFilter = {
 
     if (node.type === 'directory' && node.children) {
       // Recursively filter children first
-      const filteredChildren: IFileNode[] = [];
-      for (const child of node.children) {
-        const filtered = this._filterNodeRecursive(child, includeMatchers, excludeMatchers);
-        if (filtered) {
-          filteredChildren.push(filtered);
-        }
-      }
+      const { filteredChildren, hasChanges } = this._filterChildren(
+        node.children,
+        includeMatchers,
+        excludeMatchers
+      );
 
       const directoryMatches =
         includeMatchers.length === 0 || this._matchesAny(node.path, includeMatchers);
@@ -160,6 +185,12 @@ export const fileFilter = {
       // exclude it from the results
       if (!directoryMatches && filteredChildren.length === 0) {
         return null;
+      }
+
+      // Optimization: If children didn't change and we are keeping the directory, return the original node
+      // This avoids O(N) allocations when the tree is largely unchanged
+      if (!hasChanges) {
+        return node;
       }
 
       return {
