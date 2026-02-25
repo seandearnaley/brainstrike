@@ -65,27 +65,10 @@ export default defineConfig({
       external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
         manualChunks: (id) => {
-          if (!id.includes('node_modules')) {
-            return undefined;
+          if (id.includes('node_modules')) {
+            return 'vendor';
           }
-          const vendorChunks: [string[], string][] = [
-            [['@electric-sql/pglite'], 'vendor-pglite'],
-            [['@huggingface/transformers'], 'vendor-transformers'],
-            [['@langchain'], 'vendor-langchain'],
-            [['@babel/parser'], 'vendor-babel-parser'],
-            [['shiki', '@shikijs'], 'vendor-shiki'],
-            [['@assistant-ui'], 'vendor-assistant-ui'],
-            [['workerpool'], 'vendor-workerpool'],
-            [['@radix-ui'], 'vendor-radix'],
-            [['react-router-dom', 'react-router'], 'vendor-router'],
-            [['react', 'react-dom', 'scheduler'], 'vendor-react'],
-          ];
-          for (const [patterns, chunk] of vendorChunks) {
-            if (patterns.some((p) => id.includes(p))) {
-              return chunk;
-            }
-          }
-          return 'vendor-misc';
+          return;
         },
       },
     },
