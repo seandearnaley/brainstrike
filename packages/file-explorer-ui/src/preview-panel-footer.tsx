@@ -15,6 +15,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -88,6 +89,8 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
   isOverBudget,
 }) {
   const geometry = useMemo(() => buildSparklinePoints(history, budget), [history, budget]);
+  const gradientId = useId();
+  const gradientFillId = `footer-usage-fill-${gradientId.replaceAll(':', '')}`;
   const latest = history.at(-1) ?? 0;
   const previous = history.at(-2) ?? latest;
   const delta = latest - previous;
@@ -108,7 +111,7 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
       {geometry ? (
         <svg aria-hidden="true" className="h-12 w-full" viewBox="0 0 220 48">
           <defs>
-            <linearGradient id="footer-usage-fill" x1="0" x2="0" y1="0" y2="1">
+            <linearGradient id={gradientFillId} x1="0" x2="0" y1="0" y2="1">
               <stop
                 offset="0%"
                 stopColor={isOverBudget ? 'hsl(var(--destructive))' : 'hsl(var(--primary))'}
@@ -121,7 +124,7 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
               />
             </linearGradient>
           </defs>
-          <path d={geometry.areaPath} fill="url(#footer-usage-fill)" />
+          <path d={geometry.areaPath} fill={`url(#${gradientFillId})`} />
           <polyline
             fill="none"
             points={geometry.path}
@@ -188,6 +191,7 @@ interface DragSession {
   pointerId: number;
   startY: number;
   startHeight: number;
+  handleElement: HTMLElement;
 }
 
 interface FooterActionButtonsProps {
@@ -697,6 +701,9 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           animationFrameRef.current = null;
         }
         const finalHeight = queuedHeightRef.current;
+        if (session?.handleElement.hasPointerCapture?.(session.pointerId)) {
+          session.handleElement.releasePointerCapture?.(session.pointerId);
+        }
         dragSessionRef.current = null;
         setIsResizing(false);
         setDraftHeight(null);
@@ -735,6 +742,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         }
 
         event.preventDefault();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
 
         if (previousBodyStylesRef.current === null) {
           previousBodyStylesRef.current = {
@@ -751,6 +759,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           pointerId: event.pointerId,
           startY: event.clientY,
           startHeight: effectiveHeight,
+          handleElement: event.currentTarget,
         };
 
         setDraftHeight(effectiveHeight);
@@ -825,7 +834,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
             aria-valuemax={PREVIEW_FOOTER_HEIGHTS.max}
             aria-valuemin={PREVIEW_FOOTER_HEIGHTS.min}
             aria-valuenow={effectiveHeight}
-            className="h-1 flex-1 cursor-row-resize rounded-full border-0 bg-border outline-none transition-colors hover:bg-primary/40 focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-1 flex-1 cursor-row-resize touch-none rounded-full border-0 bg-border outline-none transition-colors hover:bg-primary/40 focus-visible:ring-2 focus-visible:ring-ring"
             onKeyDown={handleResizeKeyDown}
             onPointerDown={handleResizeStart}
             tabIndex={0}

@@ -7,6 +7,7 @@ import {
 } from '../preview-column-visibility';
 import {
   clampPreviewFooterHeight,
+  inferPreviewFooterMode,
   PREVIEW_FOOTER_MODES,
   type PreviewFooterMode,
 } from '../preview-footer-layout';
@@ -238,12 +239,15 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
     sanitized.useTapestryRangesForContextOutput = useTapestryRangesForContextOutput;
   }
   const footerMode = sanitizeFooterMode(stored.footerMode);
+  const footerHeight = sanitizeFooterHeight(stored.footerHeight);
   if (footerMode !== undefined) {
     sanitized.footerMode = footerMode;
   }
-  const footerHeight = sanitizeFooterHeight(stored.footerHeight);
   if (footerHeight !== undefined) {
     sanitized.footerHeight = footerHeight;
+    if (footerMode === undefined) {
+      sanitized.footerMode = inferPreviewFooterMode(footerHeight);
+    }
   }
 
   return sanitized;

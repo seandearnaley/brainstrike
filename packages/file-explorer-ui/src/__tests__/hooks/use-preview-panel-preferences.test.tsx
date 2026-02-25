@@ -37,7 +37,7 @@ describe('usePreviewPanelPreferences', () => {
     expect(result.current.columnVisibility.size).toBe(false);
     expect(result.current.columnVisibility.tokens).toBe(true);
     expect(Array.from(result.current.collapsedGroups)).toEqual(['keep']);
-    expect(result.current.footerMode).toBe('default');
+    expect(result.current.footerMode).toBe('expanded');
     expect(result.current.footerHeight).toBe(360);
   });
 });
