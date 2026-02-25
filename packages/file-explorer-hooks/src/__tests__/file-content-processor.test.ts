@@ -12,17 +12,23 @@ vi.mock('@brainstrike/workers/file-content-worker', () => ({
   createFileContentWorker: vi.fn(() => vi.fn()),
 }));
 
-// Mock utils
-vi.mock('@brainstrike/utils', () => ({
-  fileContent: {
-    isBinaryExtension: vi.fn(),
-    isTextExtension: vi.fn(),
-    isTextContent: vi.fn(),
-  },
-  fileExplorer: {
-    getFileExtension: vi.fn(),
-  },
-}));
+// Mock only the helpers this suite controls while preserving other exports.
+vi.mock('@brainstrike/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+  return {
+    ...actual,
+    fileContent: {
+      ...actual.fileContent,
+      isBinaryExtension: vi.fn(),
+      isTextExtension: vi.fn(),
+      isTextContent: vi.fn(),
+    },
+    fileExplorer: {
+      ...actual.fileExplorer,
+      getFileExtension: vi.fn(),
+    },
+  };
+});
 
 const mockFileSystemAdapter: FileSystemAdapter = {
   readFile: vi.fn(),
@@ -54,6 +60,8 @@ const mockRequest = {
 };
 
 describe('DirectFileContentProcessor', () => {
+  const KNOWN_OVERSIZED_FILE_BYTES = 2_000_000;
+
   it('should process files sequentially', async () => {
     const processor = new DirectFileContentProcessor();
     const mockReadFile = vi.mocked(mockFileSystemAdapter.readFile);
@@ -92,6 +100,24 @@ describe('DirectFileContentProcessor', () => {
     expect(results).toEqual({
       'root1|@|/test.txt': 'Binary file - preview not available',
     });
+  });
+
+  it('should skip direct reads for known oversized files', async () => {
+    const processor = new DirectFileContentProcessor();
+    const mockReadFile = vi.mocked(mockFileSystemAdapter.readFile);
+    mockReadFile.mockClear();
+    const oversizedRequest = {
+      ...mockRequest,
+      fileNode: {
+        ...mockFileNode,
+        size: KNOWN_OVERSIZED_FILE_BYTES,
+      },
+    };
+
+    const results = await processor.processFiles([oversizedRequest]);
+
+    expect(results['root1|@|/test.txt']).toMatch('File too large');
+    expect(mockReadFile).not.toHaveBeenCalled();
   });
 
   it('should handle file read errors', async () => {

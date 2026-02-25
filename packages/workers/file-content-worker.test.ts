@@ -178,6 +178,21 @@ describe('file-content-worker', () => {
     expect(results[req.compositeKey]).toMatch('Error accessing file');
   });
 
+  it('maps structured TOO_LARGE errors from adapter reads', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/too-large.txt');
+    const oversizedError = Object.assign(new Error('File exceeds preview size limit'), {
+      code: 'TOO_LARGE' as const,
+    });
+
+    MockFileSystemAdapter.setMockReadFileError('/too-large.txt', oversizedError);
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toBe('File exceeds preview size limit');
+  });
+
   it('reports progress for failed files', async () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createFileContentWorker({ fileSystemAdapter: adapter });

@@ -1,7 +1,8 @@
-import type {
-  DirectoryHandle,
-  ElectronFileSystemAdapter,
-  FileHandle,
+import {
+  AccessError,
+  type DirectoryHandle,
+  type ElectronFileSystemAdapter,
+  type FileHandle,
 } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { IpcMainInvokeEvent } from 'electron';
@@ -172,16 +173,19 @@ describe('ipc-handlers filesystem endpoints', () => {
     expect(fsAdapter.readFile).toHaveBeenCalledWith(realFile);
   });
 
-  it('fs:readFile returns size-limit message for oversized files', async () => {
+  it('fs:readFile returns structured size-limit payload for oversized files', async () => {
     const handler = handlers.get('fs:readFile');
     const realFile = { id: 'real-file', path: '/users/test/large.json' } as unknown as FileHandle;
     vi.mocked(fsAdapter.readFile).mockRejectedValueOnce(
-      new Error('File too large: 1.1MB (max: 750KB)')
+      new AccessError('File too large: 1.1MB (max: 750KB)', '/users/test/large.json', 'read')
     );
 
     const result = await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
 
-    expect(result).toBe('File too large: 1.1MB (max: 750KB)');
+    expect(result).toEqual({
+      code: 'TOO_LARGE',
+      message: 'File too large: 1.1MB (max: 750KB)',
+    });
   });
 
   it('fs:exists rejects null bytes', async () => {
@@ -228,10 +232,10 @@ describe('ipc-handlers filesystem endpoints', () => {
       expect(fsAdapter.readFileByPath).toHaveBeenCalledWith('/users/test/file.txt');
     });
 
-    it('returns size-limit message instead of throwing for oversized files', async () => {
+    it('returns structured size-limit payload instead of throwing for oversized files', async () => {
       const handler = handlers.get('fs:readFileByPath');
       vi.mocked(fsAdapter.readFileByPath).mockRejectedValueOnce(
-        new Error('File too large: 1.1MB (max: 750KB)')
+        new AccessError('File too large: 1.1MB (max: 750KB)', '/users/test/large-file.json', 'read')
       );
 
       const result = await handler?.(
@@ -239,7 +243,10 @@ describe('ipc-handlers filesystem endpoints', () => {
         '/users/test/large-file.json'
       );
 
-      expect(result).toBe('File too large: 1.1MB (max: 750KB)');
+      expect(result).toEqual({
+        code: 'TOO_LARGE',
+        message: 'File too large: 1.1MB (max: 750KB)',
+      });
     });
 
     it('rejects null bytes in path', async () => {

@@ -1,5 +1,5 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import { DEFAULT_MAX_FILE_SIZE, formatFileSize } from '@brainstrike/file-system';
+import { AccessError, DEFAULT_MAX_FILE_SIZE, formatFileSize } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
 import {
   createLogger,
@@ -38,8 +38,33 @@ function getKnownFileSize(request: FileReadRequest): number | null {
   return size;
 }
 
-function isFileTooLargeMessage(message: string): boolean {
-  return message.startsWith('File too large:');
+function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE' } {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { code?: unknown };
+  return candidate.code === 'TOO_LARGE';
+}
+
+function isTooLargeAccessError(error: unknown): error is AccessError {
+  return (
+    error instanceof AccessError &&
+    error.operation === 'read' &&
+    error.message.includes('File too large')
+  );
+}
+
+function getTooLargeMessage(error: unknown): string | null {
+  if (error instanceof FileContentError && error.code === 'TOO_LARGE') {
+    return error.message;
+  }
+  if (hasTooLargeCode(error) && error instanceof Error) {
+    return error.message;
+  }
+  if (isTooLargeAccessError(error)) {
+    return error.message;
+  }
+  return null;
 }
 
 export function createFileContentWorker({
@@ -117,8 +142,9 @@ export function createFileContentWorker({
       if (error instanceof FileContentError) {
         throw error;
       }
-      if (error instanceof Error && isFileTooLargeMessage(error.message)) {
-        throw new FileContentError(error.message, req.path, 'TOO_LARGE');
+      const tooLargeMessage = getTooLargeMessage(error);
+      if (tooLargeMessage) {
+        throw new FileContentError(tooLargeMessage, req.path, 'TOO_LARGE');
       }
       logger.warn('Failed to read file content via adapter', { error, path: req.path });
       throw new FileContentError('Error accessing file', req.path, 'LOADING_ERROR');

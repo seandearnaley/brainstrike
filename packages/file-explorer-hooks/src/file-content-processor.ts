@@ -1,4 +1,5 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import { DEFAULT_MAX_FILE_SIZE, formatFileSize } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
@@ -100,6 +101,14 @@ export class DirectFileContentProcessor implements FileContentProcessor {
 
   private async processFile(request: FileContentRequest): Promise<string> {
     const { fileNode, fileSystemAdapter } = request;
+
+    if (typeof fileNode.size === 'number' && fileNode.size > DEFAULT_MAX_FILE_SIZE) {
+      throw new FileContentError(
+        `File too large: ${formatFileSize(fileNode.size)} (max: ${formatFileSize(DEFAULT_MAX_FILE_SIZE)})`,
+        fileNode.path,
+        'TOO_LARGE'
+      );
+    }
 
     const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
     const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;

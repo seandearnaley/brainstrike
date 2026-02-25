@@ -14,6 +14,33 @@ import type {
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
 import type { LoggingSettingsPayload } from './logging-shared';
 
+interface FileReadErrorPayload {
+  code: 'TOO_LARGE';
+  message: string;
+}
+
+function isFileReadErrorPayload(value: unknown): value is FileReadErrorPayload {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as { code?: unknown; message?: unknown };
+  return candidate.code === 'TOO_LARGE' && typeof candidate.message === 'string';
+}
+
+function unwrapFileReadResult(result: unknown): string {
+  if (typeof result === 'string') {
+    return result;
+  }
+
+  if (isFileReadErrorPayload(result)) {
+    const error = new Error(result.message) as Error & { code?: string };
+    error.code = result.code;
+    throw error;
+  }
+
+  throw new Error('Invalid response from file read IPC handler');
+}
+
 // Expose storage APIs to renderer
 contextBridge.exposeInMainWorld('electronAPI', {
   storage: {
@@ -26,8 +53,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fileSystem: {
     requestDirectoryAccess: () => ipcRenderer.invoke('fs:requestDirectoryAccess'),
     readDirectory: (handle: DirectoryHandle) => ipcRenderer.invoke('fs:readDirectory', handle),
-    readFile: (handle: FileHandle) => ipcRenderer.invoke('fs:readFile', handle),
-    readFileByPath: (absolutePath: string) => ipcRenderer.invoke('fs:readFileByPath', absolutePath),
+    readFile: async (handle: FileHandle) => {
+      const result = await ipcRenderer.invoke('fs:readFile', handle);
+      return unwrapFileReadResult(result);
+    },
+    readFileByPath: async (absolutePath: string) => {
+      const result = await ipcRenderer.invoke('fs:readFileByPath', absolutePath);
+      return unwrapFileReadResult(result);
+    },
     exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
     restoreLastFolder: () => ipcRenderer.invoke('fs:restoreLastFolder'),
     saveLastFolder: (folderPath: string) => ipcRenderer.invoke('fs:saveLastFolder', folderPath),
