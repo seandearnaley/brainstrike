@@ -23,7 +23,6 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 // TODO(BST-312): extract ROW_HEIGHT into a shared constant and retire legacy row component.
 import { ROW_HEIGHT } from './optimized-file-tree-row';
@@ -397,15 +396,10 @@ function computeSelectedDirectoryCountSnapshot(
   };
 }
 
-interface UseSelectedDirectoryCountsResult {
-  selectedDirectoryCounts: Map<string, number>;
-  snapshotRef: React.RefObject<SelectedDirectoryCountSnapshot>;
-}
-
 function useSelectedDirectoryCounts(
   selectedFilePaths: Set<string>,
   folderId: string
-): UseSelectedDirectoryCountsResult {
+): Map<string, number> {
   const selectedDirectoryCountSnapshotRef = useRef<SelectedDirectoryCountSnapshot>(
     createSelectedDirectoryCountSnapshot(folderId)
   );
@@ -432,10 +426,7 @@ function useSelectedDirectoryCounts(
     };
   }, []);
 
-  return {
-    selectedDirectoryCounts: nextSnapshot.selectedDirectoryCounts,
-    snapshotRef: selectedDirectoryCountSnapshotRef,
-  };
+  return nextSnapshot.selectedDirectoryCounts;
 }
 
 function computeDirectoryCheckboxState(
@@ -745,154 +736,6 @@ function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIco
 }
 
 /**
- * Per-row hook that subscribes to only this node's selection state from the store.
- * Each row independently re-renders when its own checkbox state changes, rather than
- * all rows re-rendering when the top-level `columns` array reference changes.
- */
-function useNodeSelectionState(rowData: FileTreeRowData, folderId: string): NodeSelectionState {
-  const store = useFileExplorerStoreContext();
-  const node = rowData.fileNode;
-
-  return store(
-    (s) =>
-      computeNodeSelectionState(
-        rowData,
-        folderId,
-        s.selectedFilePaths,
-        // Directory counts must be computed inline here — but we only need this
-        // node's specific count, not the full map. For files this is unused.
-        // For directories we compute a lightweight single-path lookup.
-        node.type === 'directory'
-          ? computeSingleDirectoryCount(s.selectedFilePaths, folderId, node.path)
-          : EMPTY_DIRECTORY_COUNTS,
-        s.maxSelectionCount
-      ),
-    shallow
-  );
-}
-
-/** Sentinel empty map reused across file-type nodes to avoid allocations. */
-const EMPTY_DIRECTORY_COUNTS: Map<string, number> = new Map();
-
-/**
- * Compute the selected file count for a single directory path.
- * This avoids the full O(N) `buildSelectedDirectoryCounts` traversal — we only
- * need the ancestor count for one specific directory.
- */
-function computeSingleDirectoryCount(
-  selectedFilePaths: Set<string>,
-  folderId: string,
-  directoryPath: string
-): Map<string, number> {
-  if (!(folderId && selectedFilePaths.size > 0)) {
-    return EMPTY_DIRECTORY_COUNTS;
-  }
-  const folderPrefix = `${folderId}|@|`;
-  const dirPrefix = `${directoryPath}/`;
-  let count = 0;
-  for (const selectionKey of selectedFilePaths) {
-    if (!selectionKey.startsWith(folderPrefix)) {
-      continue;
-    }
-    const selectedPath = selectionKey.slice(folderPrefix.length);
-    if (selectedPath.startsWith(dirPrefix)) {
-      count += 1;
-    }
-  }
-  if (count === 0) {
-    return EMPTY_DIRECTORY_COUNTS;
-  }
-  const result = new Map<string, number>();
-  result.set(directoryPath, count);
-  return result;
-}
-
-interface FileTreeSelectionCellProps {
-  rowData: FileTreeRowData;
-  folderId: string;
-  isExpanded: boolean;
-  maxSelectionCount: number;
-  onSelect: (rowData: FileTreeRowData) => void;
-}
-
-/**
- * Self-subscribing cell component for the file tree.
- * Each instance reads its own selection state directly from the Zustand store,
- * so the parent `columns` memo stays stable across selection changes.
- * Only rows whose actual checkbox state changed will re-render.
- */
-const FileTreeSelectionCell = memo(function FileTreeSelectionCell({
-  rowData,
-  folderId,
-  isExpanded,
-  maxSelectionCount,
-  onSelect,
-}: FileTreeSelectionCellProps) {
-  const fileNode = rowData.fileNode;
-  const selectionState = useNodeSelectionState(rowData, folderId);
-
-  const handleSelect = useCallback(() => {
-    onSelect(rowData);
-  }, [onSelect, rowData]);
-
-  return (
-    <div className="flex min-w-0 flex-1 items-center">
-      <div
-        className="mr-2 flex w-4 items-center justify-center"
-        title={
-          rowData.isLoadingForSelection
-            ? 'Loading folder contents...'
-            : selectionState.wouldExceedLimit
-              ? `Cannot select more than ${maxSelectionCount} files`
-              : undefined
-        }
-      >
-        {rowData.isLoadingForSelection ? (
-          <Loader2
-            aria-label={`Loading ${fileNode.name} for selection`}
-            className="h-4 w-4 animate-spin text-blue-500"
-          />
-        ) : (
-          <LightweightCheckbox
-            aria-label={`Select ${fileNode.name}`}
-            checked={selectionState.checkboxState}
-            className="h-4 w-4"
-            disabled={selectionState.wouldExceedLimit}
-            id={fileNode.path}
-            onCheckedChange={handleSelect}
-          />
-        )}
-      </div>
-
-      <div className="mr-2 flex w-4 items-center justify-center">
-        <TreeNodeIcon
-          isExpanded={isExpanded}
-          isLoading={rowData.isFileLoading}
-          nodeName={fileNode.name}
-          nodeType={fileNode.type}
-        />
-      </div>
-
-      <div className="flex min-w-0 flex-1 items-center">
-        {fileNode.isSymbolicLink && (
-          <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
-        )}
-        <span className="truncate text-sm leading-4">{fileNode.name}</span>
-        {rowData.isRuleSelected && (
-          <Sparkles
-            aria-label="Selected by rule"
-            className="ml-1.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500 dark:text-amber-400"
-          />
-        )}
-        {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
-          <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
-        )}
-      </div>
-    </div>
-  );
-});
-
-/**
  * TreeTable adapter for file explorer left panel.
  * Maintains lazy-loading and recursive selection behavior while converging on shared tree-grid UI.
  */
@@ -933,10 +776,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       };
     }, []);
 
-    const { snapshotRef: selectedDirectoryCountSnapshotRef } = useSelectedDirectoryCounts(
-      selectedFilePaths,
-      folderId
-    );
+    const selectedDirectoryCounts = useSelectedDirectoryCounts(selectedFilePaths, folderId);
 
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.
@@ -1093,8 +933,18 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       [fileNodeByPath, getDirectoryToggleState, reportToggleExpandError, toggleDirectoryNode]
     );
 
-    // Read selection state from store.getState() in event handlers (not render path)
-    // so this callback doesn't depend on selectedFilePaths/selectedDirectoryCounts refs.
+    const getNodeSelectionState = useCallback(
+      (rowData: FileTreeRowData): NodeSelectionState =>
+        computeNodeSelectionState(
+          rowData,
+          folderId,
+          selectedFilePaths,
+          selectedDirectoryCounts,
+          maxSelectionCount
+        ),
+      [folderId, selectedFilePaths, selectedDirectoryCounts, maxSelectionCount]
+    );
+
     const handleNodeSelection = useCallback(
       (rowData: FileTreeRowData) => {
         if (!folderId) {
@@ -1102,15 +952,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         }
 
         const node = rowData.fileNode;
-        const { selectedFilePaths: currentPaths, maxSelectionCount: currentMax } = store.getState();
-        const currentDirCounts = selectedDirectoryCountSnapshotRef.current.selectedDirectoryCounts;
-        const selectionState = computeNodeSelectionState(
-          rowData,
-          folderId,
-          currentPaths,
-          currentDirCounts,
-          currentMax
-        );
+        const selectionState = getNodeSelectionState(rowData);
         if (selectionState.wouldExceedLimit) {
           return;
         }
@@ -1130,15 +972,15 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           return;
         }
 
-        const selectedCount = currentDirCounts.get(node.path) ?? 0;
+        const selectedCount = selectedDirectoryCounts.get(node.path) ?? 0;
         const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
         const selectionMutation = resolveDirectorySelectionMutation({
           allFilePaths,
           folderId,
-          selectedFilePaths: currentPaths,
+          selectedFilePaths,
           selectedCount,
           directoryTotalFiles,
-          maxSelectionCount: currentMax,
+          maxSelectionCount,
         });
 
         if (selectionMutation.action === 'remove') {
@@ -1152,35 +994,89 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       },
       [
         folderId,
-        store,
+        getNodeSelectionState,
         toggleSelectedFile,
         onSelectFolderRecursively,
+        selectedFilePaths,
+        selectedDirectoryCounts,
         removeMultipleSelectedFiles,
+        maxSelectionCount,
         addMultipleSelectedFiles,
       ]
     );
     const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);
 
-    // Columns are now fully stable across selection changes.
-    // Each FileTreeSelectionCell self-subscribes to the store for its own selection state,
-    // so the columns array never needs to change when files are selected/deselected.
+    // Recompute column cell closures when selection snapshots change so row reads
+    // stay render-pure under concurrent mode without render-phase ref mutation.
     const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(
       () => [
         {
           id: 'name',
           className: '!p-0',
-          cell: ({ node, isExpanded }) => (
-            <FileTreeSelectionCell
-              folderId={folderId}
-              isExpanded={isExpanded}
-              maxSelectionCount={maxSelectionCount}
-              onSelect={handleNodeSelectionEvent}
-              rowData={node.data}
-            />
-          ),
+          cell: ({ node, isExpanded }) => {
+            const rowData = node.data;
+            const fileNode = rowData.fileNode;
+            const selectionState = getNodeSelectionState(rowData);
+
+            return (
+              <div className="flex min-w-0 flex-1 items-center">
+                <div
+                  className="mr-2 flex w-4 items-center justify-center"
+                  title={
+                    rowData.isLoadingForSelection
+                      ? 'Loading folder contents...'
+                      : selectionState.wouldExceedLimit
+                        ? `Cannot select more than ${maxSelectionCount} files`
+                        : undefined
+                  }
+                >
+                  {rowData.isLoadingForSelection ? (
+                    <Loader2
+                      aria-label={`Loading ${fileNode.name} for selection`}
+                      className="h-4 w-4 animate-spin text-blue-500"
+                    />
+                  ) : (
+                    <LightweightCheckbox
+                      aria-label={`Select ${fileNode.name}`}
+                      checked={selectionState.checkboxState}
+                      className="h-4 w-4"
+                      disabled={selectionState.wouldExceedLimit}
+                      id={fileNode.path}
+                      onCheckedChange={() => handleNodeSelectionEvent(rowData)}
+                    />
+                  )}
+                </div>
+
+                <div className="mr-2 flex w-4 items-center justify-center">
+                  <TreeNodeIcon
+                    isExpanded={isExpanded}
+                    isLoading={rowData.isFileLoading}
+                    nodeName={fileNode.name}
+                    nodeType={fileNode.type}
+                  />
+                </div>
+
+                <div className="flex min-w-0 flex-1 items-center">
+                  {fileNode.isSymbolicLink && (
+                    <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
+                  )}
+                  <span className="truncate text-sm leading-4">{fileNode.name}</span>
+                  {rowData.isRuleSelected && (
+                    <Sparkles
+                      aria-label="Selected by rule"
+                      className="ml-1.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500 dark:text-amber-400"
+                    />
+                  )}
+                  {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
+                    <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
+                  )}
+                </div>
+              </div>
+            );
+          },
         },
       ],
-      [folderId, handleNodeSelectionEvent, maxSelectionCount]
+      [getNodeSelectionState, handleNodeSelectionEvent, maxSelectionCount]
     );
 
     useEffect(() => {
