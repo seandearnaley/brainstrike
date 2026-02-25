@@ -34,6 +34,7 @@ import { TokenSummaryBar } from './token-summary-bar';
 import type { TokenCountingState } from './use-token-counting';
 
 const FOOTER_INSIGHT_HISTORY_LIMIT = 24;
+const SVG_ID_INVALID_CHARACTERS = /[^a-zA-Z0-9_-]/g;
 
 interface TokenUsageSparklineProps {
   history: number[];
@@ -90,7 +91,7 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
 }) {
   const geometry = useMemo(() => buildSparklinePoints(history, budget), [history, budget]);
   const gradientId = useId();
-  const gradientFillId = `footer-usage-fill-${gradientId.replaceAll(':', '')}`;
+  const gradientFillId = `footer-usage-fill-${gradientId.replace(SVG_ID_INVALID_CHARACTERS, '') || 'usage'}`;
   const latest = history.at(-1) ?? 0;
   const previous = history.at(-2) ?? latest;
   const delta = latest - previous;
@@ -326,34 +327,40 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
   usageHistory,
 }) {
   const compositionSegments = useMemo(() => {
+    const treeTokens = includeProjectTree ? tokenUsage.includedTreeTokens : 0;
+    const totalUsedTokens = Math.max(0, tokenUsage.usedTokens);
+    const overBudgetTokens = Math.max(0, totalUsedTokens - tokenUsage.budget);
+    const remainingTokens = Math.max(0, tokenUsage.budget - totalUsedTokens);
+    const budgetRatio = totalUsedTokens > 0 ? Math.min(1, tokenUsage.budget / totalUsedTokens) : 1;
+
     const segments = [
       {
         id: 'selected',
         label: useTapestryRanges ? 'Output' : 'Selected',
         value: tokenUsage.selectedTokens,
+        visualValue: tokenUsage.selectedTokens * budgetRatio,
         className: 'bg-primary/80',
       },
       {
         id: 'tree',
         label: 'Tree',
-        value: includeProjectTree ? tokenUsage.includedTreeTokens : 0,
+        value: treeTokens,
+        visualValue: treeTokens * budgetRatio,
         className: 'bg-[hsl(var(--chart-2))]/80',
       },
       {
         id: 'remaining',
         label: tokenUsage.isOverBudget ? 'Over budget' : 'Remaining',
-        value: Math.abs(tokenUsage.budget - tokenUsage.usedTokens),
+        value: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
+        visualValue: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
         className: tokenUsage.isOverBudget ? 'bg-destructive/75' : 'bg-emerald-500/70',
       },
     ];
-    const totalValue = Math.max(
-      1,
-      segments.reduce((sum, segment) => sum + segment.value, 0)
-    );
+    const totalValue = Math.max(1, tokenUsage.isOverBudget ? totalUsedTokens : tokenUsage.budget);
 
     return segments.map((segment) => ({
       ...segment,
-      widthPercent: (segment.value / totalValue) * 100,
+      widthPercent: (segment.visualValue / totalValue) * 100,
     }));
   }, [includeProjectTree, tokenUsage, useTapestryRanges]);
 
@@ -609,10 +616,18 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     const queuedHeightRef = useRef<number>(clampPreviewFooterHeight(footerHeight));
     const animationFrameRef = useRef<number | null>(null);
     const previousBodyStylesRef = useRef<{ userSelect: string; cursor: string } | null>(null);
+    const lastExpandedHeightRef = useRef<number>(getPreviewFooterModeHeight('expanded'));
 
     const committedHeight = clampPreviewFooterHeight(footerHeight);
+    const committedMode = inferPreviewFooterMode(committedHeight);
     const effectiveHeight = draftHeight ?? committedHeight;
-    const effectiveMode = draftHeight !== null ? inferPreviewFooterMode(draftHeight) : footerMode;
+    const restingMode = footerMode === committedMode ? footerMode : committedMode;
+    // Keep mode presentation stable while dragging to avoid layout thrash near mode thresholds.
+    const effectiveMode = isResizing
+      ? committedMode
+      : draftHeight !== null
+        ? inferPreviewFooterMode(draftHeight)
+        : restingMode;
     const isCompact = effectiveMode === 'compact';
     const isExpanded = effectiveMode === 'expanded';
 
@@ -647,10 +662,15 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       });
     }, [tokenUsage.usedTokens]);
 
-    const restoreBodyStyles = useCallback(() => {
-      if (typeof document === 'undefined') {
+    useEffect(() => {
+      if (committedMode !== 'expanded') {
         return;
       }
+
+      lastExpandedHeightRef.current = committedHeight;
+    }, [committedHeight, committedMode]);
+
+    const restoreBodyStyles = useCallback(() => {
       if (!previousBodyStylesRef.current) {
         return;
       }
@@ -664,6 +684,9 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       (height: number) => {
         const nextHeight = clampPreviewFooterHeight(height);
         const nextMode = inferPreviewFooterMode(nextHeight);
+        if (nextMode === 'expanded') {
+          lastExpandedHeightRef.current = nextHeight;
+        }
 
         if (onFooterHeightChange && nextHeight !== committedHeight) {
           onFooterHeightChange(nextHeight);
@@ -696,6 +719,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
         animationFrameRef.current = window.requestAnimationFrame(() => {
           animationFrameRef.current = null;
+          // Coalesce rapid pointer moves into a single height update per animation frame.
           setDraftHeight(queuedHeightRef.current);
         });
       };
@@ -798,7 +822,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
             break;
           }
           case 'End': {
-            nextHeight = getPreviewFooterModeHeight('expanded');
+            nextHeight = clampPreviewFooterHeight(lastExpandedHeightRef.current);
             break;
           }
           default: {
@@ -814,7 +838,13 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
     const applyMode = useCallback(
       (mode: PreviewFooterMode) => {
-        const nextHeight = getPreviewFooterModeHeight(mode);
+        const nextHeight =
+          mode === 'expanded'
+            ? clampPreviewFooterHeight(lastExpandedHeightRef.current)
+            : getPreviewFooterModeHeight(mode);
+        if (mode === 'expanded') {
+          lastExpandedHeightRef.current = nextHeight;
+        }
         queuedHeightRef.current = nextHeight;
         setDraftHeight(null);
 

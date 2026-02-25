@@ -223,6 +223,39 @@ describe('PreviewPanel', () => {
       });
     });
 
+    it('restores the last expanded height when toggling modes', async () => {
+      const user = userEvent.setup();
+      render(<PreviewPanel {...mockProps} />);
+
+      const separator = screen.getByRole('separator', {
+        name: /resize context explorer footer/i,
+      });
+
+      for (let index = 0; index < 25; index += 1) {
+        fireEvent.keyDown(separator, { key: 'ArrowUp' });
+      }
+
+      let customExpandedHeight = 0;
+      await waitFor(() => {
+        customExpandedHeight = Number(separator.getAttribute('aria-valuenow') ?? '0');
+        expect(customExpandedHeight).toBeGreaterThan(300);
+      });
+
+      await user.click(screen.getByRole('button', { name: /balanced footer mode/i }));
+
+      await waitFor(() => {
+        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBeLessThan(
+          customExpandedHeight
+        );
+      });
+
+      await user.click(screen.getByRole('button', { name: /insights footer mode/i }));
+
+      await waitFor(() => {
+        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBe(customExpandedHeight);
+      });
+    });
+
     it('switches to compact footer mode and hides advanced toggles', async () => {
       const user = userEvent.setup();
       render(<PreviewPanel {...mockProps} />);
