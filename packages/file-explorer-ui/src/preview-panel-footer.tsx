@@ -69,7 +69,7 @@ interface TokenUsageSparklineProps {
 function buildSparklinePoints(
   history: number[],
   budget: number
-): { path: string; areaPath: string; maxValue: number; minValue: number } | null {
+): { path: string; areaPath: string } | null {
   if (history.length < 2) {
     return null;
   }
@@ -77,8 +77,16 @@ function buildSparklinePoints(
   const width = 220;
   const height = 48;
   const padding = 4;
-  const maxValue = Math.max(1, budget, ...history);
-  const minValue = Math.min(0, ...history);
+  let maxValue = Math.max(1, budget);
+  let minValue = 0;
+  for (const value of history) {
+    if (value > maxValue) {
+      maxValue = value;
+    }
+    if (value < minValue) {
+      minValue = value;
+    }
+  }
   const valueRange = Math.max(1, maxValue - minValue);
   const xStep = (width - padding * 2) / (history.length - 1);
 
@@ -106,8 +114,6 @@ function buildSparklinePoints(
   return {
     path,
     areaPath,
-    maxValue,
-    minValue,
   };
 }
 
@@ -639,7 +645,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     const [isResizing, setIsResizing] = useState(false);
     const [draftHeight, setDraftHeight] = useState<number | null>(null);
     const [usageHistory, setUsageHistory] = useState<number[]>([]);
-    const usageHistoryRef = useRef<number[]>([tokenUsage.usedTokens]);
+    const usageHistoryRef = useRef<number[]>([]);
     const dragSessionRef = useRef<DragSession | null>(null);
     const queuedHeightRef = useRef<number>(clampPreviewFooterHeight(footerHeight));
     const animationFrameRef = useRef<number | null>(null);
@@ -676,6 +682,15 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
     useEffect(() => {
       const previousHistory = usageHistoryRef.current;
+      if (previousHistory.length === 0) {
+        const seededHistory = [tokenUsage.usedTokens];
+        usageHistoryRef.current = seededHistory;
+        if (isExpanded) {
+          setUsageHistory(seededHistory);
+        }
+        return;
+      }
+
       const latest = previousHistory.at(-1);
       if (latest === tokenUsage.usedTokens) {
         return;
@@ -697,8 +712,11 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         return;
       }
 
+      if (usageHistoryRef.current.length === 0) {
+        usageHistoryRef.current = [tokenUsage.usedTokens];
+      }
       setUsageHistory(usageHistoryRef.current);
-    }, [isExpanded]);
+    }, [isExpanded, tokenUsage.usedTokens]);
 
     useEffect(() => {
       if (committedMode !== 'expanded') {
@@ -846,17 +864,18 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
     const handleResizeKeyDown = useCallback(
       (event: ReactKeyboardEvent<HTMLElement>) => {
+        const baseHeight = isResizing ? queuedHeightRef.current : effectiveHeight;
         let nextHeight: number | null = null;
 
         switch (event.key) {
           case 'ArrowUp':
           case 'ArrowRight': {
-            nextHeight = effectiveHeight + PREVIEW_FOOTER_HEIGHTS.resizeStep;
+            nextHeight = baseHeight + PREVIEW_FOOTER_HEIGHTS.resizeStep;
             break;
           }
           case 'ArrowDown':
           case 'ArrowLeft': {
-            nextHeight = effectiveHeight - PREVIEW_FOOTER_HEIGHTS.resizeStep;
+            nextHeight = baseHeight - PREVIEW_FOOTER_HEIGHTS.resizeStep;
             break;
           }
           case 'Home': {
@@ -873,9 +892,11 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         }
 
         event.preventDefault();
-        commitHeight(nextHeight);
+        const clampedHeight = clampPreviewFooterHeight(nextHeight);
+        queuedHeightRef.current = clampedHeight;
+        commitHeight(clampedHeight);
       },
-      [commitHeight, effectiveHeight]
+      [commitHeight, effectiveHeight, isResizing]
     );
 
     const applyMode = useCallback(
@@ -889,16 +910,9 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         }
         queuedHeightRef.current = nextHeight;
         setDraftHeight(null);
-
-        if (onFooterModeChange && mode !== footerMode) {
-          onFooterModeChange(mode);
-        }
-
-        if (onFooterHeightChange && nextHeight !== committedHeight) {
-          onFooterHeightChange(nextHeight);
-        }
+        commitHeight(nextHeight);
       },
-      [committedHeight, footerMode, onFooterHeightChange, onFooterModeChange]
+      [commitHeight]
     );
 
     return (
