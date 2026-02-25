@@ -6,8 +6,9 @@ import {
 } from '@brainstrike/file-explorer-ui';
 import { type PanelTab, usePanelLayoutStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
-import { cn, IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
+import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
 import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react';
+import { shallow } from 'zustand/shallow';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { ToolsPanel } from './tools-panel';
@@ -97,12 +98,32 @@ export function RootLayoutContent({
   );
 
   // Controlled panel layout state from store
-  const panelState = usePanelLayoutStore((s) => ({
-    sizes: s.sizes,
-    showConsole: s.showConsole,
-    showLeftPanel: s.showLeftPanel,
-    showRightPanel: s.showRightPanel,
-  }));
+  // shallow equality prevents re-renders when the selected values haven't changed
+  const panelState = usePanelLayoutStore(
+    (s) => ({
+      sizes: s.sizes,
+      showConsole: s.showConsole,
+      showLeftPanel: s.showLeftPanel,
+      showRightPanel: s.showRightPanel,
+    }),
+    shallow
+  );
+
+  const handlePanelLayoutChange = useCallback(
+    (state: PanelLayoutState) => {
+      setState({
+        sizes: [
+          (state.sizes?.[0] as number | undefined) ?? panelState.sizes[0],
+          (state.sizes?.[1] as number | undefined) ?? panelState.sizes[1],
+          (state.sizes?.[2] as number | undefined) ?? panelState.sizes[2],
+        ] as [number, number, number],
+        showConsole: state.showConsole,
+        showLeftPanel: state.showLeftPanel,
+        showRightPanel: state.showRightPanel,
+      });
+    },
+    [setState, panelState.sizes]
+  );
 
   return (
     <AppLayout
@@ -119,21 +140,7 @@ export function RootLayoutContent({
         {/* FileTreeWrapper provides shared file tree state to all explorer panels.
             This ensures expand-all updates are seen by all panels for file content loading. */}
         <FileTreeWrapper>
-          <PanelLayoutProvider
-            controlledState={panelState}
-            onChange={(state) => {
-              setState({
-                sizes: [
-                  (state.sizes?.[0] as number | undefined) ?? panelState.sizes[0],
-                  (state.sizes?.[1] as number | undefined) ?? panelState.sizes[1],
-                  (state.sizes?.[2] as number | undefined) ?? panelState.sizes[2],
-                ] as [number, number, number],
-                showConsole: state.showConsole,
-                showLeftPanel: state.showLeftPanel,
-                showRightPanel: state.showRightPanel,
-              });
-            }}
-          >
+          <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
             <IdeLayout
               consoleContent={<TabbedFileEditorPanel className="h-full" />}
               leftPanelContent={leftPanelContent ?? <FileExplorerLeftPanel />}

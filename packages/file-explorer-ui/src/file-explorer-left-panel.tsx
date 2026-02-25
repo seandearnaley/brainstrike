@@ -4,6 +4,7 @@ import { Button, cn, LoadingFallback } from '@brainstrike/ui';
 import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
 import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
+import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 
 const logger = createLogger('FileExplorerLeftPanel');
@@ -162,7 +163,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.toggleFilterEnabled,
         s.isFiltersExpanded,
         s.setFiltersExpanded,
-      ] as const
+      ] as const,
+    shallow
   );
 
   // Local state for UI

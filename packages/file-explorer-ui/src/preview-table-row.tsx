@@ -1,6 +1,6 @@
 import { Checkbox } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
 import { ExtensionBadge } from './extension-badge';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { formatTokenCount } from './use-preview-panel-state';
@@ -26,6 +26,21 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
   const { fileName, dirPath } = splitFilePath(item.path);
   const displayDirPath = formatDirPathForDisplay({ dirPath, rootFolderId: item.rootFolderId });
 
+  const handleCheckedChange = useCallback(
+    (checked: boolean | 'indeterminate') => onToggleSelection(item.compositeKey, !!checked),
+    [item.compositeKey, onToggleSelection]
+  );
+
+  const handleCheckboxClick = useCallback((e: React.MouseEvent) => e.stopPropagation(), []);
+
+  const handleFileClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      onFileClick?.(item.compositeKey);
+    },
+    [item.compositeKey, onFileClick]
+  );
+
   return (
     <tr className="border-b transition-colors hover:bg-muted/50">
       {columnVisibility.checkbox && (
@@ -33,8 +48,8 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
           <Checkbox
             aria-label={`Select ${item.path}`}
             checked={isSelected}
-            onCheckedChange={(checked) => onToggleSelection(item.compositeKey, !!checked)}
-            onClick={(e) => e.stopPropagation()}
+            onCheckedChange={handleCheckedChange}
+            onClick={handleCheckboxClick}
           />
         </td>
       )}
@@ -53,10 +68,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
           <button
             aria-label={fileName}
             className="block w-full min-w-0 overflow-hidden text-left transition-colors hover:text-primary"
-            onClick={(e) => {
-              e.preventDefault();
-              onFileClick?.(item.compositeKey);
-            }}
+            onClick={handleFileClick}
             title={item.path}
             type="button"
           >

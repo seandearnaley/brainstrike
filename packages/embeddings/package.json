@@ -2,6 +2,7 @@
   "name": "@brainstrike/embeddings",
   "version": "0.1.0",
   "description": "BGE-M3 embedding service and components for brainstrike",
+  "sideEffects": false,
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

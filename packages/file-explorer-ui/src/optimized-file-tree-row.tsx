@@ -395,7 +395,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         tabIndex={0}
       >
         <div
-          className="flex items-center rounded px-2 py-1.5 transition-all duration-150 hover:bg-accent"
+          className="flex items-center rounded px-2 py-1.5 transition-colors duration-150 hover:bg-accent"
           style={{ paddingLeft: depth * 24 + 8 }}
         >
           {/* Chevron button with fixed width for consistent alignment */}
@@ -407,7 +407,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
                     ? `Loading ${node.name} directory`
                     : `${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`
                 }
-                className="flex cursor-pointer items-center justify-center rounded p-0.5 transition-all duration-150 hover:bg-accent"
+                className="flex cursor-pointer items-center justify-center rounded p-0.5 transition-colors duration-150 hover:bg-accent"
                 data-testid={EXPAND_COLLAPSE_TEST_ID}
                 disabled={isChildrenLoading}
                 onClick={handleExpansionClick}
