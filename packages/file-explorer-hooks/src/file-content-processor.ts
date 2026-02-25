@@ -1,4 +1,5 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
@@ -20,6 +21,25 @@ export interface FileContentRequest {
   compositeKey: string;
   fileNode: IFileNode;
   fileSystemAdapter: FileSystemAdapter;
+}
+
+function getKnownFileSize(size: unknown): number | null {
+  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
+    return null;
+  }
+  return size;
+}
+
+function getConfiguredMaxFileSize(): number {
+  const configuredMaxFileSize = getFileSizeConfig().maxFileSize;
+  if (
+    typeof configuredMaxFileSize !== 'number' ||
+    !Number.isFinite(configuredMaxFileSize) ||
+    configuredMaxFileSize <= 0
+  ) {
+    return DEFAULT_MAX_FILE_SIZE;
+  }
+  return configuredMaxFileSize;
 }
 
 /**
@@ -53,7 +73,7 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
     const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
     const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
-    return {
+    const fileHandle: FileHandle = {
       path: fileNode.path,
       name: fileNode.name,
       kind: 'file',
@@ -61,6 +81,13 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
       rootFolderId: fileNode.rootFolderId,
       _internal: fileNode.handle,
     };
+
+    const knownFileSize = getKnownFileSize(fileNode.size);
+    if (knownFileSize !== null) {
+      fileHandle.size = knownFileSize;
+    }
+
+    return fileHandle;
   }
 }
 
@@ -94,6 +121,16 @@ export class DirectFileContentProcessor implements FileContentProcessor {
 
   private async processFile(request: FileContentRequest): Promise<string> {
     const { fileNode, fileSystemAdapter } = request;
+    const knownFileSize = getKnownFileSize(fileNode.size);
+    const maxFileSize = getConfiguredMaxFileSize();
+
+    if (knownFileSize !== null && knownFileSize > maxFileSize) {
+      throw new FileContentError(
+        `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(maxFileSize)})`,
+        fileNode.path,
+        'TOO_LARGE'
+      );
+    }
 
     const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
     const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
@@ -107,6 +144,10 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       rootFolderId: fileNode.rootFolderId,
       _internal: fileNode.handle,
     };
+
+    if (knownFileSize !== null) {
+      fileHandle.size = knownFileSize;
+    }
 
     const content = await fileSystemAdapter.readFile(fileHandle);
     const extension = fileExplorer.getFileExtension(fileNode.path);

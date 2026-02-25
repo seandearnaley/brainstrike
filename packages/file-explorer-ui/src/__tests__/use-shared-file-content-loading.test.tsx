@@ -1,5 +1,10 @@
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import {
+  DEFAULT_MAX_FILE_SIZE,
+  MockFileSystemAdapter,
+  resetFileSizeConfig,
+  setFileSizeConfig,
+} from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
@@ -318,6 +323,10 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
 });
 
 describe('useSharedFileContentLoading - additional edge cases', () => {
+  afterEach(() => {
+    resetFileSizeConfig();
+  });
+
   beforeEach(async () => {
     vi.restoreAllMocks();
     vi.spyOn(fileContent, 'isBinaryExtension').mockReturnValue(false);
@@ -346,6 +355,85 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     expect(readSpy).not.toHaveBeenCalled();
     expect(result.current.fileContents[compositeKey]).toMatch('Folder mismatch');
+  });
+
+  it('skips oversized files before queueing worker reads', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const fileNode = createFileNode({ path: '/too-large.txt', rootFolderId: 'root1' });
+    fileNode.size = DEFAULT_MAX_FILE_SIZE + 1;
+    const compositeKey = encodeFileSelection('root1', '/too-large.txt');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+      rerender();
+    });
+
+    expect(result.current.fileContents[compositeKey]).toMatch('File too large');
+    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+  });
+
+  it('respects configured max file size when pre-checking known sizes', async () => {
+    setFileSizeConfig({ maxFileSize: DEFAULT_MAX_FILE_SIZE * 2 });
+
+    const adapter = new MockFileSystemAdapter();
+    const fileNode = createFileNode({
+      path: '/within-configured-limit.txt',
+      rootFolderId: 'root1',
+    });
+    fileNode.size = DEFAULT_MAX_FILE_SIZE + 1;
+    const compositeKey = encodeFileSelection('root1', '/within-configured-limit.txt');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({ [compositeKey]: 'loaded' });
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+      rerender();
+    });
+
+    expect(result.current.fileContents[compositeKey]).toBe('loaded');
+    expect(result.current.fileContents[compositeKey]).not.toMatch('File too large');
+    expect(mockWorker).toHaveBeenCalledWith(
+      [expect.objectContaining({ compositeKey })],
+      expect.any(Function)
+    );
+  });
+
+  it('omits non-finite file sizes when creating worker handles', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const fileNode = createFileNode({ path: '/nan-size.txt', rootFolderId: 'root1' });
+    fileNode.size = Number.NaN;
+    const compositeKey = encodeFileSelection('root1', '/nan-size.txt');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({ [compositeKey]: 'loaded' });
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+      rerender();
+    });
+
+    const firstRequest = mockWorker.mock.calls[0]?.[0]?.[0] as {
+      handle?: { size?: number };
+    };
+    expect(firstRequest).toBeDefined();
+    expect(firstRequest?.handle?.size).toBeUndefined();
+    expect(result.current.fileContents[compositeKey]).toBe('loaded');
   });
 
   it('retries when handle is missing on first lookup', async () => {

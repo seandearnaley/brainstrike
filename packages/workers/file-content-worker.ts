@@ -1,4 +1,10 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import {
+  AccessError,
+  DEFAULT_MAX_FILE_SIZE,
+  formatFileSize,
+  getFileSizeConfig,
+} from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
 import {
   createLogger,
@@ -24,14 +30,69 @@ export interface ProgressEvent {
 export interface FileContentWorkerOptions {
   fileSystemAdapter: FileSystemAdapter;
   concurrency?: number;
+  maxFileSize?: number;
 }
 
 const logger = createLogger('FileContentWorker');
 
+function getKnownFileSize(request: FileReadRequest): number | null {
+  const size = request.handle?.size;
+  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
+    return null;
+  }
+  return size;
+}
+
+function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE' } {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { code?: unknown };
+  return candidate.code === 'TOO_LARGE';
+}
+
+function isTooLargeAccessError(error: unknown): error is AccessError {
+  return (
+    error instanceof AccessError &&
+    error.operation === 'read' &&
+    error.message.includes('File too large')
+  );
+}
+
+function getTooLargeMessage(error: unknown): string | null {
+  // This helper classifies raw adapter errors. FileContentError instances are re-thrown upstream.
+  if (hasTooLargeCode(error)) {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    const message = (error as { message?: unknown }).message;
+    return typeof message === 'string' ? message : 'File too large';
+  }
+  if (isTooLargeAccessError(error)) {
+    return error.message;
+  }
+  return null;
+}
+
+function normalizeMaxFileSize(maxFileSize: unknown): number {
+  if (typeof maxFileSize !== 'number' || !Number.isFinite(maxFileSize) || maxFileSize <= 0) {
+    return DEFAULT_MAX_FILE_SIZE;
+  }
+  return maxFileSize;
+}
+
 export function createFileContentWorker({
   fileSystemAdapter,
   concurrency = 3, // Reduced from 5 to prevent main thread saturation
+  maxFileSize,
 }: FileContentWorkerOptions) {
+  const getEffectiveMaxFileSize = (): number => {
+    if (maxFileSize !== undefined) {
+      return normalizeMaxFileSize(maxFileSize);
+    }
+    return normalizeMaxFileSize(getFileSizeConfig().maxFileSize);
+  };
+
   async function runQueue(queue: FileReadRequest[], onProgress?: (e: ProgressEvent) => void) {
     const results: Record<string, string> = {};
     let index = 0;
@@ -78,17 +139,35 @@ export function createFileContentWorker({
   }
 
   async function processRequest(req: FileReadRequest): Promise<{ key: string; content: string }> {
+    const effectiveMaxFileSize = getEffectiveMaxFileSize();
+    const knownFileSize = getKnownFileSize(req);
+    if (knownFileSize !== null && knownFileSize > effectiveMaxFileSize) {
+      throw new FileContentError(
+        `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(effectiveMaxFileSize)})`,
+        req.path,
+        'TOO_LARGE'
+      );
+    }
+
     let content: string;
     try {
-      // Prefer readFileByPath when available (Electron) - allows reading without a tree handle
-      if (fileSystemAdapter.readFileByPath) {
-        content = await fileSystemAdapter.readFileByPath(req.path);
-      } else if (req.handle) {
+      // Prefer handle-based reads when available so we can use metadata already loaded in the tree.
+      if (req.handle) {
         content = await fileSystemAdapter.readFile(req.handle);
+      } else if (fileSystemAdapter.readFileByPath) {
+        // Fallback for persisted tabs / paths that don't have a tree handle yet.
+        content = await fileSystemAdapter.readFileByPath(req.path);
       } else {
         throw new Error('No handle available and readFileByPath not supported');
       }
     } catch (error) {
+      if (error instanceof FileContentError) {
+        throw error;
+      }
+      const tooLargeMessage = getTooLargeMessage(error);
+      if (tooLargeMessage) {
+        throw new FileContentError(tooLargeMessage, req.path, 'TOO_LARGE');
+      }
       logger.warn('Failed to read file content via adapter', { error, path: req.path });
       throw new FileContentError('Error accessing file', req.path, 'LOADING_ERROR');
     }

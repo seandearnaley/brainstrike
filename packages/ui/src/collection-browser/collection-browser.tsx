@@ -26,7 +26,6 @@ export { shortenPath } from './utils';
 
 const DEFAULT_BULK_ACTIONS: BulkAction[] = [];
 const DEFAULT_TREE_WINDOWING_STRATEGY: TreeTableWindowingStrategy = 'auto';
-const DEFAULT_SEMANTIC_PAGE_SIZE = 50;
 const DEFAULT_SEMANTIC_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
 
 /**
@@ -216,7 +215,6 @@ export function CollectionBrowser({
       return undefined;
     }
     return {
-      pageSize: DEFAULT_SEMANTIC_PAGE_SIZE,
       pageSizeOptions: DEFAULT_SEMANTIC_PAGE_SIZE_OPTIONS,
       showControls: true,
       showItemRange: true,

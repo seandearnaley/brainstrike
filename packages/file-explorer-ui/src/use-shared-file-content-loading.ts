@@ -1,5 +1,6 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileHandle } from '@brainstrike/file-system';
+import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, decodeFileSelection } from '@brainstrike/utils';
@@ -17,13 +18,20 @@ import {
   refreshFileNodeCacheEntry,
 } from './utils/file-node-cache';
 
+function getKnownFileSize(size: unknown): number | null {
+  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
+    return null;
+  }
+  return size;
+}
+
 // File handle creation helper
 function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): FileHandle {
   const adapterPlatform = (fileSystemAdapter as { platform?: Platform }).platform;
   const handlePlatform = (fileNode.handle as { platform?: Platform }).platform;
   const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
-  return {
+  const fileHandle: FileHandle = {
     path: fileNode.path,
     name: fileNode.name,
     kind: 'file',
@@ -31,6 +39,13 @@ function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): File
     rootFolderId: fileNode.rootFolderId,
     _internal: fileNode.handle,
   };
+
+  const knownFileSize = getKnownFileSize(fileNode.size);
+  if (knownFileSize !== null) {
+    fileHandle.size = knownFileSize;
+  }
+
+  return fileHandle;
 }
 
 // File node validation helper
@@ -164,6 +179,30 @@ function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
 function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
   const adapter = fileSystemAdapter as { readFileByPath?: unknown };
   return typeof adapter.readFileByPath === 'function';
+}
+
+function getConfiguredMaxFileSize(): number {
+  const configuredMaxFileSize = getFileSizeConfig().maxFileSize;
+  if (
+    typeof configuredMaxFileSize !== 'number' ||
+    !Number.isFinite(configuredMaxFileSize) ||
+    configuredMaxFileSize <= 0
+  ) {
+    return DEFAULT_MAX_FILE_SIZE;
+  }
+  return configuredMaxFileSize;
+}
+
+function isKnownFileSizeTooLargeForMax(
+  size: number | undefined,
+  maxFileSize: number
+): size is number {
+  const knownFileSize = getKnownFileSize(size);
+  return knownFileSize !== null && knownFileSize > maxFileSize;
+}
+
+function buildTooLargeFileMessage(size: number, maxFileSize: number): string {
+  return `File too large: ${formatFileSize(size)} (max: ${formatFileSize(maxFileSize)})`;
 }
 
 function markFileLoading(
@@ -397,6 +436,18 @@ async function prepareFileReadRequest(
       loadingPathsRef,
       setLoadingFiles,
     });
+  }
+
+  const maxFileSize = getConfiguredMaxFileSize();
+  if (isKnownFileSizeTooLargeForMax(fileNode.size, maxFileSize)) {
+    logger.debug('Skipping oversized file before read', {
+      path,
+      folderId,
+      size: fileNode.size,
+      max: maxFileSize,
+    });
+    setFileContent(compositeKey, buildTooLargeFileMessage(fileNode.size, maxFileSize));
+    return null;
   }
 
   markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);

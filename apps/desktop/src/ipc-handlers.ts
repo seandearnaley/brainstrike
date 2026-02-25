@@ -4,7 +4,11 @@ import type {
   ElectronFileSystemAdapter,
   FileHandle,
 } from '@brainstrike/file-system';
-import { getTestDirectoryStructure, resolveValidatedPath } from '@brainstrike/file-system';
+import {
+  AccessError,
+  getTestDirectoryStructure,
+  resolveValidatedPath,
+} from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
@@ -13,6 +17,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
+import { createFileReadErrorPayload } from './file-read-errors';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // import { getDatabase } from './db-main'; // Disabled - using renderer process database
@@ -40,6 +45,32 @@ const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 const liveSubscriptionOwnerListeners = new Set<number>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
+
+function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { code?: unknown };
+  return candidate.code === 'TOO_LARGE';
+}
+
+function getFileTooLargeMessage(error: unknown): string | null {
+  if (hasTooLargeCode(error)) {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    const message = (error as { message?: unknown }).message;
+    return typeof message === 'string' ? message : 'File too large';
+  }
+
+  if (error instanceof AccessError && error.operation === 'read') {
+    return error.message.includes('File too large') ? error.message : null;
+  }
+  if (error instanceof Error && error.message.startsWith('File too large:')) {
+    return error.message;
+  }
+  return null;
+}
 
 const panelPersistenceStateSchema = z.object({
   sizes: z.array(
@@ -290,7 +321,19 @@ export function registerIpcHandlers(
     ) {
       return 'Mock file content for testing purposes\nThis is a test file.\n';
     }
-    return fileSystem.readFile(handle);
+    try {
+      return await fileSystem.readFile(handle);
+    } catch (error) {
+      const tooLargeMessage = getFileTooLargeMessage(error);
+      if (!tooLargeMessage) {
+        throw error;
+      }
+      logger.debug('Skipping oversized file read', {
+        path: handle.path,
+        message: tooLargeMessage,
+      });
+      return createFileReadErrorPayload(tooLargeMessage);
+    }
   });
 
   // BST-307: Direct path-based file reading for persisted tab restoration
@@ -306,7 +349,19 @@ export function registerIpcHandlers(
       throw new Error(`Invalid path: ${resolved.error}`);
     }
 
-    return fileSystem.readFileByPath(resolved.path);
+    try {
+      return await fileSystem.readFileByPath(resolved.path);
+    } catch (error) {
+      const tooLargeMessage = getFileTooLargeMessage(error);
+      if (!tooLargeMessage) {
+        throw error;
+      }
+      logger.debug('Skipping oversized file read by path', {
+        path: resolved.path,
+        message: tooLargeMessage,
+      });
+      return createFileReadErrorPayload(tooLargeMessage);
+    }
   });
 
   registerHandler('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {

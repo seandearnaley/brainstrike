@@ -1,7 +1,8 @@
-import type {
-  DirectoryHandle,
-  ElectronFileSystemAdapter,
-  FileHandle,
+import {
+  AccessError,
+  type DirectoryHandle,
+  type ElectronFileSystemAdapter,
+  type FileHandle,
 } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { IpcMainInvokeEvent } from 'electron';
@@ -172,6 +173,37 @@ describe('ipc-handlers filesystem endpoints', () => {
     expect(fsAdapter.readFile).toHaveBeenCalledWith(realFile);
   });
 
+  it('fs:readFile returns structured size-limit payload for oversized files', async () => {
+    const handler = handlers.get('fs:readFile');
+    const realFile = { id: 'real-file', path: '/users/test/large.json' } as unknown as FileHandle;
+    vi.mocked(fsAdapter.readFile).mockRejectedValueOnce(
+      new AccessError('File too large: 1.1MB (max: 750KB)', '/users/test/large.json', 'read')
+    );
+
+    const result = await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
+
+    expect(result).toEqual({
+      code: 'TOO_LARGE',
+      message: 'File too large: 1.1MB (max: 750KB)',
+    });
+  });
+
+  it('fs:readFile maps TOO_LARGE coded errors to structured payloads', async () => {
+    const handler = handlers.get('fs:readFile');
+    const realFile = { id: 'real-file', path: '/users/test/large.json' } as unknown as FileHandle;
+    const codedError = Object.assign(new Error('Size limit exceeded by adapter'), {
+      code: 'TOO_LARGE' as const,
+    });
+    vi.mocked(fsAdapter.readFile).mockRejectedValueOnce(codedError);
+
+    const result = await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
+
+    expect(result).toEqual({
+      code: 'TOO_LARGE',
+      message: 'Size limit exceeded by adapter',
+    });
+  });
+
   it('fs:exists rejects null bytes', async () => {
     const handler = handlers.get('fs:exists');
     const result = await handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/\0oops');
@@ -214,6 +246,23 @@ describe('ipc-handlers filesystem endpoints', () => {
       const content = await handler?.({} as unknown as IpcMainInvokeEvent, '/users/test/file.txt');
       expect(content).toBe('file content by path');
       expect(fsAdapter.readFileByPath).toHaveBeenCalledWith('/users/test/file.txt');
+    });
+
+    it('returns structured size-limit payload instead of throwing for oversized files', async () => {
+      const handler = handlers.get('fs:readFileByPath');
+      vi.mocked(fsAdapter.readFileByPath).mockRejectedValueOnce(
+        new AccessError('File too large: 1.1MB (max: 750KB)', '/users/test/large-file.json', 'read')
+      );
+
+      const result = await handler?.(
+        {} as unknown as IpcMainInvokeEvent,
+        '/users/test/large-file.json'
+      );
+
+      expect(result).toEqual({
+        code: 'TOO_LARGE',
+        message: 'File too large: 1.1MB (max: 750KB)',
+      });
     });
 
     it('rejects null bytes in path', async () => {

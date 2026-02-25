@@ -343,7 +343,6 @@ describe('CollectionBrowserView', () => {
     expect(latestProps).toMatchObject({
       treeWindowingStrategy: 'paged',
       treePagination: {
-        pageSize: 50,
         pageSizeOptions: [25, 50, 100, 250],
         showControls: true,
         showItemRange: true,
