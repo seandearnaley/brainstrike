@@ -322,7 +322,6 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
   usageHistory,
 }) {
   const compositionSegments = useMemo(() => {
-    const base = Math.max(tokenUsage.budget, tokenUsage.usedTokens, 1);
     const segments = [
       {
         id: 'selected',
@@ -343,10 +342,14 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
         className: tokenUsage.isOverBudget ? 'bg-destructive/75' : 'bg-emerald-500/70',
       },
     ];
+    const totalValue = Math.max(
+      1,
+      segments.reduce((sum, segment) => sum + segment.value, 0)
+    );
 
     return segments.map((segment) => ({
       ...segment,
-      widthPercent: Math.max(2, (segment.value / base) * 100),
+      widthPercent: (segment.value / totalValue) * 100,
     }));
   }, [includeProjectTree, tokenUsage, useTapestryRanges]);
 
@@ -366,7 +369,10 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
             <div
               className={segment.className}
               key={segment.id}
-              style={{ width: `${segment.widthPercent}%` }}
+              style={{
+                width: `${segment.widthPercent}%`,
+                minWidth: segment.value > 0 ? '4px' : undefined,
+              }}
             />
           ))}
         </div>
@@ -633,7 +639,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           return nextHistory;
         }
 
-        return nextHistory.slice(nextHistory.length - FOOTER_INSIGHT_HISTORY_LIMIT);
+        return nextHistory.slice(-FOOTER_INSIGHT_HISTORY_LIMIT);
       });
     }, [tokenUsage.usedTokens]);
 
@@ -830,7 +836,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         <div className="flex h-7 items-center gap-2 border-b bg-muted/20 px-2">
           <hr
             aria-label="Resize context explorer footer"
-            aria-orientation="horizontal"
+            aria-orientation="vertical"
             aria-valuemax={PREVIEW_FOOTER_HEIGHTS.max}
             aria-valuemin={PREVIEW_FOOTER_HEIGHTS.min}
             aria-valuenow={effectiveHeight}
