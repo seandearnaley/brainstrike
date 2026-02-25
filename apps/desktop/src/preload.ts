@@ -12,8 +12,27 @@ import type {
   PanelPersistenceState,
 } from '@brainstrike/ui';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
-import { isFileReadErrorPayload } from './file-read-errors';
 import type { LoggingSettingsPayload } from './logging-shared';
+
+// Sandboxed preloads cannot depend on additional local modules at runtime.
+// Keep this IPC payload guard self-contained in this file.
+const FILE_READ_ERROR_CODE_TOO_LARGE = 'TOO_LARGE' as const;
+
+interface FileReadErrorPayload {
+  code: typeof FILE_READ_ERROR_CODE_TOO_LARGE;
+  message: string;
+}
+
+function isFileReadErrorPayload(value: unknown): value is FileReadErrorPayload {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as {
+    code?: unknown;
+    message?: unknown;
+  };
+  return candidate.code === FILE_READ_ERROR_CODE_TOO_LARGE && typeof candidate.message === 'string';
+}
 
 function unwrapFileReadResult(result: unknown): string {
   if (typeof result === 'string') {
