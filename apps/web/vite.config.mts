@@ -119,6 +119,19 @@ export default defineConfig({
           if (!id.includes('node_modules')) {
             return undefined;
           }
+          // Extract the bare package name from the resolved module path.
+          // Scoped: node_modules/@scope/pkg/… → @scope/pkg
+          // Bare:   node_modules/pkg/…        → pkg
+          const nmIdx = id.lastIndexOf('node_modules/');
+          const afterNm = nmIdx >= 0 ? id.slice(nmIdx + 'node_modules/'.length) : '';
+          let pkgName = '';
+          if (afterNm.startsWith('@')) {
+            const parts = afterNm.split('/');
+            pkgName = `${parts[0]}/${parts[1]}`;
+          } else {
+            pkgName = afterNm.split('/')[0] ?? '';
+          }
+
           const vendorChunks: [string[], string][] = [
             [['@electric-sql/pglite'], 'vendor-pglite'],
             [['@huggingface/transformers'], 'vendor-transformers'],
@@ -132,7 +145,7 @@ export default defineConfig({
             [['react', 'react-dom', 'scheduler'], 'vendor-react'],
           ];
           for (const [patterns, chunk] of vendorChunks) {
-            if (patterns.some((p) => id.includes(p))) {
+            if (patterns.some((p) => pkgName === p || pkgName.startsWith(`${p}/`))) {
               return chunk;
             }
           }
