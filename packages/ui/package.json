@@ -4,7 +4,6 @@
   "engines": {
     "node": ">=22"
   },
-  "sideEffects": ["*.css"],
   "description": "UI component library with Shadcn UI components",
   "main": "dist/index.js",
   "module": "dist/index.js",
