@@ -94,6 +94,12 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
   const latest = history.at(-1) ?? 0;
   const previous = history.at(-2) ?? latest;
   const delta = latest - previous;
+  const deltaColorClassName =
+    delta > 0
+      ? 'text-amber-600 dark:text-amber-400'
+      : delta < 0
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : 'text-muted-foreground';
 
   return (
     <div className="rounded-md border bg-background/60 p-2">
@@ -101,9 +107,7 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
         <span className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
           Usage trend
         </span>
-        <span
-          className={`font-medium text-xs tabular-nums ${delta > 0 ? 'text-amber-600 dark:text-amber-400' : delta < 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
-        >
+        <span className={`font-medium text-xs tabular-nums ${deltaColorClassName}`}>
           {delta > 0 ? '+' : ''}
           {delta.toLocaleString()}
         </span>
@@ -779,11 +783,13 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         let nextHeight: number | null = null;
 
         switch (event.key) {
-          case 'ArrowUp': {
+          case 'ArrowUp':
+          case 'ArrowRight': {
             nextHeight = effectiveHeight + PREVIEW_FOOTER_HEIGHTS.resizeStep;
             break;
           }
-          case 'ArrowDown': {
+          case 'ArrowDown':
+          case 'ArrowLeft': {
             nextHeight = effectiveHeight - PREVIEW_FOOTER_HEIGHTS.resizeStep;
             break;
           }
@@ -836,7 +842,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
         <div className="flex h-7 items-center gap-2 border-b bg-muted/20 px-2">
           <hr
             aria-label="Resize context explorer footer"
-            aria-orientation="vertical"
+            aria-orientation="horizontal"
             aria-valuemax={PREVIEW_FOOTER_HEIGHTS.max}
             aria-valuemin={PREVIEW_FOOTER_HEIGHTS.min}
             aria-valuenow={effectiveHeight}

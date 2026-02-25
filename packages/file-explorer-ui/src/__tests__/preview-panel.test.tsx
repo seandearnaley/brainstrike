@@ -199,6 +199,30 @@ describe('PreviewPanel', () => {
       expect(screen.getByRole('button', { name: /insights footer mode/i })).toBeInTheDocument();
     });
 
+    it('supports keyboard resize via arrow keys', async () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      const separator = screen.getByRole('separator', {
+        name: /resize context explorer footer/i,
+      });
+
+      const initialHeight = Number(separator.getAttribute('aria-valuenow') ?? '0');
+      fireEvent.keyDown(separator, { key: 'ArrowUp' });
+
+      await waitFor(() => {
+        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBeGreaterThan(
+          initialHeight
+        );
+      });
+
+      const grownHeight = Number(separator.getAttribute('aria-valuenow') ?? '0');
+      fireEvent.keyDown(separator, { key: 'ArrowLeft' });
+
+      await waitFor(() => {
+        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBeLessThan(grownHeight);
+      });
+    });
+
     it('switches to compact footer mode and hides advanced toggles', async () => {
       const user = userEvent.setup();
       render(<PreviewPanel {...mockProps} />);
