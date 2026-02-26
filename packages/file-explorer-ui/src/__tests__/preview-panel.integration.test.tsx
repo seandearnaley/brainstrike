@@ -551,6 +551,8 @@ vi.mock('@brainstrike/hooks', () => {
 
 // Mock Lucide icons
 vi.mock('lucide-react', () => ({
+  ChevronDown: () => <div data-testid="chevron-down" />,
+  ChevronUp: () => <div data-testid="chevron-up" />,
   Columns3: () => <div data-testid="columns3" />,
   Download: () => <div data-testid="download" />,
   FileText: () => <div data-testid="file-text" />,

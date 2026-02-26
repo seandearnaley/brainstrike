@@ -6,8 +6,9 @@ import {
 } from '@brainstrike/file-explorer-ui';
 import { type PanelTab, usePanelLayoutStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
-import { cn, IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
-import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react';
+import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
+import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import { shallow } from 'zustand/shallow';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { ToolsPanel } from './tools-panel';
@@ -95,13 +96,93 @@ export function RootLayoutContent({
     [embeddingQueue]
   );
 
+  // Memoize panel content elements so resize drags don't bust IdeLayout's React.memo.
+  // Without this, every panelState.sizes change (60fps during drag) creates new JSX
+  // element references → IdeLayout re-renders → FileExplorerLeftPanel and
+  // TabbedFileEditorPanel fully re-render on every frame.
+  const resolvedLeftPanelContent = useMemo(
+    () => leftPanelContent ?? <FileExplorerLeftPanel />,
+    [leftPanelContent]
+  );
+  const consoleContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
+
   // Controlled panel layout state from store
-  const panelState = usePanelLayoutStore((s) => ({
-    sizes: s.sizes,
-    showConsole: s.showConsole,
-    showLeftPanel: s.showLeftPanel,
-    showRightPanel: s.showRightPanel,
-  }));
+  // shallow equality prevents re-renders when the selected values haven't changed
+  const panelState = usePanelLayoutStore(
+    (s) => ({
+      sizes: s.sizes,
+      showConsole: s.showConsole,
+      showLeftPanel: s.showLeftPanel,
+      showRightPanel: s.showRightPanel,
+    }),
+    shallow
+  );
+
+  // Use a ref for sizes fallback to avoid recreating this callback on every resize drag frame.
+  const sizesRef = useRef(panelState.sizes);
+  sizesRef.current = panelState.sizes;
+
+  // Trailing-edge debounce: during panel drag, react-resizable-panels manages layout
+  // visually via CSS (defaultLayout, not controlled). The Zustand update is purely for
+  // persistence. Deferring it to drag-end avoids a re-render cascade on every frame:
+  // setState → panelState changes → RootLayoutContent re-renders → PanelLayoutProvider
+  // creates new context → IdeLayout re-renders.
+  const sizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up pending debounce on unmount to prevent stale setState calls.
+  useEffect(() => {
+    return () => {
+      if (sizeDebounceRef.current) {
+        clearTimeout(sizeDebounceRef.current);
+      }
+    };
+  }, []);
+
+  const handlePanelLayoutChange = useCallback(
+    (state: PanelLayoutState) => {
+      const fallback = sizesRef.current;
+      const nextSizes = [
+        (state.sizes?.[0] as number | undefined) ?? fallback[0],
+        (state.sizes?.[1] as number | undefined) ?? fallback[1],
+        (state.sizes?.[2] as number | undefined) ?? fallback[2],
+      ] as [number, number, number];
+
+      // Boolean toggles (show/hide panel) are committed immediately for instant feedback.
+      const booleansChanged =
+        state.showConsole !== panelState.showConsole ||
+        state.showLeftPanel !== panelState.showLeftPanel ||
+        state.showRightPanel !== panelState.showRightPanel;
+
+      if (booleansChanged) {
+        if (sizeDebounceRef.current) {
+          clearTimeout(sizeDebounceRef.current);
+          sizeDebounceRef.current = null;
+        }
+        setState({
+          sizes: nextSizes,
+          showConsole: state.showConsole,
+          showLeftPanel: state.showLeftPanel,
+          showRightPanel: state.showRightPanel,
+        });
+        return;
+      }
+
+      // Size-only updates are debounced (trailing edge, 150ms after last drag frame).
+      if (sizeDebounceRef.current) {
+        clearTimeout(sizeDebounceRef.current);
+      }
+      sizeDebounceRef.current = setTimeout(() => {
+        sizeDebounceRef.current = null;
+        setState({
+          sizes: nextSizes,
+          showConsole: state.showConsole,
+          showLeftPanel: state.showLeftPanel,
+          showRightPanel: state.showRightPanel,
+        });
+      }, 150);
+    },
+    [setState, panelState.showConsole, panelState.showLeftPanel, panelState.showRightPanel]
+  );
 
   return (
     <AppLayout
@@ -118,24 +199,10 @@ export function RootLayoutContent({
         {/* FileTreeWrapper provides shared file tree state to all explorer panels.
             This ensures expand-all updates are seen by all panels for file content loading. */}
         <FileTreeWrapper>
-          <PanelLayoutProvider
-            controlledState={panelState}
-            onChange={(state) => {
-              setState({
-                sizes: [
-                  (state.sizes?.[0] as number | undefined) ?? panelState.sizes[0],
-                  (state.sizes?.[1] as number | undefined) ?? panelState.sizes[1],
-                  (state.sizes?.[2] as number | undefined) ?? panelState.sizes[2],
-                ] as [number, number, number],
-                showConsole: state.showConsole,
-                showLeftPanel: state.showLeftPanel,
-                showRightPanel: state.showRightPanel,
-              });
-            }}
-          >
+          <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
             <IdeLayout
-              consoleContent={<TabbedFileEditorPanel className="h-full" />}
-              leftPanelContent={leftPanelContent ?? <FileExplorerLeftPanel />}
+              consoleContent={consoleContent}
+              leftPanelContent={resolvedLeftPanelContent}
               rightPanelContent={rightPanelContent}
             >
               {homePageContent}

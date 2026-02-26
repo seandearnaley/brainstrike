@@ -2,7 +2,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { EmptyState } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
-import { useDeferredValue } from 'react';
+import { memo, useDeferredValue } from 'react';
 import OptimizedFileTree from './optimized-file-tree';
 
 const NoFilesSelected = () => (
@@ -87,66 +87,68 @@ const EmptyStateComponent = ({
   </div>
 );
 
-const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
-  rootDirectoryHandle,
-  treeError,
-  filterError,
-  quickFilteredTree,
-  loadingFiles,
-  isLoading,
-  isInitialLoad,
-  currentFolderId,
-  onTreeRender,
-  loadingPaths,
-  onLoadChildren,
-  cancelChildLoading,
-  onSelectFolderRecursively,
-  isLoadingForSelection,
-  loadingPathForSelection,
-  isLoadingForSelectAll = false,
-}) => {
-  // React 19: useDeferredValue keeps showing the old tree while new one renders
-  // This prevents "flash" during rapid tree updates (like expand-all)
-  const deferredTree = useDeferredValue(quickFilteredTree);
+const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
+  ({
+    rootDirectoryHandle,
+    treeError,
+    filterError,
+    quickFilteredTree,
+    loadingFiles,
+    isLoading,
+    isInitialLoad,
+    currentFolderId,
+    onTreeRender,
+    loadingPaths,
+    onLoadChildren,
+    cancelChildLoading,
+    onSelectFolderRecursively,
+    isLoadingForSelection,
+    loadingPathForSelection,
+    isLoadingForSelectAll = false,
+  }) => {
+    // React 19: useDeferredValue keeps showing the old tree while new one renders
+    // This prevents "flash" during rapid tree updates (like expand-all)
+    const deferredTree = useDeferredValue(quickFilteredTree);
 
-  const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
-  const hasContent = deferredTree && deferredTree.length > 0;
+    const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
+    const hasContent = deferredTree && deferredTree.length > 0;
 
-  return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
-      {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
-      {rootDirectoryHandle ? (
-        <div className="relative flex min-h-0 flex-1 flex-col pt-2">
-          {/* Subtle loading overlay during Select All operation */}
-          {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
-          {hasContent ? (
-            <OptimizedFileTree
-              cancelChildLoading={cancelChildLoading}
-              fileTree={deferredTree}
-              folderId={(rootDirectoryHandle?.name ?? currentFolderId ?? '') as string}
-              isLoadingForSelection={isLoadingForSelection}
-              loadingFiles={loadingFiles}
-              loadingPathForSelection={loadingPathForSelection}
-              loadingPaths={loadingPaths}
-              onLoadChildren={onLoadChildren}
-              onRender={onTreeRender || undefined}
-              onSelectFolderRecursively={onSelectFolderRecursively}
-            />
-          ) : (
-            <EmptyStateComponent
-              isLoading={isLoading}
-              quickFilteredTree={deferredTree}
-              rootDirectoryHandle={rootDirectoryHandle}
-            />
-          )}
-        </div>
-      ) : (
-        <div className="flex-1">
-          <NoFilesSelected />
-        </div>
-      )}
-    </div>
-  );
-};
+    return (
+      <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
+        {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
+        {rootDirectoryHandle ? (
+          <div className="relative flex min-h-0 flex-1 flex-col pt-2">
+            {/* Subtle loading overlay during Select All operation */}
+            {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
+            {hasContent ? (
+              <OptimizedFileTree
+                cancelChildLoading={cancelChildLoading}
+                fileTree={deferredTree}
+                folderId={(rootDirectoryHandle?.name ?? currentFolderId ?? '') as string}
+                isLoadingForSelection={isLoadingForSelection}
+                loadingFiles={loadingFiles}
+                loadingPathForSelection={loadingPathForSelection}
+                loadingPaths={loadingPaths}
+                onLoadChildren={onLoadChildren}
+                onRender={onTreeRender || undefined}
+                onSelectFolderRecursively={onSelectFolderRecursively}
+              />
+            ) : (
+              <EmptyStateComponent
+                isLoading={isLoading}
+                quickFilteredTree={deferredTree}
+                rootDirectoryHandle={rootDirectoryHandle}
+              />
+            )}
+          </div>
+        ) : (
+          <div className="flex-1">
+            <NoFilesSelected />
+          </div>
+        )}
+      </div>
+    );
+  }
+);
 
 export default FileExplorerSidebar;

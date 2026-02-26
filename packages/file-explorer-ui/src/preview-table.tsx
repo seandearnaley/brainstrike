@@ -378,6 +378,19 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const handleGroupDeselectAllStable = useEventCallback(handleGroupDeselectAll);
   const previousExpandedGroupNodeIdsRef = useRef<Set<string> | null>(null);
 
+  // Keep refs for values read inside groupedColumns cell closures at call time.
+  // This removes previewSelections, isGroupFullySelected, and isGroupPartiallySelected
+  // from the groupedColumns dependency array, avoiding full column invalidation on
+  // every checkbox toggle.
+  const previewSelectionsRef = useRef(previewSelections);
+  previewSelectionsRef.current = previewSelections;
+
+  const isGroupFullySelectedRef = useRef(isGroupFullySelected);
+  isGroupFullySelectedRef.current = isGroupFullySelected;
+
+  const isGroupPartiallySelectedRef = useRef(isGroupPartiallySelected);
+  isGroupPartiallySelectedRef.current = isGroupPartiallySelected;
+
   const isAllCurrentPageSelected = useMemo(
     () => isAllSelected(visibleFilesOnPage),
     [isAllSelected, visibleFilesOnPage]
@@ -421,8 +434,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       return (
         <GroupHeaderSummary
           group={group}
-          isFullySelected={isGroupFullySelected(group)}
-          isPartiallySelected={isGroupPartiallySelected(group)}
+          isFullySelected={isGroupFullySelectedRef.current(group)}
+          isPartiallySelected={isGroupPartiallySelectedRef.current(group)}
           onSelectionChange={(checked) => {
             if (checked) {
               handleGroupSelectAllStable(group);
@@ -436,8 +449,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     },
     [
       primaryGroupColumn,
-      isGroupFullySelected,
-      isGroupPartiallySelected,
       handleGroupSelectAllStable,
       handleGroupDeselectAllStable,
       columnVisibility.checkbox,
@@ -479,8 +490,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
             const group = node.data.group;
-            const isFullySelected = isGroupFullySelected(group);
-            const isPartiallySelected = isGroupPartiallySelected(group);
+            const isFullySelected = isGroupFullySelectedRef.current(group);
+            const isPartiallySelected = isGroupPartiallySelectedRef.current(group);
             const checkedState: boolean | 'indeterminate' = isFullySelected
               ? true
               : isPartiallySelected
@@ -507,7 +518,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
           return (
             <Checkbox
               aria-label={`Select ${item.path}`}
-              checked={previewSelections.has(item.compositeKey)}
+              checked={previewSelectionsRef.current.has(item.compositeKey)}
               onCheckedChange={(checked) =>
                 onToggleSelectionStable(item.compositeKey, checked === true)
               }
@@ -701,14 +712,11 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     handleGroupDeselectAllStable,
     handleGroupSelectAllStable,
     isAllCurrentPageSelected,
-    isGroupFullySelected,
-    isGroupPartiallySelected,
     onDeselectAllStable,
     onFileClickStable,
     onSelectAllOnPageStable,
     onSortStable,
     onToggleSelectionStable,
-    previewSelections,
     renderGroupHeaderIfPrimary,
     sortDirection,
     sortField,

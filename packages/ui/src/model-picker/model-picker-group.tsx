@@ -23,7 +23,7 @@ export function ModelPickerGroup({
       className="overflow-hidden p-1 text-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:text-xs"
       heading={
         <div
-          className="sticky top-0 z-10 flex items-center gap-2 border-l-2 bg-muted/5 px-2 py-1.5 font-medium text-muted-foreground text-xs backdrop-blur-sm"
+          className="sticky top-0 z-10 flex items-center gap-2 border-l-2 bg-muted px-2 py-1.5 font-medium text-muted-foreground text-xs"
           style={{ borderLeftColor: color }}
         >
           <ProviderIcon className="h-3 w-3" providerId={provider.id} style={{ color }} />

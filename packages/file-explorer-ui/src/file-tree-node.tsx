@@ -74,7 +74,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
 
     return (
       <li className="list-none">
-        <div className="flex items-center rounded p-1 transition-all duration-150 hover:bg-accent">
+        <div className="flex items-center rounded p-1 transition-colors duration-150 hover:bg-accent">
           <NodeCheckbox
             checked={checkboxState}
             disabled={wouldExceedLimit}
@@ -87,7 +87,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
             {node.type === 'directory' && (
               <button
                 aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                className="cursor-pointer rounded-md p-1 transition-all duration-150 hover:bg-accent"
+                className="cursor-pointer rounded-md p-1 transition-colors duration-150 hover:bg-accent"
                 data-testid={EXPAND_COLLAPSE_TEST_ID}
                 onClick={handleExpansionClick}
                 type="button"

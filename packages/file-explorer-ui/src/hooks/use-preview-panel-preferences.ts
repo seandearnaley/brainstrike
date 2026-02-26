@@ -5,6 +5,13 @@ import {
   createDefaultColumnVisibility,
   resolveColumnVisibility,
 } from '../preview-column-visibility';
+import {
+  clampPreviewFooterHeight,
+  getPreviewFooterModeHeight,
+  inferPreviewFooterMode,
+  PREVIEW_FOOTER_MODES,
+  type PreviewFooterMode,
+} from '../preview-footer-layout';
 import type { TableRowData } from '../utils/grouping-configs';
 import { GROUPING_CONFIGS } from '../utils/grouping-configs';
 import type { ColumnVisibility } from './use-preview-panel-persistence';
@@ -26,6 +33,7 @@ const VALID_GROUPING_CONFIGS = new Set(Object.keys(GROUPING_CONFIGS));
 const COLUMN_VISIBILITY_KEYS = Object.keys(
   createDefaultColumnVisibility()
 ) as (keyof ColumnVisibility)[];
+const VALID_FOOTER_MODES = new Set<PreviewFooterMode>(PREVIEW_FOOTER_MODES);
 
 /** Default page size for preview panel pagination */
 export const DEFAULT_PAGE_SIZE = 50;
@@ -35,6 +43,9 @@ interface StoredPreferences {
   activeTab?: string;
   collapsedGroups?: string[];
   columnVisibility?: Partial<ColumnVisibility>;
+  footerCollapsed?: boolean;
+  footerHeight?: number;
+  footerMode?: PreviewFooterMode;
   groupingConfig?: string;
   pageSize?: number;
   sortDirection?: 'asc' | 'desc';
@@ -46,6 +57,9 @@ interface PreviewPanelPreferences {
   activeTab: string;
   collapsedGroups: Set<string>;
   columnVisibility: ColumnVisibility;
+  footerCollapsed: boolean;
+  footerHeight: number;
+  footerMode: PreviewFooterMode;
   groupingConfig: string;
   pageSize: number;
   sortDirection: 'asc' | 'desc';
@@ -55,6 +69,8 @@ interface PreviewPanelPreferences {
 
 interface PreviewPanelPreferencesDefaults {
   activeTab: string;
+  footerHeight: number;
+  footerMode: PreviewFooterMode;
   groupingConfig: string;
   sortDirection: 'asc' | 'desc';
   sortField: keyof TableRowData;
@@ -167,6 +183,33 @@ function sanitizeUseTapestryRangesForContextOutput(
   return;
 }
 
+function sanitizeFooterMode(
+  value: StoredPreferences['footerMode']
+): StoredPreferences['footerMode'] {
+  if (value && VALID_FOOTER_MODES.has(value)) {
+    return value;
+  }
+  return;
+}
+
+function sanitizeFooterHeight(
+  value: StoredPreferences['footerHeight']
+): StoredPreferences['footerHeight'] {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return clampPreviewFooterHeight(value);
+  }
+  return;
+}
+
+function sanitizeFooterCollapsed(
+  value: StoredPreferences['footerCollapsed']
+): StoredPreferences['footerCollapsed'] {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return;
+}
+
 function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPreferences | null {
   if (!stored || typeof stored !== 'object') {
     return null;
@@ -207,6 +250,19 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
   if (useTapestryRangesForContextOutput !== undefined) {
     sanitized.useTapestryRangesForContextOutput = useTapestryRangesForContextOutput;
   }
+  const footerMode = sanitizeFooterMode(stored.footerMode);
+  const footerHeight = sanitizeFooterHeight(stored.footerHeight);
+  if (footerHeight !== undefined) {
+    sanitized.footerHeight = footerHeight;
+    sanitized.footerMode = inferPreviewFooterMode(footerHeight);
+  } else if (footerMode !== undefined) {
+    sanitized.footerMode = footerMode;
+    sanitized.footerHeight = getPreviewFooterModeHeight(footerMode);
+  }
+  const footerCollapsed = sanitizeFooterCollapsed(stored.footerCollapsed);
+  if (footerCollapsed !== undefined) {
+    sanitized.footerCollapsed = footerCollapsed;
+  }
 
   return sanitized;
 }
@@ -222,6 +278,9 @@ interface PreviewPanelPreferencesSetters {
   setActiveTab: Dispatch<SetStateAction<string>>;
   setCollapsedGroups: Dispatch<SetStateAction<Set<string>>>;
   setColumnVisibility: Dispatch<SetStateAction<ColumnVisibility>>;
+  setFooterCollapsed: Dispatch<SetStateAction<boolean>>;
+  setFooterHeight: Dispatch<SetStateAction<number>>;
+  setFooterMode: Dispatch<SetStateAction<PreviewFooterMode>>;
   setGroupingConfig: Dispatch<SetStateAction<string>>;
   setPageSize: Dispatch<SetStateAction<number>>;
   setSortDirection: Dispatch<SetStateAction<'asc' | 'desc'>>;
@@ -272,6 +331,16 @@ export function usePreviewPanelPreferences(
         defaults.useTapestryRangesForContextOutput
       )
     );
+  const [footerMode, setFooterMode] = useState<PreviewFooterMode>(() =>
+    getStoredValue(storedPreferences, 'footerMode', defaults.footerMode)
+  );
+  const [footerHeight, setFooterHeight] = useState<number>(() => {
+    const fallbackHeight = getStoredValue(storedPreferences, 'footerHeight', defaults.footerHeight);
+    return clampPreviewFooterHeight(fallbackHeight);
+  });
+  const [footerCollapsed, setFooterCollapsed] = useState<boolean>(() =>
+    getStoredValue(storedPreferences, 'footerCollapsed', false)
+  );
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -285,6 +354,9 @@ export function usePreviewPanelPreferences(
           collapsedGroups: Array.from(collapsedGroups),
           pageSize,
           useTapestryRangesForContextOutput,
+          footerMode,
+          footerHeight,
+          footerCollapsed,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
@@ -311,6 +383,9 @@ export function usePreviewPanelPreferences(
     activeTab,
     pageSize,
     useTapestryRangesForContextOutput,
+    footerMode,
+    footerHeight,
+    footerCollapsed,
   ]);
 
   return {
@@ -320,12 +395,18 @@ export function usePreviewPanelPreferences(
     groupingConfig,
     pageSize,
     useTapestryRangesForContextOutput,
+    footerMode,
+    footerHeight,
+    footerCollapsed,
     setActiveTab,
     setCollapsedGroups,
     setColumnVisibility,
     setGroupingConfig,
     setPageSize,
     setUseTapestryRangesForContextOutput,
+    setFooterMode,
+    setFooterHeight,
+    setFooterCollapsed,
     setSortDirection,
     setSortField,
     sortDirection,

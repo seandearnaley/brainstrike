@@ -31,6 +31,7 @@ import {
   usePreviewPanelPreferences,
 } from './hooks/use-preview-panel-preferences';
 import { ColumnVisibilityControls } from './preview-column-visibility-controls';
+import { getPreviewFooterModeHeight } from './preview-footer-layout';
 import { PreviewGroupingControls } from './preview-grouping-controls';
 import { PreviewPanelFooter, type TokenUsageMetrics } from './preview-panel-footer';
 import { PreviewTable } from './preview-table';
@@ -61,6 +62,7 @@ const logger = createLogger('PreviewPanel');
 const TAPESTRY_MAX_PAGE_SIZE = 24;
 // Keep a stable reference for the "empty snapshot" state to preserve memo identity optimizations.
 const EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT: Record<string, string> = {};
+const EMPTY_PAGINATION_INFO = {};
 
 function getTokenUsageMetrics(args: {
   budget: number;
@@ -255,6 +257,34 @@ function syncTapestryRanges(args: {
   return { next, changed, totals: nextTotals };
 }
 
+function handleNullValues(aVal: unknown, bVal: unknown): number | null {
+  if (aVal === null && bVal === null) {
+    return 0;
+  }
+  if (aVal === null) {
+    return 1;
+  }
+  if (bVal === null) {
+    return -1;
+  }
+  return null;
+}
+
+function compareValues(aVal: unknown, bVal: unknown, field: keyof TableRowData): number {
+  const nullResult = handleNullValues(aVal, bVal);
+  if (nullResult !== null) {
+    return nullResult;
+  }
+
+  // Numeric sorting for tokens and size
+  if (field === 'tokens' || field === 'size') {
+    return (Number(aVal) || 0) - (Number(bVal) || 0);
+  }
+
+  // String sorting for other fields
+  return String(aVal) < String(bVal) ? -1 : String(aVal) > String(bVal) ? 1 : 0;
+}
+
 export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelComponent(props) {
   const {
     selectedFiles,
@@ -307,10 +337,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setPageSize,
     setSortDirection,
     setSortField,
+    setFooterHeight,
+    setFooterMode,
+    setFooterCollapsed,
     sortDirection,
     sortField,
     setUseTapestryRangesForContextOutput,
     useTapestryRangesForContextOutput,
+    footerMode,
+    footerHeight,
+    footerCollapsed,
   } = usePreviewPanelPreferences({
     activeTab: 'table',
     groupingConfig: 'none',
@@ -318,6 +354,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     sortField: 'rootFolderId',
     // Keep range-aware export on by default so context output follows the active tapestry selection model.
     useTapestryRangesForContextOutput: true,
+    footerMode: 'default',
+    footerHeight: getPreviewFooterModeHeight('default'),
   });
 
   // Gate expensive Tapestry computations behind active tab.
@@ -380,16 +418,29 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     selectedFileContentSnapshot,
   ]);
 
-  const tokenUsage = getTokenUsageMetrics({
-    budget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-    includeProjectTree,
-    projectTreeTokenCount,
-    projectTreeTokenCountLoading,
-    selectedTokens: contextSelectedTokenSummary.outputSelectedTokens,
-    sourceSelectedTokens: contextSelectedTokenSummary.sourceSelectedTokens,
-    rangeAdjustedFilesCount: contextSelectedTokenSummary.rangeAdjustedFilesCount,
-    activeRangeFilesCount: contextSelectedTokenSummary.activeRangeFilesCount,
-  });
+  const tokenUsage = useMemo(
+    () =>
+      getTokenUsageMetrics({
+        budget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
+        includeProjectTree,
+        projectTreeTokenCount,
+        projectTreeTokenCountLoading,
+        selectedTokens: contextSelectedTokenSummary.outputSelectedTokens,
+        sourceSelectedTokens: contextSelectedTokenSummary.sourceSelectedTokens,
+        rangeAdjustedFilesCount: contextSelectedTokenSummary.rangeAdjustedFilesCount,
+        activeRangeFilesCount: contextSelectedTokenSummary.activeRangeFilesCount,
+      }),
+    [
+      tokenBudget,
+      includeProjectTree,
+      projectTreeTokenCount,
+      projectTreeTokenCountLoading,
+      contextSelectedTokenSummary.outputSelectedTokens,
+      contextSelectedTokenSummary.sourceSelectedTokens,
+      contextSelectedTokenSummary.rangeAdjustedFilesCount,
+      contextSelectedTokenSummary.activeRangeFilesCount,
+    ]
+  );
 
   // Transform list items to simplified table data - only files.
   // The useMemo already provides cross-render memoization, so no per-item cache is needed.
@@ -484,39 +535,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [setCollapsedGroups]
   );
 
-  // Null check helper
-  const handleNullValues = useCallback((aVal: unknown, bVal: unknown): number | null => {
-    if (aVal === null && bVal === null) {
-      return 0;
-    }
-    if (aVal === null) {
-      return 1;
-    }
-    if (bVal === null) {
-      return -1;
-    }
-    return null;
-  }, []);
-
-  // Comparison helper with proper type handling
-  const compareValues = useCallback(
-    (aVal: unknown, bVal: unknown, field: keyof TableRowData): number => {
-      const nullResult = handleNullValues(aVal, bVal);
-      if (nullResult !== null) {
-        return nullResult;
-      }
-
-      // Numeric sorting for tokens and size
-      if (field === 'tokens' || field === 'size') {
-        return (Number(aVal) || 0) - (Number(bVal) || 0);
-      }
-
-      // String sorting for other fields
-      return String(aVal) < String(bVal) ? -1 : String(aVal) > String(bVal) ? 1 : 0;
-    },
-    [handleNullValues]
-  );
-
   // Memoized sorted and grouped data
   const { sortedData, groupedData } = useMemo(() => {
     // First sort the data
@@ -531,7 +549,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     const grouped = groupData(sorted, config);
 
     return { sortedData: sorted, groupedData: grouped };
-  }, [tableData, sortField, sortDirection, compareValues, groupingConfig]);
+  }, [tableData, sortField, sortDirection, groupingConfig]);
 
   // Calculate total items for pagination (including group headers)
   const totalItems = useMemo(() => {
@@ -702,7 +720,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return `(${flattenedData.length} total files, ${groupedData.length} groups)`;
   }, [flattenedData.length, groupedData.length, groupingConfig]);
 
-  const paginationInfo = useMemo(() => (pageInfo ? { pageInfo } : {}), [pageInfo]);
+  const paginationInfo = useMemo(
+    () => (pageInfo ? { pageInfo } : EMPTY_PAGINATION_INFO),
+    [pageInfo]
+  );
 
   const buildTapestryFile = useCallback(
     (item: TableRowData) => {
@@ -906,10 +927,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         </div>
         <PreviewPanelFooter
           folderSummaryThreshold={folderSummaryThreshold ?? 5}
+          footerCollapsed={footerCollapsed}
+          footerHeight={footerHeight}
+          footerMode={footerMode}
           includeProjectTree={includeProjectTree}
           onCopyContext={handleCopyContext}
           onDownloadContext={handleDownloadContext}
           onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
+          onFooterCollapsedChange={setFooterCollapsed}
+          onFooterHeightChange={setFooterHeight}
+          onFooterModeChange={setFooterMode}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
           onTokenBudgetChange={onTokenBudgetChange}
@@ -1142,10 +1169,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
       <PreviewPanelFooter
         folderSummaryThreshold={folderSummaryThreshold ?? 5}
+        footerCollapsed={footerCollapsed}
+        footerHeight={footerHeight}
+        footerMode={footerMode}
         includeProjectTree={includeProjectTree}
         onCopyContext={handleCopyContext}
         onDownloadContext={handleDownloadContext}
         onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
+        onFooterCollapsedChange={setFooterCollapsed}
+        onFooterHeightChange={setFooterHeight}
+        onFooterModeChange={setFooterMode}
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
         onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
         onTokenBudgetChange={onTokenBudgetChange}

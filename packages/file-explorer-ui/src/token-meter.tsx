@@ -178,7 +178,7 @@ export const TokenMeter = memo<TokenMeterProps>(function TokenMeter({
               {/* Tree tokens segment (if included) */}
               {includeTree && treeTokens > 0 && (
                 <circle
-                  className="text-[hsl(var(--chart-2))] transition-all duration-500 ease-out"
+                  className="text-[hsl(var(--chart-2))] transition-[stroke-dashoffset] duration-500 ease-out"
                   cx={center}
                   cy={center}
                   fill="none"
@@ -196,7 +196,7 @@ export const TokenMeter = memo<TokenMeterProps>(function TokenMeter({
               )}
               {/* Selected tokens segment */}
               <circle
-                className={`transition-all duration-500 ease-out ${isOverBudget ? 'text-destructive' : 'text-primary'}`}
+                className={`transition-[stroke-dashoffset] duration-500 ease-out ${isOverBudget ? 'text-destructive' : 'text-primary'}`}
                 cx={center}
                 cy={center}
                 fill="none"

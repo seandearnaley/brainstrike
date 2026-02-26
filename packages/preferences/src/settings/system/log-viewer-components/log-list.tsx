@@ -114,7 +114,7 @@ export function LogList({
               />
             ))}
           </colgroup>
-          <TableHeader className="sticky top-0 z-10 bg-background/95 shadow-sm backdrop-blur">
+          <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow
                 className="border-border/60 border-b hover:bg-transparent"
