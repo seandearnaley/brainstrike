@@ -940,6 +940,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           <hr
             aria-label="Resize context explorer footer"
             aria-orientation="horizontal"
+            aria-roledescription="resize handle"
             aria-valuemax={PREVIEW_FOOTER_HEIGHTS.max}
             aria-valuemin={PREVIEW_FOOTER_HEIGHTS.min}
             aria-valuenow={footerCollapsed ? PREVIEW_FOOTER_HEIGHTS.collapsed : effectiveHeight}
