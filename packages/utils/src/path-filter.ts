@@ -133,21 +133,24 @@ export const fileFilter = {
     includeMatchers: ((str: string) => boolean)[],
     excludeMatchers: ((str: string) => boolean)[]
   ): { filteredChildren: IFileNode[]; hasChanges: boolean } {
-    let hasChanges = false;
-    const filteredChildren: IFileNode[] = [];
+    let filteredChildren: IFileNode[] | null = null;
+    let index = 0;
 
     for (const child of children) {
       const filtered = this._filterNodeRecursive(child, includeMatchers, excludeMatchers);
-      if (filtered) {
-        filteredChildren.push(filtered);
-        if (filtered !== child) {
-          hasChanges = true;
-        }
-      } else {
-        hasChanges = true;
+      if (filtered !== child && !filteredChildren) {
+        // First change detected — back-fill with preceding unchanged children
+        filteredChildren = children.slice(0, index);
       }
+      if (filteredChildren && filtered) {
+        filteredChildren.push(filtered);
+      }
+      index++;
     }
-    return { filteredChildren, hasChanges };
+
+    return filteredChildren
+      ? { filteredChildren, hasChanges: true }
+      : { filteredChildren: children, hasChanges: false };
   },
 
   /**
@@ -187,8 +190,8 @@ export const fileFilter = {
         return null;
       }
 
-      // Optimization: If children didn't change and we are keeping the directory, return the original node
-      // This avoids O(N) allocations when the tree is largely unchanged
+      // Structural sharing: return the original node when children are unchanged.
+      // Callers must not mutate returned nodes — they may share references with the input tree.
       if (!hasChanges) {
         return node;
       }
