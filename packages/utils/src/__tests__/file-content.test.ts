@@ -16,6 +16,42 @@ describe('fileContent', () => {
     it('should handle empty content', () => {
       expect(fileContent.isTextContent('')).toBe(true);
     });
+
+    it('should handle strings at unrolled loop boundaries (length 1-5)', () => {
+      expect(fileContent.isTextContent('a')).toBe(true);
+      expect(fileContent.isTextContent('ab')).toBe(true);
+      expect(fileContent.isTextContent('abc')).toBe(true);
+      expect(fileContent.isTextContent('abcd')).toBe(true);
+      expect(fileContent.isTextContent('abcde')).toBe(true);
+    });
+
+    it('should detect binary at each position within a 4-char window', () => {
+      const nul = String.fromCharCode(0);
+      expect(fileContent.isTextContent(`${nul}bcd`)).toBe(false); // pos 0
+      expect(fileContent.isTextContent(`a${nul}cd`)).toBe(false); // pos 1
+      expect(fileContent.isTextContent(`ab${nul}d`)).toBe(false); // pos 2
+      expect(fileContent.isTextContent(`abc${nul}`)).toBe(false); // pos 3
+    });
+
+    it('should detect DEL character (127)', () => {
+      const del = String.fromCharCode(127);
+      expect(fileContent.isTextContent(`hello${del}world`)).toBe(false);
+    });
+
+    it('should detect binary at position 511 in a 512-char string', () => {
+      const text = 'a'.repeat(511) + String.fromCharCode(1);
+      expect(fileContent.isTextContent(text)).toBe(false);
+    });
+
+    it('should accept a 512-char all-text string', () => {
+      const text = 'a'.repeat(512);
+      expect(fileContent.isTextContent(text)).toBe(true);
+    });
+
+    it('should only sample first 512 chars, ignoring binary after', () => {
+      const text = 'a'.repeat(512) + String.fromCharCode(0);
+      expect(fileContent.isTextContent(text)).toBe(true);
+    });
   });
 
   describe('isBinaryExtension', () => {

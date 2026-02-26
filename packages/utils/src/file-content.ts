@@ -14,20 +14,17 @@ const MAX_FILE_SIZE_BYTES = 1024 * 1024;
 export const fileContent = {
   /**
    * Checks if the content appears to be text by examining the first 512 bytes
-   * for null bytes or control characters
+   * for null bytes or control characters.
    */
   isTextContent(content: string): boolean {
     const sampleSize = Math.min(512, content.length);
     for (let i = 0; i < sampleSize; i++) {
       const charCode = content.charCodeAt(i);
-      // Check for null bytes or control characters (except tab, newline, carriage return)
-      if (
-        charCode === 0 || // null byte
-        charCode < 0x09 || // control chars below tab
-        (charCode > 0x0a && charCode < 0x0d) || // control chars between LF and CR
-        (charCode > 0x0d && charCode < 0x20) || // control chars between CR and space
-        charCode === 0x7f // DEL
-      ) {
+      if (charCode < 32) {
+        if (charCode !== 9 && charCode !== 10 && charCode !== 13) {
+          return false;
+        }
+      } else if (charCode === 127) {
         return false;
       }
     }
