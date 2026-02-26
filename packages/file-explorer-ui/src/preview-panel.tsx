@@ -31,6 +31,7 @@ import {
   usePreviewPanelPreferences,
 } from './hooks/use-preview-panel-preferences';
 import { ColumnVisibilityControls } from './preview-column-visibility-controls';
+import { getPreviewFooterModeHeight } from './preview-footer-layout';
 import { PreviewGroupingControls } from './preview-grouping-controls';
 import { PreviewPanelFooter, type TokenUsageMetrics } from './preview-panel-footer';
 import { PreviewTable } from './preview-table';
@@ -336,10 +337,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setPageSize,
     setSortDirection,
     setSortField,
+    setFooterHeight,
+    setFooterMode,
+    setFooterCollapsed,
     sortDirection,
     sortField,
     setUseTapestryRangesForContextOutput,
     useTapestryRangesForContextOutput,
+    footerMode,
+    footerHeight,
+    footerCollapsed,
   } = usePreviewPanelPreferences({
     activeTab: 'table',
     groupingConfig: 'none',
@@ -347,6 +354,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     sortField: 'rootFolderId',
     // Keep range-aware export on by default so context output follows the active tapestry selection model.
     useTapestryRangesForContextOutput: true,
+    footerMode: 'default',
+    footerHeight: getPreviewFooterModeHeight('default'),
   });
 
   // Gate expensive Tapestry computations behind active tab.
@@ -918,10 +927,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         </div>
         <PreviewPanelFooter
           folderSummaryThreshold={folderSummaryThreshold ?? 5}
+          footerCollapsed={footerCollapsed}
+          footerHeight={footerHeight}
+          footerMode={footerMode}
           includeProjectTree={includeProjectTree}
           onCopyContext={handleCopyContext}
           onDownloadContext={handleDownloadContext}
           onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
+          onFooterCollapsedChange={setFooterCollapsed}
+          onFooterHeightChange={setFooterHeight}
+          onFooterModeChange={setFooterMode}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
           onTokenBudgetChange={onTokenBudgetChange}
@@ -1154,10 +1169,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
       <PreviewPanelFooter
         folderSummaryThreshold={folderSummaryThreshold ?? 5}
+        footerCollapsed={footerCollapsed}
+        footerHeight={footerHeight}
+        footerMode={footerMode}
         includeProjectTree={includeProjectTree}
         onCopyContext={handleCopyContext}
         onDownloadContext={handleDownloadContext}
         onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
+        onFooterCollapsedChange={setFooterCollapsed}
+        onFooterHeightChange={setFooterHeight}
+        onFooterModeChange={setFooterMode}
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
         onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
         onTokenBudgetChange={onTokenBudgetChange}
