@@ -223,7 +223,7 @@ describe('PreviewPanel', () => {
       });
     });
 
-    it('restores the last expanded height when toggling modes', async () => {
+    it('snaps to canonical heights when toggling modes', async () => {
       const user = userEvent.setup();
       render(<PreviewPanel {...mockProps} />);
 
@@ -231,28 +231,22 @@ describe('PreviewPanel', () => {
         name: /resize context explorer footer/i,
       });
 
-      for (let index = 0; index < 25; index += 1) {
-        fireEvent.keyDown(separator, { key: 'ArrowUp' });
-      }
-
-      let customExpandedHeight = 0;
-      await waitFor(() => {
-        customExpandedHeight = Number(separator.getAttribute('aria-valuenow') ?? '0');
-        expect(customExpandedHeight).toBeGreaterThan(300);
-      });
-
       await user.click(screen.getByRole('button', { name: /balanced footer mode/i }));
 
       await waitFor(() => {
-        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBeLessThan(
-          customExpandedHeight
-        );
+        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBe(228);
       });
 
       await user.click(screen.getByRole('button', { name: /insights footer mode/i }));
 
       await waitFor(() => {
-        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBe(customExpandedHeight);
+        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBe(400);
+      });
+
+      await user.click(screen.getByRole('button', { name: /compact footer mode/i }));
+
+      await waitFor(() => {
+        expect(Number(separator.getAttribute('aria-valuenow') ?? '0')).toBe(160);
       });
     });
 

@@ -7,7 +7,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { Download, FileText } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, FileText } from 'lucide-react';
 import {
   memo,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -24,7 +24,6 @@ import IncludeProjectTreeSetting from './include-project-tree-setting';
 import {
   clampPreviewFooterHeight,
   getPreviewFooterModeHeight,
-  inferPreviewFooterMode,
   PREVIEW_FOOTER_HEIGHTS,
   type PreviewFooterMode,
 } from './preview-footer-layout';
@@ -83,7 +82,7 @@ function buildSparklinePoints(
   }
 
   const width = 220;
-  const height = 48;
+  const height = 36;
   const padding = 4;
   let maxValue = Math.max(1, budget);
   let minValue = 0;
@@ -156,7 +155,7 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
         </span>
       </div>
       {geometry ? (
-        <svg aria-hidden="true" className="h-12 w-full" viewBox="0 0 220 48">
+        <svg aria-hidden="true" className="h-9 w-full" viewBox="0 0 220 36">
           <defs>
             <linearGradient id={gradientFillId} x1="0" x2="0" y1="0" y2="1">
               <stop
@@ -182,7 +181,7 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
           />
         </svg>
       ) : (
-        <div className="flex h-12 items-center justify-center text-[11px] text-muted-foreground">
+        <div className="flex h-9 items-center justify-center text-[11px] text-muted-foreground">
           Select files to build usage history
         </div>
       )}
@@ -230,8 +229,10 @@ interface PreviewPanelFooterProps {
   onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
   footerMode?: PreviewFooterMode;
   footerHeight?: number;
+  footerCollapsed?: boolean;
   onFooterModeChange?: ((mode: PreviewFooterMode) => void) | undefined;
   onFooterHeightChange?: ((height: number) => void) | undefined;
+  onFooterCollapsedChange?: ((collapsed: boolean) => void) | undefined;
 }
 
 interface DragSession {
@@ -407,9 +408,9 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
   }, [includeProjectTree, tokenUsage, useTapestryRanges]);
 
   return (
-    <div className="grid @[980px]:grid-cols-[1.2fr_0.8fr] gap-2">
-      <div className="rounded-md border bg-gradient-to-br from-muted/35 via-background to-background p-2.5">
-        <div className="mb-2 flex items-center justify-between gap-2">
+    <div className="grid @[640px]:grid-cols-[1.2fr_0.8fr] gap-1.5">
+      <div className="rounded-md border bg-gradient-to-br from-muted/35 via-background to-background p-2">
+        <div className="mb-1.5 flex items-center justify-between gap-2">
           <span className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
             Budget composition
           </span>
@@ -417,7 +418,7 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
             {tokenUsage.usedTokens.toLocaleString()} / {tokenUsage.budget.toLocaleString()}
           </span>
         </div>
-        <div aria-hidden className="mb-2 flex h-3 overflow-hidden rounded-sm bg-muted">
+        <div aria-hidden className="mb-1.5 flex h-2.5 overflow-hidden rounded-sm bg-muted">
           {compositionSegments.map((segment) => (
             <div
               className={segment.className}
@@ -429,7 +430,7 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
             />
           ))}
         </div>
-        <div className="grid @[760px]:grid-cols-3 grid-cols-1 gap-1 text-[11px]">
+        <div className="grid grid-cols-3 gap-1 text-[11px]">
           {compositionSegments.map((segment) => (
             <div className="flex items-center justify-between gap-2" key={segment.id}>
               <span className="text-muted-foreground">{segment.label}</span>
@@ -647,8 +648,10 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       onFolderSummaryThresholdChange,
       footerMode = 'default',
       footerHeight = getPreviewFooterModeHeight('default'),
+      footerCollapsed = false,
       onFooterModeChange,
       onFooterHeightChange,
+      onFooterCollapsedChange,
     } = props;
 
     const [isResizing, setIsResizing] = useState(false);
@@ -658,19 +661,14 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     const dragSessionRef = useRef<DragSession | null>(null);
     const queuedHeightRef = useRef<number>(clampPreviewFooterHeight(footerHeight));
     const animationFrameRef = useRef<number | null>(null);
-    const lastExpandedHeightRef = useRef<number>(getPreviewFooterModeHeight('expanded'));
     const hasBodyResizeLockRef = useRef(false);
 
     const committedHeight = clampPreviewFooterHeight(footerHeight);
-    const committedMode = inferPreviewFooterMode(committedHeight);
-    const effectiveHeight = draftHeight ?? committedHeight;
-    const restingMode = footerMode === committedMode ? footerMode : committedMode;
-    // Keep mode presentation stable while dragging to avoid layout thrash near mode thresholds.
-    const effectiveMode = isResizing
-      ? committedMode
-      : draftHeight !== null
-        ? inferPreviewFooterMode(draftHeight)
-        : restingMode;
+    // Mode is driven exclusively by explicit button clicks, never inferred from height.
+    const effectiveHeight = footerCollapsed
+      ? PREVIEW_FOOTER_HEIGHTS.collapsed
+      : (draftHeight ?? committedHeight);
+    const effectiveMode = footerMode;
     const isCompact = effectiveMode === 'compact';
     const isExpanded = effectiveMode === 'expanded';
     const isExpandedRef = useRef(isExpanded);
@@ -722,14 +720,6 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       setUsageHistory(usageHistoryRef.current);
     }, [isExpanded]);
 
-    useEffect(() => {
-      if (committedMode !== 'expanded') {
-        return;
-      }
-
-      lastExpandedHeightRef.current = committedHeight;
-    }, [committedHeight, committedMode]);
-
     const releaseResizeLockIfHeld = useCallback(() => {
       if (!hasBodyResizeLockRef.current) {
         return;
@@ -742,20 +732,12 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     const commitHeight = useCallback(
       (height: number) => {
         const nextHeight = clampPreviewFooterHeight(height);
-        const nextMode = inferPreviewFooterMode(nextHeight);
-        if (nextMode === 'expanded') {
-          lastExpandedHeightRef.current = nextHeight;
-        }
 
         if (onFooterHeightChange && nextHeight !== committedHeight) {
           onFooterHeightChange(nextHeight);
         }
-
-        if (onFooterModeChange && nextMode !== footerMode) {
-          onFooterModeChange(nextMode);
-        }
       },
-      [committedHeight, footerMode, onFooterHeightChange, onFooterModeChange]
+      [committedHeight, onFooterHeightChange]
     );
     const commitHeightRef = useRef(commitHeight);
 
@@ -856,18 +838,24 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           hasBodyResizeLockRef.current = true;
         }
 
-        queuedHeightRef.current = effectiveHeight;
+        // When starting a resize from collapsed state, uncollapse and begin from min height.
+        if (footerCollapsed) {
+          onFooterCollapsedChange?.(false);
+        }
+        const startHeight = footerCollapsed ? PREVIEW_FOOTER_HEIGHTS.min : effectiveHeight;
+
+        queuedHeightRef.current = startHeight;
         dragSessionRef.current = {
           pointerId: event.pointerId,
           startY: event.clientY,
-          startHeight: effectiveHeight,
+          startHeight,
           handleElement: event.currentTarget,
         };
 
-        setDraftHeight(effectiveHeight);
+        setDraftHeight(startHeight);
         setIsResizing(true);
       },
-      [effectiveHeight]
+      [effectiveHeight, footerCollapsed, onFooterCollapsedChange]
     );
 
     const handleResizeKeyDown = useCallback(
@@ -891,7 +879,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
             break;
           }
           case 'End': {
-            nextHeight = clampPreviewFooterHeight(lastExpandedHeightRef.current);
+            nextHeight = PREVIEW_FOOTER_HEIGHTS.expanded;
             break;
           }
           default: {
@@ -909,19 +897,22 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
     const applyMode = useCallback(
       (mode: PreviewFooterMode) => {
-        const nextHeight =
-          mode === 'expanded'
-            ? clampPreviewFooterHeight(lastExpandedHeightRef.current)
-            : getPreviewFooterModeHeight(mode);
-        if (mode === 'expanded') {
-          lastExpandedHeightRef.current = nextHeight;
-        }
+        const nextHeight = getPreviewFooterModeHeight(mode);
         queuedHeightRef.current = nextHeight;
         setDraftHeight(null);
-        commitHeight(nextHeight);
+        // Uncollapse when explicitly selecting a mode.
+        if (footerCollapsed) {
+          onFooterCollapsedChange?.(false);
+        }
+        onFooterModeChange?.(mode);
+        onFooterHeightChange?.(nextHeight);
       },
-      [commitHeight]
+      [footerCollapsed, onFooterCollapsedChange, onFooterModeChange, onFooterHeightChange]
     );
+
+    const handleCollapseToggle = useCallback(() => {
+      onFooterCollapsedChange?.(!footerCollapsed);
+    }, [footerCollapsed, onFooterCollapsedChange]);
 
     return (
       <div
@@ -932,13 +923,26 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           height: `${effectiveHeight}px`,
         }}
       >
-        <div className="flex h-7 items-center gap-2 border-b bg-muted/20 px-2">
+        <div className="flex h-7 flex-shrink-0 items-center gap-2 border-b bg-muted/20 px-2">
+          <button
+            aria-label={footerCollapsed ? 'Expand footer' : 'Collapse footer'}
+            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={handleCollapseToggle}
+            type="button"
+          >
+            {footerCollapsed ? (
+              <ChevronUp className="size-3.5" />
+            ) : (
+              <ChevronDown className="size-3.5" />
+            )}
+          </button>
+
           <hr
             aria-label="Resize context explorer footer"
             aria-orientation="horizontal"
             aria-valuemax={PREVIEW_FOOTER_HEIGHTS.max}
             aria-valuemin={PREVIEW_FOOTER_HEIGHTS.min}
-            aria-valuenow={effectiveHeight}
+            aria-valuenow={footerCollapsed ? PREVIEW_FOOTER_HEIGHTS.collapsed : effectiveHeight}
             className="h-1 flex-1 cursor-row-resize touch-none rounded-full border-0 bg-border outline-none transition-colors hover:bg-primary/40 focus-visible:ring-2 focus-visible:ring-ring"
             onKeyDown={handleResizeKeyDown}
             onPointerDown={handleResizeStart}
@@ -948,112 +952,114 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           <FooterModeButtons mode={effectiveMode} onModeSelect={applyMode} />
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto p-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex flex-shrink-0 items-center">
-              <TokenMeter
-                budget={tokenUsage.budget}
-                includeTree={includeProjectTree}
-                isOverBudget={tokenUsage.isOverBudget}
-                selectedTokens={tokenUsage.selectedTokens}
-                size={meterSize}
-                sourceSelectedTokens={tokenUsage.sourceSelectedTokens}
-                treeTokens={tokenUsage.includedTreeTokens}
-                usedTokens={tokenUsage.usedTokens}
-                useTapestryRanges={useTapestryRanges}
-              />
+        {!footerCollapsed && (
+          <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto p-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex flex-shrink-0 items-center">
+                <TokenMeter
+                  budget={tokenUsage.budget}
+                  includeTree={includeProjectTree}
+                  isOverBudget={tokenUsage.isOverBudget}
+                  selectedTokens={tokenUsage.selectedTokens}
+                  size={meterSize}
+                  sourceSelectedTokens={tokenUsage.sourceSelectedTokens}
+                  treeTokens={tokenUsage.includedTreeTokens}
+                  usedTokens={tokenUsage.usedTokens}
+                  useTapestryRanges={useTapestryRanges}
+                />
+              </div>
+
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <TokenSummaryBar
+                  activeRangeFilesCount={tokenUsage.activeRangeFilesCount}
+                  budget={tokenUsage.budget}
+                  includeTree={includeProjectTree}
+                  isOverBudget={tokenUsage.isOverBudget}
+                  rangeAdjustedFilesCount={tokenUsage.rangeAdjustedFilesCount}
+                  selectedTokens={tokenUsage.selectedTokens}
+                  selectedTokensPendingCount={selectedTokensPendingCount}
+                  sourceSelectedTokens={tokenUsage.sourceSelectedTokens}
+                  tokenCounting={tokenCounting}
+                  totalFiles={totalFiles}
+                  treeLoading={treeLoading}
+                  treeTokens={tokenUsage.includedTreeTokens}
+                  useTapestryRanges={useTapestryRanges}
+                />
+
+                {!isCompact && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span>
+                      <span className="font-medium text-foreground tabular-nums">
+                        {Math.round(tokenUsage.usedPercent)}%
+                      </span>{' '}
+                      budget used
+                    </span>
+                    <span>
+                      <span className="font-medium text-foreground tabular-nums">
+                        {averageTokensPerFile > 0
+                          ? Math.round(averageTokensPerFile).toLocaleString()
+                          : '0'}
+                      </span>{' '}
+                      avg tokens per file
+                    </span>
+                    <span>
+                      <span className="font-medium text-foreground tabular-nums">
+                        {estimatedAdditionalFiles.toLocaleString()}
+                      </span>{' '}
+                      files fit at current density
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              <TokenSummaryBar
-                activeRangeFilesCount={tokenUsage.activeRangeFilesCount}
-                budget={tokenUsage.budget}
-                includeTree={includeProjectTree}
-                isOverBudget={tokenUsage.isOverBudget}
-                rangeAdjustedFilesCount={tokenUsage.rangeAdjustedFilesCount}
-                selectedTokens={tokenUsage.selectedTokens}
-                selectedTokensPendingCount={selectedTokensPendingCount}
-                sourceSelectedTokens={tokenUsage.sourceSelectedTokens}
-                tokenCounting={tokenCounting}
-                totalFiles={totalFiles}
-                treeLoading={treeLoading}
-                treeTokens={tokenUsage.includedTreeTokens}
+            {isExpanded && (
+              <ExpandedFooterInsights
+                includeProjectTree={includeProjectTree}
+                tokenUsage={tokenUsage}
+                usageHistory={usageHistory}
                 useTapestryRanges={useTapestryRanges}
               />
+            )}
 
-              {!isCompact && (
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                  <span>
-                    <span className="font-medium text-foreground tabular-nums">
-                      {Math.round(tokenUsage.usedPercent)}%
-                    </span>{' '}
-                    budget used
-                  </span>
-                  <span>
-                    <span className="font-medium text-foreground tabular-nums">
-                      {averageTokensPerFile > 0
-                        ? Math.round(averageTokensPerFile).toLocaleString()
-                        : '0'}
-                    </span>{' '}
-                    avg tokens per file
-                  </span>
-                  <span>
-                    <span className="font-medium text-foreground tabular-nums">
-                      {estimatedAdditionalFiles.toLocaleString()}
-                    </span>{' '}
-                    files fit at current density
-                  </span>
-                </div>
-              )}
-            </div>
+            {isCompact ? (
+              <CompactFooterControls
+                actions={
+                  <FooterActionButtons
+                    isCompact
+                    onCopyContext={onCopyContext}
+                    onDownloadContext={onDownloadContext}
+                    selectedFilesCount={selectedFilesCount}
+                  />
+                }
+                onTokenBudgetChange={onTokenBudgetChange}
+                tokenUsage={tokenUsage}
+              />
+            ) : (
+              <DetailedFooterControls
+                actions={
+                  <FooterActionButtons
+                    isCompact={false}
+                    onCopyContext={onCopyContext}
+                    onDownloadContext={onDownloadContext}
+                    selectedFilesCount={selectedFilesCount}
+                  />
+                }
+                folderSummaryThreshold={folderSummaryThreshold}
+                includeProjectTree={includeProjectTree}
+                onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
+                onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+                onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
+                onTokenBudgetChange={onTokenBudgetChange}
+                onUseTapestryRangesChange={onUseTapestryRangesChange}
+                projectTreeUsesViewFilters={projectTreeUsesViewFilters}
+                selectedFilesCount={selectedFilesCount}
+                tokenUsage={tokenUsage}
+                useTapestryRanges={useTapestryRanges}
+              />
+            )}
           </div>
-
-          {isExpanded && (
-            <ExpandedFooterInsights
-              includeProjectTree={includeProjectTree}
-              tokenUsage={tokenUsage}
-              usageHistory={usageHistory}
-              useTapestryRanges={useTapestryRanges}
-            />
-          )}
-
-          {isCompact ? (
-            <CompactFooterControls
-              actions={
-                <FooterActionButtons
-                  isCompact
-                  onCopyContext={onCopyContext}
-                  onDownloadContext={onDownloadContext}
-                  selectedFilesCount={selectedFilesCount}
-                />
-              }
-              onTokenBudgetChange={onTokenBudgetChange}
-              tokenUsage={tokenUsage}
-            />
-          ) : (
-            <DetailedFooterControls
-              actions={
-                <FooterActionButtons
-                  isCompact={false}
-                  onCopyContext={onCopyContext}
-                  onDownloadContext={onDownloadContext}
-                  selectedFilesCount={selectedFilesCount}
-                />
-              }
-              folderSummaryThreshold={folderSummaryThreshold}
-              includeProjectTree={includeProjectTree}
-              onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
-              onIncludeProjectTreeChange={onIncludeProjectTreeChange}
-              onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
-              onTokenBudgetChange={onTokenBudgetChange}
-              onUseTapestryRangesChange={onUseTapestryRangesChange}
-              projectTreeUsesViewFilters={projectTreeUsesViewFilters}
-              selectedFilesCount={selectedFilesCount}
-              tokenUsage={tokenUsage}
-              useTapestryRanges={useTapestryRanges}
-            />
-          )}
-        </div>
+        )}
       </div>
     );
   }

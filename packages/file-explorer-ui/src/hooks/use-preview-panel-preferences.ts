@@ -50,6 +50,7 @@ interface StoredPreferences {
   useTapestryRangesForContextOutput?: boolean;
   footerMode?: PreviewFooterMode;
   footerHeight?: number;
+  footerCollapsed?: boolean;
 }
 
 interface PreviewPanelPreferences {
@@ -63,6 +64,7 @@ interface PreviewPanelPreferences {
   useTapestryRangesForContextOutput: boolean;
   footerMode: PreviewFooterMode;
   footerHeight: number;
+  footerCollapsed: boolean;
 }
 
 interface PreviewPanelPreferencesDefaults {
@@ -199,6 +201,15 @@ function sanitizeFooterHeight(
   return;
 }
 
+function sanitizeFooterCollapsed(
+  value: StoredPreferences['footerCollapsed']
+): StoredPreferences['footerCollapsed'] {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return;
+}
+
 function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPreferences | null {
   if (!stored || typeof stored !== 'object') {
     return null;
@@ -248,6 +259,10 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
     sanitized.footerMode = footerMode;
     sanitized.footerHeight = getPreviewFooterModeHeight(footerMode);
   }
+  const footerCollapsed = sanitizeFooterCollapsed(stored.footerCollapsed);
+  if (footerCollapsed !== undefined) {
+    sanitized.footerCollapsed = footerCollapsed;
+  }
 
   return sanitized;
 }
@@ -270,6 +285,7 @@ interface PreviewPanelPreferencesSetters {
   setUseTapestryRangesForContextOutput: Dispatch<SetStateAction<boolean>>;
   setFooterMode: Dispatch<SetStateAction<PreviewFooterMode>>;
   setFooterHeight: Dispatch<SetStateAction<number>>;
+  setFooterCollapsed: Dispatch<SetStateAction<boolean>>;
 }
 
 export function usePreviewPanelPreferences(
@@ -322,6 +338,9 @@ export function usePreviewPanelPreferences(
     const fallbackHeight = getStoredValue(storedPreferences, 'footerHeight', defaults.footerHeight);
     return clampPreviewFooterHeight(fallbackHeight);
   });
+  const [footerCollapsed, setFooterCollapsed] = useState<boolean>(() =>
+    getStoredValue(storedPreferences, 'footerCollapsed', false)
+  );
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -337,6 +356,7 @@ export function usePreviewPanelPreferences(
           useTapestryRangesForContextOutput,
           footerMode,
           footerHeight,
+          footerCollapsed,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
@@ -365,6 +385,7 @@ export function usePreviewPanelPreferences(
     useTapestryRangesForContextOutput,
     footerMode,
     footerHeight,
+    footerCollapsed,
   ]);
 
   return {
@@ -376,6 +397,7 @@ export function usePreviewPanelPreferences(
     useTapestryRangesForContextOutput,
     footerMode,
     footerHeight,
+    footerCollapsed,
     setActiveTab,
     setCollapsedGroups,
     setColumnVisibility,
@@ -384,6 +406,7 @@ export function usePreviewPanelPreferences(
     setUseTapestryRangesForContextOutput,
     setFooterMode,
     setFooterHeight,
+    setFooterCollapsed,
     setSortDirection,
     setSortField,
     sortDirection,

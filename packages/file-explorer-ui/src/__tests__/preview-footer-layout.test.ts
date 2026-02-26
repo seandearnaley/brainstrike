@@ -14,7 +14,7 @@ describe('preview-footer-layout', () => {
     expect(clampPreviewFooterHeight(PREVIEW_FOOTER_HEIGHTS.max + 20)).toBe(
       PREVIEW_FOOTER_HEIGHTS.max
     );
-    expect(clampPreviewFooterHeight(151.6)).toBe(152);
+    expect(clampPreviewFooterHeight(227.6)).toBe(228);
   });
 
   it('returns canonical heights for each mode', () => {

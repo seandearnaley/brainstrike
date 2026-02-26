@@ -701,6 +701,7 @@ export const createLucideModuleMock = () => ({
   ArrowLeft: () => <div data-testid="arrow-left" />,
   ChevronDown: () => <div data-testid="chevron-down" />,
   ChevronRight: () => <div data-testid="chevron-right" />,
+  ChevronUp: () => <div data-testid="chevron-up" />,
   Columns3: () => <div data-testid="columns3" />,
   Download: () => <div data-testid="download" />,
   FileText: () => <div data-testid="file-text" />,
