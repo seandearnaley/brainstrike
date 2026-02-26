@@ -516,6 +516,46 @@ describe('fileFilter', () => {
       expect(result?.children?.[0]?.name).toBe('app.js');
     });
 
+    // NEW: Test structural sharing - reference equality when no children are filtered
+    it('should return the same node reference when no children are filtered (structural sharing)', () => {
+      const child = createFileNode({ name: 'app.js', path: '/root/app.js' });
+      const root = createDirectoryNode({
+        name: 'root',
+        path: '/root',
+        children: [child],
+      });
+
+      const options: FileFilterOptions = {
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(root, options);
+      expect(result).toBe(root); // reference equality, not just deep equality
+    });
+
+    it('should return a new reference when children are filtered out', () => {
+      const jsFile = createFileNode({ name: 'app.js', path: '/root/app.js' });
+      const cssFile = createFileNode({ name: 'style.css', path: '/root/style.css' });
+      const root = createDirectoryNode({
+        name: 'root',
+        path: '/root',
+        children: [jsFile, cssFile],
+      });
+
+      const options: FileFilterOptions = {
+        includeFilters: ['**/*.js'],
+        excludeFilters: [],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(root, options);
+      expect(result).not.toBeNull();
+      expect(result).not.toBe(root); // should be a new object since children changed
+      expect(result?.children).toHaveLength(1);
+    });
+
     // NEW: Test directory with undefined children
     it('should handle directories with undefined children', () => {
       const dirWithoutChildren = createDirectoryNode({

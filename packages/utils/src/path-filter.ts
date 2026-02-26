@@ -133,8 +133,8 @@ export const fileFilter = {
     includeMatchers: ((str: string) => boolean)[],
     excludeMatchers: ((str: string) => boolean)[]
   ): { filteredChildren: IFileNode[]; hasChanges: boolean } {
-    const filteredChildren: IFileNode[] = [];
     let hasChanges = false;
+    const filteredChildren: IFileNode[] = [];
 
     for (const child of children) {
       const filtered = this._filterNodeRecursive(child, includeMatchers, excludeMatchers);
