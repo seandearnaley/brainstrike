@@ -3,51 +3,51 @@
  */
 
 export interface MemorySnapshot {
-  label: string;
-  timestamp: number;
-  usedMB: number;
-  totalMB: number;
-  domNodes: number;
-  reactComponents: number;
   canvasElements: number;
-  imgElements: number;
-  svgElements: number;
+  domNodes: number;
   iframes: number;
+  imgElements: number;
+  label: string;
+  reactComponents: number;
+  svgElements: number;
+  timestamp: number;
+  totalMB: number;
+  usedMB: number;
 }
 
 export interface MemoryAnalysis {
-  memoryGrowthMB: number;
-  domNodeGrowth: number;
-  reactComponentGrowth: number;
   canvasGrowth: number;
+  domNodeGrowth: number;
   imgGrowth: number;
-  svgGrowth: number;
+  memoryGrowthMB: number;
+  reactComponentGrowth: number;
   snapshots: MemorySnapshot[];
+  svgGrowth: number;
 }
 
 export interface MemoryProfiler {
+  getAnalysis: () => MemoryAnalysis | { error: string };
   snapshots: MemorySnapshot[];
-  tracking: boolean;
   start: () => void;
   takeSnapshot: (label: string) => void;
-  getAnalysis: () => MemoryAnalysis | { error: string };
+  tracking: boolean;
 }
 
 export interface RenderTracker {
   count: number;
-  renderTimes: number[];
-  track: () => void;
   getStats: () => {
     totalRenders: number;
     recentRenderStorm: number;
   };
+  renderTimes: number[];
   reset: () => void;
+  track: () => void;
 }
 
 export interface PerformanceMemory {
-  usedJSHeapSize: number;
-  totalJSHeapSize: number;
   jsHeapSizeLimit: number;
+  totalJSHeapSize: number;
+  usedJSHeapSize: number;
 }
 
 // Extend global interfaces

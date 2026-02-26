@@ -3,11 +3,11 @@ import { Info, Loader2, X } from 'lucide-react';
 import * as React from 'react';
 
 interface FileFilterBarProps {
-  value: string;
-  onChange: (value: string) => void;
-  onClear: () => void;
   /** When true, shows a subtle "filtering" indicator while deferred filtering catches up */
   isFiltering?: boolean;
+  onChange: (value: string) => void;
+  onClear: () => void;
+  value: string;
 }
 
 export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(

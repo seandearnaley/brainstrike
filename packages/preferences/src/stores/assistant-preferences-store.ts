@@ -24,13 +24,13 @@ export type AnthropicEffort = 'low' | 'medium' | 'high';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 export interface AssistantProviderSettings {
+  anthropicEffort?: AnthropicEffort;
+  anthropicThinkingBudgetTokens?: number;
+  googleIncludeThoughts?: boolean;
+  googleThinkingLevel?: GoogleThinkingLevel;
   maxOutputTokens?: number;
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
-  anthropicEffort?: AnthropicEffort;
-  anthropicThinkingBudgetTokens?: number;
-  googleThinkingLevel?: GoogleThinkingLevel;
-  googleIncludeThoughts?: boolean;
 }
 
 export type AssistantProviderSettingsUpdate = {
@@ -40,38 +40,38 @@ export type AssistantProviderSettingsUpdate = {
 type ProviderSettingsMap = Record<SupportedProvider, AssistantProviderSettings>;
 
 interface AssistantPreferencesData {
-  selectedModel: string | null; // Composite key: "provider::model"
-  modelsByProvider: Partial<Record<SupportedProvider, string>>;
   enabledModelsByProvider: EnabledModelsMap;
+  modelsByProvider: Partial<Record<SupportedProvider, string>>;
   providerSettings: ProviderSettingsMap;
+  selectedModel: string | null; // Composite key: "provider::model"
 }
 
 interface AssistantPreferencesActions {
-  setModel: (compositeKey: string) => void;
   clearModel: () => void;
+  getAvailableProviders: () => Promise<SupportedProvider[]>;
+  getEnabledModels: (provider: SupportedProvider) => string[];
+  getLocalRuntimeModels: (options?: {
+    force?: boolean;
+    verifyEmbeddingDimensions?: boolean;
+    maxVerificationModels?: number;
+  }) => Promise<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
+  getLocalRuntimeStatuses: (options?: {
+    force?: boolean;
+  }) => Promise<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
+  getProviderSettings: (provider: SupportedProvider) => AssistantProviderSettings;
+  getSelectedModel: () => string | null;
+  getSelectedProvider: () => SupportedProvider | null;
+  setModel: (compositeKey: string) => void;
   setModelEnabled: (provider: SupportedProvider, model: string, enabled: boolean) => void;
   setProviderModelsEnabled: (
     provider: SupportedProvider,
     models: readonly string[],
     enabled: boolean
   ) => void;
-  getSelectedModel: () => string | null;
-  getSelectedProvider: () => SupportedProvider | null;
-  getEnabledModels: (provider: SupportedProvider) => string[];
-  getAvailableProviders: () => Promise<SupportedProvider[]>;
-  getLocalRuntimeStatuses: (options?: {
-    force?: boolean;
-  }) => Promise<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
-  getLocalRuntimeModels: (options?: {
-    force?: boolean;
-    verifyEmbeddingDimensions?: boolean;
-    maxVerificationModels?: number;
-  }) => Promise<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
   setProviderSettings: (
     provider: SupportedProvider,
     updates: AssistantProviderSettingsUpdate
   ) => void;
-  getProviderSettings: (provider: SupportedProvider) => AssistantProviderSettings;
 }
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
@@ -119,9 +119,9 @@ function getLocalRuntimeServices(): LocalRuntimeServices {
 }
 
 interface ParsedCompositeModelKey {
-  provider: SupportedProvider;
-  model: string;
   compositeKey: string;
+  model: string;
+  provider: SupportedProvider;
 }
 
 function isSupportedProvider(value: string): value is SupportedProvider {
@@ -505,10 +505,10 @@ function disableModelForProvider(
 }
 
 interface AccumulatedState {
-  modelsByProvider: Partial<Record<SupportedProvider, string>>;
   enabledModelsByProvider: EnabledModelsMap;
-  selectedModel: string | null;
   hasChanges: boolean;
+  modelsByProvider: Partial<Record<SupportedProvider, string>>;
+  selectedModel: string | null;
 }
 
 function processModelUpdate(

@@ -68,8 +68,8 @@ function releaseBodyResizeLock(): void {
 }
 
 interface TokenUsageSparklineProps {
-  history: number[];
   budget: number;
+  history: number[];
   isOverBudget: boolean;
 }
 
@@ -193,60 +193,61 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
   );
 });
 
-interface TokenUsageMetrics {
+export interface TokenUsageMetrics {
+  activeRangeFilesCount: number;
   budget: number;
-  selectedTokens: number;
-  sourceSelectedTokens: number;
   includedTreeTokens: number;
-  usedTokens: number;
-  treePercent: number;
-  selectedPercent: number;
-  usedPercent: number;
-  treeLabel: string;
-  remainingLabel: string;
   isOverBudget: boolean;
   rangeAdjustedFilesCount: number;
-  activeRangeFilesCount: number;
+  remainingLabel: string;
+  selectedPercent: number;
+  selectedTokens: number;
+  sourceSelectedTokens: number;
+  treeLabel: string;
+  treePercent: number;
+  usedPercent: number;
+  usedTokens: number;
 }
 
 interface PreviewPanelFooterProps {
-  totalFiles: number;
-  tokenCounting: TokenCountingState;
-  tokenUsage: TokenUsageMetrics;
+  folderSummaryThreshold?: number;
+  footerCollapsed?: boolean;
+  footerHeight?: number;
+  footerMode?: PreviewFooterMode;
   includeProjectTree: boolean;
-  projectTreeUsesViewFilters: boolean;
-  useTapestryRanges: boolean;
-  treeLoading?: boolean;
-  selectedTokensPendingCount?: number;
-  onTokenBudgetChange?: ((budget: number) => void) | undefined;
-  selectedFilesCount: number;
+  onCopyContext?: (() => void) | undefined;
+  onDownloadContext?: (() => void) | undefined;
+  onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
+  onFooterCollapsedChange?: ((collapsed: boolean) => void) | undefined;
+  onFooterHeightChange?: ((height: number) => void) | undefined;
+  onFooterModeChange?: ((mode: PreviewFooterMode) => void) | undefined;
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
   onProjectTreeUsesViewFiltersChange?: ((checked: boolean) => void) | undefined;
+  onTokenBudgetChange?: ((budget: number) => void) | undefined;
   onUseTapestryRangesChange?: ((checked: boolean) => void) | undefined;
-  onDownloadContext?: (() => void) | undefined;
-  onCopyContext?: (() => void) | undefined;
-  folderSummaryThreshold?: number;
-  onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
-  footerMode?: PreviewFooterMode;
-  footerHeight?: number;
-  footerCollapsed?: boolean;
-  onFooterModeChange?: ((mode: PreviewFooterMode) => void) | undefined;
-  onFooterHeightChange?: ((height: number) => void) | undefined;
-  onFooterCollapsedChange?: ((collapsed: boolean) => void) | undefined;
+  projectTreeUsesViewFilters: boolean;
+  selectedFilesCount: number;
+  /** BST-153: Number of files still being indexed (for "estimating..." state) */
+  selectedTokensPendingCount?: number;
+  tokenCounting: TokenCountingState;
+  tokenUsage: TokenUsageMetrics;
+  totalFiles: number;
+  treeLoading?: boolean;
+  useTapestryRanges: boolean;
 }
 
 interface DragSession {
-  pointerId: number;
-  startY: number;
-  startHeight: number;
   handleElement: HTMLElement;
+  pointerId: number;
+  startHeight: number;
+  startY: number;
 }
 
 interface FooterActionButtonsProps {
   isCompact: boolean;
-  selectedFilesCount: number;
-  onDownloadContext?: (() => void) | undefined;
   onCopyContext?: (() => void) | undefined;
+  onDownloadContext?: (() => void) | undefined;
+  selectedFilesCount: number;
 }
 
 const FooterActionButtons = memo<FooterActionButtonsProps>(function FooterActionButtons({
@@ -357,10 +358,10 @@ const FooterModeButtons = memo<FooterModeButtonsProps>(function FooterModeButton
 });
 
 interface ExpandedFooterInsightsProps {
-  tokenUsage: TokenUsageMetrics;
   includeProjectTree: boolean;
-  useTapestryRanges: boolean;
+  tokenUsage: TokenUsageMetrics;
   usageHistory: number[];
+  useTapestryRanges: boolean;
 }
 
 const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function ExpandedFooterInsights({
@@ -450,9 +451,9 @@ const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function Expand
 });
 
 interface CompactFooterControlsProps {
-  tokenUsage: TokenUsageMetrics;
-  onTokenBudgetChange?: ((budget: number) => void) | undefined;
   actions: ReactNode;
+  onTokenBudgetChange?: ((budget: number) => void) | undefined;
+  tokenUsage: TokenUsageMetrics;
 }
 
 const CompactFooterControls = memo<CompactFooterControlsProps>(function CompactFooterControls({
@@ -480,18 +481,18 @@ const CompactFooterControls = memo<CompactFooterControlsProps>(function CompactF
 });
 
 interface DetailedFooterControlsProps {
-  includeProjectTree: boolean;
-  projectTreeUsesViewFilters: boolean;
-  useTapestryRanges: boolean;
-  selectedFilesCount: number;
-  tokenUsage: TokenUsageMetrics;
+  actions: ReactNode;
   folderSummaryThreshold: number;
-  onTokenBudgetChange?: ((budget: number) => void) | undefined;
+  includeProjectTree: boolean;
+  onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
   onProjectTreeUsesViewFiltersChange?: ((checked: boolean) => void) | undefined;
-  onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
+  onTokenBudgetChange?: ((budget: number) => void) | undefined;
   onUseTapestryRangesChange?: ((checked: boolean) => void) | undefined;
-  actions: ReactNode;
+  projectTreeUsesViewFilters: boolean;
+  selectedFilesCount: number;
+  tokenUsage: TokenUsageMetrics;
+  useTapestryRanges: boolean;
 }
 
 const DetailedFooterControls = memo<DetailedFooterControlsProps>(function DetailedFooterControls({
@@ -1067,5 +1068,3 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 );
 
 PreviewPanelFooter.displayName = 'PreviewPanelFooter';
-
-export type { TokenUsageMetrics };

@@ -7,10 +7,10 @@ declare module '@electric-sql/pglite/nodefs' {
 declare module '@electric-sql/pglite' {
   export interface PGliteOptions {
     dataDir?: string;
-    // biome-ignore lint/suspicious/noExplicitAny: FileSystem interface varies by implementation
-    fs?: any;
     // biome-ignore lint/suspicious/noExplicitAny: Extensions interface varies by implementation
     extensions?: any;
+    // biome-ignore lint/suspicious/noExplicitAny: FileSystem interface varies by implementation
+    fs?: any;
   }
 
   export class PGlite {

@@ -10,10 +10,10 @@ interface NativeToolPreferencesData {
 }
 
 interface NativeToolPreferencesActions {
+  isToolEnabled: (toolId: string) => boolean;
+  resetTools: () => void;
   setToolEnabled: (toolId: string, enabled: boolean) => void;
   setToolsEnabled: (toolIds: string[], enabled: boolean) => void;
-  resetTools: () => void;
-  isToolEnabled: (toolId: string) => boolean;
 }
 
 export type NativeToolPreferencesStore = NativeToolPreferencesData & NativeToolPreferencesActions;

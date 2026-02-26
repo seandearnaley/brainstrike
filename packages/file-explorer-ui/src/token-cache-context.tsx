@@ -276,14 +276,14 @@ const TokenCacheContext = createContext<TokenCacheContextValue | null>(null);
  * Props for TokenCacheProvider
  */
 interface TokenCacheProviderProps {
-  /** PGlite database instance (or compatible interface) */
-  db: PGliteDB | null;
-  /** Worker URL for the token cache worker */
-  workerUrl?: string;
-  /** Callback when token count is resolved */
-  onTokenResolved?: (folderId: string, filePath: string, tokenCount: number) => void;
   /** Children to render */
   children: ReactNode;
+  /** PGlite database instance (or compatible interface) */
+  db: PGliteDB | null;
+  /** Callback when token count is resolved */
+  onTokenResolved?: (folderId: string, filePath: string, tokenCount: number) => void;
+  /** Worker URL for the token cache worker */
+  workerUrl?: string;
 }
 
 function createNoopWorkerPool(): WorkerPool {
@@ -294,9 +294,9 @@ function createNoopWorkerPool(): WorkerPool {
 }
 
 interface WorkerState {
+  initError: Error | null;
   pool: WorkerPool;
   ready: boolean;
-  initError: Error | null;
 }
 
 type WorkerAction =

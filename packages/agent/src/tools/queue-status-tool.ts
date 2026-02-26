@@ -28,24 +28,24 @@ export const SAFE_QUEUE_STATUS_ERRORS = new Set<string>(Object.values(QUEUE_STAT
  * Coverage statistics for an embedding set.
  */
 export interface CoverageStats {
+  /** Coverage percentage (0-100) */
+  coveragePercent: number;
   /** Total number of chunks in the database */
   total: number;
   /** Number of chunks with embeddings for the active set */
   withEmbeddings: number;
-  /** Coverage percentage (0-100) */
-  coveragePercent: number;
 }
 
 /**
  * Queue counts across different states.
  */
 export interface QueueCounts {
+  /** Jobs that failed */
+  failed: number;
   /** Jobs waiting to be processed */
   queued: number;
   /** Jobs currently being processed */
   running: number;
-  /** Jobs that failed */
-  failed: number;
   /** Jobs that completed successfully */
   succeeded: number;
 }
@@ -66,22 +66,22 @@ export interface LatencyStats {
  * Result returned by the queue status tool.
  */
 export interface QueueStatusToolResult {
-  /** Embedding set ID if filtered */
-  embeddingSetId: string | null;
   /** Coverage statistics (null if no active set) */
   coverage: CoverageStats | null;
-  /** Current queue counts */
-  queueCounts: QueueCounts;
-  /** Jobs processed per minute */
-  throughput: number;
+  /** Embedding set ID if filtered */
+  embeddingSetId: string | null;
+  /** Whether the queue is actively processing */
+  isProcessing: boolean;
   /** Most recent error message (null if no errors) */
   lastError: string | null;
   /** Latency statistics */
   latency: LatencyStats;
-  /** Whether the queue is actively processing */
-  isProcessing: boolean;
+  /** Current queue counts */
+  queueCounts: QueueCounts;
   /** Human-readable status summary */
   statusSummary: string;
+  /** Jobs processed per minute */
+  throughput: number;
 }
 
 /**
@@ -92,10 +92,10 @@ export interface VectorQueueSnapshot {
     total: number;
     withSet: number;
   } | null;
-  queueCounts: QueueCounts;
-  throughput: number;
   lastError: string | null;
   latency: LatencyStats;
+  queueCounts: QueueCounts;
+  throughput: number;
 }
 
 /**
@@ -104,14 +104,13 @@ export interface VectorQueueSnapshot {
  */
 export interface QueueStatusToolDependencies {
   /**
-   * Gets the current queue snapshot.
-   */
-  getQueueSnapshot: (embeddingSetId: string | null) => Promise<VectorQueueSnapshot>;
-
-  /**
    * Optional: Gets the name of an embedding set for display.
    */
   getEmbeddingSetName?: (embeddingSetId: string) => Promise<string | undefined>;
+  /**
+   * Gets the current queue snapshot.
+   */
+  getQueueSnapshot: (embeddingSetId: string | null) => Promise<VectorQueueSnapshot>;
 
   /**
    * Optional logger for debugging.
@@ -225,10 +224,10 @@ async function runQueueStatus(
  * Mastra tool type.
  */
 interface MastraTool {
-  id: string;
   description: string;
-  inputSchema: typeof QueueStatusInputSchema;
   execute: (context: ToolContext<QueueStatusInput>) => Promise<QueueStatusToolResult>;
+  id: string;
+  inputSchema: typeof QueueStatusInputSchema;
 }
 
 /**

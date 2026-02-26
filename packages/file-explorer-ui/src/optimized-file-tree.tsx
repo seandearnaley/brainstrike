@@ -28,29 +28,29 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { ROW_HEIGHT } from './optimized-file-tree-row';
 
 interface IOptimizedFileTreeProps {
+  /** Cancel loading for a directory (called on collapse) */
+  cancelChildLoading?: ((path: string) => void) | undefined;
   fileTree: IFileNode[];
-  loadingFiles: Set<string>;
-  onRender?: (() => void) | undefined;
   folderId: string;
+  /** Whether a folder is being loaded for selection */
+  isLoadingForSelection?: boolean | undefined;
+  loadingFiles: Set<string>;
+  /** Path of the folder being loaded for selection */
+  loadingPathForSelection?: string | null | undefined;
   /** Set of directory paths currently loading their children (lazy loading) */
   loadingPaths?: Set<string> | undefined;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
-  /** Cancel loading for a directory (called on collapse) */
-  cancelChildLoading?: ((path: string) => void) | undefined;
+  onRender?: (() => void) | undefined;
   /** Select all files in a folder recursively, loading if needed */
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
     | undefined;
-  /** Whether a folder is being loaded for selection */
-  isLoadingForSelection?: boolean | undefined;
-  /** Path of the folder being loaded for selection */
-  loadingPathForSelection?: string | null | undefined;
 }
 
 interface FileTreeRowData {
-  fileNode: IFileNode;
   directoryTotalFiles: number;
+  fileNode: IFileNode;
   isChildrenLoading: boolean;
   isFileLoading: boolean;
   isLoadingForSelection: boolean;
@@ -60,17 +60,17 @@ interface FileTreeRowData {
 interface BuildFileTreeRowsOptions {
   expandedDirectoryPaths: Set<string>;
   folderId: string;
+  isLoadingForSelection?: boolean;
   loadingFiles: Set<string>;
+  loadingPathForSelection?: string | null;
   loadingPaths?: Set<string>;
   selectionModel: FileExplorerState['selectionModel'];
-  isLoadingForSelection?: boolean;
-  loadingPathForSelection?: string | null;
 }
 
 interface StackEntry {
+  depth: number;
   node: IFileNode;
   parentId: string | null;
-  depth: number;
 }
 
 interface NodeSelectionState {
@@ -82,11 +82,11 @@ type DirectorySelectionMutationAction = 'add' | 'remove' | 'none';
 
 interface DirectorySelectionMutationInput {
   allFilePaths: string[];
-  folderId: string;
-  selectedFilePaths: Set<string>;
-  selectedCount: number;
   directoryTotalFiles: number;
+  folderId: string;
   maxSelectionCount: number;
+  selectedCount: number;
+  selectedFilePaths: Set<string>;
 }
 
 interface DirectorySelectionMutation {
@@ -95,9 +95,9 @@ interface DirectorySelectionMutation {
 }
 
 interface DirectoryToggleState {
-  isExpanded: boolean;
   isChildrenLoading: boolean;
   isChildrenLoadingFromStore: boolean;
+  isExpanded: boolean;
 }
 
 const logger = createLogger('OptimizedFileTree');
@@ -115,8 +115,8 @@ interface SelectedDirectoryCountBuildResult {
 
 interface SelectedDirectoryCountSnapshot {
   folderId: string;
-  selectedFilePaths: Set<string> | null;
   selectedDirectoryCounts: Map<string, number>;
+  selectedFilePaths: Set<string> | null;
   selectedPathAncestorCache: Map<string, string[]>;
 }
 
@@ -707,10 +707,10 @@ function buildFileTreeRows(
 }
 
 interface TreeNodeIconProps {
-  isLoading: boolean;
-  nodeType: IFileNode['type'];
-  nodeName: string;
   isExpanded: boolean;
+  isLoading: boolean;
+  nodeName: string;
+  nodeType: IFileNode['type'];
 }
 
 function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIconProps) {

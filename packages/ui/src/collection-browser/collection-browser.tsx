@@ -32,14 +32,32 @@ const DEFAULT_SEMANTIC_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
  * Props for the CollectionBrowser component
  */
 export interface CollectionBrowserProps {
+  /** Bulk actions for multi-select mode */
+  bulkActions?: BulkAction[];
+  /** Custom class name */
+  className?: string;
+  /** Set of node IDs that are in the active context (e.g., selected in file explorer) */
+  contextNodeIds?: Set<string>;
   /** Input data for the tree */
   data: CollectionTreeInput;
-  /** Called when a node is selected */
-  onSelect?: (nodeId: string, nodeType: string, data: BrowserNodeData) => void;
-  /** Called when multiple nodes are selected */
-  onMultiSelect?: (nodeIds: Set<string>) => void;
-  /** Called when a node is double-clicked */
-  onDoubleClick?: (nodeId: string, nodeType: string, data: BrowserNodeData) => void;
+  /** Empty state message */
+  emptyMessage?: string;
+  /** Expanded node IDs (controlled mode) */
+  expandedIds?: Set<string>;
+  /** Current filter state (controlled) */
+  filters?: CollectionBrowserFilters;
+  /** Grouping key for organizing tree nodes (default: 'none') */
+  groupBy?: GroupByKey;
+  /** Whether a semantic search has been executed at least once */
+  hasSearched?: boolean;
+  /** Height of the component */
+  height?: number | string;
+  /** Loading state */
+  isLoading?: boolean;
+  /** Whether semantic search is currently loading */
+  isSearching?: boolean;
+  /** Whether to enable multi-select mode */
+  multiSelectEnabled?: boolean;
   /** Called when context menu is requested */
   onContextMenu?: (
     nodeId: string,
@@ -47,56 +65,38 @@ export interface CollectionBrowserProps {
     data: BrowserNodeData,
     event: React.MouseEvent
   ) => void;
-  /** Height of the component */
-  height?: number | string;
-  /** Custom class name */
-  className?: string;
-  /** Whether to enable multi-select mode */
-  multiSelectEnabled?: boolean;
-  /** Loading state */
-  isLoading?: boolean;
-  /** Empty state message */
-  emptyMessage?: string;
-  /** Bulk actions for multi-select mode */
-  bulkActions?: BulkAction[];
-  /** Whether to show the bulk action bar when items are selected */
-  showBulkActionBar?: boolean;
-  /** Hierarchical sort state (sorts within each level of the tree) */
-  sortState?: CollectionSortState;
-  /** Called when sort changes */
-  onSortChange?: (sortState: CollectionSortState | null) => void;
-  /** Expanded node IDs (controlled mode) */
-  expandedIds?: Set<string>;
+  /** Called when a node is double-clicked */
+  onDoubleClick?: (nodeId: string, nodeType: string, data: BrowserNodeData) => void;
   /** Called when expansion state changes (controlled mode) */
   onExpandedIdsChange?: (ids: Set<string>) => void;
-  /** Selected node ID (controlled mode) */
-  selectedId?: string | null;
-  /** Called when selection changes (controlled mode) */
-  onSelectedIdChange?: (id: string | null) => void;
-  /** Current search mode (quick filter or semantic search) */
-  searchMode?: SearchMode;
-  /** Semantic search results to overlay on tree */
-  semanticResults?: SemanticSearchResult[];
-  /** Whether semantic search is currently loading */
-  isSearching?: boolean;
-  /** Whether a semantic search has been executed at least once */
-  hasSearched?: boolean;
-  /** Current filter state (controlled) */
-  filters?: CollectionBrowserFilters;
   /** Callback when filters change (controlled) */
   onFiltersChange?: (filters: CollectionBrowserFilters) => void;
-  /** Grouping key for organizing tree nodes (default: 'none') */
-  groupBy?: GroupByKey;
-  /** Set of node IDs that are in the active context (e.g., selected in file explorer) */
-  contextNodeIds?: Set<string>;
+  /** Called when multiple nodes are selected */
+  onMultiSelect?: (nodeIds: Set<string>) => void;
+  /** Called when a node is selected */
+  onSelect?: (nodeId: string, nodeType: string, data: BrowserNodeData) => void;
+  /** Called when selection changes (controlled mode) */
+  onSelectedIdChange?: (id: string | null) => void;
+  /** Called when sort changes */
+  onSortChange?: (sortState: CollectionSortState | null) => void;
+  /** Current search mode (quick filter or semantic search) */
+  searchMode?: SearchMode;
+  /** Selected node ID (controlled mode) */
+  selectedId?: string | null;
+  /** Semantic search results to overlay on tree */
+  semanticResults?: SemanticSearchResult[];
+  /** Whether to show the bulk action bar when items are selected */
+  showBulkActionBar?: boolean;
   /** Whether to show checkboxes for multi-select */
   showCheckbox?: boolean;
-  /** Tree row windowing strategy */
-  treeWindowingStrategy?: TreeTableWindowingStrategy;
+  /** Hierarchical sort state (sorts within each level of the tree) */
+  sortState?: CollectionSortState;
   /** Auto mode threshold for switching semantic search to paged mode */
   treeAutoPagedRowThreshold?: number;
   /** Optional pagination configuration for tree table */
   treePagination?: TreeTablePaginationOptions;
+  /** Tree row windowing strategy */
+  treeWindowingStrategy?: TreeTableWindowingStrategy;
 }
 
 /**

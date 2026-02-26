@@ -22,32 +22,32 @@ const EMPTY_MULTI_SELECTED_IDS = new Set<string>();
  * Options for the useTreeKeyboard hook.
  */
 export interface UseTreeKeyboardOptions<T> {
-  /** Flattened rows for navigation */
-  rows: FlattenedRow<T>[];
-  /** Row index lookup keyed by node id */
-  rowIndexById: Map<string, number>;
-  /** All tree nodes (for parent/child lookup) */
-  nodes: TreeNode<T>[];
-  /** Function to get children of a node */
-  getChildren: (node: TreeNode<T>) => TreeNode<T>[];
   /** Set of expanded node IDs */
   expandedIds: Set<string>;
-  /** Callback to toggle expansion */
-  onToggleExpand: (nodeId: string) => void;
-  /** Selection mode */
-  selectionMode: SelectionMode;
-  /** Currently selected node ID (single select) */
-  selectedId?: string | null;
-  /** Callback when selection changes (single select) */
-  onSelect?: (nodeId: string | null) => void;
-  /** Currently selected node IDs (multi-select) */
-  multiSelectedIds?: Set<string>;
-  /** Callback when multi-selection changes */
-  onMultiSelectChange?: (ids: Set<string>) => void;
+  /** Function to get children of a node */
+  getChildren: (node: TreeNode<T>) => TreeNode<T>[];
   /** Whether the tree table is focused */
   isTableFocused?: boolean;
+  /** Currently selected node IDs (multi-select) */
+  multiSelectedIds?: Set<string>;
+  /** All tree nodes (for parent/child lookup) */
+  nodes: TreeNode<T>[];
+  /** Callback when multi-selection changes */
+  onMultiSelectChange?: (ids: Set<string>) => void;
   /** Callback when a node should be scrolled into view */
   onScrollToNode?: (nodeId: string) => void;
+  /** Callback when selection changes (single select) */
+  onSelect?: (nodeId: string | null) => void;
+  /** Callback to toggle expansion */
+  onToggleExpand: (nodeId: string) => void;
+  /** Row index lookup keyed by node id */
+  rowIndexById: Map<string, number>;
+  /** Flattened rows for navigation */
+  rows: FlattenedRow<T>[];
+  /** Currently selected node ID (single select) */
+  selectedId?: string | null;
+  /** Selection mode */
+  selectionMode: SelectionMode;
 }
 
 /**

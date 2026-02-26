@@ -2,9 +2,9 @@ import type { IFileNode } from '@brainstrike/types';
 import { File as FileIcon, Folder, FolderOpen, Loader2 } from 'lucide-react';
 
 interface NodeIconProps {
-  node: IFileNode;
   isExpanded: boolean;
   isLoading: boolean;
+  node: IFileNode;
 }
 
 export function NodeIcon({ node, isExpanded, isLoading }: NodeIconProps) {

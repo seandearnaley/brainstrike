@@ -128,21 +128,20 @@ test.describe('Application Layout', () => {
     test('should have resizable panels', async ({ page }) => {
       const elements = getPanelElements(page);
 
-      // Verify horizontal resize handles are present (left panel boundary)
-      // Note: react-resizable-panels v4 uses aria-orientation and data-separator
-      const horizontalResizeHandles = page.locator(
-        '[aria-orientation="horizontal"] [data-separator]'
-      );
-      await expect(horizontalResizeHandles.first()).toBeVisible(); // Left panel resize handle
+      // Verify the main left/right panel divider is present.
+      // In current react-resizable-panels markup, this separator is vertical.
+      const verticalResizeHandles = page.locator('[role="separator"][aria-orientation="vertical"]');
+      await expect(verticalResizeHandles.first()).toBeVisible();
 
       // Show console to get vertical resize handle
       await elements.showConsoleShim.click();
       await expect(elements.consolePanel).toBeVisible();
 
-      // Should have console resize handle (vertical direction)
-      // Note: react-resizable-panels v4 uses aria-orientation and data-separator
-      const verticalResizeHandles = page.locator('[aria-orientation="vertical"] [data-separator]');
-      await expect(verticalResizeHandles.first()).toBeVisible();
+      // Console divider between main content and console is horizontal.
+      const horizontalResizeHandles = page.locator(
+        '[role="separator"][aria-orientation="horizontal"]'
+      );
+      await expect(horizontalResizeHandles.first()).toBeVisible();
     });
 
     test('should maintain panel structure integrity', async ({ page }) => {

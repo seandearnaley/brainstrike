@@ -17,13 +17,8 @@ const logger = createLogger('SemanticSearchContext');
  * Context value shape for semantic search functionality
  */
 export interface SemanticSearchContextValue {
-  // Transient state (not persisted)
-  /** Current search results */
-  searchResults: SemanticSearchResult[];
-  /** Whether a search is in progress */
-  isSearching: boolean;
-  /** Whether a search has been executed at least once */
-  hasSearched: boolean;
+  /** Clear search results */
+  clearResults: () => void;
   /** Error message from last search, if any */
   error: string | null;
 
@@ -34,12 +29,17 @@ export interface SemanticSearchContextValue {
     config: SearchConfig,
     embeddingSetId: string | null
   ) => Promise<void>;
-  /** Clear search results */
-  clearResults: () => void;
-  /** Set search results directly (for external integration) */
-  setSearchResults: (results: SemanticSearchResult[]) => void;
+  /** Whether a search has been executed at least once */
+  hasSearched: boolean;
+  /** Whether a search is in progress */
+  isSearching: boolean;
+  // Transient state (not persisted)
+  /** Current search results */
+  searchResults: SemanticSearchResult[];
   /** Set error state */
   setError: (error: string | null) => void;
+  /** Set search results directly (for external integration) */
+  setSearchResults: (results: SemanticSearchResult[]) => void;
 }
 
 /**

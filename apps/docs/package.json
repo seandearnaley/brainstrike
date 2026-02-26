@@ -1,19 +1,6 @@
 {
   "name": "@brainstrike/docs",
   "version": "0.1.0",
-  "private": true,
-  "engines": {
-    "node": "22.x"
-  },
-  "scripts": {
-    "dev": "docusaurus start --port 8082 --host 0.0.0.0",
-    "build": "docusaurus build",
-    "start": "docusaurus serve --port 8082 --host 0.0.0.0",
-    "clear": "docusaurus clear",
-    "type-check": "tsc --noEmit",
-    "lint": "biome check .",
-    "format": "biome format --write ."
-  },
   "dependencies": {
     "@docusaurus/core": "^3.9.2",
     "@docusaurus/preset-classic": "^3.9.2",
@@ -26,7 +13,20 @@
     "@docusaurus/module-type-aliases": "^3.9.2",
     "@docusaurus/tsconfig": "^3.9.2",
     "@docusaurus/types": "^3.9.2",
-    "@types/node": "^25.2.3",
+    "@types/node": "^25.3.0",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "private": true,
+  "scripts": {
+    "build": "docusaurus build",
+    "clear": "docusaurus clear",
+    "dev": "docusaurus start --port 8082 --host 0.0.0.0",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "start": "docusaurus serve --port 8082 --host 0.0.0.0",
+    "type-check": "tsc --noEmit"
   }
 }

@@ -68,10 +68,10 @@ function getAriaSortValue(
 }
 
 interface ResolveWindowingStrategyOptions {
-  strategy: TreeTableProps<unknown>['windowingStrategy'];
+  autoPagedRowThreshold: number;
   autoWindowingContext: NonNullable<TreeTableProps<unknown>['autoWindowingContext']>;
   rowCount: number;
-  autoPagedRowThreshold: number;
+  strategy: TreeTableProps<unknown>['windowingStrategy'];
 }
 
 /**
@@ -157,11 +157,11 @@ function findRowElementByNodeId(
 interface BuildTablePaginationPropsOptions {
   currentPage: number;
   onPageChange: (nextPage: number) => void;
+  onPageSizeChange: (nextPageSize: number) => void;
   pageSize: number;
+  paginationOptions: TreeTableProps<unknown>['pagination'];
   totalItems: number;
   totalPages: number;
-  onPageSizeChange: (nextPageSize: number) => void;
-  paginationOptions: TreeTableProps<unknown>['pagination'];
 }
 
 function buildTablePaginationProps({
@@ -194,11 +194,11 @@ function buildTablePaginationProps({
 }
 
 interface RenderTableHeaderOptions<T> {
-  showHeader: boolean;
   columns: TreeTableProps<T>['columns'];
-  sortState: TreeTableProps<T>['sortState'];
   onSortChange: TreeTableProps<T>['onSortChange'];
   onSortClick: (columnId: string) => void;
+  showHeader: boolean;
+  sortState: TreeTableProps<T>['sortState'];
 }
 
 function renderTableHeader<T>({
@@ -273,10 +273,10 @@ function resolvePaginationTotalItems(isPagedWindowing: boolean, rowCount: number
 }
 
 interface TreeTableViewportProps {
+  children: React.ReactNode;
   className: string;
   maxHeight: string;
   parentRef: React.RefObject<HTMLDivElement | null>;
-  children: React.ReactNode;
 }
 
 function TreeTableViewport({

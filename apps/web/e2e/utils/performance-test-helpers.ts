@@ -7,10 +7,10 @@ import type { Page } from '@playwright/test';
 
 export interface PerformanceMetric {
   name: string;
-  value: number;
   threshold: number;
-  unit: string;
   timestamp: number;
+  unit: string;
+  value: number;
 }
 
 /**

@@ -349,9 +349,9 @@ export function cosineToSearchSimilarity(cosineSimilarity: number): number {
 }
 
 export interface UpdateBuilder {
+  index: number;
   setParts: string[];
   values: unknown[];
-  index: number;
 }
 
 export function createUpdateBuilder(startIndex = 1): UpdateBuilder {

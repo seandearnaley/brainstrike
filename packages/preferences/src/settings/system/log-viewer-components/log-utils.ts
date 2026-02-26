@@ -56,6 +56,6 @@ export function getLevelBadgeVariant(
 }
 
 export interface LogRecordRow extends LogRecord {
-  serializedArgs: string;
   flattenedBindings: string;
+  serializedArgs: string;
 }

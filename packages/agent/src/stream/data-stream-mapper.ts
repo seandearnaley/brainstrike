@@ -9,22 +9,22 @@ import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { toJsonSafe } from './json';
 
 interface ToolState {
-  toolName: string;
-  pendingArgsText: string;
   lastInput?: unknown;
+  pendingArgsText: string;
+  toolName: string;
 }
 
 interface StepState {
+  finishReason: FinishReason;
   id: string;
   index: number;
-  usage: Usage;
-  finishReason: FinishReason;
   status: 'success' | 'error';
+  usage: Usage;
 }
 
 interface Usage {
-  promptTokens: number;
   completionTokens: number;
+  promptTokens: number;
 }
 
 type FinishReason =

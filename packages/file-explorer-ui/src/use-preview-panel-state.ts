@@ -15,17 +15,17 @@ export interface FileItem {
 }
 
 export interface FolderHeaderItem {
-  folderId: string;
-  type: 'folder-header';
   fileCount: number;
+  folderId: string;
   totalTokens: number;
+  type: 'folder-header';
 }
 
 export type ListItem = FileItem | FolderHeaderItem;
 
 interface SortConfig {
-  key: string;
   direction: 'asc' | 'desc';
+  key: string;
 }
 
 export function formatTokenCount(tokens: number): string {
@@ -39,13 +39,11 @@ export function formatTokenCount(tokens: number): string {
 }
 
 export interface UsePreviewPanelStateProps {
-  selectedFiles: Set<string>;
+  decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
   fileContents: Record<string, string>;
+  fileSizes?: Record<string, number> | undefined;
   loadingFiles: Set<string>;
   onSelectionChange: (files: Set<string>) => void;
-  fileSizes?: Record<string, number> | undefined;
-  decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
-  tokenCounting: TokenCountingState;
   performUndoableAction: (
     key: string,
     itemKey: string,
@@ -56,6 +54,8 @@ export interface UsePreviewPanelStateProps {
       onUndo: (key: string, snapshot: Set<string>) => void;
     }
   ) => void;
+  selectedFiles: Set<string>;
+  tokenCounting: TokenCountingState;
 }
 
 // Helper function to get file size from metadata with fallback to persistent cache

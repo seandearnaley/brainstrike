@@ -18,25 +18,25 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 const WORKER_THRESHOLD = 10_000;
 
 export interface UseWorkerFlattenedTreeOptions {
-  /** Ref to the worker port */
-  portRef: React.RefObject<FileTreeWorkerPort | null>;
-  /** Current set of expanded directory paths */
-  expandedPaths: Set<string>;
   /** Approximate node count (for threshold decision) */
   approximateNodeCount: number;
+  /** Current set of expanded directory paths */
+  expandedPaths: Set<string>;
   /** Whether to force worker flattening regardless of threshold */
   forceWorker?: boolean;
+  /** Ref to the worker port */
+  portRef: React.RefObject<FileTreeWorkerPort | null>;
 }
 
 export interface UseWorkerFlattenedTreeReturn {
-  /** Request worker to flatten the tree */
-  requestFlatten: () => void;
   /** Latest flattened result from worker (null if not available) */
   flattenedNodes: FlattenedNode[] | null;
   /** Whether worker flattening is enabled (based on threshold) */
   isWorkerEnabled: boolean;
   /** Duration of last flatten operation in ms */
   lastDurationMs: number | null;
+  /** Request worker to flatten the tree */
+  requestFlatten: () => void;
 }
 
 /**

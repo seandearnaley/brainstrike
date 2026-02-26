@@ -1,12 +1,12 @@
 // Operation handlers for different storage operations
 interface StorageOperation {
   id: string;
-  type: string;
   key?: string;
-  value?: unknown;
   operation?: string;
   rawValue?: string;
   success?: boolean;
+  type: string;
+  value?: unknown;
 }
 
 // Handle save operation

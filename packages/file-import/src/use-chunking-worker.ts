@@ -163,14 +163,14 @@ async function initializeSingleton(): Promise<void> {
 // ============================================================================
 
 export interface UseChunkingWorkerResult {
-  /** The worker port for sending chunking requests */
-  port: ChunkingWorkerPort | null;
-  /** Whether the worker is ready to receive requests */
-  isReady: boolean;
-  /** Whether the worker is currently processing a request */
-  isProcessing: boolean;
   /** Any error that occurred during worker initialization */
   error: Error | null;
+  /** Whether the worker is currently processing a request */
+  isProcessing: boolean;
+  /** Whether the worker is ready to receive requests */
+  isReady: boolean;
+  /** The worker port for sending chunking requests */
+  port: ChunkingWorkerPort | null;
   /** Reinitialize the worker (e.g., after an error) */
   reinitialize: () => void;
 }

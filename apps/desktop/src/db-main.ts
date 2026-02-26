@@ -23,16 +23,16 @@ import { app } from 'electron';
 const logger = createLogger('DatabaseMain');
 
 interface ErrorDetails {
-  message: string;
-  stack?: string;
-  name?: string;
   code?: string;
+  message: string;
+  name?: string;
+  stack?: string;
 }
 
 interface ExtensionModuleShape {
   default?: unknown;
-  vector?: unknown;
   live?: unknown;
+  vector?: unknown;
 }
 
 interface GitProfileContext {
@@ -161,17 +161,17 @@ let db: any = null;
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
 let dbInitializationPromise: Promise<any> | null = null;
 interface DatabaseMutableState {
-  initializationAttemptCount: number;
-  lastInitializationStartedAt: string | null;
-  lastInitializationSucceededAt: string | null;
-  lastInitializationFailure: DatabaseInitFailureSnapshot | null;
-  runtimeCorruptionRecoveryCount: number;
-  lastRuntimeCorruptionAt: string | null;
-  lastRuntimeCorruptionContext: string | null;
   cachedDatabaseProfile: string | null;
   // `undefined` means "not resolved yet"; `null` means "resolved but git metadata unavailable".
   cachedGitProfileContext: GitProfileContext | null | undefined;
   dbProcessLockPath: string | null;
+  initializationAttemptCount: number;
+  lastInitializationFailure: DatabaseInitFailureSnapshot | null;
+  lastInitializationStartedAt: string | null;
+  lastInitializationSucceededAt: string | null;
+  lastRuntimeCorruptionAt: string | null;
+  lastRuntimeCorruptionContext: string | null;
+  runtimeCorruptionRecoveryCount: number;
 }
 
 const mutableState: DatabaseMutableState = {
@@ -197,8 +197,8 @@ const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
 
 interface PGliteInstanceShape {
   close?: () => Promise<void> | void;
-  query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+  query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   syncToFs?: () => Promise<void>;
 }
 

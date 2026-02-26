@@ -2,14 +2,14 @@ import type { FileNodeType, IFileNode, SelectionState } from '@brainstrike/types
 import { vi } from 'vitest';
 
 interface BaseNodeOptions {
+  children?: IFileNode[];
+  depth?: number;
+  handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
+  isVisible?: boolean;
   name: string;
   path: string;
-  depth?: number;
-  selectionState?: SelectionState;
   rootFolderId?: string;
-  isVisible?: boolean;
-  children?: IFileNode[];
-  handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
+  selectionState?: SelectionState;
 }
 
 export function createFileNode({
@@ -156,14 +156,14 @@ export function createFileTreeFromStructure(
  * Configuration for large tree generation (BST-145 perf testing)
  */
 export interface LargeTreeConfig {
-  /** Target total node count (approximate) */
-  targetNodeCount: number;
-  /** Maximum directory depth */
-  maxDepth: number;
   /** Average files per directory */
   filesPerDir: number;
+  /** Maximum directory depth */
+  maxDepth: number;
   /** Average subdirectories per directory */
   subdirsPerDir: number;
+  /** Target total node count (approximate) */
+  targetNodeCount: number;
 }
 
 /**

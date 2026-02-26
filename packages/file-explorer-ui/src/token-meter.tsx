@@ -3,15 +3,15 @@ import { memo, useMemo } from 'react';
 import { formatTokenCount } from './use-preview-panel-state';
 
 interface TokenMeterProps {
-  usedTokens: number;
   budget: number;
+  includeTree: boolean;
+  isOverBudget: boolean;
   selectedTokens: number;
+  size?: 'sm' | 'md' | 'lg';
   sourceSelectedTokens?: number;
   treeTokens: number;
-  includeTree: boolean;
+  usedTokens: number;
   useTapestryRanges?: boolean;
-  isOverBudget: boolean;
-  size?: 'sm' | 'md' | 'lg';
 }
 
 const SIZES = {

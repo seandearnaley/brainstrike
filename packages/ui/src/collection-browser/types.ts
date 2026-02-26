@@ -22,14 +22,14 @@ export type EmbeddingStatus = 'pending' | 'processing' | 'complete' | 'failed' |
  * Collection node data
  */
 export interface CollectionData {
-  name: string;
-  description?: string;
-  modelId?: string;
-  dimensions?: number;
-  fileCount: number;
   chunkCount: number;
-  embeddingCount: number;
   createdAt?: Date;
+  description?: string;
+  dimensions?: number;
+  embeddingCount: number;
+  fileCount: number;
+  modelId?: string;
+  name: string;
   updatedAt?: Date;
 }
 
@@ -37,35 +37,35 @@ export interface CollectionData {
  * File node data
  */
 export interface FileData {
+  chunkCount: number;
+  embeddingProgress?: number; // 0-100
+  embeddingStatus: EmbeddingStatus;
+  importedAt?: Date;
+  mimeType?: string;
   name: string;
   path: string;
   size: number;
-  mimeType?: string;
-  chunkCount: number;
-  embeddingStatus: EmbeddingStatus;
-  embeddingProgress?: number; // 0-100
-  importedAt?: Date;
 }
 
 /**
  * Chunk node data
  */
 export interface ChunkData {
-  index: number;
   content: string;
-  tokenCount: number;
   embeddingStatus: EmbeddingStatus;
+  index: number;
   metadata?: Record<string, unknown>;
+  tokenCount: number;
 }
 
 /**
  * Embedding node data (vector representation)
  */
 export interface EmbeddingData {
-  vectorId: string;
   dimensions: number;
-  similarity?: number; // For search results
   metadata?: Record<string, unknown>;
+  similarity?: number; // For search results
+  vectorId: string;
 }
 
 /**
@@ -87,14 +87,14 @@ export type CollectionTreeNode = TreeNode<BrowserNodeData>;
  * Filter state for the collection browser
  */
 export interface CollectionBrowserFilters {
-  /** Text search query */
-  searchQuery: string;
-  /** Filter by node type */
-  nodeTypes: Set<CollectionNodeType>;
   /** Filter by embedding status */
   embeddingStatus: EmbeddingStatus | 'all';
+  /** Filter by node type */
+  nodeTypes: Set<CollectionNodeType>;
   /** Only show nodes matching search */
   searchMatchesOnly: boolean;
+  /** Text search query */
+  searchQuery: string;
 }
 
 /**
@@ -111,43 +111,43 @@ export const DEFAULT_FILTERS: CollectionBrowserFilters = {
  * Props for the FilterBar component
  */
 export interface FilterBarProps {
+  /** Custom class name */
+  className?: string;
   /** Current filter state */
   filters: CollectionBrowserFilters;
-  /** Callback when filters change */
-  onFiltersChange: (filters: CollectionBrowserFilters) => void;
   /** Whether the panel is expanded */
   isExpanded: boolean;
   /** Callback when expansion state changes */
   onExpandedChange: (expanded: boolean) => void;
-  /** Custom class name */
-  className?: string;
+  /** Callback when filters change */
+  onFiltersChange: (filters: CollectionBrowserFilters) => void;
 }
 
 /**
  * Props for the FilterChip component
  */
 export interface FilterChipProps {
-  /** Label to display */
-  label: string;
   /** Whether the chip is active/selected */
   active: boolean;
-  /** Callback when clicked */
-  onClick: () => void;
-  /** Icon to show (optional) */
-  icon?: React.ReactNode;
   /** Whether the chip is disabled */
   disabled?: boolean;
+  /** Icon to show (optional) */
+  icon?: React.ReactNode;
+  /** Label to display */
+  label: string;
+  /** Callback when clicked */
+  onClick: () => void;
 }
 
 /**
  * Node type configuration for display
  */
 export interface NodeTypeConfig {
-  type: CollectionNodeType;
+  color: string; // Tailwind color class
+  icon: string; // lucide icon name
   label: string;
   pluralLabel: string;
-  icon: string; // lucide icon name
-  color: string; // Tailwind color class
+  type: CollectionNodeType;
 }
 
 /**
@@ -188,10 +188,10 @@ export const NODE_TYPE_CONFIG: Record<CollectionNodeType, NodeTypeConfig> = {
  * Embedding status configuration for display
  */
 export interface EmbeddingStatusConfig {
-  status: EmbeddingStatus | 'all';
-  label: string;
-  icon: string;
   color: string;
+  icon: string;
+  label: string;
+  status: EmbeddingStatus | 'all';
 }
 
 // ============================================================================
@@ -219,10 +219,6 @@ export type RetrievalMode = 'vector' | 'hybrid';
  * Configuration for semantic search
  */
 export interface SearchConfig {
-  /** Similarity threshold (0.0-1.0, default 0.5) */
-  threshold: number;
-  /** Maximum number of results (default 20) */
-  resultLimit: number;
   /** Distance metric for similarity calculation */
   distanceMetric: DistanceMetric;
   /**
@@ -232,11 +228,12 @@ export interface SearchConfig {
    */
   filePaths?: readonly string[];
   /**
-   * Optional snapshot ID referencing a persisted selection allowlist.
-   * Use when file path list exceeds inline limits (~500 paths).
-   * Takes precedence over filePaths if both are provided.
+   * Weight for full-text search results in hybrid mode (default: 1.0)
+   * Higher values favor keyword/exact matches.
    */
-  selectionSnapshotId?: string;
+  ftsWeight?: number;
+  /** Maximum number of results (default 20) */
+  resultLimit: number;
 
   // === Hybrid Search Options (BST-294) ===
   /**
@@ -246,15 +243,18 @@ export interface SearchConfig {
    */
   retrievalMode?: RetrievalMode;
   /**
+   * Optional snapshot ID referencing a persisted selection allowlist.
+   * Use when file path list exceeds inline limits (~500 paths).
+   * Takes precedence over filePaths if both are provided.
+   */
+  selectionSnapshotId?: string;
+  /** Similarity threshold (0.0-1.0, default 0.5) */
+  threshold: number;
+  /**
    * Weight for vector search results in hybrid mode (default: 1.0)
    * Higher values favor semantic similarity matches.
    */
   vectorWeight?: number;
-  /**
-   * Weight for full-text search results in hybrid mode (default: 1.0)
-   * Higher values favor keyword/exact matches.
-   */
-  ftsWeight?: number;
 }
 
 /**
@@ -271,102 +271,102 @@ export const DEFAULT_SEARCH_CONFIG: SearchConfig = {
  * Result from a semantic search operation
  */
 export interface SemanticSearchResult {
-  /** Tree node ID (e.g., "chunk-abc123") */
-  nodeId: string;
   /** Original chunk ID in the database */
   chunkId: string;
-  /** File record ID this chunk belongs to */
-  fileRecordId: string;
-  /** Similarity score (0.0-1.0) - For hybrid search, this is the normalized RRF score */
-  similarity: number;
   /** Chunk content for preview */
   content: string;
+  /** Embedding set ID this chunk belongs to */
+  embeddingSetId?: string;
   /** File name for context */
   fileName: string;
   /** File path for context */
   filePath: string;
-  /** Embedding set ID this chunk belongs to */
-  embeddingSetId?: string;
-
-  // === Hybrid Search Metadata (BST-294) ===
-  /** Vector similarity score from vector search (if available) */
-  vectorSimilarity?: number;
+  /** File record ID this chunk belongs to */
+  fileRecordId: string;
   /** Full-text search rank score (if available) */
   ftsRank?: number;
   /** Headline snippet with highlighted matches from FTS */
   headline?: string;
+  /** Tree node ID (e.g., "chunk-abc123") */
+  nodeId: string;
+  /** Similarity score (0.0-1.0) - For hybrid search, this is the normalized RRF score */
+  similarity: number;
   /** Number of search sources that found this result (1-2 for hybrid) */
   sourceCount?: number;
+
+  // === Hybrid Search Metadata (BST-294) ===
+  /** Vector similarity score from vector search (if available) */
+  vectorSimilarity?: number;
 }
 
 /**
  * Props for the SearchModeBar component
  */
 export interface SearchModeBarProps {
+  /** Custom class name */
+  className?: string;
+  /** Current filter state (controlled) */
+  filters?: CollectionBrowserFilters;
+  /** Current group-by key */
+  groupBy?: GroupByKey;
+  /** Whether semantic search has been executed */
+  hasSearched?: boolean;
+  /** Whether config panel is expanded */
+  isConfigExpanded: boolean;
+  /** Whether the filter bar is visible */
+  isFilterVisible?: boolean;
+  /** Whether semantic search is in progress */
+  isSearching: boolean;
   /** Current search mode */
   mode: SearchMode;
+  /** Whether multi-select mode is enabled */
+  multiSelectEnabled?: boolean;
+  /** Callback to collapse all nodes */
+  onCollapseAll?: () => void;
+  /** Callback when config expansion changes */
+  onConfigExpandedChange: (expanded: boolean) => void;
+  /** Callback to expand all nodes */
+  onExpandAll?: () => void;
+  /** Callback when filters change (controlled) */
+  onFiltersChange?: (filters: CollectionBrowserFilters) => void;
+  /** Callback when filter visibility changes */
+  onFilterVisibleChange?: (visible: boolean) => void;
+  /** Callback when group-by changes */
+  onGroupByChange?: (groupBy: GroupByKey) => void;
   /** Callback when mode changes */
   onModeChange: (mode: SearchMode) => void;
-  /** Semantic search query */
-  semanticQuery: string;
+  /** Callback when multi-select toggle changes */
+  onMultiSelectToggle?: (enabled: boolean) => void;
+  /** Callback to reset filters */
+  onResetFilters?: () => void;
   /** Callback when semantic query changes */
   onSemanticQueryChange: (query: string) => void;
   /** Callback to execute semantic search */
   onSemanticSearch: () => void;
-  /** Whether semantic search is in progress */
-  isSearching: boolean;
-  /** Whether config panel is expanded */
-  isConfigExpanded: boolean;
-  /** Callback when config expansion changes */
-  onConfigExpandedChange: (expanded: boolean) => void;
-  /** Whether the filter bar is visible */
-  isFilterVisible?: boolean;
-  /** Callback when filter visibility changes */
-  onFilterVisibleChange?: (visible: boolean) => void;
   /** Number of visible results */
   resultCount?: number;
+  /** Semantic search query */
+  semanticQuery: string;
   /** Total number of nodes */
   totalCount?: number;
-  /** Callback to expand all nodes */
-  onExpandAll?: () => void;
-  /** Callback to collapse all nodes */
-  onCollapseAll?: () => void;
-  /** Whether semantic search has been executed */
-  hasSearched?: boolean;
-  /** Current filter state (controlled) */
-  filters?: CollectionBrowserFilters;
-  /** Callback when filters change (controlled) */
-  onFiltersChange?: (filters: CollectionBrowserFilters) => void;
-  /** Callback to reset filters */
-  onResetFilters?: () => void;
-  /** Whether multi-select mode is enabled */
-  multiSelectEnabled?: boolean;
-  /** Callback when multi-select toggle changes */
-  onMultiSelectToggle?: (enabled: boolean) => void;
-  /** Current group-by key */
-  groupBy?: GroupByKey;
-  /** Callback when group-by changes */
-  onGroupByChange?: (groupBy: GroupByKey) => void;
-  /** Custom class name */
-  className?: string;
 }
 
 /**
  * Props for the SearchConfigPanel component
  */
 export interface SearchConfigPanelProps {
-  /** Current search configuration */
-  config: SearchConfig;
-  /** Callback when configuration changes */
-  onConfigChange: (config: SearchConfig) => void;
-  /** Whether the panel is expanded */
-  isExpanded: boolean;
-  /** Callback when expansion state changes */
-  onExpandedChange: (expanded: boolean) => void;
-  /** Default distance metric from the active collection (hint) */
-  collectionDistanceMetric?: DistanceMetric;
   /** Custom class name */
   className?: string;
+  /** Default distance metric from the active collection (hint) */
+  collectionDistanceMetric?: DistanceMetric;
+  /** Current search configuration */
+  config: SearchConfig;
+  /** Whether the panel is expanded */
+  isExpanded: boolean;
+  /** Callback when configuration changes */
+  onConfigChange: (config: SearchConfig) => void;
+  /** Callback when expansion state changes */
+  onExpandedChange: (expanded: boolean) => void;
 }
 
 // ============================================================================
@@ -400,10 +400,10 @@ export const DEFAULT_GROUPING_STATE: GroupingState = {
  * Data for a virtual group header node.
  */
 export interface GroupHeaderData {
-  /** Group display label */
-  groupLabel: string;
   /** Grouping key that produced this group */
   groupKey: GroupByKey;
+  /** Group display label */
+  groupLabel: string;
   /** Value of the group (e.g., 'complete', '.ts') */
   groupValue: string;
   /** Number of direct children in this group */

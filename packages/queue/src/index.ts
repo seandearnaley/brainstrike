@@ -48,12 +48,12 @@ export {
 } from './util';
 
 export interface CreateBrowserEmbeddingQueueOptions {
-  readonly worker?: WorkerpoolAdapterOptions;
   /**
    * When true, require a workerpool adapter and throw if unavailable.
    * @deprecated Always true - workers are required. Kept for API compatibility.
    */
   readonly requireWorkerpool?: boolean;
+  readonly worker?: WorkerpoolAdapterOptions;
 }
 
 /**

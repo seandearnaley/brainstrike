@@ -137,8 +137,8 @@ const GPU_KEEPALIVE_INTERVAL_MS = 15_000;
 // The full @webgpu/types package is not in this project's deps; these cover
 // only the members we actually touch.
 interface GpuDeviceLostInfo {
-  readonly reason: string | undefined;
   readonly message: string;
+  readonly reason: string | undefined;
 }
 interface GpuCommandBuffer {
   // Phantom field to avoid accidentally passing plain `{}` into queue.submit.
@@ -151,9 +151,9 @@ interface GpuQueue {
   submit(buffers: GpuCommandBuffer[]): void;
 }
 interface GpuDeviceHandle {
+  createCommandEncoder(): GpuCommandEncoder;
   readonly lost: Promise<GpuDeviceLostInfo>;
   readonly queue: GpuQueue;
-  createCommandEncoder(): GpuCommandEncoder;
 }
 
 /** Handle for the keep-alive interval so it can be stopped on device loss. */
@@ -468,21 +468,21 @@ function convertTensorToVectors(tensor: Tensor, truncateDim?: number): Float32Ar
 }
 
 interface EmbeddingContext {
+  readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
+  readonly dtype: EmbeddingDType;
   readonly id: string;
   readonly model: string;
-  readonly texts: readonly string[];
-  readonly truncateDim?: number;
-  readonly dtype: EmbeddingDType;
-  readonly started: number;
-  readonly total: number;
   readonly provider?: string;
+  readonly started: number;
   readonly targetDimension?: number;
-  readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
+  readonly texts: readonly string[];
+  readonly total: number;
+  readonly truncateDim?: number;
 }
 
 interface EmbeddingState {
-  device: EmbeddingDevice;
   batchSize: number;
+  device: EmbeddingDevice;
   fallbackApplied: boolean;
   readonly maxBatchSize?: number;
 }

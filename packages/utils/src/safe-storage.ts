@@ -6,9 +6,9 @@ const logger = createLogger('SafeStorage');
  * Error details for storage operations
  */
 export interface StorageError {
-  operation: 'get' | 'set' | 'remove' | 'clear' | 'key';
-  key: string;
   error: unknown;
+  key: string;
+  operation: 'get' | 'set' | 'remove' | 'clear' | 'key';
 }
 
 /**

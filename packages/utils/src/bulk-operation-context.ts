@@ -36,24 +36,24 @@ export interface BulkOperationOptions {
   level?: LogLevel;
 
   /**
+   * Callback to pause/resume external listeners (e.g., LogBuffer)
+   */
+  onEnter?: () => void;
+  onExit?: () => void;
+
+  /**
    * Sample rate for logs that would otherwise be skipped.
    * 0 = log nothing, 1 = log everything, 0.1 = log 10%
    * Default: 0 (no sampling, just use the level filter)
    */
   sampleRate?: number;
-
-  /**
-   * Callback to pause/resume external listeners (e.g., LogBuffer)
-   */
-  onEnter?: () => void;
-  onExit?: () => void;
 }
 
 interface BulkOperationState {
   active: boolean;
-  previousLevel: LogLevel | null;
-  options: Required<BulkOperationOptions>;
   enterCount: number;
+  options: Required<BulkOperationOptions>;
+  previousLevel: LogLevel | null;
 }
 
 // Global state for bulk operation context

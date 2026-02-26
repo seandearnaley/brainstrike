@@ -37,13 +37,13 @@ type HostedEmbeddingProviderId = HostedProviderType;
 type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
 
 interface ModelPreset {
-  readonly id: string;
-  readonly name: string;
-  readonly description: string;
-  readonly provider: EmbeddingProviderType;
-  readonly modelId: string;
   readonly badge: string;
+  readonly description: string;
   readonly icon: '🎯' | '💰' | '🌍';
+  readonly id: string;
+  readonly modelId: string;
+  readonly name: string;
+  readonly provider: EmbeddingProviderType;
 }
 
 const MODEL_PRESETS: readonly ModelPreset[] = [
@@ -77,9 +77,9 @@ const MODEL_PRESETS: readonly ModelPreset[] = [
 ] as const;
 
 interface CodeChunkRow {
+  extensions: string;
   key: keyof typeof CHUNKING_CONFIG.codeLanguageDefaults;
   label: string;
-  extensions: string;
 }
 
 const CODE_CHUNK_ROWS: readonly CodeChunkRow[] = [
@@ -98,22 +98,22 @@ const CODE_CHUNK_ROWS: readonly CodeChunkRow[] = [
 ] as const;
 
 interface NormalizedEmbeddingModel {
-  readonly id: string;
-  readonly label: string;
+  readonly availableDimensions?: readonly number[];
   readonly description?: string;
   readonly dimensions: number;
-  readonly supportsStandardDimension: boolean;
-  readonly supportsCustomDimensions: boolean;
-  readonly availableDimensions?: readonly number[];
+  readonly id: string;
   readonly isDefault: boolean;
+  readonly label: string;
+  readonly supportsCustomDimensions: boolean;
+  readonly supportsStandardDimension: boolean;
 }
 
 interface NormalizedEmbeddingProvider {
-  readonly id: EmbeddingProviderType;
   readonly displayName: string;
-  readonly runtime: 'browser' | 'hosted';
+  readonly id: EmbeddingProviderType;
   readonly models: readonly NormalizedEmbeddingModel[];
   readonly pending?: boolean;
+  readonly runtime: 'browser' | 'hosted';
 }
 
 const HOSTED_PROVIDER_METADATA: Record<
@@ -395,9 +395,9 @@ function filterVisibleModels(
 }
 
 interface ProviderSectionContext {
-  provider: NormalizedEmbeddingProvider;
   enabledModelsByProvider: EnabledModelsByProvider;
   normalizedSearch: string;
+  provider: NormalizedEmbeddingProvider;
   setModelEnabled: (provider: EmbeddingProviderType, model: string, enabled: boolean) => void;
   setProviderModelsEnabled: (
     provider: EmbeddingProviderType,
@@ -697,10 +697,10 @@ export function EmbeddingSettings() {
 }
 
 interface EmbeddingModelRowProps {
-  providerId: EmbeddingProviderType;
-  model: NormalizedEmbeddingModel;
   enabled: boolean;
+  model: NormalizedEmbeddingModel;
   onToggle: (enabled: boolean) => void;
+  providerId: EmbeddingProviderType;
 }
 
 function EmbeddingModelRow({ providerId, model, enabled, onToggle }: EmbeddingModelRowProps) {

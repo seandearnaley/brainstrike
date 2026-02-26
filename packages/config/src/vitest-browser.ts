@@ -9,14 +9,14 @@ import type { PlaywrightProviderOptions } from '@vitest/browser-playwright';
 import { playwright } from '@vitest/browser-playwright';
 
 export interface BrowserTestConfig {
-  /** Test file pattern for browser tests (default: '**\/*.browser.test.{ts,tsx}') */
-  testPattern?: string;
+  /** Headless mode (default: true) */
+  headless?: boolean;
   /** Whether running in CI environment */
   isCI?: boolean;
   /** Playwright launch args for the browser */
   launchArgs?: string[];
-  /** Headless mode (default: true) */
-  headless?: boolean;
+  /** Test file pattern for browser tests (default: '**\/*.browser.test.{ts,tsx}') */
+  testPattern?: string;
   /**
    * Playwright trace mode for debugging failed tests
    * - 'off': No traces (default for local dev)

@@ -30,18 +30,6 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 }
 
 export interface RootLayoutContentProps {
-  readonly homePageContent: ReactNode;
-  readonly settingsPageContent: ReactNode;
-  readonly promptsPageContent?: ReactNode;
-  readonly navigationItems: NavigationItem[];
-
-  /**
-   * Optional custom left panel content.
-   * If not provided, defaults to FileExplorerLeftPanel.
-   * Use this to wrap the left panel with app-specific providers (e.g., TokenCacheProvider).
-   */
-  readonly leftPanelContent?: ReactNode;
-
   /**
    * CRITICAL: The app-specific embedding queue adapter.
    *
@@ -59,6 +47,17 @@ export interface RootLayoutContentProps {
    * - Vector search operations
    */
   readonly embeddingQueue?: QueueAdapter | null;
+  readonly homePageContent: ReactNode;
+
+  /**
+   * Optional custom left panel content.
+   * If not provided, defaults to FileExplorerLeftPanel.
+   * Use this to wrap the left panel with app-specific providers (e.g., TokenCacheProvider).
+   */
+  readonly leftPanelContent?: ReactNode;
+  readonly navigationItems: NavigationItem[];
+  readonly promptsPageContent?: ReactNode;
+  readonly settingsPageContent: ReactNode;
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {

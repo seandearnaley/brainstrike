@@ -10,6 +10,10 @@ import type { FileImportRequest, FileImportResult, FileRecord } from '../models/
  * Common interface for all embedding sets repositories
  */
 export interface IEmbeddingSetsRepository {
+  delete(id: string): Promise<boolean>;
+  findAll(): Promise<EmbeddingSet[]>;
+  getById(id: string): Promise<EmbeddingSet | null>;
+  getByModelKey(modelKey: string): Promise<EmbeddingSet[]>;
   getOrCreateSet(
     modelKey: string,
     modelId: string,
@@ -17,27 +21,31 @@ export interface IEmbeddingSetsRepository {
     distance: EmbeddingDistance,
     metadata?: { name?: string; description?: string; tags?: string; category?: string }
   ): Promise<EmbeddingSet>;
-  getById(id: string): Promise<EmbeddingSet | null>;
-  getByModelKey(modelKey: string): Promise<EmbeddingSet[]>;
   updateMetadata(
     id: string,
     metadata: { name?: string; description?: string; tags?: string; category?: string }
   ): Promise<EmbeddingSet | null>;
-  findAll(): Promise<EmbeddingSet[]>;
-  delete(id: string): Promise<boolean>;
 }
 
 /**
  * Common interface for all file record repositories
  */
 export interface IFileRecordRepository {
+  bulkImport?(
+    requests: FileImportRequest[],
+    onProgress?: (completed: number, total: number, current?: string) => void
+  ): Promise<FileImportResult[]>;
+  clearAll?(): Promise<number>;
+  count?(): Promise<number>;
+  countWithContent?(): Promise<number>;
   create(record: FileRecord): Promise<void>;
   createWithContent(record: FileRecord): Promise<void>;
-  findById(id: string): Promise<FileRecord | null>;
-  findByIds(ids: readonly string[]): Promise<FileRecord[]>;
-  findByContentHash(contentHash: string): Promise<FileRecord | null>;
+  delete(id: string): Promise<void>;
   findAll(): Promise<FileRecord[]>;
   findAllWithContent(): Promise<FileRecord[]>;
+  findByContentHash(contentHash: string): Promise<FileRecord | null>;
+  findById(id: string): Promise<FileRecord | null>;
+  findByIds(ids: readonly string[]): Promise<FileRecord[]>;
   update(id: string, updates: Partial<FileRecord>): Promise<void>;
   updateContent(
     id: string,
@@ -45,14 +53,6 @@ export interface IFileRecordRepository {
     contentHash: string,
     tokenCount: number
   ): Promise<void>;
-  delete(id: string): Promise<void>;
-  count?(): Promise<number>;
-  countWithContent?(): Promise<number>;
-  bulkImport?(
-    requests: FileImportRequest[],
-    onProgress?: (completed: number, total: number, current?: string) => void
-  ): Promise<FileImportResult[]>;
-  clearAll?(): Promise<number>;
 }
 
 /**
@@ -70,10 +70,10 @@ export interface IDatabase {
  * Uses types from @brainstrike/types for consistency across implementations.
  */
 export interface IViewFilterPresetsRepository {
+  create(input: CreateViewFilterPresetInput): Promise<ViewFilterPreset>;
+  delete(id: string): Promise<boolean>;
   findAll(): Promise<ViewFilterPreset[]>;
   getById(id: string): Promise<ViewFilterPreset | null>;
   getDefaults(): Promise<ViewFilterPreset[]>;
-  create(input: CreateViewFilterPresetInput): Promise<ViewFilterPreset>;
   update(id: string, input: UpdateViewFilterPresetInput): Promise<ViewFilterPreset | null>;
-  delete(id: string): Promise<boolean>;
 }

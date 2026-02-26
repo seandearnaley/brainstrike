@@ -7,36 +7,36 @@ import type { ToolsInput } from '@mastra/core/agent';
 import type { McpConfig } from './mcp/config';
 
 export interface AgentMessagePartText {
-  type: 'text';
   text: string;
+  type: 'text';
 }
 export interface AgentMessagePartTool {
-  type: `tool-${string}`;
-  state: 'input-available' | 'input-streaming' | 'output-available' | 'output-error';
+  errorText?: string;
   input?: unknown;
   output?: unknown;
-  errorText?: string;
+  state: 'input-available' | 'input-streaming' | 'output-available' | 'output-error';
+  type: `tool-${string}`;
 }
 export type AgentMessagePart = AgentMessagePartText | AgentMessagePartTool;
 
 export interface AgentMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
   parts: AgentMessagePart[];
+  role: 'user' | 'assistant' | 'system';
 }
 
 export type AssistantUiScalar = string | number | bigint | boolean | null;
 
 export interface AssistantUiNodeObject {
-  text?: AssistantUiScalar;
-  value?: AssistantUiScalar;
-  content?: AssistantUiNode;
-  parts?: AssistantUiNode;
   children?: AssistantUiNode;
-  values?: AssistantUiNode;
-  result?: AssistantUiNode;
+  content?: AssistantUiNode;
   message?: AssistantUiNode;
   messages?: AssistantUiNode;
+  parts?: AssistantUiNode;
+  result?: AssistantUiNode;
+  text?: AssistantUiScalar;
+  value?: AssistantUiScalar;
+  values?: AssistantUiNode;
   [key: string]: AssistantUiScalar | AssistantUiNode | undefined;
 }
 
@@ -54,53 +54,53 @@ export interface AssistantUiMessageStrict {
 
 // Assistant UI input message (intentionally permissive; normalized at runtime)
 export interface AssistantUiMessage {
+  content?: AssistantUiNode;
   id?: string | number | null;
+  parts?: AssistantUiNode;
   role?: string | null;
   text?: AssistantUiScalar | undefined;
-  content?: AssistantUiNode;
-  parts?: AssistantUiNode;
 }
 
 export interface RuntimeData {
-  projectId?: string;
-  /** AI provider to use. Defaults to 'openai' if not specified. */
-  provider?: 'openai' | 'anthropic' | 'google' | 'openrouter' | string;
-  /** Model name to use. Uses provider-specific default if not specified. */
-  model?: string;
-  /** Active embedding set ID for retrieval tools. */
-  embeddingSetId?: string;
-  /** Optional selection file paths (relative to project root). */
-  selectionFilePaths?: readonly string[];
-  /** Optional selection snapshot id to scope retrieval. */
-  selectionSnapshotId?: string;
-  /** Optional folder id for selection/token cache resolution. */
-  selectionFolderId?: string;
-  /** Optional absolute workspace root path for workspace read tools. */
-  workspaceRootPath?: string;
-  /** Optional token budget override for context packing. */
-  tokenBudget?: number;
-  /** Include a selected-file report block in assistant context. */
-  includeFileReport?: boolean;
-  /** Include a workspace tree block in assistant context. */
-  includeProjectTree?: boolean;
-  /** Approximate context token count from the UI token counter. */
-  contextTokenCount?: number;
-  /** Optional model-level settings (e.g., max output tokens). */
-  modelSettings?: RuntimeModelSettings;
-  /** Optional provider-specific runtime options. */
-  providerOptions?: RuntimeProviderOptions;
-  mcpEnabled?: boolean;
-  signal?: AbortSignal;
+  /** API key for the specified provider. Falls back to environment variables if not provided. */
+  apiKey?: string;
   // Optional tool dispatcher provided by host (desktop main via IPC)
   callTool?: (
     name: string,
     params?: Record<string, unknown>,
     opts?: { onProgress?: (payload: unknown) => void }
   ) => Promise<unknown>;
-  mcpConfig?: McpConfig;
+  /** Approximate context token count from the UI token counter. */
+  contextTokenCount?: number;
+  /** Active embedding set ID for retrieval tools. */
+  embeddingSetId?: string;
+  /** Include a selected-file report block in assistant context. */
+  includeFileReport?: boolean;
+  /** Include a workspace tree block in assistant context. */
+  includeProjectTree?: boolean;
   mastraTools?: ToolsInput;
-  /** API key for the specified provider. Falls back to environment variables if not provided. */
-  apiKey?: string;
+  mcpConfig?: McpConfig;
+  mcpEnabled?: boolean;
+  /** Model name to use. Uses provider-specific default if not specified. */
+  model?: string;
+  /** Optional model-level settings (e.g., max output tokens). */
+  modelSettings?: RuntimeModelSettings;
+  projectId?: string;
+  /** AI provider to use. Defaults to 'openai' if not specified. */
+  provider?: 'openai' | 'anthropic' | 'google' | 'openrouter' | string;
+  /** Optional provider-specific runtime options. */
+  providerOptions?: RuntimeProviderOptions;
+  /** Optional selection file paths (relative to project root). */
+  selectionFilePaths?: readonly string[];
+  /** Optional folder id for selection/token cache resolution. */
+  selectionFolderId?: string;
+  /** Optional selection snapshot id to scope retrieval. */
+  selectionSnapshotId?: string;
+  signal?: AbortSignal;
+  /** Optional token budget override for context packing. */
+  tokenBudget?: number;
+  /** Optional absolute workspace root path for workspace read tools. */
+  workspaceRootPath?: string;
 }
 
 export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -143,20 +143,20 @@ export interface StreamChunkText {
   value: string;
 }
 export interface StreamChunkTool {
-  type: 'tool-event';
   name: string;
-  status: 'start' | 'progress' | 'success' | 'error';
   payload?: unknown;
+  status: 'start' | 'progress' | 'success' | 'error';
+  type: 'tool-event';
 }
 export interface StreamChunkFinish {
   type: 'finish';
   usage: { promptTokens: number; completionTokens: number };
 }
 export interface StreamChunkMessageFinish {
-  type: 'message-finish';
   finishReason: 'stop';
-  usage: { promptTokens: number; completionTokens: number };
   path: readonly number[];
+  type: 'message-finish';
+  usage: { promptTokens: number; completionTokens: number };
 }
 export type StreamChunk =
   | StreamChunkText

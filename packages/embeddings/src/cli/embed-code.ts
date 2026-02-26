@@ -77,24 +77,24 @@ const DEFAULT_EXCLUDE_PATTERNS = [
  * Configuration for the CLI tool
  */
 interface EmbedCodeConfig {
-  /** Root directory to scan for code files */
-  rootDir: string;
-  /** Model configuration to use for embeddings */
-  modelConfig: ModelConfig;
-  /** Custom file patterns to include */
-  include?: string[];
+  /** Chunk overlap in lines */
+  chunkOverlap?: number;
   /** Custom patterns to exclude */
   exclude?: string[];
   /** Output format */
   format: 'json' | 'csv' | 'pgvector';
-  /** Output file path */
-  output?: string;
+  /** Custom file patterns to include */
+  include?: string[];
   /** Maximum file size in bytes */
   maxFileSize?: number;
   /** Maximum lines per chunk */
   maxLines?: number;
-  /** Chunk overlap in lines */
-  chunkOverlap?: number;
+  /** Model configuration to use for embeddings */
+  modelConfig: ModelConfig;
+  /** Output file path */
+  output?: string;
+  /** Root directory to scan for code files */
+  rootDir: string;
   /** Verbose logging */
   verbose?: boolean;
 }
@@ -103,24 +103,24 @@ interface EmbedCodeConfig {
  * Represents an embedded code chunk
  */
 interface CodeEmbedding {
-  /** Unique identifier for the chunk */
-  id: string;
-  /** File path relative to root */
-  filePath: string;
-  /** Programming language detected */
-  language: string;
   /** Content of the code chunk */
   content: string;
-  /** Start line number in the file */
-  startLine: number;
-  /** End line number in the file */
-  endLine: number;
-  /** Generated embedding vector */
-  embedding: number[];
   /** Embedding dimensions */
   dimensions: number;
+  /** Generated embedding vector */
+  embedding: number[];
+  /** End line number in the file */
+  endLine: number;
+  /** File path relative to root */
+  filePath: string;
+  /** Unique identifier for the chunk */
+  id: string;
+  /** Programming language detected */
+  language: string;
   /** Model used for embedding */
   model: string;
+  /** Start line number in the file */
+  startLine: number;
   /** Timestamp when embedding was created */
   timestamp: string;
 }

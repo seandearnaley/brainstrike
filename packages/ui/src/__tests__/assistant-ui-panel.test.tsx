@@ -31,8 +31,8 @@ vi.mock('../../src/theme-provider', () => ({
 
 vi.mock('@assistant-ui/react', () => {
   interface PrimitiveProps {
-    children?: React.ReactNode;
     asChild?: boolean;
+    children?: React.ReactNode;
     [key: string]: unknown;
   }
 

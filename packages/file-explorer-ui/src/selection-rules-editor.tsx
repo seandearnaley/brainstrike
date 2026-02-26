@@ -32,12 +32,12 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 /** Props for the selection rules editor */
 export interface SelectionRulesEditorProps {
+  /** Current folder ID for rule context */
+  folderId: string;
   /** Whether the dialog is open */
   isOpen: boolean;
   /** Callback when dialog open state changes */
   onOpenChange: (open: boolean) => void;
-  /** Current folder ID for rule context */
-  folderId: string;
 }
 
 /** State for a pattern input row */

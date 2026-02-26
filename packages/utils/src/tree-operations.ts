@@ -18,12 +18,12 @@ export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
  * Both IFileNode and WorkerFileNode satisfy this type.
  */
 export interface TreeNode {
-  path: string;
-  name: string;
-  type: 'file' | 'directory' | 'loadMore';
   children?: TreeNode[];
-  loadState?: DirectoryLoadState;
   loadError?: string;
+  loadState?: DirectoryLoadState;
+  name: string;
+  path: string;
+  type: 'file' | 'directory' | 'loadMore';
 }
 
 /**

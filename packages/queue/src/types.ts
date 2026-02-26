@@ -13,17 +13,17 @@ export type ProviderDimensionParameter =
   | 'output_dimension';
 
 export interface EmbedTaskPayload {
-  readonly kind: 'embed';
-  readonly id: string;
-  readonly model: string;
-  readonly texts: readonly string[];
-  readonly truncateDim?: number;
-  readonly dtype?: EmbeddingDType;
   readonly deviceHint: EmbeddingDeviceHint;
+  readonly dimensionParameter?: ProviderDimensionParameter;
+  readonly dtype?: EmbeddingDType;
+  readonly id: string;
+  readonly kind: 'embed';
   readonly maxBatchSize?: number;
+  readonly model: string;
   readonly provider?: string;
   readonly targetDimension?: number;
-  readonly dimensionParameter?: ProviderDimensionParameter;
+  readonly texts: readonly string[];
+  readonly truncateDim?: number;
 }
 
 export type TaskPayload = EmbedTaskPayload;
@@ -65,9 +65,9 @@ export type WorkerClientErrorType =
  * Structured error for worker client failures.
  */
 export interface WorkerClientError {
-  readonly type: WorkerClientErrorType;
-  readonly message: string;
   readonly cause?: Error;
+  readonly message: string;
+  readonly type: WorkerClientErrorType;
 }
 
 /**
@@ -89,14 +89,14 @@ export interface WorkerClientError {
  */
 export interface WorkerClient {
   /**
+   * Get the current lifecycle state of the worker.
+   */
+  getState(): WorkerClientState;
+  /**
    * Check if the worker is ready to accept messages.
    * Equivalent to `getState() === 'ready'`.
    */
   isReady(): boolean;
-  /**
-   * Get the current lifecycle state of the worker.
-   */
-  getState(): WorkerClientState;
   /**
    * Terminate the worker and release all resources.
    * After termination, `getState()` returns 'terminated'.
@@ -145,20 +145,6 @@ export interface QueueAdapter {
     tasks: readonly TaskPayload[],
     options?: QueueAddBulkOptions
   ): Promise<readonly QueueResult[]>;
-  /** Subscribe to progress/error events */
-  onProgress(listener: (event: QueueProgressEvent | QueueErrorEvent) => void): () => void;
-
-  // --- Control semantics (ADR-0002 QueueControl) ---
-
-  /**
-   * Pause accepting new work.
-   * Existing running tasks continue to completion.
-   */
-  pause(): void;
-  /**
-   * Resume accepting work after pause.
-   */
-  resume(): void;
   /**
    * Cancel all pending and running work.
    * Returns when all cancellations complete.
@@ -177,6 +163,20 @@ export interface QueueAdapter {
    * Whether the adapter has active tasks processing.
    */
   readonly isProcessing: boolean;
+  /** Subscribe to progress/error events */
+  onProgress(listener: (event: QueueProgressEvent | QueueErrorEvent) => void): () => void;
+
+  // --- Control semantics (ADR-0002 QueueControl) ---
+
+  /**
+   * Pause accepting new work.
+   * Existing running tasks continue to completion.
+   */
+  pause(): void;
+  /**
+   * Resume accepting work after pause.
+   */
+  resume(): void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -188,16 +188,16 @@ export interface QueueAdapter {
  * Represents persistent job state counts (from JobQueue/SQL storage).
  */
 export interface DurableQueueStats {
+  /** Number of jobs that failed after all retries */
+  readonly failed: number;
+  /** ISO timestamp of next scheduled job, if any */
+  readonly nextRunnableAt: string | null;
   /** Number of jobs waiting to be processed */
   readonly queued: number;
   /** Number of jobs currently being processed */
   readonly running: number;
-  /** Number of jobs that failed after all retries */
-  readonly failed: number;
   /** Number of successfully completed jobs */
   readonly succeeded: number;
-  /** ISO timestamp of next scheduled job, if any */
-  readonly nextRunnableAt: string | null;
 }
 
 /**
@@ -211,18 +211,18 @@ export interface EphemeralQueueMetrics {
   readonly completed: number;
   /** Total tasks failed in the current session */
   readonly failed: number;
-  /** Total tasks enqueued in the current session */
-  readonly totalEnqueued: number;
   /** Most recent error message, if any */
   readonly lastError: string | null;
-  /** Throughput over the telemetry window (tasks/minute) */
-  readonly throughputPerMinute: number;
   /** Average latency in the telemetry window (ms) */
   readonly latencyAvgMs: number | null;
   /** 50th percentile latency (ms) */
   readonly latencyP50Ms: number | null;
   /** 95th percentile latency (ms) */
   readonly latencyP95Ms: number | null;
+  /** Throughput over the telemetry window (tasks/minute) */
+  readonly throughputPerMinute: number;
+  /** Total tasks enqueued in the current session */
+  readonly totalEnqueued: number;
   /** Error count in the telemetry window */
   readonly windowErrorCount: number;
 }
@@ -231,12 +231,12 @@ export interface EphemeralQueueMetrics {
  * Worker health status for diagnostics.
  */
 export interface WorkerHealthStatus {
-  /** Current worker lifecycle state */
-  readonly state: WorkerClientState;
-  /** Whether the worker is ready for work */
-  readonly isReady: boolean;
   /** Error details if in error state */
   readonly error: WorkerClientError | null;
+  /** Whether the worker is ready for work */
+  readonly isReady: boolean;
+  /** Current worker lifecycle state */
+  readonly state: WorkerClientState;
 }
 
 /**
@@ -267,14 +267,14 @@ export interface QueueHealthMetrics {
    */
   readonly ephemeralQueue: EphemeralQueueMetrics | null;
   /**
+   * Timestamp when metrics were last updated.
+   */
+  readonly lastUpdated: number;
+  /**
    * Worker health status.
    * Null if no worker client is available.
    */
   readonly workerHealth: WorkerHealthStatus | null;
-  /**
-   * Timestamp when metrics were last updated.
-   */
-  readonly lastUpdated: number;
 }
 
 /**

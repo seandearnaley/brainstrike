@@ -28,14 +28,14 @@ export interface EmbeddingSetSelectorProps {
   db: ReturnType<typeof usePGliteDatabase>;
 
   /**
-   * Currently selected embedding set ID
-   */
-  selectedId: string | null;
-
-  /**
    * Callback when selection changes
    */
   onSelectionChange: (id: string | null) => void;
+
+  /**
+   * Currently selected embedding set ID
+   */
+  selectedId: string | null;
 }
 
 /**

@@ -1,11 +1,14 @@
 {
   "name": "@brainstrike/platform-utils",
-  "version": "0.1.0",
   "description": "Platform detection utilities",
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "version": "0.1.0",
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "happy-dom": "^20.7.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -13,19 +16,16 @@
       "require": "./dist/index.cjs"
     }
   },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "scripts": {
     "build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --dts --out-dir dist",
     "dev": "tsup --watch",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run",
+    "test:coverage": "pnpm -w test:coverage",
     "test:watch": "vitest",
-    "test:coverage": "pnpm -w test:coverage"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "devDependencies": {
-    "@types/node": "^25.0.8",
-    "happy-dom": "20.1.0",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
-  }
+  "type": "module",
+  "types": "./dist/index.d.ts"
 }

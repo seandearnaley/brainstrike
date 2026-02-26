@@ -209,16 +209,16 @@ function WorkerControls({
 interface BackfillButtonProps {
   activeId: string | null;
   activeLabel?: string | null;
-  hasDb: boolean;
   backfilling: boolean;
   backfillProgress: { done: number; total: number } | null;
-  onBackfill: () => Promise<void>;
   coverage: { total: number; withSet: number };
+  hasDb: boolean;
+  onBackfill: () => Promise<void>;
   queueCounts: { queued: number; running: number };
-  /** Whether clicking backfill will auto-start the worker (web only) */
-  willAutoStartWorker?: boolean;
   /** Whether worker is currently starting */
   startingWorker?: boolean;
+  /** Whether clicking backfill will auto-start the worker (web only) */
+  willAutoStartWorker?: boolean;
 }
 
 /** Truncates label to 24 chars with ellipsis */

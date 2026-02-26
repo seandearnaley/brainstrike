@@ -4,8 +4,8 @@ import { Folder } from 'lucide-react';
 import * as React from 'react';
 
 interface FileExplorerToolbarProps {
-  onDirectorySelect: () => Promise<void>;
   isLoading: boolean;
+  onDirectorySelect: () => Promise<void>;
 }
 
 const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(

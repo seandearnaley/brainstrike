@@ -2,10 +2,10 @@ import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 
 export interface Migration {
-  version: number;
+  down?: string | ((db: PGlite) => Promise<void>);
   name: string;
   up: string | ((db: PGlite) => Promise<void>);
-  down?: string | ((db: PGlite) => Promise<void>);
+  version: number;
 }
 
 export class MigrationRunner {

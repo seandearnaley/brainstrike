@@ -1,6 +1,6 @@
 export interface FilterPatterns {
-  includes: string[];
   excludes: string[];
+  includes: string[];
 }
 
 /**

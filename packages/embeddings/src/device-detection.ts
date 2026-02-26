@@ -16,9 +16,9 @@ interface GPURequestAdapterOptions {
 }
 
 interface GPUAdapterInfo {
-  vendor: string;
   architecture: string;
   description: string;
+  vendor: string;
 }
 
 interface GPUSupportedLimits {
@@ -29,8 +29,8 @@ interface GPUSupportedLimits {
 
 interface GPUAdapter {
   features: Set<string>;
-  limits: GPUSupportedLimits;
   isFallbackAdapter: boolean;
+  limits: GPUSupportedLimits;
   requestAdapterInfo: () => Promise<GPUAdapterInfo>;
 }
 
@@ -54,46 +54,46 @@ export type EmbeddingDeviceType = 'webgpu' | 'wasm';
  * Detailed WebGPU adapter information
  */
 export interface WebGPUAdapterInfo {
-  /** Vendor string (e.g., 'intel', 'nvidia', 'amd', 'apple') */
-  vendor: string;
   /** Architecture string (e.g., 'gen-12lp', 'ampere') */
   architecture: string;
   /** Device description from driver */
   description: string;
-  /** Whether this is a fallback/software adapter */
-  isFallbackAdapter: boolean;
   /** Supported features (subset of GPUSupportedFeatures) */
   features: string[];
+  /** Whether this is a fallback/software adapter */
+  isFallbackAdapter: boolean;
   /** Device limits (selected important ones) */
   limits: {
     maxBufferSize: number;
     maxComputeWorkgroupsPerDimension: number;
     maxStorageBufferBindingSize: number;
   };
+  /** Vendor string (e.g., 'intel', 'nvidia', 'amd', 'apple') */
+  vendor: string;
 }
 
 /**
  * Result of device capability detection
  */
 export interface DeviceCapabilities {
-  /** Whether WebGPU API is present in the browser */
-  webgpuApiPresent: boolean;
+  /** Detection timestamp */
+  detectedAt: number;
+  /** Human-readable recommendation explanation */
+  recommendationReason: string;
+  /** The recommended device based on capabilities */
+  recommendedDevice: EmbeddingDeviceType;
+  /** Whether WASM is available */
+  wasmAvailable: boolean;
   /** Whether WebGPU adapter was successfully obtained */
   webgpuAdapterAvailable: boolean;
   /** Detailed adapter info if available */
   webgpuAdapterInfo: WebGPUAdapterInfo | null;
+  /** Whether WebGPU API is present in the browser */
+  webgpuApiPresent: boolean;
   /** Reason WebGPU is unavailable (if applicable) */
   webgpuUnavailableReason: string | null;
-  /** Whether WASM is available */
-  wasmAvailable: boolean;
   /** Whether Web Workers are available (required for embedding queue) */
   webWorkersAvailable: boolean;
-  /** The recommended device based on capabilities */
-  recommendedDevice: EmbeddingDeviceType;
-  /** Human-readable recommendation explanation */
-  recommendationReason: string;
-  /** Detection timestamp */
-  detectedAt: number;
 }
 
 /**
@@ -102,14 +102,14 @@ export interface DeviceCapabilities {
 export interface DeviceUnavailableGuidance {
   /** The device that failed */
   device: EmbeddingDeviceType;
-  /** Human-readable error title */
-  title: string;
   /** Detailed explanation */
   explanation: string;
-  /** Suggested actions */
-  suggestions: string[];
   /** Alternative device to try */
   fallbackDevice: EmbeddingDeviceType | null;
+  /** Suggested actions */
+  suggestions: string[];
+  /** Human-readable error title */
+  title: string;
 }
 
 /**

@@ -21,17 +21,17 @@ export type QueueTelemetryAdapter = 'job-queue' | 'workerpool' | 'custom';
 export type QueueTelemetryEventType = 'enqueue' | 'start' | 'complete' | 'error' | 'cancel';
 
 export interface QueueTelemetryEvent {
-  readonly timestamp: number;
-  readonly adapter: QueueTelemetryAdapter;
-  readonly event: QueueTelemetryEventType;
-  readonly taskId: string;
-  readonly model?: string;
-  readonly elapsedMs?: number;
-  readonly activeBefore?: number;
   readonly activeAfter?: number;
-  readonly pending?: number;
+  readonly activeBefore?: number;
+  readonly adapter: QueueTelemetryAdapter;
+  readonly elapsedMs?: number;
   readonly errorMessage?: string;
+  readonly event: QueueTelemetryEventType;
   readonly metadata?: Record<string, unknown>;
+  readonly model?: string;
+  readonly pending?: number;
+  readonly taskId: string;
+  readonly timestamp: number;
 }
 
 export type QueueTelemetryListener = (event: QueueTelemetryEvent) => void;
@@ -56,12 +56,12 @@ export function addQueueTelemetryListener(listener: QueueTelemetryListener): () 
 }
 
 export interface QueueTelemetrySnapshot {
-  readonly events: readonly QueueTelemetryEvent[];
-  readonly throughputPerMinute: number;
   readonly averageLatencyMs: number | null;
+  readonly errorCount: number;
+  readonly events: readonly QueueTelemetryEvent[];
   readonly latencyP50Ms: number | null;
   readonly latencyP95Ms: number | null;
-  readonly errorCount: number;
+  readonly throughputPerMinute: number;
 }
 
 function computePercentile(values: readonly number[], percentile: number): number | null {

@@ -4,10 +4,10 @@ import type { MainToWorkerMessage, WorkerToMainMessage } from './types';
 type WorkerListener = (event: Event) => void;
 
 interface MockWorkerSelf {
-  postMessage: (message: WorkerToMainMessage) => void;
   addEventListener: (type: string, listener: WorkerListener) => void;
-  onmessage: ((event: MessageEvent<MainToWorkerMessage>) => Promise<void>) | null;
   listeners: Map<string, WorkerListener[]>;
+  onmessage: ((event: MessageEvent<MainToWorkerMessage>) => Promise<void>) | null;
+  postMessage: (message: WorkerToMainMessage) => void;
 }
 
 const createMockSelf = (): MockWorkerSelf => {

@@ -61,26 +61,26 @@ export type ContentHash = string & { readonly __brand: 'ContentHash' };
  * Input to the import stage - raw file data from filesystem.
  */
 export interface FileImportInput {
-  /** Absolute file path */
-  path: string;
-  /** File name (basename) */
-  name: string;
   /** Raw file content as string */
   content: string;
-  /** File size in bytes */
-  size: number;
   /** Target embedding set for this file */
   embeddingSetId?: EmbeddingSetId;
+  /** File name (basename) */
+  name: string;
+  /** Absolute file path */
+  path: string;
+  /** File size in bytes */
+  size: number;
 }
 
 /**
  * Output from import stage - stored file record reference.
  */
 export interface FileImportOutput {
-  /** Assigned file record ID */
-  fileId: FileId;
   /** Content hash used for deduplication */
   contentHash: ContentHash;
+  /** Assigned file record ID */
+  fileId: FileId;
   /** Whether this was a new import or existing file */
   isNew: boolean;
   /** Token count from import */
@@ -96,20 +96,20 @@ export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
  * Input to the chunking stage.
  */
 export interface ChunkingInput {
-  /** File record ID to chunk */
-  fileId: FileId;
   /** File content to chunk */
   content: string;
+  /** File record ID to chunk */
+  fileId: FileId;
   /** File name for strategy hints */
   fileName: string;
   /** File path for strategy hints */
   filePath: string;
-  /** Chunking strategy to use */
-  strategy: ChunkingStrategy;
   /** Maximum tokens per chunk */
   maxTokens?: number;
   /** Overlap between chunks */
   overlap?: number;
+  /** Chunking strategy to use */
+  strategy: ChunkingStrategy;
 }
 
 /**
@@ -118,34 +118,34 @@ export interface ChunkingInput {
 export interface ChunkOutput {
   /** Sequential index within the file (0-based) */
   chunkIndex: number;
+  /** Maximum chunk size used */
+  chunkSize: number;
+  /** Chunk type classification */
+  chunkType: 'text' | 'code' | 'sentence' | 'recursive';
   /** Chunk text content */
   content: string;
   /** SHA-256 hash of content */
   contentHash: ContentHash;
   /** Token count for this chunk */
   tokenCount: number;
-  /** Chunk type classification */
-  chunkType: 'text' | 'code' | 'sentence' | 'recursive';
-  /** Maximum chunk size used */
-  chunkSize: number;
 }
 
 /**
  * Output from chunking stage.
  */
 export interface ChunkingOutput {
-  /** Source file record ID */
-  fileId: FileId;
   /** Created chunks */
   chunks: ChunkOutput[];
-  /** Strategy actually used (may differ from requested) */
-  strategyUsed: ChunkingStrategy;
-  /** Total tokens across all chunks */
-  totalTokens: number;
+  /** Source file record ID */
+  fileId: FileId;
   /** Whether file was skipped (binary, lock file, etc.) */
   skipped: boolean;
   /** Reason for skipping, if applicable */
   skipReason?: string;
+  /** Strategy actually used (may differ from requested) */
+  strategyUsed: ChunkingStrategy;
+  /** Total tokens across all chunks */
+  totalTokens: number;
 }
 
 /**
@@ -172,10 +172,10 @@ export interface EmbeddingOutput {
   chunkId: ChunkId;
   /** Generated embedding vector */
   embedding: number[];
-  /** Model key used */
-  modelKey: string;
   /** Hash of the embedding for cache invalidation */
   embeddingHash: ContentHash;
+  /** Model key used */
+  modelKey: string;
 }
 
 // =============================================================================
@@ -189,16 +189,16 @@ export interface EmbeddingOutput {
 export interface EmbedJobPayload {
   /** Chunk ID to embed */
   chunkId: ChunkId;
-  /** Embedding set this job belongs to */
-  embeddingSetId: EmbeddingSetId;
-  /** Model key for embedding */
-  modelKey: string;
-  /** Content hash for caching/dedupe */
-  contentHash: ContentHash;
-  /** Original file ID for tracking */
-  fileId: FileId;
   /** Chunk index for ordering */
   chunkIndex: number;
+  /** Content hash for caching/dedupe */
+  contentHash: ContentHash;
+  /** Embedding set this job belongs to */
+  embeddingSetId: EmbeddingSetId;
+  /** Original file ID for tracking */
+  fileId: FileId;
+  /** Model key for embedding */
+  modelKey: string;
 }
 
 /**
@@ -214,36 +214,36 @@ export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled
  * Progress for a single stage.
  */
 export interface StageProgress {
-  /** Total items to process */
-  total: number;
   /** Items completed (success or skip) */
   completed: number;
-  /** Items currently in progress */
-  inProgress: number;
-  /** Items that failed */
-  failed: number;
   /** Current item being processed */
   currentItem?: string;
+  /** Items that failed */
+  failed: number;
+  /** Items currently in progress */
+  inProgress: number;
+  /** Total items to process */
+  total: number;
 }
 
 /**
  * Aggregated progress across all pipeline stages.
  */
 export interface PipelineProgress {
-  /** Current pipeline phase */
-  phase: 'importing' | 'chunking' | 'embedding' | 'complete' | 'error';
-  /** Import stage progress */
-  import: StageProgress;
   /** Chunking stage progress */
   chunking: StageProgress;
-  /** Embedding stage progress */
-  embedding: StageProgress;
-  /** Overall start time */
-  startedAt: string;
   /** Overall end time (if complete) */
   completedAt?: string;
+  /** Embedding stage progress */
+  embedding: StageProgress;
+  /** Import stage progress */
+  import: StageProgress;
+  /** Current pipeline phase */
+  phase: 'importing' | 'chunking' | 'embedding' | 'complete' | 'error';
   /** Recent errors for diagnostics */
   recentErrors: Array<{ stage: string; item: string; error: string; timestamp: string }>;
+  /** Overall start time */
+  startedAt: string;
 }
 
 // =============================================================================
@@ -256,12 +256,6 @@ export interface PipelineProgress {
  */
 export interface DedupeKeyFormat {
   /**
-   * File dedupe: hash + set
-   * Format: `file:{contentHash}:{embeddingSetId}`
-   */
-  file: `file:${string}:${string}`;
-
-  /**
    * Chunk dedupe: file + index
    * Format: `chunk:{fileId}:{chunkIndex}`
    */
@@ -272,6 +266,11 @@ export interface DedupeKeyFormat {
    * Format: `embed:{chunkId}:{embeddingSetId}:{modelKey}`
    */
   embedJob: `embed:${string}:${string}:${string}`;
+  /**
+   * File dedupe: hash + set
+   * Format: `file:{contentHash}:{embeddingSetId}`
+   */
+  file: `file:${string}:${string}`;
 }
 
 // =============================================================================
@@ -297,20 +296,19 @@ export interface DedupeKeyFormat {
  */
 export interface ContentReader {
   /**
-   * Read content for a single file path on-demand.
-   *
-   * @param compositeKey - The file's composite key (folderId:path format)
-   * @returns File content as string, or null if file cannot be read
-   */
-  readContent(compositeKey: string): Promise<string | null>;
-
-  /**
    * Optional: prefetch a batch of files for network optimization.
    * Called before processing a batch to allow parallel network requests.
    *
    * @param compositeKeys - Array of composite keys to prefetch
    */
   prefetchBatch?(compositeKeys: string[]): Promise<void>;
+  /**
+   * Read content for a single file path on-demand.
+   *
+   * @param compositeKey - The file's composite key (folderId:path format)
+   * @returns File content as string, or null if file cannot be read
+   */
+  readContent(compositeKey: string): Promise<string | null>;
 
   /**
    * Optional: release content after processing to allow GC.
@@ -333,18 +331,18 @@ export interface StreamingImportOptions {
   concurrency?: number;
 
   /**
-   * Number of files to prefetch ahead of processing.
-   * Useful when content comes from network (e.g., Web API).
-   * @default 0 (no prefetch)
-   */
-  prefetchAhead?: number;
-
-  /**
    * Whether to continue processing on individual file errors.
    * If false, first error stops the entire pipeline.
    * @default true (isolate errors to individual files)
    */
   continueOnError?: boolean;
+
+  /**
+   * Number of files to prefetch ahead of processing.
+   * Useful when content comes from network (e.g., Web API).
+   * @default 0 (no prefetch)
+   */
+  prefetchAhead?: number;
 
   /**
    * Progress update throttle in milliseconds.
@@ -358,46 +356,46 @@ export interface StreamingImportOptions {
  * Result from streaming a single file through the pipeline.
  */
 export interface StreamingFileResult {
-  /** File path that was processed */
-  path: string;
+  /** Number of chunks created */
+  chunksCreated: number;
   /** Composite key (folderId:path) */
   compositeKey: string;
-  /** Whether import succeeded */
-  imported: boolean;
+  /** Processing time in ms */
+  durationMs: number;
+  /** Error message if failed */
+  error?: string;
   /** Whether file already existed */
   existed: boolean;
   /** File record ID if successful */
   fileId?: FileId;
-  /** Number of chunks created */
-  chunksCreated: number;
+  /** Whether import succeeded */
+  imported: boolean;
   /** Number of embedding jobs enqueued */
   jobsEnqueued: number;
-  /** Error message if failed */
-  error?: string;
-  /** Processing time in ms */
-  durationMs: number;
+  /** File path that was processed */
+  path: string;
 }
 
 /**
  * Streaming import completion result.
  */
 export interface StreamingImportResult {
-  /** All file results */
-  files: StreamingFileResult[];
-  /** Total files processed */
-  totalFiles: number;
-  /** Successfully imported files */
-  successCount: number;
-  /** Files with errors */
-  errorCount: number;
-  /** Total chunks created */
-  totalChunks: number;
-  /** Total jobs enqueued */
-  totalJobsEnqueued: number;
   /** Total duration in ms */
   durationMs: number;
+  /** Files with errors */
+  errorCount: number;
+  /** All file results */
+  files: StreamingFileResult[];
   /** Peak memory usage estimate (if available) */
   peakMemoryMb?: number;
+  /** Successfully imported files */
+  successCount: number;
+  /** Total chunks created */
+  totalChunks: number;
+  /** Total files processed */
+  totalFiles: number;
+  /** Total jobs enqueued */
+  totalJobsEnqueued: number;
 }
 
 // =============================================================================
@@ -418,6 +416,22 @@ export interface StreamingImportResult {
  * | EmbedJobPayload  | job_queue     | dedupeKey → dedupe_key     |
  */
 export interface DbMapping {
+  fileChunks: {
+    table: 'file_chunks';
+    primaryKey: 'id';
+    dedupeKey: 'content_hash';
+    fields: {
+      id: ChunkId;
+      fileRecordId: FileId;
+      chunkIndex: number;
+      content: string;
+      contentHash: ContentHash;
+      tokenCount: number;
+      embedding: number[] | null;
+      embeddingSetId: EmbeddingSetId | null;
+      embeddingHash: ContentHash | null;
+    };
+  };
   fileRecords: {
     table: 'file_records';
     primaryKey: 'id';
@@ -433,22 +447,6 @@ export interface DbMapping {
       embeddingSetId: EmbeddingSetId | null;
       chunksCount: number | null;
       chunkingStrategy: ChunkingStrategy | null;
-    };
-  };
-  fileChunks: {
-    table: 'file_chunks';
-    primaryKey: 'id';
-    dedupeKey: 'content_hash';
-    fields: {
-      id: ChunkId;
-      fileRecordId: FileId;
-      chunkIndex: number;
-      content: string;
-      contentHash: ContentHash;
-      tokenCount: number;
-      embedding: number[] | null;
-      embeddingSetId: EmbeddingSetId | null;
-      embeddingHash: ContentHash | null;
     };
   };
   jobQueue: {

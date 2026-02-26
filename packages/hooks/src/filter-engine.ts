@@ -70,10 +70,10 @@ function processFileNode(
 }
 
 export interface PatternCache {
-  includeRegex: RegExp[];
+  excludeGlobs: Minimatch[];
   excludeRegex: RegExp[];
   includeGlobs: Minimatch[];
-  excludeGlobs: Minimatch[];
+  includeRegex: RegExp[];
 }
 
 export function setupFilters(

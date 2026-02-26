@@ -22,15 +22,15 @@ export type TokenCountingMode = 'accurate' | 'heuristic';
  * Token cache entry type (matches the original TokenCacheStore types)
  */
 export interface TokenCacheEntry {
-  folderId: string;
-  filePath: string;
   contentHash: string;
+  countingMode: TokenCountingMode;
+  createdAt: string;
+  filePath: string;
   fileSize: number;
+  folderId: string;
+  modelEncoding: string | null;
   mtimeMs: number | null;
   tokenCount: number;
-  countingMode: TokenCountingMode;
-  modelEncoding: string | null;
-  createdAt: string;
   updatedAt: string;
 }
 
@@ -38,10 +38,10 @@ export interface TokenCacheEntry {
  * Token cache statistics
  */
 export interface TokenCacheStats {
-  entryCount: number;
-  totalTokens: number;
   accurateCount: number;
+  entryCount: number;
   heuristicCount: number;
+  totalTokens: number;
 }
 
 /**

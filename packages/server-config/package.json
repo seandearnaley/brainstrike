@@ -1,13 +1,12 @@
 {
   "name": "@brainstrike/server-config",
   "version": "0.1.0",
+  "devDependencies": {
+    "@types/node": "^25.3.0"
+  },
   "engines": {
     "node": ">=22"
   },
-  "private": true,
-  "main": "dist/index.js",
-  "module": "dist/index.js",
-  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -18,18 +17,19 @@
   "files": [
     "dist"
   ],
+  "license": "ISC",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "private": true,
   "scripts": {
     "build": "rm -rf dist && tsc -b .",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "clean": "rm -rf dist .tsbuildinfo",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run",
+    "test:coverage": "pnpm -w test:coverage",
     "test:watch": "vitest",
-    "test:coverage": "pnpm -w test:coverage"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "license": "ISC",
-  "devDependencies": {
-    "@types/node": "^25.0.8"
-  }
+  "types": "dist/index.d.ts"
 }

@@ -17,118 +17,118 @@ export type { CollectionSortDirection, CollectionSortKey, CollectionSortState, S
  * Persisted data for the CollectionBrowserView
  */
 interface CollectionBrowserData {
-  /** Expanded node IDs in the tree */
-  expandedIds: string[];
-  /** Currently selected node ID */
-  selectedId: string | null;
-  /** Hierarchical sort state for the tree (null = unsorted) */
-  sortState: CollectionSortState | null;
-  /** Whether the inspector panel is collapsed */
-  isInspectorCollapsed: boolean;
-  /** Width of the inspector panel as a percentage (0-100) */
-  inspectorWidth: number;
-  /** Filter state - search query (quick filter mode) */
-  searchQuery: string;
-  /** Filter state - enabled node types */
-  nodeTypes: string[];
+  /** Node IDs marked as in-context */
+  contextSelectedIds: string[];
   /** Filter state - embedding status filter */
   embeddingStatus: string;
+  /** Expanded node IDs in the tree */
+  expandedIds: string[];
+  /** Grouping key for the tree (default: 'none') */
+  groupBy: GroupByKey;
+  /** Width of the inspector panel as a percentage (0-100) */
+  inspectorWidth: number;
+  /** Whether the filter bar is visible */
+  isFilterVisible: boolean;
+  /** Whether the inspector panel is collapsed */
+  isInspectorCollapsed: boolean;
+  /** Whether multi-select mode is enabled */
+  multiSelectEnabled: boolean;
+  /** Filter state - enabled node types */
+  nodeTypes: string[];
+  /** Semantic search distance metric */
+  searchConfigDistanceMetric: DistanceMetric;
+  /** Whether the search config panel is expanded */
+  searchConfigExpanded: boolean;
+  /** Hybrid search FTS weight (0-2) */
+  searchConfigFtsWeight: number;
+  /** Semantic search result limit */
+  searchConfigLimit: number;
+  /** Hybrid search retrieval mode (vector-only or hybrid) */
+  searchConfigRetrievalMode: 'vector' | 'hybrid';
+  /** Semantic search similarity threshold */
+  searchConfigThreshold: number;
+  /** Hybrid search vector weight (0-2) */
+  searchConfigVectorWeight: number;
   // Semantic search state (persisted)
   /** Current search mode (quick filter or semantic search) */
   searchMode: SearchMode;
+  /** Filter state - search query (quick filter mode) */
+  searchQuery: string;
+  /** Currently selected node ID */
+  selectedId: string | null;
   /** Semantic search query text */
   semanticQuery: string;
-  /** Semantic search similarity threshold */
-  searchConfigThreshold: number;
-  /** Semantic search result limit */
-  searchConfigLimit: number;
-  /** Semantic search distance metric */
-  searchConfigDistanceMetric: DistanceMetric;
-  /** Hybrid search retrieval mode (vector-only or hybrid) */
-  searchConfigRetrievalMode: 'vector' | 'hybrid';
-  /** Hybrid search vector weight (0-2) */
-  searchConfigVectorWeight: number;
-  /** Hybrid search FTS weight (0-2) */
-  searchConfigFtsWeight: number;
-  /** Whether the search config panel is expanded */
-  searchConfigExpanded: boolean;
-  /** Whether the filter bar is visible */
-  isFilterVisible: boolean;
-  /** Grouping key for the tree (default: 'none') */
-  groupBy: GroupByKey;
-  /** Node IDs marked as in-context */
-  contextSelectedIds: string[];
   /** Whether to show checkboxes for multi-select */
   showCheckbox: boolean;
-  /** Whether multi-select mode is enabled */
-  multiSelectEnabled: boolean;
+  /** Hierarchical sort state for the tree (null = unsorted) */
+  sortState: CollectionSortState | null;
 }
 
 /**
  * Actions for the CollectionBrowserView store
  */
 interface CollectionBrowserActions {
-  /** Set expanded node IDs */
-  setExpandedIds: (ids: string[]) => void;
-  /** Remove specific IDs from the expanded set */
-  removeExpandedIds: (ids: Iterable<string>) => void;
-  /** Toggle a single node's expansion */
-  toggleExpanded: (id: string) => void;
-  /** Expand all provided IDs */
-  expandIds: (ids: string[]) => void;
+  /** Clear all in-context node IDs */
+  clearContextSelectedIds: () => void;
   /** Collapse all nodes */
   collapseAll: () => void;
-  /** Set the selected node ID */
-  setSelectedId: (id: string | null) => void;
-  /** Set the sort state */
-  setSortState: (state: CollectionSortState | null) => void;
-  /** Toggle sort for a key (cycles: null -> asc -> desc -> null) */
-  toggleSort: (key: CollectionSortKey) => void;
+  /** Expand all provided IDs */
+  expandIds: (ids: string[]) => void;
+  /** Remove specific IDs from the expanded set */
+  removeExpandedIds: (ids: Iterable<string>) => void;
+  /** Reset all state to defaults */
+  reset: () => void;
+  /** Set embedding status filter */
+  setEmbeddingStatus: (status: string) => void;
+  /** Set expanded node IDs */
+  setExpandedIds: (ids: string[]) => void;
+  /** Set grouping key */
+  setGroupBy: (groupBy: GroupByKey) => void;
   /** Set inspector collapsed state */
   setInspectorCollapsed: (collapsed: boolean) => void;
   /** Set the width of the inspector panel */
   setInspectorWidth: (width: number) => void;
-  /** Set search query (quick filter mode) */
-  setSearchQuery: (query: string) => void;
+  /** Set filter bar visibility */
+  setIsFilterVisible: (visible: boolean) => void;
+  /** Set multi-select mode */
+  setMultiSelectEnabled: (enabled: boolean) => void;
   /** Set enabled node types */
   setNodeTypes: (types: string[]) => void;
-  /** Toggle a node type */
-  toggleNodeType: (type: string) => void;
-  /** Set embedding status filter */
-  setEmbeddingStatus: (status: string) => void;
+  /** Set semantic search distance metric */
+  setSearchConfigDistanceMetric: (metric: DistanceMetric) => void;
+  /** Set search config panel expanded state */
+  setSearchConfigExpanded: (expanded: boolean) => void;
+  /** Set hybrid search FTS weight */
+  setSearchConfigFtsWeight: (weight: number) => void;
+  /** Set semantic search result limit */
+  setSearchConfigLimit: (limit: number) => void;
+  /** Set hybrid search retrieval mode */
+  setSearchConfigRetrievalMode: (mode: 'vector' | 'hybrid') => void;
+  /** Set semantic search threshold */
+  setSearchConfigThreshold: (threshold: number) => void;
+  /** Set hybrid search vector weight */
+  setSearchConfigVectorWeight: (weight: number) => void;
   // Semantic search actions
   /** Set the search mode (quick or semantic) */
   setSearchMode: (mode: SearchMode) => void;
+  /** Set search query (quick filter mode) */
+  setSearchQuery: (query: string) => void;
+  /** Set the selected node ID */
+  setSelectedId: (id: string | null) => void;
   /** Set the semantic search query */
   setSemanticQuery: (query: string) => void;
-  /** Set semantic search threshold */
-  setSearchConfigThreshold: (threshold: number) => void;
-  /** Set semantic search result limit */
-  setSearchConfigLimit: (limit: number) => void;
-  /** Set semantic search distance metric */
-  setSearchConfigDistanceMetric: (metric: DistanceMetric) => void;
-  /** Set hybrid search retrieval mode */
-  setSearchConfigRetrievalMode: (mode: 'vector' | 'hybrid') => void;
-  /** Set hybrid search vector weight */
-  setSearchConfigVectorWeight: (weight: number) => void;
-  /** Set hybrid search FTS weight */
-  setSearchConfigFtsWeight: (weight: number) => void;
-  /** Set search config panel expanded state */
-  setSearchConfigExpanded: (expanded: boolean) => void;
-  /** Set filter bar visibility */
-  setIsFilterVisible: (visible: boolean) => void;
-  /** Set grouping key */
-  setGroupBy: (groupBy: GroupByKey) => void;
-  /** Toggle in-context state for a node ID */
-  toggleContextSelectedId: (nodeId: string) => void;
-  /** Clear all in-context node IDs */
-  clearContextSelectedIds: () => void;
   /** Set checkbox visibility */
   setShowCheckbox: (show: boolean) => void;
-  /** Set multi-select mode */
-  setMultiSelectEnabled: (enabled: boolean) => void;
-  /** Reset all state to defaults */
-  reset: () => void;
+  /** Set the sort state */
+  setSortState: (state: CollectionSortState | null) => void;
+  /** Toggle in-context state for a node ID */
+  toggleContextSelectedId: (nodeId: string) => void;
+  /** Toggle a single node's expansion */
+  toggleExpanded: (id: string) => void;
+  /** Toggle a node type */
+  toggleNodeType: (type: string) => void;
+  /** Toggle sort for a key (cycles: null -> asc -> desc -> null) */
+  toggleSort: (key: CollectionSortKey) => void;
 }
 
 export type CollectionBrowserStore = CollectionBrowserData & CollectionBrowserActions;

@@ -7,8 +7,8 @@ interface StatItemProps {
   icon: LucideIcon;
   iconColor?: string;
   label: string;
-  value: string | number;
   muted?: boolean;
+  value: string | number;
 }
 
 const StatItem = memo<StatItemProps>(function StatItem({
@@ -68,8 +68,8 @@ const TokenStatusBadge = memo<TokenStatusBadgeProps>(function TokenStatusBadge({
 });
 
 interface BudgetStatusProps {
-  remaining: number;
   isOverBudget: boolean;
+  remaining: number;
 }
 
 const BudgetStatus = memo<BudgetStatusProps>(function BudgetStatus({ remaining, isOverBudget }) {
@@ -98,12 +98,12 @@ const SOURCE_TOKENS_TOOLTIP = (
 );
 
 interface SelectedTokensTooltipProps {
-  useTapestryRanges: boolean;
-  isEstimating: boolean;
-  totalFiles: number;
-  selectedTokensPendingCount: number;
-  rangeAdjustedFilesCount: number;
   activeRangeFilesCount: number;
+  isEstimating: boolean;
+  rangeAdjustedFilesCount: number;
+  selectedTokensPendingCount: number;
+  totalFiles: number;
+  useTapestryRanges: boolean;
 }
 
 const SelectedTokensTooltip = memo<SelectedTokensTooltipProps>(function SelectedTokensTooltip({
@@ -155,20 +155,20 @@ const TreeTokensTooltip = memo<TreeTokensTooltipProps>(function TreeTokensToolti
 });
 
 interface TokenSummaryBarProps {
-  totalFiles: number;
-  selectedTokens: number;
-  sourceSelectedTokens?: number;
-  treeTokens: number;
-  includeTree: boolean;
-  useTapestryRanges?: boolean;
-  rangeAdjustedFilesCount?: number;
   activeRangeFilesCount?: number;
-  treeLoading?: boolean;
+  budget: number;
+  includeTree: boolean;
+  isOverBudget: boolean;
+  rangeAdjustedFilesCount?: number;
+  selectedTokens: number;
   /** BST-153: Number of files still being indexed (for "estimating..." state) */
   selectedTokensPendingCount?: number;
-  budget: number;
-  isOverBudget: boolean;
+  sourceSelectedTokens?: number;
   tokenCounting: TokenCountingState;
+  totalFiles: number;
+  treeLoading?: boolean;
+  treeTokens: number;
+  useTapestryRanges?: boolean;
 }
 
 /**

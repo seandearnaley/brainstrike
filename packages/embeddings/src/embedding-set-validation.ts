@@ -12,10 +12,6 @@ import type { DistanceMetric, ProviderMetadata, Result } from './provider-types'
  * Maps to IEmbeddingSetsRepository.getOrCreateSet parameters.
  */
 export interface EmbeddingSetCreateParams {
-  /** Provider identifier (e.g., 'openai', 'voyage', 'local') */
-  modelKey: string;
-  /** Model identifier (e.g., 'text-embedding-3-small', 'voyage-3') */
-  modelId: string;
   /** Expected embedding dimensions */
   dimensions: number;
   /** Distance metric for similarity calculations */
@@ -27,6 +23,10 @@ export interface EmbeddingSetCreateParams {
     tags?: string;
     category?: string;
   };
+  /** Model identifier (e.g., 'text-embedding-3-small', 'voyage-3') */
+  modelId: string;
+  /** Provider identifier (e.g., 'openai', 'voyage', 'local') */
+  modelKey: string;
 }
 
 /**

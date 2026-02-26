@@ -4,20 +4,24 @@ import { ActionButtons } from './action-buttons';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
 interface Props {
-  displayedFiles: readonly string[];
-  selectedFiles: readonly string[];
-  maxSelectionCount: number;
+  /** Add multiple selected files (used by recursive selection) */
+  addMultipleSelectedFiles?: (folderId: string, paths: string[]) => void;
+  /** Cancel the current recursive selection operation */
+  cancelSelectAll?: () => void;
   currentFolderId: string | null;
-  setSelectedFiles: (next: readonly string[]) => void;
+  displayedFiles: readonly string[];
   encodeFileSelection: (folderId: string, path: string) => string;
-  onSelectionLimitExceeded: () => void | Promise<void>;
-  /** Whether the tree has any files (used to enable/disable Select All) */
-  hasFilesInTree?: boolean;
   /**
    * The FILTERED file tree to select from.
    * Pass quickFilteredTree to respect workspace include/exclude filters.
    */
   filteredTree?: IFileNode[];
+  /** Whether the tree has any files (used to enable/disable Select All) */
+  hasFilesInTree?: boolean;
+  /** Whether the tree is being loaded for select all */
+  isLoadingForSelectAll?: boolean;
+  maxSelectionCount: number;
+  onSelectionLimitExceeded: () => void | Promise<void>;
   /**
    * Recursively select all files in the provided tree, loading if needed.
    * IMPORTANT: The first parameter is the filtered tree to operate on.
@@ -28,12 +32,8 @@ interface Props {
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number
   ) => Promise<SelectAllResult>;
-  /** Cancel the current recursive selection operation */
-  cancelSelectAll?: () => void;
-  /** Whether the tree is being loaded for select all */
-  isLoadingForSelectAll?: boolean;
-  /** Add multiple selected files (used by recursive selection) */
-  addMultipleSelectedFiles?: (folderId: string, paths: string[]) => void;
+  selectedFiles: readonly string[];
+  setSelectedFiles: (next: readonly string[]) => void;
 }
 
 const ActionButtonsArrayFacade: React.FC<Props> = (props) => {

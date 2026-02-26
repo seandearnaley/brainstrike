@@ -10,12 +10,12 @@ import {
 } from '@brainstrike/ui';
 
 interface ClearDatabaseDialogProps {
-  records: FileRecord[];
   chunks: FileChunk[];
   clearing: boolean;
-  showClearDialog: boolean;
-  setShowClearDialog: (show: boolean) => void;
   onClear: () => Promise<void>;
+  records: FileRecord[];
+  setShowClearDialog: (show: boolean) => void;
+  showClearDialog: boolean;
 }
 
 /**

@@ -13,6 +13,11 @@ declare global {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
     };
+    mcp?: {
+      getConfig?: () => Promise<unknown>;
+      watch?: () => Promise<{ watching: boolean }>;
+      unwatch?: () => Promise<{ watching: false }>;
+    };
     secrets?: {
       saveKey?: (
         provider: string,
@@ -23,11 +28,6 @@ declare global {
       list?: () => Promise<string[]>;
       listStored?: () => Promise<string[]>;
       clearAll?: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
-    };
-    mcp?: {
-      getConfig?: () => Promise<unknown>;
-      watch?: () => Promise<{ watching: boolean }>;
-      unwatch?: () => Promise<{ watching: false }>;
     };
   }
 }

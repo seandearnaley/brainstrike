@@ -145,13 +145,13 @@ function convertMessages(messages: ChatModelRunOptions['messages']): LocalLlmMes
 
 export interface LocalRuntimeAdapterOptions {
   modelId: string;
+  onError?: (error: Error) => void;
   onLoadingProgress?: (progress: {
     stage: 'downloading' | 'loading' | 'ready';
     progress: number;
     message: string;
     file?: string;
   }) => void;
-  onError?: (error: Error) => void;
 }
 
 /**

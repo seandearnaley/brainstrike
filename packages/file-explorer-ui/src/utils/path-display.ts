@@ -1,13 +1,13 @@
 interface SplitFilePathResult {
-  fileName: string;
   dirPath: string;
+  fileName: string;
 }
 
 interface DirPathDisplayOptions {
-  maxDisplayChars: number;
   headSegments: number;
-  tailSegments: number;
+  maxDisplayChars: number;
   maxSegmentChars: number;
+  tailSegments: number;
 }
 
 function normalizeSeparators(inputPath: string): string {

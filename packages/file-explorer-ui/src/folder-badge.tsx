@@ -4,8 +4,8 @@ import { Folder } from 'lucide-react';
 import * as React from 'react';
 
 interface FolderBadgeProps {
-  folderId: string;
   className?: string;
+  folderId: string;
 }
 
 export const FolderBadge = React.memo(({ folderId, className }: FolderBadgeProps) => {

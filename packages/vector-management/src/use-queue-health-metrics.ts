@@ -38,21 +38,21 @@ const EMBEDDING_QUEUE_NAME = 'embeddings';
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 
 export interface UseQueueHealthMetricsOptions {
-  /** Polling interval in ms (default: 2000) */
-  readonly pollIntervalMs?: number;
   /** Whether to enable polling (default: true in browser, false in test) */
   readonly enablePolling?: boolean;
+  /** Polling interval in ms (default: 2000) */
+  readonly pollIntervalMs?: number;
 }
 
 export interface UseQueueHealthMetricsReturn {
-  /** Consolidated health metrics */
-  readonly metrics: QueueHealthMetrics;
-  /** Whether initial data is still loading */
-  readonly isLoading: boolean;
-  /** Force a refresh of all metrics */
-  readonly refresh: () => Promise<void>;
   /** Last error encountered, if any */
   readonly error: string | null;
+  /** Whether initial data is still loading */
+  readonly isLoading: boolean;
+  /** Consolidated health metrics */
+  readonly metrics: QueueHealthMetrics;
+  /** Force a refresh of all metrics */
+  readonly refresh: () => Promise<void>;
 }
 
 /**

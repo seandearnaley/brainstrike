@@ -19,13 +19,13 @@ interface OpenAIEmbeddingResponse {
     embedding?: number[];
     index?: number;
   }>;
+  error?: { message?: string };
   usage?: {
     // biome-ignore lint/style/useNamingConvention: OpenAI API uses snake_case keys
     prompt_tokens?: number;
     // biome-ignore lint/style/useNamingConvention: OpenAI API uses snake_case keys
     total_tokens?: number;
   };
-  error?: { message?: string };
 }
 
 const OPENAI_MODELS: Record<string, ModelConfig> = {
@@ -66,14 +66,14 @@ const OPENAI_COMPATIBLE_LABELS: Record<OpenAiCompatibleProvider, string> = {
 };
 
 export interface OpenAIEmbeddingProviderOptions {
-  readonly modelId: string;
-  readonly targetDimensions: number;
   readonly apiKey?: string;
-  readonly fetch?: FetchLike;
   readonly endpoint?: string;
+  readonly fetch?: FetchLike;
+  readonly includeDimensions?: boolean;
+  readonly modelId: string;
   readonly provider?: OpenAiCompatibleProvider;
   readonly requiresApiKey?: boolean;
-  readonly includeDimensions?: boolean;
+  readonly targetDimensions: number;
 }
 
 export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {

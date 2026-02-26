@@ -3,8 +3,8 @@ import { stableHash } from './hash-utils';
 import { createLogger } from './logger';
 
 interface ExperimentalFileSystemFeatures {
-  isSameEntry(other: FileSystemHandle): Promise<boolean>;
   getParent(): Promise<FileSystemHandle | null>;
+  isSameEntry(other: FileSystemHandle): Promise<boolean>;
 }
 
 // Custom error types for file system operations

@@ -6,28 +6,28 @@ import { type FileTree, mockBrowserApis } from './mock-fs';
 
 export interface ExplorerBootstrapOptions {
   /**
-   * Mocked file system tree that will be exposed through the File System Access API.
+   * Additional storage keys to clear before reloading the application.
    */
-  tree: FileTree;
+  clearStorageKeys?: string[];
   /**
    * Optional label to use for the mocked root directory.
    * Defaults to "test-root" for historical parity with existing tests.
    */
   projectName?: string;
   /**
+   * Reload the page after clearing storage to ensure UI picks up default state.
+   * Enabled by default to mirror prior test flows.
+   */
+  reloadAfterClear?: boolean;
+  /**
    * Remove persisted file explorer settings before continuing.
    * This clears both the legacy and current storage keys so scenarios start clean.
    */
   resetSettings?: boolean;
   /**
-   * Additional storage keys to clear before reloading the application.
+   * Mocked file system tree that will be exposed through the File System Access API.
    */
-  clearStorageKeys?: string[];
-  /**
-   * Reload the page after clearing storage to ensure UI picks up default state.
-   * Enabled by default to mirror prior test flows.
-   */
-  reloadAfterClear?: boolean;
+  tree: FileTree;
 }
 
 /**

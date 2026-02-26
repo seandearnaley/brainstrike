@@ -1,12 +1,12 @@
 import type { GroupedData, TableRowData } from './grouping-configs';
 
 export interface VisibleFilesOnPageInput {
-  groupingConfig: string;
-  currentPageData: TableRowData[];
-  groupedData: GroupedData<TableRowData>[];
   collapsedGroups: Set<string>;
-  startIndex: number;
+  currentPageData: TableRowData[];
   endIndex: number;
+  groupedData: GroupedData<TableRowData>[];
+  groupingConfig: string;
+  startIndex: number;
 }
 
 export function getVisibleFilesOnPage(input: VisibleFilesOnPageInput): TableRowData[] {
@@ -45,15 +45,15 @@ export function getVisibleFilesOnPage(input: VisibleFilesOnPageInput): TableRowD
 export interface GroupedPageSection {
   group: GroupedData<TableRowData>;
   isCollapsed: boolean;
-  showHeader: boolean;
   items: TableRowData[];
+  showHeader: boolean;
 }
 
 interface GroupedPageSectionsInput {
-  groupedData: GroupedData<TableRowData>[];
   collapsedGroups: Set<string>;
-  startIndex: number;
   endIndex: number;
+  groupedData: GroupedData<TableRowData>[];
+  startIndex: number;
 }
 
 function isIndexInPage(index: number, startIndex: number, endIndex: number): boolean {

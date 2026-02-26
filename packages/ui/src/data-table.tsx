@@ -10,18 +10,26 @@ function ExpandedRowContent({ children }: { children: React.ReactNode }) {
 }
 
 export interface DataTableColumn<TData> {
-  id: string;
-  header?: React.ReactNode | ((props: { column: DataTableColumn<TData> }) => React.ReactNode);
-  cell: (props: { row: TData; rowIndex: number }) => React.ReactNode;
   accessorFn?: (row: TData) => unknown;
-  sortable?: boolean;
+  cell: (props: { row: TData; rowIndex: number }) => React.ReactNode;
   className?: string;
+  header?: React.ReactNode | ((props: { column: DataTableColumn<TData> }) => React.ReactNode);
   headerClassName?: string;
+  id: string;
+  sortable?: boolean;
 }
 
 export interface DataTableProps<TData> {
+  className?: string;
   columns: DataTableColumn<TData>[];
   data: TData[];
+  emptyState?: React.ReactNode;
+  expandable?: {
+    enabled: boolean;
+    expandedRows?: Set<string>;
+    onToggleExpand?: (rowId: string) => void;
+    renderExpandedContent?: (row: TData) => React.ReactNode;
+  };
   getRowId?: (row: TData, index: number) => string;
   maxHeight?: string;
   pagination?: {
@@ -34,14 +42,6 @@ export interface DataTableProps<TData> {
     sortColumn?: string | null;
     sortDirection?: 'asc' | 'desc' | null;
   };
-  expandable?: {
-    enabled: boolean;
-    expandedRows?: Set<string>;
-    onToggleExpand?: (rowId: string) => void;
-    renderExpandedContent?: (row: TData) => React.ReactNode;
-  };
-  emptyState?: React.ReactNode;
-  className?: string;
 }
 
 export function DataTable<TData>({

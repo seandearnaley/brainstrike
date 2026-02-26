@@ -64,17 +64,17 @@ async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
 }
 
 export interface PanelElements {
-  leftPanel: ReturnType<Page['locator']>;
-  rightPanel: ReturnType<Page['locator']>;
   consolePanel: ReturnType<Page['locator']>;
-  mainContentPanel: ReturnType<Page['locator']>;
-  middlePanel: ReturnType<Page['locator']>;
+  hideConsoleButton: ReturnType<Page['locator']>;
   hideExplorerButton: ReturnType<Page['locator']>;
   hideRightPanelButton: ReturnType<Page['locator']>;
-  hideConsoleButton: ReturnType<Page['locator']>;
+  leftPanel: ReturnType<Page['locator']>;
+  mainContentPanel: ReturnType<Page['locator']>;
+  middlePanel: ReturnType<Page['locator']>;
+  rightPanel: ReturnType<Page['locator']>;
+  showConsoleShim: ReturnType<Page['locator']>;
   showExplorerShim: ReturnType<Page['locator']>;
   showRightPanelShim: ReturnType<Page['locator']>;
-  showConsoleShim: ReturnType<Page['locator']>;
 }
 
 /**
@@ -305,9 +305,9 @@ export async function corruptLayoutStorage(page: Page): Promise<void> {
 }
 
 interface DefaultLayoutState {
+  consoleHidden?: boolean;
   leftPanelHidden?: boolean;
   rightPanelHidden?: boolean;
-  consoleHidden?: boolean;
 }
 
 /**

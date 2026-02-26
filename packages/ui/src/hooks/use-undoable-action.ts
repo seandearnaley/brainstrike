@@ -4,10 +4,10 @@ import { useToast } from '../use-toast';
 
 export interface UndoableActionOptions<T, S = unknown> {
   actionName: string;
-  itemDescription: string;
   duration?: number;
-  onUndo: (item: T, snapshot: S) => void;
   getStateSnapshot?: () => S;
+  itemDescription: string;
+  onUndo: (item: T, snapshot: S) => void;
 }
 
 export function useUndoableAction<T, S = unknown>() {

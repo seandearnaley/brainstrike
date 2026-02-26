@@ -7,29 +7,29 @@ export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled
 export type JobType = 'embed_chunk';
 
 export interface JobRow {
-  id: string;
-  queue: string;
-  job_type: string;
-  payload: unknown | null;
-  state: JobState;
-  run_at: string;
   attempts: number;
-  max_attempts: number;
   backoff_ms: number;
-  lease_token?: string | null;
-  leased_until?: string | null;
-  worker_id?: string | null;
+  created_at: string;
   dedupe_key?: string | null;
   error?: string | null;
-  created_at: string;
+  id: string;
+  job_type: string;
+  lease_token?: string | null;
+  leased_until?: string | null;
+  max_attempts: number;
+  payload: unknown | null;
+  queue: string;
+  run_at: string;
+  state: JobState;
   updated_at: string;
+  worker_id?: string | null;
 }
 
 export interface Job extends Omit<JobRow, 'job_type' | 'payload' | 'run_at' | 'leased_until'> {
   jobType: JobType;
-  runAt: string;
   leasedUntil?: string | null;
   payload?: unknown | null;
+  runAt: string;
 }
 
 const logger = createLogger('JobQueue');
@@ -72,25 +72,25 @@ function computeElapsedMs(startIso: string, endIso: string): number | null {
 }
 
 export interface EnqueueParams {
-  queue: string;
-  jobType: JobType;
-  payload: unknown;
   dedupeKey?: string;
-  runAt?: string; // ISO string; defaults to now
+  jobType: JobType;
   maxAttempts?: number; // defaults to configured
+  payload: unknown;
+  queue: string;
+  runAt?: string; // ISO string; defaults to now
 }
 
 export interface ClaimParams {
-  queue: string;
   leaseMs: number;
   now?: string; // ISO string; defaults to now
+  queue: string;
   workerId?: string;
 }
 
 export interface HeartbeatParams {
+  extendMs: number;
   id: string;
   leaseToken: string;
-  extendMs: number;
 }
 
 export interface CompleteParams {
@@ -99,10 +99,10 @@ export interface CompleteParams {
 }
 
 export interface FailParams {
+  backoffMs?: number;
+  error: string;
   id: string;
   leaseToken: string;
-  error: string;
-  backoffMs?: number;
   terminal?: boolean;
 }
 

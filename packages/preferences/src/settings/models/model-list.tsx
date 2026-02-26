@@ -19,14 +19,14 @@ const LOCAL_PROVIDER_IDS = new Set<string>(['local', 'transformers']);
 const numberFormatter = new Intl.NumberFormat();
 
 interface ModelListProps {
-  models: DbModel[];
-  providers: DbProvider[];
-  onToggle: (modelId: string, enabled: boolean) => void;
-  onDownload: (modelId: string) => void;
-  isDownloading: Record<string, boolean>;
-  downloadProgress: Record<string, number>;
   downloadedModels: Record<string, boolean>;
+  downloadProgress: Record<string, number>;
+  isDownloading: Record<string, boolean>;
   modelCacheDir?: string | null;
+  models: DbModel[];
+  onDownload: (modelId: string) => void;
+  onToggle: (modelId: string, enabled: boolean) => void;
+  providers: DbProvider[];
 }
 
 type ModelCategory = 'chat' | 'embedding';
@@ -34,31 +34,31 @@ type ModelTier = 'local' | 'remote';
 
 interface ProviderGroup {
   id: string;
-  name: string;
   models: DbModel[];
+  name: string;
 }
 
 interface ModelSection {
-  id: ModelTier;
-  title: string;
   description: string;
   groups: ProviderGroup[];
+  id: ModelTier;
   modelsCount: number;
+  title: string;
 }
 
 interface ModelRowProps {
+  downloadedModels: Record<string, boolean>;
+  downloadProgress: Record<string, number>;
+  isDownloading: Record<string, boolean>;
   model: DbModel;
   modelCacheDir: string | null;
-  downloadedModels: Record<string, boolean>;
-  isDownloading: Record<string, boolean>;
-  downloadProgress: Record<string, number>;
-  onToggle: (modelId: string, enabled: boolean) => void;
   onDownload: (modelId: string) => void;
+  onToggle: (modelId: string, enabled: boolean) => void;
 }
 
 interface ModelMetaBadgesProps {
-  model: DbModel;
   dimensionLabel: string | null;
+  model: DbModel;
   sizeLabel: string | null;
 }
 
@@ -68,24 +68,24 @@ interface ModelBestForTagsProps {
 }
 
 interface ModelCachePathProps {
-  isLocal: boolean;
-  modelId: string;
-  modelCacheDir: string | null;
   downloadedModels: Record<string, boolean>;
+  isLocal: boolean;
+  modelCacheDir: string | null;
+  modelId: string;
 }
 
 interface ModelDownloadProgressProps {
-  isLocal: boolean;
-  modelId: string;
   downloadProgress: Record<string, number>;
   isDownloading: Record<string, boolean>;
+  isLocal: boolean;
+  modelId: string;
 }
 
 interface ModelDownloadControlsProps {
-  isLocal: boolean;
-  modelId: string;
   downloadedModels: Record<string, boolean>;
   isDownloading: Record<string, boolean>;
+  isLocal: boolean;
+  modelId: string;
   onDownload: (modelId: string) => void;
 }
 
@@ -378,15 +378,15 @@ function ModelRow({
 }
 
 interface ModelListContentProps {
-  visibleModels: DbModel[];
-  sections: ModelSection[];
-  emptyStateMessage: string;
   downloadedModels: Record<string, boolean>;
-  isDownloading: Record<string, boolean>;
   downloadProgress: Record<string, number>;
+  emptyStateMessage: string;
+  isDownloading: Record<string, boolean>;
   modelCacheDir?: string | null | undefined;
-  onToggle: (modelId: string, enabled: boolean) => void;
   onDownload: (modelId: string) => void;
+  onToggle: (modelId: string, enabled: boolean) => void;
+  sections: ModelSection[];
+  visibleModels: DbModel[];
 }
 
 function ModelListContent({

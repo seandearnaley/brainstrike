@@ -4,11 +4,11 @@ import { memo } from 'react';
 import { GROUPING_CONFIGS, type GroupedData, type TableRowData } from './utils/grouping-configs';
 
 interface PreviewGroupingControlsProps {
-  groupingConfig: string;
   groupedData: GroupedData<TableRowData>[];
-  onGroupingChange: (value: string) => void;
-  onExpandAllGroups: () => void;
+  groupingConfig: string;
   onCollapseAllGroups: () => void;
+  onExpandAllGroups: () => void;
+  onGroupingChange: (value: string) => void;
 }
 
 export const PreviewGroupingControls = memo<PreviewGroupingControlsProps>(

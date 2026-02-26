@@ -42,11 +42,11 @@ import {
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 interface FormState {
-  name: string;
-  includes: string;
   excludes: string;
-  useRegex: boolean;
   icon: ViewFilterPresetIcon;
+  includes: string;
+  name: string;
+  useRegex: boolean;
 }
 
 type FormAction =
@@ -121,9 +121,9 @@ const logger = createLogger('ViewFilterPresetDropdown');
 // ─── Subcomponents ────────────────────────────────────────────────────────────
 
 interface IconPickerProps {
+  onSelect: (name: ViewFilterPresetIcon) => void;
   selectedIcon: ViewFilterPresetIcon;
   size?: 'sm' | 'md';
-  onSelect: (name: ViewFilterPresetIcon) => void;
 }
 
 function IconPicker({ selectedIcon, size = 'md', onSelect }: IconPickerProps) {
@@ -158,8 +158,8 @@ function IconPicker({ selectedIcon, size = 'md', onSelect }: IconPickerProps) {
 }
 
 interface PresetCreateFormProps {
-  form: FormState;
   dispatch: React.Dispatch<FormAction>;
+  form: FormState;
   onCancel: () => void;
   onCreate: () => void;
 }
@@ -259,12 +259,12 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
 }
 
 interface PresetEditFormProps {
-  preset: ViewFilterPreset;
-  form: FormState;
   dispatch: React.Dispatch<FormAction>;
+  form: FormState;
   onCancel: () => void;
-  onSave: () => void;
   onDelete: (id: string) => void;
+  onSave: () => void;
+  preset: ViewFilterPreset;
 }
 
 function PresetEditForm({
@@ -348,22 +348,22 @@ function PresetEditForm({
 }
 
 interface ViewFilterPresetDropdownProps {
+  /** Optional class name */
+  className?: string | undefined;
+  /** Whether presets are loading */
+  loading?: boolean;
+  /** Called to create a new preset */
+  onCreate: (input: CreateViewFilterPresetInput) => Promise<ViewFilterPreset>;
+  /** Called to delete a preset */
+  onDelete: (id: string) => Promise<boolean>;
+  /** Called when a preset is selected */
+  onSelect: (preset: ViewFilterPreset) => void;
+  /** Called to update an existing preset */
+  onUpdate: (id: string, input: UpdateViewFilterPresetInput) => Promise<ViewFilterPreset | null>;
   /** Available presets */
   presets: ViewFilterPreset[];
   /** Currently selected preset */
   selectedPreset: ViewFilterPreset | null;
-  /** Called when a preset is selected */
-  onSelect: (preset: ViewFilterPreset) => void;
-  /** Called to create a new preset */
-  onCreate: (input: CreateViewFilterPresetInput) => Promise<ViewFilterPreset>;
-  /** Called to update an existing preset */
-  onUpdate: (id: string, input: UpdateViewFilterPresetInput) => Promise<ViewFilterPreset | null>;
-  /** Called to delete a preset */
-  onDelete: (id: string) => Promise<boolean>;
-  /** Whether presets are loading */
-  loading?: boolean;
-  /** Optional class name */
-  className?: string | undefined;
 }
 
 /**

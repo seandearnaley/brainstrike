@@ -30,44 +30,44 @@ export const SAFE_FILE_TREE_ERRORS = new Set<string>(Object.values(FILE_TREE_ERR
  * File entry in the tree.
  */
 export interface FileEntry {
+  /** Child count for directories */
+  childCount?: number;
   /** Unique file record ID */
   id: string;
+  /** Whether the file has been chunked */
+  isChunked: boolean;
+  /** Whether this is a directory */
+  isDirectory: boolean;
+  /** Modification timestamp */
+  modifiedAt?: string;
   /** File name */
   name: string;
   /** Full path */
   path: string;
-  /** Whether this is a directory */
-  isDirectory: boolean;
   /** File size in bytes (null for directories) */
   size: number | null;
   /** Token count if processed (null if not counted) */
   tokenCount: number | null;
-  /** Whether the file has been chunked */
-  isChunked: boolean;
-  /** Modification timestamp */
-  modifiedAt?: string;
-  /** Child count for directories */
-  childCount?: number;
 }
 
 /**
  * Result returned by the file tree tool.
  */
 export interface QueryFileTreeToolResult {
+  /** Total count of entries */
+  count: number;
+  /** Files and directories matching the query */
+  entries: FileEntry[];
+  /** Maximum depth traversed */
+  maxDepth: number;
   /** Query path (resolved) */
   path: string;
   /** Pattern used for filtering */
   pattern: string | null;
-  /** Maximum depth traversed */
-  maxDepth: number;
-  /** Files and directories matching the query */
-  entries: FileEntry[];
-  /** Total count of entries */
-  count: number;
-  /** Whether results were truncated */
-  truncated: boolean;
   /** Human-readable summary */
   summary: string;
+  /** Whether results were truncated */
+  truncated: boolean;
 }
 
 /**
@@ -75,6 +75,10 @@ export interface QueryFileTreeToolResult {
  * Platform-specific implementations provide these callbacks.
  */
 export interface FileTreeToolDependencies {
+  /**
+   * Gets the root paths of all imported directories.
+   */
+  getRootPaths?: () => Promise<string[]>;
   /**
    * Lists files in the specified path.
    * @param path - Directory path to query (empty string for root)
@@ -92,11 +96,6 @@ export interface FileTreeToolDependencies {
     entries: FileEntry[];
     truncated: boolean;
   }>;
-
-  /**
-   * Gets the root paths of all imported directories.
-   */
-  getRootPaths?: () => Promise<string[]>;
 
   /**
    * Optional logger for debugging.
@@ -194,10 +193,10 @@ async function runQueryFileTree(
  * Mastra tool type.
  */
 interface MastraTool {
-  id: string;
   description: string;
-  inputSchema: typeof QueryFileTreeInputSchema;
   execute: (context: ToolContext<QueryFileTreeInput>) => Promise<QueryFileTreeToolResult>;
+  id: string;
+  inputSchema: typeof QueryFileTreeInputSchema;
 }
 
 /**

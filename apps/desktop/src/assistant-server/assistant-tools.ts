@@ -197,11 +197,11 @@ async function runReadWorkspaceFile(
 }
 
 interface DirectoryEntry {
-  path: string;
-  type: 'directory' | 'file';
   depth: number;
+  path: string;
   size?: number;
   tokenCount?: number;
+  type: 'directory' | 'file';
 }
 
 function toPathSegments(workspacePath: string): string[] {
@@ -224,24 +224,24 @@ type FsDirent = import('node:fs').Dirent;
 
 interface DirectoryTraversalOptions {
   baseSegments: readonly string[];
-  includeHidden: boolean;
+  depth: number;
   includeDirectories: boolean;
   includeFiles: boolean;
-  depth: number;
+  includeHidden: boolean;
 }
 
 interface DirectoryTraversalState {
   entries: DirectoryEntry[];
   maxEntries: number;
-  truncated: boolean;
   totalMatchedFiles: number;
+  truncated: boolean;
 }
 
 interface DirectoryVisitContext {
   childAbsolutePath: string;
-  childSegments: string[];
-  childPath: string;
   childDepth: number;
+  childPath: string;
+  childSegments: string[];
 }
 
 function sortDirectoryEntries(entries: FsDirent[]): FsDirent[] {

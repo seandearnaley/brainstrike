@@ -38,22 +38,22 @@ import { EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
  * Props for the NodeInspector component
  */
 export interface NodeInspectorProps {
-  /** The type of the selected node */
-  nodeType: string | null;
-  /** The data of the selected node */
-  nodeData: BrowserNodeData | null;
-  /** Original ID of the selected node (without prefix) */
-  nodeId?: string;
   /** Actions to render for this node */
   actions?: React.ReactNode;
   /** Custom class name */
   className?: string;
-  /** Width of the panel when expanded (optional, defaults to 100%) */
-  width?: number | string;
   /** Whether the panel is collapsed */
   isCollapsed?: boolean;
+  /** The data of the selected node */
+  nodeData: BrowserNodeData | null;
+  /** Original ID of the selected node (without prefix) */
+  nodeId?: string;
+  /** The type of the selected node */
+  nodeType: string | null;
   /** Called when collapse state should change */
   onCollapseChange?: (collapsed: boolean) => void;
+  /** Width of the panel when expanded (optional, defaults to 100%) */
+  width?: number | string;
 }
 
 /**

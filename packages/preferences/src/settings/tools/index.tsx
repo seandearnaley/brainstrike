@@ -19,10 +19,9 @@ import { UnifiedToolsSettings } from './unified-tools-settings';
  */
 export interface CreateToolsSettingsCategoryOptions {
   /**
-   * Operations for managing tools.
-   * Platform-specific implementations provide these callbacks.
+   * Token budget manager for budget visualization.
    */
-  operations: ToolsSettingsOperations;
+  budgetManager?: TokenBudgetManager;
 
   /**
    * Whether MCP tools are available.
@@ -32,15 +31,15 @@ export interface CreateToolsSettingsCategoryOptions {
   mcpAvailable?: boolean;
 
   /**
-   * Token budget manager for budget visualization.
-   */
-  budgetManager?: TokenBudgetManager;
-
-  /**
    * Callback when tool state changes.
    * Use this to sync with persisted preferences.
    */
   onToolsChanged?: () => void;
+  /**
+   * Operations for managing tools.
+   * Platform-specific implementations provide these callbacks.
+   */
+  operations: ToolsSettingsOperations;
 }
 
 /**

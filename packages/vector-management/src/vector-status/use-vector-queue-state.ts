@@ -14,20 +14,20 @@ const logger = createLogger('useVectorQueueState');
 export type BackfillProgress = { done: number; total: number } | null;
 
 export interface UseVectorQueueStateParams {
-  service: VectorQueueService | null;
   activeEmbeddingSetId: string | null;
-  shouldAutoBackfill: boolean;
-  /** When true, live queries are paused to avoid performance degradation during bulk operations */
-  isImporting?: boolean;
   /** When true, live queries are paused to avoid performance degradation during embedding generation */
   isEmbeddingActive?: boolean;
+  /** When true, live queries are paused to avoid performance degradation during bulk operations */
+  isImporting?: boolean;
+  service: VectorQueueService | null;
+  shouldAutoBackfill: boolean;
 }
 
 export interface TelemetryTrendPoint {
-  readonly timestamp: number;
-  readonly throughput: number;
-  readonly latencyP95: number;
   readonly errorCount: number;
+  readonly latencyP95: number;
+  readonly throughput: number;
+  readonly timestamp: number;
 }
 
 /**
@@ -36,23 +36,23 @@ export interface TelemetryTrendPoint {
 export type ApiKeyValidationResult = { valid: true } | { valid: false; message: string };
 
 export interface UseVectorQueueStateResult {
-  coverage: { total: number; withSet: number };
-  queueCounts: QueueCounts;
-  throughput: number;
-  latencyStats: { avgMs: number; p50Ms: number; p95Ms: number };
-  lastError: string | null;
-  recentErrorCount: number;
+  backfillActiveSet: () => Promise<void>;
   backfilling: boolean;
   backfillProgress: BackfillProgress;
+  clearQueue: () => Promise<void>;
+  coverage: { total: number; withSet: number };
+  lastError: string | null;
+  latencyStats: { avgMs: number; p50Ms: number; p95Ms: number };
+  queueCounts: QueueCounts;
+  recentErrorCount: number;
+  retryFailed: (limit?: number) => Promise<void>;
   telemetryTrend: readonly TelemetryTrendPoint[];
+  throughput: number;
   /**
    * Validates that the API key is available for the active embedding set's model.
    * Call this before backfillActiveSet to show a helpful error if the API key is missing.
    */
   validateApiKey: () => Promise<ApiKeyValidationResult>;
-  backfillActiveSet: () => Promise<void>;
-  retryFailed: (limit?: number) => Promise<void>;
-  clearQueue: () => Promise<void>;
   wipeQueue: () => Promise<void>;
 }
 
@@ -122,9 +122,9 @@ const COVERAGE_QUERY = `
 `.trim();
 
 interface QueueCountsRow {
+  failed: number | string | null;
   queued: number | string | null;
   running: number | string | null;
-  failed: number | string | null;
   succeeded: number | string | null;
 }
 
@@ -142,8 +142,8 @@ interface LatencyRow {
 }
 
 interface CoverageRow {
-  totalChunks: number | string | null;
   chunksWithEmbeddingsForSet: number | string | null;
+  totalChunks: number | string | null;
 }
 
 // Default metrics when EmbeddingQueueProvider is not available

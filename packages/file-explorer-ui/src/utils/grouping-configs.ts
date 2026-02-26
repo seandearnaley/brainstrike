@@ -22,19 +22,19 @@ export const TOKEN_THRESHOLDS = {
 } as const;
 
 export interface GroupConfig<T = unknown> {
+  groupBy: GroupFunction<T> | GroupBandFunction<T>;
   id: string;
   label: string;
-  groupBy: GroupFunction<T> | GroupBandFunction<T>;
   sortGroups?: (a: GroupKey, b: GroupKey) => number;
 }
 
 export interface GroupedData<T = unknown> {
+  count: number;
   groupKey: GroupKey;
   groupLabel: string;
   items: T[];
-  count: number;
-  totalTokens: number;
   totalSize: number;
+  totalTokens: number;
 }
 
 /** Fallback type label for files without a recognized extension. */
@@ -42,13 +42,13 @@ export const EXTENSIONLESS_FILE_TYPE = 'file';
 
 // Table data structure for preview panel
 export interface TableRowData {
+  compositeKey: string;
   id: string;
-  rootFolderId: string;
   path: string;
-  type: string; // File extension
+  rootFolderId: string;
   size?: number;
   tokens?: number;
-  compositeKey: string;
+  type: string; // File extension
 }
 
 // Predefined grouping configurations

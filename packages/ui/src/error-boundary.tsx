@@ -6,16 +6,16 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 export interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
-  onReset?: () => void;
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
+  onReset?: () => void;
   showDetails?: boolean;
 }
 
 export interface ErrorBoundaryState {
-  hasError: boolean;
+  detailsVisible: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
-  detailsVisible: boolean;
+  hasError: boolean;
 }
 
 /**

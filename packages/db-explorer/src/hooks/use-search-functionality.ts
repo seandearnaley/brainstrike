@@ -26,8 +26,8 @@ import {
 import { getActiveEmbeddingSetId } from '../vector-preferences';
 
 interface SearchEmbedder {
-  embedQuery: (text: string) => Promise<{ embedding: number[] }>;
   dispose?: () => Promise<void> | void;
+  embedQuery: (text: string) => Promise<{ embedding: number[] }>;
 }
 
 export function useSearchFunctionality(

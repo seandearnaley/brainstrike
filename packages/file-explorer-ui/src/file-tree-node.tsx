@@ -15,12 +15,12 @@ import NodeIcon from './node-icon';
 import { useFileTreeNodeSelection } from './use-file-tree-node-selection';
 
 interface IFileTreeNodeProps {
-  node: IFileNode;
+  folderId: string;
   isExpanded: boolean;
+  isLoading: boolean;
+  node: IFileNode;
   onToggleDirectoryExpansion: (path: string) => void;
   onToggleFileSelection: (path: string) => void;
-  isLoading: boolean;
-  folderId: string;
 }
 
 /**

@@ -21,14 +21,14 @@ import type { TokenCountingState } from './use-token-counting';
  * Props for the persistent token cache hook
  */
 export interface UsePersistentTokenCacheProps {
-  /** File contents by composite key (folderId::path) - now optional for cache hits */
-  fileContents: Record<string, string>;
-  /** Token counting state (old API) */
-  tokenCounting: TokenCountingState;
   /** Decode composite key to folderId and path */
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
+  /** File contents by composite key (folderId::path) - now optional for cache hits */
+  fileContents: Record<string, string>;
   /** Callback when token count is resolved (triggers re-render) */
   onTokenResolved: () => void;
+  /** Token counting state (old API) */
+  tokenCounting: TokenCountingState;
 }
 
 /**
@@ -36,10 +36,10 @@ export interface UsePersistentTokenCacheProps {
  */
 export interface UsePersistentTokenCacheReturn {
   /**
-   * Get token count for a file.
-   * Returns cached value or undefined if loading.
+   * Cache version counter that increments when hot cache updates.
+   * Use as a dependency in useMemo/useEffect to trigger re-renders.
    */
-  getTokenCount: (compositeKey: string) => number | undefined;
+  cacheVersion: number;
 
   /**
    * Get file size from persistent cache.
@@ -47,6 +47,11 @@ export interface UsePersistentTokenCacheReturn {
    * This is useful as a fallback when fileNodeCache hasn't loaded yet.
    */
   getFileSize: (compositeKey: string) => number | undefined;
+  /**
+   * Get token count for a file.
+   * Returns cached value or undefined if loading.
+   */
+  getTokenCount: (compositeKey: string) => number | undefined;
 
   /**
    * Check if any token counting is in progress
@@ -62,12 +67,6 @@ export interface UsePersistentTokenCacheReturn {
    * Reference to in-memory cache (for compatibility with legacy code)
    */
   tokenCacheRef: MutableRefObject<Map<string, number>>;
-
-  /**
-   * Cache version counter that increments when hot cache updates.
-   * Use as a dependency in useMemo/useEffect to trigger re-renders.
-   */
-  cacheVersion: number;
 }
 
 /**

@@ -52,10 +52,10 @@ export const useToastManager = () => {
     }) => {
       // Define local type for toast options, consistent with useToast's expectations
       interface ResolvedToastOptions {
-        title: string;
-        description: string;
-        variant?: 'default' | 'destructive';
         action?: ToastActionElement;
+        description: string;
+        title: string;
+        variant?: 'default' | 'destructive';
       }
 
       const toastOptions: ResolvedToastOptions = {

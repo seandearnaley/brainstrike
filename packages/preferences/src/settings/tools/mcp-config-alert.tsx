@@ -15,14 +15,14 @@ import type { McpConfigInfo } from './types';
 export interface McpConfigAlertProps {
   /** Current MCP config info (null = loading) */
   configInfo: McpConfigInfo | null;
-  /** Callback to open file selector for config */
-  onSelectConfig: () => Promise<void>;
-  /** Callback to reset config to default path */
-  onResetConfig: () => Promise<void>;
   /** Callback to create a sample config file */
   onCreateSample?: (() => Promise<void>) | undefined;
   /** Callback when alert is dismissed */
   onDismiss?: () => void;
+  /** Callback to reset config to default path */
+  onResetConfig: () => Promise<void>;
+  /** Callback to open file selector for config */
+  onSelectConfig: () => Promise<void>;
 }
 
 /**

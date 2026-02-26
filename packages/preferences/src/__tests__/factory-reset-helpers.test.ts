@@ -6,9 +6,9 @@ import {
 } from '../settings/system/factory-reset-helpers';
 
 interface FakeRequest {
-  onsuccess: ((event: Event) => void) | null;
-  onerror: ((event: Event) => void) | null;
   onblocked: ((event: Event) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onsuccess: ((event: Event) => void) | null;
 }
 
 const globalWindow = window as Window &

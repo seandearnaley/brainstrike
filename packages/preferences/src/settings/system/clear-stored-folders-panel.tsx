@@ -2,8 +2,8 @@ import { Button, Label } from '@brainstrike/ui';
 
 export interface ClearStoredFoldersPanelProps {
   hasStoredFolders: boolean;
-  onClearFolders: () => void;
   isWebPlatform?: boolean;
+  onClearFolders: () => void;
 }
 
 export function ClearStoredFoldersPanel({

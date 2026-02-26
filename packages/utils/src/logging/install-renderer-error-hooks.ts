@@ -1,18 +1,18 @@
 import { createLogger } from '../logger';
 
 export interface RendererErrorEventPayload {
-  type: 'error' | 'unhandledrejection';
-  message: string;
-  stack?: string;
-  source?: string;
-  line?: number;
   column?: number;
+  line?: number;
+  message: string;
   reason?: unknown;
+  source?: string;
+  stack?: string;
+  type: 'error' | 'unhandledrejection';
 }
 
 export interface RendererErrorHooksOptions {
-  scope?: string;
   onError?: (payload: RendererErrorEventPayload) => void;
+  scope?: string;
 }
 
 /**

@@ -11,20 +11,20 @@ const SPARKLINE_DEFAULT_HEIGHT = 12;
 const SPARKLINE_STROKE_WIDTH = 1;
 
 export interface EmbeddingStatusBarProps {
-  /** Whether PGlite with pgvector is enabled */
-  vectorEnabled: boolean;
-  /** Worker status: 'running', 'error', 'disabled', or 'initializing' */
-  workerStatus: 'running' | 'error' | 'disabled' | 'initializing';
-  /** Queue throughput (jobs per minute) */
-  throughput: number;
+  /** Additional className */
+  className?: string;
   /** Latency stats */
   latencyStats: { avgMs: number; p50Ms: number; p95Ms: number };
   /** Queue counts */
   queueCounts: { queued: number; running: number; failed: number; succeeded: number };
   /** Historical telemetry data for sparklines */
   telemetryTrend: readonly TelemetryTrendPoint[];
-  /** Additional className */
-  className?: string;
+  /** Queue throughput (jobs per minute) */
+  throughput: number;
+  /** Whether PGlite with pgvector is enabled */
+  vectorEnabled: boolean;
+  /** Worker status: 'running', 'error', 'disabled', or 'initializing' */
+  workerStatus: 'running' | 'error' | 'disabled' | 'initializing';
 }
 
 /**

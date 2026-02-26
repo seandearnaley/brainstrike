@@ -13,8 +13,8 @@ import {
 
 type EtaAction = { type: 'reset' } | { type: 'tick'; now: number; isStart: boolean };
 interface EtaState {
-  startMs: number | null;
   nowMs: number | null;
+  startMs: number | null;
 }
 
 const etaReducer = (state: EtaState, action: EtaAction): EtaState => {
@@ -28,30 +28,30 @@ const etaReducer = (state: EtaState, action: EtaAction): EtaState => {
 };
 
 export interface LoadingProgressState {
-  loaded: number;
-  total: number;
   currentPath?: string;
-  phase: 'counting' | 'loading';
-  /** Monotonically increasing percentage (0-100), never decreases */
-  percentage?: number;
   /** Depth-based progress for streaming updates */
   depthProgress?: DepthProgress;
+  loaded: number;
+  /** Monotonically increasing percentage (0-100), never decreases */
+  percentage?: number;
+  phase: 'counting' | 'loading';
+  total: number;
 }
 
 export interface LoadingOverlayProps extends React.HTMLAttributes<HTMLDivElement> {
-  isLoading: boolean;
-  isInitialLoad?: boolean;
-  progressLoaded?: number;
-  progressTotal?: number;
-  progressState?: LoadingProgressState;
-  message?: string;
-  description?: string;
   /** Whether the loading operation can be cancelled */
   cancellable?: boolean;
-  /** Callback function to handle cancellation */
-  onCancel?: () => void;
+  description?: string;
   /** Whether the operation is currently being cancelled */
   isCancelling?: boolean;
+  isInitialLoad?: boolean;
+  isLoading: boolean;
+  message?: string;
+  /** Callback function to handle cancellation */
+  onCancel?: () => void;
+  progressLoaded?: number;
+  progressState?: LoadingProgressState;
+  progressTotal?: number;
 }
 
 export const LoadingOverlay = ({

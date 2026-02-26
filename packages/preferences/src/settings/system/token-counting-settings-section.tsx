@@ -19,9 +19,9 @@ import {
 type TokenRuntimeStatus = 'checking' | 'accurate' | 'fallback' | 'disabled';
 
 interface StatusMetadata {
-  label: string;
   description: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  label: string;
   variant: 'secondary' | 'outline' | 'destructive';
 }
 

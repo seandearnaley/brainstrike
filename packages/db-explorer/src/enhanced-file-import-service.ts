@@ -44,21 +44,23 @@ const QUEUE_PROGRESS_THROTTLE_MS = 100;
 
 // Extended progress interface for chunking and embedding
 interface EnhancedFileImportOptions {
-  onProgress?: (progress: EnhancedImportProgress) => void;
-  onComplete?: (results: EnhancedImportResult[]) => void;
-  onError?: (error: Error) => void;
-  enableChunking?: boolean;
   chunkingStrategy?: ChunkingStrategy;
   chunkingStrategyExplicit?: boolean;
-  chunkSize?: number;
   chunkOverlap?: number;
-  tokenTrueSizing?: boolean;
+  chunkSize?: number;
   chunkTokenLimit?: number;
   embeddingQueue?: QueueAdapter | null;
+  enableChunking?: boolean;
+  onComplete?: (results: EnhancedImportResult[]) => void;
+  onError?: (error: Error) => void;
+  onProgress?: (progress: EnhancedImportProgress) => void;
   resolveTargetEmbeddingSetId?: () => string | null;
+  tokenTrueSizing?: boolean;
 }
 
 interface EnhancedFileImportServiceReturn {
+  cancelImport: () => void;
+  chunkRepository: ReturnType<typeof useFileChunkRepository>;
   importFiles: (
     selectedFilePaths: Set<string>,
     fileTree: IFileNode[],
@@ -67,8 +69,6 @@ interface EnhancedFileImportServiceReturn {
   ) => Promise<void>;
   isImporting: boolean;
   progress: EnhancedImportProgress | null;
-  chunkRepository: ReturnType<typeof useFileChunkRepository>;
-  cancelImport: () => void;
 }
 
 type EnhancedImportParams = Parameters<typeof runEnhancedImport<IFileNode>>[0];
@@ -185,19 +185,19 @@ function createProgressHandlers(
 }
 
 interface ImportFlowDeps {
-  controller: AbortController;
-  selectedFilePaths: Set<string>;
-  fileTree: IFileNode[];
-  fileContents: Record<string, string>;
-  options: EnhancedFileImportOptions;
-  baseImportRunner: BaseImportRunner<IFileNode>;
-  repository: ReturnType<typeof useFileRecordRepository>;
-  chunkRepository: ReturnType<typeof useFileChunkRepository>;
-  chunkingWorkerPort: ChunkingWorkerPort | null;
-  queuePort: EmbeddingJobQueuePort | null;
-  sqlPort: SqlExecutorPort | null;
-  setProgress: Dispatch<SetStateAction<EnhancedImportProgress | null>>;
   activeSetIdRef: { current: string | null };
+  baseImportRunner: BaseImportRunner<IFileNode>;
+  chunkingWorkerPort: ChunkingWorkerPort | null;
+  chunkRepository: ReturnType<typeof useFileChunkRepository>;
+  controller: AbortController;
+  fileContents: Record<string, string>;
+  fileTree: IFileNode[];
+  options: EnhancedFileImportOptions;
+  queuePort: EmbeddingJobQueuePort | null;
+  repository: ReturnType<typeof useFileRecordRepository>;
+  selectedFilePaths: Set<string>;
+  setProgress: Dispatch<SetStateAction<EnhancedImportProgress | null>>;
+  sqlPort: SqlExecutorPort | null;
 }
 
 async function runImportFlow({

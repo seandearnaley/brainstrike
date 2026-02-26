@@ -9,12 +9,12 @@ const DEFAULT_MODELS: Record<string, string> = {
 } as const;
 
 export interface AssistantMockOptions {
-  readonly provider?: string;
   readonly apiKey?: string;
-  readonly message?: string;
   readonly errorMessage?: string;
-  readonly variant?: 'simple' | 'detailed' | 'tool' | 'tool-error' | 'stream-error';
+  readonly message?: string;
   readonly models?: Record<string, string>;
+  readonly provider?: string;
+  readonly variant?: 'simple' | 'detailed' | 'tool' | 'tool-error' | 'stream-error';
 }
 
 const defaultOptions: Required<AssistantMockOptions> = {
@@ -80,64 +80,115 @@ export async function setupAssistantMock(
         return String(input);
       };
 
-      const isStatusEndpoint = (url: string): boolean =>
-        url.includes('/assistant/status') || url.includes('/status');
+      const resolvePathname = (url: string): string => {
+        try {
+          return new URL(url, globals.location?.origin ?? 'http://127.0.0.1').pathname;
+        } catch {
+          return url;
+        }
+      };
 
-      const isAssistantStream = (url: string, init?: RequestInit): boolean =>
-        url.includes('/assistant') && init?.method === 'POST';
+      const resolveMethod = (input: RequestInfo | URL, init?: RequestInit): string => {
+        const requestMethod = input instanceof Request ? input.method : undefined;
+        return (init?.method ?? requestMethod ?? 'GET').toUpperCase();
+      };
+
+      const isStatusEndpoint = (input: RequestInfo | URL, init?: RequestInit): boolean => {
+        const pathname = resolvePathname(resolveUrl(input));
+        const method = resolveMethod(input, init);
+        return method === 'GET' && (pathname === '/assistant/status' || pathname === '/status');
+      };
+
+      const isAssistantStream = (input: RequestInfo | URL, init?: RequestInit): boolean => {
+        const pathname = resolvePathname(resolveUrl(input));
+        const method = resolveMethod(input, init);
+        return (
+          method === 'POST' &&
+          (pathname === '/assistant' || pathname === '/api/assistant' || pathname === '/')
+        );
+      };
 
       const handleStatusResponse = (): Response =>
         new Response(JSON.stringify({ enabled: true }), {
           status: 200,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
         });
 
-      const enqueueChunk = (
+      const enqueueRaw = (
         controller: ReadableStreamDefaultController<Uint8Array>,
         payload: string
       ): void => {
         controller.enqueue(encoder.encode(payload));
       };
 
+      const enqueueSseEvent = (
+        controller: ReadableStreamDefaultController<Uint8Array>,
+        payload: object
+      ): void => {
+        enqueueRaw(controller, `data: ${JSON.stringify(payload)}\n\n`);
+      };
+
+      const enqueueDone = (controller: ReadableStreamDefaultController<Uint8Array>): void => {
+        enqueueRaw(controller, 'data: [DONE]\n\n');
+      };
+
+      const createMessageId = (): string => `msg-${Date.now()}`;
+      const createToolCallId = (): string => `tool-${Date.now()}`;
+
+      const writeAssistantText = (
+        controller: ReadableStreamDefaultController<Uint8Array>,
+        text: string
+      ): void => {
+        const textId = `text-${Date.now()}`;
+        enqueueSseEvent(controller, { type: 'text-start', id: textId });
+        enqueueSseEvent(controller, { type: 'text-delta', id: textId, textDelta: text });
+        enqueueSseEvent(controller, { type: 'text-end', id: textId });
+      };
+
+      const writeFinish = (
+        controller: ReadableStreamDefaultController<Uint8Array>,
+        finishReason: 'stop' | 'error',
+        usage: { completionTokens: number; promptTokens: number }
+      ): void => {
+        enqueueSseEvent(controller, {
+          type: 'finish-step',
+          finishReason,
+          usage,
+          isContinued: false,
+        });
+        enqueueSseEvent(controller, { type: 'finish', finishReason, usage });
+      };
+
       const writeStreamError = (
         controller: ReadableStreamDefaultController<Uint8Array>,
         errorText: string
       ): void => {
-        enqueueChunk(controller, `3:${JSON.stringify(errorText)}\n`);
-        enqueueChunk(controller, `0:${JSON.stringify(errorText)}\n`);
-        enqueueChunk(
-          controller,
-          'd:{"finishReason":"error","usage":{"promptTokens":0,"completionTokens":0},"path":[]}\n'
-        );
+        enqueueSseEvent(controller, { type: 'start', messageId: createMessageId() });
+        writeAssistantText(controller, errorText);
+        enqueueSseEvent(controller, { type: 'error', errorText });
+        writeFinish(controller, 'error', {
+          promptTokens: 0,
+          completionTokens: 0,
+        });
       };
 
       const writeDetailedStream = (
         controller: ReadableStreamDefaultController<Uint8Array>,
         responseMessage: string
       ): void => {
-        const messageId = `msg-${Date.now()}`;
-        const sessionId = `sess-${Date.now()}`;
-
-        enqueueChunk(
-          controller,
-          `2:[{"type":"start","messageId":"${messageId}","sessionId":"${sessionId}"}]\n`
-        );
-        enqueueChunk(controller, 'f:null\n');
-        enqueueChunk(controller, `0:"${responseMessage}"\n`);
-        enqueueChunk(controller, 'e:null\n');
-        enqueueChunk(
-          controller,
-          'd:{"finishReason":"stop","usage":{"promptTokens":5,"completionTokens":8}}\n'
-        );
+        enqueueSseEvent(controller, { type: 'start', messageId: createMessageId() });
+        writeAssistantText(controller, responseMessage);
+        writeFinish(controller, 'stop', {
+          promptTokens: 5,
+          completionTokens: 8,
+        });
       };
 
       const writeToolSuccessStream = (
         controller: ReadableStreamDefaultController<Uint8Array>,
         responseMessage: string
       ): void => {
-        const messageId = `msg-${Date.now()}`;
-        const sessionId = `sess-${Date.now()}`;
-        const toolCallId = `tool-${Date.now()}`;
+        const toolCallId = createToolCallId();
         const toolName = 'brainstrike.retrieveContext';
         const toolArgs = { query: 'mock retrieval query', limit: 3 };
         const toolResult = {
@@ -152,73 +203,62 @@ export async function setupAssistantMock(
           ],
         };
 
-        enqueueChunk(
-          controller,
-          `2:[{"type":"start","messageId":"${messageId}","sessionId":"${sessionId}"}]\n`
-        );
-        enqueueChunk(controller, 'f:null\n');
-        enqueueChunk(controller, `b:{"toolCallId":"${toolCallId}","toolName":"${toolName}"}\n`);
-        enqueueChunk(
-          controller,
-          `9:{"toolCallId":"${toolCallId}","toolName":"${toolName}","args":${JSON.stringify(
-            toolArgs
-          )}}\n`
-        );
-        enqueueChunk(
-          controller,
-          `a:{"toolCallId":"${toolCallId}","result":${JSON.stringify(toolResult)}}\n`
-        );
-        enqueueChunk(controller, `0:"${responseMessage}"\n`);
-        enqueueChunk(controller, 'e:null\n');
-        enqueueChunk(
-          controller,
-          'd:{"finishReason":"stop","usage":{"promptTokens":5,"completionTokens":8}}\n'
-        );
+        enqueueSseEvent(controller, { type: 'start', messageId: createMessageId() });
+        enqueueSseEvent(controller, { type: 'tool-call-start', toolCallId, toolName });
+        enqueueSseEvent(controller, {
+          type: 'tool-call-delta',
+          toolCallId,
+          argsText: JSON.stringify(toolArgs),
+        });
+        enqueueSseEvent(controller, { type: 'tool-call-end', toolCallId });
+        enqueueSseEvent(controller, { type: 'tool-result', toolCallId, result: toolResult });
+        writeAssistantText(controller, responseMessage);
+        writeFinish(controller, 'stop', {
+          promptTokens: 5,
+          completionTokens: 8,
+        });
       };
 
       const writeToolErrorStream = (
         controller: ReadableStreamDefaultController<Uint8Array>,
         errorText: string
       ): void => {
-        const messageId = `msg-${Date.now()}`;
-        const sessionId = `sess-${Date.now()}`;
-        const toolCallId = `tool-${Date.now()}`;
+        const toolCallId = createToolCallId();
         const toolName = 'brainstrike.retrieveContext';
         const toolArgs = { query: 'mock retrieval query', limit: 3 };
 
-        enqueueChunk(
-          controller,
-          `2:[{"type":"start","messageId":"${messageId}","sessionId":"${sessionId}"}]\n`
-        );
-        enqueueChunk(controller, 'f:null\n');
-        enqueueChunk(controller, `b:{"toolCallId":"${toolCallId}","toolName":"${toolName}"}\n`);
-        enqueueChunk(
-          controller,
-          `9:{"toolCallId":"${toolCallId}","toolName":"${toolName}","args":${JSON.stringify(
-            toolArgs
-          )}}\n`
-        );
-        enqueueChunk(
-          controller,
-          `a:{"toolCallId":"${toolCallId}","result":${JSON.stringify(errorText)},"isError":true}\n`
-        );
-        enqueueChunk(controller, `3:${JSON.stringify(errorText)}\n`);
-        enqueueChunk(controller, 'e:null\n');
-        enqueueChunk(
-          controller,
-          'd:{"finishReason":"error","usage":{"promptTokens":5,"completionTokens":0},"path":[]}\n'
-        );
+        enqueueSseEvent(controller, { type: 'start', messageId: createMessageId() });
+        enqueueSseEvent(controller, { type: 'tool-call-start', toolCallId, toolName });
+        enqueueSseEvent(controller, {
+          type: 'tool-call-delta',
+          toolCallId,
+          argsText: JSON.stringify(toolArgs),
+        });
+        enqueueSseEvent(controller, { type: 'tool-call-end', toolCallId });
+        enqueueSseEvent(controller, {
+          type: 'tool-result',
+          toolCallId,
+          result: errorText,
+          isError: true,
+        });
+        writeAssistantText(controller, errorText);
+        enqueueSseEvent(controller, { type: 'error', errorText });
+        writeFinish(controller, 'error', {
+          promptTokens: 5,
+          completionTokens: 0,
+        });
       };
 
       const writeSimpleStream = (
         controller: ReadableStreamDefaultController<Uint8Array>,
         responseMessage: string
       ): void => {
-        enqueueChunk(controller, `0:"${responseMessage}"\n`);
-        enqueueChunk(
-          controller,
-          'd:{"finishReason":"stop","usage":{"promptTokens":10,"completionTokens":5}}\n'
-        );
+        enqueueSseEvent(controller, { type: 'start', messageId: createMessageId() });
+        writeAssistantText(controller, responseMessage);
+        writeFinish(controller, 'stop', {
+          promptTokens: 10,
+          completionTokens: 5,
+        });
       };
 
       const createStreamResponse = (): Response => {
@@ -240,18 +280,21 @@ export async function setupAssistantMock(
 
             const handler = handlers[variant ?? 'simple'] ?? defaultHandler;
             handler();
+            enqueueDone(controller);
             controller.close();
           },
         });
 
+        const responseHeaders = new Headers({
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'x-vercel-ai-ui-message-stream': 'v1',
+        });
+        responseHeaders.set('Connection', 'keep-alive');
+
         return new Response(stream, {
           status: 200,
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Cache-Control': 'no-store',
-            'x-vercel-ai-data-stream': 'v1',
-            'x-vercel-ai-ui-message-stream': 'v1',
-          },
+          headers: responseHeaders,
         });
       };
 
@@ -259,13 +302,11 @@ export async function setupAssistantMock(
         input: RequestInfo | URL,
         init?: RequestInit
       ) => {
-        const url = resolveUrl(input);
-
-        if (isStatusEndpoint(url)) {
+        if (isStatusEndpoint(input, init)) {
           return handleStatusResponse();
         }
 
-        if (isAssistantStream(url, init)) {
+        if (isAssistantStream(input, init)) {
           return createStreamResponse();
         }
 

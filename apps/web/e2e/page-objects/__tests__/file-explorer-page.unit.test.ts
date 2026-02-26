@@ -6,11 +6,11 @@ describe('FileExplorerPage (unit)', () => {
   it('exposes expected locators and actions', () => {
     const calls: string[] = [];
     interface MockLocator {
-      r?: string;
-      o?: Record<string, unknown>;
-      t?: string;
-      s?: string;
       kind: string;
+      o?: Record<string, unknown>;
+      r?: string;
+      s?: string;
+      t?: string;
     }
     const page = {
       getByRole: (r: string, o?: Record<string, unknown>): MockLocator => {

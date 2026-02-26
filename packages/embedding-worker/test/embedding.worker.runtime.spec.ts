@@ -35,11 +35,11 @@ interface MockGpuCommandEncoder {
 }
 
 interface MockGpuDevice {
+  createCommandEncoder: () => MockGpuCommandEncoder;
   readonly lost: Promise<{ readonly reason?: string; readonly message: string }>;
   readonly queue: {
     submit: (buffers: unknown[]) => void;
   };
-  createCommandEncoder: () => MockGpuCommandEncoder;
 }
 
 vi.mock('workerpool', () => ({

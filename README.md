@@ -181,10 +181,18 @@ CI details: `.github/workflows/test.yml` runs lint → type‑check → build (w
 
 ### Dependency Updates
 
-Check for outdated dependencies across all workspaces:
+Check for dependency drift and outdated packages across all workspaces:
 
 ```bash
+pnpm deps:lint
+pnpm deps:update:check
 pnpm outdated -r
+```
+
+Normalize mismatched version ranges across the monorepo:
+
+```bash
+pnpm deps:fix
 ```
 
 Update a specific dependency in a package:
@@ -193,10 +201,10 @@ Update a specific dependency in a package:
 pnpm update <dep> --filter @brainstrike/<pkg>
 ```
 
-Update all dependencies (use with caution):
+Update all dependencies with syncpack (writes package.json files; review diffs, then run `pnpm install`):
 
 ```bash
-pnpm update -r
+pnpm deps:update
 ```
 
 Helpful docs: `onboarding.md`, `AGENTS.md`, `monorepo-docs.md`.

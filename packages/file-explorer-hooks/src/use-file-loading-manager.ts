@@ -10,9 +10,9 @@ import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useState } from 'react';
 
 interface UseFileLoadingManagerProps {
-  selectedFilePaths: Set<string>;
   fileContents: FileContents;
   loadFileContent: (path: string) => Promise<void>;
+  selectedFilePaths: Set<string>;
 }
 
 export const useFileLoadingManager = ({

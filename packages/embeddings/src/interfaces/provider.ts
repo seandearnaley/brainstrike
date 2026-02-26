@@ -30,13 +30,13 @@ export interface IEmbeddingProvider {
   embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput, EmbeddingProviderError>>;
 
   /**
-   * Check if provider is available and ready to generate embeddings
-   * - Local providers: Check if model is loaded or can be loaded
-   * - Hosted providers: Check API reachability and API key presence
+   * Get unified provider metadata for embedding-set creation and validation (BST-167)
+   * Returns metadata about the current provider including dimensions and distance metric
    *
-   * @returns true if provider is ready or can be initialized
+   * @param modelId - Model identifier to get metadata for
+   * @returns Provider metadata or null if model not found/configured
    */
-  isAvailable(): Promise<boolean>;
+  getMetadata(modelId: string): ProviderMetadata | null;
 
   /**
    * Get model metadata from registry
@@ -48,13 +48,13 @@ export interface IEmbeddingProvider {
   getModelInfo(modelId: string): ModelConfig | null;
 
   /**
-   * Get unified provider metadata for embedding-set creation and validation (BST-167)
-   * Returns metadata about the current provider including dimensions and distance metric
+   * Check if provider is available and ready to generate embeddings
+   * - Local providers: Check if model is loaded or can be loaded
+   * - Hosted providers: Check API reachability and API key presence
    *
-   * @param modelId - Model identifier to get metadata for
-   * @returns Provider metadata or null if model not found/configured
+   * @returns true if provider is ready or can be initialized
    */
-  getMetadata(modelId: string): ProviderMetadata | null;
+  isAvailable(): Promise<boolean>;
 
   /**
    * Validate embedding dimensions match expected value
@@ -76,20 +76,6 @@ export interface IEmbeddingProvider {
  */
 export interface ILocalEmbeddingProvider extends IEmbeddingProvider {
   /**
-   * Provider type discriminator
-   */
-  readonly runtime: 'browser';
-  readonly provider: 'local';
-
-  /**
-   * Initialize the local model with progress tracking
-   * Only needed for local providers that load models into memory
-   *
-   * @param onProgress - Optional callback for download/initialization progress
-   */
-  initialize(onProgress?: (progress: { stage: string; progress?: number }) => void): Promise<void>;
-
-  /**
    * Dispose of loaded model and free resources
    * Important for memory management in browser environments
    */
@@ -99,6 +85,19 @@ export interface ILocalEmbeddingProvider extends IEmbeddingProvider {
    * Get current initialization status
    */
   getStatus(): 'idle' | 'initializing' | 'ready' | 'error';
+
+  /**
+   * Initialize the local model with progress tracking
+   * Only needed for local providers that load models into memory
+   *
+   * @param onProgress - Optional callback for download/initialization progress
+   */
+  initialize(onProgress?: (progress: { stage: string; progress?: number }) => void): Promise<void>;
+  readonly provider: 'local';
+  /**
+   * Provider type discriminator
+   */
+  readonly runtime: 'browser';
 }
 
 /**
@@ -107,10 +106,14 @@ export interface ILocalEmbeddingProvider extends IEmbeddingProvider {
  */
 export interface IHostedEmbeddingProvider extends IEmbeddingProvider {
   /**
+   * Check if API key is configured
+   */
+  hasApiKey(): boolean;
+  readonly provider: Exclude<EmbeddingProviderType, LocalProviderType>;
+  /**
    * Provider type discriminator
    */
   readonly runtime: 'hosted';
-  readonly provider: Exclude<EmbeddingProviderType, LocalProviderType>;
 
   /**
    * Set API key for the provider
@@ -119,9 +122,4 @@ export interface IHostedEmbeddingProvider extends IEmbeddingProvider {
    * @param apiKey - API key for the provider
    */
   setApiKey(apiKey: string): void;
-
-  /**
-   * Check if API key is configured
-   */
-  hasApiKey(): boolean;
 }

@@ -17,39 +17,39 @@ import { formatDirPathForDisplay, splitFilePath } from './utils/path-display';
 import { formatPreviewFileSize } from './utils/preview-formatters';
 
 interface PreviewTableProps {
-  columnVisibility: ColumnVisibility;
-  sortField: keyof TableRowData;
-  sortDirection: 'asc' | 'desc';
-  groupingConfig: string;
-  groupedData: GroupedData<TableRowData>[];
-  currentPageData: TableRowData[];
   collapsedGroups: Set<string>;
-  previewSelections: Set<string>;
-  visibleFilesOnPage: TableRowData[];
-  onSort: (field: keyof TableRowData) => void;
-  onToggleSelection: (compositeKey: string, checked: boolean) => void;
-  onSelectAllOnPage: (items: TableRowData[]) => void;
-  onDeselectAll: () => void;
+  columnVisibility: ColumnVisibility;
+  currentPageData: TableRowData[];
+  groupedData: GroupedData<TableRowData>[];
+  groupingConfig: string;
+  handleGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
+  handleGroupSelectAll: (group: GroupedData<TableRowData>) => void;
   isAllSelected: (items: TableRowData[]) => boolean;
-  onFileClick?: ((compositeKey: string) => void) | undefined;
-  toggleGroupCollapse: (groupKey: GroupKey) => void;
   isGroupFullySelected: (group: GroupedData<TableRowData>) => boolean;
   isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
-  handleGroupSelectAll: (group: GroupedData<TableRowData>) => void;
-  handleGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
+  onDeselectAll: () => void;
+  onFileClick?: ((compositeKey: string) => void) | undefined;
+  onSelectAllOnPage: (items: TableRowData[]) => void;
+  onSort: (field: keyof TableRowData) => void;
+  onToggleSelection: (compositeKey: string, checked: boolean) => void;
   pagination: { startIndex: number; endIndex: number };
+  previewSelections: Set<string>;
+  sortDirection: 'asc' | 'desc';
+  sortField: keyof TableRowData;
+  toggleGroupCollapse: (groupKey: GroupKey) => void;
+  visibleFilesOnPage: TableRowData[];
 }
 
 type GroupColumnId = 'rootFolderId' | 'path' | 'type' | 'tokens' | 'size';
 
 interface GroupTreeNodeData {
-  kind: 'group';
   group: GroupedData<TableRowData>;
+  kind: 'group';
 }
 
 interface ItemTreeNodeData {
-  kind: 'item';
   item: TableRowData;
+  kind: 'item';
 }
 
 type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
@@ -59,10 +59,10 @@ const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'to
 
 interface GroupHeaderSummaryProps {
   group: GroupedData<TableRowData>;
-  showInlineCheckbox: boolean;
   isFullySelected: boolean;
   isPartiallySelected: boolean;
   onSelectionChange: (checked: boolean) => void;
+  showInlineCheckbox: boolean;
 }
 
 const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSummaryComponent({
@@ -110,14 +110,14 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
 GroupHeaderSummary.displayName = 'GroupHeaderSummary';
 
 interface BuildGroupedTreeNodesInput {
-  groupedData: GroupedData<TableRowData>[];
   collapsedGroups: Set<string>;
+  groupedData: GroupedData<TableRowData>[];
   pagination: { startIndex: number; endIndex: number };
 }
 
 interface BuildGroupedTreeNodesResult {
-  nodes: TreeNode<PreviewTreeNodeData>[];
   expandedGroupNodeIds: Set<string>;
+  nodes: TreeNode<PreviewTreeNodeData>[];
 }
 
 function areStringSetsEqual(left: Set<string>, right: Set<string>): boolean {
@@ -308,11 +308,11 @@ function getSortIndicator(
 }
 
 interface SortHeaderButtonProps {
-  title: string;
   field: keyof TableRowData;
-  sortField: keyof TableRowData;
-  sortDirection: 'asc' | 'desc';
   onSort: (field: keyof TableRowData) => void;
+  sortDirection: 'asc' | 'desc';
+  sortField: keyof TableRowData;
+  title: string;
 }
 
 const SortHeaderButton = memo<SortHeaderButtonProps>(function SortHeaderButtonComponent({

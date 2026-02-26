@@ -220,8 +220,8 @@ function safeJoinPath(rootPath: string, relativePath: string): string | null {
 /** Status information for a tab's file handle */
 export interface TabFileStatus {
   compositeKey: string;
-  status: TabRestoreStatus;
   error?: string | undefined;
+  status: TabRestoreStatus;
 }
 
 /** Helper to create TabFileStatus with optional error */
@@ -239,18 +239,18 @@ function createTabFileStatus(
 
 /** Return type for the hook */
 export interface UseTabFileRestorationReturn {
+  /** Get display message for tab status */
+  getStatusMessage: (compositeKey: string) => string | null;
   /** Whether restoration is currently in progress */
   isRestoring: boolean;
-  /** Map of composite key to restoration status */
-  tabStatuses: Map<string, TabFileStatus>;
+  /** Check if a tab needs user action (permission or removal) */
+  needsUserAction: (compositeKey: string) => boolean;
   /** Request permission for a specific tab (must be called from click handler) */
   requestTabPermission: (compositeKey: string) => Promise<boolean>;
   /** Manually trigger restoration for tabs */
   restoreTabs: (tabs: Array<{ tabId: string; compositeKey: string }>) => Promise<void>;
-  /** Check if a tab needs user action (permission or removal) */
-  needsUserAction: (compositeKey: string) => boolean;
-  /** Get display message for tab status */
-  getStatusMessage: (compositeKey: string) => string | null;
+  /** Map of composite key to restoration status */
+  tabStatuses: Map<string, TabFileStatus>;
 }
 
 /** Shape of file system adapter with handle cache access */
@@ -289,8 +289,8 @@ function hasExistsMethod(adapter: unknown): adapter is AdapterWithExists {
 
 /** Result of Electron tab restoration */
 interface ElectronRestoreResult {
-  restored: Array<{ compositeKey: string }>;
   notFound: Array<{ compositeKey: string; error: string }>;
+  restored: Array<{ compositeKey: string }>;
 }
 
 /**

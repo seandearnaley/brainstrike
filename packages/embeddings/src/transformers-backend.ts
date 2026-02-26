@@ -25,10 +25,10 @@ interface TransformersModule {
  * See: https://huggingface.co/docs/transformers.js/api/pipelines#featureextractionpipeline
  */
 interface FeatureExtractionPipelineOptions {
-  pooling: string;
   normalize: boolean;
-  quantize?: boolean;
+  pooling: string;
   precision?: 'binary' | 'ubinary';
+  quantize?: boolean;
 }
 
 type FeatureExtractionPipeline = (
@@ -39,17 +39,17 @@ type FeatureExtractionPipeline = (
 }>;
 
 interface PipelineConfig {
-  quantized?: boolean;
   device?: string;
   dtype?: string;
   progressCallback?: (progress: ProgressInfo) => void;
+  quantized?: boolean;
 }
 
 interface ProgressInfo {
-  status: string;
-  loaded?: number;
-  total?: number;
   file?: string;
+  loaded?: number;
+  status: string;
+  total?: number;
 }
 
 interface DownloadOptions {

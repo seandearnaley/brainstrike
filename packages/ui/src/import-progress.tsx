@@ -6,15 +6,15 @@ import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Progress } from './progress';
 
 export interface ImportProgress {
-  total: number;
   completed: number;
   current?: string;
   errors: Array<{ file: string; error: string }>;
+  total: number;
 }
 
 interface ImportProgressProps {
-  progress: ImportProgress;
   onClose?: () => void;
+  progress: ImportProgress;
 }
 
 export function ImportProgress({ progress, onClose }: ImportProgressProps) {

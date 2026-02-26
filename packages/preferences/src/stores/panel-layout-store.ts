@@ -22,22 +22,21 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 export type PanelTab = 'explorer' | 'settings' | 'prompts';
 
 export interface PanelLayoutStoreState {
-  // Layout
-  sizes: [number, number, number];
-  showLeftPanel: boolean;
-  showRightPanel: boolean;
-  showConsole: boolean;
-
   // Root tabs
   activeTab: PanelTab;
+  setActiveTab: (tab: PanelTab) => void;
 
   // Actions
   setSizes: (sizes: number[]) => void;
+  setState: (next: Partial<PanelLayoutStoreState>) => void;
+  showConsole: boolean;
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
+  // Layout
+  sizes: [number, number, number];
+  toggleConsole: () => void;
   toggleLeft: () => void;
   toggleRight: () => void;
-  toggleConsole: () => void;
-  setActiveTab: (tab: PanelTab) => void;
-  setState: (next: Partial<PanelLayoutStoreState>) => void;
 }
 
 /**

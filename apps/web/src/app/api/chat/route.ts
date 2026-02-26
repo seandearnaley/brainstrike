@@ -8,9 +8,9 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
 
 interface RateLimitEntry {
+  blockedUntil?: number;
   count: number;
   windowStartedAt: number;
-  blockedUntil?: number;
 }
 
 const rateLimitState = new Map<string, RateLimitEntry>();

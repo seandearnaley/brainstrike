@@ -41,52 +41,52 @@ const SORT_KEY_TO_COLUMN: Record<CollectionSortKey, string> = {
 
 interface UseCollectionBrowserStateOptions {
   data: CollectionTreeInput;
-  onSelect?: ((nodeId: string, nodeType: string, data: BrowserNodeData) => void) | undefined;
-  onMultiSelect?: ((nodeIds: Set<string>) => void) | undefined;
-  onDoubleClick?: ((nodeId: string, nodeType: string, data: BrowserNodeData) => void) | undefined;
+  expandedIds?: Set<string> | undefined;
+  filters?: CollectionBrowserFilters | undefined;
+  groupBy?: GroupByKey | undefined;
+  hasSearched?: boolean | undefined;
   onContextMenu?:
     | ((nodeId: string, nodeType: string, data: BrowserNodeData, event: React.MouseEvent) => void)
     | undefined;
-  sortState?: CollectionSortState | undefined;
-  onSortChange?: ((sortState: CollectionSortState | null) => void) | undefined;
-  expandedIds?: Set<string> | undefined;
+  onDoubleClick?: ((nodeId: string, nodeType: string, data: BrowserNodeData) => void) | undefined;
   onExpandedIdsChange?: ((ids: Set<string>) => void) | undefined;
-  selectedId?: string | null | undefined;
+  onMultiSelect?: ((nodeIds: Set<string>) => void) | undefined;
+  onSelect?: ((nodeId: string, nodeType: string, data: BrowserNodeData) => void) | undefined;
   onSelectedIdChange?: ((id: string | null) => void) | undefined;
+  onSortChange?: ((sortState: CollectionSortState | null) => void) | undefined;
   searchMode?: SearchMode | undefined;
+  selectedId?: string | null | undefined;
   semanticResults?: SemanticSearchResult[] | undefined;
-  hasSearched?: boolean | undefined;
-  filters?: CollectionBrowserFilters | undefined;
-  groupBy?: GroupByKey | undefined;
+  sortState?: CollectionSortState | undefined;
 }
 
 export interface UseCollectionBrowserStateResult {
-  nodes: ReturnType<typeof useCollectionTree>['nodes'];
   columns: null; // columns are built by useCollectionBrowserColumns
-  filters: CollectionBrowserFilters;
-  selectedId: string | null;
-  multiSelectedIds: Set<string>;
   expandedIds: Set<string>;
-  isSemanticMode: boolean;
-  showScoreColumn: boolean;
-  hasSemanticResults: boolean;
-  highlightedIds: Set<string>;
-  searchMatchIds: Set<string>;
-  semanticMatchIds: Set<string>;
-  similarityScores: Map<string, number>;
-  nodeTypeMap: Map<string, CollectionNodeType>;
-  treeTableSortState: SortState | undefined;
-  handleToggleExpand: (nodeId: string) => void;
-  handleSelect: (nodeId: string | null) => void;
-  handleMultiSelectChange: (newSelection: Set<string>) => void;
+  filters: CollectionBrowserFilters;
   handleClearSelection: () => void;
-  handleDoubleClick: (nodeId: string, node: TreeNode<BrowserNodeData>) => void;
   handleContextMenu: (
     nodeId: string,
     node: TreeNode<BrowserNodeData>,
     event: React.MouseEvent
   ) => void;
+  handleDoubleClick: (nodeId: string, node: TreeNode<BrowserNodeData>) => void;
+  handleMultiSelectChange: (newSelection: Set<string>) => void;
+  handleSelect: (nodeId: string | null) => void;
+  handleToggleExpand: (nodeId: string) => void;
   handleTreeTableSortChange: (columnId: string, direction: SortDirection) => void;
+  hasSemanticResults: boolean;
+  highlightedIds: Set<string>;
+  isSemanticMode: boolean;
+  multiSelectedIds: Set<string>;
+  nodes: ReturnType<typeof useCollectionTree>['nodes'];
+  nodeTypeMap: Map<string, CollectionNodeType>;
+  searchMatchIds: Set<string>;
+  selectedId: string | null;
+  semanticMatchIds: Set<string>;
+  showScoreColumn: boolean;
+  similarityScores: Map<string, number>;
+  treeTableSortState: SortState | undefined;
 }
 
 export function useCollectionBrowserState({

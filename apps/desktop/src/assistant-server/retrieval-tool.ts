@@ -66,10 +66,10 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
 ]);
 
 interface EmbeddingSetRow {
-  modelKey: string;
-  modelId: string;
   dimensions: number;
   distance: string | null;
+  modelId: string;
+  modelKey: string;
 }
 
 type HostedEmbeddingProvider =
@@ -97,17 +97,17 @@ interface ToolContext<TInput> {
 }
 
 interface RetrievalToolResult {
-  query: string;
+  budget: number;
+  chunks: PackedContextChunk[];
+  context: string;
   embeddingSetId: string;
   limit: number;
-  threshold: number;
-  selectionSnapshotId?: string;
-  totalTokens: number;
-  budget: number;
+  query: string;
   remainingTokens: number;
+  selectionSnapshotId?: string;
   skipped: number;
-  context: string;
-  chunks: PackedContextChunk[];
+  threshold: number;
+  totalTokens: number;
 }
 
 function normalizeText(value: string | null | undefined): string | undefined {

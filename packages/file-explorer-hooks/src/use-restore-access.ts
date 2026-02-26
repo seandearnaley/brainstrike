@@ -15,45 +15,45 @@ const HANDLE_CHECK_DELAY_MS = 500;
 export interface PendingRestoreState {
   folderId: string;
   name: string;
-  /** The raw FileSystemDirectoryHandle for requesting permission synchronously */
-  rawHandle: FileSystemDirectoryHandle;
   /** Current permission state */
   permissionState: PermissionState | 'unknown';
+  /** The raw FileSystemDirectoryHandle for requesting permission synchronously */
+  rawHandle: FileSystemDirectoryHandle;
 }
 
 interface RestoreAccessState {
+  /**
+   * Begin restore - requests permission SYNCHRONOUSLY in the click handler.
+   * MUST be called directly from a user gesture (click) handler.
+   */
+  beginRestore: () => Promise<DirectoryHandle | null>;
+  chooseDifferentFolder: () => Promise<DirectoryHandle | null>;
+  clearStoredHandles: () => Promise<void>;
+  dismissRestore: () => void;
   /** Whether the hook is still checking for stored handles on startup */
   isCheckingStoredHandles: boolean;
   pendingRestore: PendingRestoreState | null;
   showDeniedBanner: boolean;
   showStaleBanner: boolean;
   storedFolders: Array<{ folderId: string; name: string }>;
-  /**
-   * Begin restore - requests permission SYNCHRONOUSLY in the click handler.
-   * MUST be called directly from a user gesture (click) handler.
-   */
-  beginRestore: () => Promise<DirectoryHandle | null>;
-  dismissRestore: () => void;
-  chooseDifferentFolder: () => Promise<DirectoryHandle | null>;
-  clearStoredHandles: () => Promise<void>;
 }
 
 interface RestoreHandleResult {
-  handle: FileSystemDirectoryHandle;
   folderId: string;
+  handle: FileSystemDirectoryHandle;
   name: string;
   permissionState: PermissionState | 'unknown';
 }
 
 interface WebHandleCacheShape {
+  clear?: () => Promise<void>;
   getAllRootHandles?: () => Promise<
     Array<{ folderId: string; name: string; lastAccessedAt: number }>
   >;
-  restoreLastRootHandle?: () => Promise<{ handle: FileSystemDirectoryHandle } | null>;
   getLastRootHandleForRestore?: () => Promise<RestoreHandleResult | null>;
   markHandleRestored?: (folderId: string) => Promise<void>;
   removeRootHandle?: (folderId: string) => Promise<void>;
-  clear?: () => Promise<void>;
+  restoreLastRootHandle?: () => Promise<{ handle: FileSystemDirectoryHandle } | null>;
 }
 
 interface WebAdapterWithCache {

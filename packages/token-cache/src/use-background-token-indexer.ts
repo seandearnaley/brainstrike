@@ -110,9 +110,9 @@ async function persistResultToStore(
  * Electron-style handle with path property
  */
 export interface ElectronFileHandle {
-  path: string;
-  name: string;
   kind: 'file';
+  name: string;
+  path: string;
   platform: 'electron';
 }
 
@@ -121,46 +121,46 @@ export interface ElectronFileHandle {
  */
 export interface FileToIndex {
   compositeKey: string;
-  folderId: string;
-  filePath: string;
   /** Pre-loaded file content (required for Electron) */
   content?: string;
-  /** Pre-loaded file size in bytes */
-  fileSize?: number;
   /** Web FileSystemFileHandle for File System Access API */
   fileHandle?: FileSystemFileHandle;
+  filePath: string;
+  /** Pre-loaded file size in bytes */
+  fileSize?: number;
+  folderId: string;
 }
 
 export interface IndexingProgress {
   completed: number;
-  total: number;
   currentFile?: string;
+  total: number;
 }
 
 export interface UseBackgroundTokenIndexerOptions {
-  /** Token cache store for persistence (null to disable indexing) */
-  store: TokenCacheStoreLike | null;
   /** Token counting mode */
   mode: TokenCountingMode;
+  /** Callback when a file fails to index */
+  onFileError?: (compositeKey: string, error: string) => void;
   /** Callback when a file's token count is resolved (includes file size for cache updates) */
   onFileIndexed?: (compositeKey: string, tokenCount: number, fileSize: number) => void;
   /** Callback for progress updates */
   onProgress?: (progress: IndexingProgress) => void;
-  /** Callback when a file fails to index */
-  onFileError?: (compositeKey: string, error: string) => void;
+  /** Token cache store for persistence (null to disable indexing) */
+  store: TokenCacheStoreLike | null;
 }
 
 export interface UseBackgroundTokenIndexerReturn {
-  /** Queue files for background indexing */
-  indexFiles: (files: FileToIndex[]) => Promise<void>;
   /** Cancel all pending indexing */
   cancelIndexing: () => void;
+  /** Queue files for background indexing */
+  indexFiles: (files: FileToIndex[]) => Promise<void>;
   /** Whether indexing is in progress */
   isIndexing: boolean;
-  /** Current progress */
-  progress: IndexingProgress | null;
   /** Whether the worker is ready */
   isReady: boolean;
+  /** Current progress */
+  progress: IndexingProgress | null;
 }
 
 /**
@@ -171,10 +171,10 @@ function createRequestId(): string {
 }
 
 interface PendingBatchTracker {
+  done: boolean;
+  reject: (error: Error) => void;
   remainingCompositeKeys: Set<string>;
   resolve: () => void;
-  reject: (error: Error) => void;
-  done: boolean;
 }
 
 /**

@@ -105,10 +105,10 @@ class ElectronHarness {
 
 interface ElectronTestFixtures {
   electronApp: ElectronAppContext;
-  window: Page;
-  homePage: HomePage;
   /** Failure artifact collector - automatically captures diagnostics on test failure */
   failureCollector: FailureArtifactCollector;
+  homePage: HomePage;
+  window: Page;
 }
 
 interface ElectronWorkerFixtures {

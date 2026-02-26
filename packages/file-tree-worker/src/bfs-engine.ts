@@ -80,18 +80,18 @@ function generateRequestId(): string {
  * Tracks progress through BFS waves of directory loading.
  */
 interface SubtreeLoadState {
-  /** Directories already processed (to avoid duplicates) */
-  processed: Set<string>;
   /** Current wave of directories to process */
   currentWave: Set<string>;
-  /** Total directories discovered so far */
-  totalDiscovered: number;
-  /** Number of directories successfully loaded */
-  loadedCount: number;
   /** Whether depth limit was reached */
   hitDepthLimit: boolean;
   /** Whether directory count limit was reached */
   hitDirectoryLimit: boolean;
+  /** Number of directories successfully loaded */
+  loadedCount: number;
+  /** Directories already processed (to avoid duplicates) */
+  processed: Set<string>;
+  /** Total directories discovered so far */
+  totalDiscovered: number;
 }
 
 /**

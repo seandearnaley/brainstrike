@@ -67,8 +67,8 @@ const BUDGET_PRESETS = [
 
 export interface TokenBudgetControlProps {
   budget?: number;
-  onBudgetChange?: ((budget: number) => void) | undefined;
   compact?: boolean;
+  onBudgetChange?: ((budget: number) => void) | undefined;
 }
 
 export const TokenBudgetControl = memo<TokenBudgetControlProps>(function TokenBudgetControl({

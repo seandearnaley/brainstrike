@@ -18,12 +18,12 @@ type DeepPartial<T> = {
 };
 
 interface LoggingPreferencesState {
-  preferences: LoggingPreferences;
   hasHydrated: boolean;
+  markHydrated: () => void;
+  preferences: LoggingPreferences;
+  resetPreferences: () => void;
   setPreferences: (preferences: LoggingPreferences) => void;
   updatePreferences: (updates: DeepPartial<LoggingPreferences>) => void;
-  resetPreferences: () => void;
-  markHydrated: () => void;
 }
 
 const STORE_NAME = 'logging-preferences.v1' as const;

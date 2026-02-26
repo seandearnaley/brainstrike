@@ -4,8 +4,8 @@ import type { FileCollectionStatus } from '../types/file-collection-status';
 import { formatDate } from '../utils/format';
 
 interface FileStatusBadgeProps {
-  status: FileCollectionStatus;
   activeCollectionName: string;
+  status: FileCollectionStatus;
 }
 
 /**

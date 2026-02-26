@@ -8,9 +8,9 @@ function shouldWarnForCycles(): boolean {
 }
 
 interface WarnCycleOnceOptions {
+  maxWarnings?: number;
   nodeId: string;
   warnedNodeIds: Set<string>;
-  maxWarnings?: number;
   warningMessage: string;
 }
 

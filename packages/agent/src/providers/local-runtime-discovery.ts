@@ -21,39 +21,39 @@ interface BaseLocalRuntimeState {
 }
 
 export interface LocalRuntimeAvailableState extends BaseLocalRuntimeState {
-  readonly state: 'available';
   readonly endpoint: string;
   readonly latencyMs: number;
+  readonly state: 'available';
 }
 
 export interface LocalRuntimeUnavailableState extends BaseLocalRuntimeState {
-  readonly state: 'unavailable';
   readonly message?: string;
+  readonly state: 'unavailable';
 }
 
 export interface LocalRuntimeBlockedWebState extends BaseLocalRuntimeState {
-  readonly state: 'blocked_web';
   readonly message: string;
+  readonly state: 'blocked_web';
 }
 
 export interface LocalRuntimeAuthRequiredState extends BaseLocalRuntimeState {
-  readonly state: 'auth_required';
   readonly endpoint: string;
+  readonly state: 'auth_required';
   readonly status: 401 | 403;
 }
 
 export interface LocalRuntimeIncompatibleState extends BaseLocalRuntimeState {
-  readonly state: 'incompatible';
   readonly endpoint: string;
   readonly message: string;
+  readonly state: 'incompatible';
 }
 
 export interface LocalRuntimeStaleState extends BaseLocalRuntimeState {
-  readonly state: 'stale';
   readonly endpoint: string;
   readonly lastSuccessfulAt: number;
-  readonly reason: 'unavailable' | 'blocked_web' | 'auth_required' | 'incompatible';
   readonly message?: string;
+  readonly reason: 'unavailable' | 'blocked_web' | 'auth_required' | 'incompatible';
+  readonly state: 'stale';
 }
 
 export type LocalRuntimeAvailabilityState =
@@ -79,11 +79,11 @@ interface RuntimeProbeDefinition {
 }
 
 interface RuntimeCacheEntry {
-  readonly status: Exclude<LocalRuntimeAvailabilityState, LocalRuntimeCheckingState>;
-  readonly nextProbeAt: number;
   readonly consecutiveFailures: number;
   readonly lastSuccessfulAt: number | null;
   readonly lastSuccessfulEndpoint: string | null;
+  readonly nextProbeAt: number;
+  readonly status: Exclude<LocalRuntimeAvailabilityState, LocalRuntimeCheckingState>;
 }
 
 const DEFAULT_SUCCESS_TTL_MS = 30_000;
@@ -126,14 +126,9 @@ const DEFAULT_PROBES: Record<LocalRuntimeId, readonly RuntimeProbeDefinition[]> 
 
 export interface LocalRuntimeDiscoveryServiceOptions {
   /**
-   * Fetch implementation for runtime probing.
-   * Defaults to global fetch.
+   * Optional explicit runtime surface.
    */
-  readonly fetchImpl?: typeof fetch;
-  /**
-   * Time-to-live for successful probe results before re-check.
-   */
-  readonly successTtlMs?: number;
+  readonly defaultSurface?: LocalRuntimeSurface;
   /**
    * Exponential backoff base for failed probe retries.
    */
@@ -143,17 +138,22 @@ export interface LocalRuntimeDiscoveryServiceOptions {
    */
   readonly failureMaxBackoffMs?: number;
   /**
-   * Timeout for individual probe requests.
+   * Fetch implementation for runtime probing.
+   * Defaults to global fetch.
    */
-  readonly requestTimeoutMs?: number;
-  /**
-   * Optional explicit runtime surface.
-   */
-  readonly defaultSurface?: LocalRuntimeSurface;
+  readonly fetchImpl?: typeof fetch;
   /**
    * Optional time source override for deterministic tests.
    */
   readonly now?: () => number;
+  /**
+   * Timeout for individual probe requests.
+   */
+  readonly requestTimeoutMs?: number;
+  /**
+   * Time-to-live for successful probe results before re-check.
+   */
+  readonly successTtlMs?: number;
 }
 
 export interface ProbeLocalRuntimeOptions {

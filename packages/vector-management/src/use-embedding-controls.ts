@@ -25,10 +25,10 @@ export interface UseEmbeddingControlsOptions {
 export interface UseEmbeddingControlsResult {
   /** Props for rendering EmbeddingActionsDropdown */
   dropdownProps: EmbeddingActionsDropdownProps;
-  /** Props for rendering EmbeddingStatusBar */
-  statusBarProps: EmbeddingStatusBarProps;
   /** Whether the database is available */
   hasDb: boolean;
+  /** Props for rendering EmbeddingStatusBar */
+  statusBarProps: EmbeddingStatusBarProps;
 }
 
 /**

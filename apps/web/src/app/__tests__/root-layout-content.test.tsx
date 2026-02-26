@@ -121,10 +121,10 @@ interface MockAppLayoutProps {
 }
 
 interface MockAppConfig {
-  title: string;
   description: string;
-  themeStorageKey: string;
   navigationItems: unknown[];
+  themeStorageKey: string;
+  title: string;
 }
 
 // Mock the app-shell package completely (no importOriginal to avoid loading real modules)

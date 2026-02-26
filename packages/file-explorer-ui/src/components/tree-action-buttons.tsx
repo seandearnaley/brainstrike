@@ -10,21 +10,21 @@ import { ChevronsDown, ChevronsUp, Loader2, RefreshCw, X } from 'lucide-react';
 import * as React from 'react';
 
 export interface ScanningStatusInfo {
-  isScanning: boolean;
   cancellable: boolean;
-  isCancelling: boolean;
-  onCancel: () => void;
   currentPath?: string;
+  isCancelling: boolean;
+  isScanning: boolean;
+  onCancel: () => void;
   percentage?: number;
 }
 
 interface TreeActionButtonsProps {
+  isExpandingAll: boolean;
   isLoading: boolean;
   isRefreshing: boolean;
-  isExpandingAll: boolean;
-  onRefresh: () => void;
-  onExpandAll: () => void;
   onCollapseAll: () => void;
+  onExpandAll: () => void;
+  onRefresh: () => void;
   /** Optional scanning status for inline display */
   scanningStatus?: ScanningStatusInfo | null;
 }

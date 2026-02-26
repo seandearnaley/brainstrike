@@ -1,13 +1,22 @@
 {
   "name": "@brainstrike/workers",
   "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "sideEffects": false,
-  "files": [
-    "dist/**/*.js",
-    "dist/**/*.d.ts"
-  ],
+  "dependencies": {
+    "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@stryker-mutator/api": "^9.5.1",
+    "@stryker-mutator/core": "^9.5.1",
+    "@stryker-mutator/typescript-checker": "^9.5.1",
+    "@stryker-mutator/vitest-runner": "^9.5.1",
+    "@types/node": "^25.3.0",
+    "rimraf": "^6.1.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
   "exports": {
     "./file-content-worker": {
       "types": "./dist/file-content-worker.d.ts",
@@ -20,30 +29,21 @@
       "require": "./dist/report-generation-worker.js"
     }
   },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
+  "private": true,
   "scripts": {
-    "clean": "rimraf dist",
     "build": "pnpm run clean && tsc -b .",
+    "clean": "rimraf dist",
+    "mutation": "npx @stryker-mutator/core run",
     "prepublishOnly": "pnpm run build",
-    "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage",
-    "mutation": "npx @stryker-mutator/core run"
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
   },
-  "dependencies": {
-    "@brainstrike/file-system": "workspace:*",
-    "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
-  },
-  "devDependencies": {
-    "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/api": "^9.4.0",
-    "@stryker-mutator/core": "^9.4.0",
-    "@stryker-mutator/typescript-checker": "^9.4.0",
-    "@stryker-mutator/vitest-runner": "^9.4.0",
-    "@types/node": "^25.0.8",
-    "rimraf": "^6.1.2",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
-  }
+  "sideEffects": false,
+  "type": "module"
 }

@@ -14,16 +14,16 @@ export const fileContentCacheLogger = logger;
 
 export interface CacheEntry {
   content: string;
-  timestamp: number;
   lastAccessed: number;
   size: number; // in bytes
+  timestamp: number;
 }
 
 export interface CacheStats {
-  totalSize: number;
   entryCount: number;
-  hitRate: number;
   evictionCount: number;
+  hitRate: number;
+  totalSize: number;
 }
 
 /** Shared encoder instance for byte-length measurement (avoids Blob allocation). */

@@ -8,18 +8,18 @@ import type { DbModel, DbProvider } from '@brainstrike/preferences';
 import { useMemo } from 'react';
 
 interface AvailableModel {
-  id: string;
-  providerId: string;
-  name: string;
-  description: string;
   capabilities: DbModel['capabilities'];
+  description: string;
+  id: string;
+  name: string;
   pricePer1MTokensInput?: number;
+  providerId: string;
 }
 
 interface AvailableProvider {
+  icon: string | null;
   id: string;
   name: string;
-  icon: string | null;
 }
 
 type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;

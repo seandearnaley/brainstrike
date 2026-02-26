@@ -8,10 +8,10 @@
  */
 
 export interface NormalizedProgress {
-  step?: string;
-  percent?: number; // 0..100
   note?: string;
+  percent?: number; // 0..100
   raw?: unknown;
+  step?: string;
 }
 
 export function normalizeProgressPayload(input: unknown): NormalizedProgress {

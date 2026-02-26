@@ -10,20 +10,23 @@ import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
 import type { LoggingSettingsPayload } from '../logging-shared';
 
 interface QueryResult {
-  rows: unknown[];
   fields?: { name: string; dataType: string }[];
+  rows: unknown[];
 }
 
 interface ElectronLiveQueryResults {
+  limit?: number;
+  offset?: number;
   rows: unknown[];
   totalCount?: number;
-  offset?: number;
-  limit?: number;
 }
 
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
   interface Window {
+    agent: {
+      chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
+    };
     electronAPI: {
       storage: {
         getItem: (key: string) => Promise<string | null>;
@@ -76,20 +79,6 @@ declare global {
       loadLayout: () => Promise<LayoutLoadResult>;
       // Database path method (legacy)
       getUserDataPath: () => Promise<string>;
-    };
-    secrets: {
-      saveKey: (
-        provider: string,
-        value: string
-      ) => Promise<true | { ok: false; error: 'encryption_unavailable' | 'unknown_error' }>;
-      getKey: (provider: string) => Promise<string | null>;
-      deleteKey: (provider: string) => Promise<boolean>;
-      list: () => Promise<string[]>;
-      listStored: () => Promise<string[]>;
-      clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
-    };
-    agent: {
-      chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
     };
     logging: {
       getPreferences: () => Promise<LoggingSettingsPayload>;
@@ -148,6 +137,17 @@ declare global {
         disabled: number;
         servers: number;
       }>;
+    };
+    secrets: {
+      saveKey: (
+        provider: string,
+        value: string
+      ) => Promise<true | { ok: false; error: 'encryption_unavailable' | 'unknown_error' }>;
+      getKey: (provider: string) => Promise<string | null>;
+      deleteKey: (provider: string) => Promise<boolean>;
+      list: () => Promise<string[]>;
+      listStored: () => Promise<string[]>;
+      clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
     };
     tools: {
       execute: (

@@ -6,10 +6,10 @@ interface MockRow {
   file_id: string;
   file_name: string;
   file_path: string;
+  last_indexed: string | null;
+  other_collections: string;
   searchable_chunks: string;
   total_chunks: string;
-  other_collections: string;
-  last_indexed: string | null;
 }
 
 const mockLiveQueryState = {

@@ -6,26 +6,26 @@ const logger = createLogger('EmbeddingQueueTelemetrySink');
 export type QueueTelemetryRuntime = 'browser' | 'electron-renderer' | 'electron-main';
 
 export interface QueueTelemetrySinkOptions {
-  readonly endpoint: string;
   readonly apiKey?: string;
-  readonly headers?: Record<string, string>;
-  readonly runtime?: QueueTelemetryRuntime;
-  readonly metadata?: Record<string, unknown>;
-  readonly flushIntervalMs?: number;
-  readonly maxBatchSize?: number;
-  readonly useSendBeacon?: boolean;
   readonly enableInTest?: boolean;
+  readonly endpoint: string;
+  readonly flushIntervalMs?: number;
+  readonly headers?: Record<string, string>;
+  readonly maxBatchSize?: number;
   /**
    * Maximum consecutive failures before disabling the sink.
    * After this many failures in a row, the sink stops attempting to send.
    * Defaults to 3.
    */
   readonly maxConsecutiveFailures?: number;
+  readonly metadata?: Record<string, unknown>;
+  readonly runtime?: QueueTelemetryRuntime;
+  readonly useSendBeacon?: boolean;
 }
 
 export interface QueueTelemetrySink {
-  flush(): Promise<void>;
   dispose(): Promise<void>;
+  flush(): Promise<void>;
 }
 
 function resolveDefaultRuntime(): QueueTelemetryRuntime {

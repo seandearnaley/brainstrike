@@ -4,14 +4,14 @@ import { ArrowDown, ArrowUp, Folder } from 'lucide-react';
 import { memo } from 'react';
 
 export interface FolderHeaderItem {
-  folderId: string;
   fileCount: number;
+  folderId: string;
   totalTokens: number;
 }
 
 export interface FolderHeaderRowProps {
-  item: FolderHeaderItem;
   isCollapsed: boolean;
+  item: FolderHeaderItem;
   onToggleCollapse: () => void;
 }
 

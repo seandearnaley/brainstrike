@@ -50,12 +50,12 @@ function updateWithFolderState(
 
 export interface SettingsActions {
   setFilters: (include: readonly string[], exclude: readonly string[]) => void;
-  setUseRegex: (useRegex: boolean) => void;
-  setIncludeProjectTree: (value: boolean) => void;
-  setTokenBudget: (budget: number) => void;
   setFolderSummaryThreshold: (value: number) => void;
-  setMaxSelectionCount: (count: number) => void; // Note: Moved from folder-state-actions
+  setIncludeProjectTree: (value: boolean) => void;
   setLastActiveTab: (tab: string) => void; // Note: Moved from folder-state-actions
+  setMaxSelectionCount: (count: number) => void; // Note: Moved from folder-state-actions
+  setTokenBudget: (budget: number) => void;
+  setUseRegex: (useRegex: boolean) => void;
   setViewFilterPresetId: (presetId: string | null) => void;
   toggleFilterEnabled: (filter: string, type: 'include' | 'exclude') => void;
 }

@@ -8,8 +8,8 @@ type ApiKeyEnvVar = (typeof API_KEY_ENV_VARS)[number];
 
 export interface AssistantProviderConfig {
   apiKey?: string;
-  enabled: boolean;
   disabledReason?: 'missing_api_key';
+  enabled: boolean;
   source?: ApiKeyEnvVar;
 }
 

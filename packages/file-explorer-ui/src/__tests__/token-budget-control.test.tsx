@@ -19,8 +19,8 @@ vi.mock('@brainstrike/ui', async () => {
 
   interface ButtonProps {
     children: React.ReactNode;
-    onClick?: (() => void) | undefined;
     disabled?: boolean | undefined;
+    onClick?: (() => void) | undefined;
     [key: string]: unknown;
   }
 

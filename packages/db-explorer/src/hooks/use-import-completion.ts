@@ -2,9 +2,9 @@ import type { useToast } from '@brainstrike/ui';
 import type { EnhancedImportResult } from '../types';
 
 interface ImportCounts {
-  newFiles: number;
   existedButProcessed: number;
   failed: number;
+  newFiles: number;
   processingErrors: number;
   totalChunks: number;
   totalEmbeddings: number;

@@ -4,14 +4,14 @@
  */
 
 export interface EnvironmentConfig {
+  fullyParallel: boolean;
+  globalTimeout: number;
+  headless: boolean;
+  isCI: boolean;
   isCodex: boolean;
   isGitHubActions: boolean;
-  isCI: boolean;
-  workers: number;
-  globalTimeout: number;
   retries: number;
-  headless: boolean;
-  fullyParallel: boolean;
+  workers: number;
 }
 
 /**

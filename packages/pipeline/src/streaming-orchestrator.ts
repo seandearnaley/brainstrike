@@ -52,18 +52,18 @@ import type {
  * Returned by the processFile callback.
  */
 export interface FileProcessResult {
-  /** Whether the file was successfully processed */
-  success: boolean;
-  /** Assigned file ID (if import created a new record) */
-  fileId?: FileId;
-  /** Whether file already existed in the database */
-  existed?: boolean;
   /** Number of chunks created */
   chunksCreated: number;
-  /** Number of embedding jobs enqueued */
-  jobsEnqueued: number;
   /** Error message if processing failed */
   error?: string;
+  /** Whether file already existed in the database */
+  existed?: boolean;
+  /** Assigned file ID (if import created a new record) */
+  fileId?: FileId;
+  /** Number of embedding jobs enqueued */
+  jobsEnqueued: number;
+  /** Whether the file was successfully processed */
+  success: boolean;
 }
 
 /**
@@ -84,20 +84,20 @@ export type StreamingProgressCallback = (progress: StreamingProgress) => void;
  * Progress state during streaming import.
  */
 export interface StreamingProgress {
-  /** Total files to process */
-  total: number;
   /** Files completed (success or failure) */
   completed: number;
-  /** Files currently being processed */
-  inProgress: number;
-  /** Files that failed */
-  failed: number;
   /** Current file being processed */
   currentFile?: string;
-  /** Estimated completion percentage */
-  percentage: number;
   /** Elapsed time in milliseconds */
   elapsedMs: number;
+  /** Files that failed */
+  failed: number;
+  /** Files currently being processed */
+  inProgress: number;
+  /** Estimated completion percentage */
+  percentage: number;
+  /** Total files to process */
+  total: number;
 }
 
 /**
@@ -108,12 +108,12 @@ export interface StreamingImportInput {
   compositeKeys: string[];
   /** Content reader for lazy loading */
   contentReader: ContentReader;
-  /** Callback to process each file */
-  processFile: ProcessFileCallback;
-  /** Import options */
-  options?: StreamingImportOptions;
   /** Progress callback (throttled) */
   onProgress?: StreamingProgressCallback;
+  /** Import options */
+  options?: StreamingImportOptions;
+  /** Callback to process each file */
+  processFile: ProcessFileCallback;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
 }

@@ -15,14 +15,14 @@ import type { ToolDisplayMetadata } from './types';
  * Props for the ToolRow component.
  */
 export interface ToolRowProps {
-  /** Tool metadata to display */
-  tool: ToolDisplayMetadata;
   /** Whether the row is currently expanded */
   expanded?: boolean;
-  /** Callback when the tool enable/disable toggle is clicked */
-  onToggle: (toolId: string, currentlyEnabled: boolean) => Promise<void>;
   /** Callback when the row is clicked to expand/collapse */
   onExpand?: (toolId: string) => void;
+  /** Callback when the tool enable/disable toggle is clicked */
+  onToggle: (toolId: string, currentlyEnabled: boolean) => Promise<void>;
+  /** Tool metadata to display */
+  tool: ToolDisplayMetadata;
 }
 
 /**

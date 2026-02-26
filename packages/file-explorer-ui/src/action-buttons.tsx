@@ -26,20 +26,24 @@ import type { SelectAllResult } from './hooks/use-recursive-select-all';
 // NOTE: `| undefined` on optional props is required due to exactOptionalPropertyTypes: true in tsconfig.
 // This ensures type compatibility when passing potentially-undefined values from parent components.
 export interface ActionButtonsProps {
-  displayedFiles: Set<string>;
-  selectedFilePaths: Set<string>;
-  maxSelectionCount: number;
+  /** Add multiple selected files (used by recursive selection) */
+  addMultipleSelectedFiles?: ((folderId: string, paths: string[]) => void) | undefined;
+  /** Cancel the current recursive selection operation */
+  cancelSelectAll?: (() => void) | undefined;
   currentFolderId: string | null;
-  setSelectedFiles: (files: Set<string>) => void;
+  displayedFiles: Set<string>;
   encodeFileSelection: (folderId: string, path: string) => string;
-  onSelectionLimitExceeded?: (() => void) | undefined;
-  /** Whether the tree has any files (used to enable/disable Select All) */
-  hasFilesInTree?: boolean | undefined;
   /**
    * The FILTERED file tree to select from.
    * Pass quickFilteredTree to respect workspace include/exclude filters.
    */
   filteredTree?: IFileNode[] | undefined;
+  /** Whether the tree has any files (used to enable/disable Select All) */
+  hasFilesInTree?: boolean | undefined;
+  /** Whether the tree is being loaded for select all */
+  isLoadingForSelectAll?: boolean | undefined;
+  maxSelectionCount: number;
+  onSelectionLimitExceeded?: (() => void) | undefined;
   /**
    * Recursively select all files in the provided tree, loading if needed.
    * IMPORTANT: The first parameter is the filtered tree to operate on.
@@ -52,12 +56,8 @@ export interface ActionButtonsProps {
         maxSelectionCount: number
       ) => Promise<SelectAllResult>)
     | undefined;
-  /** Cancel the current recursive selection operation */
-  cancelSelectAll?: (() => void) | undefined;
-  /** Whether the tree is being loaded for select all */
-  isLoadingForSelectAll?: boolean | undefined;
-  /** Add multiple selected files (used by recursive selection) */
-  addMultipleSelectedFiles?: ((folderId: string, paths: string[]) => void) | undefined;
+  selectedFilePaths: Set<string>;
+  setSelectedFiles: (files: Set<string>) => void;
 }
 
 export const ActionButtons = React.memo(

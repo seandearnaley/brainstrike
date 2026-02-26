@@ -5,8 +5,8 @@ const PROVIDER_SEPARATOR = '::';
 const LEGACY_SEPARATOR = ':';
 
 export interface ParsedProviderModel {
-  provider: EmbeddingProviderType;
   modelId: string;
+  provider: EmbeddingProviderType;
 }
 
 export function formatProviderModelKey(provider: EmbeddingProviderType, modelId: string): string {

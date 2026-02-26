@@ -18,13 +18,13 @@ interface VoyageEmbeddingResponse {
     embedding?: number[];
     index?: number;
   }>;
-  object?: string;
+  error?: { message?: string };
   model?: string;
+  object?: string;
   usage?: {
     // biome-ignore lint/style/useNamingConvention: Voyage API uses snake_case keys
     total_tokens?: number;
   };
-  error?: { message?: string };
 }
 
 const VOYAGE_MODELS: Record<string, ModelConfig> = {
@@ -51,11 +51,11 @@ const VOYAGE_MODELS: Record<string, ModelConfig> = {
 };
 
 export interface VoyageEmbeddingProviderOptions {
-  readonly modelId: string;
-  readonly inputType?: 'document' | 'query';
   readonly apiKey?: string;
-  readonly fetch?: FetchLike;
   readonly endpoint?: string;
+  readonly fetch?: FetchLike;
+  readonly inputType?: 'document' | 'query';
+  readonly modelId: string;
 }
 
 export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {

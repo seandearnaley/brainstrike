@@ -29,25 +29,25 @@ export function resolveWorkerStorageUrl(): URL {
 
 export interface WorkerMessage {
   id: string;
-  type: 'save' | 'load' | 'remove';
   key?: string | undefined;
+  type: 'save' | 'load' | 'remove';
   value?: unknown;
 }
 
 export interface WorkerResponse {
-  id: string;
-  type: 'success' | 'error';
-  result?: unknown;
   error?: string;
+  id: string;
+  result?: unknown;
+  type: 'success' | 'error';
 }
 
 export interface StorageRequest {
   id: string;
-  type: 'storage_request';
-  operation: 'setItem' | 'getItem' | 'removeItem';
   key: string;
-  value?: string;
+  operation: 'setItem' | 'getItem' | 'removeItem';
   opId?: number;
+  type: 'storage_request';
+  value?: string;
 }
 
 export class WorkerStorage {

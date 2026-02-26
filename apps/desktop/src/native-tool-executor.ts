@@ -22,8 +22,8 @@ export type ToolExecutionResult<T = unknown> =
     };
 
 interface ToolDefinition {
-  schema: z.ZodType<unknown>;
   execute: (input: unknown) => Promise<unknown>;
+  schema: z.ZodType<unknown>;
 }
 
 // ============================================================================

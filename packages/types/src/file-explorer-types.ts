@@ -21,9 +21,6 @@ export type SelectionMode = 'explicit' | 'rules';
  * This abstraction allows coexistence during migration from explicit to rules.
  */
 export interface SelectionModel {
-  /** Current selection mode */
-  mode: SelectionMode;
-
   /**
    * Explicit selection paths (composite keys: folderId|@|path).
    * Used when mode is 'explicit' or as the committed result of rules.
@@ -31,32 +28,34 @@ export interface SelectionModel {
   explicitPaths: Set<string>;
 
   /**
-   * Rule set for rule-based selection.
-   * Only used when mode is 'rules'.
+   * Timestamp of last materialization (for cache invalidation).
    */
-  ruleSetJson: string | null;
+  materializedAt: string | null;
 
   /**
    * Cached materialized paths from rules (for display without re-evaluation).
    * These are relative paths, not composite keys.
    */
   materializedPaths: Set<string> | null;
+  /** Current selection mode */
+  mode: SelectionMode;
 
   /**
-   * Timestamp of last materialization (for cache invalidation).
+   * Rule set for rule-based selection.
+   * Only used when mode is 'rules'.
    */
-  materializedAt: string | null;
+  ruleSetJson: string | null;
 }
 
 /**
  * Serialized version of SelectionModel for persistence.
  */
 export interface SerializedSelectionModel {
-  mode: SelectionMode;
   explicitPaths: string[];
-  ruleSetJson: string | null;
-  materializedPaths: string[] | null;
   materializedAt: string | null;
+  materializedPaths: string[] | null;
+  mode: SelectionMode;
+  ruleSetJson: string | null;
 }
 
 /**
@@ -78,21 +77,21 @@ export function createEmptySelectionModel(): SelectionModel {
 
 // Helper types for serialization
 export interface SerializedFolderState {
-  selectedFilePaths: string[];
-  expandedDirectoryPaths: string[];
-  includeFilters: string[];
   excludeFilters: string[];
-  useRegex: boolean;
-  includeProjectTree: boolean;
-  tokenBudget: number;
+  expandedDirectoryPaths: string[];
   /**
    * Number of files displayed before summarizing a folder in the generated
    * report's project tree. Does not affect the file explorer UI.
    */
   folderSummaryThreshold: number;
-  maxSelectionCount: number;
-  lastActiveTab: string;
+  includeFilters: string[];
+  includeProjectTree: boolean;
   lastAccessed: number;
+  lastActiveTab: string;
+  maxSelectionCount: number;
+  selectedFilePaths: string[];
+  tokenBudget: number;
+  useRegex: boolean;
   /**
    * ID of the selected view filter preset.
    * When set, includes/excludes/useRegex are derived from the preset.
@@ -103,58 +102,58 @@ export interface SerializedFolderState {
 
 export interface SerializedState {
   currentFolderId: string | null;
-  folderStates: Record<string, SerializedFolderState>;
-  folderAccessOrder: string[];
-  selectedFilePaths: string[];
-  expandedDirectoryPaths: string[];
-  includeFilters: string[];
+  devInlineFixtureEnabled: boolean;
   excludeFilters: string[];
-  useRegex: boolean;
-  includeProjectTree: boolean;
-  tokenBudget: number;
+  expandedDirectoryPaths: string[];
+  folderAccessOrder: string[];
+  folderStates: Record<string, SerializedFolderState>;
   /**
    * Number of files displayed before summarizing a folder in the generated
    * report's project tree. Does not affect the file explorer UI.
    */
   folderSummaryThreshold: number;
-  maxSelectionCount: number;
+  includeFilters: string[];
+  includeProjectTree: boolean;
+  /**
+   * Whether the view filters section is expanded.
+   * Optional for backward compatibility with existing persisted state.
+   */
+  isFiltersExpanded?: boolean;
   lastActiveTab: string;
+  maxSelectionCount: number;
   quickFilter: string;
-  devInlineFixtureEnabled: boolean;
+  selectedFilePaths: string[];
   /**
    * Selection model for rule-based selection.
    * Optional for backward compatibility with existing persisted state.
    */
   selectionModel?: SerializedSelectionModel;
+  tokenBudget: number;
+  useRegex: boolean;
   /**
    * ID of the selected view filter preset.
    * When set, includes/excludes/useRegex are derived from the preset.
    * Optional for backward compatibility with existing persisted state.
    */
   viewFilterPresetId?: string | null;
-  /**
-   * Whether the view filters section is expanded.
-   * Optional for backward compatibility with existing persisted state.
-   */
-  isFiltersExpanded?: boolean;
 }
 
 export interface FolderState {
-  selectedFilePaths: Set<string>;
-  expandedDirectoryPaths: Set<string>;
-  includeFilters: string[];
   excludeFilters: string[];
-  useRegex: boolean;
-  includeProjectTree: boolean;
-  tokenBudget: number;
+  expandedDirectoryPaths: Set<string>;
   /**
    * Number of files displayed before summarizing a folder in the generated
    * report's project tree. Does not affect the file explorer UI.
    */
   folderSummaryThreshold: number;
-  maxSelectionCount: number;
-  lastActiveTab: string;
+  includeFilters: string[];
+  includeProjectTree: boolean;
   lastAccessed: number;
+  lastActiveTab: string;
+  maxSelectionCount: number;
+  selectedFilePaths: Set<string>;
+  tokenBudget: number;
+  useRegex: boolean;
   /**
    * ID of the selected view filter preset.
    * When set, includes/excludes/useRegex are derived from the preset.
@@ -165,35 +164,30 @@ export interface FolderState {
 // Data types
 export interface FileExplorerData {
   currentFolderId: string | null;
-  folderStates: Record<string, FolderState>;
-  folderAccessOrder: string[];
-  selectedFilePaths: Set<string>;
-  expandedDirectoryPaths: Set<string>;
-  includeFilters: string[];
+  /** Whether the inline dev fixture should be used instead of native FS access. */
+  devInlineFixtureEnabled: boolean;
+  /**
+   * Set of exclude filter patterns that are temporarily disabled.
+   * Disabled filters are not applied to the file tree but remain in the filter list.
+   */
+  disabledExcludeFilters: Set<string>;
+  /**
+   * Set of include filter patterns that are temporarily disabled.
+   * Disabled filters are not applied to the file tree but remain in the filter list.
+   */
+  disabledIncludeFilters: Set<string>;
   excludeFilters: string[];
-  useRegex: boolean;
-  includeProjectTree: boolean;
-  tokenBudget: number;
+  expandedDirectoryPaths: Set<string>;
+  fileContents: Record<string, string>;
+  folderAccessOrder: string[];
+  folderStates: Record<string, FolderState>;
   /**
    * Number of files displayed before summarizing a folder in the generated
    * report's project tree. Does not affect the file explorer UI.
    */
   folderSummaryThreshold: number;
-  maxSelectionCount: number;
-  lastActiveTab: string;
-  fileContents: Record<string, string>;
-  /**
-   * Quick filter input in the sidebar filter bar.
-   * Persisting this improves UX across unmounts and reloads.
-   */
-  quickFilter: string;
-  /** Whether the inline dev fixture should be used instead of native FS access. */
-  devInlineFixtureEnabled: boolean;
-  /**
-   * Selection model supporting both explicit paths and rule-based selection.
-   * Enables migration from explicit to rules while maintaining backward compatibility.
-   */
-  selectionModel: SelectionModel;
+  includeFilters: string[];
+  includeProjectTree: boolean;
   /**
    * Whether file system access is currently being loaded/restored.
    * Used to prevent stale state clearing during restore operations.
@@ -201,120 +195,125 @@ export interface FileExplorerData {
    */
   isAccessLoading: boolean;
   /**
+   * Whether the view filters section (preset selector + filter chips) is expanded.
+   * Persisted to remember user's preference across sessions.
+   */
+  isFiltersExpanded: boolean;
+  lastActiveTab: string;
+  maxSelectionCount: number;
+  /**
+   * Quick filter input in the sidebar filter bar.
+   * Persisting this improves UX across unmounts and reloads.
+   */
+  quickFilter: string;
+  selectedFilePaths: Set<string>;
+  /**
+   * Selection model supporting both explicit paths and rule-based selection.
+   * Enables migration from explicit to rules while maintaining backward compatibility.
+   */
+  selectionModel: SelectionModel;
+  /**
    * Version counter for selection changes.
    * Increments on every selection mutation, enabling efficient selectors
    * that only recompute when selection actually changes.
    * This is ephemeral state (not persisted).
    */
   selectionVersion: number;
+  tokenBudget: number;
+  useRegex: boolean;
   /**
    * ID of the selected view filter preset.
    * When set, includes/excludes/useRegex are derived from the preset.
    */
   viewFilterPresetId: string | null;
-  /**
-   * Set of include filter patterns that are temporarily disabled.
-   * Disabled filters are not applied to the file tree but remain in the filter list.
-   */
-  disabledIncludeFilters: Set<string>;
-  /**
-   * Set of exclude filter patterns that are temporarily disabled.
-   * Disabled filters are not applied to the file tree but remain in the filter list.
-   */
-  disabledExcludeFilters: Set<string>;
-  /**
-   * Whether the view filters section (preset selector + filter chips) is expanded.
-   * Persisted to remember user's preference across sessions.
-   */
-  isFiltersExpanded: boolean;
 }
 
 export interface CacheStats {
-  totalSize: number;
   entryCount: number;
-  hitRate: number;
   evictionCount: number;
+  hitRate: number;
+  totalSize: number;
 }
 
 // Store interface extends data with actions
 export interface FileExplorerState extends FileExplorerData {
-  // Folder state management
-  setCurrentFolderId: (folderId: string | null) => void;
-  hydrateFolderState: (folderId: string) => void;
-
-  // File selection actions
-  setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;
-  addSelectedFile: (folderId: string, path: string) => void;
-  removeSelectedFile: (folderId: string, path: string) => void;
-  toggleSelectedFile: (folderId: string, path: string) => void;
-  clearSelectedFiles: () => void;
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
-  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
-
-  // Directory expansion actions
-  setExpandedPaths: (paths: ReadonlySet<string>) => void;
-  toggleDirectoryExpansion: (path: string) => void;
-
-  // Filter actions
-  setFilters: (include: readonly string[], exclude: readonly string[]) => void;
-  setUseRegex: (useRegex: boolean) => void;
-  setIncludeProjectTree: (value: boolean) => void;
-  setTokenBudget: (budget: number) => void;
-  setFolderSummaryThreshold: (value: number) => void;
-  setMaxSelectionCount: (count: number) => void;
-  setLastActiveTab: (tab: string) => void;
-  /**
-   * Set the view filter preset ID for the current folder.
-   * When set, filter values are derived from the preset.
-   */
-  setViewFilterPresetId: (presetId: string | null) => void;
-  /**
-   * Toggle a filter's enabled/disabled state.
-   * Disabled filters remain in the list but are not applied.
-   */
-  toggleFilterEnabled: (filter: string, type: 'include' | 'exclude') => void;
-
-  // New actions
-  expandAllDirectories: (fileTree: import('./file-system').IFileNode[]) => void;
-  collapseAllDirectories: () => void;
-
-  // File content actions
-  setFileContent: (compositeKey: string, content: string) => void;
-  getFileContent: (compositeKey: string) => string | undefined;
-  clearFileContents: (compositeKeys: string[]) => void;
+  addSelectedFile: (folderId: string, path: string) => void;
   clearAllFileContents: () => void;
-  getFileContentCacheStats: () => CacheStats;
-  evictOldFileContents: (count?: number) => void;
-
-  // UI state actions (ephemeral + lightweight persisted)
-  setQuickFilter: (value: string) => void;
+  clearFileContents: (compositeKeys: string[]) => void;
   clearQuickFilter: () => void;
-  setDevInlineFixtureEnabled: (value: boolean) => void;
-
-  // Selection model actions (rule-based selection)
-  setSelectionMode: (mode: SelectionMode) => void;
-  setSelectionRules: (ruleSetJson: string) => void;
+  clearSelectedFiles: () => void;
   clearSelectionRules: () => void;
+  collapseAllDirectories: () => void;
   /**
    * Commit rule-based selection to explicit paths.
    * Converts materialized paths to explicit selection and switches to explicit mode.
    */
   commitRulesToExplicit: () => void;
+  evictOldFileContents: (count?: number) => void;
+
+  // New actions
+  expandAllDirectories: (fileTree: import('./file-system').IFileNode[]) => void;
+  getFileContent: (compositeKey: string) => string | undefined;
+  getFileContentCacheStats: () => CacheStats;
+  hydrateFolderState: (folderId: string) => void;
+  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  removeSelectedFile: (folderId: string, path: string) => void;
+
+  // Ephemeral handle for current root directory. Not serialized.
+  rootDirectoryHandle: import('./file-system').DirectoryHandle | null;
+  // Folder state management
+  setCurrentFolderId: (folderId: string | null) => void;
+  setDevInlineFixtureEnabled: (value: boolean) => void;
+
+  // Directory expansion actions
+  setExpandedPaths: (paths: ReadonlySet<string>) => void;
+
+  // File content actions
+  setFileContent: (compositeKey: string, content: string) => void;
+
+  // Filter actions
+  setFilters: (include: readonly string[], exclude: readonly string[]) => void;
+
+  // View filters expansion state
+  setFiltersExpanded: (expanded: boolean) => void;
+  setFolderSummaryThreshold: (value: number) => void;
+  setIncludeProjectTree: (value: boolean) => void;
+
+  // Access loading state action (for blocking stale clearing during restore)
+  setIsAccessLoading: (loading: boolean) => void;
+  setLastActiveTab: (tab: string) => void;
   /**
    * Update materialized paths cache from rule evaluation.
    * Called after rules are evaluated against the file tree.
    */
   setMaterializedPaths: (paths: Set<string>) => void;
+  setMaxSelectionCount: (count: number) => void;
 
-  // Ephemeral handle for current root directory. Not serialized.
-  rootDirectoryHandle: import('./file-system').DirectoryHandle | null;
+  // UI state actions (ephemeral + lightweight persisted)
+  setQuickFilter: (value: string) => void;
   setRootDirectoryHandle: (handle: import('./file-system').DirectoryHandle | null) => void;
 
-  // Access loading state action (for blocking stale clearing during restore)
-  setIsAccessLoading: (loading: boolean) => void;
+  // File selection actions
+  setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;
 
-  // View filters expansion state
-  setFiltersExpanded: (expanded: boolean) => void;
+  // Selection model actions (rule-based selection)
+  setSelectionMode: (mode: SelectionMode) => void;
+  setSelectionRules: (ruleSetJson: string) => void;
+  setTokenBudget: (budget: number) => void;
+  setUseRegex: (useRegex: boolean) => void;
+  /**
+   * Set the view filter preset ID for the current folder.
+   * When set, filter values are derived from the preset.
+   */
+  setViewFilterPresetId: (presetId: string | null) => void;
+  toggleDirectoryExpansion: (path: string) => void;
+  /**
+   * Toggle a filter's enabled/disabled state.
+   * Disabled filters remain in the list but are not applied.
+   */
+  toggleFilterEnabled: (filter: string, type: 'include' | 'exclude') => void;
+  toggleSelectedFile: (folderId: string, path: string) => void;
 }
 
 // Constants

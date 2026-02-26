@@ -4,9 +4,9 @@ import { cn } from '../lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
 
 export interface TooltipIconButtonProps extends ComponentPropsWithoutRef<typeof Button> {
-  tooltip: string;
-  side?: 'top' | 'bottom' | 'left' | 'right';
   asChild?: boolean;
+  side?: 'top' | 'bottom' | 'left' | 'right';
+  tooltip: string;
 }
 
 export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButtonProps>(

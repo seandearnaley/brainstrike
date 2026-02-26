@@ -21,16 +21,16 @@ const TOKEN_CACHE_FILE_PATH_LABEL = 'Token cache file path';
  * Database row type (snake_case from SQL)
  */
 interface TokenCacheRow {
-  id: number;
-  folder_id: string;
-  file_path: string;
   content_hash: string;
+  counting_mode: string;
+  created_at: string;
+  file_path: string;
   file_size: string; // BIGINT comes as string
+  folder_id: string;
+  id: number;
+  model_encoding: string | null;
   mtime_ms: string | null;
   token_count: number;
-  counting_mode: string;
-  model_encoding: string | null;
-  created_at: string;
   updated_at: string;
 }
 

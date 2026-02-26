@@ -28,8 +28,6 @@ export type SearchFunction = (
  * Options for running the evaluation harness.
  */
 export interface HarnessOptions {
-  /** The search function to evaluate */
-  search: SearchFunction;
   /** Evaluation configuration */
   config?: Partial<EvaluationConfig>;
   /** Optional logger for verbose output */
@@ -38,6 +36,8 @@ export interface HarnessOptions {
     warn: (message: string, context?: Record<string, unknown>) => void;
     error: (message: string, context?: Record<string, unknown>) => void;
   };
+  /** The search function to evaluate */
+  search: SearchFunction;
 }
 
 /**
@@ -266,11 +266,11 @@ export function formatReportJson(report: EvaluationReport): string {
  * Useful for CI pass/fail decisions.
  */
 export interface QualityThresholds {
+  maxFailedEvaluations?: number;
   minMeanMrr?: number;
+  minPerfectRecallRate?: number;
   minPrecisionAtK?: Record<number, number>;
   minRecallAtK?: Record<number, number>;
-  minPerfectRecallRate?: number;
-  maxFailedEvaluations?: number;
 }
 
 function checkMrrThreshold(

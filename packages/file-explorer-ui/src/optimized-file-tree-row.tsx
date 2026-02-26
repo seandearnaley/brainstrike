@@ -25,10 +25,10 @@ import { memo, useCallback, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface TreeNodeIconProps {
-  isLoading: boolean;
-  nodeType: IFileNode['type'];
-  nodeName: string;
   isExpanded: boolean;
+  isLoading: boolean;
+  nodeName: string;
+  nodeType: IFileNode['type'];
 }
 
 function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIconProps) {
@@ -54,17 +54,16 @@ function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIco
 }
 
 interface OptimizedFileTreeRowProps {
-  node: IFileNode;
-  depth: number;
-  isExpanded: boolean;
-  onToggleDirectoryExpansion: (path: string) => void;
-  onToggleFileSelection: (path: string) => void;
-  isLoading: boolean;
-  folderId: string;
-  style?: CSSProperties;
   children?: React.ReactNode;
+  depth: number;
+  folderId: string;
   /** Whether directory children are currently being loaded (lazy loading) */
   isChildrenLoading?: boolean | undefined;
+  isExpanded: boolean;
+  isLoading: boolean;
+  /** Whether THIS folder is being loaded for recursive selection */
+  isLoadingForSelection?: boolean | undefined;
+  node: IFileNode;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
   /** Optional hook for surfacing lazy-load failures to parent UI */
@@ -73,8 +72,9 @@ interface OptimizedFileTreeRowProps {
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
     | undefined;
-  /** Whether THIS folder is being loaded for recursive selection */
-  isLoadingForSelection?: boolean | undefined;
+  onToggleDirectoryExpansion: (path: string) => void;
+  onToggleFileSelection: (path: string) => void;
+  style?: CSSProperties;
 }
 
 const ROW_HEIGHT = 32;

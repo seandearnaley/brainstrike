@@ -51,11 +51,11 @@ import type {
  */
 export interface PortableChunk {
   chunkIndex: number;
+  chunkSize: number;
+  chunkType: 'text' | 'code' | 'sentence' | 'recursive';
   content: string;
   contentHash: string;
   tokenCount: number;
-  chunkType: 'text' | 'code' | 'sentence' | 'recursive';
-  chunkSize: number;
 }
 
 /**
@@ -63,25 +63,25 @@ export interface PortableChunk {
  * This mirrors @brainstrike/chunking-worker's ChunkResult type.
  */
 export interface WorkerChunkResult {
-  type: 'result';
-  id: string;
-  fileRecordId: string;
   chunks: PortableChunk[];
-  strategyUsed: ChunkingStrategy;
-  totalTokens: number;
+  fileRecordId: string;
+  id: string;
   skipped: boolean;
   skipReason?: string;
+  strategyUsed: ChunkingStrategy;
+  totalTokens: number;
+  type: 'result';
 }
 
 /**
  * Options passed to the chunking worker.
  */
 export interface ChunkingRequestOptions {
-  strategy: ChunkingStrategy;
   forceStrategy?: boolean;
   ignoreFileTypeRecommendations?: boolean;
   maxTokens?: number;
   overlap?: number;
+  strategy: ChunkingStrategy;
 }
 
 /**
@@ -91,17 +91,6 @@ export interface ChunkingRequestOptions {
  * that conforms to this interface, enabling testing and flexibility.
  */
 export interface ChunkingWorkerPortLike {
-  /**
-   * Chunk a single file.
-   */
-  chunkFile(
-    fileRecordId: string,
-    content: string,
-    fileName: string,
-    filePath: string,
-    options: ChunkingRequestOptions
-  ): Promise<WorkerChunkResult>;
-
   /**
    * Chunk multiple files in a batch.
    */
@@ -124,6 +113,16 @@ export interface ChunkingWorkerPortLike {
       onFileError?: (fileRecordId: string, error: string) => void;
     }
   ): Promise<WorkerChunkResult[]>;
+  /**
+   * Chunk a single file.
+   */
+  chunkFile(
+    fileRecordId: string,
+    content: string,
+    fileName: string,
+    filePath: string,
+    options: ChunkingRequestOptions
+  ): Promise<WorkerChunkResult>;
 
   /**
    * Check if the worker is ready.
@@ -144,14 +143,14 @@ export interface ChunkingWorkerPortLike {
  * Configuration for creating a chunking stage.
  */
 export interface ChunkingStageConfig {
-  /** Worker port for off-thread chunking */
-  workerPort: ChunkingWorkerPortLike;
-  /** Default chunking strategy if not specified per-file */
-  defaultStrategy?: ChunkingStrategy;
   /** Maximum tokens per chunk */
   defaultMaxTokens?: number;
   /** Token overlap between chunks */
   defaultOverlap?: number;
+  /** Default chunking strategy if not specified per-file */
+  defaultStrategy?: ChunkingStrategy;
+  /** Worker port for off-thread chunking */
+  workerPort: ChunkingWorkerPortLike;
   /** Timeout for worker readiness (ms) */
   workerReadyTimeoutMs?: number;
 }
@@ -165,52 +164,52 @@ export type ChunkingProgressCallback = (progress: ChunkingStageProgress) => void
  * Progress state during chunking.
  */
 export interface ChunkingStageProgress {
-  /** Total files to chunk */
-  totalFiles: number;
   /** Files completed (success or failure) */
   completedFiles: number;
-  /** Files that failed */
-  failedFiles: number;
-  /** Total chunks created so far */
-  totalChunks: number;
   /** Current file being chunked */
   currentFile?: string;
   /** Elapsed time in milliseconds */
   elapsedMs: number;
+  /** Files that failed */
+  failedFiles: number;
+  /** Total chunks created so far */
+  totalChunks: number;
+  /** Total files to chunk */
+  totalFiles: number;
 }
 
 /**
  * Input for batch chunking.
  */
 export interface ChunkingBatchInput {
+  /** Continue processing on individual file errors */
+  continueOnError?: boolean;
   /** Files to chunk */
   files: ChunkingInput[];
   /** Progress callback */
   onProgress?: ChunkingProgressCallback;
   /** Abort signal */
   signal?: AbortSignal;
-  /** Continue processing on individual file errors */
-  continueOnError?: boolean;
 }
 
 /**
  * Result from batch chunking.
  */
 export interface ChunkingBatchResult {
-  /** Results for each file */
-  results: ChunkingOutput[];
-  /** Total files processed */
-  totalFiles: number;
-  /** Successful chunking operations */
-  successCount: number;
-  /** Failed chunking operations */
-  errorCount: number;
-  /** Total chunks created */
-  totalChunks: number;
-  /** Total tokens across all chunks */
-  totalTokens: number;
   /** Processing duration in ms */
   durationMs: number;
+  /** Failed chunking operations */
+  errorCount: number;
+  /** Results for each file */
+  results: ChunkingOutput[];
+  /** Successful chunking operations */
+  successCount: number;
+  /** Total chunks created */
+  totalChunks: number;
+  /** Total files processed */
+  totalFiles: number;
+  /** Total tokens across all chunks */
+  totalTokens: number;
 }
 
 /**
@@ -218,14 +217,13 @@ export interface ChunkingBatchResult {
  */
 export interface ChunkingStage {
   /**
-   * Chunk a single file.
-   */
-  chunkFile(input: ChunkingInput): Promise<ChunkingOutput>;
-
-  /**
    * Chunk multiple files.
    */
   chunkBatch(input: ChunkingBatchInput): Promise<ChunkingBatchResult>;
+  /**
+   * Chunk a single file.
+   */
+  chunkFile(input: ChunkingInput): Promise<ChunkingOutput>;
 
   /**
    * Check if the worker is ready.
@@ -233,14 +231,14 @@ export interface ChunkingStage {
   isReady(): boolean;
 
   /**
-   * Wait for the worker to become ready.
-   */
-  waitForReady(timeoutMs?: number): Promise<boolean>;
-
-  /**
    * Terminate the worker.
    */
   terminate(): void;
+
+  /**
+   * Wait for the worker to become ready.
+   */
+  waitForReady(timeoutMs?: number): Promise<boolean>;
 }
 
 // =============================================================================
@@ -386,10 +384,10 @@ export function createChunkingStage(config: ChunkingStageConfig): ChunkingStage 
   // ---------------------------------------------------------------------------
 
   interface BatchState {
+    failedCount: number;
     results: ChunkingOutput[];
     totalChunks: number;
     totalTokens: number;
-    failedCount: number;
   }
 
   function createBatchState(): BatchState {

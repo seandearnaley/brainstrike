@@ -1,13 +1,19 @@
 {
   "name": "@brainstrike/build-utils",
   "version": "0.1.0",
-  "private": true,
+  "dependencies": {
+    "@brainstrike/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "^25.3.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
   "engines": {
     "node": ">=22"
   },
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -15,32 +21,26 @@
       "require": "./dist/index.js"
     }
   },
-  "sideEffects": false,
   "files": [
     "dist/**"
   ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "private": true,
   "scripts": {
     "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
     "clean": "rm -rf dist",
     "lint": "pnpm run --dir=../.. lint",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run",
+    "test:coverage": "pnpm -w test:coverage",
     "test:watch": "vitest",
-    "test:coverage": "pnpm -w test:coverage"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "dependencies": {
-    "@brainstrike/utils": "workspace:*"
-  },
-  "devDependencies": {
-    "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^25.0.8",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.17"
-  },
+  "sideEffects": false,
   "turbo": {
     "outputs": [
       "dist/**"
     ]
-  }
+  },
+  "types": "./dist/index.d.ts"
 }

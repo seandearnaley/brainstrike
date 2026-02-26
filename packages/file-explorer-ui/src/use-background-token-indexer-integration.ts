@@ -48,54 +48,54 @@ function useFileImportingState(): boolean {
 export type ElectronFileReader = (handle: ElectronFileHandle) => Promise<string>;
 
 export interface UseBackgroundTokenIndexerIntegrationProps {
-  /** The file tree containing IFileNodes with handles */
-  fileTree: IFileNode[];
-  /** Set of selected file composite keys (folderId::path format) */
-  selectedFiles: Set<string>;
-  /** Callback when a file's token count is resolved */
-  onTokenResolved?: (compositeKey: string, tokenCount: number) => void;
   /** File reader for Electron handles - required when using Electron file handles */
   electronFileReader?: ElectronFileReader;
+  /** The file tree containing IFileNodes with handles */
+  fileTree: IFileNode[];
+  /** Callback when a file's token count is resolved */
+  onTokenResolved?: (compositeKey: string, tokenCount: number) => void;
+  /** Set of selected file composite keys (folderId::path format) */
+  selectedFiles: Set<string>;
 }
 
 /** Diagnostic info for debugging indexing issues */
 export interface IndexerDiagnostics {
-  /** Number of files tracked as already indexed */
-  indexedCount: number;
-  /** Number of files currently being processed */
-  inFlightCount: number;
-  /** Number of file handles available */
-  fileHandleMapSize: number;
-  /** Whether the background indexer worker is ready */
-  workerReady: boolean;
   /** Whether the token cache is operational (counting works) */
   cacheOperational: boolean;
   /** Whether the token cache is persisted (DB-backed) */
   cachePersisted: boolean;
   /** Clear the indexed files tracking (forces re-indexing) */
   clearIndexedCache: () => void;
+  /** Number of file handles available */
+  fileHandleMapSize: number;
+  /** Number of files tracked as already indexed */
+  indexedCount: number;
+  /** Number of files currently being processed */
+  inFlightCount: number;
+  /** Whether the background indexer worker is ready */
+  workerReady: boolean;
 }
 
 export interface UseBackgroundTokenIndexerIntegrationReturn {
+  /** Diagnostic info for debugging */
+  diagnostics: IndexerDiagnostics;
   /** Whether background indexing is active */
   isIndexing: boolean;
-  /** Manually trigger indexing for specific files (async for Electron file reading) */
-  triggerIndexing: (compositeKeys: string[]) => Promise<void>;
   /** Whether the background indexer is ready */
   isReady: boolean;
   /** Current indexing progress */
   progress: { completed: number; total: number; currentFile?: string } | null;
-  /** Diagnostic info for debugging */
-  diagnostics: IndexerDiagnostics;
+  /** Manually trigger indexing for specific files (async for Electron file reading) */
+  triggerIndexing: (compositeKeys: string[]) => Promise<void>;
 }
 
 /**
  * Electron-style handle with path property
  */
 interface ElectronFileHandle {
-  path: string;
-  name: string;
   kind: 'file';
+  name: string;
+  path: string;
   platform: 'electron';
 }
 
@@ -130,12 +130,12 @@ function isWebFileHandle(handle: unknown): handle is FileSystemFileHandle {
  * Includes file metadata for upfront filtering before queuing.
  */
 interface HandleInfo {
-  webHandle?: FileSystemFileHandle;
   electronHandle?: ElectronFileHandle;
   /** File name for binary detection */
   fileName: string;
   /** File size in bytes (if known) for large file filtering */
   fileSize: number | undefined;
+  webHandle?: FileSystemFileHandle;
 }
 
 /**

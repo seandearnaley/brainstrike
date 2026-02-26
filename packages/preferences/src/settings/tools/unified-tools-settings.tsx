@@ -92,12 +92,12 @@ function ToolsErrorFallback({ onRetry }: ToolsErrorFallbackProps) {
 }
 
 interface ToolsDataState {
-  tools: ToolDisplayMetadata[];
-  mcpServers: McpServerInfo[];
-  mcpConfigInfo: McpConfigInfo | null;
-  loading: boolean;
   error: string | null;
   errorBoundaryKey: number;
+  loading: boolean;
+  mcpConfigInfo: McpConfigInfo | null;
+  mcpServers: McpServerInfo[];
+  tools: ToolDisplayMetadata[];
 }
 
 type ToolsDataAction =
@@ -147,12 +147,12 @@ function toolsDataReducer(state: ToolsDataState, action: ToolsDataAction): Tools
 }
 
 interface ToolsUiState {
-  searchQuery: string;
-  categoryFilter: ToolCategory | 'all';
-  tierFilter: ToolLoadingTier | 'all';
-  expandedToolId: string | null;
-  configAlertDismissed: boolean;
   activeTab: 'tools' | 'mcp-config';
+  categoryFilter: ToolCategory | 'all';
+  configAlertDismissed: boolean;
+  expandedToolId: string | null;
+  searchQuery: string;
+  tierFilter: ToolLoadingTier | 'all';
 }
 
 type ToolsUiAction =
@@ -195,13 +195,13 @@ function toolsUiReducer(state: ToolsUiState, action: ToolsUiAction): ToolsUiStat
 }
 
 interface UseToolsDataManagerParams {
-  operations: UnifiedToolsSettingsProps['operations'];
-  mcpAvailable: boolean;
   dispatch: (action: ToolsDataAction) => void;
-  statsRef: { current: ToolStats | null };
   lastMcpErrorRef: { current: string | null };
-  liveQueryEnabled: boolean;
   liveQuery: ReturnType<typeof usePGliteLiveQuery<ToolDisplayMetadata>>;
+  liveQueryEnabled: boolean;
+  mcpAvailable: boolean;
+  operations: UnifiedToolsSettingsProps['operations'];
+  statsRef: { current: ToolStats | null };
 }
 
 function useToolsDataManager({
@@ -608,36 +608,36 @@ interface ToolsPanelContentProps {
     totalBudget: number;
     contextWindowSize: number;
   } | null;
-  showConfigAlert: boolean;
-  mcpConfigInfo: McpConfigInfo | null;
-  onCreateSample: (() => Promise<void>) | undefined;
-  onDismissConfigAlert: () => void;
-  onResetConfig: () => Promise<void>;
-  onSelectConfig: () => Promise<void>;
-  hasTools: boolean;
   categoryFilter: ToolCategory | 'all';
-  searchQuery: string;
-  tierFilter: ToolLoadingTier | 'all';
-  onCategoryChange: (category: ToolCategory | 'all') => void;
-  onSearchChange: (query: string) => void;
-  onTierChange: (tier: ToolLoadingTier | 'all') => void;
-  onResetFilters: () => void;
-  totalCount: number;
+  defaultExpandedGroups: string[];
   error: string | null;
-  loading: boolean;
   errorBoundaryKey: number;
   expandedToolId: string | null;
-  defaultExpandedGroups: string[];
-  toolGroups: ToolGroup[];
-  operations: UnifiedToolsSettingsProps['operations'];
-  getServerStatus: (serverName: string) => McpConnectionStatus;
   getServerError: (serverName: string) => string | undefined;
-  onEnableGroup: (group: ToolGroup) => void;
+  getServerStatus: (serverName: string) => McpConnectionStatus;
+  hasTools: boolean;
+  loading: boolean;
+  mcpConfigInfo: McpConfigInfo | null;
+  onCategoryChange: (category: ToolCategory | 'all') => void;
+  onCreateSample: (() => Promise<void>) | undefined;
   onDisableGroup: (group: ToolGroup) => void;
-  onExpandTool: (toolId: string) => void;
-  onToggleTool: (toolId: string, currentlyEnabled: boolean) => Promise<void>;
-  onRefreshMcp: () => Promise<void>;
+  onDismissConfigAlert: () => void;
+  onEnableGroup: (group: ToolGroup) => void;
   onErrorBoundaryReset: () => void;
+  onExpandTool: (toolId: string) => void;
+  onRefreshMcp: () => Promise<void>;
+  onResetConfig: () => Promise<void>;
+  onResetFilters: () => void;
+  onSearchChange: (query: string) => void;
+  onSelectConfig: () => Promise<void>;
+  onTierChange: (tier: ToolLoadingTier | 'all') => void;
+  onToggleTool: (toolId: string, currentlyEnabled: boolean) => Promise<void>;
+  operations: UnifiedToolsSettingsProps['operations'];
+  searchQuery: string;
+  showConfigAlert: boolean;
+  tierFilter: ToolLoadingTier | 'all';
+  toolGroups: ToolGroup[];
+  totalCount: number;
 }
 
 function ToolsPanelContent({
@@ -747,19 +747,19 @@ function ToolsPanelContent({
 }
 
 interface ToolsAccordionListProps {
-  toolGroups: ToolGroup[];
-  expandedToolId: string | null;
   defaultExpandedGroups: string[];
   errorBoundaryKey: number;
-  operations: UnifiedToolsSettingsProps['operations'];
-  getServerStatus: (serverName: string) => McpConnectionStatus;
+  expandedToolId: string | null;
   getServerError: (serverName: string) => string | undefined;
-  onEnableGroup: (group: ToolGroup) => void;
+  getServerStatus: (serverName: string) => McpConnectionStatus;
   onDisableGroup: (group: ToolGroup) => void;
-  onExpandTool: (toolId: string) => void;
-  onToggleTool: (toolId: string, currentlyEnabled: boolean) => Promise<void>;
-  onRefreshMcp: () => Promise<void>;
+  onEnableGroup: (group: ToolGroup) => void;
   onErrorBoundaryReset: () => void;
+  onExpandTool: (toolId: string) => void;
+  onRefreshMcp: () => Promise<void>;
+  onToggleTool: (toolId: string, currentlyEnabled: boolean) => Promise<void>;
+  operations: UnifiedToolsSettingsProps['operations'];
+  toolGroups: ToolGroup[];
 }
 
 function ToolsAccordionList({

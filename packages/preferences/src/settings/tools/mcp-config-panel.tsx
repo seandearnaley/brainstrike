@@ -3,8 +3,8 @@ import { type KeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef
 import type { ToolsSettingsOperations } from './types';
 
 interface McpConfigPanelProps {
-  operations: ToolsSettingsOperations;
   onConfigChanged: () => Promise<void>;
+  operations: ToolsSettingsOperations;
 }
 
 const WINDOWS_DRIVE_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
@@ -21,13 +21,13 @@ function isAbsoluteFilePath(filePath: string): boolean {
 }
 
 interface McpPanelState {
-  pathDraft: string;
   editorValue: string;
-  savedValue: string;
-  loading: boolean;
-  statusMessage: string | null;
   errorMessage: string | null;
+  loading: boolean;
+  pathDraft: string;
+  savedValue: string;
   showReloadConfirm: boolean;
+  statusMessage: string | null;
 }
 
 type McpPanelAction =
@@ -350,12 +350,12 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
 }
 
 interface McpPathCardProps {
-  pathDraft: string;
-  onPathChange: (value: string) => void;
-  showApplyPath: boolean;
   onApplyPath: () => void;
   onBrowse?: (() => void) | undefined;
+  onPathChange: (value: string) => void;
   onResetPath?: (() => void) | undefined;
+  pathDraft: string;
+  showApplyPath: boolean;
 }
 
 function McpPathCard({
@@ -422,19 +422,19 @@ function McpPathCard({
 }
 
 interface McpEditorCardProps {
-  editorValue: string;
   editorDescribedBy: string | undefined;
+  editorValue: string;
   errorMessage: string | null;
-  statusMessage: string | null;
-  loading: boolean;
   hasUnsavedChanges: boolean;
-  showReloadConfirm: boolean;
+  loading: boolean;
+  onCancelReload: () => void;
+  onConfirmReload: () => void;
   onEditorChange: (value: string) => void;
   onEditorKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
-  onSave: () => void;
   onReload: () => void;
-  onConfirmReload: () => void;
-  onCancelReload: () => void;
+  onSave: () => void;
+  showReloadConfirm: boolean;
+  statusMessage: string | null;
 }
 
 function McpEditorCard({

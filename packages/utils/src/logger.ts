@@ -62,82 +62,82 @@ const METHOD_BY_LEVEL: Partial<Record<LogLevel, LogMethodName>> = {
 };
 
 export interface ConsoleTransportConfig {
+  destination?: number | string;
   enabled?: boolean;
   level?: LogLevel;
-  destination?: number | string;
-  target?: string;
   options?: Record<string, unknown>;
+  target?: string;
 }
 
 export interface FileTransportConfig {
-  enabled?: boolean;
+  append?: boolean;
   destination: string;
+  enabled?: boolean;
   level?: LogLevel;
   mkdir?: boolean;
-  append?: boolean;
   options?: Record<string, unknown>;
 }
 
 export interface CustomTransportConfig {
-  target: string;
   level?: LogLevel;
   options?: Record<string, unknown>;
+  target: string;
 }
 
 export interface LoggerConfig {
-  level?: LogLevel;
-  enableInProduction?: boolean;
-  prefix?: string;
-  includeTimestamp?: boolean;
-  scopeKey?: string;
   baseBindings?: Record<string, unknown>;
-  console?: ConsoleTransportConfig | false;
-  file?: FileTransportConfig | false;
-  customTransports?: readonly CustomTransportConfig[];
   browser?: BrowserLoggerOptions;
+  console?: ConsoleTransportConfig | false;
+  customTransports?: readonly CustomTransportConfig[];
+  enableInProduction?: boolean;
+  file?: FileTransportConfig | false;
+  includeTimestamp?: boolean;
+  level?: LogLevel;
+  prefix?: string;
   redactPaths?: readonly string[];
+  scopeKey?: string;
 }
 
 export interface LogRecord {
-  level: LogLevel;
-  scope?: string;
-  message?: string;
-  timestamp: number;
   args: readonly unknown[];
   bindings: Record<string, unknown>;
+  level: LogLevel;
+  message?: string;
+  scope?: string;
+  timestamp: number;
 }
 
 export type LogListener = (record: LogRecord) => void;
 
 interface NormalizedConsoleConfig {
+  destination?: number | string;
   enabled: boolean;
   level?: LogLevel;
-  destination?: number | string;
-  target?: string;
   options: Record<string, unknown>;
+  target?: string;
 }
 
 interface NormalizedFileConfig {
-  enabled: boolean;
+  append: boolean;
   destination: string;
+  enabled: boolean;
   level?: LogLevel;
   mkdir: boolean;
-  append: boolean;
   options: Record<string, unknown>;
 }
 
 interface InternalLoggerConfig {
-  explicitLevel?: LogLevel;
-  enableInProduction: boolean;
-  prefix?: string;
-  includeTimestamp: boolean;
-  scopeKey: string;
   baseBindings: Record<string, unknown>;
-  console: NormalizedConsoleConfig;
-  file?: NormalizedFileConfig;
-  customTransports: readonly CustomTransportConfig[];
   browser?: BrowserLoggerOptions;
+  console: NormalizedConsoleConfig;
+  customTransports: readonly CustomTransportConfig[];
+  enableInProduction: boolean;
+  explicitLevel?: LogLevel;
+  file?: NormalizedFileConfig;
+  includeTimestamp: boolean;
+  prefix?: string;
   redactPaths?: readonly string[];
+  scopeKey: string;
 }
 
 let internalConfig: InternalLoggerConfig = createDefaultConfig();
@@ -618,12 +618,12 @@ export function fatal(...args: unknown[]): void {
 }
 
 export interface ScopedLogger {
-  trace: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
-  info: (...args: unknown[]) => void;
-  warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
   fatal: (...args: unknown[]) => void;
+  info: (...args: unknown[]) => void;
+  trace: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
 }
 
 const loggerCache = new Map<string, ScopedLogger>();

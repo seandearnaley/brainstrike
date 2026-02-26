@@ -12,23 +12,23 @@ import { useCallback, useRef, useState } from 'react';
 
 /** Performance metric entry */
 export interface PerfMetric {
-  name: string;
-  durationMs: number;
-  timestamp: number;
-  exceededBudget: boolean;
   budgetKey?: PerfBudgetKey;
+  durationMs: number;
+  exceededBudget: boolean;
   metadata?: Record<string, unknown>;
+  name: string;
+  timestamp: number;
 }
 
 /** Aggregated metrics summary */
 export interface PerfSummary {
-  totalRenders: number;
   avgFlattenTime: number;
-  maxFlattenTime: number;
   avgRenderTime: number;
-  maxRenderTime: number;
   budgetExceededCount: number;
   lastMetrics: PerfMetric[];
+  maxFlattenTime: number;
+  maxRenderTime: number;
+  totalRenders: number;
 }
 
 /** Check if perf metrics are enabled (dev mode only) */

@@ -7,6 +7,6 @@ export type LayoutLoadResult =
   | { success: false; message: string };
 
 export interface LayoutElectronAPI {
-  saveLayout: (state: PanelPersistenceState) => Promise<LayoutPersistenceResult>;
   loadLayout: () => Promise<LayoutLoadResult>;
+  saveLayout: (state: PanelPersistenceState) => Promise<LayoutPersistenceResult>;
 }

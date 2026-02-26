@@ -5,8 +5,8 @@ import type { IDatabase } from './interfaces.js';
  * Electron IPC API
  */
 export interface ElectronDbAPI {
-  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   exec: (sql: string) => Promise<void>;
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
 }
 
 /**

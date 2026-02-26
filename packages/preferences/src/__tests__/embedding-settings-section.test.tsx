@@ -17,13 +17,13 @@ import {
 const { mockUseLocalRuntimeEmbeddingModelCatalog, runtimeCatalogWithOllamaEmbedding } = vi.hoisted(
   () => {
     interface RuntimeCatalogMap {
-      ollama: LocalRuntimeModelCatalogState;
       lmstudio: LocalRuntimeModelCatalogState;
+      ollama: LocalRuntimeModelCatalogState;
     }
     interface RuntimeCatalogHookResult {
       catalog: RuntimeCatalogMap | null;
-      isLoading: boolean;
       error: string | null;
+      isLoading: boolean;
       refresh: () => Promise<void>;
     }
     const runtimeCatalog: {

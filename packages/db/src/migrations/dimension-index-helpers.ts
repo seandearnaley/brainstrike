@@ -13,8 +13,8 @@ import { createLogger } from '@brainstrike/utils';
 const logger = createLogger('DimensionIndexHelpers');
 
 interface HnswParams {
-  m: number;
   ef: number;
+  m: number;
 }
 
 /**

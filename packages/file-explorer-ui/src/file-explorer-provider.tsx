@@ -11,8 +11,8 @@ const FileExplorerStoreContext = createContext<UseBoundStoreWithEqualityFn<
 > | null>(null);
 
 export interface FileExplorerProviderProps {
-  storageAdapter: StorageAdapter;
   children: React.ReactNode;
+  storageAdapter: StorageAdapter;
 }
 
 export function FileExplorerProvider({ storageAdapter, children }: FileExplorerProviderProps) {

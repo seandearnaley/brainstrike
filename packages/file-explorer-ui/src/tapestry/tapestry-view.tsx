@@ -169,38 +169,33 @@ function calculateNewRange(
 interface TapestrySection {
   group: GroupedData<TableRowData>;
   isCollapsed: boolean;
-  showHeader: boolean;
   items: FileTapestry[];
+  showHeader: boolean;
 }
 
 interface TapestryViewProps {
-  ungroupedFiles: FileTapestry[];
-  groupedSections: TapestrySection[];
+  activeRangesCount: number;
+  allFilesSelected: boolean;
   groupedData: GroupedData<TableRowData>[];
+  groupedSections: TapestrySection[];
   groupingConfig: string;
-  onGroupingChange: (value: string) => void;
-  onExpandAllGroups: () => void;
-  onCollapseAllGroups: () => void;
-  onToggleGroupCollapse: (groupKey: GroupKey) => void;
-  onGroupSelectAll: (group: GroupedData<TableRowData>) => void;
-  onGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
+  isAllSelected: (items: TableRowData[]) => boolean;
+  isEmpty: boolean;
   isGroupFullySelected: (group: GroupedData<TableRowData>) => boolean;
   isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
-  previewSelections: Set<string>;
-  onToggleSelection: (compositeKey: string, checked: boolean) => void;
-  onRequestFileContent?: (compositeKey: string) => void;
-  visibleFilesOnPage: TableRowData[];
-  onSelectAllOnPage: (items: TableRowData[]) => void;
+  onCollapseAllGroups: () => void;
   onDeselectAll: () => void;
-  onSelectAllFiles: () => void;
-  isAllSelected: (items: TableRowData[]) => boolean;
-  allFilesSelected: boolean;
-  totalFiles: number;
-  isEmpty: boolean;
+  onExpandAllGroups: () => void;
+  onGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
+  onGroupingChange: (value: string) => void;
+  onGroupSelectAll: (group: GroupedData<TableRowData>) => void;
   onRangesChange: (fileId: string, ranges: TapestryRange[]) => void;
+  onRequestFileContent?: (compositeKey: string) => void;
   onResetRanges: (fileIds: string[]) => void;
-  activeRangesCount: number;
-  totalLinesSelected: number;
+  onSelectAllFiles: () => void;
+  onSelectAllOnPage: (items: TableRowData[]) => void;
+  onToggleGroupCollapse: (groupKey: GroupKey) => void;
+  onToggleSelection: (compositeKey: string, checked: boolean) => void;
   pagination: {
     currentPage: number;
     totalPages: number;
@@ -209,6 +204,11 @@ interface TapestryViewProps {
     pageInfo?: string;
     pageSize?: number;
   };
+  previewSelections: Set<string>;
+  totalFiles: number;
+  totalLinesSelected: number;
+  ungroupedFiles: FileTapestry[];
+  visibleFilesOnPage: TableRowData[];
 }
 
 const TapestryGroupHeader = memo<{

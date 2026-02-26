@@ -5,22 +5,22 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 import { useTokenPreferencesStore } from './token-preferences-store';
 
 interface ImportSettingsData {
-  enableChunking: boolean;
   chunkingStrategy: ChunkingStrategy;
   chunkingStrategyExplicit: boolean;
-  chunkSize: number;
   chunkOverlap: number;
-  tokenTrueSizing: boolean;
+  chunkSize: number;
   chunkTokenLimit: number;
+  enableChunking: boolean;
+  tokenTrueSizing: boolean;
 }
 
 interface ImportSettingsActions {
-  setEnableChunking: (v: boolean) => void;
   setChunkingStrategy: (v: ChunkingStrategy) => void;
-  setChunkSize: (n: number) => void;
   setChunkOverlap: (n: number) => void;
-  setTokenTrueSizing: (v: boolean) => void;
+  setChunkSize: (n: number) => void;
   setChunkTokenLimit: (n: number) => void;
+  setEnableChunking: (v: boolean) => void;
+  setTokenTrueSizing: (v: boolean) => void;
 }
 
 export type ImportSettingsStore = ImportSettingsData & ImportSettingsActions;

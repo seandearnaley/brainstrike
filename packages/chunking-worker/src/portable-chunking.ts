@@ -10,12 +10,12 @@ import type { ChunkingRequestOptions, ChunkingStrategy, ChunkType, PortableChunk
 import { countTokensAccurate, countTokensHeuristic } from './token-utils-lite';
 
 export interface PortableChunkingResult {
-  chunks: PortableChunk[];
-  totalTokens: number;
   avgTokensPerChunk: number;
-  strategyUsed: ChunkingStrategy;
+  chunks: PortableChunk[];
   skipped: boolean;
   skipReason?: string;
+  strategyUsed: ChunkingStrategy;
+  totalTokens: number;
 }
 
 // File patterns that should be skipped or handled differently
@@ -560,8 +560,8 @@ function splitByBlankLines(text: string): string[] {
 }
 
 interface MarkdownBlock {
-  text: string;
   meta: { isFence?: boolean; heading?: string };
+  text: string;
 }
 
 /** Regex to match code fence opening/closing (backticks or tildes, optionally indented) */
@@ -816,9 +816,9 @@ export async function chunkContent(
   // Process groups into portable chunks
   // PERF: Collect all pieces first, then batch hash generation
   interface PendingChunk {
+    chunkType: ChunkType;
     content: string;
     tokenCount: number;
-    chunkType: ChunkType;
   }
   const pendingChunks: PendingChunk[] = [];
 

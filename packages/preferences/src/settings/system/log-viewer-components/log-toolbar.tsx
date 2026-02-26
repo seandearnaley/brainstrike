@@ -19,32 +19,32 @@ import type { ReactNode } from 'react';
 import type { LogRecordRow } from './log-utils';
 
 interface LogToolbarProps {
-  logLevelFilter: LogLevel;
-  onLevelChange: (value: LogLevel) => void;
-  logLevelItems: ReactNode;
-  scopeFilter: string;
-  onScopeChange: (value: string) => void;
-  scopeItems: ReactNode;
-  globalFilter: string;
-  onSearchChange: (value: string) => void;
   autoScroll: boolean;
-  onAutoScrollChange: (value: boolean) => void;
-  wrapLines: boolean;
-  onWrapLinesChange: (value: boolean) => void;
-  sortNewestFirst: boolean;
-  onSortNewestFirstChange: (value: boolean) => void;
-  retentionLimit: number;
-  onRetentionChange: (value: number) => void;
-  retentionItems: ReactNode;
-  pageSize: number;
-  onPageSizeChange: (value: number) => void;
-  pageSizeItems: ReactNode;
-  table: ReactTableInstance<LogRecordRow>;
-  rowsCount: number;
-  logsLoading: boolean;
-  onExport: () => void;
-  onRefresh: () => void;
   canRefresh: boolean;
+  globalFilter: string;
+  logLevelFilter: LogLevel;
+  logLevelItems: ReactNode;
+  logsLoading: boolean;
+  onAutoScrollChange: (value: boolean) => void;
+  onExport: () => void;
+  onLevelChange: (value: LogLevel) => void;
+  onPageSizeChange: (value: number) => void;
+  onRefresh: () => void;
+  onRetentionChange: (value: number) => void;
+  onScopeChange: (value: string) => void;
+  onSearchChange: (value: string) => void;
+  onSortNewestFirstChange: (value: boolean) => void;
+  onWrapLinesChange: (value: boolean) => void;
+  pageSize: number;
+  pageSizeItems: ReactNode;
+  retentionItems: ReactNode;
+  retentionLimit: number;
+  rowsCount: number;
+  scopeFilter: string;
+  scopeItems: ReactNode;
+  sortNewestFirst: boolean;
+  table: ReactTableInstance<LogRecordRow>;
+  wrapLines: boolean;
 }
 
 export function LogToolbar({

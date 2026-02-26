@@ -2,14 +2,14 @@ import type React from 'react';
 import { cn } from '../lib/utils';
 
 export interface StatusBarProps {
-  /** Content to display on the left side of the status bar */
-  leftContent?: React.ReactNode;
   /** Content to display in the center of the status bar */
   centerContent?: React.ReactNode;
-  /** Content to display on the right side of the status bar */
-  rightContent?: React.ReactNode;
   /** Additional CSS classes */
   className?: string;
+  /** Content to display on the left side of the status bar */
+  leftContent?: React.ReactNode;
+  /** Content to display on the right side of the status bar */
+  rightContent?: React.ReactNode;
   /** Custom test ID for distinguishing multiple status bars (default: "status-bar") */
   testId?: string;
 }

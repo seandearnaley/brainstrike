@@ -301,22 +301,22 @@ function checkLoadPreconditions(
  * Result of loading directories for select all.
  */
 interface DirectoryLoadResult {
+  /** Whether the operation was cancelled */
+  cancelled: boolean;
   /** The final loaded tree result (last successful load) */
   finalResult: {
     tree: WorkerFileNode[];
     expandedPaths: string[];
     loadedCount: number;
   } | null;
-  /** Total count of loaded directories across all calls */
-  totalLoadedCount: number;
+  /** Last error encountered (null if no errors) */
+  loadError: Error | null;
   /** Number of directories successfully loaded */
   loadedDirectories: number;
   /** Total number of directories attempted */
   totalDirectories: number;
-  /** Last error encountered (null if no errors) */
-  loadError: Error | null;
-  /** Whether the operation was cancelled */
-  cancelled: boolean;
+  /** Total count of loaded directories across all calls */
+  totalLoadedCount: number;
 }
 
 /**
@@ -440,19 +440,15 @@ export interface RecursiveSelectAllState {
 }
 
 export interface UseRecursiveSelectAllOptions {
-  /** Ref to worker port for loadSubtree commands */
-  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
-  /** Ref to handle map for rehydrating worker tree */
-  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
-  /** Callback when tree is updated after subtree load */
-  onTreeUpdate: (tree: IFileNode[]) => void;
-  /** Callback when error occurs */
-  onError?: (error: Error) => void;
   /**
    * Filter function to apply workspace include/exclude filters to a tree.
    * Called on the loaded tree in the slow path to ensure workspace filters are respected.
    */
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
+  /** Ref to handle map for rehydrating worker tree */
+  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  /** Callback when error occurs */
+  onError?: (error: Error) => void;
   /**
    * Callback invoked when nodes are added to the tree.
    * Used by FileTreeIndex for incremental indexing after recursive selection.
@@ -460,26 +456,34 @@ export interface UseRecursiveSelectAllOptions {
    * @param parentPath - Always null for select-all (full tree)
    */
   onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
+  /** Callback when tree is updated after subtree load */
+  onTreeUpdate: (tree: IFileNode[]) => void;
+  /** Ref to worker port for loadSubtree commands */
+  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
 }
 
 export interface SelectAllResult {
-  /** Whether the operation was successful */
-  success: boolean;
-  /** File paths that were selected */
-  filePaths: string[];
-  /** Total files available (before limit applied) */
-  totalAvailable?: number;
-  /** Whether the selection limit was reached */
-  limitReached?: boolean;
   /** Whether the operation was cancelled */
   cancelled?: boolean;
   /** Error message if failed */
   error?: string;
+  /** File paths that were selected */
+  filePaths: string[];
+  /** Whether the selection limit was reached */
+  limitReached?: boolean;
+  /** Whether the operation was successful */
+  success: boolean;
+  /** Total files available (before limit applied) */
+  totalAvailable?: number;
 }
 
 export interface UseRecursiveSelectAllReturn {
+  /** Cancel the current select all operation */
+  cancelSelectAll: () => void;
   /** Whether the tree is being loaded for select all */
   isLoadingForSelectAll: boolean;
+  /** Ref to check if loading is active (for use in effects) */
+  isLoadingForSelectAllRef: React.RefObject<boolean>;
   /** Loading progress (if available) */
   loadingProgress: { loaded: number; total: number } | null;
   /**
@@ -499,10 +503,6 @@ export interface UseRecursiveSelectAllReturn {
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number
   ) => Promise<SelectAllResult>;
-  /** Cancel the current select all operation */
-  cancelSelectAll: () => void;
-  /** Ref to check if loading is active (for use in effects) */
-  isLoadingForSelectAllRef: React.RefObject<boolean>;
 }
 
 const RESET_STATE: RecursiveSelectAllState = {

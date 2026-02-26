@@ -18,17 +18,17 @@ const now = () => Date.now();
 
 export interface StoredRootHandle {
   folderId: string;
-  name: string;
   handle: FileSystemDirectoryHandle;
-  storedAt: number;
   lastAccessedAt: number;
+  name: string;
+  storedAt: number;
 }
 
 export interface StoredFileHandle {
-  path: string;
-  name: string;
-  handle: FileSystemFileHandle;
   folderId: string;
+  handle: FileSystemFileHandle;
+  name: string;
+  path: string;
   storedAt: number;
 }
 
@@ -140,37 +140,37 @@ async function requestPermissionWithTimeout(
  * so the UI can request permission synchronously in a click handler.
  */
 export interface RestoreHandleResult {
-  handle: FileSystemDirectoryHandle;
   folderId: string;
+  handle: FileSystemDirectoryHandle;
   name: string;
   permissionState: PermissionState | 'unknown';
 }
 
 export interface HandleCache {
-  storeRootHandle(folderId: string, handle: FileSystemDirectoryHandle): Promise<void>;
-  getRootHandle(folderId: string): Promise<FileSystemDirectoryHandle | null>;
+  clear(): Promise<void>;
   getAllRootHandles(): Promise<StoredRootHandle[]>;
-  removeRootHandle(folderId: string): Promise<void>;
-  restoreLastRootHandle(): Promise<{ handle: FileSystemDirectoryHandle } | null>;
+  getFileHandle(folderId: string, relativePath: string): Promise<FileSystemFileHandle | null>;
   /**
    * Get the last root handle for restore, including permission state.
    * Does NOT request permission - the caller should do that synchronously
    * in a user gesture handler to ensure Chrome doesn't block it.
    */
   getLastRootHandleForRestore(): Promise<RestoreHandleResult | null>;
+  getRootHandle(folderId: string): Promise<FileSystemDirectoryHandle | null>;
   /**
    * Mark a handle as successfully restored (updates lastAccessedAt).
    */
   markHandleRestored(folderId: string): Promise<void>;
+  pruneOldHandles(maxAge?: number): Promise<void>;
+  removeFileHandle(folderId: string, relativePath: string): Promise<void>;
+  removeRootHandle(folderId: string): Promise<void>;
+  restoreLastRootHandle(): Promise<{ handle: FileSystemDirectoryHandle } | null>;
   storeFileHandle(
     folderId: string,
     relativePath: string,
     handle: FileSystemFileHandle
   ): Promise<void>;
-  getFileHandle(folderId: string, relativePath: string): Promise<FileSystemFileHandle | null>;
-  removeFileHandle(folderId: string, relativePath: string): Promise<void>;
-  clear(): Promise<void>;
-  pruneOldHandles(maxAge?: number): Promise<void>;
+  storeRootHandle(folderId: string, handle: FileSystemDirectoryHandle): Promise<void>;
 }
 
 // LRU cache configuration

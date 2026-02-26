@@ -2,11 +2,11 @@ import { safeStorage } from 'electron';
 import ElectronStore from 'electron-store';
 
 export interface SecretsService {
-  saveKey(provider: string, value: string): Promise<boolean>;
-  getKey(provider: string): Promise<string | null>;
-  deleteKey(provider: string): Promise<boolean>;
-  listProviders(): Promise<string[]>;
   clearAll(): Promise<boolean>;
+  deleteKey(provider: string): Promise<boolean>;
+  getKey(provider: string): Promise<string | null>;
+  listProviders(): Promise<string[]>;
+  saveKey(provider: string, value: string): Promise<boolean>;
 }
 
 interface SecretsSchema {

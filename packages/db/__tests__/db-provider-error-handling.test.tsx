@@ -15,14 +15,14 @@ function wrapper({ children }: { children: React.ReactNode }) {
 
 type QueryMock = Mock<[string], Promise<{ rows: unknown[] } | undefined>>;
 interface MockDb {
-  query: QueryMock;
-  exec: Mock<[string], Promise<unknown>>;
   close: Mock<[], Promise<void>>;
+  closed?: boolean;
+  exec: Mock<[string], Promise<unknown>>;
+  query: QueryMock;
   transaction?: Mock<
     [callback: (tx: { query: QueryMock }) => Promise<unknown> | unknown],
     Promise<unknown>
   >;
-  closed?: boolean;
 }
 
 function createMockDb(overrides: Partial<MockDb> = {}): MockDb {

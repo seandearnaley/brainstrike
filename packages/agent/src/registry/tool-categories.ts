@@ -36,9 +36,9 @@ export type ToolLoadingTier = 'critical' | 'conditional' | 'deferred';
  * Display metadata for tool categories (used in settings UI).
  */
 export interface ToolCategoryInfo {
+  description: string;
   id: ToolCategory;
   label: string;
-  description: string;
   /** Priority for loading order (lower = higher priority) */
   loadPriority: number;
 }
@@ -83,9 +83,9 @@ export const TOOL_CATEGORIES: Record<ToolCategory, ToolCategoryInfo> = {
  * Display metadata for loading tiers.
  */
 export interface ToolLoadingTierInfo {
+  description: string;
   id: ToolLoadingTier;
   label: string;
-  description: string;
 }
 
 export const TOOL_LOADING_TIERS: Record<ToolLoadingTier, ToolLoadingTierInfo> = {
@@ -112,11 +112,11 @@ export const TOOL_LOADING_TIERS: Record<ToolLoadingTier, ToolLoadingTierInfo> = 
  */
 export interface NativeToolDefaultMetadata {
   category: ToolCategory;
+  /** Estimated token count for tool schema in context */
+  estimatedTokens: number;
   loadingTier: ToolLoadingTier;
   /** Whether this tool performs mutations requiring user approval */
   requiresApproval: boolean;
-  /** Estimated token count for tool schema in context */
-  estimatedTokens: number;
 }
 
 /**

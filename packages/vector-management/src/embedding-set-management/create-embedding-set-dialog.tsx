@@ -41,13 +41,13 @@ function generateUniqueName(baseName: string, existingNames: Set<string>): strin
 }
 
 interface CreateEmbeddingSetDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  repository: IEmbeddingSetsRepository | null;
-  models: ModelPickerModel[];
-  providers: ModelPickerProvider[];
   isLoading?: boolean;
+  models: ModelPickerModel[];
+  onOpenChange: (open: boolean) => void;
   onSetCreated?: (setId: string) => void;
+  open: boolean;
+  providers: ModelPickerProvider[];
+  repository: IEmbeddingSetsRepository | null;
 }
 
 // Helper to build metadata object with only non-empty fields
@@ -93,6 +93,7 @@ const logger = createLogger('CreateEmbeddingSetDialog');
 
 interface FormState {
   creating: boolean;
+  existingNames: Set<string>;
   formData: {
     name: string;
     description: string;
@@ -100,7 +101,6 @@ interface FormState {
     category: string;
     selectedModel: string;
   };
-  existingNames: Set<string>;
   hasInitialized: boolean;
 }
 

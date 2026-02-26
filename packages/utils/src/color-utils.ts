@@ -35,8 +35,8 @@ export interface ColorScheme {
 }
 
 export interface FolderColors {
-  light: ColorScheme;
   dark: ColorScheme;
+  light: ColorScheme;
 }
 
 /**

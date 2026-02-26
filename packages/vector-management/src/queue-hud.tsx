@@ -24,12 +24,12 @@ import {
 } from 'react';
 
 interface QueueStats {
+  failed: number;
+  nextRunnableAt?: string | null;
   queue: string;
   queued: number;
   running: number;
-  failed: number;
   succeeded: number;
-  nextRunnableAt?: string | null;
 }
 
 type QueueHudVariant = 'card' | 'status-bar';
@@ -39,18 +39,18 @@ interface QueueHudProps {
 }
 
 interface QueueMetrics {
+  failed: number;
+  nextRunnableAt?: string | null;
   queued: number;
   running: number;
-  failed: number;
   succeeded: number;
-  nextRunnableAt?: string | null;
 }
 
 interface QueueHudViewProps {
   metrics: QueueMetrics;
+  onRetry: () => Promise<void>;
   retryDisabled: boolean;
   retryLabel: string;
-  onRetry: () => Promise<void>;
 }
 
 type ToastFn = ReturnType<typeof useToast>['toast'];

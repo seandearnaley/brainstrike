@@ -37,57 +37,57 @@ export const SAFE_HYBRID_SEARCH_ERRORS = new Set<string>(
  * Individual search result from hybrid search.
  */
 export interface HybridSearchResultItem {
-  /** Chunk ID */
-  id: string;
-  /** Chunk content */
-  content: string;
-  /** File path where chunk originated */
-  filePath?: string;
-  /** File name */
-  fileName?: string;
   /** Chunk index within file */
   chunkIndex: number;
-  /** Combined RRF score */
-  rrfScore: number;
-  /** Vector similarity score (if found by vector search) */
-  vectorSimilarity?: number;
+  /** Chunk content */
+  content: string;
+  /** File name */
+  fileName?: string;
+  /** File path where chunk originated */
+  filePath?: string;
   /** FTS rank (if found by full-text search) */
   ftsRank?: number;
   /** Headline snippet from FTS */
   headline?: string;
+  /** Chunk ID */
+  id: string;
   /** Position in result set (1-indexed) */
   position: number;
+  /** Combined RRF score */
+  rrfScore: number;
   /** Number of search methods that found this chunk */
   sourceCount: number;
+  /** Vector similarity score (if found by vector search) */
+  vectorSimilarity?: number;
 }
 
 /**
  * Result returned by the hybrid search tool.
  */
 export interface HybridSearchToolResult {
-  query: string;
   embeddingSetId: string;
-  limit: number;
-  vectorWeight: number;
   ftsWeight: number;
-  results: HybridSearchResultItem[];
+  limit: number;
   metadata: {
     vectorResultCount: number;
     ftsResultCount: number;
     fusedResultCount: number;
     totalMs: number;
   };
+  query: string;
+  results: HybridSearchResultItem[];
+  vectorWeight: number;
 }
 
 /**
  * Chunk data structure from search results.
  */
 export interface SearchChunk {
-  id: string;
-  content: string;
   chunkIndex: number;
   chunkType?: string;
+  content: string;
   fileRecordId: string;
+  id: string;
 }
 
 /**
@@ -104,22 +104,22 @@ export interface SearchFileRecord {
  */
 export interface HybridSearchServiceResult {
   chunk: SearchChunk;
-  rrfScore: number;
-  sourceCount: number;
-  vectorSimilarity?: number;
   ftsRank?: number;
   headline?: string;
   position: number;
+  rrfScore: number;
+  sourceCount: number;
+  vectorSimilarity?: number;
 }
 
 /**
  * Search metadata from the service.
  */
 export interface HybridSearchServiceMetadata {
-  vectorResultCount: number;
   ftsResultCount: number;
   fusedResultCount: number;
   totalMs: number;
+  vectorResultCount: number;
 }
 
 /**
@@ -132,6 +132,15 @@ export interface HybridSearchToolDependencies {
    * @throws Error with safe message on failure
    */
   generateQueryEmbedding: (embeddingSetId: string, query: string) => Promise<number[]>;
+
+  /**
+   * Optional logger for debugging.
+   */
+  logger?: {
+    debug: (message: string, context?: Record<string, unknown>) => void;
+    warn: (message: string, context?: Record<string, unknown>) => void;
+    error: (message: string, context?: Record<string, unknown>) => void;
+  };
 
   /**
    * Performs the hybrid search using both vector and FTS.
@@ -157,15 +166,6 @@ export interface HybridSearchToolDependencies {
    * Resolves file record information for enriching results.
    */
   resolveFileRecords: (fileRecordIds: string[]) => Promise<Map<string, SearchFileRecord>>;
-
-  /**
-   * Optional logger for debugging.
-   */
-  logger?: {
-    debug: (message: string, context?: Record<string, unknown>) => void;
-    warn: (message: string, context?: Record<string, unknown>) => void;
-    error: (message: string, context?: Record<string, unknown>) => void;
-  };
 }
 
 /**
@@ -291,10 +291,10 @@ async function runHybridSearch(
  * Mastra tool type - matches the pattern from retrieval-tool.ts
  */
 interface MastraTool {
-  id: string;
   description: string;
-  inputSchema: typeof HybridSearchInputSchema;
   execute: (context: ToolContext<HybridSearchInput>) => Promise<HybridSearchToolResult>;
+  id: string;
+  inputSchema: typeof HybridSearchInputSchema;
 }
 
 /**

@@ -18,9 +18,9 @@ import type {
 } from './file-import/file-import-types';
 
 interface UseFileImportServiceOptions {
-  onProgress?: (progress: ImportProgress) => void;
   onComplete?: (results: FileImportResult[]) => void;
   onError?: (error: Error) => void;
+  onProgress?: (progress: ImportProgress) => void;
 }
 
 interface FileImportServiceReturn {

@@ -43,10 +43,10 @@ function isTerminalTokenizerError(errorMessage: string): boolean {
 }
 
 interface WorkerErrorMessage {
-  type: 'error';
   error: string;
-  id?: string;
   fileRecordId?: string;
+  id?: string;
+  type: 'error';
 }
 
 function isWorkerErrorMessage(data: unknown): data is WorkerErrorMessage {
@@ -75,14 +75,14 @@ function getTerminalTokenizerErrorMessage(data: unknown): WorkerErrorMessage | n
 // ============================================================================
 
 export interface ChunkingWorkerContextValue {
-  /** The worker port for sending chunking requests (null if not ready) */
-  port: ChunkingWorkerPort | null;
-  /** Whether the worker is ready to receive requests */
-  isReady: boolean;
-  /** Whether the worker is currently processing a request */
-  isProcessing: boolean;
   /** Any error that occurred during worker initialization */
   error: Error | null;
+  /** Whether the worker is currently processing a request */
+  isProcessing: boolean;
+  /** Whether the worker is ready to receive requests */
+  isReady: boolean;
+  /** The worker port for sending chunking requests (null if not ready) */
+  port: ChunkingWorkerPort | null;
   /** Reinitialize the worker (e.g., after an error) */
   reinitialize: () => void;
 }

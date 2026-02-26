@@ -6,35 +6,35 @@ import {
 import type { TapestryRange } from '../tapestry/types';
 
 export interface ContextSelectedTokenSummary {
-  sourceSelectedTokens: number;
-  outputSelectedTokens: number;
-  sourcePendingCount: number;
-  outputPendingCount: number;
-  rangeAdjustedFilesCount: number;
   activeRangeFilesCount: number;
+  outputPendingCount: number;
+  outputSelectedTokens: number;
+  rangeAdjustedFilesCount: number;
+  sourcePendingCount: number;
+  sourceSelectedTokens: number;
 }
 
 export type TapestryRangeMap = Record<string, TapestryRange[]>;
 
 interface TokenCountItem {
-  type: string;
   compositeKey?: string;
   tokens?: number;
+  type: string;
 }
 
 interface RangedFileResolution {
-  tokens: number;
   hasActiveSelection: boolean;
+  tokens: number;
 }
 
 interface ContextSelectedTokenSummaryArgs {
-  sourceSelectedTokens: number;
-  sourcePendingCount: number;
+  fileContents: Record<string, string>;
   selectedFiles: Set<string>;
-  useTapestryRangesForContextOutput: boolean;
+  sourcePendingCount: number;
+  sourceSelectedTokens: number;
   tapestryRangesByKey: TapestryRangeMap;
   tokenCountByFile: Map<string, number>;
-  fileContents: Record<string, string>;
+  useTapestryRangesForContextOutput: boolean;
 }
 
 function buildLinePrefixLengths(lines: string[]): number[] {

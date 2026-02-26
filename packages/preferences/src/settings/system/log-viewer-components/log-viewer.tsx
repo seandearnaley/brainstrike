@@ -230,17 +230,17 @@ function buildLogColumns(wrapLines: boolean): ColumnDef<LogRecordRow>[] {
 }
 
 interface LogViewerState {
+  autoScroll: boolean;
+  columnVisibility: VisibilityState;
+  globalFilter: string;
+  logLevelFilter: LogLevel;
   logRecords: readonly LogRecord[];
   logsLoading: boolean;
-  retentionLimit: number;
-  logLevelFilter: LogLevel;
-  scopeFilter: string;
-  globalFilter: string;
-  autoScroll: boolean;
-  wrapLines: boolean;
-  sorting: SortingState;
-  columnVisibility: VisibilityState;
   pagination: PaginationState;
+  retentionLimit: number;
+  scopeFilter: string;
+  sorting: SortingState;
+  wrapLines: boolean;
 }
 
 type LogViewerAction =

@@ -18,6 +18,8 @@ import { estimateHardwareConcurrency, ProgressEmitter } from '../util';
 const logger = createLogger('BrowserWorkerpoolAdapter');
 
 export interface WorkerpoolAdapterOptions {
+  readonly maxQueueSize?: number;
+  readonly maxWorkers?: number;
   /**
    * Minimum workers to keep alive (default: 1).
    *
@@ -27,8 +29,6 @@ export interface WorkerpoolAdapterOptions {
    * See: docs/debug-handoff-renderer-crash.md
    */
   readonly minWorkers?: number;
-  readonly maxWorkers?: number;
-  readonly maxQueueSize?: number;
   readonly name?: string;
   /** Optional worker URL override (use bundler-provided worker URL in apps). */
   readonly workerUrl?: string;

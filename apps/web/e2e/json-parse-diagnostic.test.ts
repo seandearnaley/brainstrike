@@ -1,20 +1,20 @@
 import { expect, test } from '@playwright/test';
 
 interface JsonParseDiagnostic {
-  message: string;
-  stack: string | null;
   inputLength: number | null;
   inputPreview: string;
   lastStorageKey: string | null;
   lastStorageValueLength: number | null;
   lastStorageValuePreview: string | null;
+  message: string;
+  stack: string | null;
 }
 
 interface ResponseJsonDiagnostic {
-  message: string;
-  stack: string | null;
   bodyLength: number | null;
   bodyPreview: string;
+  message: string;
+  stack: string | null;
   url: string | null;
 }
 

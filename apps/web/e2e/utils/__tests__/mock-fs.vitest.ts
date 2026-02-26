@@ -4,18 +4,18 @@ import { mockBrowserApis } from '../mock-fs';
 
 // Shared test handle types, mirroring the injected mock API
 interface TestFileHandle {
+  createWritable(): Promise<{ write(data: unknown): Promise<void>; close(): Promise<void> }>;
+  getFile(): Promise<{ text(): Promise<string> }>;
   kind: 'file';
   name: string;
-  getFile(): Promise<{ text(): Promise<string> }>;
-  createWritable(): Promise<{ write(data: unknown): Promise<void>; close(): Promise<void> }>;
 }
 interface TestDirHandle {
-  name: string;
-  kind: 'directory';
-  getFileHandle(name: string, options?: { create?: boolean }): Promise<TestFileHandle>;
-  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<TestDirHandle>;
-  removeEntry(name: string): Promise<void>;
   entries(): AsyncIterable<[string, TestFileHandle | TestDirHandle]>;
+  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<TestDirHandle>;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<TestFileHandle>;
+  kind: 'directory';
+  name: string;
+  removeEntry(name: string): Promise<void>;
 }
 
 // Mock File and Blob APIs for jsdom environment

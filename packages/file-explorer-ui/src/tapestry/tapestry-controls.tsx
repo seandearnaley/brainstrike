@@ -3,14 +3,14 @@ import { RotateCcw } from 'lucide-react';
 import { memo } from 'react';
 
 interface TapestryControlsProps {
+  activeRanges: number;
+  allowOverlap: boolean;
+  onReset: () => void;
   scale: number;
+  setAllowOverlap: (v: boolean) => void;
   setScale: (s: number) => void;
   totalFiles: number;
-  activeRanges: number;
   totalLinesSelected: number;
-  onReset: () => void;
-  allowOverlap: boolean;
-  setAllowOverlap: (v: boolean) => void;
 }
 
 export const TapestryControls = memo(

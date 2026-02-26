@@ -43,54 +43,54 @@ function isJSONSchema(value: unknown): value is JSONSchema7 {
  * Unified tool metadata that supports both native and MCP tools.
  */
 export interface UnifiedToolMetadata {
-  /** Unique identifier following namespace.toolName pattern */
-  id: string;
-  /** Source of the tool: native (built-in) or mcp (from MCP server) */
-  source: ToolSource;
   /** Functional category for organization and priority */
   category: ToolCategory;
-  /** Loading tier determining when the tool is loaded */
-  loadingTier: ToolLoadingTier;
   /** Human-readable description */
   description: string;
-  /** Zod schema or JSON schema for tool input */
-  inputSchema?: ToolInputSchema;
-  /** Whether the tool is enabled for use */
-  enabled: boolean;
   /** Timestamp when the tool was discovered/registered */
   discoveredAt: number;
-  /** MCP server name (only for MCP tools) */
-  serverName?: string;
+  /** Whether the tool is enabled for use */
+  enabled: boolean;
   /** Estimated token count for tool schema in context */
   estimatedTokens: number;
+  /** Unique identifier following namespace.toolName pattern */
+  id: string;
+  /** Zod schema or JSON schema for tool input */
+  inputSchema?: ToolInputSchema;
+  /** Loading tier determining when the tool is loaded */
+  loadingTier: ToolLoadingTier;
   /** Whether this tool requires user approval before execution */
   requiresApproval: boolean;
+  /** MCP server name (only for MCP tools) */
+  serverName?: string;
+  /** Source of the tool: native (built-in) or mcp (from MCP server) */
+  source: ToolSource;
 }
 
 /**
  * Options for registering a native tool.
  */
 export interface NativeToolRegistrationOptions {
-  id: string;
-  description: string;
-  inputSchema?: ToolInputSchema;
   category?: ToolCategory;
-  loadingTier?: ToolLoadingTier;
-  estimatedTokens?: number;
-  requiresApproval?: boolean;
+  description: string;
   enabled?: boolean;
+  estimatedTokens?: number;
+  id: string;
+  inputSchema?: ToolInputSchema;
+  loadingTier?: ToolLoadingTier;
+  requiresApproval?: boolean;
 }
 
 /**
  * Options for registering MCP tools from a server.
  */
 export interface McpToolRegistrationOptions {
-  serverName: string;
-  tools: ToolsInput;
   /** Optional: override category for all tools from this server */
   categoryOverride?: ToolCategory;
+  serverName: string;
   /** Optional: override tier for all tools from this server */
   tierOverride?: ToolLoadingTier;
+  tools: ToolsInput;
 }
 
 /**
@@ -104,46 +104,46 @@ export interface ToolsByCategory {
  * Tools grouped by source and server.
  */
 export interface ToolsBySource {
-  native: UnifiedToolMetadata[];
   mcp: {
     [serverName: string]: UnifiedToolMetadata[];
   };
+  native: UnifiedToolMetadata[];
 }
 
 /**
  * Filter configuration for retrieving tools.
  */
 export interface ToolFilterConfig {
-  /** Filter by source type */
-  source?: ToolSource;
   /** Filter by category */
   category?: ToolCategory;
-  /** Filter by loading tier */
-  loadingTier?: ToolLoadingTier;
   /** Filter by enabled state */
   enabled?: boolean;
-  /** Filter by approval requirement */
-  requiresApproval?: boolean;
-  /** Only include tools matching these patterns */
-  patterns?: string[];
   /** Exclude tools matching these patterns */
   excludePatterns?: string[];
+  /** Filter by loading tier */
+  loadingTier?: ToolLoadingTier;
+  /** Only include tools matching these patterns */
+  patterns?: string[];
+  /** Filter by approval requirement */
+  requiresApproval?: boolean;
+  /** Filter by source type */
+  source?: ToolSource;
 }
 
 /**
  * Statistics about registered tools.
  */
 export interface ToolRegistryStats {
-  total: number;
-  enabled: number;
-  disabled: number;
+  byCategory: Record<ToolCategory, number>;
   bySource: {
     native: number;
     mcp: number;
   };
-  byCategory: Record<ToolCategory, number>;
   byTier: Record<ToolLoadingTier, number>;
+  disabled: number;
+  enabled: number;
   mcpServers: number;
+  total: number;
 }
 
 /**

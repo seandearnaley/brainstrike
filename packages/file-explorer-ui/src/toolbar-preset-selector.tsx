@@ -90,10 +90,10 @@ async function mergeAndWriteStoragePatch(
 }
 
 interface ToolbarPresetSelectorProps {
-  /** Called when filter patterns change (to update file tree) */
-  onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   /** Optional class name for the dropdown */
   className?: string | undefined;
+  /** Called when filter patterns change (to update file tree) */
+  onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
 }
 
 /**

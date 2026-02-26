@@ -24,13 +24,15 @@ const getAllRoots = async (cache: WebHandleCache): Promise<StoredRootHandle[]> =
   cache.getAllRootHandles();
 
 describe('WebHandleCache', () => {
+  let mockedNow = new Date('2025-01-01T00:00:00.000Z').getTime();
+
   beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+    mockedNow = new Date('2025-01-01T00:00:00.000Z').getTime();
+    vi.spyOn(Date, 'now').mockImplementation(() => mockedNow);
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('stores and retrieves root handles', async () => {
@@ -48,7 +50,7 @@ describe('WebHandleCache', () => {
     const handle = createDirectoryHandle('root');
 
     await cache.storeRootHandle('root', handle);
-    vi.setSystemTime(new Date('2025-01-02T00:00:00.000Z'));
+    mockedNow = new Date('2025-01-02T00:00:00.000Z').getTime();
     await cache.getRootHandle('root');
 
     const stored = await getAllRoots(cache);
@@ -83,7 +85,7 @@ describe('WebHandleCache', () => {
     const second = createDirectoryHandle('second');
 
     await cache.storeRootHandle('first', first);
-    vi.setSystemTime(new Date('2025-01-02T00:00:00.000Z'));
+    mockedNow = new Date('2025-01-02T00:00:00.000Z').getTime();
     await cache.storeRootHandle('second', second);
 
     const restored = await cache.restoreLastRootHandle();
@@ -170,7 +172,7 @@ describe('WebHandleCache', () => {
     const handle = createDirectoryHandle('root');
 
     await cache.storeRootHandle('root', handle);
-    vi.setSystemTime(new Date('2025-02-15T00:00:00.000Z'));
+    mockedNow = new Date('2025-02-15T00:00:00.000Z').getTime();
 
     await cache.pruneOldHandles(1000 * 60 * 60 * 24 * 7);
 
@@ -180,9 +182,6 @@ describe('WebHandleCache', () => {
 
   describe('database recovery', () => {
     it('falls back to memory when IndexedDB is unavailable', async () => {
-      // Use real timers for this test since we need async operations to work properly
-      vi.useRealTimers();
-
       // Save the original indexedDB
       const originalIndexedDB = globalThis.indexedDB;
 
@@ -202,9 +201,6 @@ describe('WebHandleCache', () => {
       } finally {
         // Restore indexedDB
         globalThis.indexedDB = originalIndexedDB;
-        // Restore fake timers for other tests
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
       }
     });
 

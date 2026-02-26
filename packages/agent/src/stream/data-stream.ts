@@ -6,14 +6,14 @@ import { parseEventId } from './session-manager';
 import { SessionSubscription } from './session-subscription';
 
 export interface AssistantDataStreamSessionOptions {
+  cleanupDelayMs?: number;
   messageId?: string;
   sessionId?: string;
-  cleanupDelayMs?: number;
 }
 
 interface CreateResponseOptions {
-  resumeFromEventId?: string | null;
   headers?: HeadersInit;
+  resumeFromEventId?: string | null;
 }
 
 const logger = createLogger('AgentDataStream');

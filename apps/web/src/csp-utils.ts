@@ -5,17 +5,17 @@
  */
 
 interface CSPDirectives {
-  'default-src': string[];
-  'script-src': string[];
-  'worker-src': string[];
-  'style-src': string[];
-  'img-src': string[];
-  'font-src': string[];
-  'connect-src': string[];
-  'object-src': string[];
   'base-uri': string[];
+  'connect-src': string[];
+  'default-src': string[];
+  'font-src': string[];
   'form-action': string[];
   'frame-ancestors': string[];
+  'img-src': string[];
+  'object-src': string[];
+  'script-src': string[];
+  'style-src': string[];
+  'worker-src': string[];
 }
 
 type Environment = 'development' | 'production';

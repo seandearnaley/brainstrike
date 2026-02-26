@@ -16,40 +16,40 @@ import type { BrowserNodeData, CollectionNodeType } from './types';
  * Bulk action definition
  */
 export interface BulkAction {
-  /** Unique identifier for this action */
-  id: string;
-  /** Label to display on the button */
-  label: string;
-  /** Icon component */
-  icon?: React.ReactNode;
-  /** Action handler - receives selected node IDs and their types */
-  onAction: (selectedIds: Set<string>, nodeTypes: Map<string, CollectionNodeType>) => void;
+  /** Node types this action applies to (if not specified, applies to all) */
+  applicableTypes?: CollectionNodeType[];
   /** Whether the action is destructive (will be styled differently) */
   destructive?: boolean;
   /** Whether this action is disabled */
   disabled?: boolean;
   /** Tooltip for the disabled state */
   disabledReason?: string;
-  /** Node types this action applies to (if not specified, applies to all) */
-  applicableTypes?: CollectionNodeType[];
+  /** Icon component */
+  icon?: React.ReactNode;
+  /** Unique identifier for this action */
+  id: string;
+  /** Label to display on the button */
+  label: string;
+  /** Action handler - receives selected node IDs and their types */
+  onAction: (selectedIds: Set<string>, nodeTypes: Map<string, CollectionNodeType>) => void;
 }
 
 /**
  * Props for the BulkActionBar component
  */
 export interface BulkActionBarProps {
-  /** Set of selected node IDs */
-  selectedIds: Set<string>;
-  /** Map of node ID to node type */
-  nodeTypes: Map<string, CollectionNodeType>;
-  /** Map of node ID to node data */
-  nodeData?: Map<string, BrowserNodeData>;
   /** Available actions */
   actions: BulkAction[];
-  /** Called when selection is cleared */
-  onClearSelection: () => void;
   /** Custom class name */
   className?: string;
+  /** Map of node ID to node data */
+  nodeData?: Map<string, BrowserNodeData>;
+  /** Map of node ID to node type */
+  nodeTypes: Map<string, CollectionNodeType>;
+  /** Called when selection is cleared */
+  onClearSelection: () => void;
+  /** Set of selected node IDs */
+  selectedIds: Set<string>;
 }
 
 /**

@@ -22,10 +22,10 @@ export type LocalRuntimeModelFreshness = 'live' | 'stale_cached';
 export type LocalRuntimeEmbeddingCapability = 'supported' | 'unsupported' | 'needs_verification';
 
 export interface LocalRuntimeKnownDimensionsState {
+  readonly endpoint: string;
   readonly state: 'known';
   readonly values: readonly number[];
   readonly verifiedAt: number;
-  readonly endpoint: string;
 }
 
 export interface LocalRuntimeNeedsVerificationDimensionsState {
@@ -42,56 +42,56 @@ export type LocalRuntimeDimensionsState =
   | LocalRuntimeNotApplicableDimensionsState;
 
 export interface LocalRuntimeNormalizedModel {
-  readonly runtime: LocalRuntimeId;
-  readonly providerId: LocalRuntimeId;
-  readonly modelId: string;
-  readonly modelKey: string;
-  readonly displayName: string;
-  readonly endpoint: string;
-  readonly source: LocalRuntimeModelSource;
-  readonly freshness: LocalRuntimeModelFreshness;
   readonly capabilities: {
     readonly llm: boolean;
     readonly embeddings: LocalRuntimeEmbeddingCapability;
   };
   readonly dimensionsKnown: LocalRuntimeDimensionsState;
+  readonly displayName: string;
+  readonly endpoint: string;
+  readonly freshness: LocalRuntimeModelFreshness;
+  readonly modelId: string;
+  readonly modelKey: string;
+  readonly providerId: LocalRuntimeId;
+  readonly runtime: LocalRuntimeId;
+  readonly source: LocalRuntimeModelSource;
 }
 
 interface LocalRuntimeModelCatalogBaseState {
-  readonly runtime: LocalRuntimeId;
-  readonly checkedAt: number;
   readonly availability: LocalRuntimeAvailabilityState;
+  readonly checkedAt: number;
+  readonly runtime: LocalRuntimeId;
 }
 
 export interface LocalRuntimeModelsLoadedNonEmptyState extends LocalRuntimeModelCatalogBaseState {
-  readonly state: 'loaded_non_empty';
   readonly endpoint: string;
-  readonly source: LocalRuntimeModelSource;
   readonly freshness: 'live';
   readonly models: readonly LocalRuntimeNormalizedModel[];
+  readonly source: LocalRuntimeModelSource;
+  readonly state: 'loaded_non_empty';
 }
 
 export interface LocalRuntimeModelsLoadedEmptyState extends LocalRuntimeModelCatalogBaseState {
-  readonly state: 'loaded_empty';
   readonly endpoint: string;
-  readonly source: LocalRuntimeModelSource;
   readonly freshness: 'live';
   readonly models: readonly [];
+  readonly source: LocalRuntimeModelSource;
+  readonly state: 'loaded_empty';
 }
 
 export interface LocalRuntimeModelsFailedState extends LocalRuntimeModelCatalogBaseState {
-  readonly state: 'failed';
   readonly message: string;
+  readonly state: 'failed';
 }
 
 export interface LocalRuntimeModelsStaleCachedState extends LocalRuntimeModelCatalogBaseState {
-  readonly state: 'stale_cached';
-  readonly message: string;
   readonly endpoint: string;
-  readonly source: LocalRuntimeModelSource;
   readonly freshness: 'stale_cached';
   readonly lastSuccessfulAt: number;
+  readonly message: string;
   readonly models: readonly LocalRuntimeNormalizedModel[];
+  readonly source: LocalRuntimeModelSource;
+  readonly state: 'stale_cached';
 }
 
 export type LocalRuntimeModelCatalogState =
@@ -113,10 +113,10 @@ export function isLoadedRuntimeModelCatalogState(
 
 export interface ListLocalRuntimeModelsOptions {
   readonly force?: boolean;
+  readonly maxVerificationModels?: number;
   readonly signal?: AbortSignal;
   readonly surface?: LocalRuntimeSurface;
   readonly verifyEmbeddingDimensions?: boolean;
-  readonly maxVerificationModels?: number;
 }
 
 interface ListAllLocalRuntimeModelsOptions extends Omit<ListLocalRuntimeModelsOptions, 'signal'> {
@@ -124,14 +124,14 @@ interface ListAllLocalRuntimeModelsOptions extends Omit<ListLocalRuntimeModelsOp
 }
 
 export interface LocalRuntimeModelCatalogServiceOptions {
+  readonly defaultSurface?: LocalRuntimeSurface;
   readonly discoveryService?: LocalRuntimeDiscoveryService;
-  readonly fetchImpl?: typeof fetch;
-  readonly successTtlMs?: number;
   readonly failureBaseBackoffMs?: number;
   readonly failureMaxBackoffMs?: number;
-  readonly requestTimeoutMs?: number;
-  readonly defaultSurface?: LocalRuntimeSurface;
+  readonly fetchImpl?: typeof fetch;
   readonly now?: () => number;
+  readonly requestTimeoutMs?: number;
+  readonly successTtlMs?: number;
 }
 
 interface RuntimeModelCandidate {
@@ -141,28 +141,28 @@ interface RuntimeModelCandidate {
 
 interface RuntimeModelEndpointDefinition {
   readonly endpoint: string;
-  readonly source: LocalRuntimeModelSource;
   readonly parser: (payload: unknown) => readonly RuntimeModelCandidate[] | null;
+  readonly source: LocalRuntimeModelSource;
 }
 
 interface RuntimeModelAdapter {
-  readonly runtime: LocalRuntimeId;
-  readonly modelEndpoints: readonly RuntimeModelEndpointDefinition[];
   readonly embeddingProbeEndpoints: readonly string[];
+  readonly modelEndpoints: readonly RuntimeModelEndpointDefinition[];
+  readonly runtime: LocalRuntimeId;
 }
 
 interface RuntimeModelSuccessSnapshot {
   readonly checkedAt: number;
   readonly endpoint: string;
-  readonly source: LocalRuntimeModelSource;
   readonly models: readonly LocalRuntimeNormalizedModel[];
+  readonly source: LocalRuntimeModelSource;
 }
 
 interface RuntimeModelCacheEntry {
-  readonly status: LocalRuntimeModelCatalogState;
-  readonly nextRefreshAt: number;
   readonly consecutiveFailures: number;
   readonly lastSuccess: RuntimeModelSuccessSnapshot | null;
+  readonly nextRefreshAt: number;
+  readonly status: LocalRuntimeModelCatalogState;
 }
 
 type EmbeddingProbeOutcome =
@@ -413,23 +413,23 @@ function setModelFreshness(
 }
 
 export interface LocalRuntimeEmbeddingDimensionVerified {
-  readonly state: 'verified';
+  readonly checkedAt: number;
   readonly dimensions: number;
   readonly endpoint: string;
-  readonly checkedAt: number;
+  readonly state: 'verified';
 }
 
 export interface LocalRuntimeEmbeddingDimensionUnsupported {
-  readonly state: 'unsupported';
-  readonly endpoint: string;
   readonly checkedAt: number;
+  readonly endpoint: string;
   readonly message: string;
+  readonly state: 'unsupported';
 }
 
 export interface LocalRuntimeEmbeddingDimensionFailed {
-  readonly state: 'failed';
   readonly checkedAt: number;
   readonly message: string;
+  readonly state: 'failed';
 }
 
 export type LocalRuntimeEmbeddingDimensionProbeResult =

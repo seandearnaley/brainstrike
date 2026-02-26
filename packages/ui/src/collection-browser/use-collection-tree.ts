@@ -33,16 +33,6 @@ const MAX_WARNED_FILTER_CYCLE_NODE_IDS = 1000;
  * Input data for building the collection tree
  */
 export interface CollectionTreeInput {
-  /** File records */
-  files: Array<{
-    id: string;
-    name: string;
-    path: string;
-    size: number;
-    embeddingSetId?: string;
-    chunksCount?: number;
-    processedAt?: string;
-  }>;
   /** File chunks */
   chunks: Array<{
     id: string;
@@ -52,6 +42,16 @@ export interface CollectionTreeInput {
     tokenCount: number;
     embedding?: number[];
     embeddingSetId?: string;
+  }>;
+  /** File records */
+  files: Array<{
+    id: string;
+    name: string;
+    path: string;
+    size: number;
+    embeddingSetId?: string;
+    chunksCount?: number;
+    processedAt?: string;
   }>;
   /** Pending chunk IDs (being embedded) */
   pendingChunkIds?: Set<string>;
@@ -76,10 +76,10 @@ export type CollectionSortDirection = 'asc' | 'desc';
  * Sort state for the collection tree
  */
 export interface CollectionSortState {
-  /** Sort key */
-  key: CollectionSortKey;
   /** Sort direction */
   direction: CollectionSortDirection;
+  /** Sort key */
+  key: CollectionSortKey;
 }
 
 /**
@@ -88,44 +88,44 @@ export interface CollectionSortState {
 export interface UseCollectionTreeOptions {
   /** Input data */
   data: CollectionTreeInput;
-  /** Current filter state */
-  filters: CollectionBrowserFilters;
   /** Currently expanded node IDs */
   expandedIds: Set<string>;
-  /** Sort state (optional) */
-  sortState?: CollectionSortState;
-  /** Semantic search results to overlay on tree (optional) */
-  semanticResults?: SemanticSearchResult[];
+  /** Current filter state */
+  filters: CollectionBrowserFilters;
   /** Whether to filter tree to only show semantic results (default: true when results present) */
   filterToSemanticResults?: boolean;
   /** Grouping key for organizing nodes into groups (optional, default: 'none') */
   groupBy?: GroupByKey;
+  /** Semantic search results to overlay on tree (optional) */
+  semanticResults?: SemanticSearchResult[];
+  /** Sort state (optional) */
+  sortState?: CollectionSortState;
 }
 
 /**
  * Result from the useCollectionTree hook
  */
 export interface UseCollectionTreeResult {
-  /** Flattened nodes for rendering (respects expansion state) */
-  nodes: TreeNode<BrowserNodeData>[];
-  /** Root nodes (top-level collections) */
-  rootNodes: TreeNode<BrowserNodeData>[];
-  /** Total count of all nodes */
-  totalCount: number;
   /** Count of filtered/visible nodes */
   filteredCount: number;
   /** Get children for a node ID */
   getChildren: (parentId: string) => TreeNode<BrowserNodeData>[];
-  /** Node IDs that match the current search query (for highlighting) */
-  searchMatchIds: Set<string>;
+  /** Flattened nodes for rendering (respects expansion state) */
+  nodes: TreeNode<BrowserNodeData>[];
+  /** Root nodes (top-level collections) */
+  rootNodes: TreeNode<BrowserNodeData>[];
   /** Node IDs that should be auto-expanded to reveal search matches */
   searchExpandIds: Set<string>;
-  /** Map of node ID to similarity score (for score column in semantic search mode) */
-  similarityScores: Map<string, number>;
-  /** Node IDs that match semantic search (subset of nodes) */
-  semanticMatchIds: Set<string>;
+  /** Node IDs that match the current search query (for highlighting) */
+  searchMatchIds: Set<string>;
   /** Node IDs that should be auto-expanded to reveal semantic search matches */
   semanticExpandIds: Set<string>;
+  /** Node IDs that match semantic search (subset of nodes) */
+  semanticMatchIds: Set<string>;
+  /** Map of node ID to similarity score (for score column in semantic search mode) */
+  similarityScores: Map<string, number>;
+  /** Total count of all nodes */
+  totalCount: number;
 }
 
 /**
@@ -554,8 +554,8 @@ function matchesStandardNodeFilters(
  * Filter context for recursive node filtering
  */
 interface FilterContext {
-  filters: CollectionBrowserFilters;
   childrenMap: Map<string, TreeNode<BrowserNodeData>[]>;
+  filters: CollectionBrowserFilters;
 }
 
 /**

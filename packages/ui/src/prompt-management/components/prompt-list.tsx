@@ -5,13 +5,13 @@ import type { Category, Prompt, PromptFilter } from '../types';
 import { PromptCard } from './prompt-card';
 
 interface PromptListProps {
-  prompts: Prompt[];
   categories: Category[];
   filter: PromptFilter;
-  onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
   onCopy: (content: string) => void;
+  onDelete: (id: string) => void;
+  onEdit: (id: string) => void;
+  onToggleFavorite: (id: string) => void;
+  prompts: Prompt[];
 }
 
 export function PromptList({

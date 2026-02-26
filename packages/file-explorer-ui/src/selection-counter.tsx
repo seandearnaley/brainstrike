@@ -58,11 +58,11 @@ const SELECTION_PRESETS = [
 ] as const;
 
 export interface SelectionCounterProps {
-  selectedCount: number;
-  maxSelectionCount: number;
-  onMaxSelectionCountChange?: ((count: number) => void) | undefined;
   /** Compact mode for smaller layouts */
   compact?: boolean;
+  maxSelectionCount: number;
+  onMaxSelectionCountChange?: ((count: number) => void) | undefined;
+  selectedCount: number;
 }
 
 export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCounter({

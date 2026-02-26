@@ -34,11 +34,11 @@ import { useCallback, useState } from 'react';
 import { useQueueHealthMetrics } from './use-queue-health-metrics';
 
 interface MetricCardProps {
-  readonly label: string;
-  readonly value: string | number;
   readonly icon?: ReactNode;
-  readonly variant?: 'default' | 'success' | 'warning' | 'error';
+  readonly label: string;
   readonly tooltip?: string;
+  readonly value: string | number;
+  readonly variant?: 'default' | 'success' | 'warning' | 'error';
 }
 
 function MetricCard({
@@ -82,9 +82,9 @@ function MetricCard({
 }
 
 interface SectionHeaderProps {
-  readonly title: string;
   readonly icon: ReactNode;
   readonly status: 'available' | 'unavailable';
+  readonly title: string;
 }
 
 function SectionHeader({ title, icon, status }: SectionHeaderProps): ReactElement {
@@ -215,8 +215,8 @@ function DurableQueueSection({ durableQueue }: DurableQueueSectionProps): ReactE
 }
 
 interface EphemeralQueueSectionProps {
-  readonly ephemeralQueue: QueueHealthMetrics['ephemeralQueue'];
   readonly compact: boolean;
+  readonly ephemeralQueue: QueueHealthMetrics['ephemeralQueue'];
 }
 
 function EphemeralQueueSection({
@@ -240,8 +240,8 @@ function EphemeralQueueSection({
 }
 
 interface EphemeralQueueMetricsDisplayProps {
-  readonly ephemeralQueue: NonNullable<QueueHealthMetrics['ephemeralQueue']>;
   readonly compact: boolean;
+  readonly ephemeralQueue: NonNullable<QueueHealthMetrics['ephemeralQueue']>;
 }
 
 function EphemeralQueueMetricsDisplay({
@@ -358,12 +358,12 @@ function WorkerHealthSection({ workerHealth }: WorkerHealthSectionProps): ReactE
 }
 
 interface QueueDiagnosticsPanelProps {
+  /** Compact mode for smaller displays */
+  readonly compact?: boolean;
   /** Custom metrics (for testing) - if not provided, uses useQueueHealthMetrics hook */
   readonly metrics?: QueueHealthMetrics;
   /** Show refresh button */
   readonly showRefresh?: boolean;
-  /** Compact mode for smaller displays */
-  readonly compact?: boolean;
 }
 
 /**

@@ -1,9 +1,9 @@
 export interface Prompt {
-  id: string;
-  title: string;
-  content: string;
   categoryId: string;
-  tags: string[];
+  content: string;
+  createdAt: number;
+  id: string;
+  isFavorite: boolean;
   modelSettings: {
     model: string;
     temperature: number;
@@ -12,28 +12,28 @@ export interface Prompt {
     frequencyPenalty?: number;
     presencePenalty?: number;
   };
-  revisions: PromptRevision[];
   rating: number; // 1-5
+  revisions: PromptRevision[];
   site?: string; // URL association
-  isFavorite: boolean;
-  createdAt: number;
+  tags: string[];
+  title: string;
   updatedAt: number;
 }
 
 export interface PromptRevision {
-  id: string;
   content: string;
-  timestamp: number;
-  note?: string;
+  id: string;
   modelSettings?: Prompt['modelSettings'];
+  note?: string;
+  timestamp: number;
 }
 
 export interface Category {
+  color: string;
+  description?: string;
+  icon: string;
   id: string;
   name: string;
-  color: string;
-  icon: string;
-  description?: string;
 }
 
 export interface ModelOption {
@@ -43,9 +43,9 @@ export interface ModelOption {
 }
 
 export interface PromptFilter {
-  search: string;
   categoryId?: string | null;
-  tags: string[];
-  rating?: number;
   favoritesOnly: boolean;
+  rating?: number;
+  search: string;
+  tags: string[];
 }

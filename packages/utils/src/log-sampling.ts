@@ -28,18 +28,6 @@
 
 export interface LogSamplerOptions {
   /**
-   * Sample rate (0-1). 0.1 = 10% of logs.
-   * Mutually exclusive with everyNth.
-   */
-  sampleRate?: number;
-
-  /**
-   * Log every Nth item. 10 = every 10th item.
-   * Mutually exclusive with sampleRate.
-   */
-  everyNth?: number;
-
-  /**
    * Always log the first N items regardless of sampling.
    * Default: 1 (always log the first item)
    */
@@ -49,22 +37,27 @@ export interface LogSamplerOptions {
    * Always log the last item (requires knowing total count).
    */
   alwaysLogLast?: boolean;
+
+  /**
+   * Log every Nth item. 10 = every 10th item.
+   * Mutually exclusive with sampleRate.
+   */
+  everyNth?: number;
+  /**
+   * Sample rate (0-1). 0.1 = 10% of logs.
+   * Mutually exclusive with everyNth.
+   */
+  sampleRate?: number;
 }
 
 export interface LogSamplerStats {
-  totalCalls: number;
   loggedCalls: number;
-  skippedCalls: number;
   sampleRate: number;
+  skippedCalls: number;
+  totalCalls: number;
 }
 
 export interface LogSampler {
-  /**
-   * Check if this call should be logged.
-   * Call this before each log statement.
-   */
-  shouldLog: () => boolean;
-
   /**
    * Force a log (bypasses sampling).
    * Useful for important messages.
@@ -85,6 +78,11 @@ export interface LogSampler {
    * Reset the sampler state.
    */
   reset: () => void;
+  /**
+   * Check if this call should be logged.
+   * Call this before each log statement.
+   */
+  shouldLog: () => boolean;
 }
 
 /**

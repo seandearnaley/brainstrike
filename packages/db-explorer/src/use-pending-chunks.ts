@@ -18,8 +18,8 @@ function derivePendingChunkIds(rows: PendingRow[], activeSetId: string): Set<str
 
 export interface UsePendingChunksOptions {
   database: ReturnType<typeof usePGliteDatabase>;
-  resolveActiveSetId?: () => string | null | undefined;
   intervalMs?: number;
+  resolveActiveSetId?: () => string | null | undefined;
 }
 
 export interface UsePendingChunksResult {

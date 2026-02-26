@@ -46,8 +46,8 @@ const DEFAULT_MCP_CONFIG_TEMPLATE = `{
 type CommentStripMode = 'normal' | 'string' | 'line-comment' | 'block-comment';
 
 interface CommentStripState {
-  mode: CommentStripMode;
   escaped: boolean;
+  mode: CommentStripMode;
 }
 
 function handleLineComment(char: string, output: string[], state: CommentStripState): void {
@@ -338,12 +338,12 @@ export function parseMcpConfig(text: string): McpConfig {
 }
 
 export interface LoadedMcpConfig {
-  path: string;
-  exists: boolean;
   config?: McpConfig;
-  servers?: McpServer[];
-  loadedAt?: number;
   error?: string;
+  exists: boolean;
+  loadedAt?: number;
+  path: string;
+  servers?: McpServer[];
 }
 
 interface CustomConfigPathCache {
@@ -469,10 +469,10 @@ export async function ensureMcpDirExists(): Promise<void> {
 }
 
 export interface McpConfigTextDocument {
-  path: string;
-  exists: boolean;
-  created: boolean;
   content: string;
+  created: boolean;
+  exists: boolean;
+  path: string;
 }
 
 async function ensureMcpConfigFile(createIfMissing: boolean): Promise<{

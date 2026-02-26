@@ -10,20 +10,20 @@
 import { useCallback, useRef } from 'react';
 
 export interface UseAbortControllersReturn {
-  /** Abort controller for root loading operation */
-  rootAbortControllerRef: React.RefObject<AbortController | null>;
+  /** Cancel all loading operations */
+  cancelAllLoading: () => void;
+  /** Cancel a specific child loading operation */
+  cancelChildLoading: (path: string) => void;
+  /** Cancel the root loading operation */
+  cancelRootLoading: () => void;
   /** Abort controllers for child directory loading operations */
   childAbortControllersRef: React.RefObject<Map<string, AbortController>>;
   /** Create and register an abort controller for a path */
   createAbortController: (path: string | null) => AbortController;
-  /** Cancel the root loading operation */
-  cancelRootLoading: () => void;
-  /** Cancel a specific child loading operation */
-  cancelChildLoading: (path: string) => void;
-  /** Cancel all loading operations */
-  cancelAllLoading: () => void;
   /** Remove a child abort controller after completion */
   removeChildController: (path: string) => void;
+  /** Abort controller for root loading operation */
+  rootAbortControllerRef: React.RefObject<AbortController | null>;
 }
 
 /**

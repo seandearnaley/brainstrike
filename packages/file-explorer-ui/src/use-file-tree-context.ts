@@ -21,61 +21,57 @@ import { useLazyFileTree } from './use-lazy-file-tree';
  * Since we no longer do full tree scans, progress is much simpler.
  */
 export interface LoadingProgressState {
-  /** Number of directories currently loading */
-  loadingCount: number;
   /** Whether initial root load is in progress */
   isInitialLoading: boolean;
+  /** Number of directories currently loading */
+  loadingCount: number;
 }
 
 export interface CancellableFileTreeHook {
-  fileTree: IFileNode[];
-  isLoading: boolean;
-  error: Error | null;
-  refreshTree: () => Promise<void>;
-  loadingProgress: LoadingProgressState;
+  /** Cancel loading for a specific directory (e.g., on collapse) */
+  cancelChildLoading: (path: string) => void;
+  /** Cancel expand-all operation */
+  cancelExpandAll: () => void;
   /** Whether the current operation can be cancelled */
   cancellable: boolean;
   /** Cancel the current loading operation */
   cancelOperation: () => void;
-  /** Whether the operation is currently being cancelled */
-  isCancelling: boolean;
-  /** Set of paths currently loading their children (for UI feedback) */
-  loadingPaths: Set<string>;
-  /** Load children of a directory on expand */
-  loadChildren: (path: string) => Promise<void>;
-  /** Cancel loading for a specific directory (e.g., on collapse) */
-  cancelChildLoading: (path: string) => void;
-  /** Refresh a specific directory */
-  refreshDirectory: (path: string) => Promise<void>;
+  /** Cancel the current recursive selection operation */
+  cancelRecursiveSelect: () => void;
+  /** Cancel the current select all operation */
+  cancelSelectAll: () => void;
+  error: Error | null;
+  /** Progress of expand-all operation */
+  expandAllProgress: { loaded: number; total: number } | null;
   /** Progressively expand all directories (loads everything) */
   expandAllProgressively: (
     setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
   ) => Promise<void>;
-  /** Cancel expand-all operation */
-  cancelExpandAll: () => void;
+  fileTree: IFileNode[];
+  /** Whether the operation is currently being cancelled */
+  isCancelling: boolean;
   /** Whether expand-all is in progress */
   isExpandingAll: boolean;
-  /** Progress of expand-all operation */
-  expandAllProgress: { loaded: number; total: number } | null;
+  isLoading: boolean;
+  /** Whether the tree is being loaded for select all */
+  isLoadingForSelectAll: boolean;
+  /** Whether a subtree is being loaded for selection */
+  isLoadingForSelection: boolean;
+  /** Load children of a directory on expand */
+  loadChildren: (path: string) => Promise<void>;
+  /** Path of the folder being loaded for selection (if any) */
+  loadingPathForSelection: string | null;
+  /** Set of paths currently loading their children (for UI feedback) */
+  loadingPaths: Set<string>;
+  loadingProgress: LoadingProgressState;
   /** Load specific paths using worker (for restoration) */
   loadSpecificPaths: (
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
   ) => Promise<void>;
-  /** Select all files in a folder recursively, loading if needed */
-  selectFolderRecursively: (
-    node: IFileNode,
-    folderId: string,
-    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-    maxSelectionCount: number,
-    currentSelectionSize: number
-  ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
-  /** Cancel the current recursive selection operation */
-  cancelRecursiveSelect: () => void;
-  /** Whether a subtree is being loaded for selection */
-  isLoadingForSelection: boolean;
-  /** Path of the folder being loaded for selection (if any) */
-  loadingPathForSelection: string | null;
+  /** Refresh a specific directory */
+  refreshDirectory: (path: string) => Promise<void>;
+  refreshTree: () => Promise<void>;
   /**
    * Select all files in the provided tree, loading if needed.
    * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.
@@ -93,10 +89,14 @@ export interface CancellableFileTreeHook {
     cancelled?: boolean;
     error?: string;
   }>;
-  /** Cancel the current select all operation */
-  cancelSelectAll: () => void;
-  /** Whether the tree is being loaded for select all */
-  isLoadingForSelectAll: boolean;
+  /** Select all files in a folder recursively, loading if needed */
+  selectFolderRecursively: (
+    node: IFileNode,
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number,
+    currentSelectionSize: number
+  ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
 }
 
 export interface UseFileTreeOptions {

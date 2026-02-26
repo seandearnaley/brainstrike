@@ -269,20 +269,16 @@ export interface RecursiveFolderSelectState {
 }
 
 export interface UseRecursiveFolderSelectOptions {
-  /** Ref to worker port for loadSubtree commands */
-  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
-  /** Ref to handle map for rehydrating worker tree */
-  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
-  /** Callback when tree is updated after subtree load */
-  onTreeUpdate: (tree: IFileNode[]) => void;
-  /** Callback when error occurs */
-  onError?: (error: Error) => void;
   /**
    * Filter function to apply workspace include/exclude filters to a tree.
    * Called before collecting file paths to ensure only filtered files are selected.
    * This ensures that selecting a folder respects the current workspace filters.
    */
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
+  /** Ref to handle map for rehydrating worker tree */
+  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
+  /** Callback when error occurs */
+  onError?: (error: Error) => void;
   /**
    * Callback invoked when nodes are added to the tree.
    * Used by FileTreeIndex for incremental indexing after subtree loading.
@@ -290,22 +286,30 @@ export interface UseRecursiveFolderSelectOptions {
    * @param parentPath - Always null for folder selection (full subtree)
    */
   onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
+  /** Callback when tree is updated after subtree load */
+  onTreeUpdate: (tree: IFileNode[]) => void;
+  /** Ref to worker port for loadSubtree commands */
+  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
 }
 
 export interface SelectionResult {
-  /** Whether the operation was successful */
-  success: boolean;
-  /** File paths that were selected (or would be selected) */
-  filePaths: string[];
   /** Whether the operation was cancelled */
   cancelled?: boolean;
   /** Error message if failed */
   error?: string;
+  /** File paths that were selected (or would be selected) */
+  filePaths: string[];
+  /** Whether the operation was successful */
+  success: boolean;
 }
 
 export interface UseRecursiveFolderSelectReturn {
+  /** Cancel the current recursive selection operation */
+  cancelRecursiveSelect: () => void;
   /** Whether a subtree is being loaded for selection */
   isLoadingForSelection: boolean;
+  /** Ref to check if loading is active (for use in effects) */
+  isLoadingForSelectionRef: React.RefObject<boolean>;
   /** Path of the folder being loaded (if any) */
   loadingPath: string | null;
   /** Loading progress (if available) */
@@ -318,10 +322,6 @@ export interface UseRecursiveFolderSelectReturn {
     maxSelectionCount: number,
     currentSelectionSize: number
   ) => Promise<SelectionResult>;
-  /** Cancel the current recursive selection operation */
-  cancelRecursiveSelect: () => void;
-  /** Ref to check if loading is active (for use in effects) */
-  isLoadingForSelectionRef: React.RefObject<boolean>;
 }
 
 const RESET_STATE: RecursiveFolderSelectState = {

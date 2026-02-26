@@ -13,16 +13,16 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 interface Migration {
-  version: string;
+  hash: string;
   name: string;
   sql: string;
-  hash: string;
+  version: string;
 }
 
 interface MigrationManifest {
-  version: 1;
   generatedAt: string;
   migrations: Migration[];
+  version: 1;
 }
 
 /**

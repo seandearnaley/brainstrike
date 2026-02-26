@@ -34,10 +34,10 @@ const FileTreeContext = createContext<FileTreeContextType | null>(null);
  * Provides O(1) lookups for nodes and handles by folder ID and path.
  */
 export interface FileTreeIndexContextValue {
-  /** Get a node by folder ID and path - O(1) lookup */
-  getNode: (folderId: string, path: string) => IFileNode | undefined;
   /** Get handle info by folder ID and path - O(1) lookup */
   getHandle: (folderId: string, path: string) => HandleInfo | undefined;
+  /** Get a node by folder ID and path - O(1) lookup */
+  getNode: (folderId: string, path: string) => IFileNode | undefined;
   /** Current index statistics */
   stats: FileTreeIndexStats;
   /**
@@ -51,13 +51,13 @@ const FileTreeIndexContext = createContext<FileTreeIndexContextValue | null>(nul
 
 export interface FileTreeProviderProps {
   children: ReactNode;
-  rootDirectoryHandle: DirectoryHandle | null;
   /**
    * Filter function to apply workspace include/exclude filters to a tree.
    * Called in the slow path when directories are loaded from the worker,
    * ensuring workspace filters are respected before file selection.
    */
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
+  rootDirectoryHandle: DirectoryHandle | null;
 }
 
 /**

@@ -50,41 +50,41 @@ import { TooltipIconButton } from './tooltip-icon-button';
 export type { ModelPickerModel, ModelPickerProvider };
 
 export interface ProviderConfig {
-  id: string;
-  name: string;
-  models: readonly string[];
   defaultModel: string;
+  id: string;
+  models: readonly string[];
+  name: string;
 }
 
 export type ProviderRuntimeCategory = 'hosted' | 'gateway' | 'local' | 'browser';
 
 export interface ProviderModelOptionConfig {
+  default?: boolean;
+  enabled: boolean;
   id: string;
   label: string;
-  type: 'llm' | 'embedding';
-  enabled: boolean;
-  default?: boolean;
-  supportsStreaming?: boolean;
   supportsStandardDimension?: boolean;
+  supportsStreaming?: boolean;
+  type: 'llm' | 'embedding';
 }
 
 export interface ProviderOptionConfig {
-  id: string;
-  name: string;
-  runtime: ProviderRuntimeCategory;
   capabilities: {
     llm: boolean;
     embeddings: boolean;
     streaming: boolean;
     supportsStandardEmbeddingDimension: boolean;
   };
+  id: string;
   models: ProviderModelOptionConfig[];
+  name: string;
+  runtime: ProviderRuntimeCategory;
 }
 
 export interface ProviderGroupConfig {
-  runtime: ProviderRuntimeCategory;
   label: string;
   providers: ProviderOptionConfig[];
+  runtime: ProviderRuntimeCategory;
 }
 
 export type AssistantToolCategory =
@@ -97,36 +97,36 @@ export type AssistantToolCategory =
 export type AssistantToolSource = 'native' | 'mcp';
 
 export interface AssistantToolMenuItem {
+  category?: AssistantToolCategory | string;
+  description?: string;
+  disabled?: boolean;
+  enabled: boolean;
+  group: string;
   id: string;
   label: string;
-  enabled: boolean;
   source: AssistantToolSource;
-  group: string;
-  description?: string;
-  category?: AssistantToolCategory | string;
-  disabled?: boolean;
 }
 
 export interface AssistantToolMenuConfig {
-  items: AssistantToolMenuItem[];
   isLoading?: boolean;
-  summary?: string;
-  onToggleTool?: (toolId: string, enabled: boolean) => void | Promise<void>;
+  items: AssistantToolMenuItem[];
   onOpenSettings?: () => void;
   onRefresh?: () => void;
+  onToggleTool?: (toolId: string, enabled: boolean) => void | Promise<void>;
+  summary?: string;
 }
 
 export interface AssistantContextMenuConfig {
-  selectionCount?: number;
-  selectionLabel?: string;
+  contextTokenCount?: number;
   embeddingSetId?: string;
   includeFileReport?: boolean;
   includeProjectTree?: boolean;
-  contextTokenCount?: number;
-  tokenBudget?: number;
   onIncludeFileReportChange?: (value: boolean) => void;
   onIncludeProjectTreeChange?: (value: boolean) => void;
   onTokenBudgetChange?: (value: number) => void;
+  selectionCount?: number;
+  selectionLabel?: string;
+  tokenBudget?: number;
 }
 
 export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -135,13 +135,13 @@ export type AnthropicEffort = 'low' | 'medium' | 'high';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 export interface AssistantProviderSettings {
+  anthropicEffort?: AnthropicEffort;
+  anthropicThinkingBudgetTokens?: number;
+  googleIncludeThoughts?: boolean;
+  googleThinkingLevel?: GoogleThinkingLevel;
   maxOutputTokens?: number;
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
-  anthropicEffort?: AnthropicEffort;
-  anthropicThinkingBudgetTokens?: number;
-  googleThinkingLevel?: GoogleThinkingLevel;
-  googleIncludeThoughts?: boolean;
 }
 
 export type AssistantProviderSettingsUpdate = {
@@ -152,25 +152,25 @@ export type AssistantProviderSettingsMap = Record<string, AssistantProviderSetti
 
 export interface AssistantUiPanelProps {
   className?: string;
-  providers?: ProviderConfig[];
-  providerGroups?: ProviderGroupConfig[];
+  contextMenu?: AssistantContextMenuConfig;
+  disabled?: boolean;
+  disabledReason?: string;
+  onModelChange?: (compositeKey: string) => void;
+  onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
+  onProviderSettingsChange?:
+    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
+    | undefined;
   /** Models for the ModelPicker component */
   pickerModels: ModelPickerModel[];
   /** Providers for the ModelPicker component */
   pickerProviders: ModelPickerProvider[];
+  providerGroups?: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
-  selectedProvider?: string;
-  selectedModel?: string;
-  onModelChange?: (compositeKey: string) => void;
-  onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
-  disabled?: boolean;
-  disabledReason?: string;
+  providers?: ProviderConfig[];
   requestData?: Record<string, unknown>;
+  selectedModel?: string;
+  selectedProvider?: string;
   toolMenu?: AssistantToolMenuConfig;
-  contextMenu?: AssistantContextMenuConfig;
 }
 
 declare global {
@@ -181,29 +181,29 @@ declare global {
 
 // Local model loading state for progress display
 interface LocalModelLoadingState {
-  stage: 'downloading' | 'loading' | 'ready' | 'error';
-  progress: number;
-  message: string;
   file?: string;
+  message: string;
+  progress: number;
+  stage: 'downloading' | 'loading' | 'ready' | 'error';
 }
 
 // Shared props for inner chat components
 interface ChatThreadProps {
-  providerGroups: ProviderGroupConfig[];
-  pickerModels: ModelPickerModel[];
-  pickerProviders: ModelPickerProvider[];
-  providerSettings?: AssistantProviderSettingsMap | undefined;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
-  selectedProvider: string | undefined;
-  selectedModel: string | undefined;
-  onModelChange: ((compositeKey: string) => void) | undefined;
+  contextMenu?: AssistantContextMenuConfig | undefined;
   disabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
+  onModelChange: ((compositeKey: string) => void) | undefined;
+  onProviderSettingsChange?:
+    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
+    | undefined;
+  pickerModels: ModelPickerModel[];
+  pickerProviders: ModelPickerProvider[];
+  providerGroups: ProviderGroupConfig[];
+  providerSettings?: AssistantProviderSettingsMap | undefined;
+  selectedModel: string | undefined;
+  selectedProvider: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
-  contextMenu?: AssistantContextMenuConfig | undefined;
 }
 
 /**
@@ -760,34 +760,34 @@ const RUNTIME_LABELS: Record<ProviderRuntimeCategory, string> = {
 };
 
 interface ProviderModelOption {
-  value: string;
-  provider: ProviderOptionConfig;
-  model: ProviderModelOptionConfig;
   groupLabel: string;
+  model: ProviderModelOptionConfig;
+  provider: ProviderOptionConfig;
+  value: string;
 }
 
 interface NormalizedProviderGroup {
-  runtime: ProviderRuntimeCategory;
   label: string;
   providers: Array<{
     provider: ProviderOptionConfig;
     models: ProviderModelOptionConfig[];
   }>;
+  runtime: ProviderRuntimeCategory;
 }
 
 interface ProviderModelHeaderProps {
+  contextMenu?: AssistantContextMenuConfig | undefined;
   groups: ProviderGroupConfig[];
-  pickerModels: ModelPickerModel[];
-  pickerProviders: ModelPickerProvider[];
-  providerSettings?: AssistantProviderSettingsMap | undefined;
+  onModelChange?: ((compositeKey: string) => void) | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
-  selectedProvider?: string | undefined;
+  pickerModels: ModelPickerModel[];
+  pickerProviders: ModelPickerProvider[];
+  providerSettings?: AssistantProviderSettingsMap | undefined;
   selectedModel?: string | undefined;
-  onModelChange?: ((compositeKey: string) => void) | undefined;
+  selectedProvider?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
-  contextMenu?: AssistantContextMenuConfig | undefined;
 }
 
 const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
@@ -926,10 +926,10 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
 };
 
 interface ProviderSelectionSummaryProps {
-  provider: ProviderOptionConfig | undefined;
   model: ProviderModelOptionConfig | undefined;
-  selectedProvider?: string | undefined;
+  provider: ProviderOptionConfig | undefined;
   selectedModel?: string | undefined;
+  selectedProvider?: string | undefined;
 }
 
 const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
@@ -967,20 +967,20 @@ const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
 
 interface ControlsMenuProps {
   contextMenu?: AssistantContextMenuConfig | undefined;
-  toolMenu?: AssistantToolMenuConfig | undefined;
-  providerSettings?: AssistantProviderSettingsMap | undefined;
+  modelName?: string | undefined;
   onProviderSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  providerSettings?: AssistantProviderSettingsMap | undefined;
   selectedProvider?: string | undefined;
-  modelName?: string | undefined;
+  toolMenu?: AssistantToolMenuConfig | undefined;
 }
 
 interface ToolMenuGroup {
   id: string;
+  items: AssistantToolMenuItem[];
   label: string;
   source: AssistantToolSource;
-  items: AssistantToolMenuItem[];
 }
 
 const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
@@ -1463,20 +1463,20 @@ function parseNumber(value: string): number | undefined {
 }
 
 interface ProviderSettingsPanelProps {
-  providerId?: string | undefined;
   modelName?: string | undefined;
-  settings?: AssistantProviderSettings | undefined;
   onSettingsChange?:
     | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
     | undefined;
+  providerId?: string | undefined;
+  settings?: AssistantProviderSettings | undefined;
 }
 
 type ProviderSettingsUpdate = (updates: AssistantProviderSettingsUpdate) => void;
 
 interface ProviderSettingsSectionProps {
-  settings: AssistantProviderSettings;
-  onUpdate: ProviderSettingsUpdate;
   disabled: boolean;
+  onUpdate: ProviderSettingsUpdate;
+  settings: AssistantProviderSettings;
 }
 
 const MaxOutputSection: FC<ProviderSettingsSectionProps> = ({ settings, onUpdate, disabled }) => {

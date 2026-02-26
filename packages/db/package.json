@@ -1,12 +1,38 @@
 {
   "name": "@brainstrike/db",
   "version": "0.1.0",
-  "private": true,
+  "dependencies": {
+    "@babel/parser": "^7.29.0",
+    "@brainstrike/queue": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "@electric-sql/pglite": "^0.3.15",
+    "@langchain/core": "^1.1.28",
+    "@langchain/textsplitters": "^1.0.1",
+    "drizzle-orm": "^0.45.1"
+  },
+  "devDependencies": {
+    "@stryker-mutator/api": "^9.5.1",
+    "@stryker-mutator/core": "^9.5.1",
+    "@stryker-mutator/typescript-checker": "^9.5.1",
+    "@stryker-mutator/vitest-runner": "^9.5.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^25.3.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitest/browser-playwright": "^4.0.18",
+    "drizzle-kit": "^0.31.9",
+    "jsdom": "28.1.0",
+    "playwright": "^1.58.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite-plugin-wasm": "^3.5.0",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "sideEffects": false,
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -17,55 +43,29 @@
   "files": [
     "dist"
   ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "peerDependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "private": true,
   "scripts": {
     "build": "tsc --build",
-    "dev": "tsc --build --watch",
-    "type-check": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate",
     "db:export": "tsx scripts/export-migrations.ts",
+    "db:generate": "drizzle-kit generate",
     "db:migrate": "pnpm db:generate && pnpm db:export",
+    "dev": "tsc --build --watch",
+    "mutation": "npx @stryker-mutator/core run",
     "test": "vitest run --project unit",
-    "test:browser": "vitest run --project browser",
     "test:all": "vitest run",
-    "test:watch": "vitest",
+    "test:browser": "vitest run --project browser",
+    "test:coverage": "pnpm -w test:coverage",
     "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
-    "test:coverage": "pnpm -w test:coverage",
-    "mutation": "npx @stryker-mutator/core run"
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
   },
-  "dependencies": {
-    "@babel/parser": "^7.28.6",
-    "@brainstrike/queue": "workspace:*",
-    "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "@electric-sql/pglite": "^0.3.14",
-    "@langchain/core": "^0.3.80",
-    "@langchain/textsplitters": "^1.0.1",
-    "drizzle-orm": "^0.45.1"
-  },
-  "peerDependencies": {
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1"
-  },
-  "devDependencies": {
-    "@stryker-mutator/api": "^9.4.0",
-    "@stryker-mutator/core": "^9.4.0",
-    "@stryker-mutator/typescript-checker": "^9.4.0",
-    "@stryker-mutator/vitest-runner": "^9.4.0",
-    "@testing-library/react": "^16.3.1",
-    "@types/node": "^25.0.8",
-    "@types/react": "^19.2.8",
-    "@types/react-dom": "^19.2.3",
-    "@vitest/browser-playwright": "^4.0.17",
-    "drizzle-kit": "^0.31.8",
-    "jsdom": "27.4.0",
-    "playwright": "^1.57.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vite-plugin-wasm": "^3.5.0",
-    "vitest": "^4.0.17"
-  },
-  "engines": {
-    "node": ">=22"
-  }
+  "type": "module",
+  "types": "./dist/index.d.ts"
 }

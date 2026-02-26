@@ -13,12 +13,12 @@ import { useMemo } from 'react';
 import type { RestorationProgress } from './use-file-explorer-context';
 
 export interface RestorationStatusProps {
+  /** Additional CSS classes */
+  className?: string | undefined;
   /** Whether restoration is in progress */
   isRestoring: boolean;
   /** Restoration progress information */
   progress: RestorationProgress | null;
-  /** Additional CSS classes */
-  className?: string | undefined;
 }
 
 /**

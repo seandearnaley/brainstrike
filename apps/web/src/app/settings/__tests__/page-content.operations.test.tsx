@@ -9,24 +9,29 @@ type MockToolLoadingTier = 'critical' | 'conditional' | 'deferred';
 
 interface MockNativeToolDefaultMetadata {
   category: MockToolCategory;
-  loadingTier: MockToolLoadingTier;
   estimatedTokens: number;
+  loadingTier: MockToolLoadingTier;
   requiresApproval: boolean;
 }
 
 interface MockToolDisplayMetadata {
-  id: string;
-  source: 'native' | 'mcp';
   category: MockToolCategory;
-  loadingTier: MockToolLoadingTier;
   description: string;
   enabled: boolean;
   estimatedTokens: number;
+  id: string;
+  loadingTier: MockToolLoadingTier;
   requiresApproval: boolean;
+  source: 'native' | 'mcp';
 }
 
 interface MockToolsOperations {
-  getTools: () => Promise<MockToolDisplayMetadata[]>;
+  disableTools: (ids: string[]) => Promise<void>;
+  enableTools: (ids: string[]) => Promise<void>;
+  executeToolTest: (
+    toolId: string,
+    input: unknown
+  ) => Promise<{ success: false; error: string; durationMs: number }>;
   getStats: () => Promise<{
     total: number;
     enabled: number;
@@ -35,32 +40,27 @@ interface MockToolsOperations {
     byCategory: Record<MockToolCategory, number>;
     mcpServers: number;
   }>;
-  enableTools: (ids: string[]) => Promise<void>;
-  disableTools: (ids: string[]) => Promise<void>;
+  getTools: () => Promise<MockToolDisplayMetadata[]>;
   resetTools: () => Promise<void>;
-  executeToolTest: (
-    toolId: string,
-    input: unknown
-  ) => Promise<{ success: false; error: string; durationMs: number }>;
 }
 
 interface CapturedToolsOptions {
-  operations: MockToolsOperations;
   mcpAvailable: boolean;
+  operations: MockToolsOperations;
 }
 
 interface FactoryResetInlineFixtureSetting {
   available: boolean;
-  loading: boolean;
   checked: boolean;
+  loading: boolean;
   onChange: (checked: boolean) => void;
 }
 
 interface CapturedFactoryResetOptions {
-  isWebPlatform?: boolean;
   hasStoredFolders?: boolean;
-  onClearStoredFolders?: () => void;
   inlineFixtureSetting?: FactoryResetInlineFixtureSetting;
+  isWebPlatform?: boolean;
+  onClearStoredFolders?: () => void;
 }
 
 interface CapturedLogSource {
@@ -75,8 +75,8 @@ interface CapturedLoggingProps {
 
 interface MockSettingsCategory {
   id: string;
-  title: string;
   render: () => ReactNode;
+  title: string;
 }
 
 const mockState = vi.hoisted(() => ({

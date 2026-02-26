@@ -74,22 +74,22 @@ export type StateChangeCallback = (
  * Metadata for state changes.
  */
 export interface StateChangeMetadata {
+  /** Duration in current state before transition (ms) */
+  durationInPreviousStateMs?: number;
   /** Error message if transitioning to error state */
   error?: string;
   /** Timestamp of state change */
   timestamp: string;
-  /** Duration in current state before transition (ms) */
-  durationInPreviousStateMs?: number;
 }
 
 /**
  * Configuration for creating a pipeline controller.
  */
 export interface PipelineControllerConfig {
-  /** Callback invoked on state changes */
-  onStateChange?: StateChangeCallback;
   /** Initial state (defaults to 'idle') */
   initialState?: PipelineState;
+  /** Callback invoked on state changes */
+  onStateChange?: StateChangeCallback;
 }
 
 /**
@@ -97,30 +97,16 @@ export interface PipelineControllerConfig {
  */
 export interface PipelineController {
   /**
-   * Get current pipeline state.
+   * Whether the pipeline can be canceled.
    */
-  readonly state: PipelineState;
+  readonly canCancel: boolean;
 
   /**
-   * Get AbortSignal for cancellation.
-   * Pass this to pipeline operations for graceful cancellation.
+   * Cancel the pipeline. Transitions to canceled state.
+   * Triggers AbortSignal and unblocks all waiters.
+   * @returns true if state changed, false if already canceled or invalid transition
    */
-  readonly signal: AbortSignal;
-
-  /**
-   * Whether the pipeline is currently paused.
-   */
-  readonly isPaused: boolean;
-
-  /**
-   * Whether the pipeline is running (not idle, canceled, complete, or error).
-   */
-  readonly isRunning: boolean;
-
-  /**
-   * Whether the pipeline can be started.
-   */
-  readonly canStart: boolean;
+  cancel(): boolean;
 
   /**
    * Whether the pipeline can be paused.
@@ -133,36 +119,16 @@ export interface PipelineController {
   readonly canResume: boolean;
 
   /**
-   * Whether the pipeline can be canceled.
+   * Whether the pipeline can be started.
    */
-  readonly canCancel: boolean;
+  readonly canStart: boolean;
 
   /**
-   * Start the pipeline. Transitions from idle to running.
-   * @returns true if state changed, false if already running or invalid transition
+   * Check if operation should proceed.
+   * Combines signal check and pause wait for convenience.
+   * @throws AbortError if canceled
    */
-  start(): boolean;
-
-  /**
-   * Pause the pipeline. Transitions from running to paused.
-   * Blocks new work but doesn't abort in-flight operations.
-   * @returns true if state changed, false if already paused or invalid transition
-   */
-  pause(): boolean;
-
-  /**
-   * Resume a paused pipeline. Transitions from paused to running.
-   * Unblocks waiters and allows new work to proceed.
-   * @returns true if state changed, false if not paused
-   */
-  resume(): boolean;
-
-  /**
-   * Cancel the pipeline. Transitions to canceled state.
-   * Triggers AbortSignal and unblocks all waiters.
-   * @returns true if state changed, false if already canceled or invalid transition
-   */
-  cancel(): boolean;
+  checkAndWait(): Promise<void>;
 
   /**
    * Mark the pipeline as complete. Transitions to complete state.
@@ -179,6 +145,23 @@ export interface PipelineController {
   fail(error: string): boolean;
 
   /**
+   * Whether the pipeline is currently paused.
+   */
+  readonly isPaused: boolean;
+
+  /**
+   * Whether the pipeline is running (not idle, canceled, complete, or error).
+   */
+  readonly isRunning: boolean;
+
+  /**
+   * Pause the pipeline. Transitions from running to paused.
+   * Blocks new work but doesn't abort in-flight operations.
+   * @returns true if state changed, false if already paused or invalid transition
+   */
+  pause(): boolean;
+
+  /**
    * Reset the pipeline to idle state.
    * Can be called from any terminal state (canceled, complete, error).
    * Creates a fresh AbortController for the next run.
@@ -187,19 +170,35 @@ export interface PipelineController {
   reset(): boolean;
 
   /**
+   * Resume a paused pipeline. Transitions from paused to running.
+   * Unblocks waiters and allows new work to proceed.
+   * @returns true if state changed, false if not paused
+   */
+  resume(): boolean;
+
+  /**
+   * Get AbortSignal for cancellation.
+   * Pass this to pipeline operations for graceful cancellation.
+   */
+  readonly signal: AbortSignal;
+
+  /**
+   * Start the pipeline. Transitions from idle to running.
+   * @returns true if state changed, false if already running or invalid transition
+   */
+  start(): boolean;
+  /**
+   * Get current pipeline state.
+   */
+  readonly state: PipelineState;
+
+  /**
    * Wait if the pipeline is paused.
    * Call this before starting new work units to honor pause semantics.
    * Returns immediately if not paused.
    * Throws AbortError if canceled while waiting.
    */
   waitIfPaused(): Promise<void>;
-
-  /**
-   * Check if operation should proceed.
-   * Combines signal check and pause wait for convenience.
-   * @throws AbortError if canceled
-   */
-  checkAndWait(): Promise<void>;
 }
 
 // =============================================================================

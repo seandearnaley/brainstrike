@@ -36,23 +36,23 @@ const SETTINGS_HASH_PREFIX = 'settings/';
  */
 export interface SettingsCategory {
   /**
+   * Optional subtitle displayed below the title in both navigation and content area.
+   * Use this to clarify the purpose or scope of the category.
+   */
+  description?: string;
+
+  /**
+   * Optional Lucide icon component displayed in the navigation panel.
+   * Improves visual hierarchy and category recognition.
+   * If omitted, a small dot indicator is shown instead.
+   */
+  icon?: LucideIcon;
+  /**
    * Unique identifier for the category.
    * Used in URL hash routing (e.g., #settings/appearance).
    * Must be URL-safe (use kebab-case, no spaces or special characters).
    */
   id: string;
-
-  /**
-   * Display name shown in the navigation panel and content header.
-   * Should be concise and descriptive (2-3 words recommended).
-   */
-  title: string;
-
-  /**
-   * Optional subtitle displayed below the title in both navigation and content area.
-   * Use this to clarify the purpose or scope of the category.
-   */
-  description?: string;
 
   /**
    * Optional search terms that aren't displayed to users but improve discoverability.
@@ -62,17 +62,16 @@ export interface SettingsCategory {
   keywords?: string[];
 
   /**
-   * Optional Lucide icon component displayed in the navigation panel.
-   * Improves visual hierarchy and category recognition.
-   * If omitted, a small dot indicator is shown instead.
-   */
-  icon?: LucideIcon;
-
-  /**
    * Function that returns the React content to display when this category is selected.
    * Called only when the category is active (lazy rendering).
    */
   render: () => ReactNode;
+
+  /**
+   * Display name shown in the navigation panel and content header.
+   * Should be concise and descriptive (2-3 words recommended).
+   */
+  title: string;
 }
 
 /**
@@ -377,12 +376,8 @@ export function createTokenCountingSettingsCategory(): SettingsCategory {
  * Options for creating the Factory Reset settings category.
  */
 export interface CreateFactoryResetSettingsCategoryOptions {
-  /** Whether running on web platform. Defaults to true. */
-  isWebPlatform?: boolean;
   /** Whether stored folders exist */
   hasStoredFolders?: boolean;
-  /** Callback to clear stored folders */
-  onClearStoredFolders?: () => void;
   /** Inline fixture settings (developer feature) */
   inlineFixtureSetting?: {
     available: boolean;
@@ -390,6 +385,10 @@ export interface CreateFactoryResetSettingsCategoryOptions {
     checked: boolean;
     onChange: (checked: boolean) => void;
   };
+  /** Whether running on web platform. Defaults to true. */
+  isWebPlatform?: boolean;
+  /** Callback to clear stored folders */
+  onClearStoredFolders?: () => void;
 }
 
 export function createFactoryResetSettingsCategory(

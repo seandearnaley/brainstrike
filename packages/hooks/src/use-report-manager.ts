@@ -14,8 +14,8 @@ import { useCallback } from 'react';
 type ContextGenerator<O> = (options?: O) => Promise<string>;
 
 interface UseReportManagerProps<A = unknown, O = unknown> {
-  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
   generateContextWithContent?: ContextGenerator<O>;
+  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
   toast: (props: {
     title: string;
     description: string;
@@ -26,8 +26,8 @@ interface UseReportManagerProps<A = unknown, O = unknown> {
 }
 
 interface UseReportManagerResult<O = unknown> {
-  handleDownloadContext: (options?: O) => Promise<void>;
   handleCopyContext: (options?: O) => Promise<void>;
+  handleDownloadContext: (options?: O) => Promise<void>;
 }
 
 const DEFAULT_CONTEXT_FILENAME = FileExplorerStrings.fileNames.context;

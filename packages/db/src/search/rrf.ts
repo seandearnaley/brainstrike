@@ -40,10 +40,10 @@ export interface RankedItem<T = string> {
  * A ranked list from a single source (e.g., vector search, full-text search)
  */
 export interface RankedList<T = string> {
-  /** Name of the ranking source for debugging/logging */
-  source: string;
   /** Items in rank order (first = rank 1, best match) */
   items: RankedItem<T>[];
+  /** Name of the ranking source for debugging/logging */
+  source: string;
   /** Optional weight multiplier for this source (default: 1.0) */
   weight?: number;
 }
@@ -52,28 +52,28 @@ export interface RankedList<T = string> {
  * Result item after RRF fusion with combined score
  */
 export interface FusedResult<T = string> {
+  /** Breakdown of contributions from each source */
+  contributions: RRFContribution[];
   /** Unique identifier for the item */
   id: T;
   /** Combined RRF score (higher = better) */
   rrfScore: number;
   /** Number of ranking sources this item appeared in */
   sourceCount: number;
-  /** Breakdown of contributions from each source */
-  contributions: RRFContribution[];
 }
 
 /**
  * Contribution from a single ranking source to the final RRF score
  */
 export interface RRFContribution {
-  /** Name of the ranking source */
-  source: string;
-  /** Rank in this source (1-indexed) */
-  rank: number;
   /** RRF contribution: weight * 1/(k + rank) */
   contribution: number;
   /** Original score from this source (if available) */
   originalScore?: number;
+  /** Rank in this source (1-indexed) */
+  rank: number;
+  /** Name of the ranking source */
+  source: string;
 }
 
 /**
@@ -142,9 +142,9 @@ export function calculateRRFContribution(
  * Internal type for accumulating item scores during fusion
  */
 interface ItemScoreAccumulator {
+  contributions: RRFContribution[];
   rrfScore: number;
   sourceCount: number;
-  contributions: RRFContribution[];
 }
 
 /**

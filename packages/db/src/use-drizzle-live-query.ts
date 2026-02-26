@@ -14,10 +14,10 @@ import { type LiveQueryHookResult, usePGliteLiveQuery } from './use-live-query.j
 interface DrizzleLiveQueryOptions {
   /** Enable or disable the query */
   readonly enabled?: boolean;
-  /** Offset for pagination */
-  readonly offset?: number;
   /** Limit for pagination */
   readonly limit?: number;
+  /** Offset for pagination */
+  readonly offset?: number;
 }
 
 /**

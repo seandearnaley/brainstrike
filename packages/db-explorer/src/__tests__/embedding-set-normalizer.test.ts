@@ -2,17 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { normalizeEmbeddingSets } from '../utils/embedding-set-normalizer';
 
 interface EmbeddingSetRow {
-  id: string;
-  model_key: string;
-  model_id: string;
+  created_at: string;
   dimensions: number;
   distance: string;
-  created_at: string;
+  id: string;
+  model_id: string;
+  model_key: string;
 }
 
 interface FileChunkRow {
-  id: string;
   embedding_set_id: string | null;
+  id: string;
 }
 
 function createMockDb({ sets, chunks }: { sets: EmbeddingSetRow[]; chunks: FileChunkRow[] }) {

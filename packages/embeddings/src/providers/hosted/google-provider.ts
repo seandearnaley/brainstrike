@@ -15,11 +15,11 @@ type FetchLike = typeof fetch;
 interface GoogleEmbeddingResponse {
   embedding?: { values?: number[] };
   embeddings?: Array<{ values?: number[] }>;
+  error?: { message?: string };
   predictions?: Array<{
     embeddings?: { values?: number[] } | Array<{ values?: number[] }>;
   }>;
   usageMetadata?: { totalTokenCount?: number; inputTokenCount?: number };
-  error?: { message?: string };
 }
 
 interface GoogleModelConfig extends ModelConfig {
@@ -41,11 +41,11 @@ const GOOGLE_MODELS: Record<string, GoogleModelConfig> = {
 };
 
 export interface GoogleEmbeddingProviderOptions {
+  readonly apiKey?: string;
+  readonly endpoint?: string;
+  readonly fetch?: FetchLike;
   readonly modelId: string;
   readonly outputDimensions?: number;
-  readonly apiKey?: string;
-  readonly fetch?: FetchLike;
-  readonly endpoint?: string;
 }
 
 export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {

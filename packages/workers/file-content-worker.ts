@@ -28,8 +28,8 @@ export interface ProgressEvent {
 }
 
 export interface FileContentWorkerOptions {
-  fileSystemAdapter: FileSystemAdapter;
   concurrency?: number;
+  fileSystemAdapter: FileSystemAdapter;
   maxFileSize?: number;
 }
 

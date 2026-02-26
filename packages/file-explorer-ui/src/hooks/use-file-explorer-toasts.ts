@@ -4,11 +4,11 @@ import { FileExplorerStrings } from '@brainstrike/types';
 import { useCallback, useState } from 'react';
 
 interface UseFileExplorerToastsParams {
-  rootDirectoryHandle: DirectoryHandle | null;
-  refreshFileExplorer: () => Promise<void>;
+  cancelOperation: () => void;
   handleRootDirectorySelect: () => Promise<DirectoryHandle | null>;
   isFileSystemAccessSupported: () => { supported: boolean; reason: string };
-  cancelOperation: () => void;
+  refreshFileExplorer: () => Promise<void>;
+  rootDirectoryHandle: DirectoryHandle | null;
 }
 
 export function useFileExplorerToasts({

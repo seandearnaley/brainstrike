@@ -8,80 +8,80 @@ const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
 
 export interface DbProvider {
-  id: string;
-  name: string;
   icon: string | null;
+  id: string;
   isEnabled: boolean;
+  name: string;
   sortOrder: number;
 }
 
 export interface DbModel {
-  id: string;
-  providerId: string;
-  name: string;
-  description: string | null;
-  tagline: string | null;
   bestFor: string[] | null;
-  icon: string | null;
-  isEnabled: boolean;
   capabilities: {
     type: 'llm' | 'embedding';
     streaming?: boolean;
     defaultDimension?: number;
   };
+  description: string | null;
+  icon: string | null;
+  id: string;
+  isEnabled: boolean;
+  name: string;
   parameters: Record<string, unknown> | null;
+  providerId: string;
   sortOrder: number;
+  tagline: string | null;
 }
 
 interface ModelRegistryState {
-  providers: DbProvider[];
-  models: DbModel[];
-  isLoading: boolean;
-  error: string | null;
-  hasLoaded: boolean;
-
-  modelCacheDir: string | null;
+  downloadedModels: Record<string, boolean>;
   downloadProgress: Record<string, number>; // modelId -> progress %
-  isDownloading: Record<string, boolean>; // modelId -> boolean
+  ensureRegistry: (db: IDatabase) => Promise<void>;
+  error: string | null;
 
   // Actions
   fetchRegistry: (db: IDatabase) => Promise<void>;
-  ensureRegistry: (db: IDatabase) => Promise<void>;
-  toggleProvider: (db: IDatabase, providerId: string, enabled: boolean) => Promise<void>;
-  toggleModel: (db: IDatabase, modelId: string, enabled: boolean) => Promise<void>;
-  setModelCacheDir: (dir: string) => void;
-  setDownloadProgress: (modelId: string, progress: number) => void;
+  hasLoaded: boolean;
+  isDownloading: Record<string, boolean>; // modelId -> boolean
+  isLoading: boolean;
+
+  modelCacheDir: string | null;
+  models: DbModel[];
+  providers: DbProvider[];
   setDownloading: (modelId: string, isDownloading: boolean) => void;
-  downloadedModels: Record<string, boolean>;
+  setDownloadProgress: (modelId: string, progress: number) => void;
+  setModelCacheDir: (dir: string) => void;
+  toggleModel: (db: IDatabase, modelId: string, enabled: boolean) => Promise<void>;
+  toggleProvider: (db: IDatabase, providerId: string, enabled: boolean) => Promise<void>;
 }
 
 // Raw DB types
 interface RawProvider {
-  id: string;
-  name: string;
   icon: string | null;
+  id: string;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   is_enabled: number | boolean;
+  name: string;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   sort_order: number;
 }
 
 interface RawModel {
-  id: string;
-  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-  provider_id: string;
-  name: string;
-  description: string | null;
-  tagline: string | null;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   best_for: string | object | null;
+  capabilities: string | object;
+  description: string | null;
   icon: string | null;
+  id: string;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   is_enabled: number | boolean;
-  capabilities: string | object;
+  name: string;
   parameters: string | object | null;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
+  provider_id: string;
+  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   sort_order: number;
+  tagline: string | null;
 }
 
 interface FileSystemAccess {

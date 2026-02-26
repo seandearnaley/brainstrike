@@ -8,6 +8,12 @@ import { isUserCancellation, mapFileSystemError } from './file-system-error-help
 const logger = createLogger('FileSystemHook');
 
 interface UseFileSystemParams {
+  /**
+   * Optional getter for the store's persisted currentFolderId.
+   * Used during auto-restore to avoid redundant setCurrentFolderId calls
+   * when the folder ID matches what will be hydrated from persistence.
+   */
+  getPersistedCurrentFolderId?: () => string | null;
   setCurrentFolderId: FileExplorerState['setCurrentFolderId'];
   /**
    * Optional callback to check if store has finished hydrating from persistence.
@@ -16,17 +22,11 @@ interface UseFileSystemParams {
    * overwrites persisted selections.
    */
   waitForHydration?: () => Promise<void>;
-  /**
-   * Optional getter for the store's persisted currentFolderId.
-   * Used during auto-restore to avoid redundant setCurrentFolderId calls
-   * when the folder ID matches what will be hydrated from persistence.
-   */
-  getPersistedCurrentFolderId?: () => string | null;
 }
 
 interface FileSystemState {
-  rootDirectoryHandle: DirectoryHandle | null;
   isAccessLoading: boolean;
+  rootDirectoryHandle: DirectoryHandle | null;
 }
 
 type FileSystemAction =

@@ -43,25 +43,25 @@ async function timeDirectoryRead<T>(
 }
 
 export interface ParallelWalkerOptions {
-  /** Maximum number of concurrent directory reads (default: 10) */
-  concurrency?: number | undefined;
   /** AbortSignal for cancellation support */
   abortSignal?: AbortSignal | undefined;
+  /** Maximum number of concurrent directory reads (default: 10) */
+  concurrency?: number | undefined;
   /** Callback for progress updates (path and depth) */
   onProgress?: ((path: string, depth: number) => void) | undefined;
-  /** Custom sort function for nodes */
-  sortFileNodes?: ((nodes: IFileNode[]) => IFileNode[]) | undefined;
   /** Callback for streaming tree snapshots */
   onTreeSnapshot?: ((tree: IFileNode[], meta: StreamMeta) => void) | undefined;
   /** Snapshot interval in ms (default: 100) */
   snapshotIntervalMs?: number | undefined;
+  /** Custom sort function for nodes */
+  sortFileNodes?: ((nodes: IFileNode[]) => IFileNode[]) | undefined;
 }
 
 interface WorkItem {
-  handle: DirectoryHandle;
-  parentPath: string;
-  parentNode: IFileNode | null;
   depth: number;
+  handle: DirectoryHandle;
+  parentNode: IFileNode | null;
+  parentPath: string;
 }
 
 /**

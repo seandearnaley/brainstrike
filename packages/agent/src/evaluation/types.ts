@@ -9,16 +9,16 @@
  * Maps a query to expected relevant file/chunk patterns.
  */
 export interface GoldenTestCase {
-  /** Unique identifier for the test case */
-  id: string;
-  /** The search query */
-  query: string;
-  /** Expected relevant file paths (glob patterns supported) */
-  expectedFilePaths: string[];
   /** Optional: Expected chunk content patterns (regex) */
   expectedContentPatterns?: string[];
+  /** Expected relevant file paths (glob patterns supported) */
+  expectedFilePaths: string[];
+  /** Unique identifier for the test case */
+  id: string;
   /** Optional: Minimum expected similarity score */
   minSimilarity?: number;
+  /** The search query */
+  query: string;
   /** Optional: Tags for categorizing test cases */
   tags?: string[];
 }
@@ -27,112 +27,112 @@ export interface GoldenTestCase {
  * Golden dataset containing multiple test cases.
  */
 export interface GoldenDataset {
-  /** Dataset name/identifier */
-  name: string;
-  /** Version for tracking changes */
-  version: string;
   /** Description of the dataset */
   description?: string;
+  /** Dataset name/identifier */
+  name: string;
   /** The test cases */
   testCases: GoldenTestCase[];
+  /** Version for tracking changes */
+  version: string;
 }
 
 /**
  * Result of a single retrieval for evaluation.
  */
 export interface RetrievalResult {
-  /** File path of the retrieved chunk */
-  filePath: string;
   /** Chunk content */
   content: string;
-  /** Similarity score (0-1) */
-  similarity: number;
+  /** File path of the retrieved chunk */
+  filePath: string;
   /** Rank position (1-based) */
   rank: number;
+  /** Similarity score (0-1) */
+  similarity: number;
 }
 
 /**
  * Evaluation result for a single test case.
  */
 export interface TestCaseResult {
-  /** Test case ID */
-  testCaseId: string;
-  /** The query that was tested */
-  query: string;
-  /** Precision at various k values */
-  precisionAtK: Record<number, number>;
-  /** Recall at various k values */
-  recallAtK: Record<number, number>;
-  /** Mean Reciprocal Rank */
-  mrr: number;
-  /** Number of retrieved results */
-  retrievedCount: number;
-  /** Number of relevant results found */
-  relevantFound: number;
-  /** Total expected relevant items */
-  totalExpected: number;
   /** Whether all expected items were found */
   allFound: boolean;
-  /** Execution time in ms */
-  executionTimeMs: number;
-  /** Retrieved results for inspection */
-  retrievedResults: RetrievalResult[];
   /** Any errors that occurred */
   error?: string;
+  /** Execution time in ms */
+  executionTimeMs: number;
+  /** Mean Reciprocal Rank */
+  mrr: number;
+  /** Precision at various k values */
+  precisionAtK: Record<number, number>;
+  /** The query that was tested */
+  query: string;
+  /** Recall at various k values */
+  recallAtK: Record<number, number>;
+  /** Number of relevant results found */
+  relevantFound: number;
+  /** Number of retrieved results */
+  retrievedCount: number;
+  /** Retrieved results for inspection */
+  retrievedResults: RetrievalResult[];
+  /** Test case ID */
+  testCaseId: string;
+  /** Total expected relevant items */
+  totalExpected: number;
 }
 
 /**
  * Aggregated metrics across all test cases.
  */
 export interface AggregateMetrics {
+  /** Average execution time */
+  avgExecutionTimeMs: number;
+  /** Number of failed evaluations */
+  failedEvaluations: number;
+  /** Mean Reciprocal Rank across all queries */
+  meanMrr: number;
   /** Mean precision at various k values */
   meanPrecisionAtK: Record<number, number>;
   /** Mean recall at various k values */
   meanRecallAtK: Record<number, number>;
-  /** Mean Reciprocal Rank across all queries */
-  meanMrr: number;
   /** Percentage of test cases where all expected items were found */
   perfectRecallRate: number;
-  /** Total test cases evaluated */
-  totalTestCases: number;
   /** Number of successful evaluations */
   successfulEvaluations: number;
-  /** Number of failed evaluations */
-  failedEvaluations: number;
-  /** Average execution time */
-  avgExecutionTimeMs: number;
+  /** Total test cases evaluated */
+  totalTestCases: number;
 }
 
 /**
  * Full evaluation report.
  */
 export interface EvaluationReport {
+  /** Aggregate metrics */
+  aggregateMetrics: AggregateMetrics;
   /** Dataset that was evaluated */
   datasetName: string;
   /** Dataset version */
   datasetVersion: string;
-  /** Timestamp of evaluation */
-  timestamp: string;
-  /** Aggregate metrics */
-  aggregateMetrics: AggregateMetrics;
-  /** Individual test case results */
-  testCaseResults: TestCaseResult[];
   /** K values that were evaluated */
   kValues: number[];
+  /** Individual test case results */
+  testCaseResults: TestCaseResult[];
+  /** Timestamp of evaluation */
+  timestamp: string;
 }
 
 /**
  * Configuration for the evaluation harness.
  */
 export interface EvaluationConfig {
-  /** K values to compute precision/recall at */
-  kValues: number[];
-  /** Whether to run in verbose mode */
-  verbose?: boolean;
   /** Maximum concurrent evaluations */
   concurrency?: number;
+  /** K values to compute precision/recall at */
+  kValues: number[];
   /** Timeout per test case in ms */
   timeoutMs?: number;
+  /** Whether to run in verbose mode */
+  verbose?: boolean;
 }
 
 /**

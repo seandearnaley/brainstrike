@@ -1,41 +1,41 @@
 export interface LineData {
   indent: number;
-  width: number;
   isEmpty: boolean;
+  width: number;
 }
 
 export interface TapestryRange {
-  id: string;
-  startLine: number;
+  color: string;
   // End line is exclusive: range covers [startLine, endLine).
   endLine: number;
+  id: string;
   isActive: boolean;
-  color: string;
+  startLine: number;
 }
 
 export interface FileTapestry {
-  id: string;
   compositeKey: string;
-  rootFolderId: string;
-  path: string;
-  name: string;
-  language: string;
-  type: string;
-  size?: number;
-  tokens?: number;
-  totalLines: number;
-  structure: LineData[]; // Visual representation only
   content: string[]; // Actual text content for preview
   contentStatus: 'ready' | 'loading' | 'idle';
+  id: string;
+  language: string;
+  name: string;
+  path: string;
+  rootFolderId: string;
   selections: TapestryRange[];
+  size?: number;
+  structure: LineData[]; // Visual representation only
+  tokens?: number;
+  totalLines: number;
+  type: string;
 }
 
 export type InteractionMode = 'IDLE' | 'CREATING' | 'RESIZING_TOP' | 'RESIZING_BOTTOM' | 'MOVING';
 
 export interface DragState {
-  mode: InteractionMode;
   fileId: string | null;
+  initialRange: TapestryRange | null;
+  mode: InteractionMode;
   rangeId: string | null;
   startY: number;
-  initialRange: TapestryRange | null;
 }

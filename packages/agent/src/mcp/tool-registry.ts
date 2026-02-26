@@ -4,12 +4,12 @@ import type { ToolsInput } from '@mastra/core/agent';
 const logger = createLogger('ToolRegistry');
 
 export interface McpToolMetadata {
-  id: string;
-  serverName: string;
   description?: string;
-  inputSchema?: unknown;
-  enabled: boolean;
   discoveredAt: number;
+  enabled: boolean;
+  id: string;
+  inputSchema?: unknown;
+  serverName: string;
 }
 
 export interface McpToolsByServer {

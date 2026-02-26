@@ -222,10 +222,10 @@ describe('truncateContent', () => {
 
 describe('generateCSV', () => {
   interface TestRecord {
+    active: boolean;
+    email: string;
     id: number;
     name: string;
-    email: string;
-    active: boolean;
   }
 
   const columns: CSVColumn<TestRecord>[] = [
@@ -307,9 +307,9 @@ describe('generateCSV', () => {
 
   it('should handle null and undefined values', () => {
     interface NullableRecord {
+      email: string | undefined;
       id: number;
       name: string | null;
-      email: string | undefined;
     }
 
     const nullableColumns: CSVColumn<NullableRecord>[] = [
@@ -358,12 +358,12 @@ describe('generateCSV', () => {
 
   it('should handle complex getValue functions', () => {
     interface ComplexRecord {
+      array: string[];
       data: {
         nested: {
           value: number;
         };
       };
-      array: string[];
     }
 
     const complexColumns: CSVColumn<ComplexRecord>[] = [

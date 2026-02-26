@@ -5,8 +5,8 @@ import type { ModelPickerModel } from './types';
 import { getProviderColor } from './utils/provider-colors';
 
 interface ModelPickerItemProps {
-  model: ModelPickerModel;
   isSelected: boolean;
+  model: ModelPickerModel;
   onSelect: (value: string) => void;
   theme?: 'light' | 'dark';
 }

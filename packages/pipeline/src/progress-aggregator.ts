@@ -40,12 +40,12 @@ import type { PipelineProgress, StageProgress } from './types.js';
  * Configuration for creating a progress aggregator.
  */
 export interface ProgressAggregatorConfig {
+  /** Maximum number of recent errors to retain */
+  maxRecentErrors?: number;
   /** Callback invoked when progress changes */
   onProgress?: ProgressCallback;
   /** Throttle interval for progress callbacks (ms) */
   throttleMs?: number;
-  /** Maximum number of recent errors to retain */
-  maxRecentErrors?: number;
 }
 
 /**
@@ -57,12 +57,12 @@ export type ProgressCallback = (progress: PipelineProgress) => void;
  * Initial totals for the pipeline run.
  */
 export interface PipelineTotals {
-  /** Total files to import */
-  files: number;
   /** Total chunks to process (may be updated as chunking progresses) */
   chunks?: number;
   /** Total embedding jobs (may be updated as jobs are enqueued) */
   embeddings?: number;
+  /** Total files to import */
+  files: number;
 }
 
 /**
@@ -71,12 +71,12 @@ export interface PipelineTotals {
 export interface StageUpdate {
   /** Items completed */
   completed?: number;
-  /** Items currently in progress */
-  inProgress?: number;
-  /** Items failed */
-  failed?: number;
   /** Current item being processed */
   currentItem?: string;
+  /** Items failed */
+  failed?: number;
+  /** Items currently in progress */
+  inProgress?: number;
   /** Update total (for chunks/embeddings that are discovered during processing) */
   total?: number;
 }
@@ -85,9 +85,9 @@ export interface StageUpdate {
  * Error entry for tracking.
  */
 export interface PipelineError {
-  stage: 'import' | 'chunking' | 'embedding';
-  item: string;
   error: string;
+  item: string;
+  stage: 'import' | 'chunking' | 'embedding';
   timestamp: string;
 }
 
@@ -96,15 +96,24 @@ export interface PipelineError {
  */
 export interface ProgressAggregator {
   /**
-   * Set initial totals for the pipeline run.
-   * Can be called multiple times as totals become known.
+   * Mark the pipeline as complete.
    */
-  setTotals(totals: Partial<PipelineTotals>): void;
+  complete(): void;
 
   /**
-   * Report progress from the import stage.
+   * Mark the pipeline as failed.
    */
-  reportImportProgress(update: StageUpdate): void;
+  fail(error: string): void;
+
+  /**
+   * Force emit the current progress (bypasses throttle).
+   */
+  flush(): void;
+
+  /**
+   * Get the current progress snapshot.
+   */
+  getSnapshot(): PipelineProgress;
 
   /**
    * Report progress from the chunking stage.
@@ -122,29 +131,19 @@ export interface ProgressAggregator {
   reportError(stage: PipelineError['stage'], item: string, error: string): void;
 
   /**
-   * Mark the pipeline as complete.
+   * Report progress from the import stage.
    */
-  complete(): void;
-
-  /**
-   * Mark the pipeline as failed.
-   */
-  fail(error: string): void;
-
-  /**
-   * Get the current progress snapshot.
-   */
-  getSnapshot(): PipelineProgress;
+  reportImportProgress(update: StageUpdate): void;
 
   /**
    * Reset the aggregator for a new run.
    */
   reset(): void;
-
   /**
-   * Force emit the current progress (bypasses throttle).
+   * Set initial totals for the pipeline run.
+   * Can be called multiple times as totals become known.
    */
-  flush(): void;
+  setTotals(totals: Partial<PipelineTotals>): void;
 }
 
 // =============================================================================
@@ -175,11 +174,11 @@ export function createProgressAggregator(
 
   // Internal mutable state type (allows undefined for currentItem)
   interface MutableStageProgress {
-    total: number;
     completed: number;
-    inProgress: number;
-    failed: number;
     currentItem: string | undefined;
+    failed: number;
+    inProgress: number;
+    total: number;
   }
 
   // Internal state

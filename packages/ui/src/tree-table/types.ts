@@ -12,22 +12,22 @@ import type * as React from 'react';
  * Generic type T allows custom data payloads for different use cases.
  */
 export interface TreeNode<T = unknown> {
-  /** Unique identifier for this node */
-  id: string;
-  /** Type discriminator for different node kinds (e.g., 'file', 'chunk', 'vector') */
-  type: string;
-  /** Depth level in the tree (0 = root) */
-  depth: number;
-  /** Custom data payload for this node */
-  data: T;
-  /** Parent node ID, or null for root nodes */
-  parentId: string | null;
-  /** Whether this node has children that can be expanded */
-  hasChildren: boolean;
   /** Number of direct children (optional, for display purposes) */
   childCount?: number;
+  /** Custom data payload for this node */
+  data: T;
+  /** Depth level in the tree (0 = root) */
+  depth: number;
+  /** Whether this node has children that can be expanded */
+  hasChildren: boolean;
+  /** Unique identifier for this node */
+  id: string;
   /** Whether children are currently being loaded */
   isLoading?: boolean;
+  /** Parent node ID, or null for root nodes */
+  parentId: string | null;
+  /** Type discriminator for different node kinds (e.g., 'file', 'chunk', 'vector') */
+  type: string;
 }
 
 /**
@@ -37,12 +37,12 @@ export interface TreeNode<T = unknown> {
 export interface TreeRowAriaAttributes {
   /** Depth in hierarchy (1-based, per ARIA spec) */
   ariaLevel: number;
-  /** Number of siblings at the same level under the same parent */
-  ariaSetSize: number;
   /** Position among siblings (1-based) */
   ariaPosInSet: number;
   /** 1-based row index within the full grid (for virtualized grids) */
   ariaRowIndex: number;
+  /** Number of siblings at the same level under the same parent */
+  ariaSetSize: number;
 }
 
 /**
@@ -50,22 +50,22 @@ export interface TreeRowAriaAttributes {
  * Includes visual state information (expanded, selected, highlighted).
  */
 export interface FlattenedRow<T = unknown> {
-  /** The tree node data */
-  node: TreeNode<T>;
+  /** ARIA attributes computed from tree structure */
+  aria: TreeRowAriaAttributes;
   /** Index in the flattened array */
   index: number;
   /** Whether this node is currently expanded */
   isExpanded: boolean;
-  /** Whether this node is currently selected */
-  isSelected: boolean;
   /** Whether this node is highlighted (e.g., from search results) */
   isHighlighted: boolean;
-  /** Whether this node matches current filters */
-  matchesFilter: boolean;
   /** Whether this node is in the active context (e.g., selected in file explorer) */
   isInContext: boolean;
-  /** ARIA attributes computed from tree structure */
-  aria: TreeRowAriaAttributes;
+  /** Whether this node is currently selected */
+  isSelected: boolean;
+  /** Whether this node matches current filters */
+  matchesFilter: boolean;
+  /** The tree node data */
+  node: TreeNode<T>;
 }
 
 /**
@@ -73,44 +73,44 @@ export interface FlattenedRow<T = unknown> {
  * Each column defines how to render header and cells.
  */
 export interface TreeTableColumn<T> {
-  /** Unique column identifier */
-  id: string;
-  /** Header content (string or React element) */
-  header?: React.ReactNode;
-  /** Fixed width in pixels or CSS string */
-  width?: number | string;
-  /** Minimum width in pixels */
-  minWidth?: number;
-  /** Maximum width in pixels */
-  maxWidth?: number;
+  /** Accessor function for sorting */
+  accessorFn?: (node: TreeNode<T>) => unknown;
   /** Cell renderer function */
   cell: (props: TreeTableCellProps<T>) => React.ReactNode;
   /** Additional CSS class for the column */
   className?: string;
+  /** Header content (string or React element) */
+  header?: React.ReactNode;
   /** Additional CSS class for the header */
   headerClassName?: string;
+  /** Unique column identifier */
+  id: string;
+  /** Maximum width in pixels */
+  maxWidth?: number;
+  /** Minimum width in pixels */
+  minWidth?: number;
   /** Whether this column is sortable */
   sortable?: boolean;
-  /** Accessor function for sorting */
-  accessorFn?: (node: TreeNode<T>) => unknown;
+  /** Fixed width in pixels or CSS string */
+  width?: number | string;
 }
 
 /**
  * Props passed to cell renderer functions.
  */
 export interface TreeTableCellProps<T> {
-  /** The tree node being rendered */
-  node: TreeNode<T>;
   /** Depth level for indentation */
   depth: number;
   /** Whether the node is expanded */
   isExpanded: boolean;
-  /** Whether the node is selected */
-  isSelected: boolean;
   /** Whether the node is highlighted */
   isHighlighted: boolean;
   /** Whether the node is in the active context */
   isInContext: boolean;
+  /** Whether the node is selected */
+  isSelected: boolean;
+  /** The tree node being rendered */
+  node: TreeNode<T>;
   /** Row index in the flattened array */
   rowIndex: number;
 }
@@ -150,20 +150,20 @@ export type TreeTableAutoWindowingContext = 'browse' | 'search';
  * Pagination options used when paged windowing is active.
  */
 export interface TreeTablePaginationOptions {
-  /** Items per page */
-  pageSize?: number;
   /** Callback when page changes (0-based) */
   onPageChange?: (page: number) => void;
   /** Callback when page size changes */
   onPageSizeChange?: (pageSize: number) => void;
-  /** Available page size options */
-  pageSizeOptions?: readonly number[];
   /** Optional additional page info text */
   pageInfo?: string;
-  /** Whether to show item range summary */
-  showItemRange?: boolean;
+  /** Items per page */
+  pageSize?: number;
+  /** Available page size options */
+  pageSizeOptions?: readonly number[];
   /** Whether to show pagination controls */
   showControls?: boolean;
+  /** Whether to show item range summary */
+  showItemRange?: boolean;
 }
 
 /**
@@ -180,50 +180,11 @@ export interface SortState {
  * Main props for the TreeTable component.
  */
 export interface TreeTableProps<T> {
-  /** Tree nodes to display (can be nested via hasChildren) */
-  nodes: TreeNode<T>[];
-  /** Column definitions */
-  columns: TreeTableColumn<T>[];
-
-  // Expansion state
-  /** Set of expanded node IDs */
-  expandedIds: Set<string>;
-  /** Callback when a node is toggled */
-  onToggleExpand: (nodeId: string) => void;
-  /** Callback to expand all nodes */
-  onExpandAll?: () => void;
-  /** Callback to collapse all nodes */
-  onCollapseAll?: () => void;
-
-  // Selection state
-  /** Currently selected node ID (single selection mode) */
-  selectedId?: string | null;
-  /** Callback when a node is selected */
-  onSelect?: (nodeId: string | null) => void;
-  /** Set of selected node IDs (multi-selection mode) */
-  multiSelectedIds?: Set<string>;
-  /** Callback when multi-selection changes */
-  onMultiSelectChange?: (ids: Set<string>) => void;
-  /** Selection mode */
-  selectionMode?: SelectionMode;
-
-  // Highlighting (e.g., search results)
-  /** Set of highlighted node IDs */
-  highlightedIds?: Set<string>;
-
-  // Context awareness
-  /** Set of node IDs that are in the active context (e.g., selected in file explorer) */
-  contextNodeIds?: Set<string>;
-
-  // Virtualization
-  /** Row height (fixed number or function) */
-  rowHeight?: RowHeightConfig<T>;
-  /** Number of rows to render outside visible area */
-  overscan?: number;
-  /** Windowing strategy for row rendering */
-  windowingStrategy?: TreeTableWindowingStrategy;
-  /** Context hint used by auto strategy */
-  autoWindowingContext?: TreeTableAutoWindowingContext;
+  // Accessibility
+  /** Accessible label for the table */
+  ariaLabel?: string;
+  /** ARIA role for the table container */
+  ariaRole?: 'treegrid' | 'grid';
   /**
    * Row threshold for auto strategy to switch to paged mode.
    * Values < 1 are clamped to 1.
@@ -231,50 +192,88 @@ export interface TreeTableProps<T> {
    * In search mode, pass `0` to force paged mode whenever at least one row is present.
    */
   autoPagedRowThreshold?: number;
-  /** Pagination options used by paged strategy */
-  pagination?: TreeTablePaginationOptions;
-  /** Maximum height of the table container */
-  maxHeight?: string;
-
-  // Sorting
-  /** Current sort state */
-  sortState?: SortState;
-  /** Callback when sort changes */
-  onSortChange?: (columnId: string, direction: SortDirection) => void;
-
-  // Lazy loading
-  /** Callback to load children for a node */
-  onLoadChildren?: (nodeId: string) => Promise<void>;
-  /** Set of node IDs currently loading children */
-  loadingNodeIds?: Set<string>;
+  /** Context hint used by auto strategy */
+  autoWindowingContext?: TreeTableAutoWindowingContext;
 
   // Styling
   /** Additional CSS class for the container */
   className?: string;
-  /** Additional CSS class for rows */
-  rowClassName?: string | ((node: TreeNode<T>) => string);
+  /** Column definitions */
+  columns: TreeTableColumn<T>[];
+
+  // Context awareness
+  /** Set of node IDs that are in the active context (e.g., selected in file explorer) */
+  contextNodeIds?: Set<string>;
 
   // Empty state
   /** Content to show when there are no nodes */
   emptyState?: React.ReactNode;
 
-  // Accessibility
-  /** Accessible label for the table */
-  ariaLabel?: string;
-  /** ARIA role for the table container */
-  ariaRole?: 'treegrid' | 'grid';
-  /** Whether to render the header row. Prefer this prop over CSS-only header hiding. */
-  showHeader?: boolean;
+  // Expansion state
+  /** Set of expanded node IDs */
+  expandedIds: Set<string>;
 
-  // Checkbox
-  /** Whether to show checkboxes for row selection */
-  showCheckbox?: boolean;
+  // Highlighting (e.g., search results)
+  /** Set of highlighted node IDs */
+  highlightedIds?: Set<string>;
+  /** Set of node IDs currently loading children */
+  loadingNodeIds?: Set<string>;
+  /** Maximum height of the table container */
+  maxHeight?: string;
+  /** Set of selected node IDs (multi-selection mode) */
+  multiSelectedIds?: Set<string>;
+  /** Tree nodes to display (can be nested via hasChildren) */
+  nodes: TreeNode<T>[];
+  /** Callback to collapse all nodes */
+  onCollapseAll?: () => void;
+  /** Callback to expand all nodes */
+  onExpandAll?: () => void;
+
+  // Lazy loading
+  /** Callback to load children for a node */
+  onLoadChildren?: (nodeId: string) => Promise<void>;
+  /** Callback when multi-selection changes */
+  onMultiSelectChange?: (ids: Set<string>) => void;
+  /** Callback when a row is right-clicked (context menu) */
+  onRowContextMenu?: (nodeId: string, node: TreeNode<T>, event: React.MouseEvent) => void;
 
   // Callbacks
   /** Callback when a row is double-clicked */
   onRowDoubleClick?: (nodeId: string, node: TreeNode<T>) => void;
-  /** Callback when a row is right-clicked (context menu) */
-  onRowContextMenu?: (nodeId: string, node: TreeNode<T>, event: React.MouseEvent) => void;
+  /** Callback when a node is selected */
+  onSelect?: (nodeId: string | null) => void;
+  /** Callback when sort changes */
+  onSortChange?: (columnId: string, direction: SortDirection) => void;
+  /** Callback when a node is toggled */
+  onToggleExpand: (nodeId: string) => void;
+  /** Number of rows to render outside visible area */
+  overscan?: number;
+  /** Pagination options used by paged strategy */
+  pagination?: TreeTablePaginationOptions;
+  /** Additional CSS class for rows */
+  rowClassName?: string | ((node: TreeNode<T>) => string);
+
+  // Virtualization
+  /** Row height (fixed number or function) */
+  rowHeight?: RowHeightConfig<T>;
+
+  // Selection state
+  /** Currently selected node ID (single selection mode) */
+  selectedId?: string | null;
+  /** Selection mode */
+  selectionMode?: SelectionMode;
+
+  // Checkbox
+  /** Whether to show checkboxes for row selection */
+  showCheckbox?: boolean;
+  /** Whether to render the header row. Prefer this prop over CSS-only header hiding. */
+  showHeader?: boolean;
+
+  // Sorting
+  /** Current sort state */
+  sortState?: SortState;
+  /** Windowing strategy for row rendering */
+  windowingStrategy?: TreeTableWindowingStrategy;
 }
 
 /**
@@ -286,38 +285,38 @@ export type CheckboxState = 'checked' | 'unchecked' | 'indeterminate';
  * Props for the TreeTableRow component.
  */
 export interface TreeTableRowProps<T> {
-  /** Flattened row data */
-  row: FlattenedRow<T>;
-  /** Column definitions */
-  columns: TreeTableColumn<T>[];
-  /** Callback to toggle expansion */
-  onToggleExpand: (nodeId: string) => void;
-  /** Callback when row is clicked */
-  onClick?: (nodeId: string, event: React.MouseEvent) => void;
-  /** Callback when row is double-clicked */
-  onDoubleClick?: (nodeId: string) => void;
-  /** Callback when row is right-clicked */
-  onContextMenu?: (nodeId: string, event: React.MouseEvent) => void;
+  /** ARIA role inherited from the table container */
+  ariaRole?: 'treegrid' | 'grid' | undefined;
+  /** Checkbox state (for tri-state parent logic) */
+  checkboxState?: CheckboxState | undefined;
   /** Additional CSS class */
   className?: string;
-  /** Style object (for virtual positioning) */
-  style?: React.CSSProperties;
+  /** Column definitions */
+  columns: TreeTableColumn<T>[];
   /** Whether this row is focused for keyboard navigation */
   isFocused?: boolean;
   /** Ref callback for measuring element */
   measureRef?: (node: HTMLTableRowElement | null) => void;
-  /** Virtual index for @tanstack/react-virtual measureElement */
-  virtualIndex?: number;
-  /** Whether to show checkbox for multi-select */
-  showCheckbox?: boolean | undefined;
-  /** Checkbox state (for tri-state parent logic) */
-  checkboxState?: CheckboxState | undefined;
   /** Callback when checkbox is toggled */
   onCheckboxChange?: ((nodeId: string) => void) | undefined;
+  /** Callback when row is clicked */
+  onClick?: (nodeId: string, event: React.MouseEvent) => void;
+  /** Callback when row is right-clicked */
+  onContextMenu?: (nodeId: string, event: React.MouseEvent) => void;
+  /** Callback when row is double-clicked */
+  onDoubleClick?: (nodeId: string) => void;
+  /** Callback to toggle expansion */
+  onToggleExpand: (nodeId: string) => void;
+  /** Flattened row data */
+  row: FlattenedRow<T>;
+  /** Whether to show checkbox for multi-select */
+  showCheckbox?: boolean | undefined;
+  /** Style object (for virtual positioning) */
+  style?: React.CSSProperties;
   /** Total number of rows for ARIA rowcount */
   totalRowCount?: number | undefined;
-  /** ARIA role inherited from the table container */
-  ariaRole?: 'treegrid' | 'grid' | undefined;
+  /** Virtual index for @tanstack/react-virtual measureElement */
+  virtualIndex?: number;
 }
 
 /**
@@ -334,64 +333,64 @@ export interface KeyboardNavigationState {
  * Keyboard navigation actions.
  */
 export interface KeyboardNavigationActions {
-  /** Move focus up */
-  moveUp: () => void;
-  /** Move focus down */
-  moveDown: () => void;
-  /** Expand focused node (or move into children) */
-  expandOrMoveRight: () => void;
   /** Collapse focused node (or move to parent) */
   collapseOrMoveLeft: () => void;
-  /** Select focused node */
-  selectFocused: () => void;
-  /** Toggle selection of focused node (multi-select) */
-  toggleFocused: () => void;
-  /** Focus a specific node */
-  setFocus: (nodeId: string | null) => void;
+  /** Expand focused node (or move into children) */
+  expandOrMoveRight: () => void;
+  /** Move focus down */
+  moveDown: () => void;
+  /** Move focus up */
+  moveUp: () => void;
   /** Reset keyboard navigation */
   reset: () => void;
+  /** Select focused node */
+  selectFocused: () => void;
+  /** Focus a specific node */
+  setFocus: (nodeId: string | null) => void;
+  /** Toggle selection of focused node (multi-select) */
+  toggleFocused: () => void;
 }
 
 /**
  * Result of the useTreeKeyboard hook.
  */
 export interface UseTreeKeyboardResult {
-  /** Current navigation state */
-  state: KeyboardNavigationState;
   /** Navigation actions */
   actions: KeyboardNavigationActions;
   /** Event handler for keydown events */
   onKeyDown: (event: React.KeyboardEvent) => void;
+  /** Current navigation state */
+  state: KeyboardNavigationState;
 }
 
 /**
  * Options for tree flattening utilities.
  */
 export interface FlattenOptions {
-  /** Set of expanded node IDs */
-  expandedIds: Set<string>;
-  /** Selected node ID (single selection) */
-  selectedId?: string | null;
-  /** Set of selected node IDs (multi-selection) */
-  multiSelectedIds?: Set<string>;
-  /** Set of highlighted node IDs */
-  highlightedIds?: Set<string>;
   /** Set of node IDs that are in the active context */
   contextNodeIds?: Set<string>;
+  /** Set of expanded node IDs */
+  expandedIds: Set<string>;
   /** Filter function to determine which nodes match current filters */
   filterFn?: (node: TreeNode<unknown>) => boolean;
+  /** Set of highlighted node IDs */
+  highlightedIds?: Set<string>;
+  /** Set of selected node IDs (multi-selection) */
+  multiSelectedIds?: Set<string>;
   /** 1-based offset for aria-rowindex (2 when header row is present, 1 otherwise) */
   rowIndexOffset?: number;
+  /** Selected node ID (single selection) */
+  selectedId?: string | null;
 }
 
 /**
  * Result of tree flattening.
  */
 export interface FlattenResult<T> {
-  /** Flattened rows in display order */
-  rows: FlattenedRow<T>[];
   /** Map of node ID to row index for quick lookup */
   indexMap: Map<string, number>;
+  /** Flattened rows in display order */
+  rows: FlattenedRow<T>[];
   /** Total count of visible rows */
   visibleCount: number;
 }
