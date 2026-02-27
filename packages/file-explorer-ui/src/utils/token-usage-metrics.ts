@@ -33,7 +33,7 @@ export function getTokenUsageMetrics(args: TokenUsageMetricsInput): TokenUsageMe
   const usedPercent = budget > 0 ? Math.min((usedTokens / budget) * 100, 100) : 0;
 
   const treeLabel = args.projectTreeTokenCountLoading
-    ? '...'
+    ? '\u2026'
     : args.projectTreeTokenCount.toLocaleString();
   const remainingLabel = isOverBudget
     ? `${Math.abs(remainingTokens).toLocaleString()} over`

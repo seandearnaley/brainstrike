@@ -859,6 +859,8 @@ function validateModelIdFormat(modelId: string): string | null {
   if (!MODEL_ID_PATTERN.test(modelId)) {
     return 'invalid format';
   }
+  // Defense-in-depth: MODEL_ID_PATTERN blocks most traversal, but '..' can
+  // still appear (e.g. "foo..bar/model"). Explicit check as a security backstop.
   if (modelId.includes('..') || modelId.includes('./') || modelId.includes('//')) {
     return 'contains path traversal pattern';
   }
@@ -1435,7 +1437,8 @@ function resolveToolFormatter(modelId: string): {
   if (modelId.includes('functiongemma')) {
     return { formatter: formatToolsForFunctionGemma, role: 'developer' };
   }
-  // Qwen and generic models both use Qwen format with system role
+  // Qwen and all other models use Qwen format with system role.
+  // If a future model needs different formatting, add an explicit branch above.
   return { formatter: formatToolsForQwen, role: 'system' };
 }
 
