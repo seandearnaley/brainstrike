@@ -1,20 +1,8 @@
 import type { IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '@brainstrike/types';
 
-// Moved from packages/file-explorer-ui/src/file-explorer-utils.ts
-function normalizePath(pathString: string): string {
-  // Remove duplicate slashes, handle leading slash
-  return pathString.replace(/\/+/g, '/').replace(/^\/+/, '');
-}
-
-/**
- * Checks if a path should be ignored based on predefined patterns
- * Moved from packages/file-explorer-ui/src/file-explorer-utils.ts
- */
-function shouldIgnorePath(pathString: string): boolean {
-  const normalizedPath = normalizePath(pathString);
-  return IGNORED_PATHS.some((ignoredPath) => normalizedPath.split('/').includes(ignoredPath));
-}
+// Create a Set for O(1) lookups
+const IGNORED_PATH_SET = new Set(IGNORED_PATHS);
 
 /**
  * Reads the full file tree recursively from a directory handle
@@ -32,11 +20,12 @@ export async function readFullFileTree(
   const entries: IFileNode[] = [];
 
   for await (const [name, handle] of directoryHandle.entries()) {
-    const currentPath = `${parentPath}/${name}`;
-    // Use the local shouldIgnorePath function
-    if (shouldIgnorePath(currentPath)) {
+    // Optimization: Check ignore list BEFORE path construction
+    if (IGNORED_PATH_SET.has(name)) {
       continue;
     }
+
+    const currentPath = `${parentPath}/${name}`;
 
     if (handle.kind === 'file') {
       entries.push({
