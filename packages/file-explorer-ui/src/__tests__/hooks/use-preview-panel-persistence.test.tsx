@@ -22,11 +22,19 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 // Mock createDebounce
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    createDebounce: (fn: (...args: unknown[]) => void, _ms: number) => ({
+      run: fn,
+      flush: vi.fn().mockResolvedValue(undefined),
+    }),
+  };
+});
+
+// Mock hooks
 vi.mock('@brainstrike/hooks', () => ({
-  createDebounce: (fn: (...args: unknown[]) => void, _ms: number) => ({
-    run: fn,
-    flush: vi.fn().mockResolvedValue(undefined),
-  }),
   useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
     callback,
 }));

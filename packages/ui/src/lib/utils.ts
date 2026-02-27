@@ -1,4 +1,4 @@
-import { createDebounce } from '@brainstrike/hooks';
+import { createDebounce } from '@brainstrike/utils';
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 

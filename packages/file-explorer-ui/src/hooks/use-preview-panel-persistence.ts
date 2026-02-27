@@ -1,7 +1,6 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 // Note: TableRowData type is imported where this hook is used
-import { createDebounce } from '@brainstrike/hooks';
-import { createLogger, isDevEnv } from '@brainstrike/utils';
+import { createDebounce, createLogger, isDevEnv } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'previewPanelPreferences.v1';
