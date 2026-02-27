@@ -1437,8 +1437,8 @@ function resolveToolFormatter(modelId: string): {
   if (modelId.includes('functiongemma')) {
     return { formatter: formatToolsForFunctionGemma, role: 'developer' };
   }
-  // Qwen and all other models use Qwen format with system role.
-  // If a future model needs different formatting, add an explicit branch above.
+  // Best-effort default: Qwen format works for Qwen and most generic models.
+  // If a future model needs different tool formatting, add an explicit branch above.
   return { formatter: formatToolsForQwen, role: 'system' };
 }
 

@@ -70,9 +70,9 @@ function resolveOptions(options: FlattenOptions): ResolvedFlattenOptions {
 }
 
 /**
- * Builds a single FlattenedRow and appends it to the accumulator arrays.
+ * Appends a single FlattenedRow to the accumulator arrays (rows + indexMap).
  */
-function buildRow<T>(
+function appendRow<T>(
   node: TreeNode<T>,
   siblingAria: Map<string, { setSize: number; posInSet: number }>,
   opts: ResolvedFlattenOptions,
@@ -135,7 +135,7 @@ export function flattenTree<T>(nodes: TreeNode<T>[], options: FlattenOptions): F
       if (!parentExpanded) {
         continue;
       }
-      buildRow(node, rootSiblingAria, opts, rows, indexMap);
+      appendRow(node, rootSiblingAria, opts, rows, indexMap);
     }
   }
 
@@ -165,7 +165,7 @@ export function flattenTreeRecursive<T>(
     const siblingAria = computeSiblingAria(nodeList as TreeNode<unknown>[]);
 
     for (const node of nodeList) {
-      const row = buildRow(node, siblingAria, opts, rows, indexMap);
+      const row = appendRow(node, siblingAria, opts, rows, indexMap);
 
       if (node.hasChildren && row.isExpanded) {
         traverse(getChildren(node));
