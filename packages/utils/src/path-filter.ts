@@ -124,6 +124,36 @@ export const fileFilter = {
   },
 
   /**
+   * Helper to filter children of a directory
+   *
+   * @internal Internal recursive helper used by _filterNodeRecursive.
+   */
+  _filterChildren(
+    children: IFileNode[],
+    includeMatchers: ((str: string) => boolean)[],
+    excludeMatchers: ((str: string) => boolean)[]
+  ): { filteredChildren: IFileNode[]; hasChanges: boolean } {
+    let filteredChildren: IFileNode[] | null = null;
+    let index = 0;
+
+    for (const child of children) {
+      const filtered = this._filterNodeRecursive(child, includeMatchers, excludeMatchers);
+      if (filtered !== child && !filteredChildren) {
+        // First change detected — back-fill with preceding unchanged children
+        filteredChildren = children.slice(0, index);
+      }
+      if (filteredChildren && filtered) {
+        filteredChildren.push(filtered);
+      }
+      index++;
+    }
+
+    return filteredChildren
+      ? { filteredChildren, hasChanges: true }
+      : { filteredChildren: children, hasChanges: false };
+  },
+
+  /**
    * Internal recursive filter function using pre-compiled matchers
    *
    * @internal Internal recursive helper used by filterNode.
@@ -145,13 +175,11 @@ export const fileFilter = {
 
     if (node.type === 'directory' && node.children) {
       // Recursively filter children first
-      const filteredChildren: IFileNode[] = [];
-      for (const child of node.children) {
-        const filtered = this._filterNodeRecursive(child, includeMatchers, excludeMatchers);
-        if (filtered) {
-          filteredChildren.push(filtered);
-        }
-      }
+      const { filteredChildren, hasChanges } = this._filterChildren(
+        node.children,
+        includeMatchers,
+        excludeMatchers
+      );
 
       const directoryMatches =
         includeMatchers.length === 0 || this._matchesAny(node.path, includeMatchers);
@@ -160,6 +188,12 @@ export const fileFilter = {
       // exclude it from the results
       if (!directoryMatches && filteredChildren.length === 0) {
         return null;
+      }
+
+      // Structural sharing: return the original node when children are unchanged.
+      // Callers must not mutate returned nodes — they may share references with the input tree.
+      if (!hasChanges) {
+        return node;
       }
 
       return {
@@ -177,7 +211,10 @@ export const fileFilter = {
   },
 
   /**
-   * Applies filters to a file node
+   * Applies filters to a file node.
+   *
+   * Uses structural sharing: when no children are filtered, the original node reference is returned.
+   * Callers must not mutate the returned tree — it may share references with the input.
    */
   filterNode(
     node: IFileNode,
