@@ -15,6 +15,7 @@ export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
     <div className="relative flex w-full items-center gap-2">
       <div className="relative flex-1">
         <Input
+          aria-label="Filter files"
           className={cn('w-full pr-8', isFiltering && 'pr-20')}
           data-testid="file-filter-input"
           onChange={(e) => onChange(e.target.value)}
@@ -30,10 +31,11 @@ export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
         )}
         {value && (
           <Button
-            aria-label="clear"
+            aria-label="Clear filter"
             className="absolute top-1/2 right-2 h-6 w-6 -translate-y-1/2 hover:bg-transparent"
             onClick={onClear}
             size="icon"
+            title="Clear filter"
             variant="ghost"
           >
             <X className="h-4 w-4" />
@@ -42,7 +44,13 @@ export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
       </div>
       <Popover>
         <PopoverTrigger asChild>
-          <Button aria-label="Filter syntax help" className="h-8 w-8" size="icon" variant="ghost">
+          <Button
+            aria-label="Filter syntax help"
+            className="h-8 w-8"
+            size="icon"
+            title="Filter syntax help"
+            variant="ghost"
+          >
             <Info className="h-4 w-4" />
           </Button>
         </PopoverTrigger>
