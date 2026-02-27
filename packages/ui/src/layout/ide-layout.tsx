@@ -32,6 +32,13 @@ const logger = createLogger('IdeLayout');
 const LAYOUT_INITIALIZATION_DELAY_MS = 50;
 const LAYOUT_INIT_SLOW_THRESHOLD_MS = 100;
 
+/** Validates a panel size from persistence, falling back to the default if invalid. */
+function safePanelSize(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && !Number.isNaN(value) && value >= MIN_PANEL_SIZE_THRESHOLD
+    ? value
+    : fallback;
+}
+
 // In react-resizable-panels v4, panels must ALWAYS be rendered (never conditionally mounted).
 // Visibility is controlled via the collapsible prop and imperative collapse()/expand() API.
 // This is a fundamental architectural requirement - conditional rendering breaks the layout.
@@ -59,41 +66,7 @@ interface LayoutHandlerConfig {
 }
 
 function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerConfig {
-  const cfg: LayoutHandlerConfig = {};
-  if (config.leftPanelContent !== undefined) {
-    cfg.leftPanelContent = config.leftPanelContent;
-  }
-  if (config.rightPanelContent !== undefined) {
-    cfg.rightPanelContent = config.rightPanelContent;
-  }
-  if (config.consoleContent !== undefined) {
-    cfg.consoleContent = config.consoleContent;
-  }
-  if (typeof config.showLeftPanel === 'boolean') {
-    cfg.showLeftPanel = config.showLeftPanel;
-  }
-  if (typeof config.showRightPanel === 'boolean') {
-    cfg.showRightPanel = config.showRightPanel;
-  }
-  if (typeof config.showConsole === 'boolean') {
-    cfg.showConsole = config.showConsole;
-  }
-  if (config.safeLeftSize !== undefined) {
-    cfg.safeLeftSize = config.safeLeftSize;
-  }
-  if (config.safeRightSize !== undefined) {
-    cfg.safeRightSize = config.safeRightSize;
-  }
-  if (config.safeConsoleSize !== undefined) {
-    cfg.safeConsoleSize = config.safeConsoleSize;
-  }
-  if (config.saveLayout) {
-    cfg.saveLayout = config.saveLayout;
-  }
-  if (config.isInitialRenderRef) {
-    cfg.isInitialRenderRef = config.isInitialRenderRef;
-  }
-  return cfg;
+  return { ...config };
 }
 
 // Custom hook for managing layout change handlers
@@ -511,10 +484,7 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
   );
 
   if (ctx) {
-    const sizes = ctx.sizes;
-    const showConsole = ctx.showConsole;
-    const showLeftPanel = ctx.showLeftPanel;
-    const showRightPanel = ctx.showRightPanel;
+    const { sizes, showConsole, showLeftPanel, showRightPanel } = ctx;
 
     const saveLayout = (
       newSizes: number[],
@@ -524,33 +494,18 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
     ) =>
       ctx.setState({
         sizes: newSizes,
-        showConsole: sConsole ?? ctx.showConsole,
-        showLeftPanel: sLeft ?? ctx.showLeftPanel,
-        showRightPanel: sRight ?? ctx.showRightPanel,
+        showConsole: sConsole ?? showConsole,
+        showLeftPanel: sLeft ?? showLeftPanel,
+        showRightPanel: sRight ?? showRightPanel,
       });
 
-    const toggleConsole = () =>
-      ctx.setState({
-        sizes,
-        showConsole: !showConsole,
-        showLeftPanel,
-        showRightPanel,
-      });
-
-    const toggleLeftPanel = () =>
-      ctx.setState({
-        sizes,
-        showConsole,
-        showLeftPanel: !showLeftPanel,
-        showRightPanel,
-      });
-
-    const toggleRightPanel = () =>
+    const toggleField = (field: 'showConsole' | 'showLeftPanel' | 'showRightPanel') =>
       ctx.setState({
         sizes,
         showConsole,
         showLeftPanel,
-        showRightPanel: !showRightPanel,
+        showRightPanel,
+        [field]: !ctx[field],
       });
 
     return {
@@ -559,9 +514,9 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
       showLeftPanel,
       showRightPanel,
       saveLayout,
-      toggleConsole,
-      toggleLeftPanel,
-      toggleRightPanel,
+      toggleConsole: () => toggleField('showConsole'),
+      toggleLeftPanel: () => toggleField('showLeftPanel'),
+      toggleRightPanel: () => toggleField('showRightPanel'),
     } as const;
   }
 
@@ -706,121 +661,115 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
    * This syncs React state with the panel's collapsed/expanded status when users drag
    * panels past their minimum size. The conditional logic prevents redundant state updates:
    *
-   * - collapsed && showLeftPanel: Panel was dragged to 0% but state still shows visible
-   *   → Update state to hidden (collapsed = true)
+   * - collapsed && isVisible: Panel was dragged to 0% but state still shows visible
+   *   -> Update state to hidden
    *
-   * - !(collapsed || showLeftPanel) which is (!collapsed && !showLeftPanel):
-   *   Panel has size > 0% but state shows hidden → Update state to visible
-   *   Uses effectiveLeftSize to ensure minimum 25% if previous size was too small
+   * - !collapsed && !isVisible: Panel has size > 0% but state shows hidden
+   *   -> Update state to visible (with minimum size enforcement)
    *
    * The isInitialRenderRef guard prevents state updates during hydration when
    * the layout is being restored from persistence.
    */
-  const handleLeftPanelCollapse = useCallback(
-    (collapsed: boolean) => {
-      if (isInitialRenderRef.current) {
-        return;
-      }
-      // Case 1: Panel dragged closed but state says visible → hide it
-      if (collapsed && showLeftPanel) {
-        saveLayout(
-          [safeLeftSize, safeRightSize, safeConsoleSize],
-          showConsole,
-          false,
-          showRightPanel
-        );
-      }
-      // Case 2: Panel dragged open but state says hidden → show it
-      // (!collapsed && !showLeftPanel) - panel has size but state shows hidden
-      else if (!(collapsed || showLeftPanel)) {
-        const effectiveLeftSize = safeLeftSize < 10 ? 25 : safeLeftSize;
-        saveLayout(
-          [effectiveLeftSize, safeRightSize, safeConsoleSize],
-          showConsole,
-          true,
-          showRightPanel
-        );
-      }
+  const createCollapseHandler = useCallback(
+    (
+      isVisible: boolean,
+      buildHiddenArgs: () => Parameters<typeof saveLayout>,
+      buildVisibleArgs: () => Parameters<typeof saveLayout>
+    ) => {
+      return (collapsed: boolean) => {
+        if (isInitialRenderRef.current) {
+          return;
+        }
+        if (collapsed && isVisible) {
+          saveLayout(...buildHiddenArgs());
+        } else if (!(collapsed || isVisible)) {
+          saveLayout(...buildVisibleArgs());
+        }
+      };
     },
+    [saveLayout, isInitialRenderRef]
+  );
+
+  const handleLeftPanelCollapse = useCallback(
+    (collapsed: boolean) =>
+      createCollapseHandler(
+        showLeftPanel,
+        () => [[safeLeftSize, safeRightSize, safeConsoleSize], showConsole, false, showRightPanel],
+        () => {
+          const effectiveLeftSize = safeLeftSize < 10 ? 25 : safeLeftSize;
+          return [
+            [effectiveLeftSize, safeRightSize, safeConsoleSize],
+            showConsole,
+            true,
+            showRightPanel,
+          ];
+        }
+      )(collapsed),
     [
-      saveLayout,
+      createCollapseHandler,
       safeLeftSize,
       safeRightSize,
       safeConsoleSize,
       showConsole,
       showLeftPanel,
       showRightPanel,
-      isInitialRenderRef,
     ]
   );
 
   const handleRightPanelCollapse = useCallback(
-    (collapsed: boolean) => {
-      if (isInitialRenderRef.current) {
-        return;
-      }
-      // Only update if state doesn't match the collapsed status
-      if (collapsed && showRightPanel) {
-        saveLayout(
-          [safeLeftSize, safeRightSize, safeConsoleSize],
-          showConsole,
-          showLeftPanel,
-          false
-        );
-      } else if (!(collapsed || showRightPanel)) {
-        const effectiveRightSize = safeRightSize < 10 ? 20 : safeRightSize;
-        saveLayout(
-          [safeLeftSize, effectiveRightSize, safeConsoleSize],
-          showConsole,
-          showLeftPanel,
-          true
-        );
-      }
-    },
+    (collapsed: boolean) =>
+      createCollapseHandler(
+        showRightPanel,
+        () => [[safeLeftSize, safeRightSize, safeConsoleSize], showConsole, showLeftPanel, false],
+        () => {
+          const effectiveRightSize = safeRightSize < 10 ? 20 : safeRightSize;
+          return [
+            [safeLeftSize, effectiveRightSize, safeConsoleSize],
+            showConsole,
+            showLeftPanel,
+            true,
+          ];
+        }
+      )(collapsed),
     [
-      saveLayout,
+      createCollapseHandler,
       safeLeftSize,
       safeRightSize,
       safeConsoleSize,
       showConsole,
       showLeftPanel,
       showRightPanel,
-      isInitialRenderRef,
     ]
   );
 
   const handleConsolePanelCollapse = useCallback(
-    (collapsed: boolean) => {
-      if (isInitialRenderRef.current) {
-        return;
-      }
-      // Only update if state doesn't match the collapsed status
-      if (collapsed && showConsole) {
-        saveLayout(
+    (collapsed: boolean) =>
+      createCollapseHandler(
+        showConsole,
+        () => [
           [safeLeftSize, safeRightSize, safeConsoleSize],
           false,
           showLeftPanel,
-          showRightPanel
-        );
-      } else if (!(collapsed || showConsole)) {
-        const effectiveConsoleSize = safeConsoleSize < 10 ? 20 : safeConsoleSize;
-        saveLayout(
-          [safeLeftSize, safeRightSize, effectiveConsoleSize],
-          true,
-          showLeftPanel,
-          showRightPanel
-        );
-      }
-    },
+          showRightPanel,
+        ],
+        () => {
+          const effectiveConsoleSize = safeConsoleSize < 10 ? 20 : safeConsoleSize;
+          return [
+            [safeLeftSize, safeRightSize, effectiveConsoleSize],
+            true,
+            showLeftPanel,
+            showRightPanel,
+          ];
+        }
+      )(collapsed),
     [
-      saveLayout,
+      createCollapseHandler,
       safeLeftSize,
       safeRightSize,
       safeConsoleSize,
       showConsole,
       showLeftPanel,
       showRightPanel,
-      isInitialRenderRef,
     ]
   );
 
@@ -883,18 +832,10 @@ export const IdeLayout = React.memo(function IdeLayout({
 
   // sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
   // The middle panel size is calculated dynamically as: 100 - left - right
-  // IMPORTANT: Enforce minimum thresholds to prevent corrupted tiny values from localStorage
-  const [safeLeftSize, safeRightSize, safeConsoleSize] = [
-    typeof sizes[0] === 'number' && !Number.isNaN(sizes[0]) && sizes[0] >= MIN_PANEL_SIZE_THRESHOLD
-      ? sizes[0]
-      : DEFAULT_PANEL_SIZES[0],
-    typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) && sizes[1] >= MIN_PANEL_SIZE_THRESHOLD
-      ? sizes[1]
-      : DEFAULT_PANEL_SIZES[1],
-    typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) && sizes[2] >= MIN_PANEL_SIZE_THRESHOLD
-      ? sizes[2]
-      : DEFAULT_PANEL_SIZES[2],
-  ];
+  // Enforce minimum thresholds to prevent corrupted tiny values from localStorage
+  const safeLeftSize = safePanelSize(sizes[0], DEFAULT_PANEL_SIZES[0]);
+  const safeRightSize = safePanelSize(sizes[1], DEFAULT_PANEL_SIZES[1]);
+  const safeConsoleSize = safePanelSize(sizes[2], DEFAULT_PANEL_SIZES[2]);
 
   // Determine if we should render panels (has content)
   const hasExplorer = !!leftPanelContent;

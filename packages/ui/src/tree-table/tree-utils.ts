@@ -42,6 +42,79 @@ function computeSiblingAria(
 }
 
 /**
+ * Resolved flatten options with defaults applied.
+ */
+interface ResolvedFlattenOptions {
+  contextNodeIds: Set<string>;
+  expandedIds: Set<string>;
+  filterFn?: (node: TreeNode<unknown>) => boolean;
+  highlightedIds: Set<string>;
+  multiSelectedIds: Set<string>;
+  rowIndexOffset: number;
+  selectedId: string | null;
+}
+
+function resolveOptions(options: FlattenOptions): ResolvedFlattenOptions {
+  const resolved: ResolvedFlattenOptions = {
+    expandedIds: options.expandedIds,
+    selectedId: options.selectedId ?? null,
+    multiSelectedIds: options.multiSelectedIds ?? new Set<string>(),
+    highlightedIds: options.highlightedIds ?? new Set<string>(),
+    contextNodeIds: options.contextNodeIds ?? new Set<string>(),
+    rowIndexOffset: options.rowIndexOffset ?? 2,
+  };
+  if (options.filterFn) {
+    resolved.filterFn = options.filterFn;
+  }
+  return resolved;
+}
+
+/**
+ * Builds a single FlattenedRow and appends it to the accumulator arrays.
+ */
+function buildRow<T>(
+  node: TreeNode<T>,
+  siblingAria: Map<string, { setSize: number; posInSet: number }>,
+  opts: ResolvedFlattenOptions,
+  rows: FlattenedRow<T>[],
+  indexMap: Map<string, number>
+): FlattenedRow<T> {
+  const matchesFilter = opts.filterFn ? opts.filterFn(node as TreeNode<unknown>) : true;
+  const isExpanded = opts.expandedIds.has(node.id);
+  const isSelected = opts.selectedId === node.id || opts.multiSelectedIds.has(node.id);
+  const isHighlighted = opts.highlightedIds.has(node.id);
+  const isInContext = opts.contextNodeIds.has(node.id);
+
+  const siblingInfo = siblingAria.get(node.id);
+  const rowIndex = rows.length;
+  const aria: TreeRowAriaAttributes = {
+    ariaLevel: node.depth + 1,
+    ariaSetSize: siblingInfo?.setSize ?? 1,
+    ariaPosInSet: siblingInfo?.posInSet ?? 1,
+    ariaRowIndex: rowIndex + opts.rowIndexOffset,
+  };
+
+  const row: FlattenedRow<T> = {
+    node,
+    index: rowIndex,
+    isExpanded,
+    isSelected,
+    isHighlighted,
+    matchesFilter,
+    isInContext,
+    aria,
+  };
+
+  indexMap.set(node.id, rows.length);
+  rows.push(row);
+  return row;
+}
+
+function buildResult<T>(rows: FlattenedRow<T>[], indexMap: Map<string, number>): FlattenResult<T> {
+  return { rows, indexMap, visibleCount: rows.length };
+}
+
+/**
  * Flattens a tree structure into a linear array suitable for virtualized rendering.
  * Only includes nodes whose ancestors are all expanded.
  *
@@ -50,16 +123,7 @@ function computeSiblingAria(
  * @returns FlattenResult with flattened rows and lookup map
  */
 export function flattenTree<T>(nodes: TreeNode<T>[], options: FlattenOptions): FlattenResult<T> {
-  const {
-    expandedIds,
-    selectedId = null,
-    multiSelectedIds = new Set<string>(),
-    highlightedIds = new Set<string>(),
-    contextNodeIds = new Set<string>(),
-    filterFn,
-    rowIndexOffset = 2,
-  } = options;
-
+  const opts = resolveOptions(options);
   const rows: FlattenedRow<T>[] = [];
   const indexMap = new Map<string, number>();
   // flattenTree is intentionally non-recursive and only used for a single sibling level.
@@ -68,54 +132,15 @@ export function flattenTree<T>(nodes: TreeNode<T>[], options: FlattenOptions): F
 
   function traverse(nodeList: TreeNode<T>[], parentExpanded: boolean): void {
     for (const node of nodeList) {
-      // Skip if filter is provided and node doesn't match
-      const matchesFilter = filterFn ? filterFn(node as TreeNode<unknown>) : true;
-
       if (!parentExpanded) {
-        // Parent is collapsed, skip this node
         continue;
       }
-
-      const isExpanded = expandedIds.has(node.id);
-      const isSelected = selectedId === node.id || multiSelectedIds.has(node.id);
-      const isHighlighted = highlightedIds.has(node.id);
-      const isInContext = contextNodeIds.has(node.id);
-
-      const siblingInfo = rootSiblingAria.get(node.id);
-      const rowIndex = rows.length;
-      const aria: TreeRowAriaAttributes = {
-        ariaLevel: node.depth + 1,
-        ariaSetSize: siblingInfo?.setSize ?? 1,
-        ariaPosInSet: siblingInfo?.posInSet ?? 1,
-        ariaRowIndex: rowIndex + rowIndexOffset,
-      };
-
-      const row: FlattenedRow<T> = {
-        node,
-        index: rowIndex,
-        isExpanded,
-        isSelected,
-        isHighlighted,
-        matchesFilter,
-        isInContext,
-        aria,
-      };
-
-      indexMap.set(node.id, rows.length);
-      rows.push(row);
-
-      // If this node has children and is expanded, traverse children
-      // Children are traversed by the parent component providing nested nodes
+      buildRow(node, rootSiblingAria, opts, rows, indexMap);
     }
   }
 
   traverse(nodes, true);
-
-  return {
-    rows,
-    indexMap,
-    visibleCount: rows.length,
-  };
+  return buildResult(rows, indexMap);
 }
 
 /**
@@ -132,16 +157,7 @@ export function flattenTreeRecursive<T>(
   options: FlattenOptions,
   getChildren: (node: TreeNode<T>) => TreeNode<T>[]
 ): FlattenResult<T> {
-  const {
-    expandedIds,
-    selectedId = null,
-    multiSelectedIds = new Set<string>(),
-    highlightedIds = new Set<string>(),
-    contextNodeIds = new Set<string>(),
-    filterFn,
-    rowIndexOffset = 2,
-  } = options;
-
+  const opts = resolveOptions(options);
   const rows: FlattenedRow<T>[] = [];
   const indexMap = new Map<string, number>();
 
@@ -149,50 +165,16 @@ export function flattenTreeRecursive<T>(
     const siblingAria = computeSiblingAria(nodeList as TreeNode<unknown>[]);
 
     for (const node of nodeList) {
-      const matchesFilter = filterFn ? filterFn(node as TreeNode<unknown>) : true;
-      const isExpanded = expandedIds.has(node.id);
-      const isSelected = selectedId === node.id || multiSelectedIds.has(node.id);
-      const isHighlighted = highlightedIds.has(node.id);
-      const isInContext = contextNodeIds.has(node.id);
+      const row = buildRow(node, siblingAria, opts, rows, indexMap);
 
-      const siblingInfo = siblingAria.get(node.id);
-      const rowIndex = rows.length;
-      const aria: TreeRowAriaAttributes = {
-        ariaLevel: node.depth + 1,
-        ariaSetSize: siblingInfo?.setSize ?? 1,
-        ariaPosInSet: siblingInfo?.posInSet ?? 1,
-        ariaRowIndex: rowIndex + rowIndexOffset,
-      };
-
-      const row: FlattenedRow<T> = {
-        node,
-        index: rowIndex,
-        isExpanded,
-        isSelected,
-        isHighlighted,
-        matchesFilter,
-        isInContext,
-        aria,
-      };
-
-      indexMap.set(node.id, rows.length);
-      rows.push(row);
-
-      // Recursively process children if expanded
-      if (node.hasChildren && isExpanded) {
-        const children = getChildren(node);
-        traverse(children);
+      if (node.hasChildren && row.isExpanded) {
+        traverse(getChildren(node));
       }
     }
   }
 
   traverse(nodes);
-
-  return {
-    rows,
-    indexMap,
-    visibleCount: rows.length,
-  };
+  return buildResult(rows, indexMap);
 }
 
 /**

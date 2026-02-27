@@ -33,12 +33,11 @@ import {
 import { ColumnVisibilityControls } from './preview-column-visibility-controls';
 import { getPreviewFooterModeHeight } from './preview-footer-layout';
 import { PreviewGroupingControls } from './preview-grouping-controls';
-import { PreviewPanelFooter, type TokenUsageMetrics } from './preview-panel-footer';
+import { PreviewPanelFooter } from './preview-panel-footer';
 import { PreviewTable } from './preview-table';
 import { buildTapestryFileBase } from './tapestry/tapestry-adapter';
 import { TapestryView } from './tapestry/tapestry-view';
 import type { TapestryRange } from './tapestry/types';
-import { createRangeId, getStableColorForKey } from './tapestry/utils';
 import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
 import {
@@ -56,6 +55,8 @@ import {
   type TableRowData,
 } from './utils/grouping-configs';
 import { buildGroupedPageSections, getVisibleFilesOnPage } from './utils/preview-pagination';
+import { createDefaultTapestryRanges, syncTapestryRanges } from './utils/tapestry-range-sync';
+import { getTokenUsageMetrics } from './utils/token-usage-metrics';
 
 const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
@@ -63,53 +64,6 @@ const TAPESTRY_MAX_PAGE_SIZE = 24;
 // Keep a stable reference for the "empty snapshot" state to preserve memo identity optimizations.
 const EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT: Record<string, string> = {};
 const EMPTY_PAGINATION_INFO = {};
-
-function getTokenUsageMetrics(args: {
-  budget: number;
-  selectedTokens: number;
-  sourceSelectedTokens: number;
-  rangeAdjustedFilesCount: number;
-  activeRangeFilesCount: number;
-  includeProjectTree: boolean;
-  projectTreeTokenCount: number;
-  projectTreeTokenCountLoading: boolean;
-}): TokenUsageMetrics {
-  const budget = args.budget;
-  const includedTreeTokens = args.includeProjectTree ? args.projectTreeTokenCount : 0;
-  const usedTokens = args.selectedTokens + includedTreeTokens;
-  const remainingTokens = budget - usedTokens;
-  const isOverBudget = remainingTokens < 0;
-
-  // For the segmented bar, normalize to the budget when under-budget so the "remaining" track is visible,
-  // and normalize to total usage when over-budget so both segments remain visible.
-  const barBaseTokens = Math.max(budget, usedTokens, 1);
-  const treePercent = (includedTreeTokens / barBaseTokens) * 100;
-  const selectedPercent = (args.selectedTokens / barBaseTokens) * 100;
-  const usedPercent = budget > 0 ? Math.min((usedTokens / budget) * 100, 100) : 0;
-
-  const treeLabel = args.projectTreeTokenCountLoading
-    ? '…'
-    : args.projectTreeTokenCount.toLocaleString();
-  const remainingLabel = isOverBudget
-    ? `${Math.abs(remainingTokens).toLocaleString()} over`
-    : `${remainingTokens.toLocaleString()} remaining`;
-
-  return {
-    budget,
-    sourceSelectedTokens: args.sourceSelectedTokens,
-    includedTreeTokens,
-    isOverBudget,
-    rangeAdjustedFilesCount: args.rangeAdjustedFilesCount,
-    activeRangeFilesCount: args.activeRangeFilesCount,
-    remainingLabel,
-    selectedPercent,
-    selectedTokens: args.selectedTokens,
-    treeLabel,
-    treePercent,
-    usedPercent,
-    usedTokens,
-  };
-}
 
 interface PreviewPanelProps {
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
@@ -152,111 +106,6 @@ interface PreviewPanelProps {
   tokenCounting: TokenCountingState;
 }
 
-function createDefaultTapestryRanges(compositeKey: string, totalLines: number): TapestryRange[] {
-  return [
-    {
-      id: createRangeId(),
-      startLine: 0,
-      endLine: totalLines,
-      isActive: true,
-      color: getStableColorForKey(compositeKey),
-    },
-  ];
-}
-
-function shouldStretchDefaultRange(
-  ranges: TapestryRange[],
-  previousTotal: number
-): ranges is [TapestryRange] {
-  if (ranges.length !== 1) {
-    return false;
-  }
-  const firstRange = ranges[0];
-  if (!firstRange) {
-    return false;
-  }
-  return firstRange.startLine === 0 && firstRange.endLine === previousTotal;
-}
-
-function stretchDefaultRange(range: TapestryRange, totalLines: number): TapestryRange[] {
-  return [{ ...range, endLine: totalLines }];
-}
-
-function clampRangeToTotal(range: TapestryRange, totalLines: number): TapestryRange {
-  const maxStart = Math.max(totalLines - 1, 0);
-  const startLine = Math.min(Math.max(range.startLine, 0), maxStart);
-  const endLine = Math.min(Math.max(range.endLine, startLine + 1), totalLines);
-  if (startLine === range.startLine && endLine === range.endLine) {
-    return range;
-  }
-  return { ...range, startLine, endLine };
-}
-
-function clampRangesToTotal(
-  ranges: TapestryRange[],
-  totalLines: number
-): { ranges: TapestryRange[]; changed: boolean } {
-  let changed = false;
-  const nextRanges = ranges.map((range) => {
-    const nextRange = clampRangeToTotal(range, totalLines);
-    if (nextRange !== range) {
-      changed = true;
-    }
-    return nextRange;
-  });
-  return { ranges: nextRanges, changed };
-}
-
-function syncTapestryRanges(args: {
-  prev: TapestryRangeMap;
-  bases: Map<string, ReturnType<typeof buildTapestryFileBase>>;
-  totals: Map<string, number>;
-}): { next: TapestryRangeMap; changed: boolean; totals: Map<string, number> } {
-  const next: TapestryRangeMap = { ...args.prev };
-  let changed = false;
-  const nextTotals = new Map(args.totals);
-
-  for (const [compositeKey, base] of args.bases) {
-    const previousTotal = nextTotals.get(compositeKey);
-    nextTotals.set(compositeKey, base.totalLines);
-
-    if (!next[compositeKey]) {
-      next[compositeKey] = createDefaultTapestryRanges(compositeKey, base.totalLines);
-      changed = true;
-      continue;
-    }
-
-    const ranges = next[compositeKey];
-    if (
-      previousTotal !== undefined &&
-      previousTotal !== base.totalLines &&
-      shouldStretchDefaultRange(ranges, previousTotal)
-    ) {
-      const [firstRange] = ranges;
-      if (firstRange) {
-        next[compositeKey] = stretchDefaultRange(firstRange, base.totalLines);
-        changed = true;
-      }
-    }
-
-    const clamped = clampRangesToTotal(next[compositeKey], base.totalLines);
-    if (clamped.changed) {
-      next[compositeKey] = clamped.ranges;
-      changed = true;
-    }
-  }
-
-  for (const key of Object.keys(next)) {
-    if (!args.bases.has(key)) {
-      delete next[key];
-      nextTotals.delete(key);
-      changed = true;
-    }
-  }
-
-  return { next, changed, totals: nextTotals };
-}
-
 function handleNullValues(aVal: unknown, bVal: unknown): number | null {
   if (aVal === null && bVal === null) {
     return 0;
@@ -282,7 +131,15 @@ function compareValues(aVal: unknown, bVal: unknown, field: keyof TableRowData):
   }
 
   // String sorting for other fields
-  return String(aVal) < String(bVal) ? -1 : String(aVal) > String(bVal) ? 1 : 0;
+  const aStr = String(aVal);
+  const bStr = String(bVal);
+  if (aStr < bStr) {
+    return -1;
+  }
+  if (aStr > bStr) {
+    return 1;
+  }
+  return 0;
 }
 
 export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelComponent(props) {
@@ -801,15 +658,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           if (!base) {
             continue;
           }
-          next[fileId] = [
-            {
-              id: createRangeId(),
-              startLine: 0,
-              endLine: base.totalLines,
-              isActive: true,
-              color: getStableColorForKey(fileId),
-            },
-          ];
+          next[fileId] = createDefaultTapestryRanges(fileId, base.totalLines);
         }
         return next;
       });

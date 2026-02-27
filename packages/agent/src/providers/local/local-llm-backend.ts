@@ -482,6 +482,18 @@ function validateOutputLength(output: string, parser: string): void {
 }
 
 /**
+ * Build a LocalLlmToolCall from a parsed function name and arguments.
+ * Centralizes the repeated tool call construction across all parsers.
+ */
+function buildToolCall(name: string, args: string): LocalLlmToolCall {
+  return {
+    id: `call_${crypto.randomUUID()}`,
+    type: 'function',
+    function: { name, arguments: args },
+  };
+}
+
+/**
  * Parse FunctionGemma format: <start_function_call>call:name{args}<end_function_call>
  * Uses iterative string parsing instead of regex to prevent ReDoS attacks.
  */
@@ -544,11 +556,7 @@ function parseGemmaFormat(output: string): LocalLlmToolCall | null {
     }
   }
 
-  return {
-    id: `call_${crypto.randomUUID()}`,
-    type: 'function',
-    function: { name, arguments: JSON.stringify(args) },
-  };
+  return buildToolCall(name, JSON.stringify(args));
 }
 
 /**
@@ -590,11 +598,7 @@ function parseQwenFormat(output: string): LocalLlmToolCall | null {
       return null;
     }
 
-    return {
-      id: `call_${crypto.randomUUID()}`,
-      type: 'function',
-      function: { name: parsed.name, arguments: JSON.stringify(parsed.arguments ?? {}) },
-    };
+    return buildToolCall(parsed.name, JSON.stringify(parsed.arguments ?? {}));
   } catch {
     logger.debug('Failed to parse Qwen tool call JSON', { raw: jsonContent });
     return null;
@@ -657,14 +661,7 @@ function parseGenericJsonFormat(output: string): LocalLlmToolCall | null {
       return null;
     }
 
-    return {
-      id: `call_${crypto.randomUUID()}`,
-      type: 'function',
-      function: {
-        name: parsed.name,
-        arguments: parsed.arguments ? JSON.stringify(parsed.arguments) : '{}',
-      },
-    };
+    return buildToolCall(parsed.name, parsed.arguments ? JSON.stringify(parsed.arguments) : '{}');
   } catch {
     logger.debug('Failed to parse generic JSON tool call', { raw: jsonStr });
     return null;
@@ -778,11 +775,7 @@ function parseLfmFormat(output: string): LocalLlmToolCall | null {
     }
   }
 
-  return {
-    id: `call_${crypto.randomUUID()}`,
-    type: 'function',
-    function: { name: funcName, arguments: JSON.stringify(args) },
-  };
+  return buildToolCall(funcName, JSON.stringify(args));
 }
 
 /**
@@ -850,6 +843,29 @@ const BASELINE_ALLOWED_MODELS: ReadonlySet<string> = new Set([
 const runtimeAllowedModels: Set<string> = new Set(BASELINE_ALLOWED_MODELS);
 
 /**
+ * HuggingFace model ID format: "owner/repo-name".
+ * Allows alphanumeric, hyphens, underscores, periods.
+ */
+const MODEL_ID_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+
+/**
+ * Validate model ID format and path safety (without allowlist check).
+ * Returns a reason string on failure, or null on success.
+ */
+function validateModelIdFormat(modelId: string): string | null {
+  if (modelId.length > MAX_MODEL_ID_LENGTH) {
+    return 'exceeds maximum length';
+  }
+  if (!MODEL_ID_PATTERN.test(modelId)) {
+    return 'invalid format';
+  }
+  if (modelId.includes('..') || modelId.includes('./') || modelId.includes('//')) {
+    return 'contains path traversal pattern';
+  }
+  return null;
+}
+
+/**
  * Add models to the runtime allowlist.
  * This should be called with validated model IDs from user preferences.
  * Models are validated for format before being added.
@@ -865,26 +881,12 @@ export function addAllowedModels(modelIds: string[]): {
   const rejected: Array<{ modelId: string; reason: string }> = [];
 
   for (const modelId of modelIds) {
-    // Length check
-    if (modelId.length > MAX_MODEL_ID_LENGTH) {
-      rejected.push({ modelId, reason: 'exceeds maximum length' });
+    const reason = validateModelIdFormat(modelId);
+    if (reason) {
+      rejected.push({ modelId, reason });
       continue;
     }
 
-    // Format validation (same as isValidModelId but without allowlist check)
-    const modelIdPattern = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
-    if (!modelIdPattern.test(modelId)) {
-      rejected.push({ modelId, reason: 'invalid format' });
-      continue;
-    }
-
-    // Path traversal prevention
-    if (modelId.includes('..') || modelId.includes('./') || modelId.includes('//')) {
-      rejected.push({ modelId, reason: 'contains path traversal pattern' });
-      continue;
-    }
-
-    // Add to runtime allowlist
     runtimeAllowedModels.add(modelId);
     added.push(modelId);
   }
@@ -1005,9 +1007,7 @@ export function hasModelChecksum(modelId: string): boolean {
  * @param checksums - SHA256 checksums for model files
  */
 export function setModelChecksums(modelId: string, checksums: ModelChecksums): void {
-  // Validate model ID format
-  const modelIdPattern = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
-  if (!modelIdPattern.test(modelId)) {
+  if (validateModelIdFormat(modelId)) {
     logger.warn('Invalid model ID format for checksum registration', { modelId });
     return;
   }
@@ -1077,34 +1077,15 @@ export async function verifyModelIntegrity(modelId: string, data: ArrayBuffer): 
 
 /**
  * Validate HuggingFace model ID format and check against allowlist.
- * Provides multi-layer validation:
- * 1. Length limit to prevent excessively long inputs
- * 2. Format validation (owner/model-name pattern)
- * 3. Path traversal prevention
- * 4. Allowlist verification
+ * Provides multi-layer validation: format, path safety, and allowlist.
  */
 function isValidModelId(modelId: string): boolean {
-  // Length check first (prevents ReDoS on long inputs)
-  if (modelId.length > MAX_MODEL_ID_LENGTH) {
-    logger.warn('Model ID exceeds maximum length', { length: modelId.length });
+  const formatError = validateModelIdFormat(modelId);
+  if (formatError) {
+    logger.warn('Invalid model ID', { modelId, reason: formatError });
     return false;
   }
 
-  // HuggingFace model IDs are "owner/repo-name" format
-  // Allow alphanumeric, hyphens, underscores, periods (common in version strings)
-  const modelIdPattern = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
-  if (!modelIdPattern.test(modelId)) {
-    return false;
-  }
-
-  // Path traversal prevention
-  if (modelId.includes('..') || modelId.includes('./') || modelId.includes('//')) {
-    logger.warn('Model ID contains path traversal pattern', { modelId });
-    return false;
-  }
-
-  // Allowlist check - only approved models can be loaded
-  // Uses runtime-configurable allowlist which includes baseline + user-added models
   if (!runtimeAllowedModels.has(modelId)) {
     logger.warn('Attempted to load unapproved model', { modelId });
     return false;
@@ -1373,19 +1354,29 @@ interface ToolDefinition {
 }
 
 /**
- * Format tools as a system prompt for FunctionGemma.
- * FunctionGemma expects tools in a developer message with specific format.
+ * Extract the common JSON representation of tool definitions.
+ * Shared by formatters that serialize tools as JSON (FunctionGemma, LFM2.5).
  */
-function formatToolsForFunctionGemma(tools: ToolDefinition[]): string {
-  const toolsJson = tools.map((tool) => ({
+function toToolsJson(tools: ToolDefinition[]): Array<{
+  name: string;
+  description: string;
+  parameters: ToolDefinition['function']['parameters'];
+}> {
+  return tools.map((tool) => ({
     name: tool.function.name,
     description: tool.function.description,
     parameters: tool.function.parameters,
   }));
+}
 
+/**
+ * Format tools as a system prompt for FunctionGemma.
+ * FunctionGemma expects tools in a developer message with specific format.
+ */
+function formatToolsForFunctionGemma(tools: ToolDefinition[]): string {
   return `You are a helpful assistant with access to the following functions:
 
-${JSON.stringify(toolsJson, null, 2)}
+${JSON.stringify(toToolsJson(tools), null, 2)}
 
 To use these functions, respond with:
 <start_function_call>call:function_name{param1:value1, param2:value2}<end_function_call>
@@ -1428,13 +1419,24 @@ Only call a function when the user's request requires it. If no function is need
  * Output format uses special tokens: <|tool_call_start|>[func(args)]<|tool_call_end|>
  */
 function formatToolsForLfm(tools: ToolDefinition[]): string {
-  const toolsJson = tools.map((tool) => ({
-    name: tool.function.name,
-    description: tool.function.description,
-    parameters: tool.function.parameters,
-  }));
+  return `List of tools: ${JSON.stringify(toToolsJson(tools))}`;
+}
 
-  return `List of tools: ${JSON.stringify(toolsJson)}`;
+/**
+ * Resolve which tool formatter and system message role to use for a given model.
+ */
+function resolveToolFormatter(modelId: string): {
+  formatter: (tools: ToolDefinition[]) => string;
+  role: 'system' | 'developer';
+} {
+  if (modelId.includes('LFM2') || modelId.includes('LiquidAI')) {
+    return { formatter: formatToolsForLfm, role: 'system' };
+  }
+  if (modelId.includes('functiongemma')) {
+    return { formatter: formatToolsForFunctionGemma, role: 'developer' };
+  }
+  // Qwen and generic models both use Qwen format with system role
+  return { formatter: formatToolsForQwen, role: 'system' };
 }
 
 /**
@@ -1455,24 +1457,9 @@ function injectToolsIntoMessages(
     return messages;
   }
 
-  // Format tools based on model type
-  let toolSystemPrompt: string;
-  let role: 'system' | 'developer';
-
-  if (modelId.includes('LFM2') || modelId.includes('LiquidAI')) {
-    toolSystemPrompt = formatToolsForLfm(tools);
-    role = 'system';
-  } else if (modelId.includes('functiongemma')) {
-    toolSystemPrompt = formatToolsForFunctionGemma(tools);
-    role = 'developer'; // FunctionGemma uses developer role
-  } else if (modelId.includes('Qwen')) {
-    toolSystemPrompt = formatToolsForQwen(tools);
-    role = 'system';
-  } else {
-    // Generic format for other models
-    toolSystemPrompt = formatToolsForQwen(tools);
-    role = 'system';
-  }
+  // Resolve model-specific tool formatter and system role
+  const { formatter, role } = resolveToolFormatter(modelId);
+  const toolSystemPrompt = formatter(tools);
 
   // Check if there's already a system message
   const hasSystemMessage = messages.some((m) => m.role === 'system' || m.role === 'developer');
@@ -1499,6 +1486,26 @@ function injectToolsIntoMessages(
  */
 function requiresManualPromptFormatting(modelId: string): boolean {
   return MODELS_REQUIRING_MANUAL_FORMATTING.has(modelId);
+}
+
+/**
+ * Safely dispose a temporary pipeline, logging but not throwing on failure.
+ */
+async function disposePipelineSafely(
+  pipeline: TextGenerationPipeline | null,
+  context: string
+): Promise<void> {
+  if (!pipeline?.dispose) {
+    return;
+  }
+  try {
+    await pipeline.dispose();
+    logger.debug(`Disposed temp pipeline after ${context}`);
+  } catch (disposeError) {
+    logger.debug('Error disposing temp pipeline', {
+      error: disposeError instanceof Error ? disposeError.message : String(disposeError),
+    });
+  }
 }
 
 /**
@@ -1632,17 +1639,7 @@ export class LocalLlmBackend {
 
       // Validate tokenizer has encode method
       if (!tokenizerResult || typeof tokenizerResult.encode !== 'function') {
-        // Clean up pipeline before throwing to prevent resource leaks
-        if (tempPipeline?.dispose) {
-          try {
-            await tempPipeline.dispose();
-            logger.debug('Disposed temp pipeline after tokenizer validation failure');
-          } catch (disposeError) {
-            logger.debug('Error disposing temp pipeline', {
-              error: disposeError instanceof Error ? disposeError.message : String(disposeError),
-            });
-          }
-        }
+        await disposePipelineSafely(tempPipeline, 'tokenizer validation failure');
         throw new Error(
           'Invalid tokenizer result: expected object with encode method. ' +
             'The transformers.js API may have changed.'
@@ -1667,17 +1664,7 @@ export class LocalLlmBackend {
         device: this.selectedDevice,
       });
     } catch (error) {
-      // Clean up temp pipeline if initialization failed
-      if (tempPipeline?.dispose) {
-        try {
-          await tempPipeline.dispose();
-          logger.debug('Disposed temp pipeline after initialization failure');
-        } catch (disposeError) {
-          logger.debug('Error disposing temp pipeline', {
-            error: disposeError instanceof Error ? disposeError.message : String(disposeError),
-          });
-        }
-      }
+      await disposePipelineSafely(tempPipeline, 'initialization failure');
 
       const message = error instanceof Error ? error.message : String(error);
       const errorName = error instanceof Error ? error.name : 'UnknownError';

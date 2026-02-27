@@ -54,6 +54,19 @@ interface ItemTreeNodeData {
 
 type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 
+function resolveCheckboxState(
+  isFullySelected: boolean,
+  isPartiallySelected: boolean
+): boolean | 'indeterminate' {
+  if (isFullySelected) {
+    return true;
+  }
+  if (isPartiallySelected) {
+    return 'indeterminate';
+  }
+  return false;
+}
+
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
 
@@ -72,11 +85,7 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
   isPartiallySelected,
   onSelectionChange,
 }) {
-  const checkboxState: boolean | 'indeterminate' = isFullySelected
-    ? true
-    : isPartiallySelected
-      ? 'indeterminate'
-      : false;
+  const checkboxState = resolveCheckboxState(isFullySelected, isPartiallySelected);
 
   return (
     <div className="flex min-w-0 items-center gap-2">
@@ -490,13 +499,10 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
             const group = node.data.group;
-            const isFullySelected = isGroupFullySelectedRef.current(group);
-            const isPartiallySelected = isGroupPartiallySelectedRef.current(group);
-            const checkedState: boolean | 'indeterminate' = isFullySelected
-              ? true
-              : isPartiallySelected
-                ? 'indeterminate'
-                : false;
+            const checkedState = resolveCheckboxState(
+              isGroupFullySelectedRef.current(group),
+              isGroupPartiallySelectedRef.current(group)
+            );
 
             return (
               <Checkbox

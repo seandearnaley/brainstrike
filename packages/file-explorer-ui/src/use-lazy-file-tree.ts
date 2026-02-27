@@ -422,57 +422,43 @@ export function useLazyFileTree(
     setState((s) => ({ ...s, fileTree: tree }));
   }, []);
 
-  // Expand-all management
-  // Build options object conditionally to satisfy exactOptionalPropertyTypes
-  const expandAllOptions = {
+  // Shared base options for hooks that need worker, handle map, and tree callbacks.
+  // Individual hooks extend this with their specific optional properties.
+  // Conditional spreads satisfy exactOptionalPropertyTypes.
+  const sharedHookOptions = {
     workerPortRef: portRef,
     handleMapRef,
-    rootFolderId: rootDirectoryHandle?.name ?? '',
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
     ...(onNodesIndexedRef.current ? { onNodesIndexed: onNodesIndexedRef.current } : {}),
   };
+
   const {
     isExpandingAll,
     expandAllProgressively: expandAllFromHook,
     cancelExpandAll,
     isExpandingAllRef,
-  } = useExpandAll(expandAllOptions);
+  } = useExpandAll({
+    ...sharedHookOptions,
+    rootFolderId: rootDirectoryHandle?.name ?? '',
+  });
 
-  // Recursive folder selection management
-  // Build options object conditionally to satisfy exactOptionalPropertyTypes
-  const folderSelectOptions = {
-    workerPortRef: portRef,
-    handleMapRef,
-    onTreeUpdate: handleTreeUpdate,
-    onError: handleWorkerError,
-    ...(filterTreeFn ? { filterTreeFn } : {}),
-    ...(onNodesIndexedRef.current ? { onNodesIndexed: onNodesIndexedRef.current } : {}),
-  };
+  const filterTreeOption = filterTreeFn ? { filterTreeFn } : {};
+
   const {
     isLoadingForSelection,
     loadingPath: loadingPathForSelection,
     loadingProgress: selectionLoadingProgress,
     selectFolderRecursively,
     cancelRecursiveSelect,
-  } = useRecursiveFolderSelect(folderSelectOptions);
+  } = useRecursiveFolderSelect({ ...sharedHookOptions, ...filterTreeOption });
 
-  // Recursive select all management
-  // Build options object conditionally to satisfy exactOptionalPropertyTypes
-  const selectAllOptions = {
-    workerPortRef: portRef,
-    handleMapRef,
-    onTreeUpdate: handleTreeUpdate,
-    onError: handleWorkerError,
-    ...(filterTreeFn ? { filterTreeFn } : {}),
-    ...(onNodesIndexedRef.current ? { onNodesIndexed: onNodesIndexedRef.current } : {}),
-  };
   const {
     isLoadingForSelectAll,
     loadingProgress: selectAllLoadingProgress,
     selectAllRecursively,
     cancelSelectAll,
-  } = useRecursiveSelectAll(selectAllOptions);
+  } = useRecursiveSelectAll({ ...sharedHookOptions, ...filterTreeOption });
 
   /**
    * Load root directory contents
@@ -824,39 +810,16 @@ export function useLazyFileTree(
     async (
       setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
     ): Promise<void> => {
-      logger.debug('expandAllProgressively wrapper called', {
-        hasAdapter: !!fileSystemAdapter,
-        hasPort: !!portRef.current,
-      });
-
-      if (!fileSystemAdapter) {
-        logger.warn('expandAllProgressively: no file system adapter');
+      if (!(fileSystemAdapter && portRef.current)) {
+        logger.warn('expandAllProgressively: missing adapter or worker port');
         return;
       }
 
-      if (!portRef.current) {
-        logger.warn('expandAllProgressively: no worker port');
-        return;
-      }
-
-      // Verify expandAllFromHook exists
-      if (typeof expandAllFromHook !== 'function') {
-        logger.error('expandAllProgressively: expandAllFromHook is not a function', {
-          type: typeof expandAllFromHook,
-        });
-        return;
-      }
-
-      logger.debug('expandAllProgressively: calling expandAllFromHook');
-
-      // Use the expand-all hook's implementation
       try {
         await expandAllFromHook(setExpandedPaths);
-        logger.debug('expandAllProgressively: expandAllFromHook completed');
       } catch (err) {
-        logger.error('expandAllProgressively: expandAllFromHook threw', {
+        logger.error('expandAllProgressively failed', {
           error: err instanceof Error ? err.message : String(err),
-          stack: err instanceof Error ? err.stack : undefined,
         });
         throw err;
       } finally {
@@ -892,12 +855,7 @@ export function useLazyFileTree(
 
       logger.debug('loadSpecificPaths starting', { pathCount: paths.length });
 
-      // Set up progress handler if provided
-      const unsubProgress = onProgress
-        ? portRef.current.onProgress((loaded, total, currentPath) => {
-            onProgress(loaded, total, currentPath);
-          })
-        : undefined;
+      const unsubProgress = onProgress ? portRef.current.onProgress(onProgress) : undefined;
 
       try {
         // Delegate to worker
