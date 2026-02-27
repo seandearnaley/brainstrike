@@ -126,6 +126,76 @@ describe('resolveValidatedPath', () => {
     }
   });
 
+  it('rejects sensitive procfs directories on unix', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+
+    const result = await resolveValidatedPath({
+      requestedPath: '/proc/self/cmdline',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('sensitive-path');
+    }
+  });
+
+  it('rejects sensitive user directories', async () => {
+    const home = process.env['HOME'] ?? process.env['USERPROFILE'];
+    if (!home) {
+      return;
+    }
+
+    const sensitivePath = path.join(home, '.ssh', 'id_rsa');
+    const result = await resolveValidatedPath({
+      requestedPath: sensitivePath,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('sensitive-path');
+    }
+  });
+
+  it('rejects sensitive user directories (exact match)', async () => {
+    const home = process.env['HOME'] ?? process.env['USERPROFILE'];
+    if (!home) {
+      return;
+    }
+
+    const sensitivePath = path.join(home, '.aws');
+    const result = await resolveValidatedPath({
+      requestedPath: sensitivePath,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('sensitive-path');
+    }
+  });
+
+  it('allows similar but non-sensitive user directories', async () => {
+    const home = process.env['HOME'] ?? process.env['USERPROFILE'];
+    if (!home) {
+      return;
+    }
+
+    // Should allow ~/.ssh_backup as it's not strictly ~/.ssh/ or ~/.ssh
+    const similarPath = path.join(home, '.ssh_backup');
+    const result = await resolveValidatedPath({
+      requestedPath: similarPath,
+    });
+
+    // It might still fail if the path doesn't exist and allowMissing=false (default is true),
+    // but it should NOT be 'sensitive-path'
+    if (!result.ok) {
+      expect(result.error.code).not.toBe('sensitive-path');
+    } else {
+      expect(result.ok).toBe(true);
+    }
+  });
+
   it('allows sensitive unix paths on win32 platform override', async () => {
     const result = await resolveValidatedPath({
       requestedPath: '/etc/passwd',

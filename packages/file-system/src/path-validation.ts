@@ -8,6 +8,17 @@ export const DEFAULT_SENSITIVE_UNIX_DIRECTORIES = [
   '/usr/sbin/',
   '/sbin/',
   '/boot/',
+  '/proc/',
+  '/sys/',
+  '/dev/',
+] as const;
+
+export const DEFAULT_SENSITIVE_USER_DIRECTORIES = [
+  '.ssh',
+  '.aws',
+  '.kube',
+  '.gnupg',
+  '.config/gcloud',
 ] as const;
 
 export type PathValidationErrorCode =
@@ -70,6 +81,23 @@ function isSensitiveUnixPath(candidate: string): boolean {
   return DEFAULT_SENSITIVE_UNIX_DIRECTORIES.some((dir) => candidate.startsWith(dir));
 }
 
+function isSensitiveUserPath(candidate: string): boolean {
+  const home = process.env['HOME'] ?? process.env['USERPROFILE'];
+  if (!home) {
+    return false;
+  }
+  return DEFAULT_SENSITIVE_USER_DIRECTORIES.some((dir) => {
+    // Check if candidate starts with ~/.ssh/, ~/.aws/, etc.
+    const sensitiveRoot = path.join(home, dir);
+    // Ensure we match the directory itself or its contents (avoid partial matches like ~/.ssh_backup)
+    return (
+      candidate === sensitiveRoot ||
+      candidate.startsWith(`${sensitiveRoot}${path.sep}`) ||
+      candidate.startsWith(`${sensitiveRoot}/`) // Handle mixed separators safely
+    );
+  });
+}
+
 function buildError(
   code: PathValidationErrorCode,
   message: string,
@@ -121,17 +149,29 @@ function validateSensitivePath(
   blockSensitiveDirectories: boolean,
   platform: NodeJS.Platform
 ): PathValidationError | null {
-  if (!blockSensitiveDirectories || platform === 'win32') {
+  if (!blockSensitiveDirectories) {
     return null;
   }
-  if (!isSensitiveUnixPath(candidate)) {
-    return null;
+
+  // Check system directories (Unix only)
+  if (platform !== 'win32' && isSensitiveUnixPath(candidate)) {
+    return buildError(
+      'sensitive-path',
+      'Requested path targets a restricted system directory.',
+      candidate
+    );
   }
-  return buildError(
-    'sensitive-path',
-    'Requested path targets a restricted system directory.',
-    candidate
-  );
+
+  // Check sensitive user directories (All platforms)
+  if (isSensitiveUserPath(candidate)) {
+    return buildError(
+      'sensitive-path',
+      'Requested path targets a restricted user directory.',
+      candidate
+    );
+  }
+
+  return null;
 }
 
 async function resolveRealPath(
