@@ -17,16 +17,12 @@ vi.mock('@brainstrike/utils', async () => {
   return {
     ...actual,
     isDevEnv: vi.fn(() => false),
+    createDebounce: vi.fn((fn) => ({
+      run: vi.fn((state) => fn(state)),
+      flush: vi.fn(() => Promise.resolve()),
+    })),
   };
 });
-
-// Mock the debounce utility from hooks
-vi.mock('@brainstrike/hooks', () => ({
-  createDebounce: vi.fn((fn) => ({
-    run: vi.fn((state) => fn(state)),
-    flush: vi.fn(() => Promise.resolve()),
-  })),
-}));
 
 // Mock localStorage
 const localStorageMock = {
