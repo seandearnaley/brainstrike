@@ -136,12 +136,12 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
   const latest = history.at(-1) ?? 0;
   const previous = history.at(-2) ?? latest;
   const delta = latest - previous;
-  const deltaColorClassName =
-    delta > 0
-      ? 'text-amber-600 dark:text-amber-400'
-      : delta < 0
-        ? 'text-emerald-600 dark:text-emerald-400'
-        : 'text-muted-foreground';
+  let deltaColorClassName = 'text-muted-foreground';
+  if (delta > 0) {
+    deltaColorClassName = 'text-amber-600 dark:text-amber-400';
+  } else if (delta < 0) {
+    deltaColorClassName = 'text-emerald-600 dark:text-emerald-400';
+  }
 
   return (
     <div className="rounded-md border bg-background/60 p-2">
@@ -677,7 +677,12 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     const usedTokensRef = useRef(tokenUsage.usedTokens);
     usedTokensRef.current = tokenUsage.usedTokens;
 
-    const meterSize = isExpanded ? 'lg' : isCompact ? 'sm' : 'md';
+    let meterSize: 'sm' | 'md' | 'lg' = 'md';
+    if (isExpanded) {
+      meterSize = 'lg';
+    } else if (isCompact) {
+      meterSize = 'sm';
+    }
 
     const averageTokensPerFile = useMemo(() => {
       if (selectedFilesCount <= 0) {

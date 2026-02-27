@@ -535,23 +535,17 @@ export function useBackgroundTokenIndexerIntegration({
       let skippedTooLarge = 0;
       let skippedInvalidPath = 0;
 
-      // DEBUG: Log sample keys from map and selection to diagnose mismatch
-      const mapKeys = Array.from(fileHandleMapRef.current.keys()).slice(0, 3);
-      const selectionKeys = compositeKeys.slice(0, 3);
-      logger.debug('triggerIndexing key comparison', {
-        mapKeysSample: mapKeys,
-        selectionKeysSample: selectionKeys,
-        mapSize: fileHandleMapRef.current.size,
-        selectionSize: compositeKeys.length,
-      });
+      /** Mark a file as in-flight and bump the pulse counter when transitioning from empty. */
+      const markInFlight = (key: string): void => {
+        const wasEmpty = inFlightRef.current.size === 0;
+        inFlightRef.current.add(key);
+        if (wasEmpty) {
+          bumpInFlightPulse((value) => value + 1);
+        }
+      };
 
       for (const compositeKey of compositeKeys) {
-        // Skip if already indexed in this session
-        if (indexedFilesRef.current.has(compositeKey)) {
-          continue;
-        }
-        // Skip if already queued
-        if (inFlightRef.current.has(compositeKey)) {
+        if (indexedFilesRef.current.has(compositeKey) || inFlightRef.current.has(compositeKey)) {
           continue;
         }
 
@@ -613,12 +607,7 @@ export function useBackgroundTokenIndexerIntegration({
         }
 
         if (handleInfo.webHandle) {
-          // Web files: pass handle directly to worker
-          const wasEmpty = inFlightRef.current.size === 0;
-          inFlightRef.current.add(compositeKey);
-          if (wasEmpty) {
-            bumpInFlightPulse((value) => value + 1);
-          }
+          markInFlight(compositeKey);
           filesToIndex.push({
             compositeKey,
             folderId,
@@ -647,9 +636,9 @@ export function useBackgroundTokenIndexerIntegration({
         }
 
         // Read files in parallel batches to avoid overwhelming IPC
-        const BatchSize = 20;
-        for (let i = 0; i < electronFilesToRead.length; i += BatchSize) {
-          const batch = electronFilesToRead.slice(i, i + BatchSize);
+        const electronBatchSize = 20;
+        for (let i = 0; i < electronFilesToRead.length; i += electronBatchSize) {
+          const batch = electronFilesToRead.slice(i, i + electronBatchSize);
           const results = await Promise.all(
             batch.map(async ({ compositeKey, folderId, filePath, handle }) => {
               try {
@@ -672,11 +661,7 @@ export function useBackgroundTokenIndexerIntegration({
               continue;
             }
 
-            const wasEmpty = inFlightRef.current.size === 0;
-            inFlightRef.current.add(result.compositeKey);
-            if (wasEmpty) {
-              bumpInFlightPulse((value) => value + 1);
-            }
+            markInFlight(result.compositeKey);
             filesToIndex.push({
               compositeKey: result.compositeKey,
               folderId: result.folderId,
@@ -927,12 +912,9 @@ export function useBackgroundTokenIndexerIntegration({
     // A folder is considered "preloaded" if it was preloaded at the current cacheVersion.
     // This avoids repeated DB reads when selection changes but folders are the same.
     const foldersToPreload: string[] = [];
-    const foldersSkipped: string[] = [];
     for (const folderId of folderIds) {
       const memoizedVersion = preloadedFoldersRef.current.get(folderId);
-      if (memoizedVersion === currentCacheVersion) {
-        foldersSkipped.push(folderId);
-      } else {
+      if (memoizedVersion !== currentCacheVersion) {
         foldersToPreload.push(folderId);
       }
     }
@@ -940,9 +922,7 @@ export function useBackgroundTokenIndexerIntegration({
     logger.debug('Warm cache effect: preloading folders', {
       folderCount: folderIds.size,
       foldersToPreload: foldersToPreload.length,
-      foldersSkipped: foldersSkipped.length,
       totalFiles: selectedFiles.size,
-      isPersisted: cache.isPersisted,
       cacheVersion: currentCacheVersion,
     });
 
@@ -964,7 +944,6 @@ export function useBackgroundTokenIndexerIntegration({
 
       const normalizedPathToCompositeKey = new Map<string, string>();
       const normalizedPaths: string[] = [];
-      const normalizedPathSet = new Set<string>();
       for (const key of keys) {
         const { path } = decodeFileSelection(key);
         let normalizedPath: string;
@@ -982,9 +961,6 @@ export function useBackgroundTokenIndexerIntegration({
         }
         if (!normalizedPathToCompositeKey.has(normalizedPath)) {
           normalizedPathToCompositeKey.set(normalizedPath, key);
-        }
-        if (!normalizedPathSet.has(normalizedPath)) {
-          normalizedPathSet.add(normalizedPath);
           normalizedPaths.push(normalizedPath);
         }
       }

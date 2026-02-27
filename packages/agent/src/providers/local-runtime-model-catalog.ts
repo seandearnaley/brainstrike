@@ -532,28 +532,19 @@ export class LocalRuntimeModelCatalogService {
     });
 
     if (loaded.ok) {
+      const shared = {
+        runtime,
+        checkedAt,
+        availability,
+        endpoint: loaded.endpoint.endpoint,
+        source: loaded.endpoint.source,
+        freshness: 'live' as const,
+      };
+
       const state: LocalRuntimeModelCatalogState =
         loaded.models.length > 0
-          ? {
-              state: 'loaded_non_empty',
-              runtime,
-              checkedAt,
-              availability,
-              endpoint: loaded.endpoint.endpoint,
-              source: loaded.endpoint.source,
-              freshness: 'live',
-              models: loaded.models,
-            }
-          : {
-              state: 'loaded_empty',
-              runtime,
-              checkedAt,
-              availability,
-              endpoint: loaded.endpoint.endpoint,
-              source: loaded.endpoint.source,
-              freshness: 'live',
-              models: [],
-            };
+          ? { ...shared, state: 'loaded_non_empty' as const, models: loaded.models }
+          : { ...shared, state: 'loaded_empty' as const, models: [] as const };
 
       this.cache.set(runtime, {
         status: state,
@@ -561,8 +552,8 @@ export class LocalRuntimeModelCatalogService {
         consecutiveFailures: 0,
         lastSuccess: {
           checkedAt,
-          endpoint: loaded.endpoint.endpoint,
-          source: loaded.endpoint.source,
+          endpoint: shared.endpoint,
+          source: shared.source,
           models: loaded.models,
         },
       });

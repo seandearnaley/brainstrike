@@ -282,43 +282,46 @@ export class UnifiedToolRegistry {
 
   /**
    * Get tools matching a filter configuration.
+   * Uses a single pass over all tools to avoid creating intermediate arrays.
    */
   getFilteredTools(filter: ToolFilterConfig): UnifiedToolMetadata[] {
-    let tools = this.getAllTools();
+    return this.getAllTools().filter((t) => this.matchesFilter(t, filter));
+  }
 
-    if (filter.source !== undefined) {
-      tools = tools.filter((t) => t.source === filter.source);
+  /**
+   * Check if a tool matches all filter criteria.
+   */
+  private matchesFilter(t: UnifiedToolMetadata, filter: ToolFilterConfig): boolean {
+    if (filter.source !== undefined && t.source !== filter.source) {
+      return false;
     }
-
-    if (filter.category !== undefined) {
-      tools = tools.filter((t) => t.category === filter.category);
+    if (filter.category !== undefined && t.category !== filter.category) {
+      return false;
     }
-
-    if (filter.loadingTier !== undefined) {
-      tools = tools.filter((t) => t.loadingTier === filter.loadingTier);
+    if (filter.loadingTier !== undefined && t.loadingTier !== filter.loadingTier) {
+      return false;
     }
-
-    if (filter.enabled !== undefined) {
-      tools = tools.filter((t) => t.enabled === filter.enabled);
+    if (filter.enabled !== undefined && t.enabled !== filter.enabled) {
+      return false;
     }
-
-    if (filter.requiresApproval !== undefined) {
-      tools = tools.filter((t) => t.requiresApproval === filter.requiresApproval);
+    if (filter.requiresApproval !== undefined && t.requiresApproval !== filter.requiresApproval) {
+      return false;
     }
-
-    if (filter.patterns && filter.patterns.length > 0) {
-      tools = tools.filter((t) =>
-        filter.patterns?.some((pattern) => this.matchPattern(t.id, pattern))
-      );
+    if (
+      filter.patterns &&
+      filter.patterns.length > 0 &&
+      !filter.patterns.some((pattern) => this.matchPattern(t.id, pattern))
+    ) {
+      return false;
     }
-
-    if (filter.excludePatterns && filter.excludePatterns.length > 0) {
-      tools = tools.filter(
-        (t) => !filter.excludePatterns?.some((pattern) => this.matchPattern(t.id, pattern))
-      );
+    if (
+      filter.excludePatterns &&
+      filter.excludePatterns.length > 0 &&
+      filter.excludePatterns.some((pattern) => this.matchPattern(t.id, pattern))
+    ) {
+      return false;
     }
-
-    return tools;
+    return true;
   }
 
   /**
@@ -425,40 +428,14 @@ export class UnifiedToolRegistry {
    * Enable specific tool(s).
    */
   enableTools(toolIds: string[]): void {
-    let changed = false;
-    for (const id of toolIds) {
-      const tool = this.tools.get(id);
-      if (tool && !tool.enabled) {
-        tool.enabled = true;
-        this.tools.set(id, tool);
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      logger.info('Tools enabled', { count: toolIds.length, toolIds });
-      this.notifyListeners();
-    }
+    this.setToolsEnabled(toolIds, true);
   }
 
   /**
    * Disable specific tool(s).
    */
   disableTools(toolIds: string[]): void {
-    let changed = false;
-    for (const id of toolIds) {
-      const tool = this.tools.get(id);
-      if (tool?.enabled) {
-        tool.enabled = false;
-        this.tools.set(id, tool);
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      logger.info('Tools disabled', { count: toolIds.length, toolIds });
-      this.notifyListeners();
-    }
+    this.setToolsEnabled(toolIds, false);
   }
 
   /**
@@ -660,6 +637,24 @@ export class UnifiedToolRegistry {
 
   // Private methods
 
+  /** Set the enabled state for a list of tool IDs, notifying listeners if any changed. */
+  private setToolsEnabled(toolIds: string[], enabled: boolean): void {
+    let changed = false;
+    for (const id of toolIds) {
+      const tool = this.tools.get(id);
+      if (tool && tool.enabled !== enabled) {
+        tool.enabled = enabled;
+        this.tools.set(id, tool);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      logger.info(`Tools ${enabled ? 'enabled' : 'disabled'}`, { count: toolIds.length, toolIds });
+      this.notifyListeners();
+    }
+  }
+
   /** Internal method to register a native tool without logging or notifying listeners */
   private registerNativeToolInternal(options: NativeToolRegistrationOptions): void {
     const { id, description, inputSchema, enabled = true } = options;
@@ -701,14 +696,9 @@ export class UnifiedToolRegistry {
       return 'No description available';
     }
 
-    if ('description' in tool) {
-      const description = tool['description'];
-      if (typeof description === 'string') {
-        return description;
-      }
-      if (description !== undefined && description !== null) {
-        return String(description);
-      }
+    const description = tool['description'];
+    if (description != null) {
+      return String(description);
     }
 
     return 'No description available';
@@ -718,12 +708,7 @@ export class UnifiedToolRegistry {
     if (!isRecord(tool)) {
       return undefined;
     }
-
-    if ('inputSchema' in tool) {
-      return this.resolveInputSchema(tool['inputSchema']);
-    }
-
-    return undefined;
+    return this.resolveInputSchema(tool['inputSchema']);
   }
 
   private resolveInputSchema(inputSchema: unknown): ToolInputSchema | undefined {
