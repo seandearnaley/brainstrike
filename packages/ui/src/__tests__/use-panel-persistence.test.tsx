@@ -17,7 +17,7 @@ vi.mock('@brainstrike/utils', async () => {
   return {
     ...actual,
     isDevEnv: vi.fn(() => false),
-    createDebounce: vi.fn((fn) => ({
+    createDebounce: vi.fn((fn: (...args: unknown[]) => void, _ms: number) => ({
       run: vi.fn((state) => fn(state)),
       flush: vi.fn(() => Promise.resolve()),
     })),
