@@ -556,6 +556,22 @@ describe('fileFilter', () => {
       expect(result?.children).toHaveLength(1);
     });
 
+    it('should preserve references through nested unchanged directories', () => {
+      const file = createFileNode({ name: 'app.js', path: '/root/sub/app.js' });
+      const sub = createDirectoryNode({ name: 'sub', path: '/root/sub', children: [file] });
+      const root = createDirectoryNode({ name: 'root', path: '/root', children: [sub] });
+
+      const options: FileFilterOptions = {
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(root, options);
+      expect(result).toBe(root);
+      expect(result?.children?.[0]).toBe(sub); // nested reference preserved
+    });
+
     // NEW: Test directory with undefined children
     it('should handle directories with undefined children', () => {
       const dirWithoutChildren = createDirectoryNode({

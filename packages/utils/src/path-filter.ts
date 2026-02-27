@@ -211,7 +211,10 @@ export const fileFilter = {
   },
 
   /**
-   * Applies filters to a file node
+   * Applies filters to a file node.
+   *
+   * Uses structural sharing: when no children are filtered, the original node reference is returned.
+   * Callers must not mutate the returned tree — it may share references with the input.
    */
   filterNode(
     node: IFileNode,
