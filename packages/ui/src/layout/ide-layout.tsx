@@ -1078,6 +1078,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                         data-testid="show-console-panel"
                         onClick={handleShowConsole}
                         size="sm"
+                        title="Show File Editor"
                         variant="ghost"
                       >
                         <Terminal className="h-4 w-4" />
