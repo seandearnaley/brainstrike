@@ -21,6 +21,8 @@ export class BrainStrikeError extends Error {
 
 const logger = createLogger('FileSystem');
 
+const fileSystemCollator = new Intl.Collator(undefined);
+
 /**
  * Core file system operations and utilities
  */
@@ -225,7 +227,7 @@ export const fileSystem = {
       depth: parentPath.split('/').length,
       selectionState: 'unchecked',
       rootFolderId,
-      children: children.sort((a, b) => a.name.localeCompare(b.name)),
+      children: children.sort((a, b) => fileSystemCollator.compare(a.name, b.name)),
     };
   },
 };
