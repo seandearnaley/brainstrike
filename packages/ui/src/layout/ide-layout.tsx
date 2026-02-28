@@ -227,7 +227,16 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
           cancelAnimationFrame(rafIdRef.current);
           rafIdRef.current = null;
         }
-        // Process any pending layouts immediately
+        // Process any pending layouts into deferredSaveRef before flushing
+        if (pendingHorizontalRef.current && stableConfig.saveLayout) {
+          deferredSaveRef.current = buildHorizontalSaveArgs(
+            pendingHorizontalRef.current,
+            stableConfig
+          );
+        }
+        if (pendingVerticalRef.current && stableConfig.saveLayout) {
+          deferredSaveRef.current = buildVerticalSaveArgs(pendingVerticalRef.current, stableConfig);
+        }
         pendingHorizontalRef.current = null;
         pendingVerticalRef.current = null;
         flushDeferredSave();

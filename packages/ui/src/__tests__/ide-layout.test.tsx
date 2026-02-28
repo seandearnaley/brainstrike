@@ -696,21 +696,22 @@ describe('IdeLayout', () => {
   });
 
   describe('transition-free separators', () => {
-    it('separators do not have transition-colors class', () => {
-      Object.assign(mockState, {
-        showLeftPanel: true,
-        showRightPanel: true,
-        showConsole: true,
-      });
-      renderDefaultLayout();
-
-      // The mock renders <div data-testid="resize-handle"> but the real Separator
-      // receives className as a prop. Verify the className passed to Separator
-      // does NOT include "transition-colors" by checking the component's source.
-      // This is a structural test — we verify separators exist without asserting
-      // on the mock's DOM (which doesn't preserve className).
-      const separators = screen.getAllByTestId('resize-handle');
-      expect(separators.length).toBe(3);
+    it('source does not apply transition-colors to Separator className', async () => {
+      // Source-level assertion: read the ide-layout source and verify no Separator
+      // className contains "transition-colors". The mock strips className so DOM
+      // assertions can't catch this — checking source prevents regressions directly.
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const source = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../layout/ide-layout.tsx'),
+        'utf-8'
+      );
+      // Match Separator JSX blocks with their className props
+      const separatorBlocks = source.match(/<Separator[\s\S]*?\/>/g) ?? [];
+      expect(separatorBlocks.length).toBeGreaterThanOrEqual(3);
+      for (const block of separatorBlocks) {
+        expect(block).not.toContain('transition-colors');
+      }
     });
   });
 });
