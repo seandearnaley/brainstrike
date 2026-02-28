@@ -10,7 +10,7 @@ const logger = createLogger('CryptoUtils');
  */
 export function generateUUID(): string {
   // Try crypto.randomUUID if available (modern browsers and Node.js 16+)
-  if (crypto?.randomUUID) {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
 
