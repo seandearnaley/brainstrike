@@ -141,7 +141,12 @@ function useQueueStats(
       };
     }
 
-    const id = setInterval(fetchStats, QUEUE_POLL_INTERVAL_MS);
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
+        return;
+      }
+      void fetchStats();
+    }, QUEUE_POLL_INTERVAL_MS);
     return () => {
       canceled = true;
       clearInterval(id);

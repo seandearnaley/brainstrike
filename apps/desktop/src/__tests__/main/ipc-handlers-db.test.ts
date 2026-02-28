@@ -102,6 +102,12 @@ vi.mock('electron', async () => {
       getPrimaryDisplay: vi.fn(() => ({ workAreaSize: { width: 1920, height: 1080 } })),
       getAllDisplays: vi.fn(() => []),
     },
+    powerMonitor: {
+      on: vi.fn(),
+    },
+    powerSaveBlocker: {
+      start: vi.fn(() => 1),
+    },
   };
 });
 

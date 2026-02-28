@@ -85,6 +85,12 @@ vi.mock('electron', async () => {
     webContents: {
       getAllWebContents: vi.fn(() => []),
     },
+    powerMonitor: {
+      on: vi.fn(),
+    },
+    powerSaveBlocker: {
+      start: vi.fn(() => 1),
+    },
   };
 });
 

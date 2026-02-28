@@ -78,8 +78,11 @@ export function useIndexerTelemetry({
     // Initial snapshot
     setSnapshot(aggregator.snapshot());
 
-    // Update on interval
+    // Update on interval (skip when app is backgrounded to avoid wasted work)
     const intervalId = setInterval(() => {
+      if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
+        return;
+      }
       setSnapshot(aggregator.snapshot());
     }, updateIntervalMs);
 

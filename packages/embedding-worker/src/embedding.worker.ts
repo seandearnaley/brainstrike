@@ -56,6 +56,25 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
   };
 
   // Log worker initialization at debug level (removed - too verbose)
+
+  // Listen for power-state broadcasts from the renderer to pause/resume GPU
+  // keep-alive during system suspend. BroadcastChannel works across same-origin
+  // contexts (including web workers) without needing direct Worker references,
+  // so this bypasses the workerpool abstraction cleanly.
+  if (typeof BroadcastChannel !== 'undefined') {
+    const powerChannel = new BroadcastChannel('brainstrike-power');
+    powerChannel.onmessage = (event) => {
+      if (event.data === 'suspend') {
+        keepAlivePaused = true;
+        // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+        console.log('[EmbeddingWorker] GPU keep-alive paused (system suspend)');
+      } else if (event.data === 'resume') {
+        keepAlivePaused = false;
+        // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+        console.log('[EmbeddingWorker] GPU keep-alive resumed (system resume)');
+      }
+    };
+  }
 }
 
 /**
@@ -159,6 +178,16 @@ interface GpuDeviceHandle {
 /** Handle for the keep-alive interval so it can be stopped on device loss. */
 let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
 
+/** When true, the keep-alive interval skips GPU command submissions.
+ *  Set via 'pause-keepalive' / 'resume-keepalive' messages from the renderer
+ *  during system suspend/resume to avoid submitting commands to a stale GPU device. */
+let keepAlivePaused = false;
+
+/** When true, an inference call is actively using the GPU device.
+ *  The keep-alive skips its tick to avoid concurrent GPUQueue submissions
+ *  that can race on the Metal command queue and trigger a Dawn CHECK(). */
+let isInferenceActive = false;
+
 /** Whether we have already attached the device-loss watcher for the current device. */
 let deviceLossWatcherAttached = false;
 
@@ -218,6 +247,9 @@ function startKeepAlive(device: GpuDeviceHandle): void {
   // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
   console.log(`[EmbeddingWorker] GPU keep-alive started (interval=${GPU_KEEPALIVE_INTERVAL_MS}ms)`);
   keepAliveTimer = setInterval(() => {
+    if (keepAlivePaused || isInferenceActive) {
+      return;
+    }
     try {
       // Create and submit a real (empty) command buffer. This goes through
       // Dawn's full command-buffer encoding and submission path, which is
@@ -384,7 +416,7 @@ async function loadPipeline(
       // pipeline() returns because ONNX Runtime creates the device during session
       // creation inside pipeline().
       if (device === 'webgpu') {
-        void initWebGpuDeviceGuard();
+        await initWebGpuDeviceGuard();
       }
 
       return result as FeatureExtractor;
@@ -561,6 +593,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
   });
 
   const state = createInitialState(context, deviceHint, payload.maxBatchSize);
+  isInferenceActive = true;
   try {
     const result = await processEmbeddings(context, state);
     return result;
@@ -568,6 +601,8 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
     emitErrorEvent(context.id, error);
     // Always throw a proper Error object so workerpool can serialize it correctly
     throw normalizeError(error);
+  } finally {
+    isInferenceActive = false;
   }
 }
 

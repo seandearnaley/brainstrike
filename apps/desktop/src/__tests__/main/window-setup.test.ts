@@ -64,6 +64,12 @@ vi.mock('electron', () => ({
     setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
   },
+  powerMonitor: {
+    on: vi.fn(),
+  },
+  powerSaveBlocker: {
+    start: vi.fn(() => 1),
+  },
 }));
 
 const statSyncMock = vi.fn(() => ({

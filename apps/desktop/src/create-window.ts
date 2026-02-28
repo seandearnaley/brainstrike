@@ -71,24 +71,22 @@ async function connectToDevServer(win: BrowserWindow) {
       // CRITICAL: Keep dev renderer URL deterministic.
       // Probing multiple ports caused hidden startup slowdowns and non-deterministic
       // behavior when another process occupied 8081 and Vite auto-shifted ports.
-      startupLogger.info('Attempting to connect desktop renderer', {
-        attempt,
-        url: DEV_RENDERER_URL,
-      });
+      startupLogger.info(
+        { attempt, url: DEV_RENDERER_URL },
+        'Attempting to connect desktop renderer'
+      );
       await win.loadURL(DEV_RENDERER_URL);
-      startupLogger.info('Desktop renderer connection established', {
-        attempt,
-        url: DEV_RENDERER_URL,
-        elapsedMs: Date.now() - attemptStart,
-      });
+      startupLogger.info(
+        { attempt, url: DEV_RENDERER_URL, elapsedMs: Date.now() - attemptStart },
+        'Desktop renderer connection established'
+      );
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      startupLogger.warn('Desktop renderer connection attempt failed', {
-        attempt,
-        url: DEV_RENDERER_URL,
-        message,
-      });
+      startupLogger.warn(
+        { attempt, url: DEV_RENDERER_URL, message },
+        'Desktop renderer connection attempt failed'
+      );
       lastError = error;
     }
 
@@ -173,10 +171,10 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   let crashCountInWindow = 0;
   let lastCrashAt = 0;
   const logStartupPhase = (phase: string, extra: Record<string, unknown> = {}) => {
-    startupLogger.info(`Window startup: ${phase}`, {
-      elapsedMs: Date.now() - startupStartedAt,
-      ...extra,
-    });
+    startupLogger.info(
+      { elapsedMs: Date.now() - startupStartedAt, ...extra },
+      `Window startup: ${phase}`
+    );
   };
   const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
   const resolvedWindowState = ensureWindowBoundsVisible(
@@ -247,26 +245,57 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       if (!isMainFrame) {
         return;
       }
-      startupLogger.error('Window startup: did-fail-load', {
-        elapsedMs: Date.now() - startupStartedAt,
-        errorCode,
-        errorDescription,
-        validatedURL,
-      });
+      startupLogger.error(
+        { elapsedMs: Date.now() - startupStartedAt, errorCode, errorDescription, validatedURL },
+        'Window startup: did-fail-load'
+      );
     }
   );
 
   // Safety net for renderer crashes (e.g. SIGTRAP from stale WebGPU handles).
-  // Logs crash details and reloads the renderer for automatic recovery.
+  // CRITICAL: Reloading a dead renderer while the window is backgrounded causes
+  // a permanent main-thread freeze (100% CPU in kernel signal handlers). To avoid
+  // this, we defer recovery until the window regains focus.
   // See: docs/debug-handoff-renderer-crash.md (Layer 3: crash recovery)
+  let pendingRendererRecovery = false;
+
+  const attemptRendererReload = () => {
+    if (win.isDestroyed() || !pendingRendererRecovery) {
+      return;
+    }
+    pendingRendererRecovery = false;
+    startupLogger.info('Executing deferred renderer reload');
+    try {
+      win.webContents.reload();
+    } catch (reloadError) {
+      startupLogger.error({ reloadError }, 'Renderer reload failed after crash');
+    }
+  };
+
+  // Recovery triggers: reload when the user actually interacts with the window.
+  win.on('focus', () => {
+    if (pendingRendererRecovery) {
+      attemptRendererReload();
+    }
+  });
+  // macOS dock icon click / Cmd-Tab back to app
+  app.on('activate', () => {
+    if (pendingRendererRecovery) {
+      attemptRendererReload();
+    }
+  });
+
   win.webContents.on(
     'render-process-gone',
     (_event: Electron.Event, details: Electron.RenderProcessGoneDetails) => {
-      startupLogger.error('Renderer process gone', {
-        reason: details.reason,
-        exitCode: details.exitCode,
-        elapsedMs: Date.now() - startupStartedAt,
-      });
+      startupLogger.error(
+        {
+          reason: details.reason,
+          exitCode: details.exitCode,
+          elapsedMs: Date.now() - startupStartedAt,
+        },
+        'Renderer process gone'
+      );
 
       // Only attempt recovery for crashes — 'killed' and 'clean-exit' are intentional.
       if (details.reason === 'crashed' || details.reason === 'abnormal-exit') {
@@ -278,24 +307,44 @@ export async function createWindow(options: CreateWindowOptions = {}) {
         lastCrashAt = now;
 
         if (crashCountInWindow > MAX_RENDERER_CRASHES_IN_WINDOW) {
-          startupLogger.error('Renderer crash loop detected; skipping automatic reload', {
-            crashCountInWindow,
-            maxRendererCrashesInWindow: MAX_RENDERER_CRASHES_IN_WINDOW,
-            rendererCrashWindowMs: RENDERER_CRASH_WINDOW_MS,
-          });
+          startupLogger.error(
+            {
+              crashCountInWindow,
+              maxRendererCrashesInWindow: MAX_RENDERER_CRASHES_IN_WINDOW,
+              rendererCrashWindowMs: RENDERER_CRASH_WINDOW_MS,
+            },
+            'Renderer crash loop detected; skipping automatic reload'
+          );
           return;
         }
 
-        startupLogger.info('Attempting renderer recovery via reload', {
-          crashCountInWindow,
-          maxRendererCrashesInWindow: MAX_RENDERER_CRASHES_IN_WINDOW,
-          rendererCrashWindowMs: RENDERER_CRASH_WINDOW_MS,
-        });
-        try {
-          win.webContents.reload();
-        } catch (reloadError) {
-          startupLogger.error('Renderer reload failed after crash', { reloadError });
-        }
+        // CRITICAL: NEVER reload synchronously in the render-process-gone handler.
+        // Calling webContents.reload() here triggers a POSIX signal storm
+        // (_sigtramp → uv_signal_stop) that permanently freezes the main thread
+        // at 100% CPU. This happens regardless of window focus state.
+        //
+        // Instead, always defer recovery. The reload fires when the user brings
+        // the app back via: window focus, macOS activate (dock click / Cmd-Tab),
+        // or a 3-second fallback timer for when the window already has focus.
+        startupLogger.info(
+          {
+            reason: details.reason,
+            exitCode: details.exitCode,
+            crashCountInWindow,
+          },
+          'Renderer crashed; deferring recovery (immediate reload causes main-thread freeze)'
+        );
+        pendingRendererRecovery = true;
+
+        // Fallback: if the window already has focus (user is looking at it),
+        // the focus/activate events won't re-fire. Use a delayed reload
+        // to recover after the signal handler context has unwound.
+        setTimeout(() => {
+          if (pendingRendererRecovery && !win.isDestroyed()) {
+            startupLogger.info('Fallback timer triggering deferred renderer reload');
+            attemptRendererReload();
+          }
+        }, 3000);
       }
     }
   );

@@ -21,6 +21,7 @@ vi.mock('@brainstrike/utils', async () => {
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
+    on: vi.fn(),
   },
   BrowserWindow: MockBrowserWindow,
   Menu: {
@@ -50,6 +51,7 @@ describe('createWindow', () => {
       once: vi.fn(),
       show: vi.fn(),
       isDestroyed: vi.fn(() => false),
+      isFocused: vi.fn(() => true),
       loadFile: vi.fn(),
       loadURL: vi.fn(),
       maximize: vi.fn(),
@@ -242,6 +244,7 @@ describe('createWindow', () => {
     });
 
     it('limits renderer crash recovery reloads to avoid crash loops', async () => {
+      vi.useFakeTimers();
       existsSyncMock.mockReturnValue(true);
 
       await createWindow();
@@ -255,12 +258,20 @@ describe('createWindow', () => {
         details: { reason: string; exitCode: number }
       ) => void;
 
+      // Each crash defers reload to a 3s fallback timer
       handler({}, { reason: 'crashed', exitCode: 1 });
+      vi.advanceTimersByTime(3500);
       handler({}, { reason: 'abnormal-exit', exitCode: 1 });
+      vi.advanceTimersByTime(3500);
       handler({}, { reason: 'crashed', exitCode: 1 });
+      vi.advanceTimersByTime(3500);
+      // 4th crash exceeds the limit — no reload scheduled
       handler({}, { reason: 'crashed', exitCode: 1 });
+      vi.advanceTimersByTime(3500);
 
       expect(mockWebContents.reload).toHaveBeenCalledTimes(3);
+
+      vi.useRealTimers();
     });
   });
 

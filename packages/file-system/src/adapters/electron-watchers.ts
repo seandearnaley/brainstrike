@@ -9,26 +9,51 @@ export function startFsWatch(
   handle: DirectoryHandle,
   callback: (changes: FileSystemChange[]) => void
 ): () => void {
+  let batch: FileSystemChange[] = [];
+  let batchTimer: ReturnType<typeof setTimeout> | null = null;
+  const batchMs = 150;
+
+  const flushBatch = () => {
+    batchTimer = null;
+    if (batch.length > 0) {
+      const changes = batch;
+      batch = [];
+      callback(changes);
+    }
+  };
+
   try {
     const native = fs.watch(handle.path, { recursive: false }, (ev, filename) => {
       if (!filename) {
         return;
       }
       const full = path.join(handle.path, filename);
-      const exists = fs.existsSync(full);
-      let isDir = false;
-      if (exists) {
-        try {
-          isDir = fs.statSync(full).isDirectory();
-        } catch {
-          isDir = false;
+      fs.promises.stat(full).then(
+        (stat) => {
+          const type: FileSystemChange['type'] = ev === 'rename' ? 'added' : 'modified';
+          batch.push({ type, path: full, kind: stat.isDirectory() ? 'directory' : 'file' });
+          if (!batchTimer) {
+            batchTimer = setTimeout(flushBatch, batchMs);
+          }
+        },
+        () => {
+          // stat failed — file was likely removed
+          if (ev === 'rename') {
+            batch.push({ type: 'removed', path: full, kind: 'file' });
+            if (!batchTimer) {
+              batchTimer = setTimeout(flushBatch, batchMs);
+            }
+          }
         }
-      }
-      const type: FileSystemChange['type'] =
-        ev === 'rename' ? (exists ? 'added' : 'removed') : 'modified';
-      callback([{ type, path: full, kind: isDir ? 'directory' : 'file' }]);
+      );
     });
-    return () => native.close();
+    return () => {
+      native.close();
+      if (batchTimer) {
+        clearTimeout(batchTimer);
+      }
+      flushBatch();
+    };
   } catch (error) {
     logger.error('Failed to start native fs.watch', { error, path: handle.path });
     return () => {};

@@ -100,7 +100,12 @@ export function usePendingChunks({
       };
     }
 
-    const id = window.setInterval(runFetch, intervalMs);
+    const id = window.setInterval(() => {
+      if (document.hidden || !document.hasFocus()) {
+        return;
+      }
+      void runFetch();
+    }, intervalMs);
     return () => {
       canceled = true;
       window.clearInterval(id);

@@ -119,7 +119,12 @@ export function EmbeddingJobQueueTracker({
     };
 
     void pollJobQueue();
-    const intervalId = setInterval(pollJobQueue, intervalMs);
+    const intervalId = setInterval(() => {
+      if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
+        return;
+      }
+      void pollJobQueue();
+    }, intervalMs);
 
     return () => {
       cancelled = true;

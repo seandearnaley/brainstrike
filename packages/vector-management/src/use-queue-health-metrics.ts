@@ -196,7 +196,14 @@ export function useQueueHealthMetrics(
       };
     }
 
-    const intervalId = setInterval(refresh, pollIntervalMs);
+    const intervalId = setInterval(() => {
+      // Skip polling when app is backgrounded to avoid accumulating DB queries
+      // and React re-renders while the user isn't looking at the UI.
+      if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
+        return;
+      }
+      void refresh();
+    }, pollIntervalMs);
     return () => {
       mountedRef.current = false;
       clearInterval(intervalId);
