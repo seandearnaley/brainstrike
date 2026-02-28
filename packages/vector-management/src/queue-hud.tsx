@@ -1,4 +1,5 @@
 import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
+import { isAppActive } from '@brainstrike/hooks';
 import {
   Badge,
   Button,
@@ -142,7 +143,7 @@ function useQueueStats(
     }
 
     const id = setInterval(() => {
-      if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
+      if (!isAppActive()) {
         return;
       }
       void fetchStats();

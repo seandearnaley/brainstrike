@@ -1,4 +1,5 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
+import { isAppActive } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -101,7 +102,7 @@ export function usePendingChunks({
     }
 
     const id = window.setInterval(() => {
-      if (document.hidden || !document.hasFocus()) {
+      if (!isAppActive()) {
         return;
       }
       void runFetch();

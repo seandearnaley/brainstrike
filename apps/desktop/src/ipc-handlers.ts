@@ -67,13 +67,13 @@ function flushPendingLiveUpdates(): void {
   if (pendingLiveUpdates.size === 0) {
     return;
   }
+  const { BrowserWindow } = require('electron') as typeof import('electron');
+  const allWindows = BrowserWindow.getAllWindows();
   for (const [subId, payload] of pendingLiveUpdates) {
     const record = liveSubscriptions.get(subId);
     if (!record) {
       continue;
     }
-    const { BrowserWindow } = require('electron') as typeof import('electron');
-    const allWindows = BrowserWindow.getAllWindows();
     const owner = allWindows.find((w) => w.webContents.id === record.webContentsId);
     if (owner && !owner.webContents.isDestroyed()) {
       owner.webContents.send('db:live-query:update', payload);

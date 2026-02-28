@@ -12,6 +12,7 @@ export {
   cloneAsFloat32,
   computeInitialBatchSize,
   l2Normalize,
+  POWER_BROADCAST_CHANNEL,
   truncateVector,
   vectorsFromPipelineOutput,
 } from './shared';

@@ -1,3 +1,9 @@
+/**
+ * BroadcastChannel name used to relay power-state messages (suspend/resume)
+ * from the renderer to web workers. Shared to avoid magic string duplication.
+ */
+export const POWER_BROADCAST_CHANNEL = 'brainstrike-power';
+
 export type EmbeddingDevice = 'webgpu' | 'wasm';
 
 export type EmbeddingDeviceHint = EmbeddingDevice;

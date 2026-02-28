@@ -1,4 +1,5 @@
 import { usePGliteDatabase } from '@brainstrike/db';
+import { isAppActive } from '@brainstrike/hooks';
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 import { useEffect, useRef } from 'react';
@@ -120,7 +121,7 @@ export function EmbeddingJobQueueTracker({
 
     void pollJobQueue();
     const intervalId = setInterval(() => {
-      if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
+      if (!isAppActive()) {
         return;
       }
       void pollJobQueue();

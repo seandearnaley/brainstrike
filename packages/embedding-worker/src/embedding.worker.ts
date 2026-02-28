@@ -16,6 +16,7 @@ import {
   computeInitialBatchSize,
   l2Normalize,
   normalizeProgress,
+  POWER_BROADCAST_CHANNEL,
   truncateVector,
   vectorsFromPipelineOutput,
 } from './shared';
@@ -62,7 +63,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
   // contexts (including web workers) without needing direct Worker references,
   // so this bypasses the workerpool abstraction cleanly.
   if (typeof BroadcastChannel !== 'undefined') {
-    const powerChannel = new BroadcastChannel('brainstrike-power');
+    const powerChannel = new BroadcastChannel(POWER_BROADCAST_CHANNEL);
     powerChannel.onmessage = (event) => {
       if (event.data === 'suspend') {
         keepAlivePaused = true;

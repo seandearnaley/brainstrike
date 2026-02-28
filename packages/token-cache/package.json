@@ -3,6 +3,7 @@
   "description": "Persistent token cache with background worker for file explorer.",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/hooks": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "^0.3.15",
     "tiktoken": "^1.0.22",

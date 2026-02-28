@@ -21,6 +21,7 @@
  * ```
  */
 
+import { isAppActive } from '@brainstrike/hooks';
 import { useEffect, useMemo, useState } from 'react';
 import { createIndexerTelemetryAggregator, type IndexerTelemetrySnapshot } from './telemetry';
 
@@ -80,7 +81,7 @@ export function useIndexerTelemetry({
 
     // Update on interval (skip when app is backgrounded to avoid wasted work)
     const intervalId = setInterval(() => {
-      if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
+      if (!isAppActive()) {
         return;
       }
       setSnapshot(aggregator.snapshot());

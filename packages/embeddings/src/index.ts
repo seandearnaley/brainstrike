@@ -1,5 +1,7 @@
 // Export types and interfaces
 
+// Re-export power broadcast channel name for renderer ↔ worker coordination
+export { POWER_BROADCAST_CHANNEL } from '@brainstrike/embedding-worker';
 // Export API key validation utilities
 export {
   type ApiKeyValidationResult,

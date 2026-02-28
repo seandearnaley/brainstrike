@@ -1,5 +1,9 @@
 import { usePGliteDatabase } from '@brainstrike/db';
-import { type EmbeddingWorkerController, startEmbeddingWorker } from '@brainstrike/embeddings';
+import {
+  type EmbeddingWorkerController,
+  POWER_BROADCAST_CHANNEL,
+  startEmbeddingWorker,
+} from '@brainstrike/embeddings';
 import { useModelRegistryStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 import { useEffect, useRef } from 'react';
@@ -128,7 +132,7 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
 
     let channel: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
-      channel = new BroadcastChannel('brainstrike-power');
+      channel = new BroadcastChannel(POWER_BROADCAST_CHANNEL);
     }
 
     const cleanup = powerApi.onPowerState((state) => {
