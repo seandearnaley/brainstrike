@@ -15,6 +15,25 @@ export function generateUUID(): string {
   }
 
   // Fallback to manual UUID v4 generation
+  if (typeof crypto !== 'undefined' && crypto?.getRandomValues) {
+    const array = new Uint8Array(16);
+    crypto.getRandomValues(array);
+    // Set version to 4
+    array[6] = ((array[6] as number) & 0x0f) | 0x40;
+    // Set variant to RFC 4122
+    array[8] = ((array[8] as number) & 0x3f) | 0x80;
+
+    let result = '';
+    for (let i = 0; i < 16; i++) {
+      if (i === 4 || i === 6 || i === 8 || i === 10) {
+        result += '-';
+      }
+      result += (array[i] as number).toString(16).padStart(2, '0');
+    }
+    return result;
+  }
+
+  // Last resort fallback using Math.random
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
