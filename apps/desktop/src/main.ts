@@ -801,14 +801,18 @@ if (singleInstanceLockAcquired) {
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
         logger.info('power:suspend');
-        mainWindow.webContents.send('app:power-state', 'suspend');
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('app:power-state', 'suspend');
+        }
       });
 
       powerMonitor.on('resume', () => {
         logger.info('power:resume');
         // Delay to let OS settle (GPU re-init, network reconnect)
         setTimeout(() => {
-          mainWindow.webContents.send('app:power-state', 'resume');
+          if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('app:power-state', 'resume');
+          }
         }, 2000);
       });
 

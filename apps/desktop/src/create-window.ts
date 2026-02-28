@@ -279,10 +279,14 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     }
   });
   // macOS dock icon click / Cmd-Tab back to app
-  app.on('activate', () => {
+  const activateHandler = () => {
     if (pendingRendererRecovery) {
       attemptRendererReload();
     }
+  };
+  app.on('activate', activateHandler);
+  win.on('closed', () => {
+    app.removeListener('activate', activateHandler);
   });
 
   win.webContents.on(
