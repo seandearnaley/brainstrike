@@ -69,7 +69,52 @@ function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerCon
   return { ...config };
 }
 
+type SaveLayoutArgs = [
+  sizes: number[],
+  showConsole: boolean,
+  showLeftPanel: boolean,
+  showRightPanel: boolean,
+];
+
+/** Convert a horizontal layout object into saveLayout arguments. */
+function buildHorizontalSaveArgs(
+  layout: { [id: string]: number },
+  config: LayoutHandlerConfig
+): SaveLayoutArgs {
+  const rawExplorerSize = layout['explorer-panel'];
+  const rawToolsSize = layout['tools-panel'];
+  const explorerSize =
+    rawExplorerSize != null && rawExplorerSize > 0 ? rawExplorerSize : (config.safeLeftSize ?? 25);
+  const toolsSize =
+    rawToolsSize != null && rawToolsSize > 0 ? rawToolsSize : (config.safeRightSize ?? 20);
+  return [
+    [explorerSize, toolsSize, config.safeConsoleSize ?? 20],
+    !!config.showConsole,
+    !!config.showLeftPanel,
+    !!config.showRightPanel,
+  ];
+}
+
+/** Convert a vertical layout object into saveLayout arguments. */
+function buildVerticalSaveArgs(
+  layout: { [id: string]: number },
+  config: LayoutHandlerConfig
+): SaveLayoutArgs {
+  const rawConsoleSize = layout['console-panel'];
+  const consoleSize =
+    rawConsoleSize != null && rawConsoleSize > 0 ? rawConsoleSize : (config.safeConsoleSize ?? 20);
+  return [
+    [config.safeLeftSize ?? 25, config.safeRightSize ?? 20, consoleSize],
+    !!config.showConsole,
+    !!config.showLeftPanel,
+    !!config.showRightPanel,
+  ];
+}
+
 // Custom hook for managing layout change handlers
+// Uses RAF coalescing + drag-state deferral to minimize per-frame JS work during resize drag.
+// During drag, layouts are stored in a ref and only committed once per animation frame.
+// The final layout is flushed on pointerup via the isDraggingRef mechanism.
 function useLayoutHandlers(config: LayoutHandlerConfig) {
   const {
     leftPanelContent,
@@ -115,6 +160,93 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
     ]
   );
 
+  // RAF coalescing: store pending layout, commit at most once per animation frame
+  const pendingHorizontalRef = useRef<{ [id: string]: number } | null>(null);
+  const pendingVerticalRef = useRef<{ [id: string]: number } | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+
+  // Drag state tracking: when true, defer saveLayout until drag ends
+  const isDraggingRef = useRef(false);
+  // Store the latest computed save args so we can flush them on pointerup
+  const deferredSaveRef = useRef<SaveLayoutArgs | null>(null);
+
+  /** Dispatch a single set of save args: defer during drag, commit immediately otherwise. */
+  const dispatchSave = useCallback(
+    (args: SaveLayoutArgs) => {
+      if (isDraggingRef.current) {
+        deferredSaveRef.current = args;
+      } else {
+        stableConfig.saveLayout?.(...args);
+      }
+    },
+    [stableConfig]
+  );
+
+  const commitLayouts = useCallback(() => {
+    rafIdRef.current = null;
+    if (stableConfig.isInitialRenderRef?.current || !stableConfig.saveLayout) {
+      pendingHorizontalRef.current = null;
+      pendingVerticalRef.current = null;
+      return;
+    }
+
+    if (pendingHorizontalRef.current) {
+      const layout = pendingHorizontalRef.current;
+      pendingHorizontalRef.current = null;
+      dispatchSave(buildHorizontalSaveArgs(layout, stableConfig));
+    }
+
+    if (pendingVerticalRef.current) {
+      const layout = pendingVerticalRef.current;
+      pendingVerticalRef.current = null;
+      dispatchSave(buildVerticalSaveArgs(layout, stableConfig));
+    }
+  }, [stableConfig, dispatchSave]);
+
+  const scheduleCommit = useCallback(() => {
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(commitLayouts);
+    }
+  }, [commitLayouts]);
+
+  // Flush deferred layout on drag end
+  const flushDeferredSave = useCallback(() => {
+    isDraggingRef.current = false;
+    if (deferredSaveRef.current && stableConfig.saveLayout) {
+      stableConfig.saveLayout(...deferredSaveRef.current);
+      deferredSaveRef.current = null;
+    }
+  }, [stableConfig]);
+
+  // Global pointerup listener to detect drag end
+  useEffect(() => {
+    const handlePointerUp = () => {
+      if (isDraggingRef.current) {
+        // Cancel any pending RAF to avoid double-commit
+        if (rafIdRef.current !== null) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = null;
+        }
+        // Process any pending layouts immediately
+        pendingHorizontalRef.current = null;
+        pendingVerticalRef.current = null;
+        flushDeferredSave();
+      }
+    };
+    document.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      document.removeEventListener('pointerup', handlePointerUp);
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, [flushDeferredSave]);
+
+  const handleSeparatorPointerDown = useCallback(() => {
+    isDraggingRef.current = true;
+    deferredSaveRef.current = null;
+  }, []);
+
   const handleHorizontalLayout = useCallback(
     (layout: { [id: string]: number }) => {
       if (stableConfig.isInitialRenderRef?.current) {
@@ -123,28 +255,10 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
       if (!stableConfig.saveLayout) {
         return;
       }
-
-      // Preserve last non-zero size when panel is collapsed (size=0)
-      // This ensures reopening a hidden panel restores user's previous width
-      const rawExplorerSize = layout['explorer-panel'];
-      const rawToolsSize = layout['tools-panel'];
-      const explorerSize =
-        rawExplorerSize != null && rawExplorerSize > 0
-          ? rawExplorerSize
-          : (stableConfig.safeLeftSize ?? 25);
-      const toolsSize =
-        rawToolsSize != null && rawToolsSize > 0
-          ? rawToolsSize
-          : (stableConfig.safeRightSize ?? 20);
-
-      stableConfig.saveLayout(
-        [explorerSize, toolsSize, stableConfig.safeConsoleSize ?? 20],
-        !!stableConfig.showConsole,
-        !!stableConfig.showLeftPanel,
-        !!stableConfig.showRightPanel
-      );
+      pendingHorizontalRef.current = layout;
+      scheduleCommit();
     },
-    [stableConfig]
+    [stableConfig, scheduleCommit]
   );
 
   const handleVerticalLayout = useCallback(
@@ -155,24 +269,13 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
       if (!stableConfig.saveLayout) {
         return;
       }
-
-      // Preserve last non-zero size when panel is collapsed (size=0)
-      const rawConsoleSize = layout['console-panel'];
-      const consoleSize =
-        rawConsoleSize != null && rawConsoleSize > 0
-          ? rawConsoleSize
-          : (stableConfig.safeConsoleSize ?? 20);
-      stableConfig.saveLayout(
-        [stableConfig.safeLeftSize ?? 25, stableConfig.safeRightSize ?? 20, consoleSize],
-        !!stableConfig.showConsole,
-        !!stableConfig.showLeftPanel,
-        !!stableConfig.showRightPanel
-      );
+      pendingVerticalRef.current = layout;
+      scheduleCommit();
     },
-    [stableConfig]
+    [stableConfig, scheduleCommit]
   );
 
-  return { handleHorizontalLayout, handleVerticalLayout };
+  return { handleHorizontalLayout, handleVerticalLayout, handleSeparatorPointerDown };
 }
 
 // Configuration for initial layout application
@@ -813,6 +916,11 @@ export const IdeLayout = React.memo(function IdeLayout({
   const isInitialRenderRef = useRef(true);
   const hasAppliedInitialLayout = useRef(false);
 
+  // Track last collapsed state to skip redundant onResize handler calls during drag
+  const leftCollapsedRef = useRef(false);
+  const rightCollapsedRef = useRef(false);
+  const consoleCollapsedRef = useRef(false);
+
   const fileEditorContextValue = useFileEditorContext();
 
   const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
@@ -938,7 +1046,8 @@ export const IdeLayout = React.memo(function IdeLayout({
     isInitialRenderRef,
   };
 
-  const { handleHorizontalLayout, handleVerticalLayout } = useLayoutHandlers(layoutConfig);
+  const { handleHorizontalLayout, handleVerticalLayout, handleSeparatorPointerDown } =
+    useLayoutHandlers(layoutConfig);
 
   // v4: Build defaultLayout object for the horizontal Group
   // IMPORTANT: All panels must ALWAYS be included in the layout
@@ -1027,10 +1136,16 @@ export const IdeLayout = React.memo(function IdeLayout({
                 id="explorer-panel"
                 maxSize="50%"
                 minSize="15%"
-                onResize={(panelSize) => handleLeftPanelCollapse(panelSize.asPercentage === 0)}
+                onResize={(panelSize) => {
+                  const collapsed = panelSize.asPercentage === 0;
+                  if (collapsed !== leftCollapsedRef.current) {
+                    leftCollapsedRef.current = collapsed;
+                    handleLeftPanelCollapse(collapsed);
+                  }
+                }}
                 panelRef={leftPanelRef}
               >
-                <div className="h-full overflow-hidden">
+                <div className="flex h-full flex-col overflow-hidden [contain:layout_paint_style]">
                   <div className="flex items-center justify-between border-border border-b bg-muted/30 px-2 py-2">
                     <div className="flex items-center gap-2">
                       <PanelLeft className="h-4 w-4" />
@@ -1048,10 +1163,13 @@ export const IdeLayout = React.memo(function IdeLayout({
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="h-[calc(100%-2.5rem)] overflow-hidden">{leftPanelContent}</div>
+                  <div className="min-h-0 flex-1 overflow-hidden">{leftPanelContent}</div>
                 </div>
               </Panel>
-              <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
+              <Separator
+                className="z-10 w-1 bg-border hover:bg-border/80"
+                onPointerDown={handleSeparatorPointerDown}
+              />
             </>
           )}
 
@@ -1064,7 +1182,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               orientation="vertical"
             >
               <Panel className="bg-background" id="main-content-panel" minSize="30%">
-                <div className="flex h-full flex-col">
+                <div className="flex h-full flex-col [contain:layout_paint_style]">
                   <div className="min-h-0 flex-1">{children}</div>
                   {/* Show console toggle when collapsed - inside main content panel */}
                   {hasConsole && !showConsole && (
@@ -1088,7 +1206,10 @@ export const IdeLayout = React.memo(function IdeLayout({
               {/* Console Panel - conditionally rendered based on content availability */}
               {hasConsole && (
                 <>
-                  <Separator className="z-10 h-1 bg-border transition-colors hover:bg-border/80" />
+                  <Separator
+                    className="z-10 h-1 bg-border hover:bg-border/80"
+                    onPointerDown={handleSeparatorPointerDown}
+                  />
                   <Panel
                     className="bg-background"
                     collapsedSize="0%"
@@ -1096,12 +1217,16 @@ export const IdeLayout = React.memo(function IdeLayout({
                     id="console-panel"
                     maxSize="80%"
                     minSize="15%"
-                    onResize={(panelSize) =>
-                      handleConsolePanelCollapse(panelSize.asPercentage === 0)
-                    }
+                    onResize={(panelSize) => {
+                      const collapsed = panelSize.asPercentage === 0;
+                      if (collapsed !== consoleCollapsedRef.current) {
+                        consoleCollapsedRef.current = collapsed;
+                        handleConsolePanelCollapse(collapsed);
+                      }
+                    }}
                     panelRef={consolePanelRef}
                   >
-                    <div className="h-full border-border border-t">
+                    <div className="flex h-full flex-col border-border border-t [contain:layout_paint_style]">
                       <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
                         <div className="flex items-center gap-2">
                           <Terminal className="h-4 w-4" />
@@ -1119,7 +1244,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
-                      <div className="h-[calc(100%-2.5rem)] overflow-auto">{consoleContent}</div>
+                      <div className="min-h-0 flex-1 overflow-auto">{consoleContent}</div>
                     </div>
                   </Panel>
                 </>
@@ -1130,7 +1255,10 @@ export const IdeLayout = React.memo(function IdeLayout({
           {/* Tools Panel - conditionally rendered based on content availability */}
           {hasTools && (
             <>
-              <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
+              <Separator
+                className="z-10 w-1 bg-border hover:bg-border/80"
+                onPointerDown={handleSeparatorPointerDown}
+              />
               <Panel
                 className="bg-background"
                 collapsedSize="0%"
@@ -1138,10 +1266,16 @@ export const IdeLayout = React.memo(function IdeLayout({
                 id="tools-panel"
                 maxSize="60%"
                 minSize="15%"
-                onResize={(panelSize) => handleRightPanelCollapse(panelSize.asPercentage === 0)}
+                onResize={(panelSize) => {
+                  const collapsed = panelSize.asPercentage === 0;
+                  if (collapsed !== rightCollapsedRef.current) {
+                    rightCollapsedRef.current = collapsed;
+                    handleRightPanelCollapse(collapsed);
+                  }
+                }}
                 panelRef={rightPanelRef}
               >
-                <div className="h-full border-border border-l">
+                <div className="flex h-full flex-col border-border border-l [contain:layout_paint_style]">
                   <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
                     <div className="flex items-center gap-2">
                       <PanelRight className="h-4 w-4" />
@@ -1159,7 +1293,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                       <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="flex h-[calc(100%-2.5rem)] flex-col overflow-hidden">
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     {rightPanelContent}
                   </div>
                 </div>

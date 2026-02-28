@@ -500,6 +500,10 @@ const singleInstanceLockAcquired =
   typeof app.requestSingleInstanceLock === 'function' ? app.requestSingleInstanceLock() : true;
 
 if (singleInstanceLockAcquired) {
+  // GPU optimization flags for smoother panel resize and rendering
+  app.commandLine.appendSwitch('enable-gpu-rasterization');
+  app.commandLine.appendSwitch('enable-zero-copy');
+
   app.on('second-instance', () => {
     const existingWindow = BrowserWindow.getAllWindows()[0];
     if (!existingWindow) {
