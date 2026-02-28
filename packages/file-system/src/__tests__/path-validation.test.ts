@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_TRAVERSAL_LIMIT,
   expandHome,
@@ -269,6 +269,27 @@ describe('expandHome', () => {
     expect(expandHome('/absolute/path')).toBe('/absolute/path');
     expect(expandHome('relative/path')).toBe('relative/path');
     expect(expandHome('~notahome')).toBe('~notahome');
+  });
+
+  it('returns original path when HOME and USERPROFILE are undefined', () => {
+    const originalHome = process.env['HOME'];
+    const originalUserProfile = process.env['USERPROFILE'];
+
+    vi.stubEnv('HOME', undefined as unknown as string);
+    vi.stubEnv('USERPROFILE', undefined as unknown as string);
+
+    try {
+      const result = expandHome('~/test');
+      expect(result).toBe('~/test');
+    } finally {
+      if (originalHome !== undefined) {
+        process.env['HOME'] = originalHome;
+      }
+      if (originalUserProfile !== undefined) {
+        process.env['USERPROFILE'] = originalUserProfile;
+      }
+      vi.unstubAllEnvs();
+    }
   });
 });
 
