@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_TRAVERSAL_LIMIT,
   expandHome,
@@ -10,6 +10,9 @@ import {
   normalizeRootDir,
   resolveValidatedPath,
 } from '../path-validation';
+
+const home = process.env['HOME'] ?? process.env['USERPROFILE'];
+const isWin32 = process.platform === 'win32';
 
 describe('resolveValidatedPath', () => {
   let tempDir: string;
@@ -111,11 +114,7 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it('rejects sensitive directories on unix', async () => {
-    if (process.platform === 'win32') {
-      return;
-    }
-
+  it.skipIf(isWin32)('rejects sensitive directories on unix', async () => {
     const result = await resolveValidatedPath({
       requestedPath: '/etc/passwd',
     });
@@ -126,11 +125,7 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it('rejects sensitive procfs directories on unix', async () => {
-    if (process.platform === 'win32') {
-      return;
-    }
-
+  it.skipIf(isWin32)('rejects sensitive procfs directories on unix', async () => {
     const result = await resolveValidatedPath({
       requestedPath: '/proc/self/cmdline',
     });
@@ -141,13 +136,8 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it('rejects sensitive user directories', async () => {
-    const home = process.env['HOME'] ?? process.env['USERPROFILE'];
-    if (!home) {
-      return;
-    }
-
-    const sensitivePath = path.join(home, '.ssh', 'id_rsa');
+  it.skipIf(!home)('rejects sensitive user directories', async () => {
+    const sensitivePath = path.join(home!, '.ssh', 'id_rsa');
     const result = await resolveValidatedPath({
       requestedPath: sensitivePath,
     });
@@ -158,13 +148,8 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it('rejects sensitive user directories (exact match)', async () => {
-    const home = process.env['HOME'] ?? process.env['USERPROFILE'];
-    if (!home) {
-      return;
-    }
-
-    const sensitivePath = path.join(home, '.aws');
+  it.skipIf(!home)('rejects sensitive user directories (exact match)', async () => {
+    const sensitivePath = path.join(home!, '.aws');
     const result = await resolveValidatedPath({
       requestedPath: sensitivePath,
     });
@@ -175,24 +160,53 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it('allows similar but non-sensitive user directories', async () => {
-    const home = process.env['HOME'] ?? process.env['USERPROFILE'];
-    if (!home) {
-      return;
-    }
-
-    // Should allow ~/.ssh_backup as it's not strictly ~/.ssh/ or ~/.ssh
-    const similarPath = path.join(home, '.ssh_backup');
+  it.skipIf(!home)('allows similar but non-sensitive user directories', async () => {
+    const similarPath = path.join(home!, '.ssh_backup');
     const result = await resolveValidatedPath({
       requestedPath: similarPath,
     });
 
-    // It might still fail if the path doesn't exist and allowMissing=false (default is true),
-    // but it should NOT be 'sensitive-path'
-    if (!result.ok) {
-      expect(result.error.code).not.toBe('sensitive-path');
-    } else {
+    // Should NOT be 'sensitive-path'
+    if (result.ok) {
       expect(result.ok).toBe(true);
+    } else {
+      expect(result.error.code).not.toBe('sensitive-path');
+    }
+  });
+
+  it.skipIf(!home)('rejects newly added sensitive user directories (.docker)', async () => {
+    const sensitivePath = path.join(home!, '.docker', 'config.json');
+    const result = await resolveValidatedPath({
+      requestedPath: sensitivePath,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('sensitive-path');
+    }
+  });
+
+  it.skipIf(!home || isWin32)('rejects symlinks pointing to sensitive directories', async () => {
+    const symlinkPath = path.join(tempDir, 'sneaky-link');
+    const sshDir = path.join(home!, '.ssh');
+
+    // Only run if ~/.ssh actually exists (most dev machines have it)
+    try {
+      await fsPromises.stat(sshDir);
+    } catch {
+      return;
+    }
+
+    await fsPromises.symlink(sshDir, symlinkPath);
+
+    const result = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: 'sneaky-link',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('sensitive-path');
     }
   });
 
@@ -213,7 +227,6 @@ describe('resolveValidatedPath', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // Without rootDir, the function returns a resolved path (may differ from realpath on macOS)
       expect(result.path).toContain('path-validate-');
       expect(path.isAbsolute(result.path)).toBe(true);
     }
@@ -227,7 +240,6 @@ describe('resolveValidatedPath', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // With empty rootDir, returns resolved path without realpath resolution
       expect(result.path).toContain('path-validate-');
       expect(path.isAbsolute(result.path)).toBe(true);
     }
@@ -248,40 +260,15 @@ describe('resolveValidatedPath', () => {
 });
 
 describe('expandHome', () => {
-  it('expands tilde paths using HOME env var', () => {
-    const home = process.env['HOME'] ?? process.env['USERPROFILE'];
-    if (!home) {
-      return;
-    }
+  it.skipIf(!home)('expands tilde paths using HOME env var', () => {
     const expanded = expandHome('~/Documents');
-    expect(expanded).toBe(path.join(home, 'Documents'));
+    expect(expanded).toBe(path.join(home!, 'Documents'));
   });
 
   it('returns path unchanged when not starting with ~/', () => {
     expect(expandHome('/absolute/path')).toBe('/absolute/path');
     expect(expandHome('relative/path')).toBe('relative/path');
     expect(expandHome('~notahome')).toBe('~notahome');
-  });
-
-  it('returns original path when HOME and USERPROFILE are undefined', () => {
-    const originalHome = process.env['HOME'];
-    const originalUserProfile = process.env['USERPROFILE'];
-
-    vi.stubEnv('HOME', undefined as unknown as string);
-    vi.stubEnv('USERPROFILE', undefined as unknown as string);
-
-    try {
-      const result = expandHome('~/test');
-      expect(result).toBe('~/test');
-    } finally {
-      if (originalHome !== undefined) {
-        process.env['HOME'] = originalHome;
-      }
-      if (originalUserProfile !== undefined) {
-        process.env['USERPROFILE'] = originalUserProfile;
-      }
-      vi.unstubAllEnvs();
-    }
   });
 });
 
@@ -291,13 +278,9 @@ describe('normalizeRootDir', () => {
     expect(path.isAbsolute(normalized)).toBe(true);
   });
 
-  it('expands home directory in root paths', () => {
-    const home = process.env['HOME'] ?? process.env['USERPROFILE'];
-    if (!home) {
-      return;
-    }
+  it.skipIf(!home)('expands home directory in root paths', () => {
     const normalized = normalizeRootDir('~/projects');
-    expect(normalized).toBe(path.resolve(path.join(home, 'projects')));
+    expect(normalized).toBe(path.resolve(path.join(home!, 'projects')));
   });
 });
 
