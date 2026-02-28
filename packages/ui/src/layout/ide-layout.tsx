@@ -989,6 +989,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               data-testid="show-explorer-panel"
               onClick={handleShowLeftPanel}
               size="icon"
+              title="Show explorer panel"
               variant="ghost"
             >
               <ChevronRight className="h-4 w-4" />
@@ -1004,6 +1005,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               data-testid="show-tools-panel"
               onClick={handleShowRightPanel}
               size="icon"
+              title="Show tools panel"
               variant="ghost"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -1043,6 +1045,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                       onClick={handleHideLeftPanel}
                       ref={hideExplorerButtonRef}
                       size="icon"
+                      title="Hide explorer panel"
                       variant="ghost"
                     >
                       <ChevronLeft className="h-4 w-4" />
@@ -1114,6 +1117,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                           onClick={handleHideConsole}
                           ref={hideConsoleButtonRef}
                           size="icon"
+                          title="Close File Editor"
                           variant="ghost"
                         >
                           <X className="h-4 w-4" />
@@ -1154,6 +1158,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                       onClick={handleHideRightPanel}
                       ref={hideToolsPanelButtonRef}
                       size="icon"
+                      title="Hide tools panel"
                       variant="ghost"
                     >
                       <ChevronRight className="h-4 w-4" />
