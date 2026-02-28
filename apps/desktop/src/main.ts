@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
+import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 
 // Raw debug log to verify main process startup
 // biome-ignore lint/suspicious/noConsole: Critical startup debugging
@@ -517,10 +518,7 @@ if (singleInstanceLockAcquired) {
   // Prevent macOS from deprioritizing the renderer's GPU context when the
   // window is occluded (behind another window). Without this, the GPU process
   // may starve WebGPU command submissions after ~4 minutes.
-  app.commandLine.appendSwitch(
-    'disable-features',
-    'MacWebContentsOcclusion,SpareRendererForSitePerProcess'
-  );
+  app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
 
   app.on('second-instance', () => {
     const existingWindow = BrowserWindow.getAllWindows()[0];

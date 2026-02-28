@@ -273,6 +273,127 @@ describe('createWindow', () => {
 
       vi.useRealTimers();
     });
+
+    it('triggers reload when window gains focus while recovery is pending', async () => {
+      vi.useFakeTimers();
+      existsSyncMock.mockReturnValue(true);
+
+      await createWindow();
+
+      const rpcHandler = mockWebContents.on.mock.calls.find(
+        (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
+      )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
+      const focusHandler = mockBrowserWindow.on.mock.calls.find(
+        (call: [string, (...args: unknown[]) => void]) => call[0] === 'focus'
+      )?.[1] as () => void;
+
+      expect(rpcHandler).toBeDefined();
+      expect(focusHandler).toBeDefined();
+
+      // Crash defers recovery
+      rpcHandler({}, { reason: 'crashed', exitCode: 5 });
+      expect(mockWebContents.reload).not.toHaveBeenCalled();
+
+      // Focus triggers reload before the 3s timer
+      focusHandler();
+      expect(mockWebContents.reload).toHaveBeenCalledTimes(1);
+
+      // Timer fires later but pendingRendererRecovery is already false — no double reload
+      vi.advanceTimersByTime(3500);
+      expect(mockWebContents.reload).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
+    it('triggers reload on app activate while recovery is pending', async () => {
+      vi.useFakeTimers();
+      existsSyncMock.mockReturnValue(true);
+
+      await createWindow();
+
+      const rpcHandler = mockWebContents.on.mock.calls.find(
+        (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
+      )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
+      const activateHandler = vi
+        .mocked(app)
+        .on.mock.calls.find((call) => call[0] === 'activate')?.[1] as () => void;
+
+      expect(rpcHandler).toBeDefined();
+      expect(activateHandler).toBeDefined();
+
+      rpcHandler({}, { reason: 'crashed', exitCode: 5 });
+      activateHandler();
+      expect(mockWebContents.reload).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
+    it('does NOT trigger reload for killed or clean-exit reasons', async () => {
+      vi.useFakeTimers();
+      existsSyncMock.mockReturnValue(true);
+
+      await createWindow();
+
+      const rpcHandler = mockWebContents.on.mock.calls.find(
+        (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
+      )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
+
+      rpcHandler({}, { reason: 'killed', exitCode: 0 });
+      rpcHandler({}, { reason: 'clean-exit', exitCode: 0 });
+
+      vi.advanceTimersByTime(5000);
+      expect(mockWebContents.reload).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('resets crash count after the 30-second window elapses', async () => {
+      vi.useFakeTimers();
+      existsSyncMock.mockReturnValue(true);
+
+      await createWindow();
+
+      const rpcHandler = mockWebContents.on.mock.calls.find(
+        (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
+      )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
+
+      // Fill the crash window (3 crashes)
+      for (let i = 0; i < 3; i++) {
+        rpcHandler({}, { reason: 'crashed', exitCode: 1 });
+        vi.advanceTimersByTime(3500);
+      }
+      expect(mockWebContents.reload).toHaveBeenCalledTimes(3);
+
+      // Advance past the 30s crash window
+      vi.advanceTimersByTime(30_001);
+
+      // 4th crash after window reset should reload again
+      rpcHandler({}, { reason: 'crashed', exitCode: 1 });
+      vi.advanceTimersByTime(3500);
+      expect(mockWebContents.reload).toHaveBeenCalledTimes(4);
+
+      vi.useRealTimers();
+    });
+
+    it('skips reload if window is destroyed before fallback timer fires', async () => {
+      vi.useFakeTimers();
+      existsSyncMock.mockReturnValue(true);
+
+      await createWindow();
+
+      const rpcHandler = mockWebContents.on.mock.calls.find(
+        (call: [string, (...args: unknown[]) => void]) => call[0] === 'render-process-gone'
+      )?.[1] as (event: unknown, details: { reason: string; exitCode: number }) => void;
+
+      rpcHandler({}, { reason: 'crashed', exitCode: 5 });
+
+      // Window destroyed before the 3s timer fires
+      mockBrowserWindow.isDestroyed.mockReturnValue(true);
+      vi.advanceTimersByTime(3500);
+      expect(mockWebContents.reload).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
   });
 
   describe('security configuration', () => {

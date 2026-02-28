@@ -85,7 +85,9 @@ vi.mock('electron', async () => {
       openDevTools: vi.fn(),
     },
   };
-  const BrowserWindow = vi.fn();
+  const BrowserWindow = Object.assign(vi.fn(), {
+    getAllWindows: vi.fn(() => []),
+  });
   BrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, mockBrowserWindowInstance);
   });
@@ -662,6 +664,85 @@ describe('database IPC handlers', () => {
       expect(loggerWarn).toHaveBeenCalledWith('Failed to clear selection snapshots', {
         error: expect.any(Error),
       });
+    });
+  });
+
+  describe('live query backgrounding', () => {
+    // NOTE: flushPendingLiveUpdates uses require('electron').BrowserWindow.getAllWindows()
+    // which doesn't resolve through the vi.mock factory. These tests focus on the
+    // pause/resume subscription lifecycle. The flush path is covered by the module
+    // being exercised in integration.
+
+    async function setupLiveQuery() {
+      const handler = handlers.get('db:live-query:start');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      let listener: ((results: unknown) => void) | null = null;
+      const liveHandle = {
+        initialResults: { rows: [] },
+        subscribe: vi.fn((cb: (results: unknown) => void) => {
+          listener = cb;
+        }),
+        unsubscribe: vi.fn(),
+        refresh: vi.fn(),
+      };
+      mockDb.live.query.mockResolvedValue(liveHandle);
+
+      const sender = {
+        id: 50,
+        isDestroyed: vi.fn(() => false),
+        send: vi.fn(),
+        once: vi.fn(),
+      };
+
+      const result = (await handler({ sender } as unknown, {
+        query: 'SELECT 1',
+      })) as { id: number };
+      return { result, listener: listener!, sender, liveHandle };
+    }
+
+    it('pauses subscriptions on background and resumes on foreground', async () => {
+      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { liveHandle } = await setupLiveQuery();
+
+      // subscribe called once during setup
+      expect(liveHandle.subscribe).toHaveBeenCalledTimes(1);
+
+      // Enter backgrounded state — should unsubscribe
+      setBackgrounded(true);
+      expect(liveHandle.unsubscribe).toHaveBeenCalled();
+
+      // Return to foreground — should re-subscribe
+      // pendingLiveUpdates is empty so flushPendingLiveUpdates is a no-op
+      setBackgrounded(false);
+      expect(liveHandle.subscribe).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not pause when setBackgrounded(false) is called while already foregrounded', async () => {
+      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { liveHandle } = await setupLiveQuery();
+
+      // Already foregrounded — setting false again should not re-subscribe
+      setBackgrounded(false);
+      expect(liveHandle.subscribe).toHaveBeenCalledTimes(1); // only initial
+      expect(liveHandle.unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('does not re-pause when setBackgrounded(true) is called while already backgrounded', async () => {
+      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { liveHandle } = await setupLiveQuery();
+
+      setBackgrounded(true);
+      expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+
+      // Already backgrounded — should not unsubscribe again
+      setBackgrounded(true);
+      expect(liveHandle.unsubscribe).toHaveBeenCalledTimes(1);
+
+      // Clean up without triggering flush (no pending updates)
+      setBackgrounded(false);
     });
   });
 });

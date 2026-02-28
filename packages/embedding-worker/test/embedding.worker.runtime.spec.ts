@@ -637,6 +637,118 @@ describe('embedding worker runtime', () => {
     ).rejects.toThrow('Embedding failed:');
   });
 
+  it('skips GPU command submission when keepAlivePaused is true via BroadcastChannel', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', { gpu: {} });
+
+    const submitMock = vi.fn();
+    const finishMock = vi.fn<() => unknown>(() => ({ kind: 'command-buffer' }));
+    const createCommandEncoderMock = vi.fn<() => MockGpuCommandEncoder>(() => ({
+      finish: finishMock,
+    }));
+
+    await setOrtWebGpuDevice({
+      lost: new Promise(() => {}),
+      queue: { submit: submitMock },
+      createCommandEncoder: createCommandEncoderMock,
+    });
+
+    // Set up BroadcastChannel mock to capture onmessage handlers
+    const channelInstances: { onmessage?: ((e: { data: string }) => void) | null }[] = [];
+    vi.stubGlobal(
+      'BroadcastChannel',
+      vi.fn().mockImplementation(function (this: {
+        onmessage?: ((e: { data: string }) => void) | null;
+      }) {
+        channelInstances.push(this);
+      })
+    );
+
+    const mockSelf = {
+      onerror: null as ((event: ErrorEvent | string) => void) | null,
+      onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+    };
+    vi.stubGlobal('self', mockSelf);
+
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      type: 'embed',
+      id: 'pause-test',
+      model: 'bge-m3',
+      texts: ['hello'],
+      deviceHint: 'webgpu',
+    });
+    await flushMicrotasks();
+
+    // Verify keep-alive ticks normally
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    submitMock.mockClear();
+
+    // Simulate suspend via BroadcastChannel
+    const powerChannel = channelInstances.find((c) => c.onmessage);
+    powerChannel?.onmessage?.({ data: 'suspend' });
+
+    // Keep-alive tick should be skipped because paused
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(submitMock).not.toHaveBeenCalled();
+
+    // Resume
+    powerChannel?.onmessage?.({ data: 'resume' });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips GPU command submission when isInferenceActive is true', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', { gpu: {} });
+
+    const submitMock = vi.fn();
+    const finishMock = vi.fn<() => unknown>(() => ({ kind: 'command-buffer' }));
+
+    await setOrtWebGpuDevice({
+      lost: new Promise(() => {}),
+      queue: { submit: submitMock },
+      createCommandEncoder: vi.fn<() => MockGpuCommandEncoder>(() => ({ finish: finishMock })),
+    });
+
+    // Create a slow extractor that we can control
+    let resolveInference!: (v: Float32Array) => void;
+    const slowExtractor = vi.fn(
+      () =>
+        new Promise<Float32Array>((resolve) => {
+          resolveInference = resolve;
+        })
+    );
+    pipelineMock.mockResolvedValue(slowExtractor);
+    const runEmbedding = await loadWorker();
+
+    // Start inference (won't resolve until we call resolveInference)
+    const embeddingPromise = runEmbedding({
+      type: 'embed',
+      id: 'active-guard',
+      model: 'bge-m3',
+      texts: ['hello'],
+      deviceHint: 'webgpu',
+    });
+    await flushMicrotasks();
+
+    // Keep-alive tick fires while inference is still in progress
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(submitMock).not.toHaveBeenCalled();
+
+    // Complete the inference
+    resolveInference(new Float32Array([1, 0, 0]));
+    await embeddingPromise;
+    await flushMicrotasks();
+
+    // Now keep-alive should fire normally
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
   it('handles 1D and nested tensors from transformers output', async () => {
     const runEmbedding = await loadWorker();
 
