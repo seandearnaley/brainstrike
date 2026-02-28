@@ -21,7 +21,7 @@ export class BrainStrikeError extends Error {
 
 const logger = createLogger('FileSystem');
 
-const fileSystemCollator = new Intl.Collator(undefined);
+const fileSystemCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 /**
  * Core file system operations and utilities

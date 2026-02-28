@@ -26,6 +26,8 @@ export interface TreeNode {
   type: 'file' | 'directory' | 'loadMore';
 }
 
+const treeNodeCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
 /**
  * Sort nodes: directories first, then alphabetically by name.
  *
@@ -38,8 +40,6 @@ export interface TreeNode {
  * // Directories appear first, then files, all alphabetically sorted
  * ```
  */
-const treeNodeCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-
 export function sortTreeNodes<T extends TreeNode>(nodes: T[]): T[] {
   return [...nodes].sort((a, b) => {
     // Directories before files
