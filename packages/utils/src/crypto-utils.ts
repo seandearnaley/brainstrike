@@ -15,7 +15,7 @@ export function generateUUID(): string {
   }
 
   // Fallback to manual UUID v4 generation
-  if (typeof crypto !== 'undefined' && crypto?.getRandomValues) {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
     const array = new Uint8Array(16);
     crypto.getRandomValues(array);
     // Set version to 4
