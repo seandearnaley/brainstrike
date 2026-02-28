@@ -19,16 +19,19 @@ export function generateUUID(): string {
     const array = new Uint8Array(16);
     crypto.getRandomValues(array);
     // Set version to 4
-    array[6] = ((array[6] as number) & 0x0f) | 0x40;
+    // biome-ignore lint/style/noNonNullAssertion: Uint8Array of known length, index always valid
+    array[6] = (array[6]! & 0x0f) | 0x40;
     // Set variant to RFC 4122
-    array[8] = ((array[8] as number) & 0x3f) | 0x80;
+    // biome-ignore lint/style/noNonNullAssertion: Uint8Array of known length, index always valid
+    array[8] = (array[8]! & 0x3f) | 0x80;
 
     let result = '';
     for (let i = 0; i < 16; i++) {
       if (i === 4 || i === 6 || i === 8 || i === 10) {
         result += '-';
       }
-      result += (array[i] as number).toString(16).padStart(2, '0');
+      // biome-ignore lint/style/noNonNullAssertion: Uint8Array of known length, index always valid
+      result += array[i]!.toString(16).padStart(2, '0');
     }
     return result;
   }
