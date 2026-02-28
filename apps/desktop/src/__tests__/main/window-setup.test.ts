@@ -42,6 +42,7 @@ mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
 const whenReadyMock = vi.fn(() => Promise.resolve());
 
 const mockApp = {
+  commandLine: { appendSwitch: vi.fn() },
   isPackaged: false,
   whenReady: whenReadyMock,
   isReady: vi.fn(() => true),
