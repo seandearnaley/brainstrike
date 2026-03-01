@@ -1,3 +1,4 @@
+export { isAppActive, useAppActive } from './use-app-active';
 export { useDebouncedValue } from './use-debounced-value';
 export { useEventCallback } from './use-event-callback';
 export { useFileFilters } from './use-file-filters';

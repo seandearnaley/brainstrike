@@ -1798,8 +1798,9 @@ export async function startEmbeddingWorker(
 
       await processClaimedJobs(jobs);
 
-      // Small yield
-      await sleep(5);
+      // Yield between batches to let V8 GC run and prevent Dawn GPU buffer
+      // pool exhaustion under sustained background embedding load.
+      await sleep(50);
     } catch (err) {
       // If database is closed/closing, gracefully stop the worker
       const message = err instanceof Error ? err.message : String(err);

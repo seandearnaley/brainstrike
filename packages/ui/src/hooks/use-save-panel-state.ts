@@ -37,7 +37,19 @@ export function useSavePanelState(
     [onSaved, adapter]
   );
 
-  const { run, flush } = createDebounce(save, SAVE_DEBOUNCE_MS);
+  // Stable ref to always call the latest save function without recreating the debounce instance
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
+  const debounceRef = useRef<ReturnType<typeof createDebounce<[PanelPersistenceState]>> | null>(
+    null
+  );
+  if (!debounceRef.current) {
+    debounceRef.current = createDebounce(
+      (...args: [PanelPersistenceState]) => saveRef.current(...args),
+      SAVE_DEBOUNCE_MS
+    );
+  }
 
   const persist = useCallback(
     (state: PanelPersistenceState) => {
@@ -49,15 +61,15 @@ export function useSavePanelState(
         return;
       }
       pendingRef.current = state;
-      run(state);
+      debounceRef.current?.run(state);
     },
-    [run, getLastSaved]
+    [getLastSaved]
   );
 
   const flushPending = useCallback(() => {
-    void flush();
+    void debounceRef.current?.flush();
     pendingRef.current = null;
-  }, [flush]);
+  }, []);
 
   useEffect(() => {
     const beforeUnload = () => flushPending();

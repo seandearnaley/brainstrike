@@ -46,6 +46,74 @@ const liveSubscriptionOwnerListeners = new Set<number>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
 
+// ---------------------------------------------------------------------------
+// Live query IPC throttling when window is backgrounded
+//
+// When the window loses focus, live query updates are queued in a Map
+// (deduplicating by subscription ID) and flushed every 2 seconds or
+// immediately on focus. This prevents unnecessary IPC traffic to an
+// invisible renderer and reduces event-loop pressure during idle.
+// ---------------------------------------------------------------------------
+let isBackgrounded = false;
+const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
+let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
+const LIVE_FLUSH_INTERVAL_MS = 2000;
+
+function flushPendingLiveUpdates(): void {
+  if (liveFlushTimer) {
+    clearTimeout(liveFlushTimer);
+    liveFlushTimer = null;
+  }
+  if (pendingLiveUpdates.size === 0) {
+    return;
+  }
+  const { BrowserWindow } = require('electron') as typeof import('electron');
+  const allWindows = BrowserWindow.getAllWindows();
+  for (const [subId, payload] of pendingLiveUpdates) {
+    const record = liveSubscriptions.get(subId);
+    if (!record) {
+      continue;
+    }
+    const owner = allWindows.find((w) => w.webContents.id === record.webContentsId);
+    if (owner && !owner.webContents.isDestroyed()) {
+      owner.webContents.send('db:live-query:update', payload);
+    }
+  }
+  pendingLiveUpdates.clear();
+}
+
+export function setBackgrounded(value: boolean): void {
+  const wasBackgrounded = isBackgrounded;
+  isBackgrounded = value;
+  if (value && !wasBackgrounded) {
+    pauseLiveSubscriptions();
+  }
+  if (!value && wasBackgrounded) {
+    resumeLiveSubscriptions();
+    flushPendingLiveUpdates();
+  }
+}
+
+function pauseLiveSubscriptions(): void {
+  for (const record of liveSubscriptions.values()) {
+    try {
+      void record.handle.unsubscribe(record.listener);
+    } catch {
+      // Ignore errors during pause — subscription may already be cleaned up
+    }
+  }
+}
+
+function resumeLiveSubscriptions(): void {
+  for (const record of liveSubscriptions.values()) {
+    try {
+      record.handle.subscribe(record.listener);
+    } catch {
+      // Ignore errors during resume — subscription may have been cleaned up
+    }
+  }
+}
+
 function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
   if (!error || typeof error !== 'object') {
     return false;
@@ -554,6 +622,13 @@ export function registerIpcHandlers(
         const listener = (results: LiveQueryResults<unknown>) => {
           if (sender.isDestroyed()) {
             void cleanupLiveSubscription(id);
+            return;
+          }
+          if (isBackgrounded) {
+            pendingLiveUpdates.set(id, { id, results });
+            if (!liveFlushTimer) {
+              liveFlushTimer = setTimeout(flushPendingLiveUpdates, LIVE_FLUSH_INTERVAL_MS);
+            }
             return;
           }
           sender.send('db:live-query:update', { id, results });

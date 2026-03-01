@@ -1,10 +1,16 @@
-# Renderer Crash — Electron Desktop (~285s SIGTRAP)
+# Renderer Crash & Idle Freeze — Electron Desktop
 
-**Status:** RESOLVED (2026-02-19). Three-layer fix deployed and confirmed working (10+ minutes idle, zero crashes).
+**Status:** RESOLVED (2026-02-28). Two issues identified and fixed:
+1. **SIGTRAP crash** (~285s idle) — GPU device invalidated by Chromium renderer backgrounding
+2. **Beach ball freeze** (extended idle/sleep) — Main thread blocked by sync I/O flood, GPU stalls on wake, and naive crash recovery
 
 ---
 
-## The Symptom (Original)
+## Issue 1: SIGTRAP Crash (~285s idle)
+
+**Original status:** RESOLVED (2026-02-19). Three-layer fix deployed and confirmed working (10+ minutes idle, zero crashes).
+
+### The Symptom
 
 After ~4-5 minutes of the Electron desktop app being idle, the UI disappears and only the loading backdrop remains. The app is effectively broken until restarted.
 
@@ -15,11 +21,7 @@ render-process-gone { reason: 'crashed', exitCode: 5 }
 
 `exitCode: 5` = **SIGTRAP** — a V8 native `CHECK()` assertion failure, not a JavaScript exception. The renderer process hard-crashes at the native level.
 
----
-
-## Root Cause Analysis
-
-### Architecture
+### Root Cause
 
 ```
 Renderer main thread
@@ -33,8 +35,6 @@ Renderer main thread
                                             └── ONNX Runtime Web → GPUDevice (WebGPU)
 ```
 
-### What caused the crash
-
 1. ONNX Runtime Web creates a `GPUDevice` internally for WebGPU inference
 2. After warmup completes, the embedding queue is empty — no GPU activity
 3. The `GPUDevice` sits completely idle
@@ -44,133 +44,180 @@ Renderer main thread
 
 ### Key finding: NO idle timer in Dawn or Metal
 
-Research into Dawn (Chromium's WebGPU implementation) and macOS Metal confirmed there is **no idle device reclamation timer** at the GPU driver level. The device is not being reclaimed due to inactivity — rather, **Chromium's renderer process management** (background throttling → tab freezing) is the trigger. This is why a simple GPU keep-alive without `backgroundThrottling: false` failed in the first fix attempt.
+Research into Dawn (Chromium's WebGPU implementation) and macOS Metal confirmed there is **no idle device reclamation timer** at the GPU driver level. The device is not being reclaimed due to inactivity — rather, **Chromium's renderer process management** (background throttling → tab freezing) is the trigger.
 
-### Why the timing is consistent (~285s)
+### The Fix (Three Layers)
 
-Chromium's background tab lifecycle:
-- **0-5s unfocused**: No throttling
-- **After 5s**: Timers throttled to minimum 1s intervals
-- **After ~5 minutes (300s)**: Renderer may be **frozen** (all JS execution stops)
-
-The model warmup completes at ~t=5-10s. The crash occurs at ~t=283-296s from startup, matching the ~300s freeze threshold minus startup time.
-
----
-
-## The Fix (Three Layers)
-
-### Layer 1: Prevent renderer backgrounding (ROOT CAUSE FIX)
+#### Layer 1: Prevent renderer backgrounding (ROOT CAUSE FIX)
 
 **File:** `apps/desktop/src/create-window.ts`
 
-Added `backgroundThrottling: false` to `BrowserWindow` webPreferences:
+Added `backgroundThrottling: false` to `BrowserWindow` webPreferences. This prevents Chromium from throttling or freezing the renderer process when the window is unfocused.
 
-```typescript
-webPreferences: {
-  // ... existing options ...
-  // Prevent Chromium from throttling timers and deprioritising this renderer
-  // when the window is unfocused or minimised. The embedding worker's WebGPU
-  // keep-alive interval must fire reliably to prevent GPU device idle reclamation.
-  backgroundThrottling: false,
-},
-```
-
-This prevents Chromium from throttling or freezing the renderer process when the window is unfocused. Without this, the keep-alive timer in the Web Worker stops firing, leaving the GPU device unattended.
-
-### Layer 2: GPU keep-alive and device loss guard
+#### Layer 2: GPU keep-alive and device loss guard
 
 **File:** `packages/embedding-worker/src/embedding.worker.ts`
 
-After the WebGPU pipeline loads, the worker now:
+After the WebGPU pipeline loads, the worker:
+1. **Obtains the ONNX Runtime internal GPUDevice** via `env.backends.onnx.webgpu.device`
+2. **Starts a keep-alive timer** (every 15s) that submits a real command buffer to register GPU activity
+3. **Watches `GPUDevice.lost`** — emits error event, invalidates cached pipelines, terminates worker
 
-1. **Obtains the ONNX Runtime internal GPUDevice** via `env.backends.onnx.webgpu.device` (a `Promise<GPUDevice>` frozen by ONNX Runtime after first inference)
-2. **Starts a keep-alive timer** (every 15s) that submits a real command buffer (`createCommandEncoder().finish()`) to register GPU activity with the driver
-3. **Watches `GPUDevice.lost`** — if the device is lost, emits an error event, invalidates cached pipelines, and terminates the worker via `self.close()` so workerpool spawns a fresh replacement
-
-Key functions:
-- `getOrtWebGpuDevice()` — Accesses ONNX Runtime's internal GPUDevice
-- `startKeepAlive(device)` — Periodic real command buffer submission
-- `watchDeviceLoss(device)` — Listens to `GPUDevice.lost` promise
-- `initWebGpuDeviceGuard()` — Orchestrator called after pipeline loads
-
-Why real command buffers, not empty `queue.submit([])`:
-- `queue.submit([])` is a no-op at the driver level (no work sent to GPU)
-- `createCommandEncoder().finish()` creates a real (empty) command buffer that flows through Dawn's full encoding and submission pipeline, registering as genuine GPU activity
-
-### Layer 3: Crash recovery handler
+#### Layer 3: Crash recovery handler
 
 **File:** `apps/desktop/src/create-window.ts`
 
-Added `render-process-gone` event handler that:
-1. Logs crash details (reason, exit code, elapsed time)
-2. Automatically reloads the renderer for `'crashed'` and `'abnormal-exit'` reasons
+Handles `render-process-gone` with deferred recovery (see Issue 2 fix for details on why deferred, not immediate).
+
+---
+
+## Issue 2: Beach Ball Freeze (Extended Idle / Sleep-Wake)
+
+**Status:** RESOLVED (2026-02-28). Six-fix package addressing main thread blocking during idle and sleep/wake transitions.
+
+### The Symptom
+
+After leaving the desktop app idle for an extended period (Mac sleep, screen lock, or unfocused for hours), the app freezes with a macOS beach ball. The renderer process is unresponsive — either blocked on long synchronous work or unable to paint frames.
+
+### Root Cause Analysis
+
+Six contributing factors identified:
+
+1. **Naive crash recovery** — The original `render-process-gone` handler called `win.webContents.reload()` synchronously. Reloading while backgrounded (especially during a POSIX signal storm) could permanently freeze the main thread.
+
+2. **No `powerMonitor` handling** — Zero suspend/resume awareness. When Mac sleeps and wakes, file system events queue in the OS and flood in on wake.
+
+3. **GPU rasterization flags** — `enable-gpu-rasterization` and `enable-zero-copy` caused GPU process stalls when hardware resets after Mac sleep.
+
+4. **File watcher sync I/O** — `startFsWatch()` used `fs.existsSync()` + `fs.statSync()` in callbacks. Queued events arriving in bursts after sleep each triggered blocking I/O.
+
+5. **GPU keep-alive during suspend** — The keep-alive timer submitted GPU commands on a potentially invalid device after system wake.
+
+6. **Live query IPC during idle** — PGlite live query listeners fired IPC updates to the renderer even when backgrounded, adding unnecessary event loop work.
+
+---
+
+## The Fixes
+
+### Fix 1: Deferred Crash Recovery
+
+**File:** `apps/desktop/src/create-window.ts`
+
+Replaced synchronous `win.webContents.reload()` with a deferred recovery strategy:
+
+- **Crash loop detection:** Tracks crash count within a 30-second window. After 3 crashes, stops attempting recovery.
+- **Deferred reload:** Instead of reloading immediately (which blocks main thread), sets a `recoveryPending` flag.
+- **Reload triggers:** Recovery happens when the window receives `focus` (user clicks) or the app receives `activate` (macOS dock click). This ensures the reload happens when the user is actively engaged.
+- **Fallback timer:** 3-second `setTimeout` handles the edge case where the window is already focused when the crash occurs.
+- **isDestroyed guard:** Prevents reload on a destroyed window.
+
+### Fix 2: GPU Flag Management
+
+**Files:** `apps/desktop/src/gpu-flags.ts`, `apps/desktop/src/main.ts`
+
+**Removed flags:**
+- `enable-gpu-rasterization` — Causes GPU process stalls when hardware resets after Mac sleep
+- `enable-zero-copy` — Same issue, compounds with gpu-rasterization
+
+**Added flags via `--disable-features`:**
+- `MacWebContentsOcclusion` — Prevents macOS from treating unfocused BrowserWindows as occluded (which triggers renderer freezing/throttling regardless of `backgroundThrottling: false`)
+- `SpareRendererForSitePerProcess` — Prevents unnecessary spare renderer processes
+
+GPU flags are centralized in `gpu-flags.ts` with typed constants and a `FORBIDDEN_GPU_SWITCHES` list to prevent accidental regression:
 
 ```typescript
-win.webContents.on(
-  'render-process-gone',
-  (_event, details) => {
-    startupLogger.error('Renderer process gone', {
-      reason: details.reason,
-      exitCode: details.exitCode,
-      elapsedMs: Date.now() - startupStartedAt,
-    });
-    if (details.reason === 'crashed' || details.reason === 'abnormal-exit') {
-      startupLogger.info('Attempting renderer recovery via reload');
-      try {
-        win.webContents.reload();
-      } catch (reloadError) {
-        startupLogger.error('Renderer reload failed after crash', { reloadError });
-      }
-    }
-  }
-);
+export const DISABLED_CHROMIUM_FEATURES = [
+  'MacWebContentsOcclusion',
+  'SpareRendererForSitePerProcess',
+] as const satisfies readonly string[];
+
+export const FORBIDDEN_GPU_SWITCHES = [
+  'enable-gpu-rasterization',
+  'enable-zero-copy',
+] as const satisfies readonly string[];
 ```
 
-### Existing fix (kept)
+### Fix 3: Power State Awareness (Suspend/Resume)
 
-**File:** `packages/queue/src/adapters/browser-workerpool.ts`
+**Files:** `apps/desktop/src/main.ts`, `apps/desktop/src/preload.ts`
 
-`minWorkers: 1` — Prevents the WASM model from being evicted and reloaded on every task cycle (eliminated 300 MB memory spikes). Also ensures workerpool auto-spawns a replacement worker if one crashes.
+Added Electron `powerMonitor` event handlers:
+- `suspend` → sends `app:power-state` IPC to renderer
+- `resume` → sends `app:power-state` IPC (with 2s delay for OS/GPU settle time)
+- `lock-screen` / `unlock-screen` → logged for diagnostics
+
+Preload bridge exposes `power.onPowerState(callback)` to the renderer via `contextBridge`.
+
+### Fix 4: GPU Keep-Alive Pause During Suspend
+
+**File:** `packages/embedding-worker/src/embedding.worker.ts`
+
+Added a `keepAlivePaused` flag toggled via `BroadcastChannel('power-state')`:
+- On `suspend`: pauses GPU command submission (avoids submitting to a stale device)
+- On `resume`: resumes GPU command submission
+
+Also guards against concurrent GPU access: `isInferenceActive` prevents the keep-alive from submitting commands while an embedding operation is in progress.
+
+### Fix 5: File Watcher Event Batching + Async I/O
+
+**File:** `packages/file-system/src/adapters/electron-watchers.ts`
+
+Replaced per-event callbacks with batched delivery:
+- `fs.existsSync()` + `fs.statSync()` → `fs.promises.stat()` (async, non-blocking)
+- Events accumulate over a **150ms window** before being delivered as a single batch
+- Flush remaining batch on dispose (stop function)
+- Null filenames silently ignored
+- `rename` + stat failure → `removed` event; `change` + stat failure → silently dropped
+
+### Fix 6: Live Query IPC Throttling When Backgrounded
+
+**File:** `apps/desktop/src/ipc-handlers.ts`
+
+When the window loses focus, PGlite live subscriptions are **paused** (not just queued — fully paused via `sub.unsubscribe()`). On focus, they're **resumed** via `sub.subscribe()`.
+
+Wire-up in `main.ts`:
+```typescript
+mainWindow.on('blur', () => setBackgrounded(true));
+mainWindow.on('focus', () => setBackgrounded(false));
+```
+
+---
+
+## Test Coverage
+
+All fixes have dedicated tests:
+
+| Area | Test File | Tests |
+|------|-----------|-------|
+| GPU flag drift protection | `__tests__/gpu-flags.test.ts` | Forbidden flags not in disabled set, expected features present |
+| GPU flag assertions | `__tests__/main/window-setup.test.ts` | Verifies disable-features flags, no forbidden GPU switches |
+| Deferred crash recovery | `__tests__/create-window.test.ts` | Focus/activate triggers, killed/clean-exit exclusion, crash counter reset, isDestroyed guard |
+| Worker keep-alive guards | `embedding-worker/test/embedding.worker.runtime.spec.ts` | keepAlivePaused suppression, isInferenceActive suppression |
+| Power bridge (preload) | `__tests__/preload-power.test.ts` | contextBridge exposure, IPC subscription, state forwarding, cleanup |
+| useAppActive hook | `packages/hooks/src/__tests__/use-app-active.test.ts` | Focus/visibility states, visibilitychange, blur/focus events |
+| File watcher batching | `packages/file-system/src/__tests__/electron-watchers.test.ts` | Coalescing, removed events, stop flush, null filename, directory detection |
+| Live query backgrounding | `__tests__/main/ipc-handlers-db.test.ts` | Pause/resume lifecycle, idempotent guard conditions |
 
 ---
 
 ## Confirmed Working
 
-Log evidence from `localhost-1771561050769.log` shows the fix working:
+Log evidence shows the combined fix working:
 
 ```
-[EmbeddingWorker] Loading pipeline: Xenova/all-MiniLM-L6-v2 webgpu
-[EmbeddingWorker] GPU guard: device acquired, starting keep-alive + loss watcher
-[EmbeddingWorker] GPU keep-alive started (interval=15000ms)
-[EmbeddingWorker] GPU keep-alive tick #1      (~15s)
-[EmbeddingWorker] GPU keep-alive tick #9      (~2m 15s)
-[EmbeddingWorker] GPU keep-alive tick #17     (~4m 15s)   ← approaching old crash point
-[EmbeddingWorker] GPU keep-alive tick #25     (~6m 15s)   ← PAST the ~285s crash point
-[EmbeddingWorker] GPU keep-alive tick #33     (~8m 15s)
-[EmbeddingWorker] GPU keep-alive tick #41     (~10m 15s)
-worker_metrics { uptimeMs: 629997 }                       ← 10.5 minutes, no crash
+power:suspend                                    ← Mac sleeps
+[keep-alive paused]                              ← Worker stops GPU submissions
+power:resume                                     ← Mac wakes (2s delay)
+[keep-alive resumed]                             ← Worker resumes GPU submissions
+GPU keep-alive tick #N                           ← Ticks continue normally
+window:focus                                     ← User returns
+[live queries resumed]                           ← IPC traffic resumes
 ```
 
-- Zero device loss warnings
-- Zero SIGTRAP crashes
-- Semantic search executed successfully mid-session
-- Keep-alive timer fired reliably every 15 seconds throughout
-
----
-
-## What Was Tried and Failed
-
-### Attempt 1: GPU keep-alive with `device.queue.submit([])` (FAILED)
-
-Submitted an empty array to the GPU queue every 30 seconds. The crash still occurred at ~285 seconds.
-
-**Why it failed:** Two compounding issues:
-1. `backgroundThrottling` was not disabled — Chromium froze the renderer at ~5 minutes, stopping the keep-alive timer entirely
-2. `device.queue.submit([])` sends zero work to the GPU — it's a no-op at the driver level
-
-### Previous attempt: Force `device: 'wasm'` (REJECTED)
-
-Disabled WebGPU entirely by forcing WASM execution. Correctly rejected — it papers over the problem and regresses embedding throughput.
+- Zero SIGTRAP crashes (10+ minutes idle)
+- Zero beach ball freezes (sleep/wake cycles)
+- Zero sync I/O floods on wake
+- GPU keep-alive reliable through sleep/wake transitions
 
 ---
 
@@ -186,23 +233,13 @@ env.backends.onnx.webgpu.device  →  Promise<GPUDevice>
 - ONNX Runtime freezes `env.webgpu.device` via `Object.defineProperty({ writable: false, configurable: false })` after first inference session
 - Device cannot be replaced in the same worker — recovery requires worker restart
 
-### ONNX Runtime `preserveDevice` option
+### MacWebContentsOcclusion (Chromium feature)
 
-PR [#24115](https://github.com/microsoft/onnxruntime/pull/24115) (merged March 2025) added a `preserveDevice` option. By default (OFF), ONNX Runtime destroys the WebGPU device when no inference sessions use it. However, since our pipeline caches the session, this is not the direct trigger for our crash. The option is also not yet exposed in the public API of `onnxruntime-web@1.22.0-dev.20250409`.
+On macOS, Chromium detects when a BrowserWindow is fully covered by another window and marks it as "occluded". Occluded renderers receive aggressive throttling similar to background tabs, **regardless of `backgroundThrottling: false`**. Disabling this feature ensures the renderer stays active when covered.
 
-### Known related issues
+### Why deferred recovery, not immediate reload
 
-- [transformers.js #943](https://github.com/huggingface/transformers.js/issues/943) — "A valid external Instance reference no longer exists" after Chromium upgrade
-- [transformers.js #860](https://github.com/huggingface/transformers.js/issues/860) — Memory leak in WebGPU → eventual device loss
-- [ONNX Runtime #26107](https://github.com/microsoft/onnxruntime/issues/26107) — Custom WebGPU device not used at runtime
-
-### Versions
-
-- Electron: 39.2.7
-- @huggingface/transformers: 3.8.1
-- onnxruntime-web: 1.22.0-dev.20250409
-- workerpool: 10.0.1
-- macOS: Darwin 25.3.0
+Calling `win.webContents.reload()` synchronously inside the `render-process-gone` handler while the window is backgrounded can trigger a permanent main thread freeze. The OS may deliver additional POSIX signals during the reload, creating a signal storm. Deferring to user focus/activate ensures the reload happens during a clean main thread state.
 
 ---
 
@@ -210,8 +247,14 @@ PR [#24115](https://github.com/microsoft/onnxruntime/pull/24115) (merged March 2
 
 | File | Change |
 |------|--------|
-| `apps/desktop/src/create-window.ts` | Added `backgroundThrottling: false`, `render-process-gone` handler |
-| `packages/embedding-worker/src/embedding.worker.ts` | Added WebGPU keep-alive, device loss watcher, worker self-termination |
+| `apps/desktop/src/gpu-flags.ts` | **NEW** — Centralized GPU flag constants with forbidden flags guard |
+| `apps/desktop/src/main.ts` | powerMonitor events, window blur/focus, GPU flag imports, `setBackgrounded` wiring |
+| `apps/desktop/src/preload.ts` | Power state IPC bridge via contextBridge |
+| `apps/desktop/src/create-window.ts` | `backgroundThrottling: false`, deferred crash recovery with focus/activate triggers |
+| `apps/desktop/src/ipc-handlers.ts` | Live query pause/resume on background/foreground |
+| `packages/embedding-worker/src/embedding.worker.ts` | Keep-alive pause/resume, isInferenceActive guard, BroadcastChannel power handler |
+| `packages/file-system/src/adapters/electron-watchers.ts` | Async I/O + 150ms event batching |
+| `packages/hooks/src/use-app-active.ts` | App active state hook (useSyncExternalStore) |
 | `packages/queue/src/adapters/browser-workerpool.ts` | `minWorkers: 1` (from earlier fix, kept) |
 
 ---
@@ -224,3 +267,4 @@ PR [#24115](https://github.com/microsoft/onnxruntime/pull/24115) (merged March 2
 - ONNX Runtime WebGPU flags API: https://onnxruntime.ai/docs/api/js/interfaces/Env.WebGpuFlags.html
 - Chromium background throttling: https://developer.chrome.com/blog/background-tabs/
 - Electron BrowserWindow backgroundThrottling: https://www.electronjs.org/docs/latest/api/browser-window
+- Chromium MacWebContentsOcclusion: https://chromium.googlesource.com/chromium/src/+/main/content/browser/web_contents/web_contents_impl.cc

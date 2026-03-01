@@ -114,8 +114,13 @@ vi.mock('react-resizable-panels', () => {
     );
   };
 
-  const Separator = ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="resize-handle">{children}</div>
+  const Separator = ({
+    children,
+    ...rest
+  }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) => (
+    <div data-testid="resize-handle" {...rest}>
+      {children}
+    </div>
   );
 
   return { Group, Panel, Separator };
@@ -211,6 +216,10 @@ describe('IdeLayout', () => {
       'middle-panel': 40,
       'tools-panel': 20,
     });
+    // Flush RAF coalescing so commitLayouts runs
+    act(() => {
+      vi.advanceTimersByTime(16);
+    });
     expect(mockState.saveLayout).toHaveBeenCalledWith(
       [40, 20, 30],
       expect.any(Boolean),
@@ -222,6 +231,10 @@ describe('IdeLayout', () => {
     handlers.vertical[0]?.({
       'main-content': 60,
       'console-panel': 40,
+    });
+    // Flush RAF coalescing so commitLayouts runs
+    act(() => {
+      vi.advanceTimersByTime(16);
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith(
       [25, 20, 40],
@@ -256,6 +269,10 @@ describe('IdeLayout', () => {
       'middle-panel': 70,
       'tools-panel': 30,
     });
+    // Flush RAF coalescing so commitLayouts runs
+    act(() => {
+      vi.advanceTimersByTime(16);
+    });
     expect(mockState.saveLayout).toHaveBeenCalledWith(
       [25, 30, 30],
       expect.any(Boolean),
@@ -288,6 +305,10 @@ describe('IdeLayout', () => {
     handlers.horizontal[0]?.({
       'middle-panel': 65,
       'tools-panel': 35,
+    });
+    // Flush RAF coalescing so commitLayouts runs
+    act(() => {
+      vi.advanceTimersByTime(16);
     });
     expect(mockState.saveLayout).toHaveBeenCalledWith(
       [25, 35, 30],
@@ -437,11 +458,15 @@ describe('IdeLayout', () => {
       vi.advanceTimersByTime(100);
     });
 
-    // Layout changes should trigger saveLayout
+    // Layout changes should trigger saveLayout (via RAF coalescing)
     handlers.horizontal[0]?.({
       'explorer-panel': 35,
       'middle-panel': 45,
       'tools-panel': 20,
+    });
+    // Flush RAF coalescing so commitLayouts runs
+    act(() => {
+      vi.advanceTimersByTime(16);
     });
     expect(mockState.saveLayout).toHaveBeenCalled();
 
@@ -476,5 +501,217 @@ describe('IdeLayout', () => {
       expect.any(Boolean),
       expect.any(Boolean)
     );
+  });
+
+  // ─── Performance regression tests ───────────────────────────────────
+  // These tests guard against regressions in the resize performance optimizations:
+  // - RAF coalescing (multiple onLayoutChanged calls → one saveLayout per frame)
+  // - Drag-state deferral (saveLayout suppressed during drag, flushed on pointerup)
+  // - onResize ref-gating (collapse handler skipped when boolean unchanged)
+
+  describe('RAF coalescing', () => {
+    it('coalesces multiple rapid layout changes into a single saveLayout call per frame', () => {
+      vi.useFakeTimers();
+      Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
+      const { unmount } = renderDefaultLayout();
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      mockState.saveLayout.mockClear();
+
+      // Fire 5 rapid horizontal layout changes (simulating 5 pointermove events within one frame)
+      handlers.horizontal[0]?.({ 'explorer-panel': 30, 'middle-panel': 50, 'tools-panel': 20 });
+      handlers.horizontal[0]?.({ 'explorer-panel': 32, 'middle-panel': 48, 'tools-panel': 20 });
+      handlers.horizontal[0]?.({ 'explorer-panel': 34, 'middle-panel': 46, 'tools-panel': 20 });
+      handlers.horizontal[0]?.({ 'explorer-panel': 36, 'middle-panel': 44, 'tools-panel': 20 });
+      handlers.horizontal[0]?.({ 'explorer-panel': 38, 'middle-panel': 42, 'tools-panel': 20 });
+
+      // Before RAF fires, saveLayout should NOT have been called
+      expect(mockState.saveLayout).not.toHaveBeenCalled();
+
+      // Flush one RAF frame
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+
+      // Exactly one saveLayout call with the LAST layout values
+      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
+      expect(mockState.saveLayout).toHaveBeenCalledWith(
+        [38, 20, expect.any(Number)],
+        expect.any(Boolean),
+        expect.any(Boolean),
+        expect.any(Boolean)
+      );
+
+      unmount();
+      vi.useRealTimers();
+    });
+
+    it('coalesces vertical layout changes independently from horizontal', () => {
+      vi.useFakeTimers();
+      Object.assign(mockState, {
+        showLeftPanel: true,
+        showRightPanel: true,
+        showConsole: true,
+      });
+      const { unmount } = renderDefaultLayout();
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      mockState.saveLayout.mockClear();
+
+      // Fire both horizontal and vertical changes within the same frame
+      handlers.horizontal[0]?.({ 'explorer-panel': 40, 'middle-panel': 40, 'tools-panel': 20 });
+      handlers.vertical[0]?.({ 'main-content-panel': 70, 'console-panel': 30 });
+
+      // Flush one RAF frame — both are processed, but vertical overwrites the final args
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+
+      // saveLayout should have been called (at least once, possibly twice if both pending)
+      expect(mockState.saveLayout).toHaveBeenCalled();
+
+      unmount();
+      vi.useRealTimers();
+    });
+  });
+
+  describe('drag-state deferral', () => {
+    it('suppresses saveLayout during drag and flushes on pointerup', () => {
+      vi.useFakeTimers();
+      Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
+      const { unmount } = renderDefaultLayout();
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      mockState.saveLayout.mockClear();
+
+      // Simulate pointerdown on a separator (starts drag)
+      const separators = screen.getAllByTestId('resize-handle');
+      fireEvent.pointerDown(separators[0]!);
+
+      // Fire layout changes during drag
+      handlers.horizontal[0]?.({ 'explorer-panel': 30, 'middle-panel': 50, 'tools-panel': 20 });
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+      handlers.horizontal[0]?.({ 'explorer-panel': 35, 'middle-panel': 45, 'tools-panel': 20 });
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+      handlers.horizontal[0]?.({ 'explorer-panel': 40, 'middle-panel': 40, 'tools-panel': 20 });
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+
+      // saveLayout should NOT have been called during drag
+      expect(mockState.saveLayout).not.toHaveBeenCalled();
+
+      // Simulate pointerup (ends drag) — triggers flush of deferred layout
+      fireEvent.pointerUp(document);
+
+      // Now saveLayout should be called exactly once with the final layout
+      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
+      expect(mockState.saveLayout).toHaveBeenCalledWith(
+        [40, 20, expect.any(Number)],
+        expect.any(Boolean),
+        expect.any(Boolean),
+        expect.any(Boolean)
+      );
+
+      unmount();
+      vi.useRealTimers();
+    });
+
+    it('does not suppress saveLayout when no drag is active', () => {
+      vi.useFakeTimers();
+      Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
+      const { unmount } = renderDefaultLayout();
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      mockState.saveLayout.mockClear();
+
+      // Fire layout change WITHOUT preceding pointerdown
+      handlers.horizontal[0]?.({ 'explorer-panel': 30, 'middle-panel': 50, 'tools-panel': 20 });
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+
+      // saveLayout should fire immediately (not deferred)
+      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
+
+      unmount();
+      vi.useRealTimers();
+    });
+
+    it('handles multiple drag cycles correctly', () => {
+      vi.useFakeTimers();
+      Object.assign(mockState, { showLeftPanel: true, showRightPanel: true });
+      const { unmount } = renderDefaultLayout();
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      mockState.saveLayout.mockClear();
+
+      const separators = screen.getAllByTestId('resize-handle');
+
+      // First drag cycle
+      fireEvent.pointerDown(separators[0]!);
+      handlers.horizontal[0]?.({ 'explorer-panel': 30, 'middle-panel': 50, 'tools-panel': 20 });
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+      expect(mockState.saveLayout).not.toHaveBeenCalled();
+      fireEvent.pointerUp(document);
+      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
+
+      mockState.saveLayout.mockClear();
+
+      // Second drag cycle — should work independently
+      fireEvent.pointerDown(separators[0]!);
+      handlers.horizontal[0]?.({ 'explorer-panel': 45, 'middle-panel': 35, 'tools-panel': 20 });
+      act(() => {
+        vi.advanceTimersByTime(16);
+      });
+      expect(mockState.saveLayout).not.toHaveBeenCalled();
+      fireEvent.pointerUp(document);
+      expect(mockState.saveLayout).toHaveBeenCalledTimes(1);
+      expect(mockState.saveLayout).toHaveBeenCalledWith(
+        [45, 20, expect.any(Number)],
+        expect.any(Boolean),
+        expect.any(Boolean),
+        expect.any(Boolean)
+      );
+
+      unmount();
+      vi.useRealTimers();
+    });
+  });
+
+  describe('transition-free separators', () => {
+    it('source does not apply transition-colors to Separator className', async () => {
+      // Source-level assertion: read the ide-layout source and verify no Separator
+      // className contains "transition-colors". The mock strips className so DOM
+      // assertions can't catch this — checking source prevents regressions directly.
+      const fs = await import('node:fs');
+      const path = await import('node:path');
+      const source = fs.readFileSync(
+        path.resolve(import.meta.dirname, '../layout/ide-layout.tsx'),
+        'utf-8'
+      );
+      // Match Separator JSX blocks with their className props
+      const separatorBlocks = source.match(/<Separator[\s\S]*?\/>/g) ?? [];
+      expect(separatorBlocks.length).toBeGreaterThanOrEqual(3);
+      for (const block of separatorBlocks) {
+        expect(block).not.toContain('transition-colors');
+      }
+    });
   });
 });

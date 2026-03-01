@@ -42,6 +42,7 @@ mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
 const whenReadyMock = vi.fn(() => Promise.resolve());
 
 const mockApp = {
+  commandLine: { appendSwitch: vi.fn() },
   isPackaged: false,
   whenReady: whenReadyMock,
   isReady: vi.fn(() => true),
@@ -62,6 +63,12 @@ vi.mock('electron', () => ({
   Menu: {
     setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
+  },
+  powerMonitor: {
+    on: vi.fn(),
+  },
+  powerSaveBlocker: {
+    start: vi.fn(() => 1),
   },
 }));
 
@@ -243,5 +250,27 @@ describe('window setup', () => {
     expect(mockBrowserWindowInstance.loadFile).toHaveBeenCalled();
     const arg = mockBrowserWindowInstance.loadFile.mock.calls[0]?.[0] as string;
     expect(arg).toContain('renderer/index.html');
+  });
+
+  it('sets disable-features with MacWebContentsOcclusion and SpareRendererForSitePerProcess', async () => {
+    await import('../../main');
+    expect(mockApp.commandLine.appendSwitch).toHaveBeenCalledWith(
+      'disable-features',
+      expect.stringContaining('MacWebContentsOcclusion')
+    );
+    expect(mockApp.commandLine.appendSwitch).toHaveBeenCalledWith(
+      'disable-features',
+      expect.stringContaining('SpareRendererForSitePerProcess')
+    );
+  });
+
+  it('does NOT enable gpu-rasterization or zero-copy flags', async () => {
+    await import('../../main');
+    const calls = mockApp.commandLine.appendSwitch.mock.calls as [string, string][];
+    for (const [key, value] of calls) {
+      const combined = `${key}=${value ?? ''}`;
+      expect(combined).not.toMatch(/enable-gpu-rasterization/);
+      expect(combined).not.toMatch(/enable-zero-copy/);
+    }
   });
 });

@@ -1,5 +1,9 @@
 import { usePGliteDatabase } from '@brainstrike/db';
-import { type EmbeddingWorkerController, startEmbeddingWorker } from '@brainstrike/embeddings';
+import {
+  type EmbeddingWorkerController,
+  POWER_BROADCAST_CHANNEL,
+  startEmbeddingWorker,
+} from '@brainstrike/embeddings';
 import { useModelRegistryStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 import { useEffect, useRef } from 'react';
@@ -114,6 +118,35 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
       }
     };
   }, [db]);
+
+  // Relay power-state events from the main process to the embedding worker via
+  // BroadcastChannel. This pauses the GPU keep-alive during system suspend so
+  // stale GPU commands aren't submitted on wake.
+  useEffect(() => {
+    const powerApi = (
+      window as { power?: { onPowerState: (cb: (state: string) => void) => () => void } }
+    ).power;
+    if (!powerApi) {
+      return;
+    }
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel(POWER_BROADCAST_CHANNEL);
+    }
+
+    const cleanup = powerApi.onPowerState((state) => {
+      logger.info('Power state change received in renderer', { state });
+      if (channel) {
+        channel.postMessage(state);
+      }
+    });
+
+    return () => {
+      cleanup();
+      channel?.close();
+    };
+  }, []);
 
   return <>{children}</>;
 }

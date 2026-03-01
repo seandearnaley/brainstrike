@@ -49,6 +49,12 @@ vi.mock('electron', async () => {
       setApplicationMenu: vi.fn(),
       buildFromTemplate: vi.fn(),
     },
+    powerMonitor: {
+      on: vi.fn(),
+    },
+    powerSaveBlocker: {
+      start: vi.fn(() => 1),
+    },
   };
 });
 

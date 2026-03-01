@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
+import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 
 // Raw debug log to verify main process startup
 // biome-ignore lint/suspicious/noConsole: Critical startup debugging
@@ -18,13 +19,22 @@ import {
   type LoggingPreferences,
   LogLevel,
 } from '@brainstrike/utils';
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  powerMonitor,
+  powerSaveBlocker,
+  shell,
+} from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
 import { createWindow } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
 import { registerAgentIpcHandlers } from './ipc-agent';
-import { registerIpcHandlers } from './ipc-handlers';
+import { registerIpcHandlers, setBackgrounded } from './ipc-handlers';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerToolsIpcHandlers } from './ipc-tools';
@@ -500,6 +510,16 @@ const singleInstanceLockAcquired =
   typeof app.requestSingleInstanceLock === 'function' ? app.requestSingleInstanceLock() : true;
 
 if (singleInstanceLockAcquired) {
+  // REMOVED: enable-gpu-rasterization + enable-zero-copy
+  // These push rasterization onto the same GPU command queue that ONNX/Dawn
+  // uses for WebGPU inference. Under sustained background embedding load,
+  // the Metal command queue race causes a Dawn CHECK() → SIGTRAP at ~4 min.
+
+  // Prevent macOS from deprioritizing the renderer's GPU context when the
+  // window is occluded (behind another window). Without this, the GPU process
+  // may starve WebGPU command submissions after ~4 minutes.
+  app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
+
   app.on('second-instance', () => {
     const existingWindow = BrowserWindow.getAllWindows()[0];
     if (!existingWindow) {
@@ -517,6 +537,33 @@ if (singleInstanceLockAcquired) {
   app.whenReady().then(async () => {
     try {
       logger.info('App ready, starting initialization...');
+
+      // Re-initialize file logging now that app.getPath() is available.
+      // At module load time, app.isReady() is false so getLogFilePath()
+      // returns null and file logging defaults to disabled.
+      if (!(disableFileLogs || currentLoggingPreferences.file.enabled)) {
+        const resolvedLogPath = getLogFilePath();
+        if (resolvedLogPath) {
+          currentLoggingPreferences = {
+            ...currentLoggingPreferences,
+            file: {
+              ...currentLoggingPreferences.file,
+              enabled: true,
+              destination: resolvedLogPath,
+            },
+          };
+          applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
+            baseBindings: {
+              logFile: resolvedLogPath,
+              platform: process.platform,
+              arch: process.arch,
+              electron: process.versions.electron,
+              node: process.versions.node,
+            },
+          });
+          logger.info('File logging enabled after app.ready', { logFile: resolvedLogPath });
+        }
+      }
 
       logger.info('Setting up IPC handlers that require app readiness...');
       registerSecretsIpcHandlers(createSecretsService());
@@ -634,8 +681,153 @@ if (singleInstanceLockAcquired) {
       };
 
       logger.info('Creating main window...');
-      await createMainWindow();
+      const mainWindow = await createMainWindow();
       logger.info('Main window created successfully');
+
+      // Prevent macOS App Nap from throttling the main process.
+      // App Nap kicks in after ~5 min of being unfocused and modifies timer
+      // coalescing, which can break libuv's event loop and cause 100% CPU spin.
+      const powerSaveId = powerSaveBlocker.start('prevent-app-suspension');
+      logger.info('powerSaveBlocker started', { id: powerSaveId });
+
+      // ---------------------------------------------------------------
+      // Event loop health diagnostics — logs CPU and loop lag every 30s.
+      // Logs UNCONDITIONALLY so the absence of entries = freeze detected.
+      // ---------------------------------------------------------------
+      {
+        const { monitorEventLoopDelay } = await import('node:perf_hooks');
+        const histogram = monitorEventLoopDelay({ resolution: 50 });
+        histogram.enable();
+        let prevCpu = process.cpuUsage();
+        let prevTime = process.hrtime.bigint();
+
+        setInterval(() => {
+          const cpu = process.cpuUsage(prevCpu);
+          const now = process.hrtime.bigint();
+          const elapsedMs = Number(now - prevTime) / 1_000_000;
+          const cpuPercent = elapsedMs > 0 ? (cpu.user + cpu.system) / 1000 / elapsedMs : 0;
+          prevCpu = process.cpuUsage();
+          prevTime = process.hrtime.bigint();
+
+          const p50 = histogram.percentile(50) / 1_000_000;
+          const p99 = histogram.percentile(99) / 1_000_000;
+          const max = histogram.max / 1_000_000;
+          histogram.reset();
+
+          const mem = process.memoryUsage();
+          const handles =
+            (
+              process as NodeJS.Process & { _getActiveHandles?: () => unknown[] }
+            )._getActiveHandles?.()?.length ?? -1;
+          const requests =
+            (
+              process as NodeJS.Process & { _getActiveRequests?: () => unknown[] }
+            )._getActiveRequests?.()?.length ?? -1;
+
+          const payload = {
+            cpuPercent: (cpuPercent * 100).toFixed(1),
+            loopLagP50Ms: p50.toFixed(1),
+            loopLagP99Ms: p99.toFixed(1),
+            loopLagMaxMs: max.toFixed(1),
+            rssKb: (mem.rss / 1024).toFixed(0),
+            heapUsedKb: (mem.heapUsed / 1024).toFixed(0),
+            handles,
+            requests,
+          };
+
+          // Always log — if entries stop appearing, the event loop is stuck.
+          // NOTE: pino API requires (obj, msg) order to merge fields into the entry.
+          if (cpuPercent > 0.1 || p99 > 100 || max > 500) {
+            logger.warn(payload, 'main-process-health');
+          } else {
+            logger.info(payload, 'main-process-health');
+          }
+        }, 30_000).unref();
+      }
+
+      // ---------------------------------------------------------------
+      // Worker thread watchdog — detects main-thread freezes that block
+      // the event loop (and therefore all setInterval timers above).
+      // The worker has its own event loop unaffected by signal storms.
+      // If the main thread stops sending heartbeats, the worker writes
+      // diagnostics directly to stderr and the log file.
+      // ---------------------------------------------------------------
+      {
+        const { Worker } = await import('node:worker_threads');
+        const watchdogSource = [
+          'const { parentPort } = require("node:worker_threads");',
+          'const fs = require("node:fs");',
+          'let lastHb = Date.now();',
+          'let logPath = null;',
+          'const CHECK_MS = 5000;',
+          'const FROZEN_MS = 20000;',
+          'parentPort.on("message", (m) => {',
+          '  if (m.type === "heartbeat") lastHb = Date.now();',
+          '  else if (m.type === "config") logPath = m.logPath;',
+          '});',
+          'setInterval(() => {',
+          '  const age = Date.now() - lastHb;',
+          '  if (age > FROZEN_MS) {',
+          '    const d = JSON.stringify({',
+          '      level: 50,',
+          '      time: new Date().toISOString(),',
+          '      scope: "MainWatchdog",',
+          '      msg: "MAIN_THREAD_UNRESPONSIVE",',
+          '      heartbeatAgeMs: age,',
+          '      cpuUser: process.cpuUsage().user,',
+          '      cpuSystem: process.cpuUsage().system,',
+          '      rssKb: Math.round(process.memoryUsage().rss / 1024),',
+          '      heapUsedKb: Math.round(process.memoryUsage().heapUsed / 1024),',
+          '    });',
+          '    process.stderr.write(d + "\\n");',
+          '    if (logPath) {',
+          '      try { fs.appendFileSync(logPath, d + "\\n"); } catch (_) {}',
+          '    }',
+          '  }',
+          '}, CHECK_MS);',
+        ].join('\n');
+
+        const watchdog = new Worker(watchdogSource, { eval: true });
+        watchdog.unref();
+        watchdog.postMessage({ type: 'config', logPath: getLogFilePath() });
+
+        setInterval(() => {
+          watchdog.postMessage({ type: 'heartbeat' });
+        }, 5000).unref();
+
+        logger.info('main-thread watchdog started');
+      }
+
+      // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
+      powerMonitor.on('suspend', () => {
+        logger.info('power:suspend');
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('app:power-state', 'suspend');
+        }
+      });
+
+      powerMonitor.on('resume', () => {
+        logger.info('power:resume');
+        // Delay to let OS settle (GPU re-init, network reconnect)
+        setTimeout(() => {
+          if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('app:power-state', 'resume');
+          }
+        }, 2000);
+      });
+
+      powerMonitor.on('lock-screen', () => logger.info('power:lock-screen'));
+      powerMonitor.on('unlock-screen', () => logger.info('power:unlock-screen'));
+
+      // Window focus/blur: throttle IPC traffic when backgrounded
+      mainWindow.on('blur', () => {
+        logger.info('window:blur');
+        setBackgrounded(true);
+      });
+      mainWindow.on('focus', () => {
+        logger.info('window:focus');
+        setBackgrounded(false);
+      });
 
       app.on('activate', async () => {
         if (BrowserWindow.getAllWindows().length === 0) {

@@ -200,6 +200,17 @@ contextBridge.exposeInMainWorld('logging', {
   },
 });
 
+// Power state events (suspend/resume awareness for GPU keep-alive, etc.)
+contextBridge.exposeInMainWorld('power', {
+  onPowerState: (callback: (state: 'suspend' | 'resume') => void) => {
+    const listener = (_event: unknown, state: 'suspend' | 'resume') => callback(state);
+    ipcRenderer.on('app:power-state', listener);
+    return () => {
+      ipcRenderer.removeListener('app:power-state', listener);
+    };
+  },
+});
+
 // System Clipboard helper (renderer-friendly)
 contextBridge.exposeInMainWorld('clipboard', {
   writeText: (text: string) => {
