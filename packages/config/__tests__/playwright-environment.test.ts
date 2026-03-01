@@ -50,6 +50,7 @@ describe('playwright-environment helpers', () => {
   it('computes worker count and retries per env', () => {
     expect(getWorkerCount({ isCodex: true, isGitHubActions: false, isCI: true })).toBe(1);
     expect(getWorkerCount({ isCodex: false, isGitHubActions: true, isCI: true })).toBe(2);
+    expect(getWorkerCount({ isCodex: false, isGitHubActions: false, isCI: true })).toBe(1);
     expect(getRetryCount({ isCodex: true, isGitHubActions: false, isCI: true })).toBe(1);
     expect(getRetryCount({ isCodex: false, isGitHubActions: false, isCI: false })).toBe(0);
   });
@@ -57,6 +58,9 @@ describe('playwright-environment helpers', () => {
   it('global timeout policy differs between CI and local', () => {
     expect(getGlobalTimeout({ isCodex: true, isGitHubActions: false, isCI: true })).toBeGreaterThan(
       0
+    );
+    expect(getGlobalTimeout({ isCodex: false, isGitHubActions: false, isCI: true })).toBe(
+      15 * 60 * 1000
     );
     expect(getGlobalTimeout({ isCodex: false, isGitHubActions: false, isCI: false })).toBe(0);
   });

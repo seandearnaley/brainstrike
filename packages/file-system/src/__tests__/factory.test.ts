@@ -1,8 +1,9 @@
 import { detectPlatform } from '@brainstrike/platform-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronFileSystemAdapter } from '../adapters/electron-adapter';
+import { MockFileSystemAdapter } from '../adapters/mock-file-system-adapter';
 import { WebFileSystemAdapter } from '../adapters/web-adapter';
-import { createFileSystemAdapter } from '../factory';
+import { createFileSystemAdapter, createMockFileSystemAdapter } from '../factory';
 
 describe('File System Factory', () => {
   describe('createFileSystemAdapter', () => {
@@ -20,6 +21,13 @@ describe('File System Factory', () => {
       expect(() => createFileSystemAdapter('unknown' as never)).toThrow(
         'Unknown platform: unknown'
       );
+    });
+  });
+
+  describe('createMockFileSystemAdapter', () => {
+    it('should create a mock file system adapter', () => {
+      const adapter = createMockFileSystemAdapter();
+      expect(adapter).toBeInstanceOf(MockFileSystemAdapter);
     });
   });
 
