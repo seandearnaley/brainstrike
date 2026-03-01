@@ -139,8 +139,8 @@ describe('PreviewPanel', () => {
   describe('Context Actions', () => {
     it('renders context actions and wires callbacks', async () => {
       const user = userEvent.setup();
-      const onDownloadReport = vi.fn();
-      const onCopyReport = vi.fn();
+      const onDownloadContext = vi.fn();
+      const onCopyContext = vi.fn();
       const onIncludeProjectTreeChange = vi.fn();
       const onProjectTreeUsesViewFiltersChange = vi.fn();
 
@@ -148,8 +148,8 @@ describe('PreviewPanel', () => {
         <PreviewPanel
           {...mockProps}
           includeProjectTree={true}
-          onCopyReport={onCopyReport}
-          onDownloadReport={onDownloadReport}
+          onCopyContext={onCopyContext}
+          onDownloadContext={onDownloadContext}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
         />
@@ -162,8 +162,8 @@ describe('PreviewPanel', () => {
 
       fireEvent.click(downloadButton);
       fireEvent.click(copyButton);
-      expect(onDownloadReport).toHaveBeenCalledTimes(1);
-      expect(onCopyReport).toHaveBeenCalledTimes(1);
+      expect(onDownloadContext).toHaveBeenCalledTimes(1);
+      expect(onCopyContext).toHaveBeenCalledTimes(1);
 
       const treeSwitch = screen.getByRole('switch', { name: /include project tree/i });
       await user.click(treeSwitch);
@@ -268,14 +268,14 @@ describe('PreviewPanel', () => {
     });
 
     it('disables context buttons when no files are selected', () => {
-      const onDownloadReport = vi.fn();
-      const onCopyReport = vi.fn();
+      const onDownloadContext = vi.fn();
+      const onCopyContext = vi.fn();
 
       render(
         <PreviewPanel
           {...mockProps}
-          onCopyReport={onCopyReport}
-          onDownloadReport={onDownloadReport}
+          onCopyContext={onCopyContext}
+          onDownloadContext={onDownloadContext}
           selectedFiles={new Set()}
         />
       );
