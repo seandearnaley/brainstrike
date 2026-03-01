@@ -25,11 +25,11 @@ const OVERRIDES = new Map([
   // Desktop thresholds recalibrated in 2026-03 after local/CI coverage hardening.
   ['@brainstrike/desktop', { lines: 94, functions: 78, branches: 66, statements: 78 }],
   // Configuration and utility package thresholds recalibrated in 2026-03.
-  ['@brainstrike/config', { lines: 90, functions: 90, branches: 70, statements: 90 }],
+  ['@brainstrike/config', { lines: 98, functions: 98, branches: 80, statements: 98 }],
   ['@brainstrike/tailwind-config', { lines: 10, functions: 0, branches: 0, statements: 10 }],
   ['@brainstrike/types', { lines: 20, functions: 50, branches: 0, statements: 20 }],
   // File system thresholds recalibrated in 2026-03 after broader test coverage.
-  ['@brainstrike/file-system', { lines: 80, functions: 78, branches: 65, statements: 72 }],
+  ['@brainstrike/file-system', { lines: 84, functions: 84, branches: 66, statements: 74 }],
   // Test utilities are helper scaffolding used by other packages' tests
   ['@brainstrike/test-utils', { lines: 75, functions: 70, branches: 70, statements: 65 }],
   // Build utilities close to threshold, give small buffer

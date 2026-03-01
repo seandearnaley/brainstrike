@@ -1,15 +1,43 @@
+import type { FSWatcher, Stats } from 'node:fs';
+import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startFsWatch } from '../adapters/electron-watchers';
+import {
+  handleWatcherSetupError,
+  startChokidarWatch,
+  startFsWatch,
+} from '../adapters/electron-watchers';
 import type { DirectoryHandle, FileSystemChange } from '../types';
 
-// Mock the logger
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: () => ({
+type ChokidarEvent = 'add' | 'addDir' | 'change' | 'unlink' | 'unlinkDir' | 'error';
+type ChokidarHandler = (value: unknown) => void;
+
+const { chokidarClose, chokidarHandlers, chokidarWatch, loggerMock } = vi.hoisted(() => {
+  const hoistedLoggerMock = {
     info: vi.fn(),
     debug: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
-  }),
+  };
+  const hoistedChokidarHandlers = new Map<ChokidarEvent, ChokidarHandler>();
+  const hoistedChokidarClose = vi.fn();
+  const hoistedChokidarWatcher = {
+    on: vi.fn((event: ChokidarEvent, handler: ChokidarHandler) => {
+      hoistedChokidarHandlers.set(event, handler);
+      return hoistedChokidarWatcher;
+    }),
+    close: hoistedChokidarClose,
+  };
+  const hoistedChokidarWatch = vi.fn(() => hoistedChokidarWatcher);
+  return {
+    loggerMock: hoistedLoggerMock,
+    chokidarHandlers: hoistedChokidarHandlers,
+    chokidarClose: hoistedChokidarClose,
+    chokidarWatch: hoistedChokidarWatch,
+  };
+});
+
+vi.mock('@brainstrike/utils', () => ({
+  createLogger: () => loggerMock,
 }));
 
 const mockHandle: DirectoryHandle = {
@@ -19,6 +47,10 @@ const mockHandle: DirectoryHandle = {
   platform: 'electron',
 };
 
+vi.mock('chokidar', () => ({
+  watch: chokidarWatch,
+}));
+
 describe('startFsWatch', () => {
   let mockWatchCallback: ((ev: string, filename: string | null) => void) | null;
   let mockClose: ReturnType<typeof vi.fn>;
@@ -27,12 +59,13 @@ describe('startFsWatch', () => {
     vi.useFakeTimers();
     mockWatchCallback = null;
     mockClose = vi.fn();
+    chokidarHandlers.clear();
+    loggerMock.error.mockClear();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.spyOn(require('node:fs') as any, 'watch').mockImplementation((...args: unknown[]) => {
-      mockWatchCallback = args[2] as (ev: string, filename: string | null) => void;
-      return { close: mockClose };
-    });
+    vi.spyOn(fs, 'watch').mockImplementation(((...args: unknown[]) => {
+      mockWatchCallback = args[2] as ((ev: string, filename: string | null) => void) | null;
+      return { close: mockClose } as unknown as FSWatcher;
+    }) as unknown as typeof fs.watch);
   });
 
   afterEach(() => {
@@ -41,9 +74,9 @@ describe('startFsWatch', () => {
   });
 
   it('coalesces multiple events within 150ms into one callback invocation', async () => {
-    const statMock = vi.spyOn(require('node:fs').promises, 'stat').mockResolvedValue({
+    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
       isDirectory: () => false,
-    });
+    } as Stats);
     const callback = vi.fn();
     startFsWatch(mockHandle, callback);
 
@@ -72,9 +105,7 @@ describe('startFsWatch', () => {
   });
 
   it('pushes removed event when stat rejects on rename', async () => {
-    const statMock = vi
-      .spyOn(require('node:fs').promises, 'stat')
-      .mockRejectedValue(new Error('ENOENT'));
+    const statMock = vi.spyOn(fs.promises, 'stat').mockRejectedValue(new Error('ENOENT'));
     const callback = vi.fn();
     startFsWatch(mockHandle, callback);
 
@@ -90,9 +121,7 @@ describe('startFsWatch', () => {
   });
 
   it('does NOT push removed event for change events that fail stat', async () => {
-    const statMock = vi
-      .spyOn(require('node:fs').promises, 'stat')
-      .mockRejectedValue(new Error('ENOENT'));
+    const statMock = vi.spyOn(fs.promises, 'stat').mockRejectedValue(new Error('ENOENT'));
     const callback = vi.fn();
     startFsWatch(mockHandle, callback);
 
@@ -106,9 +135,9 @@ describe('startFsWatch', () => {
   });
 
   it('stop function flushes remaining batch immediately', async () => {
-    const statMock = vi.spyOn(require('node:fs').promises, 'stat').mockResolvedValue({
+    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
       isDirectory: () => false,
-    });
+    } as Stats);
     const callback = vi.fn();
     const stop = startFsWatch(mockHandle, callback);
 
@@ -127,9 +156,9 @@ describe('startFsWatch', () => {
   });
 
   it('ignores events with null filename', async () => {
-    const statMock = vi.spyOn(require('node:fs').promises, 'stat').mockResolvedValue({
+    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
       isDirectory: () => false,
-    });
+    } as Stats);
     const callback = vi.fn();
     startFsWatch(mockHandle, callback);
 
@@ -143,9 +172,9 @@ describe('startFsWatch', () => {
   });
 
   it('detects directories via stat isDirectory', async () => {
-    const statMock = vi.spyOn(require('node:fs').promises, 'stat').mockResolvedValue({
+    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
       isDirectory: () => true,
-    });
+    } as Stats);
     const callback = vi.fn();
     startFsWatch(mockHandle, callback);
 
@@ -157,5 +186,112 @@ describe('startFsWatch', () => {
     ]);
 
     statMock.mockRestore();
+  });
+
+  it('returns a no-op stop function when native fs.watch fails', () => {
+    vi.spyOn(fs, 'watch').mockImplementation(() => {
+      throw new Error('watch unavailable');
+    });
+
+    const stop = startFsWatch(mockHandle, vi.fn());
+    expect(typeof stop).toBe('function');
+    expect(() => stop()).not.toThrow();
+    expect(loggerMock.error).toHaveBeenCalledWith('Failed to start native fs.watch', {
+      error: expect.any(Error),
+      path: mockHandle.path,
+    });
+  });
+});
+
+describe('startChokidarWatch', () => {
+  beforeEach(() => {
+    chokidarHandlers.clear();
+    chokidarWatch.mockClear();
+    chokidarClose.mockClear();
+    loggerMock.error.mockClear();
+  });
+
+  it('maps chokidar events to FileSystemChange payloads', async () => {
+    const callback = vi.fn();
+    const stop = await startChokidarWatch(mockHandle, callback);
+
+    expect(chokidarWatch).toHaveBeenCalledWith(mockHandle.path, {
+      ignoreInitial: true,
+      persistent: true,
+      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 100 },
+      ignored: /(^|[/\\])\../,
+      depth: 0,
+    });
+
+    chokidarHandlers.get('add')?.('/test/dir/new.txt');
+    chokidarHandlers.get('addDir')?.('/test/dir/sub');
+    chokidarHandlers.get('change')?.('/test/dir/update.txt');
+    chokidarHandlers.get('unlink')?.('/test/dir/remove.txt');
+    chokidarHandlers.get('unlinkDir')?.('/test/dir/old-sub');
+    chokidarHandlers.get('error')?.(new Error('watch error'));
+
+    expect(callback).toHaveBeenNthCalledWith(1, [
+      { type: 'added', path: '/test/dir/new.txt', kind: 'file' },
+    ]);
+    expect(callback).toHaveBeenNthCalledWith(2, [
+      { type: 'added', path: '/test/dir/sub', kind: 'directory' },
+    ]);
+    expect(callback).toHaveBeenNthCalledWith(3, [
+      { type: 'modified', path: '/test/dir/update.txt', kind: 'file' },
+    ]);
+    expect(callback).toHaveBeenNthCalledWith(4, [
+      { type: 'removed', path: '/test/dir/remove.txt', kind: 'file' },
+    ]);
+    expect(callback).toHaveBeenNthCalledWith(5, [
+      { type: 'removed', path: '/test/dir/old-sub', kind: 'directory' },
+    ]);
+    expect(loggerMock.error).toHaveBeenCalledWith('Chokidar watcher reported an error', {
+      error: expect.any(Error),
+      path: mockHandle.path,
+    });
+
+    stop();
+    expect(chokidarClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('handleWatcherSetupError', () => {
+  let fallbackClose: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fallbackClose = vi.fn();
+    vi.spyOn(fs, 'watch').mockImplementation(
+      (() => ({ close: fallbackClose }) as unknown as FSWatcher) as unknown as typeof fs.watch
+    );
+    loggerMock.error.mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('logs non-module errors before falling back to fs.watch', () => {
+    const callback = vi.fn();
+    const stop = handleWatcherSetupError(new Error('boom'), mockHandle, callback);
+
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      'Failed to set up chokidar watcher, falling back to fs.watch',
+      {
+        error: expect.any(Error),
+        path: mockHandle.path,
+      }
+    );
+
+    stop();
+  });
+
+  it('suppresses log for MODULE_NOT_FOUND and still falls back to fs.watch', () => {
+    const callback = vi.fn();
+    const moduleError = Object.assign(new Error('missing'), { code: 'MODULE_NOT_FOUND' });
+    const stop = handleWatcherSetupError(moduleError, mockHandle, callback);
+
+    expect(loggerMock.error).not.toHaveBeenCalled();
+    stop();
+    expect(fallbackClose).toHaveBeenCalledTimes(1);
   });
 });

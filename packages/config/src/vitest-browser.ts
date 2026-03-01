@@ -41,11 +41,14 @@ const CI_LAUNCH_ARGS = [
   '--disable-features=VizDisplayCompositor',
 ];
 
+const resolveIsCI = (config?: BrowserTestConfig): boolean =>
+  config?.isCI ?? Boolean(process.env['CI'] || process.env['GITHUB_ACTIONS']);
+
 /**
  * Creates Playwright provider options for Vitest 4 Browser Mode
  */
 export function createPlaywrightOptions(config?: BrowserTestConfig): PlaywrightProviderOptions {
-  const isCI = config?.isCI ?? Boolean(process.env['CI']) ?? Boolean(process.env['GITHUB_ACTIONS']);
+  const isCI = resolveIsCI(config);
   const launchArgs = config?.launchArgs ?? (isCI ? CI_LAUNCH_ARGS : []);
 
   // Only include launchOptions if there are args to pass
@@ -87,7 +90,7 @@ export function createPlaywrightOptions(config?: BrowserTestConfig): PlaywrightP
 export function createBrowserProject(config?: BrowserTestConfig) {
   const testPattern = config?.testPattern ?? '**/*.browser.test.{ts,tsx}';
   const headless = config?.headless ?? true;
-  const isCI = config?.isCI ?? Boolean(process.env['CI']) ?? Boolean(process.env['GITHUB_ACTIONS']);
+  const isCI = resolveIsCI(config);
 
   // Enable traces on failure in CI by default for debugging
   const trace = config?.trace ?? (isCI ? 'retain-on-failure' : 'off');
