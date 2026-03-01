@@ -148,6 +148,7 @@ apps/desktop/build/
 icons/.generated/
 
 .codex/
+.Jules/
 
 .pnpm-store/
 packages/db/__tests__/__screenshots__/

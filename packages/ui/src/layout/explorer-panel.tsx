@@ -44,6 +44,7 @@ export function ExplorerPanel({
               onClick={onHide}
               ref={hideButtonRef}
               size="icon"
+              title="Hide explorer panel"
               variant="ghost"
             >
               <ChevronLeft className="h-4 w-4" />

@@ -45,6 +45,7 @@ export function ConsolePanel({
               onClick={onHide}
               ref={hideButtonRef}
               size="icon"
+              title="Close File Editor"
               variant="ghost"
             >
               <X className="h-4 w-4" />
