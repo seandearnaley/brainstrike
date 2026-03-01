@@ -22,6 +22,7 @@ describe('crypto-utils', () => {
   // Store original methods
   const originalRandomUUID = globalThis.crypto?.randomUUID;
   const originalSubtle = globalThis.crypto?.subtle;
+  const originalGetRandomValues = globalThis.crypto?.getRandomValues?.bind(globalThis.crypto);
 
   afterEach(() => {
     // Restore original methods
@@ -35,6 +36,13 @@ describe('crypto-utils', () => {
     if (originalSubtle) {
       Object.defineProperty(globalThis.crypto, 'subtle', {
         value: originalSubtle,
+        configurable: true,
+        writable: true,
+      });
+    }
+    if (originalGetRandomValues) {
+      Object.defineProperty(globalThis.crypto, 'getRandomValues', {
+        value: originalGetRandomValues,
         configurable: true,
         writable: true,
       });
@@ -58,16 +66,45 @@ describe('crypto-utils', () => {
       expect(globalThis.crypto.randomUUID).toHaveBeenCalledOnce();
     });
 
-    it('falls back to manual generation when crypto.randomUUID is not available', () => {
-      // Remove crypto.randomUUID
+    it('falls back to getRandomValues when randomUUID is unavailable', () => {
+      // Remove crypto.randomUUID but keep getRandomValues
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
         value: undefined,
         configurable: true,
         writable: true,
       });
 
+      const spy = vi.spyOn(globalThis.crypto, 'getRandomValues');
+
       const result = generateUUID();
 
+      // Should use getRandomValues
+      expect(spy).toHaveBeenCalledOnce();
+      // Should be a valid UUID v4 format
+      expect(result).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      );
+    });
+
+    it('falls back to Math.random when both randomUUID and getRandomValues are unavailable', () => {
+      // Remove both crypto.randomUUID and crypto.getRandomValues
+      Object.defineProperty(globalThis.crypto, 'randomUUID', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis.crypto, 'getRandomValues', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+
+      const spy = vi.spyOn(Math, 'random');
+
+      const result = generateUUID();
+
+      // Should have used Math.random
+      expect(spy).toHaveBeenCalled();
       // Should be a valid UUID v4 format
       expect(result).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

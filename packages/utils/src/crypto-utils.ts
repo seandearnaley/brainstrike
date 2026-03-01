@@ -10,11 +10,33 @@ const logger = createLogger('CryptoUtils');
  */
 export function generateUUID(): string {
   // Try crypto.randomUUID if available (modern browsers and Node.js 16+)
-  if (crypto?.randomUUID) {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
 
   // Fallback to manual UUID v4 generation
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const array = new Uint8Array(16);
+    crypto.getRandomValues(array);
+    // Set version to 4
+    // biome-ignore lint/style/noNonNullAssertion: Uint8Array of known length, index always valid
+    array[6] = (array[6]! & 0x0f) | 0x40;
+    // Set variant to RFC 4122
+    // biome-ignore lint/style/noNonNullAssertion: Uint8Array of known length, index always valid
+    array[8] = (array[8]! & 0x3f) | 0x80;
+
+    let result = '';
+    for (let i = 0; i < 16; i++) {
+      if (i === 4 || i === 6 || i === 8 || i === 10) {
+        result += '-';
+      }
+      // biome-ignore lint/style/noNonNullAssertion: Uint8Array of known length, index always valid
+      result += array[i]!.toString(16).padStart(2, '0');
+    }
+    return result;
+  }
+
+  // Last resort fallback using Math.random
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
