@@ -8,6 +8,20 @@ export const DEFAULT_SENSITIVE_UNIX_DIRECTORIES = [
   '/usr/sbin/',
   '/sbin/',
   '/boot/',
+  '/proc/',
+  '/sys/',
+  '/dev/',
+] as const;
+
+export const DEFAULT_SENSITIVE_USER_DIRECTORIES = [
+  '.ssh',
+  '.aws',
+  '.kube',
+  '.gnupg',
+  '.config/gcloud',
+  '.docker',
+  '.netrc',
+  '.password-store',
 ] as const;
 
 export type PathValidationErrorCode =
@@ -70,6 +84,23 @@ function isSensitiveUnixPath(candidate: string): boolean {
   return DEFAULT_SENSITIVE_UNIX_DIRECTORIES.some((dir) => candidate.startsWith(dir));
 }
 
+function isSensitiveUserPath(candidate: string, platform: NodeJS.Platform): boolean {
+  const home = process.env['HOME'] ?? process.env['USERPROFILE'];
+  // When HOME is unset we fail-open (return false) to avoid false positives.
+  // In containerised / CI environments HOME may legitimately be absent;
+  // blocking every path would be worse than skipping the user-dir check.
+  if (!home) {
+    return false;
+  }
+  return DEFAULT_SENSITIVE_USER_DIRECTORIES.some((dir) => {
+    const sensitiveRoot = path.join(home, dir);
+    // On Windows (NTFS is case-insensitive), normalize both paths to lowercase
+    const cand = platform === 'win32' ? candidate.toLowerCase() : candidate;
+    const root = platform === 'win32' ? sensitiveRoot.toLowerCase() : sensitiveRoot;
+    return cand === root || cand.startsWith(`${root}${path.sep}`) || cand.startsWith(`${root}/`);
+  });
+}
+
 function buildError(
   code: PathValidationErrorCode,
   message: string,
@@ -121,26 +152,47 @@ function validateSensitivePath(
   blockSensitiveDirectories: boolean,
   platform: NodeJS.Platform
 ): PathValidationError | null {
-  if (!blockSensitiveDirectories || platform === 'win32') {
+  if (!blockSensitiveDirectories) {
     return null;
   }
-  if (!isSensitiveUnixPath(candidate)) {
-    return null;
+
+  // Check system directories (Unix only)
+  if (platform !== 'win32' && isSensitiveUnixPath(candidate)) {
+    return buildError(
+      'sensitive-path',
+      'Requested path targets a restricted system directory.',
+      candidate
+    );
   }
-  return buildError(
-    'sensitive-path',
-    'Requested path targets a restricted system directory.',
-    candidate
-  );
+
+  // Check sensitive user directories (all platforms)
+  if (isSensitiveUserPath(candidate, platform)) {
+    return buildError(
+      'sensitive-path',
+      'Requested path targets a restricted user directory.',
+      candidate
+    );
+  }
+
+  return null;
 }
 
 async function resolveRealPath(
   candidate: string,
   baseReal: string | null,
-  allowMissing: boolean
+  allowMissing: boolean,
+  blockSensitiveDirectories: boolean,
+  platform: NodeJS.Platform
 ): Promise<PathValidationResult> {
   try {
     const real = await fs.realpath(candidate);
+
+    // Re-check sensitive paths after symlink resolution to prevent symlink bypass
+    const sensitiveError = validateSensitivePath(real, blockSensitiveDirectories, platform);
+    if (sensitiveError) {
+      return { ok: false, error: sensitiveError };
+    }
+
     if (baseReal && !isPathInsideRoot(baseReal, real)) {
       const error = buildError(
         'outside-root',
@@ -205,5 +257,11 @@ export async function resolveValidatedPath(
   if (!baseReal && allowMissing) {
     return { ok: true, path: candidate };
   }
-  return await resolveRealPath(candidate, baseReal, allowMissing);
+  return await resolveRealPath(
+    candidate,
+    baseReal,
+    allowMissing,
+    blockSensitiveDirectories,
+    platform
+  );
 }
