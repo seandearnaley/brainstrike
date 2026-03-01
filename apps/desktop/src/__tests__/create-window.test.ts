@@ -95,6 +95,8 @@ describe('createWindow', () => {
           webSecurity: true,
           allowRunningInsecureContent: false,
           experimentalFeatures: false,
+          safeDialogs: true,
+          navigateOnDragDrop: false,
           backgroundThrottling: false,
         },
         titleBarStyle: 'default',
