@@ -7,7 +7,7 @@ import path from 'node:path';
 
 // Default thresholds applied to all packages unless overridden below.
 // Keep these aligned with root vitest.config.mts global thresholds.
-const DEFAULT_THRESHOLDS = { lines: 75, functions: 60, branches: 60, statements: 70 };
+const DEFAULT_THRESHOLDS = { lines: 80, functions: 65, branches: 62, statements: 75 };
 
 // Optional strict overrides for key packages.
 // NOTE: Thresholds recalibrated for Vitest 4's v8 coverage provider (BST-55)
@@ -22,50 +22,46 @@ const OVERRIDES = new Map([
   // App shell — Vitest 4: L 94.79% | F 83.92% | B 67.98% | S 79.58%
   // Recalibrated 2024-12 after mocking changes
   ['@brainstrike/app-shell', { lines: 94, functions: 83, branches: 67, statements: 79 }],
-  // Desktop — Vitest 4: L 90.96% | F 70.54% | B 59.56% | S 70.49%
-  // Recalibrated after Ultracite migration (2024-11)
-  ['@brainstrike/desktop', { lines: 90, functions: 70, branches: 59, statements: 70 }],
-  // Configuration and utility packages with relaxed requirements
-  ['@brainstrike/config', { lines: 10, functions: 0, branches: 0, statements: 10 }],
+  // Desktop thresholds recalibrated in 2026-03 after local/CI coverage hardening.
+  ['@brainstrike/desktop', { lines: 94, functions: 78, branches: 66, statements: 78 }],
+  // Configuration and utility package thresholds recalibrated in 2026-03.
+  ['@brainstrike/config', { lines: 90, functions: 90, branches: 70, statements: 90 }],
   ['@brainstrike/tailwind-config', { lines: 10, functions: 0, branches: 0, statements: 10 }],
   ['@brainstrike/types', { lines: 20, functions: 50, branches: 0, statements: 20 }],
-  // File system — Vitest 4: L 67.40% | F 71.72% | B 64.52% | S 67.79%
-  ['@brainstrike/file-system', { lines: 67, functions: 71, branches: 64, statements: 67 }],
+  // File system thresholds recalibrated in 2026-03 after broader test coverage.
+  ['@brainstrike/file-system', { lines: 80, functions: 78, branches: 65, statements: 72 }],
   // Test utilities are helper scaffolding used by other packages' tests
-  ['@brainstrike/test-utils', { lines: 40, functions: 35, branches: 60, statements: 40 }],
+  ['@brainstrike/test-utils', { lines: 75, functions: 70, branches: 70, statements: 65 }],
   // Build utilities close to threshold, give small buffer
-  ['@brainstrike/build-utils', { lines: 65, functions: 60, branches: 60, statements: 65 }],
-  // DB package — Vitest 4: L 81.90% | F 68.12% | B 57.23% | S 66.22%
-  ['@brainstrike/db', { lines: 81, functions: 68, branches: 57, statements: 66 }],
-  // DB Explorer — Vitest 4: L 92.03% | F 71.96% | B 58.57% | S 70.02%
-  ['@brainstrike/db-explorer', { lines: 91, functions: 71, branches: 58, statements: 69 }],
-  // Web app — Vitest 4: L 65.63% | F 44.93% | B 36.60% | S 44.20%
-  ['@brainstrike/web', { lines: 65, functions: 44, branches: 36, statements: 44 }],
+  ['@brainstrike/build-utils', { lines: 90, functions: 90, branches: 80, statements: 90 }],
+  // DB package thresholds recalibrated in 2026-03.
+  ['@brainstrike/db', { lines: 84, functions: 72, branches: 60, statements: 69 }],
+  // DB Explorer thresholds recalibrated in 2026-03.
+  ['@brainstrike/db-explorer', { lines: 95, functions: 75, branches: 62, statements: 74 }],
+  // Web app thresholds recalibrated in 2026-03.
+  ['@brainstrike/web', { lines: 92, functions: 80, branches: 65, statements: 82 }],
   // Embeddings — heavy integration excluded from unit coverage
   // Vitest 4: L 0.00% | F 0.00% | B 0.00% | S 0.00% (no files covered)
   ['@brainstrike/embeddings', { lines: 0, functions: 0, branches: 0, statements: 0 }],
-  // Chunking worker — Vitest 4: L 80.75% | F 57.81% | B 45.18% | S 61.24%
-  // Recalibrated 2025-01 - coverage fluctuation from worker context code paths
+  // Chunking worker thresholds recalibrated in 2026-03.
   // Note: Worker code runs in browser context; some paths untestable in Node.js
-  ['@brainstrike/chunking-worker', { lines: 80, functions: 57, branches: 45, statements: 61 }],
+  ['@brainstrike/chunking-worker', { lines: 84, functions: 80, branches: 50, statements: 68 }],
   // Embedding worker — Vitest 4: L 89.76% | F 93.33% | B 53.46% | S 74.64%
   // Recalibrated 2024-12 after worker log verbosity changes.
   // Note: ~10% of code (self.onerror, self.onunhandledrejection) runs only in browser
   // Web Worker context where `typeof self !== 'undefined'`. This code cannot be tested
   // in Node.js - it's guarded by runtime environment check and legitimately untestable.
   ['@brainstrike/embedding-worker', { lines: 89, functions: 93, branches: 53, statements: 74 }],
-  // File explorer — Vitest 4: L 75.00% | F 70.51% | B 52.87% | S 62.96%
-  // Recalibrated after Ultracite migration (2024-11)
-  ['@brainstrike/file-explorer', { lines: 74, functions: 70, branches: 52, statements: 62 }],
-  // File tree worker — new package (2024-12), runs in web worker context
-  // No tests yet - worker code is exercised through file-explorer-ui integration tests
-  ['@brainstrike/file-tree-worker', { lines: 0, functions: 0, branches: 0, statements: 0 }],
-  // File import — Vitest 4: L 73.19% | F 60.25% | B 51.89% | S 58.01%
-  // Recalibrated 2024-12 after worker log verbosity and error handling changes
-  ['@brainstrike/file-import', { lines: 73, functions: 58, branches: 51, statements: 58 }],
-  // UI package — Vitest 4: L 70.90% | F 57.64% | B 47.71% | S 57.14%
-  // Recalibrated after ModelPicker integration (2024-11)
-  ['@brainstrike/ui', { lines: 70, functions: 57, branches: 47, statements: 57 }],
+  // File explorer thresholds recalibrated in 2026-03.
+  ['@brainstrike/file-explorer', { lines: 92, functions: 84, branches: 70, statements: 82 }],
+  // File tree worker thresholds recalibrated in 2026-03.
+  ['@brainstrike/file-tree-worker', { lines: 92, functions: 90, branches: 68, statements: 84 }],
+  // File import thresholds recalibrated in 2026-03.
+  ['@brainstrike/file-import', { lines: 92, functions: 80, branches: 58, statements: 75 }],
+  // UI package thresholds recalibrated in 2026-03.
+  ['@brainstrike/ui', { lines: 90, functions: 74, branches: 62, statements: 75 }],
+  // Token cache — elevated after token-utils-lite branch/path coverage improvements
+  ['@brainstrike/token-cache', { lines: 92, functions: 92, branches: 62, statements: 82 }],
 ]);
 
 // Discover all coverage files under packages/* and apps/*
