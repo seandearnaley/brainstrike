@@ -205,11 +205,9 @@ describe('token-utils-lite browser/runtime detection', () => {
   });
 
   it('detects module worker-like globals without importScripts', async () => {
-    class MockWorkerGlobalScope {}
-
     globalEnv().window = undefined;
-    globalEnv().WorkerGlobalScope = MockWorkerGlobalScope;
-    globalEnv().self = new MockWorkerGlobalScope() as unknown;
+    globalEnv().WorkerGlobalScope = function MockWorkerGlobalScope() {};
+    globalEnv().self = { postMessage: () => undefined };
 
     const { supportsAccurateTokenCounting } = await import('../token-utils-lite');
     const result = await supportsAccurateTokenCounting();
