@@ -204,6 +204,8 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
+      safeDialogs: true,
+      navigateOnDragDrop: false,
       // CRITICAL: Prevents Chromium from freezing the renderer process after ~5
       // minutes of inactivity. Without this, the embedding worker's WebGPU
       // keep-alive timer stops firing, the GPU device idles out, and ONNX
