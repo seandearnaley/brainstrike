@@ -74,12 +74,7 @@ interface PreviewPanelProps {
   includeProjectTree?: boolean;
   loadingFiles: Set<string>;
   onCopyContext?: (options: ContextExportOptions) => void;
-  /** @deprecated Use `onCopyContext` instead. */
-  onCopyReport?: () => void;
   onDownloadContext?: (options: ContextExportOptions) => void;
-  // TODO(context-migration): remove legacy report-named callbacks after downstream migration.
-  /** @deprecated Use `onDownloadContext` instead. */
-  onDownloadReport?: () => void;
   onFileClick?: (compositeKey: string) => void;
   onFolderSummaryThresholdChange?: (threshold: number) => void;
   onIncludeProjectTreeChange?: (checked: boolean) => void;
@@ -154,8 +149,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     performUndoableAction,
     onFileClick,
     pageSize = 50,
-    onDownloadReport,
-    onCopyReport,
     onDownloadContext,
     onCopyContext,
     includeProjectTree = false,
@@ -176,10 +169,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   const [tapestryRangesByKey, setTapestryRangesByKey] = useState<TapestryRangeMap>({});
   const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
-  const legacyContextWarningRef = useRef<{ download: boolean; copy: boolean }>({
-    download: false,
-    copy: false,
-  });
 
   const {
     activeTab,
@@ -679,36 +668,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const handleDownloadContext = useCallback(() => {
     if (onDownloadContext) {
       onDownloadContext(contextExportOptions);
-      return;
     }
-    if (onDownloadReport) {
-      // Legacy compatibility path while report-named callbacks are phased out.
-      if (!legacyContextWarningRef.current.download) {
-        legacyContextWarningRef.current.download = true;
-        logger.warn(
-          'PreviewPanel is using deprecated onDownloadReport callback without context options'
-        );
-      }
-      onDownloadReport();
-    }
-  }, [contextExportOptions, onDownloadContext, onDownloadReport]);
+  }, [contextExportOptions, onDownloadContext]);
 
   const handleCopyContext = useCallback(() => {
     if (onCopyContext) {
       onCopyContext(contextExportOptions);
-      return;
     }
-    if (onCopyReport) {
-      // Legacy compatibility path while report-named callbacks are phased out.
-      if (!legacyContextWarningRef.current.copy) {
-        legacyContextWarningRef.current.copy = true;
-        logger.warn(
-          'PreviewPanel is using deprecated onCopyReport callback without context options'
-        );
-      }
-      onCopyReport();
-    }
-  }, [contextExportOptions, onCopyContext, onCopyReport]);
+  }, [contextExportOptions, onCopyContext]);
 
   // Batch remove handler
   const handleBatchRemove = useCallback(() => {
