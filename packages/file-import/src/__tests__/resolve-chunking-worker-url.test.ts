@@ -1,9 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const loggerErrorMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@brainstrike/utils', () => ({
+  createLogger: () => ({
+    debug: vi.fn(),
+    error: loggerErrorMock,
+  }),
+}));
+
 describe('resolveChunkingWorkerUrl', () => {
   afterEach(() => {
     vi.resetModules();
     vi.doUnmock('@brainstrike/chunking-worker');
+    loggerErrorMock.mockReset();
   });
 
   it('returns the URL resolved by @brainstrike/chunking-worker', async () => {
@@ -27,5 +37,9 @@ describe('resolveChunkingWorkerUrl', () => {
     await expect(resolveChunkingWorkerUrl()).rejects.toThrow(
       'Failed to resolve chunking worker URL'
     );
+    expect(loggerErrorMock).toHaveBeenCalledTimes(1);
+    expect(loggerErrorMock).toHaveBeenCalledWith('Failed to import @brainstrike/chunking-worker', {
+      error: expect.any(String),
+    });
   });
 });
