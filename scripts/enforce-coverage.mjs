@@ -28,8 +28,8 @@ const OVERRIDES = new Map([
   ['@brainstrike/config', { lines: 98, functions: 98, branches: 80, statements: 98 }],
   ['@brainstrike/tailwind-config', { lines: 10, functions: 0, branches: 0, statements: 10 }],
   ['@brainstrike/types', { lines: 20, functions: 50, branches: 0, statements: 20 }],
-  // File system thresholds recalibrated in 2026-03 after broader test coverage.
-  ['@brainstrike/file-system', { lines: 84, functions: 84, branches: 66, statements: 74 }],
+  // File system thresholds ratcheted in 2026-03.
+  ['@brainstrike/file-system', { lines: 85, functions: 85, branches: 67, statements: 75 }],
   // Test utilities are helper scaffolding used by other packages' tests
   ['@brainstrike/test-utils', { lines: 75, functions: 70, branches: 70, statements: 65 }],
   // Build utilities close to threshold, give small buffer
@@ -38,8 +38,8 @@ const OVERRIDES = new Map([
   ['@brainstrike/db', { lines: 84, functions: 72, branches: 60, statements: 69 }],
   // DB Explorer thresholds recalibrated in 2026-03.
   ['@brainstrike/db-explorer', { lines: 95, functions: 75, branches: 62, statements: 74 }],
-  // Web app thresholds recalibrated in 2026-03.
-  ['@brainstrike/web', { lines: 92, functions: 80, branches: 65, statements: 82 }],
+  // Web app thresholds ratcheted in 2026-03 after assistant config coverage additions.
+  ['@brainstrike/web', { lines: 94, functions: 83, branches: 68, statements: 84 }],
   // Embeddings — heavy integration excluded from unit coverage
   // Vitest 4: L 0.00% | F 0.00% | B 0.00% | S 0.00% (no files covered)
   ['@brainstrike/embeddings', { lines: 0, functions: 0, branches: 0, statements: 0 }],
@@ -56,10 +56,10 @@ const OVERRIDES = new Map([
   ['@brainstrike/file-explorer', { lines: 92, functions: 84, branches: 70, statements: 82 }],
   // File tree worker thresholds recalibrated in 2026-03.
   ['@brainstrike/file-tree-worker', { lines: 92, functions: 90, branches: 68, statements: 84 }],
-  // File import thresholds recalibrated in 2026-03.
-  ['@brainstrike/file-import', { lines: 92, functions: 80, branches: 58, statements: 75 }],
-  // UI package thresholds recalibrated in 2026-03.
-  ['@brainstrike/ui', { lines: 90, functions: 74, branches: 62, statements: 75 }],
+  // File import thresholds ratcheted in 2026-03 after resolver and worker-path test additions.
+  ['@brainstrike/file-import', { lines: 94, functions: 82, branches: 60, statements: 78 }],
+  // UI package thresholds ratcheted in 2026-03 after empty-state/panel/cycle warning coverage additions.
+  ['@brainstrike/ui', { lines: 92, functions: 76, branches: 64, statements: 77 }],
   // Token cache — elevated after token-utils-lite branch/path coverage improvements
   ['@brainstrike/token-cache', { lines: 92, functions: 92, branches: 62, statements: 82 }],
 ]);
