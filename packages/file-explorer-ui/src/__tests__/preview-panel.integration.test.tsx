@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../preview-panel';
@@ -685,9 +685,10 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Verify selection UI appears
       await waitFor(() => {
-        expect(screen.getAllByText(/file[s]? selected in Context Explorer/).length).toBeGreaterThan(
-          0
-        );
+        const bulkActionBar = screen.getByTestId('bulk-action-bar');
+        expect(
+          within(bulkActionBar).getByText(/file[s]? selected in Context Explorer/)
+        ).toBeInTheDocument();
       });
 
       // Perform batch removal
@@ -879,9 +880,10 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Should show selection bar
       await waitFor(() => {
-        expect(screen.getAllByText(/file[s]? selected in Context Explorer/).length).toBeGreaterThan(
-          0
-        );
+        const bulkActionBar = screen.getByTestId('bulk-action-bar');
+        expect(
+          within(bulkActionBar).getByText(/file[s]? selected in Context Explorer/)
+        ).toBeInTheDocument();
       });
 
       // Clear selection
@@ -892,7 +894,7 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Selection bar should disappear
       await waitFor(() => {
-        expect(screen.queryAllByText(/file[s]? selected in Context Explorer/)).toHaveLength(0);
+        expect(screen.queryByTestId('bulk-action-bar')).not.toBeInTheDocument();
       });
     });
 

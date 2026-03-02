@@ -912,6 +912,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                 onToggleSelection={toggleItemSelection}
                 pagination={tablePagination}
                 previewSelections={previewSelections}
+                {...(previewSelections.size > 0 ? { scrollAreaClassName: 'pb-20' } : {})}
                 sortDirection={sortDirection}
                 sortField={sortField}
                 toggleGroupCollapse={toggleGroupCollapse}
