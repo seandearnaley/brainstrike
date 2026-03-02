@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePersistentTokenCache } from './use-persistent-token-cache';
 import type { TokenCountingState } from './use-token-counting';
+import { defaultCollator } from './utils/file-node-collator';
 
 /** Debounce delay for token version updates (ms) */
 const TOKEN_VERSION_DEBOUNCE_MS = 100;
@@ -30,7 +31,7 @@ interface SortConfig {
 
 // Pre-compiled Intl.Collator is ~40x faster than inline localeCompare
 // while preserving localeCompare() default behavior.
-const pathCollator = new Intl.Collator(undefined);
+const pathCollator = defaultCollator;
 
 export function formatTokenCount(tokens: number): string {
   if (tokens < 1000) {

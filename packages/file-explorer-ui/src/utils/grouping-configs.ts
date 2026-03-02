@@ -1,3 +1,4 @@
+import { defaultCollator } from './file-node-collator';
 import { getDirPathForGrouping } from './path-display';
 
 // Grouping system types
@@ -53,7 +54,7 @@ export interface TableRowData {
 
 // Pre-compiled Intl.Collator is ~40x faster than inline localeCompare
 // while preserving localeCompare() default behavior.
-const groupingCollator = new Intl.Collator(undefined);
+const groupingCollator = defaultCollator;
 
 // Predefined grouping configurations
 export const GROUPING_CONFIGS = {
