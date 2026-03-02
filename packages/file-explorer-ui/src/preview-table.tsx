@@ -35,7 +35,7 @@ interface PreviewTableProps {
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
   pagination: { startIndex: number; endIndex: number };
   previewSelections: Set<string>;
-  scrollAreaClassName?: string;
+  scrollAreaClassName?: string | undefined;
   sortDirection: 'asc' | 'desc';
   sortField: keyof TableRowData;
   toggleGroupCollapse: (groupKey: GroupKey) => void;

@@ -728,10 +728,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [handleBatchRemove]
   );
 
-  const contextSelectionSummaryText =
-    previewSelections.size === 1
-      ? '1 file selected in Context Explorer'
-      : `${previewSelections.size} files selected in Context Explorer`;
+  const contextSelectionSummaryText = useMemo(
+    () =>
+      previewSelections.size === 1
+        ? '1 file selected in Context Explorer'
+        : `${previewSelections.size} files selected in Context Explorer`,
+    [previewSelections.size]
+  );
 
   // Handle sort changes
   const handleSort = useCallback(
@@ -912,7 +915,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                 onToggleSelection={toggleItemSelection}
                 pagination={tablePagination}
                 previewSelections={previewSelections}
-                {...(previewSelections.size > 0 ? { scrollAreaClassName: 'pb-20' } : {})}
+                scrollAreaClassName={previewSelections.size > 0 ? 'pb-20' : undefined}
                 sortDirection={sortDirection}
                 sortField={sortField}
                 toggleGroupCollapse={toggleGroupCollapse}

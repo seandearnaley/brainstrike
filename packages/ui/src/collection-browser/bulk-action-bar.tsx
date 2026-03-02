@@ -156,7 +156,7 @@ export function BulkActionBar({
   const resolvedSummaryText = summaryText ?? `${selectedIds.size} selected`;
   const resolvedSummarySubtext =
     summarySubtext === undefined ? defaultSummarySubtext : summarySubtext;
-  const resolvedSummarySubtextTitle = summarySubtextTitle ?? resolvedSummarySubtext ?? undefined;
+  const resolvedSummarySubtextTitle = summarySubtextTitle ?? resolvedSummarySubtext;
   const applicableActions = actions.filter((action) =>
     isActionApplicable(action, nodeTypes, selectedIds)
   );
@@ -174,7 +174,7 @@ export function BulkActionBar({
         {resolvedSummarySubtext && (
           <span
             className="min-w-0 truncate text-muted-foreground"
-            title={resolvedSummarySubtextTitle}
+            title={resolvedSummarySubtextTitle ?? undefined}
           >
             ({resolvedSummarySubtext})
           </span>
