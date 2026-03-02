@@ -25,7 +25,12 @@ export const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
-              <Button className="@[600px]:h-9 h-8 @[600px]:px-3 px-2" size="sm" variant="outline">
+              <Button
+                aria-label="Select visible columns"
+                className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                size="sm"
+                variant="outline"
+              >
                 <Columns3 className="@[600px]:mr-2 size-3.5" />
                 <span className="@[600px]:inline hidden">Columns</span>
               </Button>
