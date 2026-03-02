@@ -388,6 +388,21 @@ function safeTogglePanelVisibility(
   }
 }
 
+function safeResizePanel(
+  panelRef: React.RefObject<PanelImperativeHandle | null>,
+  size: number | string,
+  label: string
+): void {
+  if (!panelRef.current) {
+    return;
+  }
+  try {
+    panelRef.current.resize(size);
+  } catch (error) {
+    logger.warn(`Failed to resize ${label} panel`, { error });
+  }
+}
+
 interface InitialLayoutApplicationConfig {
   consolePanelRef: React.RefObject<PanelImperativeHandle | null>;
   hasAppliedInitialLayout: React.RefObject<boolean>;
@@ -1008,9 +1023,15 @@ export const IdeLayout = React.memo(function IdeLayout({
     }
 
     if (consoleContent && consolePanelRef.current) {
-      safeTogglePanelVisibility(consolePanelRef, showConsole, 'console');
+      if (showConsole) {
+        // Keep visual size aligned with persisted percentage when reopening the panel.
+        safeTogglePanelVisibility(consolePanelRef, true, 'console');
+        safeResizePanel(consolePanelRef, `${safeConsoleSize}%`, 'console');
+        return;
+      }
+      safeTogglePanelVisibility(consolePanelRef, false, 'console');
     }
-  }, [showConsole, consoleContent]);
+  }, [showConsole, consoleContent, safeConsoleSize]);
 
   // Toggle handlers - extracted to custom hook to reduce component complexity
   const {

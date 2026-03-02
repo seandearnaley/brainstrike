@@ -22,6 +22,7 @@ interface ElectronHarnessOptions {
 
 class ElectronHarness {
   private context: ElectronAppContext | null = null;
+  private readonly maxRendererRecoveryAttempts = 1;
 
   constructor(
     private readonly debugPort?: number,
@@ -34,7 +35,7 @@ class ElectronHarness {
       return this.context;
     }
 
-    if (this.context.window.isClosed()) {
+    if (!this.isContextAlive(this.context)) {
       await this.restart();
     }
 
@@ -43,10 +44,10 @@ class ElectronHarness {
 
   async ensureWindow(options?: ElectronHarnessOptions): Promise<Page> {
     const ctx = await this.ensureContext();
-    const page = ctx.window;
+    let page = ctx.window;
 
     if (!options?.preserveState) {
-      await this.resetRenderer(page);
+      page = await this.resetRenderer(page);
     } else if (page.isClosed()) {
       await this.restart();
       return this.ensureWindow({ preserveState: false });
@@ -80,10 +81,13 @@ class ElectronHarness {
     }
   }
 
-  private async resetRenderer(page: Page): Promise<void> {
+  private async resetRenderer(page: Page): Promise<Page> {
+    return this.resetRendererWithRecovery(page, 0);
+  }
+
+  private async resetRendererWithRecovery(page: Page, recoveryAttempt: number): Promise<Page> {
     if (page.isClosed()) {
-      await this.restart();
-      return;
+      return this.restartAndResetRenderer(recoveryAttempt, 'Renderer page was already closed.');
     }
 
     try {
@@ -92,14 +96,69 @@ class ElectronHarness {
       console.warn('Failed to reset app state before reload:', error);
     }
 
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await waitForAppReady(page);
+    try {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await waitForAppReady(page);
+    } catch (error) {
+      if (this.isRecoverableRendererError(error)) {
+        return this.restartAndResetRenderer(
+          recoveryAttempt,
+          `Renderer reset failed due to page crash/closure: ${String(error)}`
+        );
+      }
+      throw error;
+    }
 
     try {
       await resetToAppHome(page);
     } catch (error) {
       console.warn('Failed to reset app layout:', error);
     }
+
+    return page;
+  }
+
+  private isContextAlive(context: ElectronAppContext): boolean {
+    if (context.window.isClosed()) {
+      return false;
+    }
+
+    const process = context.app.process();
+    if (process.exitCode !== null || process.killed) {
+      return false;
+    }
+
+    try {
+      return context.app.windows().some((window) => !window.isClosed());
+    } catch {
+      return false;
+    }
+  }
+
+  private isRecoverableRendererError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    const normalizedMessage = error.message.toLowerCase();
+    return (
+      normalizedMessage.includes('page crashed') ||
+      normalizedMessage.includes('target page, context or browser has been closed') ||
+      normalizedMessage.includes('navigation failed because page crashed') ||
+      normalizedMessage.includes('navigation failed because page was closed')
+    );
+  }
+
+  private async restartAndResetRenderer(recoveryAttempt: number, reason: string): Promise<Page> {
+    if (recoveryAttempt >= this.maxRendererRecoveryAttempts) {
+      throw new Error(
+        `Renderer reset failed after ${this.maxRendererRecoveryAttempts + 1} attempt(s). ${reason}`
+      );
+    }
+
+    console.warn(`Restarting Electron app during renderer reset. ${reason}`);
+    const restartedContext = await this.restart();
+    return this.resetRendererWithRecovery(restartedContext.window, recoveryAttempt + 1);
   }
 }
 
