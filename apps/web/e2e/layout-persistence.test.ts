@@ -1,20 +1,47 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { ensureRightPanelVisible, getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
-async function reloadAndWait(page: import('@playwright/test').Page): Promise<void> {
+async function reloadAndWait(page: Page): Promise<void> {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppLoad(page);
 }
 
+async function waitForStableHeight(page: Page, locator: Locator): Promise<number> {
+  const sampleIntervalMs = 80;
+  const maxSamples = 25;
+  const tolerancePx = 1;
+  const requiredStableSamples = 2;
+
+  let previousHeight = await locator.evaluate((el) => el.getBoundingClientRect().height);
+  let stableSamples = 0;
+
+  for (let sample = 0; sample < maxSamples; sample++) {
+    await page.waitForTimeout(sampleIntervalMs);
+    const currentHeight = await locator.evaluate((el) => el.getBoundingClientRect().height);
+    if (Math.abs(currentHeight - previousHeight) <= tolerancePx) {
+      stableSamples += 1;
+      if (stableSamples >= requiredStableSamples) {
+        return currentHeight;
+      }
+    } else {
+      stableSamples = 0;
+    }
+    previousHeight = currentHeight;
+  }
+
+  throw new Error('Console panel height did not stabilize before assertion');
+}
+
 interface PersistedPanelLayout {
   state?: {
+    sizes?: number[];
     showRightPanel?: boolean;
     showConsole?: boolean;
   };
 }
 
-async function getPersistedLayout(page: import('@playwright/test').Page) {
+async function getPersistedLayout(page: Page) {
   return page.evaluate(() => {
     const raw = window.localStorage.getItem('panel-layout-store.v1');
     if (!raw) {
@@ -29,7 +56,7 @@ async function getPersistedLayout(page: import('@playwright/test').Page) {
 }
 
 async function expectLayoutState(
-  page: import('@playwright/test').Page,
+  page: Page,
   predicate: (state: PersistedPanelLayout | null) => boolean,
   timeout = 8000
 ) {
@@ -290,15 +317,26 @@ test.describe('IDE Layout Persistence', () => {
       await showConsoleButton.click();
       const consolePanel = page.locator('[id="console-panel"], [id="console-panel-horizontal"]');
       await expect(consolePanel).toBeVisible();
+      await expectLayoutState(
+        page,
+        (state) => state?.state?.showConsole === true && state?.state?.showRightPanel === false
+      );
 
-      // 3. Get console height for later verification
-      const consoleHeight = await consolePanel.evaluate((el) => el.getBoundingClientRect().height);
+      // 3. Capture persisted console size to compare after reload.
+      const persistedBeforeReload = await getPersistedLayout(page);
+      const consoleSizeBeforeReload = persistedBeforeReload?.state?.sizes?.[2];
+      expect(consoleSizeBeforeReload).toBeDefined();
+      if (typeof consoleSizeBeforeReload !== 'number') {
+        throw new Error('Persisted console size is required and must be numeric');
+      }
+      expect(consoleSizeBeforeReload).toBeGreaterThan(0);
 
       // 4. Reload and verify all states persisted
-      await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await reloadAndWait(page);
+      await expectLayoutState(
+        page,
+        (state) => state?.state?.showConsole === true && state?.state?.showRightPanel === false
+      );
 
       // Verify left panel remains hidden
       await expect(leftPanel).not.toBeVisible();
@@ -308,11 +346,24 @@ test.describe('IDE Layout Persistence', () => {
       // Verify console remains visible
       await expect(consolePanel).toBeVisible();
 
-      // Verify console height roughly persisted
-      const persistedConsoleHeight = await consolePanel.evaluate(
+      // Verify console size persisted by comparing rendered percentage to stored percentage
+      const middlePanel = page.locator('[id="middle-panel"]');
+      const persistedMiddleHeight = await middlePanel.evaluate(
         (el) => el.getBoundingClientRect().height
       );
-      expect(Math.abs(persistedConsoleHeight - consoleHeight)).toBeLessThan(10);
+      const persistedConsoleHeight = await waitForStableHeight(page, consolePanel);
+      const persistedConsoleHeightPercentage =
+        (persistedConsoleHeight / persistedMiddleHeight) * 100;
+      expect(Math.abs(persistedConsoleHeightPercentage - consoleSizeBeforeReload)).toBeLessThan(5);
+
+      // Verify persisted layout store retained the size through reload as well.
+      const persistedAfterReload = await getPersistedLayout(page);
+      const consoleSizeAfterReload = persistedAfterReload?.state?.sizes?.[2];
+      expect(consoleSizeAfterReload).toBeDefined();
+      if (typeof consoleSizeAfterReload !== 'number') {
+        throw new Error('Persisted console size after reload is required and must be numeric');
+      }
+      expect(Math.abs(consoleSizeAfterReload - consoleSizeBeforeReload)).toBeLessThan(0.5);
     });
 
     test('should handle navigation between pages while preserving layout', async ({ page }) => {

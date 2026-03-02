@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 
 const APP_STATE_KEYS = [
   'panel-layout-store.v1',
+  'panelLayout.v1',
   'fileExplorerSettings',
   'file-explorer-storage-v4',
   'previewPanelPreferences.v1',

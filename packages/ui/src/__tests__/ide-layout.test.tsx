@@ -21,6 +21,7 @@ const panelHandles: Record<
     isCollapsed: Mock;
     expand: Mock;
     collapse: Mock;
+    resize: Mock;
   }
 > = {};
 
@@ -66,6 +67,7 @@ vi.mock('react-resizable-panels', () => {
     collapse: () => void;
     expand: () => void;
     isCollapsed: () => boolean;
+    resize: (size: number | string) => void;
   }
 
   // v4 API: onCollapse/onExpand props removed, uses panelRef instead of ref
@@ -93,10 +95,12 @@ vi.mock('react-resizable-panels', () => {
       isCollapsed: vi.fn().mockReturnValue(false),
       expand: vi.fn(),
       collapse: vi.fn(),
+      resize: vi.fn(),
     } as {
       isCollapsed: Mock;
       expand: Mock;
       collapse: Mock;
+      resize: Mock;
     };
     useImperativeHandle(panelRef, () => handle);
     const handleRef = React.useRef(handle);
@@ -393,6 +397,42 @@ describe('IdeLayout', () => {
 
     // saveLayout is called from onBeforeShow to ensure proper sizing
     expect(mockState.saveLayout).toHaveBeenCalled();
+  });
+
+  it('resizes console panel to the persisted percentage when showing it', () => {
+    vi.useFakeTimers();
+    Object.assign(mockState, { showConsole: false, sizes: [25, 20, 30] });
+    const { rerender } = renderDefaultLayout();
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+
+    (mockState.toggleConsole as Mock).mockImplementation(() => {
+      Object.assign(mockState, { showConsole: true });
+      rerender(
+        <IdeLayout
+          consoleContent={consoleContent}
+          leftPanelContent={leftContent}
+          rightPanelContent={rightContent}
+        >
+          <div>Main Content</div>
+        </IdeLayout>
+      );
+    });
+
+    fireEvent.click(screen.getByTestId('show-console-panel'));
+
+    act(() => {
+      vi.runAllTimers();
+    });
+
+    const consoleHandle = panelHandles['console-panel'];
+    expect(consoleHandle).toBeDefined();
+    expect(consoleHandle?.expand).toHaveBeenCalled();
+    expect(consoleHandle?.resize).toHaveBeenCalledWith('30%');
+
+    vi.useRealTimers();
   });
 
   it('displays "File Editor" label in console panel header', () => {
