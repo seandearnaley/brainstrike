@@ -244,8 +244,10 @@ export function PromptEditor({
                   >
                     {tag}
                     <button
+                      aria-label={`Remove ${tag} tag`}
                       className="hover:text-destructive"
                       onClick={() => removeTag(tag)}
+                      title={`Remove ${tag} tag`}
                       type="button"
                     >
                       <X className="h-3 w-3" />
