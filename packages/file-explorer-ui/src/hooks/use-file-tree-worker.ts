@@ -20,6 +20,7 @@ import { createLogger, isAbortError } from '@brainstrike/utils';
 import { useEffect, useRef } from 'react';
 
 import { runWithConcurrency } from '../utils/concurrency';
+import { fileNodeCollator } from '../utils/file-node-collator';
 import { loadDirectoryChildren } from '../utils/lazy-tree-loader';
 import {
   addHandlesToMap,
@@ -40,10 +41,7 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
     if (a.type !== b.type) {
       return a.type === 'directory' ? -1 : 1;
     }
-    return a.name.localeCompare(b.name, undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    });
+    return fileNodeCollator.compare(a.name, b.name);
   });
 }
 

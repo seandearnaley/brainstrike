@@ -10,6 +10,7 @@ import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-syste
 import type { DepthProgress, IFileNode, StreamMeta } from '@brainstrike/types';
 import { fileFilter, isAbortError } from '@brainstrike/utils';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
+import { fileNodeCollator } from './file-node-collator';
 import { getFinalPath } from './get-final-path';
 
 /** Default number of concurrent directory reads */
@@ -94,10 +95,7 @@ function defaultSortFileNodes(nodes: IFileNode[]): IFileNode[] {
         return 1;
       }
     }
-    return a.name.localeCompare(b.name, undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    });
+    return fileNodeCollator.compare(a.name, b.name);
   });
 }
 
