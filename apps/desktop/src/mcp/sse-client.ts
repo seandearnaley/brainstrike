@@ -1,3 +1,4 @@
+import { generateUUID } from '@brainstrike/utils';
 import type { McpServer } from '../mcp-loader';
 import type { McpClient, PendingEntry } from './types';
 
@@ -261,7 +262,7 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
       params?: Record<string, unknown>,
       opts?: { onProgress?: (payload: unknown, meta?: { id?: string }) => void }
     ): Promise<unknown> {
-      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const requestId = generateUUID();
       return new Promise<unknown>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(requestId);
