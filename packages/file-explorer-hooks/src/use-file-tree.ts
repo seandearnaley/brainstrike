@@ -1,7 +1,12 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
-import { createLogger, fileFilter, finalPath as getFinalPath } from '@brainstrike/utils';
+import {
+  createLogger,
+  fileFilter,
+  fileNodeCollator,
+  finalPath as getFinalPath,
+} from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
 import { calculateDynamicTotal } from './progress-utils';
@@ -103,10 +108,7 @@ export function useFileTree(
             return 1;
           }
         }
-        return a.name.localeCompare(b.name, undefined, {
-          numeric: true,
-          sensitivity: 'base',
-        });
+        return fileNodeCollator.compare(a.name, b.name);
       }),
     []
   );

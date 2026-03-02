@@ -1,5 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { Minimatch } from 'minimatch';
+import { fileNodeCollator } from './collator';
 import { processFilter } from './filter-utils';
 import { createLogger } from './logger';
 
@@ -38,8 +39,6 @@ export function matchesPattern(path: string, patterns: (RegExp | Minimatch)[]): 
 function normalizePath(path: string): string {
   return path.startsWith('/') ? path.slice(1) : path;
 }
-
-const fileNodeCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 export function compareFileNodes(a: IFileNode, b: IFileNode): number {
   if (a.type !== b.type) {

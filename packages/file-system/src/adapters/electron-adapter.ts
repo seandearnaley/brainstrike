@@ -1,6 +1,7 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
+import { fileNodeCollator } from '@brainstrike/utils';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
 import {
   createMetadataCache,
@@ -402,7 +403,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         if (a.type !== b.type) {
           return a.type === 'directory' ? -1 : 1;
         }
-        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+        return fileNodeCollator.compare(a.name, b.name);
       });
     } catch (error) {
       throw new AccessError(

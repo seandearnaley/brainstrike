@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, fileNodeCollator } from '@brainstrike/utils';
 import { AccessError } from '../errors';
 
 const logger = createLogger('WebFileSystemAdapter');
@@ -273,7 +273,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       if (a.type !== b.type) {
         return a.type === 'directory' ? -1 : 1;
       }
-      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+      return fileNodeCollator.compare(a.name, b.name);
     });
   }
 

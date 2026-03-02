@@ -1,3 +1,5 @@
+import { fileNodeCollator } from './collator';
+
 /**
  * Tree Operations
  *
@@ -26,8 +28,6 @@ export interface TreeNode {
   type: 'file' | 'directory' | 'loadMore';
 }
 
-const treeNodeCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-
 /**
  * Sort nodes: directories first, then alphabetically by name.
  *
@@ -48,7 +48,7 @@ export function sortTreeNodes<T extends TreeNode>(nodes: T[]): T[] {
     }
     // Alphabetical within same type
     // Pre-compiled Intl.Collator is ~40x faster than inline localeCompare
-    return treeNodeCollator.compare(a.name, b.name);
+    return fileNodeCollator.compare(a.name, b.name);
   });
 }
 

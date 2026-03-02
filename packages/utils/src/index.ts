@@ -1,3 +1,5 @@
+export * from './collator';
+
 import type { ColorScheme, FolderColors } from './color-utils';
 
 export * from './bulk-operation-context';
