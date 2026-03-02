@@ -620,7 +620,9 @@ describe('PreviewPanel', () => {
 
       // Should show action bar
       await waitFor(() => {
-        expect(screen.getByText('1 files selected in Context Explorer')).toBeInTheDocument();
+        expect(screen.getAllByText('1 file selected in Context Explorer').length).toBeGreaterThan(
+          0
+        );
       });
 
       // Click remove button

@@ -101,6 +101,51 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </button>
   ),
+  BulkActionBar: ({
+    actions,
+    clearButtonAriaLabel,
+    clearButtonLabel,
+    nodeTypes: _nodeTypes,
+    onClearSelection,
+    selectedIds,
+    summarySubtext: _summarySubtext,
+    summarySubtextTitle: _summarySubtextTitle,
+    summaryText,
+    ...props
+  }: {
+    actions?: Array<{ id: string; label: string; onAction?: () => void }>;
+    clearButtonAriaLabel?: string;
+    clearButtonLabel?: string;
+    nodeTypes?: Map<string, string>;
+    onClearSelection?: () => void;
+    selectedIds?: Set<string>;
+    summarySubtext?: string | null;
+    summarySubtextTitle?: string;
+    summaryText?: string;
+    [key: string]: unknown;
+  }) => {
+    if (!selectedIds || selectedIds.size === 0) {
+      return null;
+    }
+
+    return (
+      <div data-testid="bulk-action-bar" {...props}>
+        <span>{summaryText ?? `${selectedIds.size} selected`}</span>
+        {actions?.map((action) => (
+          <button key={action.id} onClick={action.onAction} type="button">
+            {action.label}
+          </button>
+        ))}
+        <button
+          aria-label={clearButtonAriaLabel ?? 'Clear selection'}
+          onClick={onClearSelection}
+          type="button"
+        >
+          {clearButtonLabel ?? 'Clear'}
+        </button>
+      </div>
+    );
+  },
   ScrollArea: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
     <div data-testid="scroll-area" {...props}>
       {children}
@@ -679,7 +724,9 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Verify selection UI appears
       await waitFor(() => {
-        expect(screen.getByText(/files selected in Context Explorer/)).toBeInTheDocument();
+        expect(screen.getAllByText(/file[s]? selected in Context Explorer/).length).toBeGreaterThan(
+          0
+        );
       });
 
       // Perform batch removal
@@ -871,7 +918,9 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Should show selection bar
       await waitFor(() => {
-        expect(screen.getByText(/files selected in Context Explorer/)).toBeInTheDocument();
+        expect(screen.getAllByText(/file[s]? selected in Context Explorer/).length).toBeGreaterThan(
+          0
+        );
       });
 
       // Clear selection
@@ -882,7 +931,7 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Selection bar should disappear
       await waitFor(() => {
-        expect(screen.queryByText(/files selected in Context Explorer/)).not.toBeInTheDocument();
+        expect(screen.queryAllByText(/file[s]? selected in Context Explorer/)).toHaveLength(0);
       });
     });
 

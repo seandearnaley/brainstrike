@@ -1,7 +1,10 @@
 import { usePagination } from '@brainstrike/hooks';
 import { DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
 import {
+  type BulkAction,
+  BulkActionBar,
   Button,
+  type CollectionNodeType,
   EmptyState,
   TablePagination,
   Tabs,
@@ -701,6 +704,35 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setPreviewSelections(new Set());
   }, [previewSelections, selectedFiles, onSelectionChange, performUndoableAction]);
 
+  const contextSelectionNodeTypes = useMemo(() => {
+    const nodeTypes = new Map<string, CollectionNodeType>();
+    for (const compositeKey of previewSelections) {
+      nodeTypes.set(compositeKey, 'file');
+    }
+    return nodeTypes;
+  }, [previewSelections]);
+
+  const contextSelectionActions = useMemo<BulkAction[]>(
+    () => [
+      {
+        id: 'remove-selected-from-project',
+        label: 'Remove Selected from Project',
+        icon: <FileX2 className="size-3.5" />,
+        destructive: true,
+        applicableTypes: ['file'],
+        onAction: () => {
+          handleBatchRemove();
+        },
+      },
+    ],
+    [handleBatchRemove]
+  );
+
+  const contextSelectionSummaryText =
+    previewSelections.size === 1
+      ? '1 file selected in Context Explorer'
+      : `${previewSelections.size} files selected in Context Explorer`;
+
   // Handle sort changes
   const handleSort = useCallback(
     (field: keyof TableRowData) => {
@@ -859,42 +891,63 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             </div>
           </TooltipProvider>
 
-          {/* Table */}
-          <FileExplorerErrorBoundary>
-            <PreviewTable
-              collapsedGroups={collapsedGroups}
-              columnVisibility={effectiveColumnVisibility}
-              currentPageData={tablePageData}
-              groupedData={groupedData}
-              groupingConfig={groupingConfig}
-              handleGroupDeselectAll={handleGroupDeselectAll}
-              handleGroupSelectAll={handleGroupSelectAll}
-              isAllSelected={isAllSelected}
-              isGroupFullySelected={isGroupFullySelected}
-              isGroupPartiallySelected={isGroupPartiallySelected}
-              onDeselectAll={deselectAll}
-              onFileClick={onFileClick}
-              onSelectAllOnPage={selectAllOnPage}
-              onSort={handleSort}
-              onToggleSelection={toggleItemSelection}
-              pagination={tablePagination}
-              previewSelections={previewSelections}
-              sortDirection={sortDirection}
-              sortField={sortField}
-              toggleGroupCollapse={toggleGroupCollapse}
-              visibleFilesOnPage={tableVisibleFilesOnPage}
-            />
-          </FileExplorerErrorBoundary>
-
-          {flattenedData.length === 0 && (
-            <div className="flex-1">
-              <EmptyState
-                description="Try adjusting your filters or selecting more files"
-                icon={<FileX2 />}
-                title="No matching files"
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {/* Table */}
+            <FileExplorerErrorBoundary>
+              <PreviewTable
+                collapsedGroups={collapsedGroups}
+                columnVisibility={effectiveColumnVisibility}
+                currentPageData={tablePageData}
+                groupedData={groupedData}
+                groupingConfig={groupingConfig}
+                handleGroupDeselectAll={handleGroupDeselectAll}
+                handleGroupSelectAll={handleGroupSelectAll}
+                isAllSelected={isAllSelected}
+                isGroupFullySelected={isGroupFullySelected}
+                isGroupPartiallySelected={isGroupPartiallySelected}
+                onDeselectAll={deselectAll}
+                onFileClick={onFileClick}
+                onSelectAllOnPage={selectAllOnPage}
+                onSort={handleSort}
+                onToggleSelection={toggleItemSelection}
+                pagination={tablePagination}
+                previewSelections={previewSelections}
+                sortDirection={sortDirection}
+                sortField={sortField}
+                toggleGroupCollapse={toggleGroupCollapse}
+                visibleFilesOnPage={tableVisibleFilesOnPage}
               />
-            </div>
-          )}
+            </FileExplorerErrorBoundary>
+
+            {flattenedData.length === 0 && (
+              <div className="flex-1">
+                <EmptyState
+                  description="Try adjusting your filters or selecting more files"
+                  icon={<FileX2 />}
+                  title="No matching files"
+                />
+              </div>
+            )}
+
+            {previewSelections.size > 0 && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
+                <output aria-atomic="true" aria-live="polite" className="sr-only">
+                  {contextSelectionSummaryText}
+                </output>
+                <BulkActionBar
+                  actions={contextSelectionActions}
+                  className="pointer-events-auto"
+                  clearButtonAriaLabel="Clear context selection"
+                  clearButtonLabel="Clear Context Selection"
+                  nodeTypes={contextSelectionNodeTypes}
+                  onClearSelection={deselectAll}
+                  selectedIds={previewSelections}
+                  summarySubtext={null}
+                  summaryText={contextSelectionSummaryText}
+                />
+              </div>
+            )}
+          </div>
 
           {/* Pagination */}
           <TablePagination
@@ -906,30 +959,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             totalPages={tablePagination.totalPages}
             {...paginationInfo}
           />
-
-          {/* Fixed bottom action bar */}
-          {previewSelections.size > 0 && (
-            <output
-              aria-atomic="true"
-              aria-live="polite"
-              className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20"
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-sm">
-                  {previewSelections.size} files selected in Context Explorer
-                </span>
-                <Button onClick={deselectAll} size="sm" variant="outline">
-                  Clear Context Selection
-                </Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button onClick={handleBatchRemove} size="sm" variant="destructive">
-                  <FileX2 className="mr-1 size-3.5" />
-                  Remove Selected from Project
-                </Button>
-              </div>
-            </output>
-          )}
         </TabsContent>
 
         <TabsContent
