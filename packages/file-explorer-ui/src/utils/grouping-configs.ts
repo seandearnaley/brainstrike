@@ -52,7 +52,8 @@ export interface TableRowData {
 }
 
 // Pre-compiled Intl.Collator is ~40x faster than inline localeCompare
-const groupingCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+// while preserving localeCompare() default behavior.
+const groupingCollator = new Intl.Collator(undefined);
 
 // Predefined grouping configurations
 export const GROUPING_CONFIGS = {

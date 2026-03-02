@@ -29,7 +29,8 @@ interface SortConfig {
 }
 
 // Pre-compiled Intl.Collator is ~40x faster than inline localeCompare
-const pathCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+// while preserving localeCompare() default behavior.
+const pathCollator = new Intl.Collator(undefined);
 
 export function formatTokenCount(tokens: number): string {
   if (tokens < 1000) {
