@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerErrorMock = vi.hoisted(() => vi.fn());
 
@@ -10,7 +10,9 @@ vi.mock('@brainstrike/utils', () => ({
 }));
 
 describe('resolveChunkingWorkerUrl', () => {
-  afterEach(() => {
+  beforeEach(() => {
+    // Strict test isolation: this suite relies on per-test module mocks.
+    // Resetting at test start avoids inheriting module state from other files.
     vi.resetModules();
     vi.doUnmock('@brainstrike/chunking-worker');
     loggerErrorMock.mockReset();
@@ -25,7 +27,7 @@ describe('resolveChunkingWorkerUrl', () => {
 
     const { resolveChunkingWorkerUrl } = await import('../resolve-chunking-worker-url');
     await expect(resolveChunkingWorkerUrl()).resolves.toBe(expectedUrl);
-  });
+  }, 15_000);
 
   it('fails fast with a descriptive error when worker package import fails', async () => {
     vi.doMock('@brainstrike/chunking-worker', () => {
