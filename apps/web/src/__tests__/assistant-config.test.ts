@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getAssistantApiKey, resolveAssistantProviderConfig } from '../server/assistant-config';
 
 const ENV_KEYS = ['BRAINSTRIKE_OPENAI_API_KEY', 'BS_OPENAI_API_KEY', 'OPENAI_API_KEY'] as const;
@@ -9,9 +9,34 @@ const clearApiKeys = (): void => {
   }
 };
 
+const originalValues = new Map<(typeof ENV_KEYS)[number], string | undefined>();
+
+const snapshotApiKeys = (): void => {
+  originalValues.clear();
+  for (const key of ENV_KEYS) {
+    originalValues.set(key, process.env[key]);
+  }
+};
+
+const restoreApiKeys = (): void => {
+  for (const key of ENV_KEYS) {
+    const value = originalValues.get(key);
+    if (value === undefined) {
+      delete process.env[key];
+      continue;
+    }
+    process.env[key] = value;
+  }
+};
+
 describe('assistant-config', () => {
-  afterEach(() => {
+  beforeEach(() => {
+    snapshotApiKeys();
     clearApiKeys();
+  });
+
+  afterEach(() => {
+    restoreApiKeys();
   });
 
   it('prefers BRAINSTRIKE_OPENAI_API_KEY over other keys', () => {
