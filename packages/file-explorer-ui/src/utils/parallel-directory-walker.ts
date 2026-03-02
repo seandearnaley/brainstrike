@@ -10,6 +10,7 @@ import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-syste
 import type { DepthProgress, IFileNode, StreamMeta } from '@brainstrike/types';
 import { fileFilter, isAbortError } from '@brainstrike/utils';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
+import { fileNodeCollator } from './file-node-collator';
 import { getFinalPath } from './get-final-path';
 
 /** Default number of concurrent directory reads */
@@ -63,9 +64,6 @@ interface WorkItem {
   parentNode: IFileNode | null;
   parentPath: string;
 }
-
-// Pre-compiled Intl.Collator is ~40x faster than inline localeCompare
-const fileNodeCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 /**
  * Creates a promise that can be resolved/rejected externally

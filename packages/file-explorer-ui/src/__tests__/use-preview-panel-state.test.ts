@@ -50,6 +50,8 @@ describe('usePreviewPanelState path sorting', () => {
       type: 'file';
     }>;
 
+    // Default Intl.Collator (no `numeric: true`) uses lexicographic order,
+    // so "file10" sorts before "file2" because '1' < '2'.
     expect(fileItems.map((item) => item.path)).toEqual([
       'src/file1.ts',
       'src/file10.ts',
