@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { defaultCollator } from '@brainstrike/utils';
 import type {
   DirectoryHandle,
   DirectoryStreamCallback,
@@ -127,7 +128,7 @@ function sortFileNodes(entries: IFileNode[]): IFileNode[] {
     if (a.type !== b.type) {
       return a.type === 'directory' ? -1 : 1;
     }
-    return a.name.localeCompare(b.name);
+    return defaultCollator.compare(a.name, b.name);
   });
 }
 

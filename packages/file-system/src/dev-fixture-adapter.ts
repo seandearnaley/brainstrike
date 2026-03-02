@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, fileNodeCollator } from '@brainstrike/utils';
 import type { FixtureDefinition, FixtureTree } from './dev-fixture-types';
 import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture';
 import type {
@@ -51,7 +51,7 @@ function sortNodes(nodes: IFileNode[]): IFileNode[] {
     if (a.type !== b.type) {
       return a.type === 'directory' ? -1 : 1;
     }
-    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    return fileNodeCollator.compare(a.name, b.name);
   });
 }
 

@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { defaultCollator } from './collator';
 import { getFileExtension as getNormalizedFileExtension } from './file-utils';
 import { fileFilter } from './path-filter';
 
@@ -119,7 +120,7 @@ export const fileExplorer = {
       if (a.type !== b.type) {
         return a.type === 'directory' ? -1 : 1;
       }
-      return a.name.localeCompare(b.name);
+      return defaultCollator.compare(a.name, b.name);
     };
 
     const printNode = (node: IFileNode, depth: number): void => {
