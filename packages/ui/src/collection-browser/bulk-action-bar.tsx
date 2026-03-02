@@ -42,6 +42,10 @@ export interface BulkActionBarProps {
   actions: BulkAction[];
   /** Custom class name */
   className?: string;
+  /** Custom clear button aria label */
+  clearButtonAriaLabel?: string;
+  /** Custom clear button text */
+  clearButtonLabel?: string;
   /** Map of node ID to node data */
   nodeData?: Map<string, BrowserNodeData>;
   /** Map of node ID to node type */
@@ -50,6 +54,12 @@ export interface BulkActionBarProps {
   onClearSelection: () => void;
   /** Set of selected node IDs */
   selectedIds: Set<string>;
+  /** Optional custom summary text shown before actions */
+  summarySubtext?: string | null;
+  /** Optional title shown when hovering over summary subtext */
+  summarySubtextTitle?: string;
+  /** Optional custom primary summary text */
+  summaryText?: string;
 }
 
 /**
@@ -130,6 +140,11 @@ export function BulkActionBar({
   actions,
   onClearSelection,
   className,
+  clearButtonAriaLabel,
+  clearButtonLabel,
+  summarySubtext,
+  summarySubtextTitle,
+  summaryText,
 }: BulkActionBarProps) {
   // Don't render if nothing is selected
   if (selectedIds.size === 0) {
@@ -137,54 +152,70 @@ export function BulkActionBar({
   }
 
   const counts = getSelectionCounts(selectedIds, nodeTypes);
-  const summary = formatSelectionSummary(counts);
+  const defaultSummarySubtext = formatSelectionSummary(counts);
+  const resolvedSummaryText = summaryText ?? `${selectedIds.size} selected`;
+  const resolvedSummarySubtext =
+    summarySubtext === undefined ? defaultSummarySubtext : summarySubtext;
+  const resolvedSummarySubtextTitle = summarySubtextTitle ?? resolvedSummarySubtext;
+  const applicableActions = actions.filter((action) =>
+    isActionApplicable(action, nodeTypes, selectedIds)
+  );
 
   return (
     <div
       className={cn(
-        'flex items-center gap-3 rounded-lg border bg-accent/90 px-4 py-2 shadow-lg backdrop-blur-sm',
+        'flex max-w-[min(96vw,920px)] flex-wrap items-center gap-2 rounded-lg border bg-accent/90 px-3 py-2 shadow-lg backdrop-blur-sm md:gap-3 md:px-4',
         className
       )}
     >
       {/* Selection summary */}
-      <div className="flex items-center gap-2 text-sm">
-        <span className="font-medium">{selectedIds.size} selected</span>
-        <span className="text-muted-foreground">({summary})</span>
+      <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+        <span className="whitespace-nowrap font-medium">{resolvedSummaryText}</span>
+        {resolvedSummarySubtext && (
+          <span
+            className="min-w-0 truncate text-muted-foreground"
+            title={resolvedSummarySubtextTitle ?? undefined}
+          >
+            ({resolvedSummarySubtext})
+          </span>
+        )}
       </div>
 
-      {/* Divider */}
-      <div className="h-4 w-px bg-border" />
+      {applicableActions.length > 0 && (
+        <>
+          {/* Divider */}
+          <div className="hidden h-4 w-px bg-border md:block" />
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-1">
-        {actions
-          .filter((action) => isActionApplicable(action, nodeTypes, selectedIds))
-          .map((action) => (
-            <Button
-              className="gap-1.5"
-              disabled={action.disabled}
-              key={action.id}
-              onClick={() => action.onAction(selectedIds, nodeTypes)}
-              size="sm"
-              title={action.disabled ? action.disabledReason : undefined}
-              variant={action.destructive ? 'destructive' : 'secondary'}
-            >
-              {action.icon}
-              {action.label}
-            </Button>
-          ))}
-      </div>
+          {/* Action buttons */}
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            {applicableActions.map((action) => (
+              <Button
+                className="gap-1.5 whitespace-nowrap"
+                disabled={action.disabled}
+                key={action.id}
+                onClick={() => action.onAction(selectedIds, nodeTypes)}
+                size="sm"
+                title={action.disabled ? action.disabledReason : undefined}
+                variant={action.destructive ? 'destructive' : 'secondary'}
+              >
+                {action.icon}
+                {action.label}
+              </Button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Clear selection button */}
       <Button
-        aria-label="Clear selection"
-        className="ml-auto gap-1"
+        aria-label={clearButtonAriaLabel ?? 'Clear selection'}
+        className="ml-auto gap-1 whitespace-nowrap"
         onClick={onClearSelection}
         size="sm"
         variant="ghost"
       >
         <X className="h-4 w-4" />
-        Clear
+        {clearButtonLabel ?? 'Clear'}
       </Button>
     </div>
   );

@@ -1,6 +1,7 @@
 import { useEventCallback } from '@brainstrike/hooks';
 import {
   Checkbox,
+  cn,
   SortableTableHeader,
   type TreeNode,
   TreeTable,
@@ -34,6 +35,7 @@ interface PreviewTableProps {
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
   pagination: { startIndex: number; endIndex: number };
   previewSelections: Set<string>;
+  scrollAreaClassName?: string | undefined;
   sortDirection: 'asc' | 'desc';
   sortField: keyof TableRowData;
   toggleGroupCollapse: (groupKey: GroupKey) => void;
@@ -366,6 +368,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     onFileClick,
     onToggleSelection,
     previewSelections,
+    scrollAreaClassName,
     visibleFilesOnPage,
     collapsedGroups,
     toggleGroupCollapse,
@@ -740,7 +743,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     // TODO(BST-312): converge the ungrouped path onto TreeTable once parity and
     // migration-risk constraints for ungrouped headers/rows are fully closed.
     return (
-      <div className="flex-1 overflow-auto">
+      <div className={cn('flex-1 overflow-auto', scrollAreaClassName)}>
         <div className="min-w-full">
           <table className="w-full min-w-full table-fixed border-collapse">
             <thead className="sticky top-0 z-10 border-b bg-background">
@@ -828,7 +831,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
 
   // Group rows are modeled as parent nodes with item children for true tree semantics.
   return (
-    <div className="flex min-h-0 flex-1 overflow-auto">
+    <div className={cn('flex min-h-0 flex-1 overflow-auto', scrollAreaClassName)}>
       <TreeTable
         ariaLabel="Context explorer table"
         className="min-w-full"

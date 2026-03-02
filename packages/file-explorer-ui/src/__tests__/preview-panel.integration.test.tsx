@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../preview-panel';
@@ -89,405 +89,411 @@ interface MockProgressProps {
 }
 
 // Mock UI components with more realistic behavior
-vi.mock('@brainstrike/ui', () => ({
-  cn: (...inputs: unknown[]) => inputs.filter(Boolean).join(' '),
-  Badge: ({ children, ...props }: MockBadgeProps) => (
-    <div data-testid="badge" {...props}>
-      {children}
-    </div>
-  ),
-  Button: ({ children, onClick, disabled, ...props }: MockButtonProps) => (
-    <button data-testid="button" disabled={disabled} onClick={onClick} {...props}>
-      {children}
-    </button>
-  ),
-  ScrollArea: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
-    <div data-testid="scroll-area" {...props}>
-      {children}
-    </div>
-  ),
-  Input: ({
-    ref,
-    ...props
-  }: {
-    ref?: React.RefObject<HTMLInputElement | null>;
-    [key: string]: unknown;
-  }) => <input data-testid="input" ref={ref} {...props} />,
-  Checkbox: ({ checked, onCheckedChange, ...props }: MockCheckboxProps) => (
-    <input
-      checked={checked}
-      data-testid="checkbox"
-      onChange={(e) => onCheckedChange?.(e.target.checked)}
-      type="checkbox"
-      {...props}
-    />
-  ),
-  Label: ({ children, htmlFor, ...props }: MockLabelProps) => (
-    <label data-testid="label" htmlFor={htmlFor} {...props}>
-      {children}
-    </label>
-  ),
-  Switch: ({ checked, disabled, onCheckedChange, ...props }: MockSwitchProps) => (
-    <button
-      aria-checked={checked}
-      data-testid="switch"
-      disabled={disabled}
-      onClick={() => {
-        if (!disabled) {
-          onCheckedChange?.(!checked);
-        }
-      }}
-      role="switch"
-      type="button"
-      {...props}
-    />
-  ),
-  Progress: ({ value, ...props }: MockProgressProps) => (
-    <div data-testid="progress" data-value={value} {...props} />
-  ),
-  TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  TooltipTrigger: ({
-    children,
-    asChild,
-    ...props
-  }: {
-    children: React.ReactNode;
-    asChild?: boolean;
-    [key: string]: unknown;
-  }) => (
-    <div data-testid="tooltip-trigger" {...props}>
-      {children}
-    </div>
-  ),
-  TooltipContent: ({
-    children,
-    ...props
-  }: {
-    children: React.ReactNode;
-    [key: string]: unknown;
-  }) => (
-    <div data-testid="tooltip-content" {...props}>
-      {children}
-    </div>
-  ),
-  Popover: ({
-    children,
-    open,
-    onOpenChange: _onOpenChange,
-    ...props
-  }: {
-    children: React.ReactNode;
-    open?: boolean;
-    onOpenChange?: (open: boolean) => void;
-    [key: string]: unknown;
-  }) => (
-    <div data-open={open} data-testid="popover" {...props}>
-      {children}
-    </div>
-  ),
-  PopoverTrigger: ({
-    children,
-    asChild,
-    ...props
-  }: {
-    children: React.ReactNode;
-    asChild?: boolean;
-    [key: string]: unknown;
-  }) => (
-    <div data-testid="popover-trigger" {...props}>
-      {children}
-    </div>
-  ),
-  PopoverContent: ({
-    children,
-    align,
-    className,
-    ...props
-  }: {
-    children: React.ReactNode;
-    align?: string;
-    className?: string;
-    [key: string]: unknown;
-  }) => (
-    <div className={className} data-align={align} data-testid="popover-content" {...props}>
-      {children}
-    </div>
-  ),
-  useToast: () => ({ toast: () => {} }),
-  SortableTableHeader: ({
-    title,
-    onSort,
-    field,
-    sortField,
-    sortDirection,
-    className,
-    ...domProps
-  }: {
-    title: string;
-    onSort: (field: string) => void;
-    field: string;
-    sortField?: string;
-    sortDirection?: 'asc' | 'desc';
-    className?: string;
-    [key: string]: unknown;
-  }) => {
-    const [localSortField, setLocalSortField] = React.useState<string | undefined>(sortField);
-    const [localSortDirection, setLocalSortDirection] = React.useState<'asc' | 'desc'>(
-      sortDirection || 'asc'
-    );
+vi.mock('@brainstrike/ui', async () => {
+  const { createUiModuleMock } = await import('./__mocks__/preview-panel-mocks');
+  const sharedUiMock = createUiModuleMock();
 
-    const handleClick = () => {
-      if (localSortField === field) {
-        setLocalSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-      } else {
-        setLocalSortField(field);
-        setLocalSortDirection('asc');
-      }
-      onSort?.(field);
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleClick();
-      }
-    };
-
-    return (
-      <th
-        aria-label={title}
-        className={className}
-        data-testid="sortable-header"
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        scope="col"
-        tabIndex={0}
-        {...domProps}
-      >
-        <div className="flex items-center gap-1">
-          {title}
-          {localSortField === field &&
-            (localSortDirection === 'asc' ? (
-              <div data-testid="arrow-up" />
-            ) : (
-              <div data-testid="arrow-down" />
-            ))}
-        </div>
-      </th>
-    );
-  },
-  TablePagination: ({
-    currentPage,
-    totalPages,
-    onPageChange,
-    totalItems: _totalItems,
-    pageInfo: _pageInfo,
-    maxPageButtons: _maxPageButtons,
-    pageSize: _pageSize,
-    onPageSizeChange: _onPageSizeChange,
-    ...domProps
-  }: {
-    currentPage: number;
-    totalPages: number;
-    onPageChange: (page: number) => void;
-    totalItems?: number;
-    pageInfo?: string;
-    maxPageButtons?: number;
-    pageSize?: number;
-    onPageSizeChange?: (size: number) => void;
-    [key: string]: unknown;
-  }) => {
-    return (
-      <div data-testid="table-pagination" {...domProps}>
-        <button
-          aria-label="Go to first page"
-          disabled={currentPage === 0}
-          onClick={() => onPageChange?.(0)}
-          type="button"
-        >
-          First
-        </button>
-        <button
-          aria-label="Go to previous page"
-          disabled={currentPage === 0}
-          onClick={() => onPageChange?.(currentPage - 1)}
-          type="button"
-        >
-          Previous
-        </button>
-        <input
-          aria-label="Page number"
-          max={totalPages}
-          min={1}
-          onChange={(e) => {
-            const val = Number.parseInt(e.target.value, 10);
-            if (!Number.isNaN(val) && val >= 1 && val <= totalPages) {
-              onPageChange?.(val - 1);
-            }
-          }}
-          type="number"
-          value={currentPage + 1}
-        />
-        <span data-testid="page-info">of {totalPages}</span>
-        <button
-          aria-label="Go to next page"
-          disabled={currentPage >= totalPages - 1}
-          onClick={() => onPageChange?.(currentPage + 1)}
-          type="button"
-        >
-          Next
-        </button>
-        <button
-          aria-label="Go to last page"
-          disabled={currentPage >= totalPages - 1}
-          onClick={() => onPageChange?.(totalPages - 1)}
-          type="button"
-        >
-          Last
-        </button>
+  return {
+    cn: (...inputs: unknown[]) => inputs.filter(Boolean).join(' '),
+    Badge: ({ children, ...props }: MockBadgeProps) => (
+      <div data-testid="badge" {...props}>
+        {children}
       </div>
-    );
-  },
-  TableGroupHeader: ({
-    groupLabel,
-    onToggleCollapse,
-    onSelectionChange,
-    isCollapsed,
-    isGroupSelected,
-    isIndeterminate,
-    filesInGroup,
-    groupKey,
-    isFullySelected,
-    isPartiallySelected,
-    ...domProps
-  }: {
-    groupLabel: string;
-    onToggleCollapse: () => void;
-    onSelectionChange: (selected: boolean) => void;
-    isCollapsed?: boolean;
-    isGroupSelected?: boolean;
-    isIndeterminate?: boolean;
-    filesInGroup?: number;
-    groupKey?: string | number;
-    isFullySelected?: boolean;
-    isPartiallySelected?: boolean;
-    [key: string]: unknown;
-  }) => (
-    <tr data-testid="table-group-header" {...domProps}>
-      <td>
-        <input
-          aria-label={`Select all files in group ${groupLabel}`}
-          onChange={(e) => onSelectionChange?.(e.target.checked)}
-          type="checkbox"
-        />
-      </td>
-      <td>
-        <button
-          aria-expanded={!isCollapsed}
-          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
-          onClick={onToggleCollapse}
-          type="button"
-        >
-          {groupLabel}
-        </button>
-      </td>
-    </tr>
-  ),
-  Tabs: ({ children, value, defaultValue, onValueChange, ...props }: TabsProps) => {
-    const [internalValue, setInternalValue] = React.useState<string | undefined>(defaultValue);
-    const isControlled = value !== undefined;
-    const activeValue = isControlled ? value : internalValue;
-
-    const handleValueChange = (nextValue: string) => {
-      if (!isControlled) {
-        setInternalValue(nextValue);
-      }
-      onValueChange?.(nextValue);
-    };
-
-    const contextValue: TabsContextValue =
-      activeValue === undefined
-        ? { onValueChange: handleValueChange }
-        : { value: activeValue, onValueChange: handleValueChange };
-
-    return (
-      <TabsContext.Provider value={contextValue}>
-        <div data-testid="tabs" {...props}>
-          {children}
-        </div>
-      </TabsContext.Provider>
-    );
-  },
-  TabsList: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
-    <div data-testid="tabs-list" role="tablist" {...props}>
-      {children}
-    </div>
-  ),
-  TabsTrigger: ({ children, value, disabled, onClick, ...props }: TabsTriggerProps) => {
-    const context = React.useContext(TabsContext);
-    const isActive = context?.value === value;
-
-    const handleClick = () => {
-      context?.onValueChange?.(value);
-      onClick?.();
-    };
-
-    return (
-      <button
-        aria-selected={isActive}
-        data-state={isActive ? 'active' : 'inactive'}
-        disabled={disabled}
-        onClick={handleClick}
-        role="tab"
-        type="button"
-        {...props}
-      >
+    ),
+    Button: ({ children, onClick, disabled, ...props }: MockButtonProps) => (
+      <button data-testid="button" disabled={disabled} onClick={onClick} {...props}>
         {children}
       </button>
-    );
-  },
-  TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
-    const context = React.useContext(TabsContext);
-    const isActive = context?.value === value;
-
-    if (!(isActive || forceMount)) {
-      return null;
-    }
-
-    return (
-      <div
-        data-state={isActive ? 'active' : 'inactive'}
-        hidden={!isActive}
-        role="tabpanel"
-        {...props}
-      >
+    ),
+    BulkActionBar: sharedUiMock.BulkActionBar,
+    ScrollArea: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+      <div data-testid="scroll-area" {...props}>
         {children}
       </div>
-    );
-  },
-  // biome-ignore lint/style/useReactFunctionComponents: ErrorBoundary must be a class component
-  ErrorBoundary: class ErrorBoundary extends React.Component<
-    { children: React.ReactNode },
-    { hasError: boolean }
-  > {
-    constructor(props: { children: React.ReactNode }) {
-      super(props);
-      this.state = { hasError: false };
-    }
+    ),
+    Input: ({
+      ref,
+      ...props
+    }: {
+      ref?: React.RefObject<HTMLInputElement | null>;
+      [key: string]: unknown;
+    }) => <input data-testid="input" ref={ref} {...props} />,
+    Checkbox: ({ checked, onCheckedChange, ...props }: MockCheckboxProps) => (
+      <input
+        checked={checked}
+        data-testid="checkbox"
+        onChange={(e) => onCheckedChange?.(e.target.checked)}
+        type="checkbox"
+        {...props}
+      />
+    ),
+    Label: ({ children, htmlFor, ...props }: MockLabelProps) => (
+      <label data-testid="label" htmlFor={htmlFor} {...props}>
+        {children}
+      </label>
+    ),
+    Switch: ({ checked, disabled, onCheckedChange, ...props }: MockSwitchProps) => (
+      <button
+        aria-checked={checked}
+        data-testid="switch"
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) {
+            onCheckedChange?.(!checked);
+          }
+        }}
+        role="switch"
+        type="button"
+        {...props}
+      />
+    ),
+    Progress: ({ value, ...props }: MockProgressProps) => (
+      <div data-testid="progress" data-value={value} {...props} />
+    ),
+    TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    TooltipTrigger: ({
+      children,
+      asChild,
+      ...props
+    }: {
+      children: React.ReactNode;
+      asChild?: boolean;
+      [key: string]: unknown;
+    }) => (
+      <div data-testid="tooltip-trigger" {...props}>
+        {children}
+      </div>
+    ),
+    TooltipContent: ({
+      children,
+      ...props
+    }: {
+      children: React.ReactNode;
+      [key: string]: unknown;
+    }) => (
+      <div data-testid="tooltip-content" {...props}>
+        {children}
+      </div>
+    ),
+    Popover: ({
+      children,
+      open,
+      onOpenChange: _onOpenChange,
+      ...props
+    }: {
+      children: React.ReactNode;
+      open?: boolean;
+      onOpenChange?: (open: boolean) => void;
+      [key: string]: unknown;
+    }) => (
+      <div data-open={open} data-testid="popover" {...props}>
+        {children}
+      </div>
+    ),
+    PopoverTrigger: ({
+      children,
+      asChild,
+      ...props
+    }: {
+      children: React.ReactNode;
+      asChild?: boolean;
+      [key: string]: unknown;
+    }) => (
+      <div data-testid="popover-trigger" {...props}>
+        {children}
+      </div>
+    ),
+    PopoverContent: ({
+      children,
+      align,
+      className,
+      ...props
+    }: {
+      children: React.ReactNode;
+      align?: string;
+      className?: string;
+      [key: string]: unknown;
+    }) => (
+      <div className={className} data-align={align} data-testid="popover-content" {...props}>
+        {children}
+      </div>
+    ),
+    useToast: () => ({ toast: () => {} }),
+    SortableTableHeader: ({
+      title,
+      onSort,
+      field,
+      sortField,
+      sortDirection,
+      className,
+      ...domProps
+    }: {
+      title: string;
+      onSort: (field: string) => void;
+      field: string;
+      sortField?: string;
+      sortDirection?: 'asc' | 'desc';
+      className?: string;
+      [key: string]: unknown;
+    }) => {
+      const [localSortField, setLocalSortField] = React.useState<string | undefined>(sortField);
+      const [localSortDirection, setLocalSortDirection] = React.useState<'asc' | 'desc'>(
+        sortDirection || 'asc'
+      );
 
-    static getDerivedStateFromError() {
-      return { hasError: true };
-    }
+      const handleClick = () => {
+        if (localSortField === field) {
+          setLocalSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+        } else {
+          setLocalSortField(field);
+          setLocalSortDirection('asc');
+        }
+        onSort?.(field);
+      };
 
-    override render() {
-      if (this.state.hasError) {
-        return <div data-testid="error-boundary">Error occurred</div>;
+      const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleClick();
+        }
+      };
+
+      return (
+        <th
+          aria-label={title}
+          className={className}
+          data-testid="sortable-header"
+          onClick={handleClick}
+          onKeyDown={handleKeyDown}
+          scope="col"
+          tabIndex={0}
+          {...domProps}
+        >
+          <div className="flex items-center gap-1">
+            {title}
+            {localSortField === field &&
+              (localSortDirection === 'asc' ? (
+                <div data-testid="arrow-up" />
+              ) : (
+                <div data-testid="arrow-down" />
+              ))}
+          </div>
+        </th>
+      );
+    },
+    TablePagination: ({
+      currentPage,
+      totalPages,
+      onPageChange,
+      totalItems: _totalItems,
+      pageInfo: _pageInfo,
+      maxPageButtons: _maxPageButtons,
+      pageSize: _pageSize,
+      onPageSizeChange: _onPageSizeChange,
+      ...domProps
+    }: {
+      currentPage: number;
+      totalPages: number;
+      onPageChange: (page: number) => void;
+      totalItems?: number;
+      pageInfo?: string;
+      maxPageButtons?: number;
+      pageSize?: number;
+      onPageSizeChange?: (size: number) => void;
+      [key: string]: unknown;
+    }) => {
+      return (
+        <div data-testid="table-pagination" {...domProps}>
+          <button
+            aria-label="Go to first page"
+            disabled={currentPage === 0}
+            onClick={() => onPageChange?.(0)}
+            type="button"
+          >
+            First
+          </button>
+          <button
+            aria-label="Go to previous page"
+            disabled={currentPage === 0}
+            onClick={() => onPageChange?.(currentPage - 1)}
+            type="button"
+          >
+            Previous
+          </button>
+          <input
+            aria-label="Page number"
+            max={totalPages}
+            min={1}
+            onChange={(e) => {
+              const val = Number.parseInt(e.target.value, 10);
+              if (!Number.isNaN(val) && val >= 1 && val <= totalPages) {
+                onPageChange?.(val - 1);
+              }
+            }}
+            type="number"
+            value={currentPage + 1}
+          />
+          <span data-testid="page-info">of {totalPages}</span>
+          <button
+            aria-label="Go to next page"
+            disabled={currentPage >= totalPages - 1}
+            onClick={() => onPageChange?.(currentPage + 1)}
+            type="button"
+          >
+            Next
+          </button>
+          <button
+            aria-label="Go to last page"
+            disabled={currentPage >= totalPages - 1}
+            onClick={() => onPageChange?.(totalPages - 1)}
+            type="button"
+          >
+            Last
+          </button>
+        </div>
+      );
+    },
+    TableGroupHeader: ({
+      groupLabel,
+      onToggleCollapse,
+      onSelectionChange,
+      isCollapsed,
+      isGroupSelected,
+      isIndeterminate,
+      filesInGroup,
+      groupKey,
+      isFullySelected,
+      isPartiallySelected,
+      ...domProps
+    }: {
+      groupLabel: string;
+      onToggleCollapse: () => void;
+      onSelectionChange: (selected: boolean) => void;
+      isCollapsed?: boolean;
+      isGroupSelected?: boolean;
+      isIndeterminate?: boolean;
+      filesInGroup?: number;
+      groupKey?: string | number;
+      isFullySelected?: boolean;
+      isPartiallySelected?: boolean;
+      [key: string]: unknown;
+    }) => (
+      <tr data-testid="table-group-header" {...domProps}>
+        <td>
+          <input
+            aria-label={`Select all files in group ${groupLabel}`}
+            onChange={(e) => onSelectionChange?.(e.target.checked)}
+            type="checkbox"
+          />
+        </td>
+        <td>
+          <button
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
+            onClick={onToggleCollapse}
+            type="button"
+          >
+            {groupLabel}
+          </button>
+        </td>
+      </tr>
+    ),
+    Tabs: ({ children, value, defaultValue, onValueChange, ...props }: TabsProps) => {
+      const [internalValue, setInternalValue] = React.useState<string | undefined>(defaultValue);
+      const isControlled = value !== undefined;
+      const activeValue = isControlled ? value : internalValue;
+
+      const handleValueChange = (nextValue: string) => {
+        if (!isControlled) {
+          setInternalValue(nextValue);
+        }
+        onValueChange?.(nextValue);
+      };
+
+      const contextValue: TabsContextValue =
+        activeValue === undefined
+          ? { onValueChange: handleValueChange }
+          : { value: activeValue, onValueChange: handleValueChange };
+
+      return (
+        <TabsContext.Provider value={contextValue}>
+          <div data-testid="tabs" {...props}>
+            {children}
+          </div>
+        </TabsContext.Provider>
+      );
+    },
+    TabsList: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+      <div data-testid="tabs-list" role="tablist" {...props}>
+        {children}
+      </div>
+    ),
+    TabsTrigger: ({ children, value, disabled, onClick, ...props }: TabsTriggerProps) => {
+      const context = React.useContext(TabsContext);
+      const isActive = context?.value === value;
+
+      const handleClick = () => {
+        context?.onValueChange?.(value);
+        onClick?.();
+      };
+
+      return (
+        <button
+          aria-selected={isActive}
+          data-state={isActive ? 'active' : 'inactive'}
+          disabled={disabled}
+          onClick={handleClick}
+          role="tab"
+          type="button"
+          {...props}
+        >
+          {children}
+        </button>
+      );
+    },
+    TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
+      const context = React.useContext(TabsContext);
+      const isActive = context?.value === value;
+
+      if (!(isActive || forceMount)) {
+        return null;
       }
-      return this.props.children;
-    }
-  },
-}));
+
+      return (
+        <div
+          data-state={isActive ? 'active' : 'inactive'}
+          hidden={!isActive}
+          role="tabpanel"
+          {...props}
+        >
+          {children}
+        </div>
+      );
+    },
+    // biome-ignore lint/style/useReactFunctionComponents: ErrorBoundary must be a class component
+    ErrorBoundary: class ErrorBoundary extends React.Component<
+      { children: React.ReactNode },
+      { hasError: boolean }
+    > {
+      constructor(props: { children: React.ReactNode }) {
+        super(props);
+        this.state = { hasError: false };
+      }
+
+      static getDerivedStateFromError() {
+        return { hasError: true };
+      }
+
+      override render() {
+        if (this.state.hasError) {
+          return <div data-testid="error-boundary">Error occurred</div>;
+        }
+        return this.props.children;
+      }
+    },
+  };
+});
 
 // Mock hooks with React state
 vi.mock('@brainstrike/hooks', () => {
@@ -679,7 +685,10 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Verify selection UI appears
       await waitFor(() => {
-        expect(screen.getByText(/files selected in Context Explorer/)).toBeInTheDocument();
+        const bulkActionBar = screen.getByTestId('bulk-action-bar');
+        expect(
+          within(bulkActionBar).getByText(/file[s]? selected in Context Explorer/)
+        ).toBeInTheDocument();
       });
 
       // Perform batch removal
@@ -871,7 +880,10 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Should show selection bar
       await waitFor(() => {
-        expect(screen.getByText(/files selected in Context Explorer/)).toBeInTheDocument();
+        const bulkActionBar = screen.getByTestId('bulk-action-bar');
+        expect(
+          within(bulkActionBar).getByText(/file[s]? selected in Context Explorer/)
+        ).toBeInTheDocument();
       });
 
       // Clear selection
@@ -882,7 +894,7 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Selection bar should disappear
       await waitFor(() => {
-        expect(screen.queryByText(/files selected in Context Explorer/)).not.toBeInTheDocument();
+        expect(screen.queryByTestId('bulk-action-bar')).not.toBeInTheDocument();
       });
     });
 

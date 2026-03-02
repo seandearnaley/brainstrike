@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../preview-panel';
@@ -620,7 +620,10 @@ describe('PreviewPanel', () => {
 
       // Should show action bar
       await waitFor(() => {
-        expect(screen.getByText('1 files selected in Context Explorer')).toBeInTheDocument();
+        const bulkActionBar = screen.getByTestId('bulk-action-bar');
+        expect(
+          within(bulkActionBar).getByText('1 file selected in Context Explorer')
+        ).toBeInTheDocument();
       });
 
       // Click remove button

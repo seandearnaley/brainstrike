@@ -63,6 +63,41 @@ describe('BulkActionBar', () => {
     expect(screen.getByText('(2 files, 1 chunk)')).toBeInTheDocument();
   });
 
+  it('renders custom summary text and subtext when provided', () => {
+    render(
+      <BulkActionBar
+        actions={mockActions}
+        nodeTypes={mockNodeTypes}
+        onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
+        summarySubtext="Custom summary detail"
+        summarySubtextTitle="Custom summary title"
+        summaryText="1 file selected in Context Explorer"
+      />
+    );
+
+    expect(screen.getByText('1 file selected in Context Explorer')).toBeInTheDocument();
+    const summaryDetail = screen.getByText('(Custom summary detail)');
+    expect(summaryDetail).toBeInTheDocument();
+    expect(summaryDetail).toHaveAttribute('title', 'Custom summary title');
+  });
+
+  it('supports hiding summary subtext with null', () => {
+    render(
+      <BulkActionBar
+        actions={mockActions}
+        nodeTypes={mockNodeTypes}
+        onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
+        summarySubtext={null}
+        summaryText="Selection summary only"
+      />
+    );
+
+    expect(screen.getByText('Selection summary only')).toBeInTheDocument();
+    expect(screen.queryByText('(1 file)')).not.toBeInTheDocument();
+  });
+
   it('renders action buttons', () => {
     render(
       <BulkActionBar
@@ -105,6 +140,24 @@ describe('BulkActionBar', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+    expect(mockClearSelection).toHaveBeenCalled();
+  });
+
+  it('uses custom clear button label and aria label when provided', () => {
+    render(
+      <BulkActionBar
+        actions={mockActions}
+        clearButtonAriaLabel="Clear context selection"
+        clearButtonLabel="Clear Context Selection"
+        nodeTypes={mockNodeTypes}
+        onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
+      />
+    );
+
+    const clearButton = screen.getByRole('button', { name: 'Clear context selection' });
+    expect(clearButton).toHaveTextContent('Clear Context Selection');
+    fireEvent.click(clearButton);
     expect(mockClearSelection).toHaveBeenCalled();
   });
 

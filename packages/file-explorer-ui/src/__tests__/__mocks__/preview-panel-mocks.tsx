@@ -173,6 +173,50 @@ export const createUiModuleMock = () => ({
       {children}
     </button>
   ),
+  BulkActionBar: ({
+    actions,
+    clearButtonAriaLabel,
+    clearButtonLabel,
+    nodeTypes: _nodeTypes,
+    onClearSelection,
+    selectedIds,
+    summarySubtext: _summarySubtext,
+    summarySubtextTitle: _summarySubtextTitle,
+    summaryText,
+    ...props
+  }: MockComponentProps & {
+    actions?: Array<{ id: string; label: string; onAction?: () => void }>;
+    clearButtonAriaLabel?: string;
+    clearButtonLabel?: string;
+    nodeTypes?: Map<string, string>;
+    onClearSelection?: () => void;
+    selectedIds?: Set<string>;
+    summarySubtext?: string | null;
+    summarySubtextTitle?: string;
+    summaryText?: string;
+  }) => {
+    if (!selectedIds || selectedIds.size === 0) {
+      return null;
+    }
+
+    return (
+      <div data-testid="bulk-action-bar" {...props}>
+        <span>{summaryText ?? `${selectedIds.size} selected`}</span>
+        {actions?.map((action) => (
+          <button key={action.id} onClick={action.onAction} type="button">
+            {action.label}
+          </button>
+        ))}
+        <button
+          aria-label={clearButtonAriaLabel ?? 'Clear selection'}
+          onClick={onClearSelection}
+          type="button"
+        >
+          {clearButtonLabel ?? 'Clear'}
+        </button>
+      </div>
+    );
+  },
   // biome-ignore lint/style/useReactFunctionComponents: ErrorBoundary must be a class component
   ErrorBoundary: class ErrorBoundary extends React.Component<
     MockComponentProps,
