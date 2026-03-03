@@ -284,17 +284,29 @@ export async function createStandaloneChunkingWorker(): Promise<{
         return;
       }
 
-      const timeout = setTimeout(() => {
-        reject(new Error('Worker ready timeout'));
-      }, 10_000);
+      let settled = false;
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        clearInterval(interval);
+      };
 
       const checkReady = () => {
-        if (port.isReady()) {
-          clearTimeout(timeout);
-          clearInterval(interval);
+        if (!settled && port.isReady()) {
+          settled = true;
+          cleanup();
           resolve();
         }
       };
+
+      const timeout = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        reject(new Error('Worker ready timeout'));
+      }, 10_000);
 
       const interval = setInterval(checkReady, 100);
     });

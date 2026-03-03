@@ -273,4 +273,31 @@ describe('useChunkingWorker', () => {
 
     standalone.terminate();
   });
+
+  it('clears waitForReady polling interval when standalone worker times out', async () => {
+    vi.useFakeTimers();
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+
+    try {
+      const { createStandaloneChunkingWorker } = await import('../use-chunking-worker');
+      const standalone = await createStandaloneChunkingWorker();
+
+      const readyPromise = standalone.waitForReady();
+      const timeoutRejection = expect(readyPromise).rejects.toThrowError('Worker ready timeout');
+      await vi.advanceTimersByTimeAsync(WORKER_READY_TIMEOUT_MS);
+      await timeoutRejection;
+
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+      const intervalHandle = setIntervalSpy.mock.results[0]?.value;
+      expect(clearIntervalSpy).toHaveBeenCalledWith(intervalHandle);
+      expect(vi.getTimerCount()).toBe(0);
+
+      standalone.terminate();
+    } finally {
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });

@@ -203,17 +203,19 @@ const RangeItem = memo(
         return;
       }
 
-      if (action.type === 'move' && action.startLine !== range.startLine && onMoveRange) {
+      if (action.type === 'move') {
         e.preventDefault();
         e.stopPropagation();
-        const rangeHeight = range.endLine - range.startLine;
-        const siblings = allowOverlap ? [] : file.selections.filter((s) => s.id !== range.id);
-        const bounds =
-          siblings.length > 0
-            ? clampKeyboardMove(action.startLine, rangeHeight, range.startLine, siblings)
-            : { startLine: action.startLine, endLine: action.startLine + rangeHeight };
-        if (bounds) {
-          onMoveRange(file.id, range.id, bounds.startLine, bounds.endLine);
+        if (action.startLine !== range.startLine && onMoveRange) {
+          const rangeHeight = range.endLine - range.startLine;
+          const siblings = allowOverlap ? [] : file.selections.filter((s) => s.id !== range.id);
+          const bounds =
+            siblings.length > 0
+              ? clampKeyboardMove(action.startLine, rangeHeight, range.startLine, siblings)
+              : { startLine: action.startLine, endLine: action.startLine + rangeHeight };
+          if (bounds) {
+            onMoveRange(file.id, range.id, bounds.startLine, bounds.endLine);
+          }
         }
       }
     };
