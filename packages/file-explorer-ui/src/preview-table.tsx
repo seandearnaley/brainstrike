@@ -245,8 +245,9 @@ function buildGroupedTreeNodes({
 
   for (const group of groupedData) {
     const groupKey = group.groupKey;
-    const groupNodeId = resolveGroupNodeId(String(groupKey));
-    const isCollapsed = collapsedGroups.has(String(groupKey));
+    const groupKeyString = String(groupKey);
+    const groupNodeId = resolveGroupNodeId(groupKeyString);
+    const isCollapsed = collapsedGroups.has(groupKeyString);
     const groupVisibleRowCount = resolveGroupVisibleRowCount(group, isCollapsed);
     groupKeyByNodeId.set(groupNodeId, groupKey);
     const pageStartsInsideItems =
@@ -268,7 +269,7 @@ function buildGroupedTreeNodes({
     }
 
     if (shouldRenderGroupRow) {
-      nodes.push(createGroupTreeNode(group, String(groupKey)));
+      nodes.push(createGroupTreeNode(group, groupKeyString));
       if (!isCollapsed && group.items.length > 0) {
         expandedGroupNodeIds.add(groupNodeId);
       }
@@ -475,10 +476,11 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     if (!nodeId.startsWith('group:')) {
       return;
     }
-    const groupKey = groupedTree.groupKeyByNodeId.get(nodeId);
+    const { groupKeyByNodeId } = groupedTree;
+    const groupKey = groupKeyByNodeId.get(nodeId);
     if (groupKey === undefined) {
       throw new Error(
-        `PreviewTable grouped toggle invariant violated: missing group key for node id "${nodeId}".`
+        `PreviewTable grouped toggle invariant violated: missing group key for node id "${nodeId}" (visible grouped node count: ${groupKeyByNodeId.size}).`
       );
     }
     toggleGroupCollapse(groupKey);
