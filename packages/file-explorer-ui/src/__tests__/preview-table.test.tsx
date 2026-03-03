@@ -111,6 +111,24 @@ describe('PreviewTable grouped mode', () => {
     expect(toggleGroupCollapse).toHaveBeenCalledWith('src');
   });
 
+  it('preserves numeric group keys when toggling collapse', () => {
+    const toggleGroupCollapse = vi.fn();
+    const numericGroup: GroupedData<TableRowData> = {
+      ...DEFAULT_GROUP,
+      groupKey: 42,
+      groupLabel: '42',
+    };
+    renderGroupedPreviewTable({
+      groupedData: [numericGroup],
+      toggleGroupCollapse,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse' }));
+
+    expect(toggleGroupCollapse).toHaveBeenCalledTimes(1);
+    expect(toggleGroupCollapse).toHaveBeenCalledWith(42);
+  });
+
   it('supports keyboard-driven collapse on grouped rows', () => {
     const toggleGroupCollapse = vi.fn();
     renderGroupedPreviewTable({ toggleGroupCollapse });

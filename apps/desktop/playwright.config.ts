@@ -84,6 +84,18 @@ const playwrightConfig: PlaywrightTestConfig = {
 
   // Output directory for test artifacts
   outputDir: 'blob-report/',
+
+  // Projects for selective test execution
+  projects: [
+    {
+      name: 'smoke',
+      grep: /@smoke/,
+    },
+    {
+      name: 'regression',
+      grepInvert: /@smoke/,
+    },
+  ],
 };
 
 export default playwrightConfig;

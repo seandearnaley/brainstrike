@@ -2,7 +2,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
 import { ensureToolsPanelVisible } from './utils/layout-helpers';
 
-test.describe('Assistant panel (desktop)', () => {
+test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ window }) => {
     await setupAssistantMock(window, { variant: 'simple' });
   });

@@ -3,19 +3,23 @@ import { HomePage } from './page-objects/home-page';
 import { getAppPath, getAppVersion, waitForAppReady } from './utils/electron-helpers';
 
 test.describe('Electron App Launch', () => {
-  test('should launch successfully and show main window', async ({ window, homePage }) => {
-    // Verify the app window is visible
-    expect(window).toBeTruthy();
+  test(
+    'should launch successfully and show main window',
+    { tag: '@smoke' },
+    async ({ window, homePage }) => {
+      // Verify the app window is visible
+      expect(window).toBeTruthy();
 
-    // Check window title
-    const title = await window.title();
-    expect(title).toContain('BrainStrike');
+      // Check window title
+      const title = await window.title();
+      expect(title).toContain('BrainStrike');
 
-    // Verify the main content is loaded
-    await homePage.shouldBeVisible();
-  });
+      // Verify the main content is loaded
+      await homePage.shouldBeVisible();
+    }
+  );
 
-  test('should have correct app metadata', async ({ electronApp }) => {
+  test('should have correct app metadata', { tag: '@smoke' }, async ({ electronApp }) => {
     // Check app version
     const version = await getAppVersion(electronApp.app);
     expect(version).toBeTruthy();
@@ -27,7 +31,7 @@ test.describe('Electron App Launch', () => {
     expect(appPath).toContain('brainstrike');
   });
 
-  test('should handle window resize', async ({ electronApp, window }) => {
+  test('should handle window resize', { tag: '@smoke' }, async ({ electronApp, window }) => {
     // Verify the app is responsive to window operations
     const windowBounds = await electronApp.app.evaluate(async ({ BrowserWindow }) => {
       const windows = BrowserWindow.getAllWindows();
@@ -94,7 +98,7 @@ test.describe('Electron App Launch', () => {
     expect(newBounds).toBeTruthy();
   });
 
-  test('should handle app interactions', async ({ window, homePage }) => {
+  test('should handle app interactions', { tag: '@smoke' }, async ({ window, homePage }) => {
     // Verify content is accessible and interactive
     await homePage.shouldBeVisible();
 

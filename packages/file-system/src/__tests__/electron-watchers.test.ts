@@ -2,6 +2,8 @@ import type { FSWatcher, Stats } from 'node:fs';
 import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  FS_WATCH_BATCH_WINDOW_MS,
+  FS_WATCH_MAX_BATCH_SIZE,
   handleWatcherSetupError,
   startChokidarWatch,
   startFsWatch,
@@ -90,7 +92,7 @@ describe('startFsWatch', () => {
     expect(callback).not.toHaveBeenCalled();
 
     // Advance past the 150ms batch window
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
     expect(callback).toHaveBeenCalledTimes(1);
 
     const changes: FileSystemChange[] = callback.mock.calls[0]![0];
@@ -104,6 +106,52 @@ describe('startFsWatch', () => {
     statMock.mockRestore();
   });
 
+  it('flushes immediately when the batch reaches max size', async () => {
+    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
+      isDirectory: () => false,
+    } as Stats);
+    const callback = vi.fn();
+    startFsWatch(mockHandle, callback);
+
+    for (let index = 0; index < FS_WATCH_MAX_BATCH_SIZE; index += 1) {
+      mockWatchCallback?.('change', `file-${index}.txt`);
+    }
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    const firstBatch: FileSystemChange[] = callback.mock.calls[0]![0];
+    expect(firstBatch).toHaveLength(FS_WATCH_MAX_BATCH_SIZE);
+
+    // Reaching the cap clears the pending timer and avoids duplicate flushes.
+    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    statMock.mockRestore();
+  });
+
+  it('starts a new batch after an immediate max-size flush', async () => {
+    const statMock = vi.spyOn(fs.promises, 'stat').mockResolvedValue({
+      isDirectory: () => false,
+    } as Stats);
+    const callback = vi.fn();
+    startFsWatch(mockHandle, callback);
+
+    for (let index = 0; index < FS_WATCH_MAX_BATCH_SIZE + 1; index += 1) {
+      mockWatchCallback?.('change', `file-${index}.txt`);
+    }
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback.mock.calls[0]?.[0]).toHaveLength(FS_WATCH_MAX_BATCH_SIZE);
+
+    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(callback.mock.calls[1]?.[0]).toHaveLength(1);
+
+    statMock.mockRestore();
+  });
+
   it('pushes removed event when stat rejects on rename', async () => {
     const statMock = vi.spyOn(fs.promises, 'stat').mockRejectedValue(new Error('ENOENT'));
     const callback = vi.fn();
@@ -111,7 +159,7 @@ describe('startFsWatch', () => {
 
     mockWatchCallback?.('rename', 'deleted.txt');
 
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
     expect(callback).toHaveBeenCalledTimes(1);
     expect(callback).toHaveBeenCalledWith([
       expect.objectContaining({ type: 'removed', path: '/test/dir/deleted.txt', kind: 'file' }),
@@ -127,7 +175,7 @@ describe('startFsWatch', () => {
 
     mockWatchCallback?.('change', 'transient.txt');
 
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
     // change event with failed stat and ev !== 'rename' is silently dropped
     expect(callback).not.toHaveBeenCalled();
 
@@ -164,7 +212,7 @@ describe('startFsWatch', () => {
 
     mockWatchCallback?.('change', null);
 
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
     expect(callback).not.toHaveBeenCalled();
     expect(statMock).not.toHaveBeenCalled();
 
@@ -180,7 +228,7 @@ describe('startFsWatch', () => {
 
     mockWatchCallback?.('rename', 'new-folder');
 
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(FS_WATCH_BATCH_WINDOW_MS);
     expect(callback).toHaveBeenCalledWith([
       expect.objectContaining({ type: 'added', kind: 'directory' }),
     ]);
