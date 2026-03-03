@@ -1,5 +1,5 @@
 import { Checkbox, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExtensionBadge } from '../extension-badge';
 import { formatTokenCount } from '../use-preview-panel-state';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
@@ -7,8 +7,10 @@ import type { FileTapestry, InteractionMode, TapestryRange } from './types';
 import { getTapestryRenderMetrics } from './utils';
 
 interface MinimapProps {
+  allowOverlap?: boolean;
   file: FileTapestry;
   getGlobalIndex: (rangeId: string) => number;
+  isDragging?: boolean;
   isSelected: boolean;
   onMoveRange?: (fileId: string, rangeId: string, newStartLine: number, newEndLine: number) => void;
   onRequestFileContent?: (compositeKey: string) => void;
@@ -21,7 +23,8 @@ interface MinimapProps {
     rangeId: string | null,
     clientY: number,
     initialRange?: TapestryRange,
-    clickedLine?: number
+    clickedLine?: number,
+    pointerId?: number
   ) => void;
 }
 
@@ -70,6 +73,38 @@ const resolveRangeKeyAction = (args: {
   }
 };
 
+/**
+ * Clamps a keyboard-driven range move to avoid overlapping with sibling ranges.
+ * Returns the adjusted startLine/endLine, or null if the move should be aborted.
+ */
+const clampKeyboardMove = (
+  newStartLine: number,
+  rangeHeight: number,
+  currentStartLine: number,
+  otherRanges: TapestryRange[]
+): { startLine: number; endLine: number } | null => {
+  let startLine = newStartLine;
+  let endLine = startLine + rangeHeight;
+  const movingDown = startLine > currentStartLine;
+
+  for (const other of otherRanges) {
+    if (movingDown && endLine > other.startLine && startLine < other.endLine) {
+      endLine = other.startLine;
+      startLine = endLine - rangeHeight;
+    } else if (!movingDown && startLine < other.endLine && endLine > other.startLine) {
+      startLine = other.endLine;
+      endLine = startLine + rangeHeight;
+    }
+  }
+
+  // Abort if still at original position after clamping
+  if (startLine === currentStartLine) {
+    return null;
+  }
+
+  return { startLine, endLine };
+};
+
 const buildRangePreview = (range: TapestryRange, file: FileTapestry): PreviewState => {
   const contentLength = file.content.length;
   const hasContent = file.contentStatus === 'ready' && contentLength > 0;
@@ -114,6 +149,8 @@ const RangeItem = memo(
     hoveredRangeId,
     setHoveredRangeId,
     onPreviewHover,
+    isDragging,
+    allowOverlap,
   }: {
     range: TapestryRange;
     file: FileTapestry;
@@ -122,7 +159,8 @@ const RangeItem = memo(
       mode: InteractionMode,
       rangeId: string | null,
       clientY: number,
-      range?: TapestryRange
+      range?: TapestryRange,
+      pointerId?: number
     ) => void;
     getGlobalIndex: (rangeId: string) => number;
     onToggleRange: (fileId: string, rangeId: string) => void;
@@ -135,6 +173,8 @@ const RangeItem = memo(
     hoveredRangeId: string | null;
     setHoveredRangeId: (id: string | null) => void;
     onPreviewHover?: () => void;
+    isDragging?: boolean | undefined;
+    allowOverlap?: boolean | undefined;
   }) => {
     const top = range.startLine * lineScale;
     const height = (range.endLine - range.startLine) * lineScale;
@@ -163,13 +203,17 @@ const RangeItem = memo(
         return;
       }
 
-      if (action.type === 'move') {
+      if (action.type === 'move' && action.startLine !== range.startLine && onMoveRange) {
         e.preventDefault();
         e.stopPropagation();
-
-        if (action.startLine !== range.startLine && onMoveRange) {
-          const rangeHeight = range.endLine - range.startLine;
-          onMoveRange(file.id, range.id, action.startLine, action.startLine + rangeHeight);
+        const rangeHeight = range.endLine - range.startLine;
+        const siblings = allowOverlap ? [] : file.selections.filter((s) => s.id !== range.id);
+        const bounds =
+          siblings.length > 0
+            ? clampKeyboardMove(action.startLine, rangeHeight, range.startLine, siblings)
+            : { startLine: action.startLine, endLine: action.startLine + rangeHeight };
+        if (bounds) {
+          onMoveRange(file.id, range.id, bounds.startLine, bounds.endLine);
         }
       }
     };
@@ -183,22 +227,23 @@ const RangeItem = memo(
             aria-valuemin={0}
             aria-valuenow={range.startLine}
             className={cn(
-              'group/range absolute right-0 left-0 transition-all duration-75 ease-out focus-visible:ring-2 focus-visible:ring-ring',
+              'group/range absolute right-0 left-0 focus-visible:ring-2 focus-visible:ring-ring',
+              !isDragging && 'transition-all duration-75 ease-out',
               range.isActive ? 'opacity-100' : 'opacity-40 grayscale',
               isHovered ? 'z-40' : 'z-20'
             )}
             onKeyDown={handleKeyDown}
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              if (e.button === 0 && !e.shiftKey) {
-                handleStart('MOVING', range.id, e.clientY, range);
-              }
-            }}
             onMouseEnter={() => {
               setHoveredRangeId(range.id);
               onPreviewHover?.();
             }}
             onMouseLeave={() => setHoveredRangeId(null)}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              if (e.button === 0 && !e.shiftKey) {
+                handleStart('MOVING', range.id, e.clientY, range, e.pointerId);
+              }
+            }}
             role="slider"
             style={{
               top,
@@ -222,7 +267,7 @@ const RangeItem = memo(
                 'no-depress absolute -top-1.5 -right-1.5 z-40 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-all',
                 range.isActive ? 'scale-100 bg-background' : 'scale-90 bg-muted hover:scale-110'
               )}
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 e.stopPropagation();
                 onToggleRange(file.id, range.id);
               }}
@@ -252,9 +297,9 @@ const RangeItem = memo(
             <button
               aria-label="Resize range top"
               className="no-depress absolute -top-1 right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 e.stopPropagation();
-                handleStart('RESIZING_TOP', range.id, e.clientY, range);
+                handleStart('RESIZING_TOP', range.id, e.clientY, range, e.pointerId);
               }}
               type="button"
             />
@@ -262,9 +307,9 @@ const RangeItem = memo(
             <button
               aria-label="Resize range bottom"
               className="no-depress absolute right-4 -bottom-1 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 e.stopPropagation();
-                handleStart('RESIZING_BOTTOM', range.id, e.clientY, range);
+                handleStart('RESIZING_BOTTOM', range.id, e.clientY, range, e.pointerId);
               }}
               type="button"
             />
@@ -337,6 +382,7 @@ RangeItem.displayName = 'RangeItem';
 
 export const Minimap = memo(
   ({
+    allowOverlap,
     file,
     scale,
     smartStart,
@@ -344,6 +390,7 @@ export const Minimap = memo(
     onMoveRange,
     getGlobalIndex,
     isSelected,
+    isDragging,
     onToggleSelection,
     onRequestFileContent,
   }: MinimapProps) => {
@@ -364,13 +411,13 @@ export const Minimap = memo(
       prevScaleRef.current = scale;
     }, [scale]);
 
-    const handlePreviewHover = () => {
+    const handlePreviewHover = useCallback(() => {
       if (file.contentStatus === 'idle') {
         onRequestFileContent?.(file.compositeKey);
       }
-    };
+    }, [file.contentStatus, file.compositeKey, onRequestFileContent]);
 
-    const handleMouseDown = (e: React.MouseEvent) => {
+    const handlePointerDown = (e: React.PointerEvent) => {
       e.stopPropagation();
 
       const target = e.target as HTMLElement;
@@ -382,20 +429,47 @@ export const Minimap = memo(
         const clickedLine = Math.floor(relativeY / lineScale);
         const maxLine = Math.max(file.totalLines - 1, 0);
         const clampedLine = Math.min(Math.max(clickedLine, 0), maxLine);
-        smartStart('CREATING', file.id, null, e.clientY, undefined, clampedLine);
+        smartStart('CREATING', file.id, null, e.clientY, undefined, clampedLine, e.pointerId);
       }
     };
 
-    const handleStart = (
-      mode: InteractionMode,
-      rangeId: string | null,
-      clientY: number,
-      range?: TapestryRange
-    ) => {
-      smartStart(mode, file.id, rangeId, clientY, range);
-    };
+    const handleStart = useCallback(
+      (
+        mode: InteractionMode,
+        rangeId: string | null,
+        clientY: number,
+        range?: TapestryRange,
+        pointerId?: number
+      ) => {
+        smartStart(mode, file.id, rangeId, clientY, range, undefined, pointerId);
+      },
+      [smartStart, file.id]
+    );
 
     const isAnyHovered = !!hoveredRangeId;
+
+    // Memoize SVG rects to avoid recreating hundreds of React elements per render.
+    const structureRects = useMemo(
+      () =>
+        file.structure.map((line, i) => {
+          if (line.isEmpty) {
+            return null;
+          }
+          const lineKey = `${file.id}-ln${i}-w${line.width}-d${line.indent}`;
+          return (
+            <rect
+              className="text-muted-foreground/40"
+              fill="currentColor"
+              height={lineThickness}
+              key={lineKey}
+              width={`${line.width}%`}
+              x={`${line.indent * 5}%`}
+              y={i * lineScale}
+            />
+          );
+        }),
+      [file.structure, file.id, lineScale, lineThickness]
+    );
 
     return (
       <div
@@ -479,7 +553,7 @@ export const Minimap = memo(
           <button
             aria-label={`Create range in ${file.name}`}
             className="no-depress absolute inset-0 z-0 h-full w-full cursor-crosshair rounded-md bg-transparent"
-            onMouseDown={handleMouseDown}
+            onPointerDown={handlePointerDown}
             ref={containerRef}
             type="button"
           >
@@ -498,25 +572,7 @@ export const Minimap = memo(
               >
                 <title>File structure minimap</title>
                 <desc>Non-interactive overview of file structure by line density.</desc>
-                {file.structure.map((line, i) => {
-                  if (line.isEmpty) {
-                    return null;
-                  }
-                  // Use line position as part of the key — structure is a fixed positional array
-                  // tied to file content (not reordered), so line index is the stable identifier.
-                  const lineKey = `${file.id}-ln${i}-w${line.width}-d${line.indent}`;
-                  return (
-                    <rect
-                      className="text-muted-foreground/40"
-                      fill="currentColor"
-                      height={lineThickness}
-                      key={lineKey}
-                      width={`${line.width}%`}
-                      x={`${line.indent * 5}%`}
-                      y={i * lineScale}
-                    />
-                  );
-                })}
+                {structureRects}
               </svg>
             </div>
           </button>
@@ -524,10 +580,12 @@ export const Minimap = memo(
           {/* Ranges rendered as siblings of the background button to avoid nesting */}
           {file.selections.map((range) => (
             <RangeItem
+              allowOverlap={allowOverlap}
               file={file}
               getGlobalIndex={getGlobalIndex}
               handleStart={handleStart}
               hoveredRangeId={hoveredRangeId}
+              isDragging={isDragging}
               key={range.id}
               lineScale={lineScale}
               onPreviewHover={handlePreviewHover}

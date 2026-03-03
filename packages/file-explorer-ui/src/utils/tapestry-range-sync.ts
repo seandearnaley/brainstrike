@@ -21,13 +21,14 @@ export function createDefaultTapestryRanges(
       endLine: totalLines,
       isActive: true,
       color: getStableColorForKey(compositeKey),
+      userModified: false,
     },
   ];
 }
 
 function shouldStretchDefaultRange(
   ranges: TapestryRange[],
-  previousTotal: number
+  _previousTotal: number
 ): ranges is [TapestryRange] {
   if (ranges.length !== 1) {
     return false;
@@ -36,7 +37,11 @@ function shouldStretchDefaultRange(
   if (!firstRange) {
     return false;
   }
-  return firstRange.startLine === 0 && firstRange.endLine === previousTotal;
+  // Use the userModified flag rather than position heuristics. A range that
+  // was never manually adjusted should auto-stretch when content loads and
+  // totalLines changes. The startLine===0 guard is a safety net for ranges
+  // created before the userModified flag existed.
+  return firstRange.startLine === 0 && !firstRange.userModified;
 }
 
 function stretchDefaultRange(range: TapestryRange, totalLines: number): TapestryRange[] {
@@ -44,6 +49,9 @@ function stretchDefaultRange(range: TapestryRange, totalLines: number): Tapestry
 }
 
 function clampRangeToTotal(range: TapestryRange, totalLines: number): TapestryRange {
+  if (totalLines <= 0) {
+    return range;
+  }
   const maxStart = Math.max(totalLines - 1, 0);
   const startLine = Math.min(Math.max(range.startLine, 0), maxStart);
   const endLine = Math.min(Math.max(range.endLine, startLine + 1), totalLines);

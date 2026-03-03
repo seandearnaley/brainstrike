@@ -171,7 +171,21 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set());
 
   const [tapestryRangesByKey, setTapestryRangesByKey] = useState<TapestryRangeMap>({});
+  const deferredTapestryRangesByKey = useDeferredValue(tapestryRangesByKey);
   const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
+  // Per-file cache for buildTapestryFileBase — avoids recomputing ALL files when
+  // a single file's content loads. Cache is read during render (safe) and updated
+  // in a useEffect after commit (safe with React 18 Strict Mode).
+  const tapestryBaseCacheRef = useRef<
+    Map<
+      string,
+      {
+        base: ReturnType<typeof buildTapestryFileBase>;
+        content: string | undefined;
+        isLoading: boolean;
+      }
+    >
+  >(new Map());
 
   const {
     activeTab,
@@ -241,10 +255,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }
     return createSelectedFileContentSnapshot({
       selectedFiles,
-      tapestryRangesByKey,
+      tapestryRangesByKey: deferredTapestryRangesByKey,
       fileContents,
     });
-  }, [fileContents, selectedFiles, tapestryRangesByKey, useTapestryRangesForContextOutput]);
+  }, [fileContents, selectedFiles, deferredTapestryRangesByKey, useTapestryRangesForContextOutput]);
 
   const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
     const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
@@ -254,7 +268,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       sourcePendingCount: totalStats.pendingCount,
       selectedFiles,
       useTapestryRangesForContextOutput,
-      tapestryRangesByKey,
+      tapestryRangesByKey: deferredTapestryRangesByKey,
       tokenCountByFile,
       fileContents: selectedFileContentSnapshot,
     });
@@ -263,7 +277,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     totalStats,
     selectedFiles,
     useTapestryRangesForContextOutput,
-    tapestryRangesByKey,
+    deferredTapestryRangesByKey,
     selectedFileContentSnapshot,
   ]);
 
@@ -334,21 +348,47 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       return new Map<string, ReturnType<typeof buildTapestryFileBase>>();
     }
 
+    const cache = tapestryBaseCacheRef.current;
     const map = new Map<string, ReturnType<typeof buildTapestryFileBase>>();
 
     for (const item of tableData) {
-      map.set(
-        item.compositeKey,
-        buildTapestryFileBase({
-          item,
-          content: fileContents[item.compositeKey],
-          isLoading: loadingFiles.has(item.compositeKey),
-        })
-      );
+      const content = fileContents[item.compositeKey];
+      const isLoading = loadingFiles.has(item.compositeKey);
+      const cached = cache.get(item.compositeKey);
+
+      if (cached && cached.content === content && cached.isLoading === isLoading) {
+        map.set(item.compositeKey, cached.base);
+      } else {
+        map.set(item.compositeKey, buildTapestryFileBase({ item, content, isLoading }));
+      }
     }
 
     return map;
   }, [shouldSyncTapestryRanges, tableData, fileContents, loadingFiles]);
+
+  // Persist per-file cache after render — useEffect is a safe place for ref mutation.
+  // biome-ignore lint/plugin: Not fetching data — updating a local memoization cache ref.
+  useEffect(() => {
+    const newCache = new Map<
+      string,
+      {
+        base: ReturnType<typeof buildTapestryFileBase>;
+        content: string | undefined;
+        isLoading: boolean;
+      }
+    >();
+    for (const item of tableData) {
+      const base = tapestryFileBaseByKey.get(item.compositeKey);
+      if (base) {
+        newCache.set(item.compositeKey, {
+          base,
+          content: fileContents[item.compositeKey],
+          isLoading: loadingFiles.has(item.compositeKey),
+        });
+      }
+    }
+    tapestryBaseCacheRef.current = newCache;
+  }, [tapestryFileBaseByKey, tableData, fileContents, loadingFiles]);
 
   useEffect(() => {
     // Keep ranges synchronized while Tapestry is visible or when range-based export is enabled.
@@ -356,15 +396,23 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       return;
     }
 
+    // Capture pending totals outside the setState updater to avoid mutating the
+    // ref inside the callback. React 18 Strict Mode invokes updaters twice — if
+    // the ref were mutated inside, the second (real) invocation would see
+    // corrupted previousTotal values and skip range stretching on content load.
+    let pendingTotals: Map<string, number> | null = null;
     setTapestryRangesByKey((prev) => {
       const { next, changed, totals } = syncTapestryRanges({
         bases: tapestryFileBaseByKey,
         prev,
         totals: tapestryTotalsRef.current,
       });
-      tapestryTotalsRef.current = totals;
+      pendingTotals = totals;
       return changed ? next : prev;
     });
+    if (pendingTotals) {
+      tapestryTotalsRef.current = pendingTotals;
+    }
   }, [shouldSyncTapestryRanges, tapestryFileBaseByKey]);
 
   // Toggle group collapse

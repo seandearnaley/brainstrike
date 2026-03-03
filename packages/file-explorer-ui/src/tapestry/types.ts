@@ -11,6 +11,8 @@ export interface TapestryRange {
   id: string;
   isActive: boolean;
   startLine: number;
+  // True after a user drag/resize/keyboard move. Prevents auto-stretching on content load.
+  userModified?: boolean;
 }
 
 export interface FileTapestry {
@@ -33,8 +35,14 @@ export interface FileTapestry {
 export type InteractionMode = 'IDLE' | 'CREATING' | 'RESIZING_TOP' | 'RESIZING_BOTTOM' | 'MOVING';
 
 export interface DragState {
+  // Anchor line for bidirectional range creation. Set to the clicked line when
+  // creating a new range so dragging upward can grow the range above the click point.
+  anchorLine?: number | undefined;
   fileId: string | null;
   initialRange: TapestryRange | null;
+  // Snapshot of file.totalLines at drag start. If it changes mid-drag
+  // (e.g. content loads), the drag is aborted to prevent erratic behavior.
+  initialTotalLines: number;
   mode: InteractionMode;
   rangeId: string | null;
   startY: number;
