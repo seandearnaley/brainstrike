@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { memo, useMemo, useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TableRowData } from '../../utils/grouping-configs';
 import { TapestryView } from '../tapestry-view';
 import type { FileTapestry, TapestryRange } from '../types';
@@ -158,6 +158,15 @@ TapestryHarness.displayName = 'TapestryHarness';
 describe('TapestryView', () => {
   const user = userEvent.setup();
 
+  // Mock rAF to execute synchronously so drag tests see immediate range updates.
+  beforeEach(() => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      cb(0);
+      return 0;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+  });
+
   it('renders correctly with files', async () => {
     await act(async () => {
       render(<TapestryHarness />);
@@ -179,7 +188,7 @@ describe('TapestryView', () => {
     }
 
     await act(async () => {
-      fireEvent.mouseDown(firstButton);
+      fireEvent.pointerDown(firstButton);
     });
 
     const activateButtons = await screen.findAllByRole('button', { name: /activate range/i });
@@ -243,17 +252,17 @@ describe('TapestryView', () => {
     }
 
     await act(async () => {
-      fireEvent.mouseDown(range, { clientY: 100, button: 0 });
+      fireEvent.pointerDown(range, { clientY: 100, button: 0, pointerId: 1 });
     });
 
     await act(async () => {
-      window.dispatchEvent(new MouseEvent('mousemove', { clientY: 104 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104, pointerId: 1 }));
     });
 
     expect(range.getAttribute('aria-valuenow')).toBe('11');
 
     await act(async () => {
-      window.dispatchEvent(new MouseEvent('mouseup'));
+      window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 }));
     });
   });
 
@@ -275,15 +284,15 @@ describe('TapestryView', () => {
     }
 
     await act(async () => {
-      fireEvent.mouseDown(resizeTop, { clientY: 100 });
+      fireEvent.pointerDown(resizeTop, { clientY: 100, pointerId: 1 });
     });
     await act(async () => {
-      window.dispatchEvent(new MouseEvent('mousemove', { clientY: 96 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 96, pointerId: 1 }));
     });
     expect(range.getAttribute('aria-valuenow')).toBe('9');
 
     await act(async () => {
-      window.dispatchEvent(new MouseEvent('mouseup'));
+      window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 }));
     });
 
     const resizeBottom = screen.getAllByLabelText(/Resize range bottom/i)[0];
@@ -291,10 +300,10 @@ describe('TapestryView', () => {
       throw new Error('Resize bottom handle not found');
     }
     await act(async () => {
-      fireEvent.mouseDown(resizeBottom, { clientY: 200 });
+      fireEvent.pointerDown(resizeBottom, { clientY: 200, pointerId: 1 });
     });
     await act(async () => {
-      window.dispatchEvent(new MouseEvent('mousemove', { clientY: 204 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 204, pointerId: 1 }));
     });
     expect(range.getAttribute('aria-label')).toMatch(/Range 9 to 21/i);
   });
@@ -323,7 +332,7 @@ describe('TapestryView', () => {
         toJSON: () => {},
       } as DOMRect);
 
-      fireEvent.mouseDown(minimapBg, { clientY: 200 });
+      fireEvent.pointerDown(minimapBg, { clientY: 200, pointerId: 1 });
     });
 
     const sliders = screen.getAllByRole('slider');
@@ -367,7 +376,7 @@ describe('TapestryView', () => {
         toJSON: () => {},
       } as DOMRect);
 
-      fireEvent.mouseDown(minimapBg, { clientY: 60 });
+      fireEvent.pointerDown(minimapBg, { clientY: 60, pointerId: 1 });
     });
 
     expect(screen.getAllByRole('slider').length).toBeGreaterThanOrEqual(13);

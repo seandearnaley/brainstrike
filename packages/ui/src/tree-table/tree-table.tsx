@@ -13,9 +13,9 @@
  */
 
 import { usePagination } from '@brainstrike/hooks';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
 import * as React from 'react';
-import { useResizeObserver } from '../hooks/use-resize-observer';
+
 import { warnCycleOnce } from '../lib/cycle-warning';
 import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
@@ -676,6 +676,22 @@ export function TreeTable<T>({
     return true;
   }, []);
 
+  // Height-only observer: react-virtual's default observeElementRect fires on ANY
+  // dimension change (including width), causing a full React re-render per frame during
+  // horizontal panel resize. Override it to skip width-only changes since vertical
+  // virtualization only depends on container height.
+  const observedHeightRef = React.useRef<number>(0);
+  const heightOnlyObserveRect: typeof observeElementRect = React.useCallback(
+    (instance, cb) =>
+      observeElementRect(instance, (rect) => {
+        if (rect.height !== observedHeightRef.current) {
+          observedHeightRef.current = rect.height;
+          cb(rect);
+        }
+      }),
+    []
+  );
+
   // Setup virtualizer
   const rowVirtualizer = useVirtualizer({
     count: isVirtualWindowing ? rows.length : 0,
@@ -687,20 +703,7 @@ export function TreeTable<T>({
     overscan,
     // Avoid react-virtual calling ReactDOM.flushSync during layout updates.
     useFlushSync: false,
-  });
-
-  // ResizeObserver for container sizing — only re-measure when HEIGHT changes.
-  // Width changes (from panel drag) don't affect vertical virtualization.
-  const lastHeightRef = React.useRef<number>(0);
-  useResizeObserver(parentRef, (entry) => {
-    if (!isVirtualWindowing) {
-      return;
-    }
-    const nextHeight = entry.contentRect.height;
-    if (nextHeight !== lastHeightRef.current) {
-      lastHeightRef.current = nextHeight;
-      rowVirtualizer.measure();
-    }
+    observeElementRect: heightOnlyObserveRect,
   });
 
   const scrollToNode = React.useCallback(

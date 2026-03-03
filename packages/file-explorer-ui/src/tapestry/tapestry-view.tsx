@@ -270,7 +270,53 @@ const TapestryGroupHeader = memo<{
 TapestryGroupHeader.displayName = 'TapestryGroupHeader';
 
 /**
+ * Computes range bounds when the user drags upward from the anchor point
+ * during range creation.
+ */
+function computeUpwardCreationBounds(
+  anchorLine: number,
+  deltaLines: number,
+  totalLines: number,
+  initialRange: TapestryRange,
+  otherRanges: TapestryRange[],
+  allowOverlap: boolean
+): { startLine: number; endLine: number } {
+  let startLine = anchorLine + deltaLines;
+  let endLine = anchorLine + 1;
+
+  if (startLine < 0) {
+    startLine = 0;
+  }
+  if (endLine > totalLines) {
+    endLine = totalLines;
+  }
+
+  if (!allowOverlap && otherRanges.length > 0) {
+    const { minLine } = findNeighborBounds(initialRange, totalLines, otherRanges);
+    if (startLine < minLine) {
+      startLine = minLine;
+    }
+  }
+
+  return { startLine, endLine };
+}
+
+const IDLE_DRAG_STATE: DragState = {
+  mode: 'IDLE',
+  fileId: null,
+  rangeId: null,
+  startY: 0,
+  initialRange: null,
+  initialTotalLines: 0,
+  anchorLine: undefined,
+};
+
+/**
  * Custom hook to handle tapestry drag and drop logic.
+ *
+ * Uses useRef for drag state and requestAnimationFrame throttling to avoid
+ * re-renders on every mousemove. Only `isDragging` (boolean useState) triggers
+ * re-renders — for attaching/detaching window listeners and disabling CSS transitions.
  */
 function useTapestryDrag(
   files: FileTapestry[],
@@ -278,17 +324,21 @@ function useTapestryDrag(
   scale: number,
   allowOverlap: boolean
 ) {
-  const [dragState, setDragState] = useState<DragState>({
-    mode: 'IDLE',
-    fileId: null,
-    rangeId: null,
-    startY: 0,
-    initialRange: null,
-  });
+  const dragStateRef = useRef<DragState>({ ...IDLE_DRAG_STATE });
+  const [isDragging, setIsDragging] = useState(false);
+  const rafIdRef = useRef<number>(0);
+  const activePointerIdRef = useRef<number | null>(null);
+  const latestClientYRef = useRef<number>(0);
 
   // Always-fresh ref avoids stale closures when mouse events fire between renders.
   const filesRef = useRef(files);
   filesRef.current = files;
+
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+
+  const allowOverlapRef = useRef(allowOverlap);
+  allowOverlapRef.current = allowOverlap;
 
   const updateRanges = useCallback(
     (fileId: string, updater: (ranges: TapestryRange[]) => TapestryRange[]) => {
@@ -301,72 +351,153 @@ function useTapestryDrag(
     [onRangesChange]
   );
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
+  const resetDragState = useCallback(() => {
+    dragStateRef.current = { ...IDLE_DRAG_STATE };
+    setIsDragging(false);
+  }, []);
+
+  const handlePointerMove = useCallback(
+    (e: PointerEvent) => {
+      // Ignore events from other pointers (e.g. multi-touch)
+      if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) {
+        return;
+      }
+
+      const ds = dragStateRef.current;
       if (
-        dragState.mode === 'IDLE' ||
-        !dragState.fileId ||
-        !dragState.rangeId ||
-        !dragState.initialRange ||
-        scale <= 0
+        ds.mode === 'IDLE' ||
+        !ds.fileId ||
+        !ds.rangeId ||
+        !ds.initialRange ||
+        scaleRef.current <= 0
       ) {
         return;
       }
 
-      const file = filesRef.current.find((entry) => entry.id === dragState.fileId);
-      if (!file) {
+      // Always capture the latest clientY — the rAF callback reads from this ref
+      // so it uses the most recent position, not the first event that passed the gate.
+      latestClientYRef.current = e.clientY;
+
+      // rAF gate: skip if a frame is already pending
+      if (rafIdRef.current !== 0) {
         return;
       }
 
-      const { fileId, rangeId, startY, initialRange, mode } = dragState;
-      const { lineScale } = getTapestryRenderMetrics(file.totalLines, scale);
-      const deltaLines = Math.round((e.clientY - startY) / lineScale);
+      rafIdRef.current = requestAnimationFrame(() => {
+        // Re-check drag state inside rAF (pointerUp may have fired between scheduling and execution)
+        const current = dragStateRef.current;
+        if (
+          current.mode === 'IDLE' ||
+          !current.fileId ||
+          !current.rangeId ||
+          !current.initialRange
+        ) {
+          rafIdRef.current = 0;
+          return;
+        }
 
-      updateRanges(fileId, (ranges) => {
-        const currentRange = ranges.find((range) => range.id === rangeId) ?? initialRange;
-        const otherRanges = ranges.filter((range) => range.id !== rangeId);
-        const newBounds = calculateNewRange(
-          currentRange,
-          initialRange,
-          mode,
-          deltaLines,
-          file.totalLines,
-          allowOverlap,
-          otherRanges
-        );
+        const file = filesRef.current.find((entry) => entry.id === current.fileId);
+        if (!file) {
+          rafIdRef.current = 0;
+          return;
+        }
 
-        return ranges.map((range) => (range.id === rangeId ? { ...range, ...newBounds } : range));
+        // Abort drag if totalLines changed mid-drag (e.g. content loaded).
+        if (file.totalLines !== current.initialTotalLines) {
+          rafIdRef.current = 0;
+          resetDragState();
+          return;
+        }
+
+        const { fileId, rangeId, startY, initialRange, mode } = current;
+        const { lineScale } = getTapestryRenderMetrics(file.totalLines, scaleRef.current);
+        const deltaLines = Math.round((latestClientYRef.current - startY) / lineScale);
+
+        updateRanges(fileId, (ranges) => {
+          const currentRange = ranges.find((range) => range.id === rangeId) ?? initialRange;
+          const otherRanges = ranges.filter((range) => range.id !== rangeId);
+
+          // Bidirectional range creation: if dragging upward from anchor point
+          const { anchorLine } = current;
+          const newBounds =
+            anchorLine !== undefined && mode === 'RESIZING_BOTTOM' && deltaLines < 0
+              ? computeUpwardCreationBounds(
+                  anchorLine,
+                  deltaLines,
+                  file.totalLines,
+                  initialRange,
+                  otherRanges,
+                  allowOverlapRef.current
+                )
+              : calculateNewRange(
+                  currentRange,
+                  initialRange,
+                  mode,
+                  deltaLines,
+                  file.totalLines,
+                  allowOverlapRef.current,
+                  otherRanges
+                );
+
+          return ranges.map((range) =>
+            range.id === rangeId ? { ...range, ...newBounds, userModified: true } : range
+          );
+        });
+
+        // Clear rAF gate after the update — this ensures strictly one update per frame.
+        rafIdRef.current = 0;
       });
     },
-    [allowOverlap, dragState, scale, updateRanges]
+    [resetDragState, updateRanges]
   );
 
-  const handleMouseUp = useCallback(() => {
-    setDragState({ mode: 'IDLE', fileId: null, rangeId: null, startY: 0, initialRange: null });
-  }, []);
+  const handlePointerUp = useCallback(
+    (e?: PointerEvent) => {
+      // Ignore events from other pointers (e.g. multi-touch)
+      if (e && activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) {
+        return;
+      }
+
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = 0;
+      activePointerIdRef.current = null;
+      if (e) {
+        try {
+          document.documentElement.releasePointerCapture(e.pointerId);
+        } catch {
+          // Pointer capture may already be released
+        }
+      }
+      resetDragState();
+    },
+    [resetDragState]
+  );
 
   // Store latest handlers in ref to avoid recreating event listeners
-  const handlersRef = useRef({ handleMouseMove, handleMouseUp });
+  const handlersRef = useRef({ handlePointerMove, handlePointerUp });
 
   useEffect(() => {
-    handlersRef.current = { handleMouseMove, handleMouseUp };
-  }, [handleMouseMove, handleMouseUp]);
+    handlersRef.current = { handlePointerMove, handlePointerUp };
+  }, [handlePointerMove, handlePointerUp]);
+
+  // Cancel pending rAF on unmount
+  useEffect(() => () => cancelAnimationFrame(rafIdRef.current), []);
 
   useEffect(() => {
-    if (dragState.mode !== 'IDLE') {
-      const moveHandler = (e: MouseEvent) => handlersRef.current.handleMouseMove(e);
-      const upHandler = () => handlersRef.current.handleMouseUp();
+    if (isDragging) {
+      const moveHandler = (e: PointerEvent) => handlersRef.current.handlePointerMove(e);
+      const upHandler = (e: PointerEvent) => handlersRef.current.handlePointerUp(e);
 
-      window.addEventListener('mousemove', moveHandler);
-      window.addEventListener('mouseup', upHandler);
+      window.addEventListener('pointermove', moveHandler);
+      window.addEventListener('pointerup', upHandler);
 
       return () => {
-        window.removeEventListener('mousemove', moveHandler);
-        window.removeEventListener('mouseup', upHandler);
+        window.removeEventListener('pointermove', moveHandler);
+        window.removeEventListener('pointerup', upHandler);
       };
     }
     return;
-  }, [dragState.mode]);
+  }, [isDragging]);
 
   const startDrag = useCallback(
     (
@@ -375,7 +506,8 @@ function useTapestryDrag(
       rangeId: string | null,
       clientY: number,
       initialRange?: TapestryRange,
-      clickedLine?: number
+      clickedLine?: number,
+      pointerId?: number
     ) => {
       const file = filesRef.current.find((entry) => entry.id === fileId);
       if (!file) {
@@ -384,7 +516,7 @@ function useTapestryDrag(
 
       if (mode === 'CREATING' && clickedLine !== undefined) {
         if (
-          !allowOverlap &&
+          !allowOverlapRef.current &&
           file.selections.some((s) => clickedLine >= s.startLine && clickedLine < s.endLine)
         ) {
           return;
@@ -397,32 +529,49 @@ function useTapestryDrag(
           endLine: clickedLine + 1,
           isActive: true,
           color: generateColor(file.selections.length),
+          userModified: true,
         };
 
         updateRanges(fileId, (ranges) => [...ranges, newRange]);
-        setDragState({
+        dragStateRef.current = {
           mode: 'RESIZING_BOTTOM',
           fileId,
           rangeId: newId,
           startY: clientY,
           initialRange: newRange,
-        });
+          initialTotalLines: file.totalLines,
+          anchorLine: clickedLine,
+        };
+        setIsDragging(true);
       } else {
         const resolvedRange =
           initialRange ?? file.selections.find((range) => range.id === rangeId) ?? null;
-        setDragState({
+        dragStateRef.current = {
           mode,
           fileId,
           rangeId,
           startY: clientY,
           initialRange: resolvedRange,
-        });
+          initialTotalLines: file.totalLines,
+          anchorLine: undefined,
+        };
+        setIsDragging(true);
+      }
+
+      // Record active pointer and capture for reliable tracking across window boundaries
+      if (pointerId !== undefined) {
+        activePointerIdRef.current = pointerId;
+        try {
+          document.documentElement.setPointerCapture(pointerId);
+        } catch {
+          // Pointer capture may not be supported in all environments
+        }
       }
     },
-    [allowOverlap, updateRanges]
+    [updateRanges]
   );
 
-  return { startDrag };
+  return { startDrag, isDragging };
 }
 
 export const TapestryView = memo<TapestryViewProps>(function TapestryView({
@@ -469,7 +618,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   const filesRef = useRef(files);
   filesRef.current = files;
 
-  const { startDrag } = useTapestryDrag(files, onRangesChange, scale, allowOverlap);
+  const { startDrag, isDragging } = useTapestryDrag(files, onRangesChange, scale, allowOverlap);
 
   const rangeIdToIndexMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -517,7 +666,9 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
     (fileId: string, rangeId: string, newStartLine: number, newEndLine: number) => {
       updateRanges(fileId, (ranges) =>
         ranges.map((range) =>
-          range.id === rangeId ? { ...range, startLine: newStartLine, endLine: newEndLine } : range
+          range.id === rangeId
+            ? { ...range, startLine: newStartLine, endLine: newEndLine, userModified: true }
+            : range
         )
       );
     },
@@ -617,8 +768,10 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
               >
                 {ungroupedFiles.map((file) => (
                   <Minimap
+                    allowOverlap={allowOverlap}
                     file={file}
                     getGlobalIndex={getGlobalIndex}
+                    isDragging={isDragging}
                     isSelected={previewSelections.has(file.compositeKey)}
                     key={file.id}
                     onMoveRange={handleMoveRange}
@@ -651,8 +804,10 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                     >
                       {section.items.map((file) => (
                         <Minimap
+                          allowOverlap={allowOverlap}
                           file={file}
                           getGlobalIndex={getGlobalIndex}
+                          isDragging={isDragging}
                           isSelected={previewSelections.has(file.compositeKey)}
                           key={file.id}
                           onMoveRange={handleMoveRange}

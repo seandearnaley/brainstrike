@@ -76,7 +76,7 @@ describe('Minimap', () => {
     });
 
     const clientY = 110;
-    fireEvent.mouseDown(container, { clientY });
+    fireEvent.pointerDown(container, { clientY, pointerId: 1 });
 
     const { lineScale } = getTapestryRenderMetrics(file.totalLines, 2);
     const rawLine = Math.floor((clientY - 100) / lineScale);
@@ -88,7 +88,8 @@ describe('Minimap', () => {
       null,
       clientY,
       undefined,
-      expectedLine
+      expectedLine,
+      1
     );
   });
 
@@ -111,14 +112,16 @@ describe('Minimap', () => {
     );
 
     const range = screen.getByRole('slider', { name: /range 2 to 6 in app\.tsx/i });
-    fireEvent.mouseDown(range, { button: 0, clientY: 42 });
+    fireEvent.pointerDown(range, { button: 0, clientY: 42, pointerId: 1 });
 
     expect(smartStart).toHaveBeenCalledWith(
       'MOVING',
       file.id,
       'range-1',
       42,
-      expect.objectContaining({ id: 'range-1' })
+      expect.objectContaining({ id: 'range-1' }),
+      undefined,
+      1
     );
   });
 
@@ -141,7 +144,7 @@ describe('Minimap', () => {
     );
 
     const toggle = screen.getByRole('button', { name: /deactivate range/i });
-    fireEvent.mouseDown(toggle);
+    fireEvent.pointerDown(toggle);
 
     expect(onToggleRange).toHaveBeenCalledWith(file.id, 'range-1');
   });
