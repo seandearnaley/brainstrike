@@ -20,15 +20,13 @@ export const fileContent = {
     const sampleSize = Math.min(512, content.length);
     for (let i = 0; i < sampleSize; i++) {
       const charCode = content.charCodeAt(i);
-      // Check for null bytes or control characters (except tab, newline, carriage return)
-      if (
-        charCode === 0 || // null byte
-        charCode < 0x09 || // control chars below tab
-        (charCode > 0x0a && charCode < 0x0d) || // control chars between LF and CR
-        (charCode > 0x0d && charCode < 0x20) || // control chars between CR and space
-        charCode === 0x7f // DEL
-      ) {
-        return false;
+      // Fast path: Check if character is outside the normal printable ASCII range
+      if (charCode < 32 || charCode === 127) {
+        // Only 9 (tab), 10 (LF), and 13 (CR) are allowed below 32
+        // biome-ignore lint/style/useCollapsedIf: We explicitly want this un-collapsed to force a fast-path bailout for branch prediction
+        if (charCode !== 9 && charCode !== 10 && charCode !== 13) {
+          return false;
+        }
       }
     }
     return true;
