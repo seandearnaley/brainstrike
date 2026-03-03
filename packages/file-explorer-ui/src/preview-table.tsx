@@ -128,6 +128,7 @@ interface BuildGroupedTreeNodesInput {
 
 interface BuildGroupedTreeNodesResult {
   expandedGroupNodeIds: Set<string>;
+  groupKeyByNodeId: Map<string, GroupKey>;
   nodes: TreeNode<PreviewTreeNodeData>[];
 }
 
@@ -239,13 +240,15 @@ function buildGroupedTreeNodes({
 }: BuildGroupedTreeNodesInput): BuildGroupedTreeNodesResult {
   const nodes: TreeNode<PreviewTreeNodeData>[] = [];
   const expandedGroupNodeIds = new Set<string>();
+  const groupKeyByNodeId = new Map<string, GroupKey>();
   let visibleRowIndex = 0;
 
   for (const group of groupedData) {
-    const groupKey = String(group.groupKey);
-    const groupNodeId = resolveGroupNodeId(groupKey);
-    const isCollapsed = collapsedGroups.has(groupKey);
+    const groupKey = group.groupKey;
+    const groupNodeId = resolveGroupNodeId(String(groupKey));
+    const isCollapsed = collapsedGroups.has(String(groupKey));
     const groupVisibleRowCount = resolveGroupVisibleRowCount(group, isCollapsed);
+    groupKeyByNodeId.set(groupNodeId, groupKey);
     const pageStartsInsideItems =
       !isCollapsed &&
       pagination.startIndex > visibleRowIndex &&
@@ -265,7 +268,7 @@ function buildGroupedTreeNodes({
     }
 
     if (shouldRenderGroupRow) {
-      nodes.push(createGroupTreeNode(group, groupKey));
+      nodes.push(createGroupTreeNode(group, String(groupKey)));
       if (!isCollapsed && group.items.length > 0) {
         expandedGroupNodeIds.add(groupNodeId);
       }
@@ -295,6 +298,7 @@ function buildGroupedTreeNodes({
   return {
     nodes,
     expandedGroupNodeIds,
+    groupKeyByNodeId,
   };
 }
 
@@ -471,8 +475,13 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     if (!nodeId.startsWith('group:')) {
       return;
     }
-    const groupKey = nodeId.slice('group:'.length);
-    toggleGroupCollapse(groupKey as GroupKey);
+    const groupKey = groupedTree.groupKeyByNodeId.get(nodeId);
+    if (groupKey === undefined) {
+      throw new Error(
+        `PreviewTable grouped toggle invariant violated: missing group key for node id "${nodeId}".`
+      );
+    }
+    toggleGroupCollapse(groupKey);
   });
 
   // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
