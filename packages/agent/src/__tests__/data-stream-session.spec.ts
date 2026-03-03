@@ -3,6 +3,7 @@ import type { StreamChunk } from '../index';
 import {
   AssistantDataStreamSession,
   assistantDataStreamSessions,
+  createRandomId,
   resolveDataStreamSession,
 } from '../stream/data-stream';
 
@@ -68,6 +69,20 @@ function parseLines(lines: string[]): Encoded[] {
 }
 
 describe('AssistantDataStreamSession', () => {
+  it('createRandomId returns a prefixed UUID-shaped value', () => {
+    const firstId = createRandomId('sess');
+    const secondId = createRandomId('sess');
+
+    expect(firstId.startsWith('sess_')).toBe(true);
+    expect(secondId.startsWith('sess_')).toBe(true);
+    expect(firstId).not.toBe(secondId);
+
+    const uuidSuffix = firstId.slice('sess_'.length);
+    expect(uuidSuffix).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+  });
+
   it('encodes mastra chunks into AI SDK data stream lines', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'Hello ' },

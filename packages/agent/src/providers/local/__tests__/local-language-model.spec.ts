@@ -290,6 +290,39 @@ describe('LocalLanguageModel', () => {
       expect(finishPart).toBeDefined();
       expect((finishPart as { finishReason: string }).finishReason).toBe('stop');
     });
+
+    it('preserves compact text part IDs while using secure randomness', async () => {
+      const model = new LocalLanguageModel('test-model');
+      const options = {
+        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+      };
+
+      const result = await model.doStream(options);
+      const reader = result.stream.getReader();
+      const parts: unknown[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        parts.push(value);
+      }
+
+      const textStart = parts.find(
+        (p: unknown) => (p as { type?: string }).type === 'text-start'
+      ) as { id: string } | undefined;
+      const textDelta = parts.find(
+        (p: unknown) => (p as { type?: string }).type === 'text-delta'
+      ) as { id: string } | undefined;
+      const textEnd = parts.find((p: unknown) => (p as { type?: string }).type === 'text-end') as
+        | { id: string }
+        | undefined;
+
+      expect(textStart?.id).toMatch(/^[a-f0-9]{9}$/);
+      expect(textDelta?.id).toBe(textStart?.id);
+      expect(textEnd?.id).toBe(textStart?.id);
+    });
   });
 
   describe('message conversion edge cases', () => {

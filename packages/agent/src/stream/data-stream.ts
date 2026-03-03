@@ -252,14 +252,7 @@ export function resolveDataStreamSession(
 }
 
 export function createRandomId(prefix: string): string {
-  const globalScope = globalThis as {
-    crypto?: { randomUUID?: () => string };
-  };
-  if (globalScope.crypto && typeof globalScope.crypto.randomUUID === 'function') {
-    return `${prefix}_${globalScope.crypto.randomUUID()}`;
-  }
-  const random = generateUUID();
-  return `${prefix}_${random}`;
+  return `${prefix}_${generateUUID()}`;
 }
 
 export { assistantDataStreamSessions };
