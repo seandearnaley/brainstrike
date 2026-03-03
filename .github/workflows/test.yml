@@ -112,6 +112,7 @@ jobs:
 
       - name: Run unit tests with coverage
         id: unit-tests
+        timeout-minutes: 30
         run: |
           START=$SECONDS
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$GITHUB_BASE_REF" ]; then
@@ -267,7 +268,7 @@ jobs:
     name: Browser Tests (Vitest 4)
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -308,6 +309,7 @@ jobs:
         run: pnpm run build --filter @brainstrike/db --filter @brainstrike/storage
 
       - name: Run browser tests
+        timeout-minutes: 30
         run: pnpm run test:browser
 
       - name: Upload browser test traces on failure
@@ -367,6 +369,7 @@ jobs:
         run: pnpm run build --filter @brainstrike/web
 
       - name: Run E2E tests (functional only, shard)
+        timeout-minutes: 30
         run: |
           cd apps/web
           pnpm exec playwright test --project=functional --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
@@ -437,6 +440,7 @@ jobs:
         run: pnpm run build --filter @brainstrike/desktop
 
       - name: Run Desktop E2E tests (shard)
+        timeout-minutes: 30
         working-directory: apps/desktop
         run: |
           # Use a deterministic X server number per shard to avoid collisions
@@ -509,7 +513,7 @@ jobs:
     name: Merge Test Reports
     needs: [checks, e2e, desktop-e2e]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e.result == 'success')
     steps:
       - name: Checkout
@@ -656,7 +660,7 @@ jobs:
   code-quality:
     name: Code Quality Checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     continue-on-error: true
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}

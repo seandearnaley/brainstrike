@@ -61,6 +61,7 @@ jobs:
         run: pnpm run build --filter @brainstrike/desktop
 
       - name: Run Desktop E2E tests (shard)
+        timeout-minutes: 30
         working-directory: apps/desktop
         run: |
           # Use a deterministic X server number per shard to avoid collisions

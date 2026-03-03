@@ -92,6 +92,7 @@ jobs:
           TAILWIND_DEBUG=1 pnpm run build --filter @brainstrike/web
 
       - name: Run performance tests
+        timeout-minutes: 30
         run: |
           cd apps/web
           PROJECT=${{ github.event.inputs.project || 'performance' }}
