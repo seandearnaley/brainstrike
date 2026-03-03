@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures/electron-fixture';
 
-test.describe('Secrets Settings', () => {
+test.describe('Secrets Settings', { tag: '@smoke' }, () => {
   test('save and retrieve provider key via settings UI + IPC', async ({ window, homePage }) => {
     await homePage.openSettings();
     // Wait for Settings page to load by checking for the Settings heading

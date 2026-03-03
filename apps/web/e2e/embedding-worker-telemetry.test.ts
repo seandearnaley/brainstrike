@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { ensureRightPanelVisible } from './utils/layout-helpers';
 
-test.describe('Embedding Worker Telemetry', () => {
+test.describe('Embedding Worker Telemetry', { tag: '@smoke' }, () => {
   /**
    * BST-311: Vector Status was merged into the Database tab as EmbeddingStatusBar.
    * This test verifies the compact embedding telemetry UI in the Database tab toolbar.

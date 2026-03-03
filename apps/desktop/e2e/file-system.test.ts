@@ -28,7 +28,7 @@ test.describe('File System Integration', () => {
     await mockFileSystemOperations(window);
   });
 
-  test('should handle file system access permissions', async ({ window }) => {
+  test('should handle file system access permissions', { tag: '@smoke' }, async ({ window }) => {
     test.setTimeout(30_000); // Increase timeout to 30s for this test
     // The button text comes from FileExplorerStrings.selectRoot ('Select Root')
     // but we keep 'browse' for backward compatibility if needed
@@ -50,7 +50,7 @@ test.describe('File System Integration', () => {
     }
   });
 
-  test('should handle directory operations', async ({ window }) => {
+  test('should handle directory operations', { tag: '@smoke' }, async ({ window }) => {
     test.setTimeout(30_000); // Increase timeout to 30s
     await ensureLeftPanelVisible(window);
 

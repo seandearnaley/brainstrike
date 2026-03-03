@@ -41,7 +41,7 @@ async function getMaxSelectionCount(page: Page): Promise<string> {
 }
 
 test.describe('File Explorer', () => {
-  test.describe('core experience', () => {
+  test.describe('core experience', { tag: '@smoke' }, () => {
     let explorer: FileExplorerPage;
 
     const defaultTree: FileTree = {
@@ -107,7 +107,7 @@ test.describe('File Explorer', () => {
     });
   });
 
-  test.describe('filtering', () => {
+  test.describe('filtering', { tag: '@smoke' }, () => {
     interface FilterScenario {
       before?: (ctx: { page: Page; explorer: FileExplorerPage }) => Promise<void>;
       expectedHidden: string[];

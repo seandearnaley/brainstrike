@@ -263,6 +263,88 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
 
+  # Dynamic matrix: fewer shards on PRs, full shards on main
+  determine-matrix:
+    name: Determine E2E Matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      web-shards: ${{ steps.set-matrix.outputs.web-shards }}
+      web-shard-total: ${{ steps.set-matrix.outputs.web-shard-total }}
+      desktop-shards: ${{ steps.set-matrix.outputs.desktop-shards }}
+      desktop-shard-total: ${{ steps.set-matrix.outputs.desktop-shard-total }}
+    steps:
+      - name: Set shard matrix
+        id: set-matrix
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo 'web-shards=["1","2"]' >> "$GITHUB_OUTPUT"
+            echo 'web-shard-total=["2"]' >> "$GITHUB_OUTPUT"
+            echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
+            echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
+            echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
+            echo 'desktop-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
+            echo 'desktop-shard-total=["4"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  # Build web app and upload as artifact for E2E jobs
+  prepare-web:
+    name: Build Web App
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+
+      - name: Build web application
+        run: pnpm run build --filter @brainstrike/web
+
+      - name: Upload web dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist/
+          retention-days: 1
+
+  # Build desktop app and upload as artifact for E2E jobs
+  prepare-desktop:
+    name: Build Desktop App
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Build desktop application
+        run: pnpm run build --filter @brainstrike/desktop
+
+      - name: Upload desktop dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dist
+          path: apps/desktop/dist/
+          retention-days: 1
+
   # Vitest 4 Browser Mode tests (WASM/IndexedDB validation)
   browser-tests:
     name: Browser Tests (Vitest 4)
@@ -326,7 +408,7 @@ jobs:
   # E2E tests run in parallel with sharding
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    needs: checks # Only run if checks pass
+    needs: [prepare-web, determine-matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -336,14 +418,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shardIndex: [1, 2, 3, 4]
-        shardTotal: [4]
+        shardIndex: ${{ fromJSON(needs.determine-matrix.outputs.web-shards) }}
+        shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.web-shard-total) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
+
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-web)
+        run: pnpm run build --filter @brainstrike/web
+
+      - name: Download web dist
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist/
 
       - name: Get Playwright version
         id: playwright-version
@@ -364,15 +455,18 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install-deps chromium
 
-      - name: Build application
-        # CSS validation already done in checks job - just build here
-        run: pnpm run build --filter @brainstrike/web
-
-      - name: Run E2E tests (functional only, shard)
+      - name: Run E2E tests (shard)
         timeout-minutes: 30
         run: |
           cd apps/web
-          pnpm exec playwright test --project=functional --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo "Running smoke E2E tests for PR"
+            PROJECT="smoke"
+          else
+            echo "Running full E2E tests for main"
+            PROJECT="functional"
+          fi
+          pnpm exec playwright test --project=$PROJECT --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "production"
           PORT: "8080"
@@ -400,13 +494,12 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  # Desktop E2E tests - runs AFTER web E2E to prevent Electron flakiness
-  # WARNING: Do NOT change to parallel execution. See docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md
-  # PR #544 tried parallel (needs: [checks]) and flakiness returned within 5 days (PR #555).
-  # Root cause: too many concurrent GHA jobs overwhelm infrastructure, not runner isolation.
-  desktop-e2e:
-    name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    needs: [checks, e2e] # Sequential - wait for web E2E to complete first
+  # Desktop E2E tests (PR) - runs concurrently with web E2E on PRs
+  # With 2+2 shards on PRs, lower concurrency avoids the flakiness seen with 4+4
+  desktop-e2e-pr:
+    name: Desktop E2E Smoke (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    if: github.event_name == 'pull_request'
+    needs: [prepare-desktop, determine-matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -416,9 +509,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 4 shards for parallel execution - each shard gets unique DISPLAY number
-        shardIndex: [1, 2, 3, 4]
-        shardTotal: [4]
+        shardIndex: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shards) }}
+        shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shard-total) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -428,6 +520,12 @@ jobs:
         with:
           skip-electron: 'false'
 
+      - name: Download desktop dist
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-dist
+          path: apps/desktop/dist/
+
       - name: Install system dependencies for Electron
         run: |
           sudo apt-get update
@@ -436,7 +534,118 @@ jobs:
       - name: Install Playwright system dependencies
         run: pnpm exec playwright install-deps
 
-      - name: Build desktop application
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-desktop)
+        run: pnpm run build --filter @brainstrike/desktop
+
+      - name: Run Desktop E2E smoke tests (shard)
+        timeout-minutes: 30
+        working-directory: apps/desktop
+        run: |
+          # Use a deterministic X server number per shard to avoid collisions
+          # Shard 1 = :91, Shard 2 = :92, etc. (base 90 + shardIndex)
+          SERVER_NUM=$((90 + ${{ matrix.shardIndex }}))
+          export DISPLAY=":${SERVER_NUM}"
+
+          # Clean up any stale X lock files for this server number
+          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
+          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+
+          # Start Xvfb in background with explicit pre-warming
+          echo "Starting Xvfb on display ${DISPLAY} for shard ${{ matrix.shardIndex }}"
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+
+          # Pre-warm: Wait for Xvfb to fully initialize
+          echo "Waiting for Xvfb to initialize..."
+          sleep 3
+
+          # Verify Xvfb is running and display is accessible
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+          echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
+
+          # Run smoke tests with explicit DISPLAY
+          echo "Starting Playwright smoke tests..."
+          pnpm exec playwright test --project=smoke --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          TEST_EXIT_CODE=$?
+
+          # Cleanup
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
+        env:
+          NODE_ENV: "test"
+          CI: "true"
+          RUN_SALT: ${{ github.run_id }}
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          ELECTRON_DISABLE_GPU: "1"
+
+      - name: Bundle blob report (desktop shard)
+        if: always()
+        run: |
+          set -e
+          cd apps/desktop
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf desktop-blob-report-${{ matrix.shardIndex }}.tar blob-report/
+            ls -lh desktop-blob-report-${{ matrix.shardIndex }}.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "No blob report found for desktop shard ${{ matrix.shardIndex }}"
+          fi
+
+      - name: Upload blob report (desktop shard)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-blob-report-${{ matrix.shardIndex }}
+          path: apps/desktop/desktop-blob-report-${{ matrix.shardIndex }}.tar
+          retention-days: 1
+          if-no-files-found: warn
+
+  # Desktop E2E tests (main) - runs AFTER web E2E to prevent Electron flakiness
+  # WARNING: Do NOT change to parallel execution on main. See docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md
+  # PR #544 tried parallel (needs: [checks]) and flakiness returned within 5 days (PR #555).
+  # Root cause: too many concurrent GHA jobs overwhelm infrastructure, not runner isolation.
+  desktop-e2e-main:
+    name: Desktop E2E Full (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    if: github.event_name != 'pull_request'
+    needs: [prepare-desktop, e2e, determine-matrix] # Sequential on main - wait for web E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shards) }}
+        shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shard-total) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Download desktop dist
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-dist
+          path: apps/desktop/dist/
+
+      - name: Install system dependencies for Electron
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Install Playwright system dependencies
+        run: pnpm exec playwright install-deps
+
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-desktop)
         run: pnpm run build --filter @brainstrike/desktop
 
       - name: Run Desktop E2E tests (shard)
@@ -453,7 +662,6 @@ jobs:
           [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
 
           # Start Xvfb in background with explicit pre-warming
-          # See: apps/docs/docs/testing/electron-headless-testing.md (Xvfb timing and fallback guidance)
           echo "Starting Xvfb on display ${DISPLAY} for shard ${{ matrix.shardIndex }}"
           Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
           XVFB_PID=$!
@@ -469,9 +677,9 @@ jobs:
           fi
           echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
 
-          # Run tests with explicit DISPLAY
-          echo "Starting Playwright tests..."
-          pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          # Run full test suite with explicit DISPLAY
+          echo "Starting Playwright tests (full suite)..."
+          pnpm exec playwright test --project=all --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup
@@ -481,9 +689,7 @@ jobs:
           NODE_ENV: "test"
           CI: "true"
           RUN_SALT: ${{ github.run_id }}
-          # Prevent V8 inspector from blocking Electron startup
           ELECTRON_ENABLE_STACK_DUMPING: "false"
-          # Disable GPU features that can cause hangs in headless Linux
           ELECTRON_DISABLE_GPU: "1"
 
       - name: Bundle blob report (desktop shard)
@@ -509,21 +715,20 @@ jobs:
           if-no-files-found: warn
 
   # Merge E2E test reports
+  # Note: exactly one of desktop-e2e-pr / desktop-e2e-main is always skipped
+  # (PR runs -pr, main/push runs -main). The OR condition handles this correctly.
   merge-reports:
     name: Merge Test Reports
-    needs: [checks, e2e, desktop-e2e]
+    needs: [checks, e2e, desktop-e2e-pr, desktop-e2e-main]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e.result == 'success')
+    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
-
-      - name: Build packages (required for Playwright config)
-        run: pnpm run build
 
       - name: Download blob reports
         id: download-reports
