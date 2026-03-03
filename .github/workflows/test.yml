@@ -427,6 +427,9 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
+      - name: Build config packages (required for Playwright config resolution)
+        run: pnpm run build --filter @brainstrike/config --filter @brainstrike/server-config
+
       - name: Download web dist
         uses: actions/download-artifact@v4
         with:
@@ -706,6 +709,8 @@ jobs:
           if-no-files-found: warn
 
   # Merge E2E test reports
+  # Note: exactly one of desktop-e2e-pr / desktop-e2e-main is always skipped
+  # (PR runs -pr, main/push runs -main). The OR condition handles this correctly.
   merge-reports:
     name: Merge Test Reports
     needs: [checks, e2e, desktop-e2e-pr, desktop-e2e-main]
