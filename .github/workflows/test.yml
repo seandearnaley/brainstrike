@@ -279,14 +279,19 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             echo 'web-shards=["1","2"]' >> "$GITHUB_OUTPUT"
-            echo 'web-shard-total=2' >> "$GITHUB_OUTPUT"
+            echo 'web-shard-total=["2"]' >> "$GITHUB_OUTPUT"
           else
             echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
-            echo 'web-shard-total=4' >> "$GITHUB_OUTPUT"
+            echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
           fi
-          # Desktop always uses 2 shards
-          echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
-          echo 'desktop-shard-total=2' >> "$GITHUB_OUTPUT"
+          # Desktop: 2 shards on PRs, 4 on main (matching web strategy)
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
+            echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'desktop-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
+            echo 'desktop-shard-total=["4"]' >> "$GITHUB_OUTPUT"
+          fi
 
   # Build web app and upload as artifact for E2E jobs
   prepare-web:
@@ -418,7 +423,7 @@ jobs:
       fail-fast: false
       matrix:
         shardIndex: ${{ fromJSON(needs.determine-matrix.outputs.web-shards) }}
-        shardTotal: [${{ needs.determine-matrix.outputs.web-shard-total }}]
+        shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.web-shard-total) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -506,7 +511,7 @@ jobs:
       fail-fast: false
       matrix:
         shardIndex: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shards) }}
-        shardTotal: [${{ needs.determine-matrix.outputs.desktop-shard-total }}]
+        shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shard-total) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -614,7 +619,7 @@ jobs:
       fail-fast: false
       matrix:
         shardIndex: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shards) }}
-        shardTotal: [${{ needs.determine-matrix.outputs.desktop-shard-total }}]
+        shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shard-total) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -667,9 +672,9 @@ jobs:
           fi
           echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
 
-          # Run tests with explicit DISPLAY
-          echo "Starting Playwright tests..."
-          pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          # Run full test suite with explicit DISPLAY
+          echo "Starting Playwright tests (full suite)..."
+          pnpm exec playwright test --project=all --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup
