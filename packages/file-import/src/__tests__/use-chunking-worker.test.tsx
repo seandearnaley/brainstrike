@@ -285,7 +285,7 @@ describe('useChunkingWorker', () => {
 
       const readyPromise = standalone.waitForReady();
       const timeoutRejection = expect(readyPromise).rejects.toThrowError('Worker ready timeout');
-      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.advanceTimersByTimeAsync(WORKER_READY_TIMEOUT_MS);
       await timeoutRejection;
 
       expect(setIntervalSpy).toHaveBeenCalledTimes(1);
