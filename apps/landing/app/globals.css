@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-void: #0c0b09;
+  --color-newsprint: #f2ede3;
+  --color-amber: #ff9500;
+  --color-muted: #6b635a;
+  --color-ghost: #1e1c19;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "Fira Code", monospace;
+}
+
+@property --cursor-opacity {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: false;
+}
+
+@keyframes cursor-blink {
+  0%, 66% { --cursor-opacity: 1; }
+  67%, 100% { --cursor-opacity: 0; }
+}
+
+.animate-cursor-blink {
+  animation: cursor-blink 0.9s step-end infinite;
+  opacity: var(--cursor-opacity);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+::selection {
+  background-color: #ff9500;
+  color: #0c0b09;
+}
+
+/* Scrollbar: thin amber track */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ff9500; }
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #ff9500 transparent;
+}

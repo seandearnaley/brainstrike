@@ -94,6 +94,9 @@ web_modules
 .vite/
 # vite.config.js.timestamp-*.mjs
 
+# Next.js
+.next
+
 # Turbo
 .turbo
 
