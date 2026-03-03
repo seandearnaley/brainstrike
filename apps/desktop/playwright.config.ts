@@ -92,7 +92,8 @@ const playwrightConfig: PlaywrightTestConfig = {
       grep: /@smoke/,
     },
     {
-      name: 'all',
+      name: 'regression',
+      grepInvert: /@smoke/,
     },
   ],
 };

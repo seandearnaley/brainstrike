@@ -520,22 +520,8 @@ jobs:
         with:
           skip-electron: 'false'
 
-      - name: Download desktop dist
-        uses: actions/download-artifact@v4
-        with:
-          name: desktop-dist
-          path: apps/desktop/dist/
-
-      - name: Install system dependencies for Electron
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
-
-      - name: Install Playwright system dependencies
-        run: pnpm exec playwright install-deps
-
-      - name: Build workspace dependencies (Turbo remote cache hit from prepare-desktop)
-        run: pnpm run build --filter @brainstrike/desktop
+      - name: Setup desktop E2E
+        uses: ./.github/actions/setup-desktop-e2e
 
       - name: Run Desktop E2E smoke tests (shard)
         timeout-minutes: 30
@@ -608,7 +594,7 @@ jobs:
   # PR #544 tried parallel (needs: [checks]) and flakiness returned within 5 days (PR #555).
   # Root cause: too many concurrent GHA jobs overwhelm infrastructure, not runner isolation.
   desktop-e2e-main:
-    name: Desktop E2E Full (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    name: Desktop E2E Regression (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name != 'pull_request'
     needs: [prepare-desktop, e2e, determine-matrix] # Sequential on main - wait for web E2E
     runs-on: ubuntu-latest
@@ -631,22 +617,8 @@ jobs:
         with:
           skip-electron: 'false'
 
-      - name: Download desktop dist
-        uses: actions/download-artifact@v4
-        with:
-          name: desktop-dist
-          path: apps/desktop/dist/
-
-      - name: Install system dependencies for Electron
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
-
-      - name: Install Playwright system dependencies
-        run: pnpm exec playwright install-deps
-
-      - name: Build workspace dependencies (Turbo remote cache hit from prepare-desktop)
-        run: pnpm run build --filter @brainstrike/desktop
+      - name: Setup desktop E2E
+        uses: ./.github/actions/setup-desktop-e2e
 
       - name: Run Desktop E2E tests (shard)
         timeout-minutes: 30
@@ -677,9 +649,9 @@ jobs:
           fi
           echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
 
-          # Run full test suite with explicit DISPLAY
-          echo "Starting Playwright tests (full suite)..."
-          pnpm exec playwright test --project=all --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          # Run regression tests (non-smoke) with explicit DISPLAY
+          echo "Starting Playwright regression tests..."
+          pnpm exec playwright test --project=regression --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
           # Cleanup
