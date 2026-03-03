@@ -95,6 +95,13 @@ export function ArsenalScene({ scrollProgress }: { scrollProgress: MotionValue<n
           <button
             aria-label="Install BrainStrike Desktop App"
             className="group relative w-full max-w-2xl cursor-pointer border-2 border-[var(--color-amber)] bg-transparent px-8 py-6 text-center font-[family-name:var(--font-display)] text-[var(--color-newsprint)] text-xl uppercase tracking-[0.2em] transition-colors duration-75 hover:bg-[var(--color-amber)] hover:text-[var(--color-void)] md:text-3xl"
+            onClick={() =>
+              window.open(
+                'https://github.com/seandearnaley/brainstrike/releases',
+                '_blank',
+                'noopener,noreferrer'
+              )
+            }
             type="button"
           >
             Install Desktop App →

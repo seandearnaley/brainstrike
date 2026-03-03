@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, useScroll, useTransform } from 'motion/react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ArsenalScene } from '@/components/scenes/arsenal-scene';
 import { HeroScene } from '@/components/scenes/hero-scene';
 import { PipelineScene } from '@/components/scenes/pipeline-scene';
@@ -15,6 +15,7 @@ const VIGNETTE =
 
 export function LandingPageClient({ fragments }: { fragments: CodeFragment[] }) {
   const [heroComplete, setHeroComplete] = useState(false);
+  const handleHeroComplete = useCallback(() => setHeroComplete(true), []);
 
   const { scrollYProgress } = useScroll();
 
@@ -37,7 +38,7 @@ export function LandingPageClient({ fragments }: { fragments: CodeFragment[] }) 
 
       <div className="pointer-events-none fixed inset-0">
         <motion.div className="absolute inset-0" style={{ opacity: heroOpacity, y: heroY }}>
-          <HeroScene onComplete={() => setHeroComplete(true)} />
+          <HeroScene onComplete={handleHeroComplete} />
         </motion.div>
 
         {heroComplete && (

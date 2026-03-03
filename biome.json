@@ -10,6 +10,7 @@
     "ignoreUnknown": true,
     "includes": [
       "apps/**/src/**/*.{ts,tsx,js,jsx}",
+      "apps/landing/**/*.{ts,tsx,js,jsx}",
       "packages/**/src/**/*.{ts,tsx,js,jsx}",
       "**/*.config.{ts,mts}",
       "**/*.test.{ts,tsx}",

@@ -65,7 +65,10 @@ function FragmentNode({
   stage: 'falling' | 'frozen' | 'depth';
   scrollProgress: MotionValue<number>;
 }) {
-  const viewportH = typeof window !== 'undefined' ? window.innerHeight : 900;
+  const [viewportH, setViewportH] = useState(900);
+  useEffect(() => {
+    setViewportH(window.innerHeight);
+  }, []);
   const targetY = (fragment.y / 100) * viewportH;
   const y = useMotionValue(-60);
 

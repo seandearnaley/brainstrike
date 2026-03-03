@@ -5,10 +5,15 @@ import { useEffect, useState } from 'react';
 
 type Stage = 'void' | 'typing' | 'headline-complete';
 
+const HEADLINE = 'THINK FAST.';
+const SUBTITLE = 'Search everything you know.';
+
+// Pre-compute with stable composite keys (char + position) — these static arrays never reorder.
+const HEADLINE_CHARS = HEADLINE.split('').map((char, i) => ({ char, id: `h${i}` }));
+const SUBTITLE_CHARS = SUBTITLE.split('').map((char, i) => ({ char, id: `s${i}` }));
+
 export function HeroScene({ onComplete }: { onComplete: () => void }) {
   const [stage, setStage] = useState<Stage>('void');
-  const headline = 'THINK FAST.';
-  const subtitle = 'Search everything you know.';
 
   useEffect(() => {
     const t1 = setTimeout(() => setStage('typing'), 800);
@@ -46,13 +51,12 @@ export function HeroScene({ onComplete }: { onComplete: () => void }) {
           transition={{ duration: 0.2 }}
         >
           <h1 className="flex font-[family-name:var(--font-display)] text-[clamp(5rem,12vw,10rem)] uppercase leading-none tracking-[0.04em]">
-            {/* biome-ignore lint/suspicious/noArrayIndexKey: static string characters never reorder */}
-            {headline.split('').map((char, i) => (
+            {HEADLINE_CHARS.map(({ char, id }, i) => (
               <motion.span
                 animate={{ opacity: 1, y: 0 }}
                 className="inline-block whitespace-pre"
                 initial={{ opacity: 0, y: 6 }}
-                key={`h-${char}-${i}`}
+                key={id}
                 transition={{
                   opacity: { delay: i * 0.06, duration: 0.01 },
                   y: { delay: i * 0.06, duration: 0.12, ease: 'easeOut' },
@@ -65,13 +69,12 @@ export function HeroScene({ onComplete }: { onComplete: () => void }) {
 
           <div className="mt-6 flex flex-col items-center gap-5">
             <h2 className="flex font-[family-name:var(--font-mono)] text-[var(--color-muted)] text-xl tracking-[0.06em] md:text-2xl">
-              {/* biome-ignore lint/suspicious/noArrayIndexKey: static string characters never reorder */}
-              {subtitle.split('').map((char, i) => (
+              {SUBTITLE_CHARS.map(({ char, id }, i) => (
                 <motion.span
                   animate={{ opacity: 1 }}
                   className="inline-block whitespace-pre"
                   initial={{ opacity: 0 }}
-                  key={`s-${char}-${i}`}
+                  key={id}
                   transition={{ delay: 1.0 + i * 0.025, duration: 0.01 }}
                 >
                   {char}
