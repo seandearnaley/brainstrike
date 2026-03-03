@@ -322,7 +322,7 @@ importers:
         version: 19.2.4(react@19.2.4)
     devDependencies:
       '@biomejs/biome':
-        specifier: 2.4.4
+        specifier: ^2.4.4
         version: 2.4.4
       '@tailwindcss/postcss':
         specifier: ^4.0.0
@@ -346,7 +346,7 @@ importers:
         specifier: ^5
         version: 5.9.3
       ultracite:
-        specifier: 7.2.3
+        specifier: ^7.2.3
         version: 7.2.3
 
   apps/web:
