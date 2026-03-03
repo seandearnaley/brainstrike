@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { StreamChunk } from '../types';
 import { type EncodedChunk, encodeChunk, type StoredChunk } from './data-stream-codes';
 import { DataStreamMapper } from './data-stream-mapper';
@@ -258,7 +258,7 @@ export function createRandomId(prefix: string): string {
   if (globalScope.crypto && typeof globalScope.crypto.randomUUID === 'function') {
     return `${prefix}_${globalScope.crypto.randomUUID()}`;
   }
-  const random = Math.random().toString(36).slice(2, 10);
+  const random = generateUUID();
   return `${prefix}_${random}`;
 }
 
