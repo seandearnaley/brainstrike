@@ -15,11 +15,11 @@ export interface FolderHeaderRowProps {
   onToggleCollapse: () => void;
 }
 
-export const FolderHeaderRow = memo<FolderHeaderRowProps>(function FolderHeaderRow({
+const FolderHeaderRowComponent = ({
   item,
   isCollapsed,
   onToggleCollapse,
-}) {
+}: FolderHeaderRowProps) => {
   const colors = getFolderColor(item.folderId);
 
   return (
@@ -51,7 +51,9 @@ export const FolderHeaderRow = memo<FolderHeaderRowProps>(function FolderHeaderR
       </div>
     </button>
   );
-});
+};
+
+export const FolderHeaderRow = memo(FolderHeaderRowComponent);
 
 FolderHeaderRow.displayName = 'FolderHeaderRow';
 
