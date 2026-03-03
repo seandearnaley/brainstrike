@@ -4,6 +4,9 @@ import { createLogger } from '@brainstrike/utils';
 import type { DirectoryHandle, FileSystemChange } from '../types';
 
 const logger = createLogger('ElectronWatchers');
+export const FS_WATCH_BATCH_WINDOW_MS = 150;
+// Invariant: keep watcher event buffering bounded during bursty workloads.
+export const FS_WATCH_MAX_BATCH_SIZE = 500;
 
 export function startFsWatch(
   handle: DirectoryHandle,
@@ -11,15 +14,34 @@ export function startFsWatch(
 ): () => void {
   let batch: FileSystemChange[] = [];
   let batchTimer: ReturnType<typeof setTimeout> | null = null;
-  const batchMs = 150;
 
-  const flushBatch = () => {
+  const flushBatch = (): void => {
     batchTimer = null;
     if (batch.length > 0) {
       const changes = batch;
       batch = [];
       callback(changes);
     }
+  };
+
+  const scheduleBatchFlush = (): void => {
+    if (batchTimer) {
+      return;
+    }
+    batchTimer = setTimeout(flushBatch, FS_WATCH_BATCH_WINDOW_MS);
+  };
+
+  const enqueueChange = (change: FileSystemChange): void => {
+    batch.push(change);
+    if (batch.length >= FS_WATCH_MAX_BATCH_SIZE) {
+      if (batchTimer) {
+        clearTimeout(batchTimer);
+        batchTimer = null;
+      }
+      flushBatch();
+      return;
+    }
+    scheduleBatchFlush();
   };
 
   try {
@@ -31,18 +53,12 @@ export function startFsWatch(
       fs.promises.stat(full).then(
         (stat) => {
           const type: FileSystemChange['type'] = ev === 'rename' ? 'added' : 'modified';
-          batch.push({ type, path: full, kind: stat.isDirectory() ? 'directory' : 'file' });
-          if (!batchTimer) {
-            batchTimer = setTimeout(flushBatch, batchMs);
-          }
+          enqueueChange({ type, path: full, kind: stat.isDirectory() ? 'directory' : 'file' });
         },
         () => {
           // stat failed — file was likely removed
           if (ev === 'rename') {
-            batch.push({ type: 'removed', path: full, kind: 'file' });
-            if (!batchTimer) {
-              batchTimer = setTimeout(flushBatch, batchMs);
-            }
+            enqueueChange({ type: 'removed', path: full, kind: 'file' });
           }
         }
       );
