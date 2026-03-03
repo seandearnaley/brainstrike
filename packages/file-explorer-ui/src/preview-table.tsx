@@ -128,6 +128,7 @@ interface BuildGroupedTreeNodesInput {
 
 interface BuildGroupedTreeNodesResult {
   expandedGroupNodeIds: Set<string>;
+  groupKeyByNodeId: Map<string, GroupKey>;
   nodes: TreeNode<PreviewTreeNodeData>[];
 }
 
@@ -239,13 +240,16 @@ function buildGroupedTreeNodes({
 }: BuildGroupedTreeNodesInput): BuildGroupedTreeNodesResult {
   const nodes: TreeNode<PreviewTreeNodeData>[] = [];
   const expandedGroupNodeIds = new Set<string>();
+  const groupKeyByNodeId = new Map<string, GroupKey>();
   let visibleRowIndex = 0;
 
   for (const group of groupedData) {
-    const groupKey = String(group.groupKey);
-    const groupNodeId = resolveGroupNodeId(groupKey);
-    const isCollapsed = collapsedGroups.has(groupKey);
+    const groupKey = group.groupKey;
+    const groupKeyString = String(groupKey);
+    const groupNodeId = resolveGroupNodeId(groupKeyString);
+    const isCollapsed = collapsedGroups.has(groupKeyString);
     const groupVisibleRowCount = resolveGroupVisibleRowCount(group, isCollapsed);
+    groupKeyByNodeId.set(groupNodeId, groupKey);
     const pageStartsInsideItems =
       !isCollapsed &&
       pagination.startIndex > visibleRowIndex &&
@@ -265,7 +269,7 @@ function buildGroupedTreeNodes({
     }
 
     if (shouldRenderGroupRow) {
-      nodes.push(createGroupTreeNode(group, groupKey));
+      nodes.push(createGroupTreeNode(group, groupKeyString));
       if (!isCollapsed && group.items.length > 0) {
         expandedGroupNodeIds.add(groupNodeId);
       }
@@ -295,6 +299,7 @@ function buildGroupedTreeNodes({
   return {
     nodes,
     expandedGroupNodeIds,
+    groupKeyByNodeId,
   };
 }
 
@@ -471,8 +476,14 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     if (!nodeId.startsWith('group:')) {
       return;
     }
-    const groupKey = nodeId.slice('group:'.length);
-    toggleGroupCollapse(groupKey as GroupKey);
+    const { groupKeyByNodeId } = groupedTree;
+    const groupKey = groupKeyByNodeId.get(nodeId);
+    if (groupKey === undefined) {
+      throw new Error(
+        `PreviewTable grouped toggle invariant violated: missing group key for node id "${nodeId}" (visible grouped node count: ${groupKeyByNodeId.size}).`
+      );
+    }
+    toggleGroupCollapse(groupKey);
   });
 
   // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
