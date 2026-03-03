@@ -497,7 +497,7 @@ jobs:
   # Desktop E2E tests (PR) - runs concurrently with web E2E on PRs
   # With 2+2 shards on PRs, lower concurrency avoids the flakiness seen with 4+4
   desktop-e2e-pr:
-    name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    name: Desktop E2E Smoke (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name == 'pull_request'
     needs: [prepare-desktop, determine-matrix]
     runs-on: ubuntu-latest
@@ -533,6 +533,9 @@ jobs:
 
       - name: Install Playwright system dependencies
         run: pnpm exec playwright install-deps
+
+      - name: Build config packages (required for Playwright config resolution)
+        run: pnpm run build --filter @brainstrike/config --filter @brainstrike/server-config
 
       - name: Run Desktop E2E smoke tests (shard)
         timeout-minutes: 30
@@ -605,7 +608,7 @@ jobs:
   # PR #544 tried parallel (needs: [checks]) and flakiness returned within 5 days (PR #555).
   # Root cause: too many concurrent GHA jobs overwhelm infrastructure, not runner isolation.
   desktop-e2e-main:
-    name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    name: Desktop E2E Full (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     if: github.event_name != 'pull_request'
     needs: [prepare-desktop, e2e, determine-matrix] # Sequential on main - wait for web E2E
     runs-on: ubuntu-latest
@@ -641,6 +644,9 @@ jobs:
 
       - name: Install Playwright system dependencies
         run: pnpm exec playwright install-deps
+
+      - name: Build config packages (required for Playwright config resolution)
+        run: pnpm run build --filter @brainstrike/config --filter @brainstrike/server-config
 
       - name: Run Desktop E2E tests (shard)
         timeout-minutes: 30
