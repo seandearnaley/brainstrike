@@ -427,8 +427,8 @@ jobs:
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
-      - name: Build config packages (required for Playwright config resolution)
-        run: pnpm run build --filter @brainstrike/config --filter @brainstrike/server-config
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-web)
+        run: pnpm run build --filter @brainstrike/web
 
       - name: Download web dist
         uses: actions/download-artifact@v4
@@ -534,8 +534,8 @@ jobs:
       - name: Install Playwright system dependencies
         run: pnpm exec playwright install-deps
 
-      - name: Build config packages (required for Playwright config resolution)
-        run: pnpm run build --filter @brainstrike/config --filter @brainstrike/server-config
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-desktop)
+        run: pnpm run build --filter @brainstrike/desktop
 
       - name: Run Desktop E2E smoke tests (shard)
         timeout-minutes: 30
@@ -645,8 +645,8 @@ jobs:
       - name: Install Playwright system dependencies
         run: pnpm exec playwright install-deps
 
-      - name: Build config packages (required for Playwright config resolution)
-        run: pnpm run build --filter @brainstrike/config --filter @brainstrike/server-config
+      - name: Build workspace dependencies (Turbo remote cache hit from prepare-desktop)
+        run: pnpm run build --filter @brainstrike/desktop
 
       - name: Run Desktop E2E tests (shard)
         timeout-minutes: 30
@@ -729,9 +729,6 @@ jobs:
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
-
-      - name: Build config packages (required for Playwright config resolution)
-        run: pnpm run build --filter @brainstrike/config --filter @brainstrike/server-config
 
       - name: Download blob reports
         id: download-reports
