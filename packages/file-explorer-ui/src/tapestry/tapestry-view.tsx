@@ -498,7 +498,7 @@ function useTapestryDrag(
 
       if (mode === 'CREATING' && clickedLine !== undefined) {
         if (
-          !allowOverlap &&
+          !allowOverlapRef.current &&
           file.selections.some((s) => clickedLine >= s.startLine && clickedLine < s.endLine)
         ) {
           return;
@@ -549,7 +549,7 @@ function useTapestryDrag(
         }
       }
     },
-    [allowOverlap, updateRanges]
+    [updateRanges]
   );
 
   return { startDrag, isDragging };

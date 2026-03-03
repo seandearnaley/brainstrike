@@ -348,6 +348,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       return new Map<string, ReturnType<typeof buildTapestryFileBase>>();
     }
 
+    // Read-only access to previous-commit cache; written in the useEffect below.
     const cache = tapestryBaseCacheRef.current;
     const map = new Map<string, ReturnType<typeof buildTapestryFileBase>>();
 

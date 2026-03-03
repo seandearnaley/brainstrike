@@ -26,10 +26,7 @@ export function createDefaultTapestryRanges(
   ];
 }
 
-function shouldStretchDefaultRange(
-  ranges: TapestryRange[],
-  _previousTotal: number
-): ranges is [TapestryRange] {
+function shouldStretchDefaultRange(ranges: TapestryRange[]): ranges is [TapestryRange] {
   if (ranges.length !== 1) {
     return false;
   }
@@ -99,7 +96,7 @@ export function syncTapestryRanges(args: {
     if (
       previousTotal !== undefined &&
       previousTotal !== base.totalLines &&
-      shouldStretchDefaultRange(ranges, previousTotal)
+      shouldStretchDefaultRange(ranges)
     ) {
       const [firstRange] = ranges;
       if (firstRange) {
