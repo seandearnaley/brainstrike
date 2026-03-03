@@ -99,6 +99,28 @@ export default defineConfig({
           use: { channel: 'webkit' },
           timeout: 60_000,
         },
+        // Smoke tests - tagged critical subset across all browsers
+        {
+          name: 'smoke-chromium',
+          testMatch: '**/!(performance)/*.test.ts',
+          grep: /@smoke/,
+          use: { channel: 'chromium' },
+          timeout: 60_000,
+        },
+        {
+          name: 'smoke-firefox',
+          testMatch: '**/!(performance)/*.test.ts',
+          grep: /@smoke/,
+          use: { channel: 'firefox' },
+          timeout: 60_000,
+        },
+        {
+          name: 'smoke-webkit',
+          testMatch: '**/!(performance)/*.test.ts',
+          grep: /@smoke/,
+          use: { channel: 'webkit' },
+          timeout: 60_000,
+        },
         // Performance tests - Chromium only (most stable for performance measurements)
         {
           name: 'performance',
@@ -113,6 +135,13 @@ export default defineConfig({
         {
           name: 'functional',
           testMatch: '**/!(performance)/*.test.ts',
+          use: { channel: 'chromium' },
+          timeout: 60_000,
+        },
+        {
+          name: 'smoke',
+          testMatch: '**/!(performance)/*.test.ts',
+          grep: /@smoke/,
           use: { channel: 'chromium' },
           timeout: 60_000,
         },

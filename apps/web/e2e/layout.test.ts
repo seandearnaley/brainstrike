@@ -9,7 +9,7 @@ import {
   waitForAppLoad,
 } from './utils/layout-helpers';
 
-test.describe('Application Layout', () => {
+test.describe('Application Layout', { tag: '@smoke' }, () => {
   test('should render the main layout correctly', async ({ page }) => {
     const home = new HomePage(page);
     await home.goto();

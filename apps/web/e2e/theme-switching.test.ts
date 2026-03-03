@@ -11,66 +11,70 @@ test.describe('Theme Switching', () => {
     await waitForAppLoad(page);
   });
 
-  test('should switch themes via settings page and persist across navigation', async ({ page }) => {
-    // Navigate to Settings page
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+  test(
+    'should switch themes via settings page and persist across navigation',
+    { tag: '@smoke' },
+    async ({ page }) => {
+      // Navigate to Settings page
+      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 
-    // Verify theme controls are visible - use settings-specific selectors to avoid nav button conflicts
-    const appearanceSection = page.getByTestId('settings-category-appearance');
-    await expect(page.getByText('Theme', { exact: true })).toBeVisible();
-    await expect(
-      appearanceSection.getByRole('button', { name: 'Light', exact: true })
-    ).toBeVisible();
-    await expect(
-      appearanceSection.getByRole('button', { name: 'Dark', exact: true })
-    ).toBeVisible();
-    await expect(
-      appearanceSection.getByRole('button', { name: 'System', exact: true })
-    ).toBeVisible();
+      // Verify theme controls are visible - use settings-specific selectors to avoid nav button conflicts
+      const appearanceSection = page.getByTestId('settings-category-appearance');
+      await expect(page.getByText('Theme', { exact: true })).toBeVisible();
+      await expect(
+        appearanceSection.getByRole('button', { name: 'Light', exact: true })
+      ).toBeVisible();
+      await expect(
+        appearanceSection.getByRole('button', { name: 'Dark', exact: true })
+      ).toBeVisible();
+      await expect(
+        appearanceSection.getByRole('button', { name: 'System', exact: true })
+      ).toBeVisible();
 
-    // Test switching to Dark theme
-    await appearanceSection.getByRole('button', { name: 'Dark', exact: true }).click();
+      // Test switching to Dark theme
+      await appearanceSection.getByRole('button', { name: 'Dark', exact: true }).click();
 
-    // Wait a moment for theme to apply
-    await page.waitForTimeout(100);
+      // Wait a moment for theme to apply
+      await page.waitForTimeout(100);
 
-    // Verify dark theme is applied by checking for dark mode class or styles
-    // The theme should be applied to the html or body element
-    const htmlElement = page.locator('html');
-    await expect(htmlElement).toHaveClass(/dark/);
+      // Verify dark theme is applied by checking for dark mode class or styles
+      // The theme should be applied to the html or body element
+      const htmlElement = page.locator('html');
+      await expect(htmlElement).toHaveClass(/dark/);
 
-    // Navigate back to Context Explorer to test persistence
-    await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+      // Navigate back to Context Explorer to test persistence
+      await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
+      await expect(
+        page.getByRole('heading', { name: 'Context Explorer', exact: true })
+      ).toBeVisible();
 
-    // Verify dark theme persists
-    await expect(htmlElement).toHaveClass(/dark/);
+      // Verify dark theme persists
+      await expect(htmlElement).toHaveClass(/dark/);
 
-    // Navigate back to Settings
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+      // Navigate back to Settings
+      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 
-    // Test switching to Light theme (use settings-specific selector)
-    await page
-      .getByTestId('settings-category-appearance')
-      .getByRole('button', { name: 'Light', exact: true })
-      .click();
+      // Test switching to Light theme (use settings-specific selector)
+      await page
+        .getByTestId('settings-category-appearance')
+        .getByRole('button', { name: 'Light', exact: true })
+        .click();
 
-    // Verify light theme is applied (dark class should be removed)
-    await expect(htmlElement).not.toHaveClass(/dark/);
+      // Verify light theme is applied (dark class should be removed)
+      await expect(htmlElement).not.toHaveClass(/dark/);
 
-    // Test persistence again
-    await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
-    await expect(htmlElement).not.toHaveClass(/dark/);
-  });
+      // Test persistence again
+      await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
+      await expect(
+        page.getByRole('heading', { name: 'Context Explorer', exact: true })
+      ).toBeVisible();
+      await expect(htmlElement).not.toHaveClass(/dark/);
+    }
+  );
 
-  test('should toggle theme via navigation button', async ({ page }) => {
+  test('should toggle theme via navigation button', { tag: '@smoke' }, async ({ page }) => {
     // First, set a known theme state via settings to avoid system theme ambiguity
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();

@@ -4,7 +4,7 @@ import { getFileTree } from './utils/file-tree-locators';
 import { getPanelElements, togglePanelVisibility, waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
-test.describe('File Tabbed Editor', () => {
+test.describe('File Tabbed Editor', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
       'example.ts': null,

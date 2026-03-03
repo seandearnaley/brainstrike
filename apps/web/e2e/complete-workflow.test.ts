@@ -4,7 +4,7 @@ import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
-test.describe('Complete File Explorer Workflow', () => {
+test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
       src: {
