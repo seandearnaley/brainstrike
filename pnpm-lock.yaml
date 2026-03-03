@@ -336,6 +336,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.14)
+      babel-plugin-react-compiler:
+        specifier: 19.1.0-rc.3
+        version: 19.1.0-rc.3
       postcss:
         specifier: ^8.5.8
         version: 8.5.8
@@ -21925,7 +21928,7 @@ snapshots:
 
   '@types/pg@8.15.5':
     dependencies:
-      '@types/node': 25.3.1
+      '@types/node': 25.3.3
       pg-protocol: 1.11.0
       pg-types: 2.2.0
     optional: true
@@ -23058,7 +23061,7 @@ snapshots:
 
   babel-plugin-react-compiler@19.1.0-rc.3:
     dependencies:
-      '@babel/types': 7.28.5
+      '@babel/types': 7.29.0
 
   bail@2.0.2: {}
 

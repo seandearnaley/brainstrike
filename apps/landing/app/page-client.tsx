@@ -1,7 +1,7 @@
 'use client';
 
-import { motion, useScroll, useTransform } from 'motion/react';
-import { useCallback, useState } from 'react';
+import { MotionConfig, motion, useScroll, useTransform } from 'motion/react';
+import { useState } from 'react';
 import { ArsenalScene } from '@/components/scenes/arsenal-scene';
 import { HeroScene } from '@/components/scenes/hero-scene';
 import { PipelineScene } from '@/components/scenes/pipeline-scene';
@@ -15,7 +15,6 @@ const VIGNETTE =
 
 export function LandingPageClient({ fragments }: { fragments: CodeFragment[] }) {
   const [heroComplete, setHeroComplete] = useState(false);
-  const handleHeroComplete = useCallback(() => setHeroComplete(true), []);
 
   const { scrollYProgress } = useScroll();
 
@@ -24,33 +23,39 @@ export function LandingPageClient({ fragments }: { fragments: CodeFragment[] }) 
   const progressScaleX = useTransform(scrollYProgress, [0, 1], [0, 1]);
 
   return (
-    <main className="relative bg-[var(--color-void)]">
-      <div className="w-full" style={{ height: '10000px' }} />
+    // reducedMotion="user" respects the OS-level prefers-reduced-motion preference
+    <MotionConfig reducedMotion="user">
+      <main className="relative bg-[var(--color-void)]">
+        <div className="w-full" style={{ height: '10000px' }} />
 
-      {/* Scroll progress bar */}
-      <motion.div
-        className="fixed top-0 right-0 left-0 z-[60] h-[2px] origin-left bg-[var(--color-amber)]"
-        style={{ scaleX: progressScaleX }}
-      />
+        {/* Scroll progress bar */}
+        <motion.div
+          className="fixed top-0 right-0 left-0 z-[60] h-[2px] origin-left bg-[var(--color-amber)]"
+          style={{ scaleX: progressScaleX }}
+        />
 
-      {/* Vignette overlay */}
-      <div className="pointer-events-none fixed inset-0 z-[45]" style={{ background: VIGNETTE }} />
+        {/* Vignette overlay */}
+        <div
+          className="pointer-events-none fixed inset-0 z-[45]"
+          style={{ background: VIGNETTE }}
+        />
 
-      <div className="pointer-events-none fixed inset-0">
-        <motion.div className="absolute inset-0" style={{ opacity: heroOpacity, y: heroY }}>
-          <HeroScene onComplete={handleHeroComplete} />
-        </motion.div>
+        <div className="pointer-events-none fixed inset-0">
+          <motion.div className="absolute inset-0" style={{ opacity: heroOpacity, y: heroY }}>
+            <HeroScene onComplete={() => setHeroComplete(true)} />
+          </motion.div>
 
-        {heroComplete && (
-          <>
-            <RainScene fragments={fragments} scrollProgress={scrollYProgress} />
-            <PipelineScene scrollProgress={scrollYProgress} />
-            <QueryScene scrollProgress={scrollYProgress} />
-            <ResponseScene scrollProgress={scrollYProgress} />
-            <ArsenalScene scrollProgress={scrollYProgress} />
-          </>
-        )}
-      </div>
-    </main>
+          {heroComplete && (
+            <>
+              <RainScene fragments={fragments} scrollProgress={scrollYProgress} />
+              <PipelineScene scrollProgress={scrollYProgress} />
+              <QueryScene scrollProgress={scrollYProgress} />
+              <ResponseScene scrollProgress={scrollYProgress} />
+              <ArsenalScene scrollProgress={scrollYProgress} />
+            </>
+          )}
+        </div>
+      </main>
+    </MotionConfig>
   );
 }

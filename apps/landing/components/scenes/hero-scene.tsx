@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 
 type Stage = 'void' | 'typing' | 'headline-complete';
 
@@ -15,18 +15,22 @@ const SUBTITLE_CHARS = SUBTITLE.split('').map((char, i) => ({ char, id: `s${i}` 
 export function HeroScene({ onComplete }: { onComplete: () => void }) {
   const [stage, setStage] = useState<Stage>('void');
 
+  // useEffectEvent captures the latest onComplete without being a dependency —
+  // prevents the effect from re-running if the parent re-renders with a new callback.
+  const fireComplete = useEffectEvent(onComplete);
+
   useEffect(() => {
     const t1 = setTimeout(() => setStage('typing'), 800);
     const t2 = setTimeout(() => {
       setStage('headline-complete');
-      onComplete();
+      fireComplete();
     }, 2500);
 
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [onComplete]);
+  }, []);
 
   return (
     <div className="relative flex h-screen w-full flex-col items-center justify-center bg-transparent">

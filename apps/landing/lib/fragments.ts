@@ -63,6 +63,8 @@ const RAW_FRAGMENTS = [
 ];
 
 export function generateFragments(): CodeFragment[] {
+  // Cache the result across requests — pure computation, same output every time
+  'use cache';
   return RAW_FRAGMENTS.map((frag, i) => {
     // Deterministic pseudo-random generation for stable hydration
     const x = (i * 137) % 90; // 0-89%, leaves room for text

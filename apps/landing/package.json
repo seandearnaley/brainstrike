@@ -24,6 +24,7 @@
     "@types/node": "^25.3.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "babel-plugin-react-compiler": "19.1.0-rc.3",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.0.0",
     "typescript": "^5",
