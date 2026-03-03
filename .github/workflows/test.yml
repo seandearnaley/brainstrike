@@ -280,15 +280,11 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             echo 'web-shards=["1","2"]' >> "$GITHUB_OUTPUT"
             echo 'web-shard-total=["2"]' >> "$GITHUB_OUTPUT"
-          else
-            echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
-            echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
-          fi
-          # Desktop: 2 shards on PRs, 4 on main (matching web strategy)
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             echo 'desktop-shards=["1","2"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["2"]' >> "$GITHUB_OUTPUT"
           else
+            echo 'web-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
+            echo 'web-shard-total=["4"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shards=["1","2","3","4"]' >> "$GITHUB_OUTPUT"
             echo 'desktop-shard-total=["4"]' >> "$GITHUB_OUTPUT"
           fi
@@ -722,6 +718,9 @@ jobs:
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
+
+      - name: Build config packages (required for Playwright config resolution)
+        run: pnpm run build --filter @brainstrike/config --filter @brainstrike/server-config
 
       - name: Download blob reports
         id: download-reports
