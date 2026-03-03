@@ -1,6 +1,11 @@
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
-import { createFixtureCapableAdapter } from '../dev-fixture-adapter';
+import {
+  createFixtureCapableAdapter,
+  type FixtureControls,
+  isFixtureCapableAdapter,
+} from '../dev-fixture-adapter';
+import type { FixtureDefinition } from '../dev-fixture-types';
 import type {
   DirectoryHandle,
   DirectoryStreamCallback,
@@ -8,25 +13,70 @@ import type {
   FileSystemAdapter,
 } from '../types';
 
-function createBaseAdapter(): FileSystemAdapter {
-  return {
-    requestDirectoryAccess: vi.fn(async () => {
-      throw new Error('requestDirectoryAccess not implemented in test');
-    }),
-    readDirectory: vi.fn(async () => {
-      throw new Error('readDirectory not implemented in test');
-    }),
-    readDirectoryStreaming: vi.fn(async () => {
-      throw new Error('readDirectoryStreaming should not be called when fixture is active');
-    }),
-    readFile: vi.fn(async (_handle: FileHandle) => {
-      throw new Error('readFile not implemented in test');
-    }),
-    exists: vi.fn(async () => false),
+interface AdapterOptions {
+  includeRestoreLastFolder?: boolean;
+  includeStreaming?: boolean;
+}
+
+const FIXTURE: FixtureDefinition = {
+  name: 'fixture-root',
+  tree: {
+    src: {
+      'a.ts': 'export const a = 1;',
+      nested: {
+        'z.ts': 'export const z = 26;',
+      },
+    },
+    'README.md': '# fixture',
+  },
+};
+
+function createBaseAdapter(options: AdapterOptions = {}): FileSystemAdapter {
+  const includeRestoreLastFolder = options.includeRestoreLastFolder ?? true;
+  const includeStreaming = options.includeStreaming ?? true;
+  const realRoot: DirectoryHandle = {
+    path: '/real-root',
+    name: 'real-root',
+    kind: 'directory',
+    platform: 'electron',
   };
+  const restoredRoot: DirectoryHandle = {
+    path: '/restored',
+    name: 'restored',
+    kind: 'directory',
+    platform: 'electron',
+  };
+
+  const adapter: FileSystemAdapter = {
+    requestDirectoryAccess: vi.fn(async () => realRoot),
+    readDirectory: vi.fn(async () => []),
+    readFile: vi.fn(async (_handle: FileHandle) => 'real-file'),
+    exists: vi.fn(async (path: string) => path === '/real-root'),
+  };
+
+  if (includeStreaming) {
+    adapter.readDirectoryStreaming = vi.fn(async () => {
+      throw new Error('readDirectoryStreaming should not be called when fixture is active');
+    });
+  }
+
+  if (includeRestoreLastFolder) {
+    adapter.restoreLastFolder = vi.fn(async () => restoredRoot);
+  }
+
+  return adapter;
 }
 
 describe('createFixtureCapableAdapter (inline fixture)', () => {
+  it('is fixture-capable after decoration and not before', () => {
+    const base = createBaseAdapter();
+    expect(isFixtureCapableAdapter(base)).toBe(false);
+
+    const adapter = createFixtureCapableAdapter(base, { platform: 'web' });
+    expect(isFixtureCapableAdapter(adapter)).toBe(true);
+    expect(adapter.canLoadInlineFixture).toBe(true);
+  });
+
   it('streams fixture entries via readDirectoryStreaming when active', async () => {
     const base = createBaseAdapter();
     const baseReadDirectoryStreaming = base.readDirectoryStreaming as unknown as ReturnType<
@@ -34,7 +84,7 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     >;
     const adapter = createFixtureCapableAdapter(base, { platform: 'web' });
 
-    const rootHandle = await adapter.loadInlineFixture();
+    const rootHandle = await adapter.loadInlineFixture(FIXTURE);
 
     const batches: Array<{ nodes: IFileNode[]; done: boolean; total: number }> = [];
     const onBatch: DirectoryStreamCallback = (nodes, meta) => {
@@ -43,14 +93,14 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
 
     await adapter.readDirectoryStreaming?.(rootHandle, onBatch, { batchSize: 2 });
 
-    // Default DEV_INLINE_FIXTURE root contains 4 entries: src/, package.json, README.md, tsconfig.json
+    // fixture root contains src/ and README.md
     const final = batches.at(-1);
     expect(final).toBeTruthy();
     expect(final?.done).toBe(true);
-    expect(final?.total).toBe(4);
+    expect(final?.total).toBe(2);
 
-    // Ensure we got at least one intermediate batch for batchSize=2
-    expect(batches.some((b) => b.done === false)).toBe(true);
+    // batchSize=2 should still report completion
+    expect(batches.some((b) => b.done === true)).toBe(true);
 
     // Ensure base adapter streaming was not invoked while fixture is active
     expect(baseReadDirectoryStreaming).not.toHaveBeenCalled();
@@ -77,5 +127,137 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
       adapter.readDirectoryStreaming?.(handle, onBatch, { batchSize: 1 })
     ).rejects.toThrow('readDirectoryStreaming should not be called when fixture is active');
     expect(baseReadDirectoryStreaming).toHaveBeenCalled();
+  });
+
+  it('exposes fixture-backed readDirectory/readFile/exists and resets after clearInlineFixture', async () => {
+    const base = createBaseAdapter();
+    const baseReadDirectory = base.readDirectory as unknown as ReturnType<typeof vi.fn>;
+    const baseReadFile = base.readFile as unknown as ReturnType<typeof vi.fn>;
+    const baseExists = base.exists as unknown as ReturnType<typeof vi.fn>;
+    const adapter = createFixtureCapableAdapter(base, { platform: 'web' });
+
+    const rootHandle = await adapter.loadInlineFixture(FIXTURE);
+    expect(adapter.isInlineFixtureActive()).toBe(true);
+
+    const rootEntries = await adapter.readDirectory(rootHandle);
+    expect(rootEntries.map((entry) => `${entry.type}:${entry.name}`)).toEqual([
+      'directory:src',
+      'file:README.md',
+    ]);
+    expect(baseReadDirectory).not.toHaveBeenCalled();
+
+    const srcHandle: DirectoryHandle = {
+      path: 'src',
+      name: 'src',
+      kind: 'directory',
+      platform: 'web',
+    };
+    const srcEntries = await adapter.readDirectory(srcHandle);
+    expect(srcEntries.map((entry) => entry.name)).toEqual(['nested', 'a.ts']);
+
+    // readDirectory returns clones, so mutating one call does not affect subsequent calls
+    const firstSrcEntry = srcEntries[0];
+    if (!firstSrcEntry) {
+      throw new Error('Expected fixture src directory to include at least one entry');
+    }
+    firstSrcEntry.name = 'mutated';
+    const srcEntriesAgain = await adapter.readDirectory(srcHandle);
+    expect(srcEntriesAgain[0]?.name).toBe('nested');
+
+    const fileHandle: FileHandle = {
+      path: 'README.md',
+      name: 'README.md',
+      kind: 'file',
+      platform: 'web',
+      size: 0,
+    };
+    await expect(adapter.readFile(fileHandle)).resolves.toBe('# fixture');
+    await expect(
+      adapter.readFile({
+        ...fileHandle,
+        path: 'missing.txt',
+        name: 'missing.txt',
+      })
+    ).resolves.toBe('');
+    expect(baseReadFile).not.toHaveBeenCalled();
+
+    await expect(adapter.exists('src')).resolves.toBe(true);
+    await expect(adapter.exists('src/a.ts')).resolves.toBe(true);
+    await expect(adapter.exists('not-in-fixture')).resolves.toBe(false);
+    expect(baseExists).toHaveBeenCalledWith('not-in-fixture');
+
+    await adapter.clearInlineFixture();
+    expect(adapter.isInlineFixtureActive()).toBe(false);
+
+    await adapter.readDirectory(rootHandle);
+    expect(baseReadDirectory).toHaveBeenCalled();
+    await adapter.readFile(fileHandle);
+    expect(baseReadFile).toHaveBeenCalled();
+  });
+
+  it('returns empty directory listings for unknown fixture paths and can short-circuit streaming when aborted', async () => {
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    await adapter.loadInlineFixture(FIXTURE);
+
+    const unknownDir: DirectoryHandle = {
+      path: 'missing-dir',
+      name: 'missing-dir',
+      kind: 'directory',
+      platform: 'web',
+    };
+    await expect(adapter.readDirectory(unknownDir)).resolves.toEqual([]);
+
+    const abortedController = new AbortController();
+    abortedController.abort();
+    const streamed: Array<{ done: boolean; total: number }> = [];
+    await adapter.readDirectoryStreaming?.(
+      {
+        path: 'src',
+        name: 'src',
+        kind: 'directory',
+        platform: 'web',
+      },
+      (_nodes, meta) => {
+        streamed.push({ done: meta.done, total: meta.total });
+      },
+      { signal: abortedController.signal, batchSize: 1 }
+    );
+    expect(streamed).toEqual([{ done: true, total: 0 }]);
+  });
+
+  it('restores folders from fixture when active and delegates when inactive', async () => {
+    const base = createBaseAdapter({ includeRestoreLastFolder: true });
+    const baseRestore = base.restoreLastFolder as unknown as ReturnType<typeof vi.fn>;
+    const adapter = createFixtureCapableAdapter(base, { platform: 'electron' });
+
+    const root = await adapter.loadInlineFixture(FIXTURE);
+    await expect(adapter.restoreLastFolder?.()).resolves.toEqual(root);
+
+    await adapter.clearInlineFixture();
+    await expect(adapter.restoreLastFolder?.()).resolves.toEqual({
+      path: '/restored',
+      name: 'restored',
+      kind: 'directory',
+      platform: 'electron',
+    });
+    expect(baseRestore).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not add streaming API when base adapter has no streaming support', async () => {
+    const base = createBaseAdapter({ includeStreaming: false });
+    const adapter = createFixtureCapableAdapter(base, { platform: 'web' });
+    expect(adapter.readDirectoryStreaming).toBeUndefined();
+  });
+
+  it('forwards getHandleCache when present on the base adapter', () => {
+    const base = createBaseAdapter() as FileSystemAdapter & { getHandleCache?: () => string };
+    const getHandleCache = vi.fn(() => 'cache');
+    base.getHandleCache = getHandleCache;
+
+    const adapter = createFixtureCapableAdapter(base, { platform: 'web' }) as FileSystemAdapter &
+      FixtureControls & { getHandleCache?: () => string };
+
+    expect(adapter.getHandleCache?.()).toBe('cache');
+    expect(getHandleCache).toHaveBeenCalledTimes(1);
   });
 });

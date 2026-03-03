@@ -1,7 +1,7 @@
 import type { ChunkResult, WorkerResponse } from '@brainstrike/chunking-worker';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resolveChunkingWorkerUrlMock = vi.hoisted(() => vi.fn());
 
@@ -135,6 +135,10 @@ describe('useChunkingWorker', () => {
     vi.stubGlobal('Worker', MockWorkerConstructor as unknown as typeof Worker);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('initializes singleton, tracks processing, handles runtime errors, and reinitializes', async () => {
     const { useChunkingWorker } = await import('../use-chunking-worker');
     const { result, unmount } = renderHookHarness(() => useChunkingWorker());
@@ -214,5 +218,58 @@ describe('useChunkingWorker', () => {
 
     standalone.terminate();
     expect(worker.terminate).toHaveBeenCalled();
+  });
+
+  it('surfaces initialization message errors from worker bootstrap', async () => {
+    const { useChunkingWorker } = await import('../use-chunking-worker');
+    const { result, unmount } = renderHookHarness(() => useChunkingWorker());
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    act(() => {
+      worker.simulateMessage({
+        type: 'error',
+        id: '__init__',
+        error: 'bootstrap failed',
+      } as WorkerResponse);
+    });
+
+    await waitForExpect(() => expect(result.current.error?.message).toBe('bootstrap failed'));
+    unmount();
+  });
+
+  it('waitForReady resolves immediately when standalone port is already ready', async () => {
+    const { createStandaloneChunkingWorker } = await import('../use-chunking-worker');
+    const standalone = await createStandaloneChunkingWorker();
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    act(() => {
+      worker.simulateMessage({ type: 'ready' });
+    });
+
+    await expect(standalone.waitForReady()).resolves.toBeUndefined();
+    standalone.terminate();
+  });
+
+  it('waitForReady rejects with timeout when standalone worker never becomes ready', async () => {
+    vi.useFakeTimers();
+    const { createStandaloneChunkingWorker } = await import('../use-chunking-worker');
+    const standalone = await createStandaloneChunkingWorker();
+
+    const readyPromise = standalone.waitForReady();
+    const assertion = expect(readyPromise).rejects.toThrow('Worker ready timeout');
+    await vi.advanceTimersByTimeAsync(10_001);
+    await assertion;
+
+    standalone.terminate();
   });
 });
