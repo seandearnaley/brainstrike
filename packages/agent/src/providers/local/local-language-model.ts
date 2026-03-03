@@ -161,7 +161,7 @@ function mapFinishReason(reason: 'stop' | 'length' | 'tool_calls'): LanguageMode
  * Generate a unique ID for stream parts
  */
 function generateId(): string {
-  // Preserve pre-existing compact ID shape for stream consumers while using crypto-backed entropy.
+  // Preserve compact 9-char IDs for stream consumers; this intentionally narrows charset to hex ([0-9a-f]).
   return generateUUID().replace(/-/g, '').slice(0, 9);
 }
 
