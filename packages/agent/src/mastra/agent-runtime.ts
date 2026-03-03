@@ -168,7 +168,8 @@ export async function createMastraAgentRuntime(
   const servers = toMastraServerMap(mcpConfig ?? sanitizedRuntime.mcpConfig);
   const hasServers = Object.keys(servers).length > 0;
   const mcpClient = hasServers
-    ? new MCPClient({ id: `mcp-client-${Date.now()}-${generateUUID()}`, servers })
+    ? // Timestamp is kept for easier chronological debugging; UUID provides uniqueness.
+      new MCPClient({ id: `mcp-client-${Date.now()}-${generateUUID()}`, servers })
     : undefined;
 
   const toolNameMap = new Map<string, string>();
