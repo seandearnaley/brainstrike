@@ -99,8 +99,8 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(final?.done).toBe(true);
     expect(final?.total).toBe(2);
 
-    // batchSize=2 should still report completion
-    expect(batches.some((b) => b.done === true)).toBe(true);
+    // batchSize=2 should emit an intermediate batch before completion.
+    expect(batches.some((b) => b.done === false)).toBe(true);
 
     // Ensure base adapter streaming was not invoked while fixture is active
     expect(baseReadDirectoryStreaming).not.toHaveBeenCalled();

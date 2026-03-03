@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resolveChunkingWorkerUrlMock = vi.hoisted(() => vi.fn());
+const WORKER_READY_TIMEOUT_MS = 10_000;
 
 vi.mock('../resolve-chunking-worker-url', () => ({
   resolveChunkingWorkerUrl: resolveChunkingWorkerUrlMock,
@@ -267,7 +268,7 @@ describe('useChunkingWorker', () => {
 
     const readyPromise = standalone.waitForReady();
     const assertion = expect(readyPromise).rejects.toThrow('Worker ready timeout');
-    await vi.advanceTimersByTimeAsync(10_001);
+    await vi.advanceTimersByTimeAsync(WORKER_READY_TIMEOUT_MS + 1);
     await assertion;
 
     standalone.terminate();
