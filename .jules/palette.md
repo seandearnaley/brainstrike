@@ -1,0 +1,3 @@
+## 2025-03-03 - Inconsistent ARIA roles on structural toggle buttons
+**Learning:** Some structural UI elements (like `FolderHeaderRow`) responsible for expanding/collapsing lists omit `aria-expanded` and `aria-label` attributes, while others in the UI package (like `TableGroupHeader`) correctly include them.
+**Action:** Always ensure any button that controls the expansion or collapsing of a section or list includes `aria-expanded` indicating the current state, and an `aria-label` describing the action and target.

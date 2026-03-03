@@ -24,6 +24,8 @@ export const FolderHeaderRow = memo<FolderHeaderRowProps>(function FolderHeaderR
 
   return (
     <button
+      aria-expanded={!isCollapsed}
+      aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} folder ${item.folderId}`}
       className="flex h-full w-full items-center gap-3 px-4 py-3 text-left transition-opacity hover:opacity-80"
       data-folder-id={item.folderId}
       onClick={onToggleCollapse}
