@@ -183,6 +183,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         base: ReturnType<typeof buildTapestryFileBase>;
         content: string | undefined;
         isLoading: boolean;
+        item: TableRowData;
       }
     >
   >(new Map());
@@ -357,7 +358,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       const isLoading = loadingFiles.has(item.compositeKey);
       const cached = cache.get(item.compositeKey);
 
-      if (cached && cached.content === content && cached.isLoading === isLoading) {
+      if (
+        cached &&
+        cached.item === item &&
+        cached.content === content &&
+        cached.isLoading === isLoading
+      ) {
         map.set(item.compositeKey, cached.base);
       } else {
         map.set(item.compositeKey, buildTapestryFileBase({ item, content, isLoading }));
@@ -376,6 +382,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         base: ReturnType<typeof buildTapestryFileBase>;
         content: string | undefined;
         isLoading: boolean;
+        item: TableRowData;
       }
     >();
     for (const item of tableData) {
@@ -385,6 +392,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           base,
           content: fileContents[item.compositeKey],
           isLoading: loadingFiles.has(item.compositeKey),
+          item,
         });
       }
     }

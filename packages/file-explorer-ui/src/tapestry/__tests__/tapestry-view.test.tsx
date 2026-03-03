@@ -256,13 +256,13 @@ describe('TapestryView', () => {
     });
 
     await act(async () => {
-      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 104, pointerId: 1 }));
     });
 
     expect(range.getAttribute('aria-valuenow')).toBe('11');
 
     await act(async () => {
-      window.dispatchEvent(new PointerEvent('pointerup'));
+      window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 }));
     });
   });
 
@@ -287,12 +287,12 @@ describe('TapestryView', () => {
       fireEvent.pointerDown(resizeTop, { clientY: 100, pointerId: 1 });
     });
     await act(async () => {
-      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 96 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 96, pointerId: 1 }));
     });
     expect(range.getAttribute('aria-valuenow')).toBe('9');
 
     await act(async () => {
-      window.dispatchEvent(new PointerEvent('pointerup'));
+      window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 }));
     });
 
     const resizeBottom = screen.getAllByLabelText(/Resize range bottom/i)[0];
@@ -303,7 +303,7 @@ describe('TapestryView', () => {
       fireEvent.pointerDown(resizeBottom, { clientY: 200, pointerId: 1 });
     });
     await act(async () => {
-      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 204 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 204, pointerId: 1 }));
     });
     expect(range.getAttribute('aria-label')).toMatch(/Range 9 to 21/i);
   });

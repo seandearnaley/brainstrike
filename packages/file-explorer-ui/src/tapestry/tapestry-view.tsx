@@ -327,6 +327,8 @@ function useTapestryDrag(
   const dragStateRef = useRef<DragState>({ ...IDLE_DRAG_STATE });
   const [isDragging, setIsDragging] = useState(false);
   const rafIdRef = useRef<number>(0);
+  const activePointerIdRef = useRef<number | null>(null);
+  const latestClientYRef = useRef<number>(0);
 
   // Always-fresh ref avoids stale closures when mouse events fire between renders.
   const filesRef = useRef(files);
@@ -354,8 +356,13 @@ function useTapestryDrag(
     setIsDragging(false);
   }, []);
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent | PointerEvent) => {
+  const handlePointerMove = useCallback(
+    (e: PointerEvent) => {
+      // Ignore events from other pointers (e.g. multi-touch)
+      if (activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) {
+        return;
+      }
+
       const ds = dragStateRef.current;
       if (
         ds.mode === 'IDLE' ||
@@ -367,18 +374,17 @@ function useTapestryDrag(
         return;
       }
 
+      // Always capture the latest clientY — the rAF callback reads from this ref
+      // so it uses the most recent position, not the first event that passed the gate.
+      latestClientYRef.current = e.clientY;
+
       // rAF gate: skip if a frame is already pending
       if (rafIdRef.current !== 0) {
         return;
       }
 
-      // Capture clientY synchronously — the event object may be recycled
-      const clientY = e.clientY;
-
       rafIdRef.current = requestAnimationFrame(() => {
-        rafIdRef.current = 0;
-
-        // Re-check drag state inside rAF (mouseUp may have fired between scheduling and execution)
+        // Re-check drag state inside rAF (pointerUp may have fired between scheduling and execution)
         const current = dragStateRef.current;
         if (
           current.mode === 'IDLE' ||
@@ -386,23 +392,26 @@ function useTapestryDrag(
           !current.rangeId ||
           !current.initialRange
         ) {
+          rafIdRef.current = 0;
           return;
         }
 
         const file = filesRef.current.find((entry) => entry.id === current.fileId);
         if (!file) {
+          rafIdRef.current = 0;
           return;
         }
 
         // Abort drag if totalLines changed mid-drag (e.g. content loaded).
         if (file.totalLines !== current.initialTotalLines) {
+          rafIdRef.current = 0;
           resetDragState();
           return;
         }
 
         const { fileId, rangeId, startY, initialRange, mode } = current;
         const { lineScale } = getTapestryRenderMetrics(file.totalLines, scaleRef.current);
-        const deltaLines = Math.round((clientY - startY) / lineScale);
+        const deltaLines = Math.round((latestClientYRef.current - startY) / lineScale);
 
         updateRanges(fileId, (ranges) => {
           const currentRange = ranges.find((range) => range.id === rangeId) ?? initialRange;
@@ -434,16 +443,25 @@ function useTapestryDrag(
             range.id === rangeId ? { ...range, ...newBounds, userModified: true } : range
           );
         });
+
+        // Clear rAF gate after the update — this ensures strictly one update per frame.
+        rafIdRef.current = 0;
       });
     },
     [resetDragState, updateRanges]
   );
 
-  const handleMouseUp = useCallback(
-    (e?: PointerEvent | MouseEvent) => {
+  const handlePointerUp = useCallback(
+    (e?: PointerEvent) => {
+      // Ignore events from other pointers (e.g. multi-touch)
+      if (e && activePointerIdRef.current !== null && e.pointerId !== activePointerIdRef.current) {
+        return;
+      }
+
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = 0;
-      if (e && 'pointerId' in e) {
+      activePointerIdRef.current = null;
+      if (e) {
         try {
           document.documentElement.releasePointerCapture(e.pointerId);
         } catch {
@@ -456,19 +474,19 @@ function useTapestryDrag(
   );
 
   // Store latest handlers in ref to avoid recreating event listeners
-  const handlersRef = useRef({ handleMouseMove, handleMouseUp });
+  const handlersRef = useRef({ handlePointerMove, handlePointerUp });
 
   useEffect(() => {
-    handlersRef.current = { handleMouseMove, handleMouseUp };
-  }, [handleMouseMove, handleMouseUp]);
+    handlersRef.current = { handlePointerMove, handlePointerUp };
+  }, [handlePointerMove, handlePointerUp]);
 
   // Cancel pending rAF on unmount
   useEffect(() => () => cancelAnimationFrame(rafIdRef.current), []);
 
   useEffect(() => {
     if (isDragging) {
-      const moveHandler = (e: PointerEvent) => handlersRef.current.handleMouseMove(e);
-      const upHandler = (e: PointerEvent) => handlersRef.current.handleMouseUp(e);
+      const moveHandler = (e: PointerEvent) => handlersRef.current.handlePointerMove(e);
+      const upHandler = (e: PointerEvent) => handlersRef.current.handlePointerUp(e);
 
       window.addEventListener('pointermove', moveHandler);
       window.addEventListener('pointerup', upHandler);
@@ -540,8 +558,9 @@ function useTapestryDrag(
         setIsDragging(true);
       }
 
-      // Capture pointer for reliable tracking across window boundaries
+      // Record active pointer and capture for reliable tracking across window boundaries
       if (pointerId !== undefined) {
+        activePointerIdRef.current = pointerId;
         try {
           document.documentElement.setPointerCapture(pointerId);
         } catch {
