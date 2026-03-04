@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePGliteDatabase } from './db-provider.js';
 
 interface BaseLiveQueryOptions {
+  readonly compareParams?: 'json' | 'deep';
   readonly enabled?: boolean;
   readonly limit?: number;
   readonly offset?: number;
@@ -155,10 +156,17 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   return areObjectsDeepEqual(a, b);
 }
 
-function useDeepCompareMemoize<T>(value: T): T {
+function useStableParams<T>(value: T, strategy: 'json' | 'deep'): T {
   const ref = useRef<T>(value);
+  const keyRef = useRef<string>('');
 
-  if (!deepEqual(value, ref.current)) {
+  if (strategy === 'json') {
+    const nextKey = JSON.stringify(value) ?? '';
+    if (nextKey !== keyRef.current) {
+      keyRef.current = nextKey;
+      ref.current = value;
+    }
+  } else if (!deepEqual(value, ref.current)) {
     ref.current = value;
   }
 
@@ -314,7 +322,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
 ): LiveQueryHookResult<T> {
   const db = usePGliteDatabase();
   const source = useMemo(() => resolveLiveSource(db), [db]);
-  const stableParams = useDeepCompareMemoize(options.params);
+  const stableParams = useStableParams(options.params, options.compareParams ?? 'json');
   const [rawRows, setRawRows] = useState<T[]>([]);
   const [loading, setLoading] = useState<boolean>(Boolean(options.enabled ?? true));
   const [error, setError] = useState<Error | null>(null);

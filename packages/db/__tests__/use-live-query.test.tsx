@@ -170,6 +170,93 @@ describe('Error Handling', () => {
   });
 });
 
+describe('useStableParams (JSON strategy - default)', () => {
+  let mockSubscribe: ReturnType<typeof vi.fn>;
+  let mockUnsubscribe: ReturnType<typeof vi.fn>;
+  let mockQuery: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockSubscribe = vi.fn();
+    mockUnsubscribe = vi.fn();
+    mockQuery = vi.fn().mockReturnValue({
+      initialResults: { rows: [] },
+      subscribe: mockSubscribe,
+      unsubscribe: mockUnsubscribe,
+      refresh: vi.fn(),
+    });
+
+    (usePGliteDatabase as any).mockReturnValue({
+      raw: {
+        live: {
+          query: mockQuery,
+          incrementalQuery: mockQuery,
+        },
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function StableParamsComponent({
+    compareParams,
+    params,
+  }: {
+    compareParams?: 'json' | 'deep';
+    params?: unknown[];
+  }) {
+    usePGliteLiveQuery({
+      query: 'SELECT * FROM test WHERE id = $1',
+      params,
+      compareParams,
+    });
+    return null;
+  }
+
+  it('should not resubscribe when primitive array content is identical (JSON default)', () => {
+    const { rerender } = render(<StableParamsComponent params={[1, 'hello', true]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[1, 'hello', true]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should resubscribe when array values change', () => {
+    const { rerender } = render(<StableParamsComponent params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[2]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('should handle undefined params correctly', () => {
+    const { rerender } = render(<StableParamsComponent params={undefined} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={undefined} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should stabilize empty arrays', () => {
+    const { rerender } = render(<StableParamsComponent params={[]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should use deepEqual when compareParams is "deep"', () => {
+    const { rerender } = render(
+      <StableParamsComponent compareParams="deep" params={[1, 'hello']} />
+    );
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent compareParams="deep" params={[1, 'hello']} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('deepEqual', () => {
   it('should return true for identical primitives', () => {
     expect(deepEqual(1, 1)).toBe(true);
