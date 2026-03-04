@@ -169,8 +169,10 @@ function useStableParams<T>(value: T, strategy: 'json' | 'deep'): T {
       if (!deepEqual(value, ref.current)) {
         ref.current = value;
       }
+      keyRef.current = ''; // Invalidate so next successful stringify always detects a change
       return ref.current;
     }
+    // Note: null ≡ undefined inside arrays (both serialize to "[null]")
     if (nextKey !== keyRef.current) {
       keyRef.current = nextKey;
       ref.current = value;

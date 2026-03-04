@@ -274,6 +274,18 @@ describe('useStableParams (JSON strategy - default)', () => {
     rerender(<StableParamsComponent params={[BigInt(1)]} />);
     expect(mockQuery).toHaveBeenCalledTimes(1);
   });
+
+  it('should resubscribe when params change from serializable to BigInt and back', () => {
+    const { rerender } = render(<StableParamsComponent params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[BigInt(1)]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    // Returning to serializable must detect the change despite stale keyRef
+    rerender(<StableParamsComponent params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe('deepEqual', () => {
