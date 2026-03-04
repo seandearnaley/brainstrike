@@ -78,7 +78,7 @@ import { useCollections } from '../collection-select/collection-select';
 
 describe('useCollections', () => {
   const mockDb = {
-    query: vi.fn().mockResolvedValue({ rows: mockCollectionRows }),
+    query: vi.fn(() => new Promise<{ rows: typeof mockCollectionRows }>(() => {})),
   };
 
   beforeEach(() => {
@@ -88,6 +88,7 @@ describe('useCollections', () => {
     mockStoreState.isEmbeddingActive = false;
     mockStoreState.schemaVerified = true;
     mockStoreState.cachedCollections = [];
+    mockDb.query.mockImplementation(() => new Promise(() => {}));
     vi.mocked(usePGliteLiveQuery).mockReturnValue(mockLiveQueryResult);
   });
 

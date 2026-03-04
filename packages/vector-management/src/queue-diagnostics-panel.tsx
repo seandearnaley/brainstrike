@@ -366,40 +366,36 @@ interface QueueDiagnosticsPanelProps {
   readonly showRefresh?: boolean;
 }
 
-/**
- * Consolidated queue diagnostics panel.
- *
- * Displays:
- * - Durable queue stats (from JobQueue/DB)
- * - Ephemeral queue metrics (from workerpool/runtime)
- * - Worker health status
- * - Performance metrics (throughput, latency)
- */
-export function QueueDiagnosticsPanel({
-  metrics: externalMetrics,
-  showRefresh = true,
-  compact = false,
-}: QueueDiagnosticsPanelProps): ReactElement {
-  const hookResult = useQueueHealthMetrics();
+interface QueueDiagnosticsPanelContentProps {
+  readonly compact: boolean;
+  readonly isLoading: boolean;
+  readonly metrics: QueueHealthMetrics;
+  readonly onRefresh?: () => Promise<void>;
+  readonly showRefresh: boolean;
+}
+
+function QueueDiagnosticsPanelContent({
+  metrics,
+  isLoading,
+  compact,
+  onRefresh,
+  showRefresh,
+}: QueueDiagnosticsPanelContentProps): ReactElement {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Use external metrics if provided, otherwise use hook
-  const metrics = externalMetrics ?? hookResult.metrics;
-  const isLoading = externalMetrics ? false : hookResult.isLoading;
-
   const handleRefresh = useCallback(async () => {
-    if (externalMetrics) {
-      return; // External metrics can't be refreshed
+    if (!onRefresh) {
+      return;
     }
     setIsRefreshing(true);
     try {
-      await hookResult.refresh();
+      await onRefresh();
       setIsRefreshing(false);
     } catch (error) {
       setIsRefreshing(false);
       throw error;
     }
-  }, [externalMetrics, hookResult]);
+  }, [onRefresh]);
 
   const { durableQueue, ephemeralQueue, workerHealth } = metrics;
 
@@ -448,7 +444,7 @@ export function QueueDiagnosticsPanel({
             />
 
             {/* Refresh button */}
-            {showRefresh && !externalMetrics && (
+            {showRefresh && onRefresh && (
               <button
                 aria-label="Refresh metrics"
                 className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
@@ -481,4 +477,49 @@ export function QueueDiagnosticsPanel({
       </CardContent>
     </Card>
   );
+}
+
+function QueueDiagnosticsPanelWithHook({
+  compact,
+  showRefresh,
+}: Pick<QueueDiagnosticsPanelProps, 'compact' | 'showRefresh'>): ReactElement {
+  const hookResult = useQueueHealthMetrics();
+
+  return (
+    <QueueDiagnosticsPanelContent
+      compact={compact ?? false}
+      isLoading={hookResult.isLoading}
+      metrics={hookResult.metrics}
+      onRefresh={hookResult.refresh}
+      showRefresh={showRefresh ?? true}
+    />
+  );
+}
+
+/**
+ * Consolidated queue diagnostics panel.
+ *
+ * Displays:
+ * - Durable queue stats (from JobQueue/DB)
+ * - Ephemeral queue metrics (from workerpool/runtime)
+ * - Worker health status
+ * - Performance metrics (throughput, latency)
+ */
+export function QueueDiagnosticsPanel({
+  metrics,
+  showRefresh = true,
+  compact = false,
+}: QueueDiagnosticsPanelProps): ReactElement {
+  if (metrics !== undefined) {
+    return (
+      <QueueDiagnosticsPanelContent
+        compact={compact}
+        isLoading={false}
+        metrics={metrics}
+        showRefresh={false}
+      />
+    );
+  }
+
+  return <QueueDiagnosticsPanelWithHook compact={compact} showRefresh={showRefresh} />;
 }
