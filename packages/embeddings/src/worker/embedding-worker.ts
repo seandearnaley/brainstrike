@@ -1256,15 +1256,16 @@ export async function startEmbeddingWorker(
     });
 
     // 2. Filter out up-to-date chunks
-    const toProcess: typeof chunks = [];
-    const completed: typeof chunks = [];
+    const toProcess: LoadedChunkItem[] = [];
+    const completed: LoadedChunkItem[] = [];
 
     for (const item of chunks) {
       const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
+      const tagged = { ...item, expectedHash };
       if (isEmbeddingUpToDate(item.chunk, expectedHash)) {
-        completed.push(item);
+        completed.push(tagged);
       } else {
-        toProcess.push(item);
+        toProcess.push(tagged);
       }
     }
     return { toProcess, completed };
@@ -1272,6 +1273,7 @@ export async function startEmbeddingWorker(
 
   interface LoadedChunkItem {
     chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>;
+    expectedHash: string; // BST-358: computed once in loadAndFilterChunks
     job: ClaimedJob;
     payload: EmbedChunkPayload;
   }
@@ -1424,8 +1426,7 @@ export async function startEmbeddingWorker(
 
   async function completeBatch(
     toProcess: LoadedChunkItem[],
-    embeddings: number[][],
-    jobModel: ReturnType<typeof resolveJobModel>
+    embeddings: number[][]
   ): Promise<Set<string>> {
     // Validate batch size consistency before processing
     if (toProcess.length !== embeddings.length) {
@@ -1443,31 +1444,20 @@ export async function startEmbeddingWorker(
     }> = [];
     const jobCompletions: Array<{ id: string; leaseToken: string }> = [];
 
-    // Parallelize hash computation for performance
-    const updatesPromises = toProcess.map(async (item, index) => {
+    for (let index = 0; index < toProcess.length; index++) {
+      const item = toProcess[index];
       const embedding = embeddings[index];
-      if (!embedding) {
-        throw new Error(`Missing embedding for item ${index} in batch.`);
+      if (!(item && embedding)) {
+        throw new Error(`Missing item or embedding at index ${index} in batch.`);
       }
       const targetSetId = resolveTargetSetId(item.payload, item.chunk);
-      const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
-
-      return {
-        update: {
-          id: item.chunk.id,
-          embedding,
-          embeddingSetId: targetSetId,
-          embeddingHash: expectedHash,
-        },
-        jobCompletion: { id: item.job.id, leaseToken: item.job.lease_token },
-      };
-    });
-
-    const results = await Promise.all(updatesPromises);
-
-    for (const result of results) {
-      updates.push(result.update);
-      jobCompletions.push(result.jobCompletion);
+      updates.push({
+        id: item.chunk.id,
+        embedding,
+        embeddingSetId: targetSetId,
+        embeddingHash: item.expectedHash,
+      });
+      jobCompletions.push({ id: item.job.id, leaseToken: item.job.lease_token });
     }
 
     if (updates.length > 0) {
@@ -1596,7 +1586,7 @@ export async function startEmbeddingWorker(
         throw new Error('Lease lost during processing');
       }
 
-      const newlyCompleted = await completeBatch(toProcess, embeddings, jobModel);
+      const newlyCompleted = await completeBatch(toProcess, embeddings);
       for (const id of newlyCompleted) {
         completedJobIds.add(id);
       }
