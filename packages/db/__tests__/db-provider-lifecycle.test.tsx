@@ -147,7 +147,8 @@ describe('DbProvider lifecycle', () => {
     });
 
     it('does not throw TypeError during IPC cleanup', async () => {
-      // Create a bridge explicitly without a close method
+      // Intentionally partial bridge — omits diagnostics, clearAll, and close
+      // to reproduce the original bug where unmount called bridge.close()
       const bridge: Record<string, Mock> = {
         query: vi.fn(async (sql: string) => {
           if (sql.includes('SELECT 1 FROM pg_extension')) {

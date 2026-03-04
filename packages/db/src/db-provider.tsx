@@ -567,7 +567,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
     const conn = connectionRef.current;
     if (!conn || conn.kind !== 'direct') {
-      throw new Error('Database not available');
+      throw new Error(
+        'Direct PGlite database not available (IPC connections use clearViaElectronIPC)'
+      );
     }
 
     return await conn.db.transaction(async (tx) => {
