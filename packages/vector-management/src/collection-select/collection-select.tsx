@@ -344,7 +344,6 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     initialFetchedRef.current = true;
 
     const fetchOnce = async () => {
-      await Promise.resolve();
       if (!cancelled) {
         dispatchFetch({ type: 'start' });
       }

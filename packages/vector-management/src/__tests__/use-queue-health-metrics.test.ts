@@ -39,21 +39,23 @@ describe('useQueueHealthMetrics', () => {
       vi.mocked(usePGliteDatabase).mockReturnValue(null);
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result, unmount } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
 
       expect(result.current.isLoading).toBe(true);
       expect(result.current.error).toBeNull();
+      unmount();
     });
 
     it('returns empty metrics initially', () => {
       vi.mocked(usePGliteDatabase).mockReturnValue(null);
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result, unmount } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
 
       expect(result.current.metrics.durableQueue).toBeNull();
       expect(result.current.metrics.ephemeralQueue).toBeNull();
       expect(result.current.metrics.workerHealth).toBeNull();
+      unmount();
     });
   });
 

@@ -81,7 +81,7 @@ describe('CreateEmbeddingSetDialog', () => {
     vi.clearAllMocks();
   });
 
-  it('renders correctly when open', () => {
+  it('renders correctly when open', async () => {
     render(
       <>
         <Toaster />
@@ -99,6 +99,10 @@ describe('CreateEmbeddingSetDialog', () => {
     expect(screen.getByText('Create Search Collection')).toBeInTheDocument();
     expect(screen.getByText('Model Configuration')).toBeInTheDocument();
     expect(screen.getByTestId('model-picker')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Name/i)).toHaveValue('text-embedding-3-small');
+    });
   });
 
   it('shows loading state when isLoading is true', () => {
