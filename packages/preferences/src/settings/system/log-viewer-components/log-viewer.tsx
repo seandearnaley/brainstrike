@@ -9,7 +9,7 @@ import {
   TablePagination,
   type useToast,
 } from '@brainstrike/ui';
-import { LogLevel, type LogRecord } from '@brainstrike/utils';
+import { defaultCollator, LogLevel, type LogRecord } from '@brainstrike/utils';
 import {
   type CellContext,
   type ColumnDef,
@@ -496,7 +496,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         scopes.add(record.scope);
       }
     }
-    return Array.from(scopes).sort((a, b) => a.localeCompare(b));
+    return Array.from(scopes).sort((a, b) => defaultCollator.compare(a, b));
   }, [logRecords]);
 
   const scopeItems = useMemo(

@@ -21,6 +21,7 @@ import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
+import { defaultCollator } from '@brainstrike/utils';
 import { Badge } from '../badge';
 import { Button } from '../button';
 import {
@@ -1281,7 +1282,7 @@ const ControlsMenu: FC<ControlsMenuProps> = ({
       if (sourceOrder !== 0) {
         return sourceOrder;
       }
-      return a.label.localeCompare(b.label);
+      return defaultCollator.compare(a.label, b.label);
     });
   }, [toolMenuItems]);
 

@@ -1,3 +1,4 @@
+import { defaultCollator } from '@brainstrike/utils';
 import {
   type LocalRuntimeAvailabilityState,
   LocalRuntimeDiscoveryService,
@@ -5,6 +6,7 @@ import {
   type LocalRuntimeSurface,
   type ProbeLocalRuntimeOptions,
 } from './local-runtime-discovery';
+
 import {
   extractErrorMessage,
   fetchJsonWithTimeout,
@@ -914,7 +916,7 @@ export class LocalRuntimeModelCatalogService {
       });
     }
 
-    return Array.from(byId.values()).sort((a, b) => a.id.localeCompare(b.id));
+    return Array.from(byId.values()).sort((a, b) => defaultCollator.compare(a.id, b.id));
   }
 
   private normalizeModels(
@@ -941,7 +943,7 @@ export class LocalRuntimeModelCatalogService {
       } satisfies LocalRuntimeNormalizedModel;
     });
 
-    return normalized.sort((a, b) => a.modelKey.localeCompare(b.modelKey));
+    return normalized.sort((a, b) => defaultCollator.compare(a.modelKey, b.modelKey));
   }
 
   private async applyEmbeddingVerification(

@@ -17,7 +17,7 @@ import type {
   DatabaseInitFailureSnapshot,
   DatabaseInitStage,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, defaultCollator } from '@brainstrike/utils';
 import { app } from 'electron';
 
 const logger = createLogger('DatabaseMain');
@@ -471,7 +471,7 @@ function pruneProfileResetBackups(backupRootDir: string, profileName: string): v
     const backupNames = readdirSync(backupRootDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && entry.name.startsWith(profilePrefix))
       .map((entry) => entry.name)
-      .sort((left, right) => right.localeCompare(left));
+      .sort((left, right) => defaultCollator.compare(right, left));
     const staleBackupNames = backupNames.slice(PROFILE_BACKUPS_RETENTION_COUNT);
     for (const staleBackupName of staleBackupNames) {
       rmSync(path.join(backupRootDir, staleBackupName), { recursive: true, force: true });
