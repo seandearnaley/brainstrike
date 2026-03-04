@@ -4,9 +4,11 @@
 
 import type { QueueHealthMetrics } from '@brainstrike/queue';
 import { TooltipProvider } from '@brainstrike/ui';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueDiagnosticsPanel } from '../queue-diagnostics-panel';
+import { useQueueHealthMetrics } from '../use-queue-health-metrics';
 
 // Mock dependencies of useQueueHealthMetrics
 vi.mock('@brainstrike/db', () => ({
@@ -18,6 +20,10 @@ vi.mock('../embedding-queue-provider', () => ({
   useEmbeddingQueueSafe: vi.fn(() => null),
 }));
 
+vi.mock('../use-queue-health-metrics', () => ({
+  useQueueHealthMetrics: vi.fn(),
+}));
+
 const createMetrics = (overrides: Partial<QueueHealthMetrics> = {}): QueueHealthMetrics => ({
   durableQueue: null,
   ephemeralQueue: null,
@@ -25,6 +31,8 @@ const createMetrics = (overrides: Partial<QueueHealthMetrics> = {}): QueueHealth
   lastUpdated: Date.now(),
   ...overrides,
 });
+
+const mockRefresh = vi.fn<() => Promise<void>>();
 
 const renderPanel = (metrics: QueueHealthMetrics, options: { compact?: boolean } = {}) =>
   render(
@@ -37,7 +45,66 @@ const renderPanel = (metrics: QueueHealthMetrics, options: { compact?: boolean }
     </TooltipProvider>
   );
 
+const renderHookBackedPanel = (options: { compact?: boolean; showRefresh?: boolean } = {}) =>
+  render(
+    <TooltipProvider delayDuration={0}>
+      <QueueDiagnosticsPanel
+        compact={options.compact ?? false}
+        showRefresh={options.showRefresh ?? true}
+      />
+    </TooltipProvider>
+  );
+
 describe('QueueDiagnosticsPanel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRefresh.mockResolvedValue(undefined);
+    vi.mocked(useQueueHealthMetrics).mockReturnValue({
+      error: null,
+      isLoading: false,
+      metrics: createMetrics(),
+      refresh: mockRefresh,
+    });
+  });
+
+  describe('hook-backed mode', () => {
+    it('shows refresh button by default when metrics are not provided', () => {
+      renderHookBackedPanel();
+
+      expect(useQueueHealthMetrics).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'Refresh metrics' })).toBeInTheDocument();
+    });
+
+    it('hides refresh button when showRefresh is false in hook-backed mode', () => {
+      renderHookBackedPanel({ showRefresh: false });
+
+      expect(screen.queryByRole('button', { name: 'Refresh metrics' })).not.toBeInTheDocument();
+    });
+
+    it('resets refresh button state after refresh completes', async () => {
+      const user = userEvent.setup();
+      renderHookBackedPanel();
+      const refreshButton = screen.getByRole('button', { name: 'Refresh metrics' });
+
+      await user.click(refreshButton);
+
+      await waitFor(() => {
+        expect(mockRefresh).toHaveBeenCalledTimes(1);
+        expect(refreshButton).not.toBeDisabled();
+      });
+    });
+
+    it('ignores showRefresh when external metrics are provided', () => {
+      render(
+        <TooltipProvider delayDuration={0}>
+          <QueueDiagnosticsPanel metrics={createMetrics()} showRefresh={true} />
+        </TooltipProvider>
+      );
+
+      expect(screen.queryByRole('button', { name: 'Refresh metrics' })).not.toBeInTheDocument();
+    });
+  });
+
   describe('header and structure', () => {
     it('renders with title', () => {
       const metrics = createMetrics();

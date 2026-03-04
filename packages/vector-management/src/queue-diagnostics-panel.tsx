@@ -362,7 +362,11 @@ interface QueueDiagnosticsPanelProps {
   readonly compact?: boolean;
   /** Custom metrics (for testing) - if not provided, uses useQueueHealthMetrics hook */
   readonly metrics?: QueueHealthMetrics;
-  /** Show refresh button */
+  /**
+   * Show refresh button.
+   * Ignored when `metrics` is provided because externally supplied metrics
+   * cannot be refreshed by this component.
+   */
   readonly showRefresh?: boolean;
 }
 
@@ -390,10 +394,8 @@ function QueueDiagnosticsPanelContent({
     setIsRefreshing(true);
     try {
       await onRefresh();
+    } finally {
       setIsRefreshing(false);
-    } catch (error) {
-      setIsRefreshing(false);
-      throw error;
     }
   }, [onRefresh]);
 
@@ -482,16 +484,19 @@ function QueueDiagnosticsPanelContent({
 function QueueDiagnosticsPanelWithHook({
   compact,
   showRefresh,
-}: Pick<QueueDiagnosticsPanelProps, 'compact' | 'showRefresh'>): ReactElement {
+}: {
+  compact: boolean;
+  showRefresh: boolean;
+}): ReactElement {
   const hookResult = useQueueHealthMetrics();
 
   return (
     <QueueDiagnosticsPanelContent
-      compact={compact ?? false}
+      compact={compact}
       isLoading={hookResult.isLoading}
       metrics={hookResult.metrics}
       onRefresh={hookResult.refresh}
-      showRefresh={showRefresh ?? true}
+      showRefresh={showRefresh}
     />
   );
 }

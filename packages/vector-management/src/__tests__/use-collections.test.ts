@@ -78,7 +78,7 @@ import { useCollections } from '../collection-select/collection-select';
 
 describe('useCollections', () => {
   const mockDb = {
-    query: vi.fn(() => new Promise<{ rows: typeof mockCollectionRows }>(() => {})),
+    query: vi.fn(),
   };
 
   beforeEach(() => {
