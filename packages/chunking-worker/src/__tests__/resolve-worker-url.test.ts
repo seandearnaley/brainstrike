@@ -30,6 +30,22 @@ describe('resolveChunkingWorkerUrl', () => {
     expect(url.href).toBe('file:///tmp/chunking/chunking.worker.js');
   });
 
+  it('uses native import.meta.url when no override is provided', () => {
+    clearImportMetaOverride();
+
+    const url = resolveChunkingWorkerUrl();
+
+    expect(url.href).toContain('/chunking.worker.js');
+  });
+
+  it('ignores non-object override values and still resolves', () => {
+    setImportMetaOverride('invalid-override');
+
+    const url = resolveChunkingWorkerUrl();
+
+    expect(url.href).toContain('/chunking.worker.js');
+  });
+
   it('throws descriptive errors when import meta is unavailable', () => {
     setImportMetaOverride({});
 

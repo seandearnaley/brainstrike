@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CHUNKING_CONFIG } from '../chunking-config';
 import { chunkContent } from '../portable-chunking';
 
 describe('portable-chunking', () => {
@@ -50,6 +51,41 @@ describe('portable-chunking', () => {
         });
 
         expect(result.skipped).toBe(true);
+      });
+
+      it('should skip content with NUL bytes', async () => {
+        const result = await chunkContent('hello\u0000world', {
+          strategy: 'sentence',
+          fileName: 'mystery.dat',
+        });
+
+        expect(result.skipped).toBe(true);
+        expect(result.skipReason).toContain('Binary content');
+      });
+
+      it('should skip files over the max chunkable size when large files are not allowed', async () => {
+        const oversized = 'x'.repeat(CHUNKING_CONFIG.maxChunkableSize + 1);
+
+        const result = await chunkContent(oversized, {
+          strategy: 'sentence',
+          fileName: 'oversized.txt',
+        });
+
+        expect(result.skipped).toBe(true);
+        expect(result.skipReason).toContain('File too large');
+      });
+
+      it('should skip highly repetitive generated content', async () => {
+        const repetitive = `${'same-line\n'.repeat(1001)}unique-tail`;
+
+        const result = await chunkContent(repetitive, {
+          strategy: 'sentence',
+          fileName: 'generated.log',
+          allowLargeFiles: true,
+        });
+
+        expect(result.skipped).toBe(true);
+        expect(result.skipReason).toContain('Highly repetitive content');
       });
     });
 
@@ -124,6 +160,19 @@ function baz() {
         expect(result.strategyUsed).toBe('recursive');
         expect(result.chunks.length).toBeGreaterThan(0);
       });
+
+      it('should honor forceStrategy for markdown and keep recursive strategy', async () => {
+        const markdown = '# Header\n\nParagraph one.\n\nParagraph two.';
+
+        const result = await chunkContent(markdown, {
+          strategy: 'recursive',
+          fileName: 'notes.md',
+          forceStrategy: true,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('recursive');
+      });
     });
 
     describe('token strategy', () => {
@@ -145,6 +194,45 @@ function baz() {
           expect(chunk.tokenCount).toBeGreaterThan(0);
           expect(chunk.content.length).toBeGreaterThan(0);
         }
+      });
+
+      it('should apply default recommendations for structured files', async () => {
+        const json = JSON.stringify({ rows: Array.from({ length: 500 }, (_, i) => ({ i })) });
+        const result = await chunkContent(json, {
+          strategy: 'sentence',
+          fileName: 'dataset.json',
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('recursive');
+        expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.largeStructuredMaxTokens);
+      });
+
+      it('should honor ignoreFileTypeRecommendations and use configured maxTokens', async () => {
+        const json = JSON.stringify({ rows: Array.from({ length: 600 }, (_, i) => ({ i })) });
+        const explicitMaxTokens = 320;
+        const result = await chunkContent(json, {
+          strategy: 'sentence',
+          fileName: 'dataset.json',
+          ignoreFileTypeRecommendations: true,
+          maxTokens: explicitMaxTokens,
+          overlap: 40,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.chunks[0]?.chunkSize).toBe(explicitMaxTokens);
+      });
+
+      it('should sanitize invalid maxTokensCap values to the safety cap', async () => {
+        const result = await chunkContent('word '.repeat(1000), {
+          strategy: 'token',
+          fileName: 'sanity.txt',
+          maxTokens: 6000,
+          maxTokensCap: Number.NaN,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.maxTokensSafetyCap);
       });
     });
 
