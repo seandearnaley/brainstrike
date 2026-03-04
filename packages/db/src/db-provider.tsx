@@ -59,7 +59,7 @@ async function purgeAndCloseDirectDb(
     logger.error('[DbProvider] Failed to purge tables during factory reset:', error);
   }
   try {
-    await db.query('VACUUM');
+    await db.exec('VACUUM');
   } catch (err) {
     logger.warn('VACUUM after purge failed:', err);
   }

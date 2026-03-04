@@ -83,7 +83,7 @@ function clearWindowElectronAPI(): void {
 
 describe('DbProvider lifecycle', () => {
   beforeEach(() => {
-    const { resetLogger } = require('@brainstrike/utils');
+    const { resetLogger } = utilsModule;
     resetLogger();
   });
 
