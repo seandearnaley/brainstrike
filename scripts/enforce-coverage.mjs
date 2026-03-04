@@ -43,9 +43,9 @@ const OVERRIDES = new Map([
   // Embeddings — heavy integration excluded from unit coverage
   // Vitest 4: L 0.00% | F 0.00% | B 0.00% | S 0.00% (no files covered)
   ['@brainstrike/embeddings', { lines: 0, functions: 0, branches: 0, statements: 0 }],
-  // Chunking worker thresholds recalibrated in 2026-03.
+  // Chunking worker thresholds ratcheted in 2026-03 after strict skip/cap strategy-path coverage additions.
   // Note: Worker code runs in browser context; some paths untestable in Node.js
-  ['@brainstrike/chunking-worker', { lines: 84, functions: 80, branches: 50, statements: 68 }],
+  ['@brainstrike/chunking-worker', { lines: 87, functions: 85, branches: 54, statements: 71 }],
   // Embedding worker — Vitest 4: L 89.76% | F 93.33% | B 53.46% | S 74.64%
   // Recalibrated 2024-12 after worker log verbosity changes.
   // Note: ~10% of code (self.onerror, self.onunhandledrejection) runs only in browser
