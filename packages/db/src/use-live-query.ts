@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePGliteDatabase } from './db-provider.js';
 
 interface BaseLiveQueryOptions {
+  readonly compareParams?: 'json' | 'deep';
   readonly enabled?: boolean;
   readonly limit?: number;
   readonly offset?: number;
@@ -155,10 +156,28 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   return areObjectsDeepEqual(a, b);
 }
 
-function useDeepCompareMemoize<T>(value: T): T {
+function useStableParams<T>(value: T, strategy: 'json' | 'deep'): T {
   const ref = useRef<T>(value);
+  const keyRef = useRef<string>('');
 
-  if (!deepEqual(value, ref.current)) {
+  if (strategy === 'json') {
+    let nextKey: string;
+    try {
+      nextKey = JSON.stringify(value) ?? ''; // undefined/Symbol/Function → ''
+    } catch {
+      // BigInt or other non-serializable types — fall back to deepEqual
+      if (!deepEqual(value, ref.current)) {
+        ref.current = value;
+      }
+      keyRef.current = '\0'; // Sentinel JSON.stringify can never produce
+      return ref.current;
+    }
+    // Note: null ≡ undefined inside arrays (both serialize to "[null]")
+    if (nextKey !== keyRef.current) {
+      keyRef.current = nextKey;
+      ref.current = value;
+    }
+  } else if (!deepEqual(value, ref.current)) {
     ref.current = value;
   }
 
@@ -314,7 +333,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
 ): LiveQueryHookResult<T> {
   const db = usePGliteDatabase();
   const source = useMemo(() => resolveLiveSource(db), [db]);
-  const stableParams = useDeepCompareMemoize(options.params);
+  const stableParams = useStableParams(options.params, options.compareParams ?? 'json');
   const [rawRows, setRawRows] = useState<T[]>([]);
   const [loading, setLoading] = useState<boolean>(Boolean(options.enabled ?? true));
   const [error, setError] = useState<Error | null>(null);

@@ -170,6 +170,136 @@ describe('Error Handling', () => {
   });
 });
 
+describe('useStableParams (JSON strategy - default)', () => {
+  let mockSubscribe: ReturnType<typeof vi.fn>;
+  let mockUnsubscribe: ReturnType<typeof vi.fn>;
+  let mockQuery: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockSubscribe = vi.fn();
+    mockUnsubscribe = vi.fn();
+    mockQuery = vi.fn().mockReturnValue({
+      initialResults: { rows: [] },
+      subscribe: mockSubscribe,
+      unsubscribe: mockUnsubscribe,
+      refresh: vi.fn(),
+    });
+
+    (usePGliteDatabase as any).mockReturnValue({
+      raw: {
+        live: {
+          query: mockQuery,
+          incrementalQuery: mockQuery,
+        },
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function StableParamsComponent({
+    compareParams,
+    params,
+  }: {
+    compareParams?: 'json' | 'deep';
+    params?: unknown[];
+  }) {
+    usePGliteLiveQuery({
+      query: 'SELECT * FROM test WHERE id = $1',
+      params,
+      compareParams,
+    });
+    return null;
+  }
+
+  it('should not resubscribe when primitive array content is identical (JSON default)', () => {
+    const { rerender } = render(<StableParamsComponent params={[1, 'hello', true]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[1, 'hello', true]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should resubscribe when array values change', () => {
+    const { rerender } = render(<StableParamsComponent params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[2]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('should handle undefined params correctly', () => {
+    const { rerender } = render(<StableParamsComponent params={undefined} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={undefined} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should stabilize empty arrays', () => {
+    const { rerender } = render(<StableParamsComponent params={[]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should use deepEqual when compareParams is "deep"', () => {
+    const { rerender } = render(
+      <StableParamsComponent compareParams="deep" params={[1, 'hello']} />
+    );
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent compareParams="deep" params={[1, 'hello']} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should use deepEqual semantics for non-JSON-safe values', () => {
+    const date = new Date('2024-01-01');
+    const { rerender } = render(<StableParamsComponent compareParams="deep" params={[date]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    // Same date value, new object — deepEqual returns true, should not resubscribe
+    rerender(<StableParamsComponent compareParams="deep" params={[new Date('2024-01-01')]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not crash when JSON strategy encounters BigInt params', () => {
+    // BigInt throws on JSON.stringify — useStableParams falls back to deepEqual
+    const { rerender } = render(<StableParamsComponent params={[BigInt(1)]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[BigInt(1)]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should resubscribe when params change from serializable to BigInt and back', () => {
+    const { rerender } = render(<StableParamsComponent params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[BigInt(1)]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    // Returning to serializable must detect the change despite stale keyRef
+    rerender(<StableParamsComponent params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+  });
+
+  it('should resubscribe when params change from undefined to BigInt and back to undefined', () => {
+    const { rerender } = render(<StableParamsComponent params={undefined} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[BigInt(1)]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    // undefined → '' key; sentinel must differ so this transition is detected
+    rerender(<StableParamsComponent params={undefined} />);
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe('deepEqual', () => {
   it('should return true for identical primitives', () => {
     expect(deepEqual(1, 1)).toBe(true);
