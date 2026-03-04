@@ -169,7 +169,7 @@ function useStableParams<T>(value: T, strategy: 'json' | 'deep'): T {
       if (!deepEqual(value, ref.current)) {
         ref.current = value;
       }
-      keyRef.current = ''; // Invalidate so next successful stringify always detects a change
+      keyRef.current = '\0'; // Sentinel JSON.stringify can never produce
       return ref.current;
     }
     // Note: null ≡ undefined inside arrays (both serialize to "[null]")

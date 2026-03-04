@@ -286,6 +286,18 @@ describe('useStableParams (JSON strategy - default)', () => {
     rerender(<StableParamsComponent params={[1]} />);
     expect(mockQuery).toHaveBeenCalledTimes(3);
   });
+
+  it('should resubscribe when params change from undefined to BigInt and back to undefined', () => {
+    const { rerender } = render(<StableParamsComponent params={undefined} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[BigInt(1)]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+
+    // undefined → '' key; sentinel must differ so this transition is detected
+    rerender(<StableParamsComponent params={undefined} />);
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe('deepEqual', () => {
