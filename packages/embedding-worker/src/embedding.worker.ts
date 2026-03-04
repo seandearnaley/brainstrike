@@ -99,6 +99,15 @@ type FeatureExtractor = FeatureExtractionPipeline &
     }
   ) => Promise<unknown>);
 
+interface PipelineCacheEntry {
+  readonly cacheKey: string;
+  readonly createdAt: number;
+  readonly device: EmbeddingDevice;
+  lastUsedAt: number;
+  readonly model: string;
+  readonly pipeline: Promise<FeatureExtractor>;
+}
+
 /**
  * Model context window reference (for documentation).
  *
@@ -113,7 +122,7 @@ type FeatureExtractor = FeatureExtractionPipeline &
  * - Jina models: 8192 tokens
  */
 
-const pipelines = new Map<string, Promise<FeatureExtractor>>();
+const pipelines = new Map<string, PipelineCacheEntry>();
 
 // Allow remote model downloads when a cache directory is not specified. This aligns with the
 // Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
@@ -152,6 +161,13 @@ env.allowRemoteModels = env.allowRemoteModels ?? true;
 // ---------------------------------------------------------------------------
 
 const GPU_KEEPALIVE_INTERVAL_MS = 15_000;
+
+const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+const MAX_GPU_PIPELINES = 1;
+const MAX_WASM_PIPELINES = 3;
+const PIPELINE_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const IDLE_SWEEP_INTERVAL_MS = 30_000;
 
 // Minimal WebGPU type surface used by the keep-alive / device-loss system.
 // The full @webgpu/types package is not in this project's deps; these cover
@@ -194,6 +210,9 @@ let deviceLossWatcherAttached = false;
 
 /** Counter for diagnostic logging of keep-alive ticks. */
 let keepAliveTickCount = 0;
+
+/** Handle for the idle-sweep interval. */
+let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Obtain the GPUDevice that ONNX Runtime created internally.
@@ -294,18 +313,108 @@ function stopKeepAlive(): void {
  * requires workerpool to restart this worker (which it does automatically
  * when minWorkers >= 1).
  */
-function invalidateWebGpuPipelines(): void {
-  const keysToDelete: string[] = [];
-  for (const key of pipelines.keys()) {
-    if (key.includes('|webgpu|')) {
-      keysToDelete.push(key);
-    }
+async function disposePipeline(key: string): Promise<void> {
+  const entry = pipelines.get(key);
+  if (!entry) {
+    return;
   }
-  for (const key of keysToDelete) {
-    pipelines.delete(key);
+  // Delete from cache FIRST to prevent concurrent access during async dispose
+  pipelines.delete(key);
+  try {
+    const p = await entry.pipeline;
+    if (typeof p.dispose === 'function') {
+      p.dispose();
+    }
+  } catch {
+    // Pipeline load may have failed — nothing to dispose
   }
   // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-  console.warn(`[EmbeddingWorker] Invalidated ${keysToDelete.length} WebGPU pipeline(s)`);
+  console.log(`[EmbeddingWorker] Disposed pipeline: ${key}`);
+  updateKeepAliveState();
+  if (pipelines.size === 0) {
+    stopIdleSweep();
+  }
+}
+
+function invalidateWebGpuPipelines(): void {
+  const keysToDispose: string[] = [];
+  for (const [key, entry] of pipelines) {
+    if (entry.device === 'webgpu') {
+      keysToDispose.push(key);
+    }
+  }
+  for (const key of keysToDispose) {
+    void disposePipeline(key);
+  }
+  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+  console.warn(`[EmbeddingWorker] Invalidated ${keysToDispose.length} WebGPU pipeline(s)`);
+}
+
+function evictLruByDevice(device: EmbeddingDevice, maxResident: number): void {
+  const entries: PipelineCacheEntry[] = [];
+  for (const entry of pipelines.values()) {
+    if (entry.device === device) {
+      entries.push(entry);
+    }
+  }
+  if (entries.length < maxResident) {
+    return;
+  }
+  // Sort oldest-first by lastUsedAt
+  entries.sort((a, b) => a.lastUsedAt - b.lastUsedAt);
+  const evictCount = entries.length - maxResident + 1;
+  for (let i = 0; i < evictCount; i++) {
+    const victim = entries[i];
+    if (victim) {
+      void disposePipeline(victim.cacheKey);
+    }
+  }
+}
+
+function sweepIdlePipelines(): void {
+  if (isInferenceActive) {
+    return;
+  }
+  const cutoff = now() - PIPELINE_IDLE_TIMEOUT_MS;
+  const keysToEvict: string[] = [];
+  for (const [key, entry] of pipelines) {
+    if (entry.lastUsedAt < cutoff) {
+      keysToEvict.push(key);
+    }
+  }
+  for (const key of keysToEvict) {
+    void disposePipeline(key);
+  }
+  if (keysToEvict.length > 0) {
+    updateKeepAliveState();
+  }
+}
+
+function startIdleSweep(): void {
+  if (idleSweepTimer !== null) {
+    return;
+  }
+  idleSweepTimer = setInterval(sweepIdlePipelines, IDLE_SWEEP_INTERVAL_MS);
+}
+
+function stopIdleSweep(): void {
+  if (idleSweepTimer !== null) {
+    clearInterval(idleSweepTimer);
+    idleSweepTimer = null;
+  }
+}
+
+function updateKeepAliveState(): void {
+  let hasGpu = false;
+  for (const entry of pipelines.values()) {
+    if (entry.device === 'webgpu') {
+      hasGpu = true;
+      break;
+    }
+  }
+  if (!hasGpu) {
+    stopKeepAlive();
+  }
 }
 
 /**
@@ -400,8 +509,8 @@ async function loadPipeline(
   const cacheKey = `${model}|${device}|${dtype}`;
   const existing = pipelines.get(cacheKey);
   if (existing !== undefined) {
-    // Use cached pipeline - no need to log every time
-    return existing;
+    existing.lastUsedAt = now();
+    return existing.pipeline;
   }
 
   // Only log first-time pipeline loading (not cached hits)
@@ -422,6 +531,9 @@ async function loadPipeline(
 
       return result as FeatureExtractor;
     } catch (error) {
+      // Remove failed entry so retries work (don't leave rejected promise cached)
+      pipelines.delete(cacheKey);
+
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
@@ -437,7 +549,21 @@ async function loadPipeline(
     }
   })();
 
-  pipelines.set(cacheKey, loader);
+  const maxResident = device === 'webgpu' ? MAX_GPU_PIPELINES : MAX_WASM_PIPELINES;
+  evictLruByDevice(device, maxResident);
+
+  const timestamp = now();
+  const entry: PipelineCacheEntry = {
+    cacheKey,
+    pipeline: loader,
+    device,
+    model,
+    lastUsedAt: timestamp,
+    createdAt: timestamp,
+  };
+  pipelines.set(cacheKey, entry);
+  startIdleSweep();
+
   return loader;
 }
 
