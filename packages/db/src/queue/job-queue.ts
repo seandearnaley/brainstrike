@@ -106,6 +106,13 @@ export interface FailParams {
   terminal?: boolean;
 }
 
+export interface FailBatchParams {
+  backoffMs?: number;
+  error: string;
+  jobs: ReadonlyArray<{ id: string; leaseToken: string }>;
+  terminal?: boolean;
+}
+
 export interface CancelParams {
   id: string;
   leaseToken?: string;
@@ -718,6 +725,173 @@ export class JobQueue {
       },
     });
     return retriedJob;
+  }
+
+  private emitFailTelemetry(jobs: Job[], error: string, terminal: boolean): void {
+    for (const job of jobs) {
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+        event: 'error',
+        taskId: job.id,
+        errorMessage: error,
+        metadata: {
+          queue: job.queue,
+          jobType: job.jobType,
+          attempts: job.attempts,
+          ...(terminal ? { terminal: true } : { retryAt: job.runAt }),
+        },
+      });
+    }
+  }
+
+  private failBatchTerminalSql(idCast: string): string {
+    return `UPDATE job_queue AS j
+       SET state = 'failed', error = $1, updated_at = $2
+       FROM unnest($3::${idCast}[], $4::text[]) AS t(id, lease_token)
+       WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+       RETURNING j.*`;
+  }
+
+  private classifyBatchJobs(
+    rows: ReadonlyArray<{ attempts: number; id: string; max_attempts: number }>,
+    tokenMap: Map<string, string>,
+    now: Date,
+    backoffMs: number | undefined
+  ) {
+    const exhausted: { ids: string[]; tokens: string[] } = { ids: [], tokens: [] };
+    const retry: { backoffs: number[]; ids: string[]; runAts: string[]; tokens: string[] } = {
+      backoffs: [],
+      ids: [],
+      runAts: [],
+      tokens: [],
+    };
+
+    for (const row of rows) {
+      const token = tokenMap.get(row.id);
+      if (!token) {
+        continue;
+      }
+      if (row.attempts >= row.max_attempts) {
+        exhausted.ids.push(row.id);
+        exhausted.tokens.push(token);
+      } else {
+        const backoff = backoffMs ?? this.retryPolicy(row.attempts);
+        retry.ids.push(row.id);
+        retry.tokens.push(token);
+        retry.runAts.push(new Date(now.getTime() + backoff).toISOString());
+        retry.backoffs.push(backoff);
+      }
+    }
+    return { exhausted, retry };
+  }
+
+  /**
+   * Fail multiple jobs atomically using batched queries.
+   * Terminal failures: 1 query. Retryable: up to 3 queries (SELECT + 2 UPDATEs).
+   * Much more efficient than calling fail() in a loop (2N queries).
+   */
+  async failBatch(params: FailBatchParams): Promise<Job[]> {
+    if (params.jobs.length === 0) {
+      return [];
+    }
+    const idType = await this.getOrResolveIdType();
+    this.validateIdType(idType);
+    const now = new Date();
+    const updatedAt = now.toISOString();
+    const ids = params.jobs.map((j) => j.id);
+    const leaseTokens = params.jobs.map((j) => j.leaseToken);
+    const idCast = idType === 'uuid' ? 'uuid' : 'text';
+
+    // Terminal branch: all jobs go straight to 'failed'
+    if (params.terminal) {
+      const res = await this.db.query<JobRow>(this.failBatchTerminalSql(idCast), [
+        params.error,
+        updatedAt,
+        ids,
+        leaseTokens,
+      ]);
+      const failedJobs = res.rows.map(fromRow);
+      if (failedJobs.length > 0) {
+        logger.error('Jobs failed permanently in batch', { count: failedJobs.length });
+        this.emitFailTelemetry(failedJobs, params.error, true);
+      }
+      return failedJobs;
+    }
+
+    // Retryable branch: need to check attempts vs max_attempts per job
+    const selectSql = `SELECT id, attempts, max_attempts FROM job_queue
+       WHERE (id, lease_token) IN (SELECT * FROM unnest($1::${idCast}[], $2::text[]))
+         AND state = 'running'`;
+
+    const current = await this.db.query<{ attempts: number; id: string; max_attempts: number }>(
+      selectSql,
+      [ids, leaseTokens]
+    );
+    if (current.rows.length === 0) {
+      return [];
+    }
+
+    const tokenMap = new Map(params.jobs.map((j) => [j.id, j.leaseToken]));
+    const { exhausted, retry } = this.classifyBatchJobs(
+      current.rows,
+      tokenMap,
+      now,
+      params.backoffMs
+    );
+
+    const allResults: Job[] = [];
+
+    // UPDATE exhausted → 'failed'
+    if (exhausted.ids.length > 0) {
+      const res = await this.db.query<JobRow>(this.failBatchTerminalSql(idCast), [
+        params.error,
+        updatedAt,
+        exhausted.ids,
+        exhausted.tokens,
+      ]);
+      const failedJobs = res.rows.map(fromRow);
+      allResults.push(...failedJobs);
+      this.emitFailTelemetry(failedJobs, params.error, true);
+    }
+
+    // UPDATE retryable → 'queued' with per-job run_at
+    if (retry.ids.length > 0) {
+      const retrySql = `UPDATE job_queue AS j
+         SET state = 'queued',
+             error = $1,
+             run_at = t.run_at::timestamptz,
+             backoff_ms = t.backoff::int,
+             leased_until = NULL,
+             lease_token = NULL,
+             updated_at = $2
+         FROM unnest($3::${idCast}[], $4::text[], $5::text[], $6::int[])
+           AS t(id, lease_token, run_at, backoff)
+         WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+         RETURNING j.*`;
+
+      const res = await this.db.query<JobRow>(retrySql, [
+        params.error,
+        updatedAt,
+        retry.ids,
+        retry.tokens,
+        retry.runAts,
+        retry.backoffs,
+      ]);
+      const retriedJobs = res.rows.map(fromRow);
+      allResults.push(...retriedJobs);
+      this.emitFailTelemetry(retriedJobs, params.error, false);
+    }
+
+    if (allResults.length > 0) {
+      logger.debug('Jobs failed in batch', {
+        total: allResults.length,
+        exhausted: exhausted.ids.length,
+        retried: retry.ids.length,
+      });
+    }
+
+    return allResults;
   }
 
   async cancel(params: CancelParams): Promise<Job | null> {

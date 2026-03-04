@@ -42,6 +42,7 @@ export type {
   ClaimParams,
   CompleteParams,
   EnqueueParams,
+  FailBatchParams,
   FailParams,
   HeartbeatParams,
   Job,
