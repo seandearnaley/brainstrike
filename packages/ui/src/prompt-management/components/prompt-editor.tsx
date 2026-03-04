@@ -301,9 +301,10 @@ export function PromptEditor({
                           </div>
                         </div>
                         <Button
+                          aria-label="Restore version"
                           className="h-6 w-6"
                           size="icon"
-                          title="Restore"
+                          title="Restore version"
                           type="button"
                           variant="ghost"
                         >

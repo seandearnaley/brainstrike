@@ -84,7 +84,13 @@ export function PromptCard({
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button className="h-8 w-8" size="icon" variant="ghost">
+                <Button
+                  aria-label="More options"
+                  className="h-8 w-8"
+                  size="icon"
+                  title="More options"
+                  variant="ghost"
+                >
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
