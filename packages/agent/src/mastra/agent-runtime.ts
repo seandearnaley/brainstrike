@@ -1,5 +1,5 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 import { Agent, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
@@ -168,7 +168,8 @@ export async function createMastraAgentRuntime(
   const servers = toMastraServerMap(mcpConfig ?? sanitizedRuntime.mcpConfig);
   const hasServers = Object.keys(servers).length > 0;
   const mcpClient = hasServers
-    ? new MCPClient({ id: `mcp-client-${Date.now()}-${Math.random()}`, servers })
+    ? // Timestamp is kept for easier chronological debugging; UUID provides uniqueness.
+      new MCPClient({ id: `mcp-client-${Date.now()}-${generateUUID()}`, servers })
     : undefined;
 
   const toolNameMap = new Map<string, string>();

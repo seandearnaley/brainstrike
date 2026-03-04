@@ -1,7 +1,7 @@
 import { Badge } from '@brainstrike/ui';
 import { getFolderColor } from '@brainstrike/utils';
 import { ArrowDown, ArrowUp, Folder } from 'lucide-react';
-import { memo } from 'react';
+import { type CSSProperties, memo } from 'react';
 
 export interface FolderHeaderItem {
   fileCount: number;
@@ -15,29 +15,29 @@ export interface FolderHeaderRowProps {
   onToggleCollapse: () => void;
 }
 
-export const FolderHeaderRow = memo<FolderHeaderRowProps>(function FolderHeaderRow({
+const FolderHeaderRowComponent = ({
   item,
   isCollapsed,
   onToggleCollapse,
-}) {
+}: FolderHeaderRowProps) => {
   const colors = getFolderColor(item.folderId);
+  const rowStyle: CSSProperties & Record<'--folder-dark-bg' | '--folder-dark-text', string> = {
+    '--folder-dark-bg': colors.dark.bg,
+    '--folder-dark-text': colors.dark.text,
+    backgroundColor: colors.light.bg,
+    color: colors.light.text,
+  };
 
   return (
     <button
       aria-expanded={!isCollapsed}
       aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} folder ${item.folderId}`}
-      className="flex h-full w-full items-center gap-3 px-4 py-3 text-left transition-opacity hover:opacity-80"
+      className="flex h-full w-full items-center gap-3 px-4 py-3 text-left transition-opacity hover:opacity-80 dark:[background-color:var(--folder-dark-bg)] dark:[color:var(--folder-dark-text)]"
       data-folder-id={item.folderId}
       onClick={onToggleCollapse}
-      style={{ backgroundColor: colors.light.bg, color: colors.light.text }}
+      style={rowStyle}
       type="button"
     >
-      <style>{`
-          :global(.dark) [data-folder-id="${item.folderId}"] {
-            background-color: ${colors.dark.bg} !important;
-            color: ${colors.dark.text} !important;
-          }
-        `}</style>
       <div className="flex items-center gap-2">
         {isCollapsed ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
         <Folder className="h-4 w-4" />
@@ -53,7 +53,9 @@ export const FolderHeaderRow = memo<FolderHeaderRowProps>(function FolderHeaderR
       </div>
     </button>
   );
-});
+};
+
+export const FolderHeaderRow = memo(FolderHeaderRowComponent);
 
 FolderHeaderRow.displayName = 'FolderHeaderRow';
 

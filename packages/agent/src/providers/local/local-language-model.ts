@@ -15,6 +15,7 @@ import type {
   LanguageModelV2ToolCall,
   LanguageModelV2Usage,
 } from '@ai-sdk/provider';
+import { generateUUID } from '@brainstrike/utils';
 import { LocalLlmBackend } from './local-llm-backend';
 import type { LocalLlmMessage, LocalLlmToolDefinition } from './types';
 
@@ -160,7 +161,8 @@ function mapFinishReason(reason: 'stop' | 'length' | 'tool_calls'): LanguageMode
  * Generate a unique ID for stream parts
  */
 function generateId(): string {
-  return Math.random().toString(36).slice(2, 11);
+  // Preserve compact 9-char IDs for stream consumers; this intentionally narrows to hex ([0-9a-f], ~36-bit space) and accepts minor UUID-generation overhead for low-volume stream-part IDs.
+  return generateUUID().replace(/-/g, '').slice(0, 9);
 }
 
 /**

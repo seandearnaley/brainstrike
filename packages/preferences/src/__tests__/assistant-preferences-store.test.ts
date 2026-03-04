@@ -140,6 +140,17 @@ describe('assistant-preferences-store', () => {
   });
 
   it('resolves available providers from secrets API', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
+      ollama: {
+        state: 'unavailable',
+        checkedAt: 123,
+      },
+      lmstudio: {
+        state: 'unavailable',
+        checkedAt: 123,
+      },
+    });
+
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
       list: vi.fn().mockResolvedValue(['openai', 'google', 'unknown-provider']),
@@ -157,6 +168,17 @@ describe('assistant-preferences-store', () => {
   });
 
   it('returns only no-key providers when secrets API fails', async () => {
+    vi.spyOn(LocalRuntimeDiscoveryService.prototype, 'probeAll').mockResolvedValue({
+      ollama: {
+        state: 'unavailable',
+        checkedAt: 123,
+      },
+      lmstudio: {
+        state: 'unavailable',
+        checkedAt: 123,
+      },
+    });
+
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
       list: vi.fn().mockRejectedValue(new Error('not allowed')),
