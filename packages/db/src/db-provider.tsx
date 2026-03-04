@@ -22,6 +22,63 @@ import { wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
+/**
+ * Discriminated union for the internal DB connection handle.
+ * IPC mode: renderer communicates via Electron IPC bridge (no local close).
+ * Direct mode: renderer owns a PGlite instance (must close on teardown).
+ */
+type DbConnection =
+  | { kind: 'ipc'; bridge: ElectronDatabaseAPI }
+  | { kind: 'direct'; db: PGlite; dataDir: string };
+
+async function closeDirectConnection(db: PGlite, dataDir: string): Promise<void> {
+  try {
+    if (dataDir.startsWith('idb://')) {
+      await wasmLoader.closeCached(dataDir);
+    } else {
+      await db.close();
+    }
+  } catch (err: unknown) {
+    const errorMessage = (err as Error)?.message || '';
+    if (!(errorMessage.includes('closed') || errorMessage.includes('PGlite is closed'))) {
+      logger.error('Failed to close database:', err);
+    }
+  }
+}
+
+async function purgeAndCloseDirectDb(
+  db: PGlite,
+  dataDir: string,
+  purgeTablesTx: (tx: { query: (sql: string) => Promise<unknown> }) => Promise<void>
+): Promise<void> {
+  try {
+    await db.transaction(async (tx) => {
+      await purgeTablesTx(tx);
+    });
+  } catch (error) {
+    logger.error('[DbProvider] Failed to purge tables during factory reset:', error);
+  }
+  try {
+    await db.exec('VACUUM');
+  } catch (err) {
+    logger.warn('VACUUM after purge failed:', err);
+  }
+  if (dataDir.startsWith('idb://')) {
+    try {
+      await wasmLoader.closeCached(dataDir);
+      logger.info('[DbProvider] Closed cached IndexedDB instance during factory reset');
+    } catch (err) {
+      logger.warn('Failed to close cached IndexedDB instance during reset:', err);
+    }
+  } else {
+    try {
+      await db.close();
+    } catch (err) {
+      logger.warn('Closing database after purge failed:', err);
+    }
+  }
+}
+
 // Module-level dynamic import helpers — extracted from component scope
 // so the React Compiler's HIR builder doesn't encounter import() expressions.
 async function loadElectronEmbeddingSetsRepository() {
@@ -269,7 +326,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const [vectorEnabled, setVectorEnabled] = useState(false);
   const [exposedDb, setExposedDb] = useState<DbHandle | null>(null);
 
-  const dbRef = useRef<PGlite | null>(null);
+  const connectionRef = useRef<DbConnection | null>(null);
   const initializingRef = useRef<boolean>(false);
   const initializingPromiseRef = useRef<Promise<void> | null>(null);
 
@@ -353,7 +410,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       });
 
       if (!cancelled.value) {
-        dbRef.current = electronDB as unknown as PGlite;
+        connectionRef.current = { kind: 'ipc', bridge: electronDB };
         setExposedDb(createDbHandle(electronDB as unknown as QueryExecutor));
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
@@ -373,7 +430,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       logger.info('Using direct PGlite connection');
 
       const db = await wasmLoader.createPGlite(resolvedPath);
-      dbRef.current = db;
+      connectionRef.current = { kind: 'direct', db, dataDir: resolvedPath };
 
       await migrate(db);
 
@@ -418,7 +475,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const initializeDatabase = useCallback(async () => {
     // Fast exits when already ready
-    if (lazyInitialized || (dbRef.current && !useElectronIPC)) {
+    if (lazyInitialized || (connectionRef.current && !useElectronIPC)) {
       return;
     }
 
@@ -473,20 +530,15 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     return () => {
-      const db = dbRef.current;
-      if (db && !isDevEnv()) {
-        setTimeout(() => {
-          const closeResult = db.close();
-          if (closeResult && typeof (closeResult as Promise<unknown>).catch === 'function') {
-            (closeResult as Promise<void>).catch((err) => {
-              const errorMessage = err?.message || '';
-              if (!(errorMessage.includes('closed') || errorMessage.includes('PGlite is closed'))) {
-                logger.error('Failed to close database:', err);
-              }
-            });
-          }
-        }, 0);
-        dbRef.current = null;
+      const conn = connectionRef.current;
+      if (conn) {
+        if (conn.kind === 'direct' && !isDevEnv()) {
+          const { db, dataDir } = conn;
+          setTimeout(() => {
+            void closeDirectConnection(db, dataDir);
+          }, 0);
+        }
+        connectionRef.current = null;
       }
       initializingRef.current = false;
     };
@@ -510,14 +562,17 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, []);
 
   const clearViaPGlite = useCallback(async () => {
-    if (!dbRef.current) {
+    if (!connectionRef.current) {
       await initializeDatabase();
     }
-    if (!dbRef.current) {
-      throw new Error('Database not available');
+    const conn = connectionRef.current;
+    if (!conn || conn.kind !== 'direct') {
+      throw new Error(
+        'Direct PGlite database not available (IPC connections use clearViaElectronIPC)'
+      );
     }
 
-    return await dbRef.current.transaction(async (tx) => {
+    return await conn.db.transaction(async (tx) => {
       // Clear chunks first due to foreign key constraints
       const chunksResult = await tx.query('SELECT COUNT(*) as count FROM file_chunks');
       const chunksRow = chunksResult.rows[0] as { count: string | number } | undefined;
@@ -638,39 +693,16 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, [useElectronIPC]);
 
   const purgeAndClosePGlite = useCallback(async () => {
-    if (!dbRef.current) {
+    const conn = connectionRef.current;
+    if (!conn) {
       return;
     }
-    try {
-      await dbRef.current.transaction(async (tx) => {
-        await purgeTablesTx(tx);
-      });
-    } catch (error) {
-      logger.error('[DbProvider] Failed to purge tables during factory reset:', error);
+    if (conn.kind === 'direct') {
+      await purgeAndCloseDirectDb(conn.db, conn.dataDir, purgeTablesTx);
     }
-    try {
-      await dbRef.current.exec('VACUUM');
-    } catch (err) {
-      logger.warn('VACUUM after purge failed:', err);
-    }
-    const usesIndexedDb = resolvedPath.startsWith('idb://');
-    if (usesIndexedDb) {
-      try {
-        await wasmLoader.closeCached(resolvedPath);
-        logger.info('[DbProvider] Closed cached IndexedDB instance during factory reset');
-      } catch (err) {
-        logger.warn('Failed to close cached IndexedDB instance during reset:', err);
-      }
-    } else {
-      try {
-        await dbRef.current.close();
-      } catch (err) {
-        logger.warn('Closing database after purge failed:', err);
-      }
-    }
-    dbRef.current = null;
+    connectionRef.current = null;
     setExposedDb(null);
-  }, [purgeTablesTx, resolvedPath]);
+  }, [purgeTablesTx]);
 
   const cleanupAndWaitForReset = useCallback(async () => {
     // Delete the IndexedDB database to fully wipe corrupted TOAST chunks
@@ -725,15 +757,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, [initializeDirectPGlite]);
 
   const resetPGliteState = useCallback(async () => {
-    // Purge and close if database exists
-    if (dbRef.current) {
+    if (connectionRef.current) {
       await purgeAndClosePGlite();
     } else {
       logger.warn('[DbProvider] No active database to purge during factory reset');
     }
 
-    // Reset all state
-    dbRef.current = null;
+    connectionRef.current = null;
     setExposedDb(null);
     setDrizzleDb(null);
     setFileRecordRepository(null);
@@ -819,20 +849,19 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         await resetPGliteState();
       },
       clearQueuesAndEmbeddingSets: async () => {
-        // Prefer Electron IPC when truly available; otherwise use local DB
         if (useElectronIPC) {
           // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
           const w = (typeof window !== 'undefined' ? (window as any) : null) as any;
           if (w?.electronAPI?.db?.query) {
             await purgeQueuesAndSetsElectron();
-            return; // IPC path executed
+            return;
           }
-          // If IPC not available despite flag, fall through to local path
         }
-        if (!dbRef.current) {
+        const conn = connectionRef.current;
+        if (!conn || conn.kind !== 'direct') {
           return;
         }
-        await dbRef.current.transaction(async (tx) => {
+        await conn.db.transaction(async (tx) => {
           await purgeQueuesAndSetsTx(tx);
         });
       },
