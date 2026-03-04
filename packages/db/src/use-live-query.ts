@@ -161,7 +161,16 @@ function useStableParams<T>(value: T, strategy: 'json' | 'deep'): T {
   const keyRef = useRef<string>('');
 
   if (strategy === 'json') {
-    const nextKey = JSON.stringify(value) ?? '';
+    let nextKey: string;
+    try {
+      nextKey = JSON.stringify(value) ?? ''; // undefined/Symbol/Function → ''
+    } catch {
+      // BigInt or other non-serializable types — fall back to deepEqual
+      if (!deepEqual(value, ref.current)) {
+        ref.current = value;
+      }
+      return ref.current;
+    }
     if (nextKey !== keyRef.current) {
       keyRef.current = nextKey;
       ref.current = value;

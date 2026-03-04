@@ -255,6 +255,25 @@ describe('useStableParams (JSON strategy - default)', () => {
     rerender(<StableParamsComponent compareParams="deep" params={[1, 'hello']} />);
     expect(mockQuery).toHaveBeenCalledTimes(1);
   });
+
+  it('should use deepEqual semantics for non-JSON-safe values', () => {
+    const date = new Date('2024-01-01');
+    const { rerender } = render(<StableParamsComponent compareParams="deep" params={[date]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    // Same date value, new object — deepEqual returns true, should not resubscribe
+    rerender(<StableParamsComponent compareParams="deep" params={[new Date('2024-01-01')]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not crash when JSON strategy encounters BigInt params', () => {
+    // BigInt throws on JSON.stringify — useStableParams falls back to deepEqual
+    const { rerender } = render(<StableParamsComponent params={[BigInt(1)]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<StableParamsComponent params={[BigInt(1)]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('deepEqual', () => {
