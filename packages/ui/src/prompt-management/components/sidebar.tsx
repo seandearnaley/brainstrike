@@ -96,7 +96,13 @@ export function Sidebar({
         {/* Placeholder for tags or other filters */}
         <div className="flex items-center justify-between px-4 py-2 font-semibold text-muted-foreground text-xs uppercase tracking-wider">
           <span>Tags</span>
-          <Button className="h-4 w-4" size="icon" variant="ghost">
+          <Button
+            aria-label="Add tag"
+            className="h-4 w-4"
+            size="icon"
+            title="Add tag"
+            variant="ghost"
+          >
             <Plus className="h-3 w-3" />
           </Button>
         </div>
