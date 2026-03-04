@@ -185,7 +185,7 @@ describe('DbProvider lifecycle', () => {
     it('calls wasmLoader.closeCached for IDB-backed databases in production', async () => {
       const mockDb = createMockDb();
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
-      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
       vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
       const closeCachedSpy = vi
         .spyOn(wasmLoaderModule.wasmLoader, 'closeCached')
@@ -212,7 +212,7 @@ describe('DbProvider lifecycle', () => {
     it('calls db.close() for memory databases in production', async () => {
       const mockDb = createMockDb();
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
-      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
       vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
 
       const { result, unmount } = renderHook(() => useFileRecordRepository(), {
@@ -234,7 +234,7 @@ describe('DbProvider lifecycle', () => {
     it('skips close in dev mode for HMR protection', async () => {
       const mockDb = createMockDb();
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
-      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
       vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(true);
       const closeCachedSpy = vi
         .spyOn(wasmLoaderModule.wasmLoader, 'closeCached')
