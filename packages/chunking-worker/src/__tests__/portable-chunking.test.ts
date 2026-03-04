@@ -76,7 +76,7 @@ describe('portable-chunking', () => {
       });
 
       it('should skip highly repetitive generated content', async () => {
-        const repetitive = `${'same-line\n'.repeat(1050)}unique-tail`;
+        const repetitive = `${'same-line\n'.repeat(1001)}unique-tail`;
 
         const result = await chunkContent(repetitive, {
           strategy: 'sentence',
