@@ -237,4 +237,195 @@ describe('JobQueue Batch Operations', () => {
       );
     });
   });
+
+  describe('failBatch', () => {
+    it('fails all jobs as terminal', async () => {
+      const queue = new JobQueue(db);
+      await queue.enqueue({ queue: 'q1', jobType: 'embed_chunk', payload: {} });
+      await queue.enqueue({ queue: 'q1', jobType: 'embed_chunk', payload: {} });
+
+      const claimed = await queue.claimMany({ queue: 'q1', leaseMs: 5000, limit: 2 });
+      expect(claimed).toHaveLength(2);
+
+      const result = await queue.failBatch({
+        jobs: claimed.map((j) => ({ id: j.id, leaseToken: j.lease_token as string })),
+        error: 'terminal error',
+        terminal: true,
+      });
+
+      expect(result).toHaveLength(2);
+      expect(result.every((j) => j.state === 'failed')).toBe(true);
+      expect(result.every((j) => j.error === 'terminal error')).toBe(true);
+    });
+
+    it('retries jobs that have attempts remaining', async () => {
+      const queue = new JobQueue(db);
+      await queue.enqueue({
+        queue: 'q1',
+        jobType: 'embed_chunk',
+        payload: {},
+        maxAttempts: 5,
+      });
+
+      const claimed = await queue.claim({ queue: 'q1', leaseMs: 5000 });
+      expect(claimed).not.toBeNull();
+      // After claim, attempts = 1, max_attempts = 5 → retryable
+
+      const result = await queue.failBatch({
+        jobs: [{ id: claimed!.id, leaseToken: claimed!.lease_token as string }],
+        error: 'transient error',
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].state).toBe('queued');
+      expect(result[0].error).toBe('transient error');
+      // run_at should be in the future
+      expect(new Date(result[0].runAt).getTime()).toBeGreaterThan(Date.now() - 1000);
+    });
+
+    it('handles mixed exhausted and retryable jobs', async () => {
+      const queue = new JobQueue(db);
+
+      // Job with maxAttempts=1 will be exhausted after first claim
+      await queue.enqueue({
+        queue: 'q1',
+        jobType: 'embed_chunk',
+        payload: { type: 'exhausted' },
+        maxAttempts: 1,
+      });
+      // Job with maxAttempts=5 will be retryable
+      await queue.enqueue({
+        queue: 'q1',
+        jobType: 'embed_chunk',
+        payload: { type: 'retryable' },
+        maxAttempts: 5,
+      });
+
+      const claimed = await queue.claimMany({ queue: 'q1', leaseMs: 5000, limit: 2 });
+      expect(claimed).toHaveLength(2);
+
+      const result = await queue.failBatch({
+        jobs: claimed.map((j) => ({ id: j.id, leaseToken: j.lease_token as string })),
+        error: 'batch error',
+      });
+
+      expect(result).toHaveLength(2);
+
+      const failed = result.filter((j) => j.state === 'failed');
+      const retried = result.filter((j) => j.state === 'queued');
+
+      expect(failed).toHaveLength(1);
+      expect(retried).toHaveLength(1);
+    });
+
+    it('silently ignores invalid lease tokens', async () => {
+      const queue = new JobQueue(db);
+      await queue.enqueue({ queue: 'q1', jobType: 'embed_chunk', payload: {} });
+
+      const claimed = await queue.claim({ queue: 'q1', leaseMs: 5000 });
+      expect(claimed).not.toBeNull();
+
+      const result = await queue.failBatch({
+        jobs: [
+          { id: claimed!.id, leaseToken: claimed!.lease_token as string },
+          { id: 'fake-id', leaseToken: 'fake-token' },
+        ],
+        error: 'some error',
+        terminal: true,
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(claimed!.id);
+    });
+
+    it('returns empty array for empty batch', async () => {
+      const queue = new JobQueue(db);
+      const result = await queue.failBatch({
+        jobs: [],
+        error: 'unused',
+      });
+      expect(result).toEqual([]);
+    });
+
+    it('uses explicit backoffMs instead of retryPolicy', async () => {
+      const queue = new JobQueue(db);
+      await queue.enqueue({
+        queue: 'q1',
+        jobType: 'embed_chunk',
+        payload: {},
+        maxAttempts: 5,
+      });
+
+      const claimed = await queue.claim({ queue: 'q1', leaseMs: 5000 });
+      expect(claimed).not.toBeNull();
+
+      const beforeFail = Date.now();
+      const result = await queue.failBatch({
+        jobs: [{ id: claimed!.id, leaseToken: claimed!.lease_token as string }],
+        error: 'rate limited',
+        backoffMs: 30_000,
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].state).toBe('queued');
+      expect(result[0].backoff_ms).toBe(30_000);
+      // run_at should be ~30s from now
+      const runAtMs = new Date(result[0].runAt).getTime();
+      expect(runAtMs).toBeGreaterThanOrEqual(beforeFail + 29_000);
+      expect(runAtMs).toBeLessThanOrEqual(beforeFail + 32_000);
+    });
+
+    it('produces different per-job run_at values via jitter', async () => {
+      const queue = new JobQueue(db);
+      // Enqueue 3 jobs with enough max_attempts for multiple rounds
+      for (let i = 0; i < 3; i++) {
+        await queue.enqueue({
+          queue: 'q1',
+          jobType: 'embed_chunk',
+          payload: { i },
+          maxAttempts: 10,
+        });
+      }
+
+      // Pump attempts to 3 so retryPolicy jitter range exceeds the base floor.
+      // At attempts=1, jitter ∈ [400,1000] clamped to base=1000 → always 1000.
+      // At attempts=3, jitter ∈ [1600,4000] → meaningful variation.
+      const futureNow = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      for (let round = 0; round < 2; round++) {
+        const batch = await queue.claimMany({
+          queue: 'q1',
+          leaseMs: 5000,
+          limit: 3,
+          now: futureNow,
+        });
+        await Promise.all(
+          batch.map((j) =>
+            queue.fail({ id: j.id, leaseToken: j.lease_token as string, error: 'bump' })
+          )
+        );
+      }
+
+      // Now attempts=3 for all jobs; claim and failBatch
+      const claimed = await queue.claimMany({
+        queue: 'q1',
+        leaseMs: 5000,
+        limit: 3,
+        now: futureNow,
+      });
+      expect(claimed).toHaveLength(3);
+
+      const result = await queue.failBatch({
+        jobs: claimed.map((j) => ({ id: j.id, leaseToken: j.lease_token as string })),
+        error: 'transient',
+      });
+
+      expect(result).toHaveLength(3);
+      expect(result.every((j) => j.state === 'queued')).toBe(true);
+
+      // With jitter at attempts=3, at least 2 of 3 run_at values should differ
+      const runAts = result.map((j) => j.runAt);
+      const uniqueRunAts = new Set(runAts);
+      expect(uniqueRunAts.size).toBeGreaterThanOrEqual(2);
+    });
+  });
 });
