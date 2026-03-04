@@ -101,6 +101,7 @@ type FeatureExtractor = FeatureExtractionPipeline &
 
 interface PipelineCacheEntry {
   readonly cacheKey: string;
+  /** Monotonic timestamp (via `now()`) — reserved for future diagnostics. */
   readonly createdAt: number;
   readonly device: EmbeddingDevice;
   lastUsedAt: number;

@@ -1,71 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EmbedWorkerRequest, EmbedWorkerSuccess } from '../src';
-
-const workerEmitMock = vi.fn();
-const transferMock = vi.fn(function TransferStub<T>(value: T) {
-  return value;
-});
-const pipelineMock = vi.fn();
-const registeredHandlers: {
-  runEmbedding?: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
-} = {};
-
-vi.mock('workerpool', () => ({
-  worker: (handlers: {
-    runEmbedding: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
-  }) => {
-    registeredHandlers.runEmbedding = handlers.runEmbedding;
-  },
-  workerEmit: workerEmitMock,
-  Transfer: transferMock,
-}));
-
-vi.mock('@huggingface/transformers', () => ({
-  env: { allowRemoteModels: false },
-  pipeline: (...args: unknown[]) => pipelineMock(...args),
-  Tensor: class MockTensor {
-    readonly data: Float32Array;
-    readonly dims: readonly number[];
-    constructor(values: readonly number[], dims: readonly number[]) {
-      this.data = Float32Array.from(values);
-      this.dims = dims;
-    }
-    tolist() {
-      return Array.from(this.data);
-    }
-  },
-}));
+import { loadWorker, makeExtractor, pipelineMock, resetMocks } from './helpers/pipeline-test-setup';
 
 describe('pipeline eviction policy', () => {
   beforeEach(() => {
-    vi.resetModules();
-    workerEmitMock.mockReset();
-    pipelineMock.mockReset();
-    transferMock.mockClear();
-    registeredHandlers.runEmbedding = undefined;
-    vi.unstubAllGlobals();
+    resetMocks();
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
-
-  async function loadWorker() {
-    await import('../src/embedding.worker');
-    if (!registeredHandlers.runEmbedding) {
-      throw new Error('Embedding worker was not registered');
-    }
-    return registeredHandlers.runEmbedding;
-  }
-
-  function makeExtractor(id: string) {
-    const disposeMock = vi.fn();
-    const extractor = Object.assign(async () => new Float32Array([1, 0, 0]), {
-      dispose: disposeMock,
-      _id: id,
-    });
-    return { extractor, disposeMock };
-  }
 
   it('loading 2nd GPU pipeline evicts the 1st (max 1 GPU)', async () => {
     vi.stubGlobal('navigator', { gpu: {} });

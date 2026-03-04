@@ -1,62 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EmbedWorkerRequest, EmbedWorkerSuccess } from '../src';
-
-const workerEmitMock = vi.fn();
-const transferMock = vi.fn(function TransferStub<T>(value: T) {
-  return value;
-});
-const pipelineMock = vi.fn();
-const registeredHandlers: {
-  runEmbedding?: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
-} = {};
-
-vi.mock('workerpool', () => ({
-  worker: (handlers: {
-    runEmbedding: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
-  }) => {
-    registeredHandlers.runEmbedding = handlers.runEmbedding;
-  },
-  workerEmit: workerEmitMock,
-  Transfer: transferMock,
-}));
-
-vi.mock('@huggingface/transformers', () => ({
-  env: { allowRemoteModels: false },
-  pipeline: (...args: unknown[]) => pipelineMock(...args),
-  Tensor: class MockTensor {
-    readonly data: Float32Array;
-    readonly dims: readonly number[];
-    constructor(values: readonly number[], dims: readonly number[]) {
-      this.data = Float32Array.from(values);
-      this.dims = dims;
-    }
-    tolist() {
-      return Array.from(this.data);
-    }
-  },
-}));
+import { loadWorker, pipelineMock, resetMocks } from './helpers/pipeline-test-setup';
 
 describe('pipeline cache metadata and dispose', () => {
   beforeEach(() => {
-    vi.resetModules();
-    workerEmitMock.mockReset();
-    pipelineMock.mockReset();
-    transferMock.mockClear();
-    registeredHandlers.runEmbedding = undefined;
-    vi.unstubAllGlobals();
+    resetMocks();
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
-
-  async function loadWorker() {
-    await import('../src/embedding.worker');
-    if (!registeredHandlers.runEmbedding) {
-      throw new Error('Embedding worker was not registered');
-    }
-    return registeredHandlers.runEmbedding;
-  }
 
   it('disposePipeline calls .dispose() and removes from cache', async () => {
     const disposeMock = vi.fn();
@@ -85,10 +37,6 @@ describe('pipeline cache metadata and dispose', () => {
     });
     expect(pipelineMock).toHaveBeenCalledTimes(1);
 
-    // Trigger invalidation (which calls disposePipeline internally)
-    // We'll use device loss simulation to trigger invalidateWebGpuPipelines
-    // Instead, load a second pipeline and trigger dispose via a new load after invalidation
-
     // For direct disposePipeline testing, we need the pipeline to be webgpu
     // so invalidateWebGpuPipelines calls disposePipeline
     vi.stubGlobal('navigator', { gpu: {} });
@@ -97,8 +45,11 @@ describe('pipeline cache metadata and dispose', () => {
     );
 
     // Reset modules to get a fresh worker with access to webgpu
-    vi.resetModules();
-    registeredHandlers.runEmbedding = undefined;
+    resetMocks();
+    vi.stubGlobal('navigator', { gpu: {} });
+    pipelineMock.mockResolvedValue(
+      Object.assign(async () => new Float32Array([1, 0, 0]), { dispose: disposeMock })
+    );
     const runEmbedding2 = await loadWorker();
 
     await runEmbedding2({
