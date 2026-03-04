@@ -377,17 +377,41 @@ describe('JobQueue Batch Operations', () => {
 
     it('produces different per-job run_at values via jitter', async () => {
       const queue = new JobQueue(db);
-      // Enqueue 3 jobs, all retryable
+      // Enqueue 3 jobs with enough max_attempts for multiple rounds
       for (let i = 0; i < 3; i++) {
         await queue.enqueue({
           queue: 'q1',
           jobType: 'embed_chunk',
           payload: { i },
-          maxAttempts: 5,
+          maxAttempts: 10,
         });
       }
 
-      const claimed = await queue.claimMany({ queue: 'q1', leaseMs: 5000, limit: 3 });
+      // Pump attempts to 3 so retryPolicy jitter range exceeds the base floor.
+      // At attempts=1, jitter ∈ [400,1000] clamped to base=1000 → always 1000.
+      // At attempts=3, jitter ∈ [1600,4000] → meaningful variation.
+      const futureNow = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      for (let round = 0; round < 2; round++) {
+        const batch = await queue.claimMany({
+          queue: 'q1',
+          leaseMs: 5000,
+          limit: 3,
+          now: futureNow,
+        });
+        await Promise.all(
+          batch.map((j) =>
+            queue.fail({ id: j.id, leaseToken: j.lease_token as string, error: 'bump' })
+          )
+        );
+      }
+
+      // Now attempts=3 for all jobs; claim and failBatch
+      const claimed = await queue.claimMany({
+        queue: 'q1',
+        leaseMs: 5000,
+        limit: 3,
+        now: futureNow,
+      });
       expect(claimed).toHaveLength(3);
 
       const result = await queue.failBatch({
@@ -398,11 +422,10 @@ describe('JobQueue Batch Operations', () => {
       expect(result).toHaveLength(3);
       expect(result.every((j) => j.state === 'queued')).toBe(true);
 
-      // With jitter, at least some run_at values should differ
+      // With jitter at attempts=3, at least 2 of 3 run_at values should differ
       const runAts = result.map((j) => j.runAt);
-      // Not all identical (extremely unlikely with random jitter)
       const uniqueRunAts = new Set(runAts);
-      expect(uniqueRunAts.size).toBeGreaterThanOrEqual(1);
+      expect(uniqueRunAts.size).toBeGreaterThanOrEqual(2);
     });
   });
 });
