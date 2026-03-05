@@ -702,21 +702,27 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       return;
     }
 
+    // BST-360: Debounce DB queries to coalesce rapid selection changes
+    // (drag-select, bulk checkbox toggling). Cache-based estimates via
+    // tokensFromCache memo remain instant and unaffected.
     let cancelled = false;
-    void estimateSelectionTokenCountFromDb(db as QueryableTokenDatabase, selectionData.filePaths)
-      .then((total) => {
-        if (!cancelled) {
-          dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: total });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: 0 });
-        }
-      });
+    const timer = setTimeout(() => {
+      void estimateSelectionTokenCountFromDb(db as QueryableTokenDatabase, selectionData.filePaths)
+        .then((total) => {
+          if (!cancelled) {
+            dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: total });
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            dispatchTokenEstimate({ type: 'SET_SELECTION', tokens: 0 });
+          }
+        });
+    }, 300);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [db, selectionData.filePaths, selectionData.folderId]);
 

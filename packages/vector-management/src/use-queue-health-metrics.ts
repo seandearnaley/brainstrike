@@ -4,6 +4,9 @@
  * Consolidates durable (JobQueue) and ephemeral (workerpool) queue metrics
  * into a unified QueueHealthMetrics structure for diagnostics views.
  *
+ * BST-359: Durable stats are now read from the shared Zustand store
+ * (written by EmbeddingJobQueueTracker) instead of polling the DB directly.
+ *
  * @example
  * ```tsx
  * function DiagnosticsPanel() {
@@ -21,27 +24,19 @@
  * ```
  */
 
-import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
-import { isAppActive } from '@brainstrike/hooks';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import type {
-  DurableQueueStats,
   EphemeralQueueMetrics,
   QueueHealthMetrics,
   WorkerHealthStatus,
 } from '@brainstrike/queue';
-import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from './embedding-queue-provider';
 
-const logger = createLogger('useQueueHealthMetrics');
-
-const EMBEDDING_QUEUE_NAME = 'embeddings';
-const DEFAULT_POLL_INTERVAL_MS = 2000;
-
 export interface UseQueueHealthMetricsOptions {
-  /** Whether to enable polling (default: true in browser, false in test) */
+  /** @deprecated No longer used — durable stats come from the shared store. */
   readonly enablePolling?: boolean;
-  /** Polling interval in ms (default: 2000) */
+  /** @deprecated No longer used — durable stats come from the shared store. */
   readonly pollIntervalMs?: number;
 }
 
@@ -52,88 +47,32 @@ export interface UseQueueHealthMetricsReturn {
   readonly isLoading: boolean;
   /** Consolidated health metrics */
   readonly metrics: QueueHealthMetrics;
-  /** Force a refresh of all metrics */
+  /** Force a refresh of ephemeral metrics */
   readonly refresh: () => Promise<void>;
 }
-
-/**
- * Initial empty metrics state.
- */
-const INITIAL_METRICS: QueueHealthMetrics = {
-  durableQueue: null,
-  ephemeralQueue: null,
-  workerHealth: null,
-  lastUpdated: 0,
-};
 
 /**
  * Hook to consolidate queue health metrics from multiple sources.
  *
  * Sources:
- * - Durable queue: JobQueue stats from PGlite database
+ * - Durable queue: Read from shared Zustand store (written by EmbeddingJobQueueTracker)
  * - Ephemeral queue: Runtime metrics from EmbeddingQueueProvider
  * - Worker health: Worker state from EmbeddingQueueProvider
  */
 export function useQueueHealthMetrics(
-  options: UseQueueHealthMetricsOptions = {}
+  _options: UseQueueHealthMetricsOptions = {}
 ): UseQueueHealthMetricsReturn {
-  const { pollIntervalMs = DEFAULT_POLL_INTERVAL_MS } = options;
-
-  // Default polling to true in browser, false in test
-  const nodeEnv = typeof process !== 'undefined' ? process.env?.['NODE_ENV'] : undefined;
-  const defaultEnablePolling = typeof window !== 'undefined' && nodeEnv !== 'test';
-  const enablePolling = options.enablePolling ?? defaultEnablePolling;
-
-  const [metrics, setMetrics] = useState<QueueHealthMetrics>(INITIAL_METRICS);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
 
-  // Get database connection
-  const db = usePGliteDatabase();
-  const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
+  // BST-359: Read durable stats from shared store (written by EmbeddingJobQueueTracker)
+  const durableQueueStats = useVectorStatusUIStore((s) => s.durableQueueStats);
 
   // Get ephemeral queue metrics from provider (returns null if not within provider)
   const embeddingQueueContext = useEmbeddingQueueSafe();
 
-  // Ref to track if component is mounted
   const mountedRef = useRef(true);
 
-  /**
-   * Fetch durable queue stats from database.
-   */
-  const fetchDurableStats = useCallback(async (): Promise<DurableQueueStats | null> => {
-    if (!jobQueue) {
-      return null;
-    }
-
-    try {
-      const stats = await jobQueue.getQueueStats(EMBEDDING_QUEUE_NAME);
-      const s = stats?.[0];
-      if (!s) {
-        return {
-          queued: 0,
-          running: 0,
-          failed: 0,
-          succeeded: 0,
-          nextRunnableAt: null,
-        };
-      }
-      return {
-        queued: s.queued,
-        running: s.running,
-        failed: s.failed,
-        succeeded: s.succeeded,
-        nextRunnableAt: s.nextRunnableAt ?? null,
-      };
-    } catch (err) {
-      logger.error('Failed to fetch durable queue stats', { error: err });
-      return null;
-    }
-  }, [jobQueue]);
-
-  /**
-   * Get ephemeral queue metrics from context.
-   */
   const getEphemeralMetrics = useCallback((): EphemeralQueueMetrics | null => {
     if (!embeddingQueueContext) {
       return null;
@@ -141,12 +80,7 @@ export function useQueueHealthMetrics(
     return embeddingQueueContext.metrics;
   }, [embeddingQueueContext]);
 
-  /**
-   * Get worker health status.
-   * Currently derived from ephemeral queue - can be extended for dedicated worker clients.
-   */
   const getWorkerHealth = useCallback((): WorkerHealthStatus | null => {
-    // If we have ephemeral metrics, the worker is operational
     if (embeddingQueueContext) {
       return {
         state: 'ready',
@@ -157,77 +91,30 @@ export function useQueueHealthMetrics(
     return null;
   }, [embeddingQueueContext]);
 
-  /**
-   * Refresh all metrics from all sources.
-   */
-  const refresh = useCallback(async () => {
-    try {
-      const [durableQueue] = await Promise.all([fetchDurableStats()]);
-      const ephemeralQueue = getEphemeralMetrics();
-      const workerHealth = getWorkerHealth();
+  // Consolidate all sources into a single metrics object
+  const metrics: QueueHealthMetrics = useMemo(
+    () => ({
+      durableQueue: durableQueueStats ?? null,
+      ephemeralQueue: getEphemeralMetrics(),
+      workerHealth: getWorkerHealth(),
+      lastUpdated: Date.now(),
+    }),
+    [durableQueueStats, getEphemeralMetrics, getWorkerHealth]
+  );
 
-      if (mountedRef.current) {
-        setMetrics({
-          durableQueue,
-          ephemeralQueue,
-          workerHealth,
-          lastUpdated: Date.now(),
-        });
-        setIsLoading(false);
-        setError(null);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error('Failed to refresh queue health metrics', { error: err });
-      if (mountedRef.current) {
-        setError(message);
-        setIsLoading(false);
-      }
-    }
-  }, [fetchDurableStats, getEphemeralMetrics, getWorkerHealth]);
-
-  // Initial fetch and polling setup
+  // Mark loading complete after first render
   useEffect(() => {
     mountedRef.current = true;
-    void refresh();
-
-    if (!enablePolling) {
-      return () => {
-        mountedRef.current = false;
-      };
-    }
-
-    const intervalId = setInterval(() => {
-      // Skip polling when app is backgrounded to avoid accumulating DB queries
-      // and React re-renders while the user isn't looking at the UI.
-      if (!isAppActive()) {
-        return;
-      }
-      void refresh();
-    }, pollIntervalMs);
+    setIsLoading(false);
     return () => {
       mountedRef.current = false;
-      clearInterval(intervalId);
     };
-  }, [refresh, enablePolling, pollIntervalMs]);
+  }, []);
 
-  // Update ephemeral metrics reactively when context changes
-  useEffect(() => {
-    if (!embeddingQueueContext) {
-      return;
-    }
-
-    setMetrics((prev) => ({
-      ...prev,
-      ephemeralQueue: embeddingQueueContext.metrics,
-      workerHealth: {
-        state: 'ready',
-        isReady: true,
-        error: null,
-      },
-      lastUpdated: Date.now(),
-    }));
-  }, [embeddingQueueContext?.metrics]);
+  const refresh = useCallback(async () => {
+    // Durable stats are reactively provided by the store.
+    // This is kept for API compatibility — ephemeral metrics update reactively too.
+  }, []);
 
   return {
     metrics,
