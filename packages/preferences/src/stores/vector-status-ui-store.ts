@@ -57,12 +57,26 @@ interface CollectionDataCache {
   records: CachedFileRecord[];
 }
 
+/**
+ * Snapshot of durable queue stats from the database.
+ * BST-359: Shared across tracker, HUD, and diagnostics to avoid duplicate polling.
+ */
+export interface QueueStatsSnapshot {
+  failed: number;
+  nextRunnableAt: string | null;
+  queued: number;
+  running: number;
+  succeeded: number;
+}
+
 interface VectorStatusUIData {
   activeEmbeddingSetId: string | null;
   /** Cached collections data - persists across component unmounts during bulk operations */
   cachedCollections: CachedCollection[];
   /** Cached file data for active collection - persists across component unmounts */
   cachedFileData: CollectionDataCache | null;
+  /** BST-359: Durable queue stats polled by EmbeddingJobQueueTracker, consumed by HUD and diagnostics. */
+  durableQueueStats: QueueStatsSnapshot | null;
   /** When true, embeddings are actively being generated (from any source). */
   isEmbeddingActive: boolean;
   /** When true, the local embedding queue adapter is processing tasks. */
@@ -84,6 +98,8 @@ interface VectorStatusUIActions {
   setActiveEmbeddingSetId: (id: string | null) => void;
   setCachedCollections: (collections: CachedCollection[]) => void;
   setCachedFileData: (data: CollectionDataCache | null) => void;
+  /** BST-359: Write durable queue stats from the single tracker poller. */
+  setDurableQueueStats: (stats: QueueStatsSnapshot | null) => void;
   setIsEmbeddingQueueActive: (active: boolean) => void;
   setIsImporting: (importing: boolean) => void;
   setIsJobQueueActive: (active: boolean) => void;
@@ -108,11 +124,13 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
       isEmbeddingActive: false,
       isEmbeddingQueueActive: false,
       isJobQueueActive: false,
+      durableQueueStats: null,
       cachedCollections: [],
       cachedFileData: null,
       schemaVerified: false,
       setActiveEmbeddingSetId: (id) => set({ activeEmbeddingSetId: id }),
       setIsImporting: (importing) => set({ isImporting: importing }),
+      setDurableQueueStats: (stats) => set({ durableQueueStats: stats }),
       setIsEmbeddingQueueActive: (active) =>
         set((state) => ({
           isEmbeddingQueueActive: active,
@@ -147,6 +165,7 @@ export const vectorStatusUISelectors = {
   isEmbeddingActive: (s: VectorStatusUIStore) => s.isEmbeddingActive,
   isEmbeddingQueueActive: (s: VectorStatusUIStore) => s.isEmbeddingQueueActive,
   isJobQueueActive: (s: VectorStatusUIStore) => s.isJobQueueActive,
+  durableQueueStats: (s: VectorStatusUIStore) => s.durableQueueStats,
   cachedCollections: (s: VectorStatusUIStore) => s.cachedCollections,
   cachedFileData: (s: VectorStatusUIStore) => s.cachedFileData,
   schemaVerified: (s: VectorStatusUIStore) => s.schemaVerified,
@@ -169,6 +188,7 @@ export function __resetVectorStatusUIStoreForTests() {
     isEmbeddingActive: false,
     isEmbeddingQueueActive: false,
     isJobQueueActive: false,
+    durableQueueStats: null,
     cachedCollections: [],
     cachedFileData: null,
     schemaVerified: false,

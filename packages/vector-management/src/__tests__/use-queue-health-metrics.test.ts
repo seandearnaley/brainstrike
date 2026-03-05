@@ -1,56 +1,48 @@
 /**
- * Tests for useQueueHealthMetrics hook (BST-166)
+ * Tests for useQueueHealthMetrics hook (BST-166, BST-359)
+ *
+ * BST-359: Durable stats now come from the shared Zustand store
+ * instead of polling the DB directly.
  */
 
-import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
 import { useQueueHealthMetrics } from '../use-queue-health-metrics';
-
-vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: vi.fn(),
-  JobQueue: vi.fn(),
-}));
 
 vi.mock('../embedding-queue-provider', () => ({
   useEmbeddingQueueSafe: vi.fn(),
 }));
 
 describe('useQueueHealthMetrics', () => {
-  const mockGetQueueStats = vi.fn();
-
   beforeEach(() => {
     vi.clearAllMocks();
-
-    const mockJobQueue = {
-      getQueueStats: mockGetQueueStats,
-    };
-
-    (JobQueue as unknown as ReturnType<typeof vi.fn>).mockImplementation(function (
-      this: Record<string, unknown>
-    ) {
-      Object.assign(this, mockJobQueue);
-    });
+    __resetVectorStatusUIStoreForTests();
   });
 
   describe('initial state', () => {
-    it('returns loading state initially', () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
+    it('is never loading — metrics are derived reactively', () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
-      const { result, unmount } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result, unmount } = renderHook(() => useQueueHealthMetrics());
 
-      expect(result.current.isLoading).toBe(true);
+      expect(result.current.isLoading).toBe(false);
       expect(result.current.error).toBeNull();
       unmount();
     });
 
-    it('returns empty metrics initially', () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
+    it('returns null metrics when store has no data', async () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
-      const { result, unmount } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result, unmount } = renderHook(() => useQueueHealthMetrics());
+
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
 
       expect(result.current.metrics.durableQueue).toBeNull();
       expect(result.current.metrics.ephemeralQueue).toBeNull();
@@ -60,23 +52,20 @@ describe('useQueueHealthMetrics', () => {
   });
 
   describe('durable queue metrics', () => {
-    it('fetches stats from JobQueue when db is available', async () => {
-      const mockDb = {} as never;
-      vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
+    it('reads stats from the shared store', async () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
-      mockGetQueueStats.mockResolvedValue([
-        {
-          queue: 'embeddings',
+      useVectorStatusUIStore.setState({
+        durableQueueStats: {
           queued: 5,
           running: 2,
           failed: 1,
           succeeded: 100,
           nextRunnableAt: '2025-01-01T00:00:00Z',
         },
-      ]);
+      });
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result } = renderHook(() => useQueueHealthMetrics());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -91,28 +80,32 @@ describe('useQueueHealthMetrics', () => {
       });
     });
 
-    it('returns null durableQueue when db is not available', async () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
+    it('returns null durableQueue when store has no stats', async () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result } = renderHook(() => useQueueHealthMetrics());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
       });
 
       expect(result.current.metrics.durableQueue).toBeNull();
-      expect(mockGetQueueStats).not.toHaveBeenCalled();
     });
 
-    it('returns zero counts when no queue stats exist', async () => {
-      const mockDb = {} as never;
-      vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
+    it('returns zero counts when store has zero stats', async () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
-      mockGetQueueStats.mockResolvedValue([]);
+      useVectorStatusUIStore.setState({
+        durableQueueStats: {
+          queued: 0,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+          nextRunnableAt: null,
+        },
+      });
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result } = renderHook(() => useQueueHealthMetrics());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -126,28 +119,10 @@ describe('useQueueHealthMetrics', () => {
         nextRunnableAt: null,
       });
     });
-
-    it('handles errors during fetch gracefully', async () => {
-      const mockDb = {} as never;
-      vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-      vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
-
-      mockGetQueueStats.mockRejectedValue(new Error('Database error'));
-
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
-
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
-      });
-
-      // Should return null for durableQueue on error, not crash
-      expect(result.current.metrics.durableQueue).toBeNull();
-    });
   });
 
   describe('ephemeral queue metrics', () => {
     it('gets metrics from EmbeddingQueueProvider when available', async () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue({
         queue: {} as never,
         metrics: {
@@ -165,7 +140,7 @@ describe('useQueueHealthMetrics', () => {
         },
       });
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result } = renderHook(() => useQueueHealthMetrics());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -187,10 +162,9 @@ describe('useQueueHealthMetrics', () => {
     });
 
     it('returns null ephemeralQueue when not in provider', async () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result } = renderHook(() => useQueueHealthMetrics());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -202,7 +176,6 @@ describe('useQueueHealthMetrics', () => {
 
   describe('worker health', () => {
     it('returns ready state when ephemeral queue is available', async () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue({
         queue: {} as never,
         metrics: {
@@ -220,7 +193,7 @@ describe('useQueueHealthMetrics', () => {
         },
       });
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result } = renderHook(() => useQueueHealthMetrics());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -234,10 +207,9 @@ describe('useQueueHealthMetrics', () => {
     });
 
     it('returns null when ephemeral queue is not available', async () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result } = renderHook(() => useQueueHealthMetrics());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -247,50 +219,13 @@ describe('useQueueHealthMetrics', () => {
     });
   });
 
-  describe('refresh', () => {
-    it('updates metrics when refresh is called', async () => {
-      const mockDb = {} as never;
-      vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-      vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
-
-      let callCount = 0;
-      mockGetQueueStats.mockImplementation(async () => {
-        callCount++;
-        return [
-          {
-            queue: 'embeddings',
-            queued: callCount,
-            running: 0,
-            failed: 0,
-            succeeded: 0,
-          },
-        ];
-      });
-
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
-
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
-      });
-
-      expect(result.current.metrics.durableQueue?.queued).toBe(1);
-
-      await act(async () => {
-        await result.current.refresh();
-      });
-
-      expect(result.current.metrics.durableQueue?.queued).toBe(2);
-    });
-  });
-
   describe('lastUpdated', () => {
-    it('updates lastUpdated timestamp after fetch', async () => {
-      vi.mocked(usePGliteDatabase).mockReturnValue(null);
+    it('sets lastUpdated timestamp', async () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
       const before = Date.now();
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result } = renderHook(() => useQueueHealthMetrics());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
@@ -305,8 +240,6 @@ describe('useQueueHealthMetrics', () => {
 
   describe('combined metrics', () => {
     it('consolidates metrics from all sources', async () => {
-      const mockDb = {} as never;
-      vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue({
         queue: {} as never,
         metrics: {
@@ -324,28 +257,26 @@ describe('useQueueHealthMetrics', () => {
         },
       });
 
-      mockGetQueueStats.mockResolvedValue([
-        {
-          queue: 'embeddings',
+      useVectorStatusUIStore.setState({
+        durableQueueStats: {
           queued: 5,
           running: 2,
           failed: 1,
           succeeded: 100,
+          nextRunnableAt: null,
         },
-      ]);
+      });
 
-      const { result } = renderHook(() => useQueueHealthMetrics({ enablePolling: false }));
+      const { result } = renderHook(() => useQueueHealthMetrics());
 
       await waitFor(() => {
         expect(result.current.isLoading).toBe(false);
       });
 
-      // Should have all three sources populated
       expect(result.current.metrics.durableQueue).not.toBeNull();
       expect(result.current.metrics.ephemeralQueue).not.toBeNull();
       expect(result.current.metrics.workerHealth).not.toBeNull();
 
-      // Verify specific values
       expect(result.current.metrics.durableQueue?.queued).toBe(5);
       expect(result.current.metrics.ephemeralQueue?.active).toBe(2);
       expect(result.current.metrics.workerHealth?.isReady).toBe(true);

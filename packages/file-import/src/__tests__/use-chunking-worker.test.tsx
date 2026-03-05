@@ -274,30 +274,107 @@ describe('useChunkingWorker', () => {
     standalone.terminate();
   });
 
-  it('clears waitForReady polling interval when standalone worker times out', async () => {
-    vi.useFakeTimers();
-    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
-    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+  it('uses fallback message when init error has empty error field', async () => {
+    const { useChunkingWorker } = await import('../use-chunking-worker');
+    const { result, unmount } = renderHookHarness(() => useChunkingWorker());
 
-    try {
-      const { createStandaloneChunkingWorker } = await import('../use-chunking-worker');
-      const standalone = await createStandaloneChunkingWorker();
-
-      const readyPromise = standalone.waitForReady();
-      const timeoutRejection = expect(readyPromise).rejects.toThrowError('Worker ready timeout');
-      await vi.advanceTimersByTimeAsync(WORKER_READY_TIMEOUT_MS);
-      await timeoutRejection;
-
-      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
-      const intervalHandle = setIntervalSpy.mock.results[0]?.value;
-      expect(clearIntervalSpy).toHaveBeenCalledWith(intervalHandle);
-      expect(vi.getTimerCount()).toBe(0);
-
-      standalone.terminate();
-    } finally {
-      setIntervalSpy.mockRestore();
-      clearIntervalSpy.mockRestore();
-      vi.useRealTimers();
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
     }
+
+    act(() => {
+      worker.simulateMessage({
+        type: 'error',
+        id: '__init__',
+        error: '',
+      } as WorkerResponse);
+    });
+
+    await waitForExpect(() =>
+      expect(result.current.error?.message).toBe('Worker initialization failed')
+    );
+    unmount();
+  });
+
+  it('handles ErrorEvent with missing fields using fallback values', async () => {
+    const { useChunkingWorker } = await import('../use-chunking-worker');
+    const { result, unmount } = renderHookHarness(() => useChunkingWorker());
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    act(() => {
+      worker.simulateMessage({ type: 'ready' });
+    });
+    await waitForExpect(() => expect(result.current.isReady).toBe(true));
+
+    // Simulate ErrorEvent with all fields empty/missing
+    const event = { message: '', filename: '', lineno: 0, colno: 0 } as ErrorEvent;
+    act(() => {
+      for (const handler of (
+        worker as unknown as {
+          addEventListener: { mock: { calls: [string, (e: ErrorEvent) => void][] } };
+        }
+      ).addEventListener.mock.calls) {
+        if (handler[0] === 'error') {
+          handler[1](event);
+        }
+      }
+    });
+
+    await waitForExpect(() => {
+      expect(result.current.isReady).toBe(false);
+      expect(result.current.error?.message).toContain('Unknown worker error');
+    });
+    unmount();
+  });
+
+  it('rejects standalone waitForReady on init error message', async () => {
+    const { createStandaloneChunkingWorker } = await import('../use-chunking-worker');
+    const standalone = await createStandaloneChunkingWorker();
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    const readyPromise = standalone.waitForReady();
+    act(() => {
+      worker.simulateMessage({
+        type: 'error',
+        id: '__init__',
+        error: 'init boom',
+      } as WorkerResponse);
+    });
+
+    await expect(readyPromise).rejects.toThrow('init boom');
+    standalone.terminate();
+  });
+
+  it('cleans up waitForReady message listener when standalone worker times out', async () => {
+    vi.useFakeTimers();
+
+    const { createStandaloneChunkingWorker } = await import('../use-chunking-worker');
+    const standalone = await createStandaloneChunkingWorker();
+
+    const readyPromise = standalone.waitForReady();
+    const timeoutRejection = expect(readyPromise).rejects.toThrowError('Worker ready timeout');
+    await vi.advanceTimersByTimeAsync(WORKER_READY_TIMEOUT_MS);
+    await timeoutRejection;
+
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+    expect(worker.removeEventListener).toHaveBeenCalledWith('message', expect.any(Function));
+    expect(vi.getTimerCount()).toBe(0);
+
+    standalone.terminate();
   });
 });

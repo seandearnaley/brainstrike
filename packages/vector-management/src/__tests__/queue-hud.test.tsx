@@ -1,4 +1,8 @@
 import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
+import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -11,7 +15,6 @@ vi.mock('@brainstrike/db', () => ({
 }));
 
 describe('QueueHud', () => {
-  const mockGetQueueStats = vi.fn();
   const mockRequeueFailed = vi.fn();
 
   const expectQueueHeading = () => {
@@ -26,10 +29,10 @@ describe('QueueHud', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetVectorStatusUIStoreForTests();
     vi.stubEnv('EMBED_QUEUE_ENABLED', 'true');
 
     const mockJobQueue = {
-      getQueueStats: mockGetQueueStats,
       requeueFailed: mockRequeueFailed,
     };
 
@@ -40,6 +43,21 @@ describe('QueueHud', () => {
     });
   });
 
+  const setStoreStats = (stats: {
+    failed: number;
+    nextRunnableAt?: string | null;
+    queued: number;
+    running: number;
+    succeeded: number;
+  }) => {
+    useVectorStatusUIStore.setState({
+      durableQueueStats: {
+        ...stats,
+        nextRunnableAt: stats.nextRunnableAt ?? null,
+      },
+    });
+  };
+
   const renderStatusBar = () =>
     render(
       <TooltipProvider delayDuration={0}>
@@ -48,35 +66,26 @@ describe('QueueHud', () => {
     );
 
   it('renders when queue is enabled in browser', () => {
-    // In browser environment, queue is always considered enabled
     vi.mocked(usePGliteDatabase).mockReturnValue(null);
 
     const { container } = render(<QueueHud />);
-    // Should render the queue HUD (not null) since we're in a browser context
     expect(container.firstChild).not.toBeNull();
     expect(container.querySelector('button[aria-label="Retry failed jobs"]')).toBeInTheDocument();
   });
 
-  it('renders queue stats when enabled', async () => {
+  it('renders queue stats from store', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    mockGetQueueStats.mockResolvedValue([
-      {
-        queue: 'embeddings',
-        queued: 5,
-        running: 2,
-        failed: 1,
-        succeeded: 10,
-        nextRunnableAt: '2025-01-01T00:00:00Z',
-      },
-    ]);
+    setStoreStats({
+      queued: 5,
+      running: 2,
+      failed: 1,
+      succeeded: 10,
+      nextRunnableAt: '2025-01-01T00:00:00Z',
+    });
 
     render(<QueueHud />);
-
-    await waitFor(() => {
-      expect(screen.getByText('5')).toBeInTheDocument();
-    });
 
     expectQueueHeading();
     expectQueueBadge('embeddings');
@@ -91,19 +100,13 @@ describe('QueueHud', () => {
     expect(screen.getByText(/2025-01-01T00:00:00Z/)).toBeInTheDocument();
   });
 
-  it('displays zero counts when stats are null', async () => {
+  it('displays zero counts when store has no stats', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    mockGetQueueStats.mockResolvedValue([]);
-
+    // No store stats set — defaults to null → zeros
     render(<QueueHud />);
 
-    await waitFor(() => {
-      expect(screen.getAllByText('Queued').length).toBeGreaterThan(0);
-    });
-
-    // Should show 0 for all stats
     const zeros = screen.getAllByText('0');
     expect(zeros).toHaveLength(4); // queued, running, failed, succeeded
   });
@@ -113,21 +116,9 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    mockGetQueueStats.mockResolvedValue([
-      {
-        queue: 'embeddings',
-        queued: 0,
-        running: 0,
-        failed: 3,
-        succeeded: 0,
-      },
-    ]);
+    setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
 
     render(<QueueHud />);
-
-    await waitFor(() => {
-      expect(screen.getByText('3')).toBeInTheDocument();
-    });
 
     const retryButton = screen.getByRole('button', { name: 'Retry 3 failed jobs' });
     expect(retryButton).not.toBeDisabled();
@@ -139,25 +130,13 @@ describe('QueueHud', () => {
     });
   });
 
-  it('disables retry button when no failed jobs', async () => {
+  it('disables retry button when no failed jobs', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    mockGetQueueStats.mockResolvedValue([
-      {
-        queue: 'embeddings',
-        queued: 0,
-        running: 0,
-        failed: 0,
-        succeeded: 5,
-      },
-    ]);
+    setStoreStats({ queued: 0, running: 0, failed: 0, succeeded: 5 });
 
     render(<QueueHud />);
-
-    await waitFor(() => {
-      expect(screen.getByText('5')).toBeInTheDocument();
-    });
 
     const retryButton = screen.getByRole('button', { name: 'Retry failed jobs' });
     expect(retryButton).toBeDisabled();
@@ -172,115 +151,12 @@ describe('QueueHud', () => {
     expect(retryButton).toBeDisabled();
   });
 
-  it('handles errors during stats fetch gracefully', async () => {
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-
-    mockGetQueueStats.mockRejectedValue(new Error('Failed to fetch stats'));
-
-    render(<QueueHud />);
-
-    // Should not crash and should render with zeros
-    await waitFor(() => {
-      expectQueueHeading();
-    });
-
-    const zeros = screen.getAllByText('0');
-    expect(zeros).toHaveLength(4);
-  });
-
-  it('updates stats periodically', async () => {
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-
-    let callCount = 0;
-    mockGetQueueStats.mockImplementation(async () => {
-      callCount++;
-      if (callCount === 1) {
-        return [
-          {
-            queue: 'embeddings',
-            queued: 1,
-            running: 0,
-            failed: 0,
-            succeeded: 0,
-          },
-        ];
-      }
-      return [
-        {
-          queue: 'embeddings',
-          queued: 0,
-          running: 1,
-          failed: 0,
-          succeeded: 0,
-        },
-      ];
-    });
-
-    render(<QueueHud />);
-
-    await waitFor(() => {
-      expect(screen.getByText('1')).toBeInTheDocument();
-    });
-
-    if (process.env['NODE_ENV'] !== 'test') {
-      await waitFor(
-        () => {
-          expect(mockGetQueueStats).toHaveBeenCalledTimes(2);
-        },
-        { timeout: 3000 }
-      );
-    } else {
-      expect(mockGetQueueStats).toHaveBeenCalledTimes(1);
-    }
-  });
-
-  it('cleans up interval on unmount', async () => {
-    const mockDb = {} as never;
-    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
-
-    mockGetQueueStats.mockResolvedValue([
-      {
-        queue: 'embeddings',
-        queued: 0,
-        running: 0,
-        failed: 0,
-        succeeded: 0,
-      },
-    ]);
-
-    const { unmount } = render(<QueueHud />);
-
-    await waitFor(() => {
-      expect(mockGetQueueStats).toHaveBeenCalledTimes(1);
-    });
-
-    const callCountBeforeUnmount = mockGetQueueStats.mock.calls.length;
-
-    unmount();
-
-    // Wait a bit to ensure no extra calls occur (intervals disabled in tests)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    // Should not have been called again after unmount
-    expect(mockGetQueueStats).toHaveBeenCalledTimes(callCountBeforeUnmount);
-  });
-
-  it('updates button state during retry operation', async () => {
+  it('disables button during retry and optimistically zeroes failed count', async () => {
     const user = userEvent.setup();
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    mockGetQueueStats.mockResolvedValue([
-      {
-        queue: 'embeddings',
-        queued: 0,
-        running: 0,
-        failed: 3,
-        succeeded: 0,
-      },
-    ]);
+    setStoreStats({ queued: 0, running: 0, failed: 3, succeeded: 0 });
 
     let resolveRequeue!: () => void;
     const requeuePromise = new Promise<void>((resolve) => {
@@ -291,83 +167,56 @@ describe('QueueHud', () => {
 
     render(<QueueHud />);
 
-    await waitFor(() => {
-      expect(screen.getByText('3')).toBeInTheDocument();
-    });
-
     const retryButton = screen.getByRole('button', { name: /retry 3 failed jobs/i });
     expect(retryButton).not.toBeDisabled();
 
-    // Start the retry operation
     await user.click(retryButton);
 
-    // Button should be disabled while operation is in progress
+    // Button disabled while busy
     await waitFor(() => {
       expect(retryButton).toBeDisabled();
     });
 
-    // Complete the operation
     resolveRequeue?.();
 
-    // Button should be re-enabled after operation completes
+    // After retry completes, failed is optimistically zeroed → queued becomes 3
     await waitFor(() => {
-      expect(retryButton).not.toBeDisabled();
+      expect(useVectorStatusUIStore.getState().durableQueueStats?.failed).toBe(0);
+      expect(useVectorStatusUIStore.getState().durableQueueStats?.queued).toBe(3);
     });
   });
 
-  it('does not display nextRunnableAt when not provided', async () => {
+  it('does not display nextRunnableAt when not provided', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    mockGetQueueStats.mockResolvedValue([
-      {
-        queue: 'embeddings',
-        queued: 0,
-        running: 0,
-        failed: 0,
-        succeeded: 0,
-      },
-    ]);
+    setStoreStats({ queued: 0, running: 0, failed: 0, succeeded: 0 });
 
     render(<QueueHud />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Queue')).toBeInTheDocument();
-    });
 
     expect(screen.queryByText(/Next:/)).not.toBeInTheDocument();
   });
 
-  it('renders status-bar summary with queue counts', async () => {
+  it('renders status-bar summary with queue counts', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    mockGetQueueStats.mockResolvedValue([
-      {
-        queue: 'embeddings',
-        queued: 2,
-        running: 1,
-        failed: 3,
-        succeeded: 4,
-      },
-    ]);
+    setStoreStats({ queued: 2, running: 1, failed: 3, succeeded: 4 });
 
     renderStatusBar();
 
-    const status = await screen.findByRole('status', { name: /embedding queue/i });
+    const status = screen.getByRole('status', { name: /embedding queue/i });
     const summary = within(status);
 
-    await waitFor(() => {
-      expect(summary.getByText('Queue')).toBeInTheDocument();
-      expect(summary.getByText('Q')).toBeInTheDocument();
-      expect(summary.getByText('2')).toBeInTheDocument();
-      expect(summary.getByText('R')).toBeInTheDocument();
-      expect(summary.getByText('1')).toBeInTheDocument();
-      expect(summary.getByText('F')).toBeInTheDocument();
-      expect(summary.getByText('3')).toBeInTheDocument();
-      expect(summary.getByText('OK')).toBeInTheDocument();
-      expect(summary.getByText('4')).toBeInTheDocument();
-    });
+    expect(summary.getByText('Queue')).toBeInTheDocument();
+    expect(summary.getByText('Q')).toBeInTheDocument();
+    expect(summary.getByText('2')).toBeInTheDocument();
+    expect(summary.getByText('R')).toBeInTheDocument();
+    expect(summary.getByText('1')).toBeInTheDocument();
+    expect(summary.getByText('F')).toBeInTheDocument();
+    expect(summary.getByText('3')).toBeInTheDocument();
+    expect(summary.getByText('OK')).toBeInTheDocument();
+    expect(summary.getByText('4')).toBeInTheDocument();
   });
 
   it('shows tooltip details for status-bar variant', async () => {
@@ -375,23 +224,17 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    mockGetQueueStats.mockResolvedValue([
-      {
-        queue: 'embeddings',
-        queued: 2,
-        running: 1,
-        failed: 0,
-        succeeded: 4,
-        nextRunnableAt: '2025-01-01T00:00:00Z',
-      },
-    ]);
+    setStoreStats({
+      queued: 2,
+      running: 1,
+      failed: 0,
+      succeeded: 4,
+      nextRunnableAt: '2025-01-01T00:00:00Z',
+    });
 
     renderStatusBar();
 
-    const status = await screen.findByRole('status', { name: /embedding queue/i });
-    await waitFor(() => {
-      expect(within(status).getByText('2')).toBeInTheDocument();
-    });
+    const status = screen.getByRole('status', { name: /embedding queue/i });
     await user.hover(status);
 
     const headings = await screen.findAllByText('Embedding queue');
@@ -410,19 +253,11 @@ describe('QueueHud', () => {
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
 
-    mockGetQueueStats.mockResolvedValue([
-      {
-        queue: 'embeddings',
-        queued: 0,
-        running: 0,
-        failed: 2,
-        succeeded: 0,
-      },
-    ]);
+    setStoreStats({ queued: 0, running: 0, failed: 2, succeeded: 0 });
 
     renderStatusBar();
 
-    const retryButton = await screen.findByRole('button', { name: 'Retry 2 failed jobs' });
+    const retryButton = screen.getByRole('button', { name: 'Retry 2 failed jobs' });
     expect(retryButton).not.toBeDisabled();
 
     await user.click(retryButton);

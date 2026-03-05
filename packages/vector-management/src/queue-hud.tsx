@@ -1,5 +1,5 @@
 import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
-import { isAppActive } from '@brainstrike/hooks';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import {
   Badge,
   Button,
@@ -14,24 +14,7 @@ import {
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { RotateCw } from 'lucide-react';
-import {
-  type Dispatch,
-  type ReactElement,
-  type SetStateAction,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
-
-interface QueueStats {
-  failed: number;
-  nextRunnableAt?: string | null;
-  queue: string;
-  queued: number;
-  running: number;
-  succeeded: number;
-}
+import { type ReactElement, useCallback, useMemo, useState } from 'react';
 
 type QueueHudVariant = 'card' | 'status-bar';
 
@@ -62,9 +45,6 @@ const EMBEDDING_QUEUE_NAME = 'embeddings';
 // Retry up to 20 failed jobs at a time to avoid overwhelming the queue
 // and provide better visibility into individual failures
 const RETRY_BATCH_SIZE = 20;
-// Poll every 2 seconds to balance UI responsiveness with database load
-// Frequent enough to feel real-time without excessive queries
-const QUEUE_POLL_INTERVAL_MS = 2000;
 
 function isQueueEnabled(): boolean {
   try {
@@ -80,28 +60,6 @@ function isQueueEnabled(): boolean {
   }
 }
 
-function getQueueMetrics(stats: QueueStats[] | null): QueueMetrics {
-  const s = stats?.[0];
-  // If no stats available, return zeros for all metrics
-  if (!s) {
-    return {
-      queued: 0,
-      running: 0,
-      failed: 0,
-      succeeded: 0,
-      nextRunnableAt: null,
-    };
-  }
-  // DB schema guarantees non-null values for count fields
-  return {
-    queued: s.queued,
-    running: s.running,
-    failed: s.failed,
-    succeeded: s.succeeded,
-    nextRunnableAt: s.nextRunnableAt ?? null,
-  };
-}
-
 function getRetryLabel(failed: number): string {
   if (failed <= 0) {
     return 'Retry failed jobs';
@@ -110,59 +68,12 @@ function getRetryLabel(failed: number): string {
   return `Retry ${failed} failed job${failed === 1 ? '' : 's'}`;
 }
 
-function useQueueStats(
-  jobQueue: JobQueue | null,
-  shouldPoll: boolean
-): [QueueStats[] | null, Dispatch<SetStateAction<QueueStats[] | null>>] {
-  const [stats, setStats] = useState<QueueStats[] | null>(null);
-
-  useEffect(() => {
-    if (!jobQueue) {
-      return;
-    }
-
-    let canceled = false;
-    const fetchStats = async (): Promise<void> => {
-      try {
-        const s = await jobQueue.getQueueStats(EMBEDDING_QUEUE_NAME);
-        if (!canceled) {
-          setStats(s);
-        }
-      } catch (error) {
-        // Log errors but don't break the UI
-        logger.error('Failed to fetch queue stats', { error });
-        // Keep existing stats to avoid UI flickering on transient errors
-      }
-    };
-
-    void fetchStats();
-    if (!shouldPoll) {
-      return () => {
-        canceled = true;
-      };
-    }
-
-    const id = setInterval(() => {
-      if (!isAppActive()) {
-        return;
-      }
-      void fetchStats();
-    }, QUEUE_POLL_INTERVAL_MS);
-    return () => {
-      canceled = true;
-      clearInterval(id);
-    };
-  }, [jobQueue, shouldPoll]);
-
-  return [stats, setStats];
-}
-
 function useQueueRetry(
   jobQueue: JobQueue | null,
-  setStats: Dispatch<SetStateAction<QueueStats[] | null>>,
   toast: ToastFn
 ): { busy: boolean; handleRetry: () => Promise<void> } {
   const [busy, setBusy] = useState(false);
+  const setDurableQueueStats = useVectorStatusUIStore((s) => s.setDurableQueueStats);
 
   const handleRetry = useCallback(async (): Promise<void> => {
     if (!jobQueue) {
@@ -171,8 +82,17 @@ function useQueueRetry(
     try {
       setBusy(true);
       await jobQueue.requeueFailed(EMBEDDING_QUEUE_NAME, RETRY_BATCH_SIZE);
-      const nextStats = await jobQueue.getQueueStats(EMBEDDING_QUEUE_NAME);
-      setStats(nextStats);
+      // Optimistically move failed→queued so the HUD reflects the retry immediately
+      // instead of waiting for the next tracker poll (~1.5s).
+      const currentStats = useVectorStatusUIStore.getState().durableQueueStats;
+      if (currentStats) {
+        const requeued = Math.min(currentStats.failed, RETRY_BATCH_SIZE);
+        setDurableQueueStats({
+          ...currentStats,
+          failed: currentStats.failed - requeued,
+          queued: currentStats.queued + requeued,
+        });
+      }
       setBusy(false);
     } catch (error) {
       setBusy(false);
@@ -184,7 +104,7 @@ function useQueueRetry(
         variant: 'destructive',
       });
     }
-  }, [jobQueue, setStats, toast]);
+  }, [jobQueue, toast, setDurableQueueStats]);
 
   return { busy, handleRetry };
 }
@@ -336,12 +256,17 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}): ReactElement
   const { toast } = useToast();
 
   const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
-  const nodeEnv = typeof process !== 'undefined' ? process.env?.['NODE_ENV'] : undefined;
-  const shouldPoll = typeof window !== 'undefined' && nodeEnv !== 'test';
 
-  const [stats, setStats] = useQueueStats(jobQueue, shouldPoll);
-  const { busy, handleRetry } = useQueueRetry(jobQueue, setStats, toast);
-  const metrics = getQueueMetrics(stats);
+  // BST-359: Read stats from the shared store (written by EmbeddingJobQueueTracker)
+  const durableStats = useVectorStatusUIStore((s) => s.durableQueueStats);
+  const { busy, handleRetry } = useQueueRetry(jobQueue, toast);
+  const metrics: QueueMetrics = durableStats ?? {
+    queued: 0,
+    running: 0,
+    failed: 0,
+    succeeded: 0,
+    nextRunnableAt: null,
+  };
 
   if (!enabled) {
     return null;

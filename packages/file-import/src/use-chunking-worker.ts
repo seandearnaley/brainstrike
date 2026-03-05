@@ -104,18 +104,8 @@ async function initializeSingleton(): Promise<void> {
       const port = createChunkingWorkerPort(worker);
       singletonPort = port;
 
-      // Also poll for ready state
-      const checkReadyInterval = setInterval(() => {
-        if (port.isReady()) {
-          singletonReady = true;
-          clearInterval(checkReadyInterval);
-          notifyListeners();
-        }
-      }, 100);
-
       // CRITICAL: Set error after 10s if worker is not ready - no silent failures
       setTimeout(() => {
-        clearInterval(checkReadyInterval);
         if (!(singletonReady || singletonError)) {
           const errorDetails = {
             message: 'Chunking worker failed to become ready within 10 seconds',
@@ -284,31 +274,27 @@ export async function createStandaloneChunkingWorker(): Promise<{
         return;
       }
 
-      let settled = false;
-
       const cleanup = () => {
         clearTimeout(timeout);
-        clearInterval(interval);
+        worker.removeEventListener('message', onMessage);
       };
 
-      const checkReady = () => {
-        if (!settled && port.isReady()) {
-          settled = true;
+      const onMessage = (event: MessageEvent) => {
+        if (event.data.type === 'ready') {
           cleanup();
           resolve();
+        } else if (event.data.type === 'error' && event.data.id === '__init__') {
+          cleanup();
+          reject(new Error(event.data.error || 'Worker initialization failed'));
         }
       };
 
       const timeout = setTimeout(() => {
-        if (settled) {
-          return;
-        }
-        settled = true;
         cleanup();
         reject(new Error('Worker ready timeout'));
       }, 10_000);
 
-      const interval = setInterval(checkReady, 100);
+      worker.addEventListener('message', onMessage);
     });
 
   const terminate = () => {

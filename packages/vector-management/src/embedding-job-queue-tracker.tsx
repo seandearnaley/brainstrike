@@ -1,41 +1,44 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
 import { isAppActive } from '@brainstrike/hooks';
+import type { QueueStatsSnapshot } from '@brainstrike/preferences';
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('EmbeddingJobQueueTracker');
 const EMBEDDINGS_QUEUE_NAME = 'embeddings';
 const JOB_QUEUE_POLL_MS = 1500;
 const JOB_QUEUE_CLEAR_DELAY_MS = 1500;
-const JOB_QUEUE_ACTIVE_QUERY = `
-  SELECT COUNT(*)::int AS active
-    FROM job_queue
-   WHERE queue = $1
-     AND state IN ('queued', 'running')
-`.trim();
 
 export interface EmbeddingJobQueueTrackerProps {
   readonly intervalMs?: number;
 }
 
+/**
+ * BST-359: Single poller for durable queue stats. Writes full stats to the
+ * Zustand store so QueueHud, diagnostics panel, and status popover can read
+ * without running their own polling intervals.
+ */
 export function EmbeddingJobQueueTracker({
   intervalMs = JOB_QUEUE_POLL_MS,
 }: EmbeddingJobQueueTrackerProps): null {
   const db = usePGliteDatabase();
+  const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
   const setIsJobQueueActive = useVectorStatusUIStore((s) => s.setIsJobQueueActive);
+  const setDurableQueueStats = useVectorStatusUIStore((s) => s.setDurableQueueStats);
   const jobQueueActiveRef = useRef(false);
   const jobQueueClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jobQueuePollInFlightRef = useRef(false);
 
   useEffect(() => {
-    if (!db) {
+    if (!jobQueue) {
       jobQueueActiveRef.current = false;
       if (jobQueueClearTimeoutRef.current) {
         clearTimeout(jobQueueClearTimeoutRef.current);
         jobQueueClearTimeoutRef.current = null;
       }
       setIsJobQueueActive(false);
+      setDurableQueueStats(null);
       return;
     }
 
@@ -78,11 +81,19 @@ export function EmbeddingJobQueueTracker({
       scheduleQueueClear();
     };
 
-    const fetchActiveCount = async (): Promise<number> => {
-      const result = await db.query<{ active: number | string }>(JOB_QUEUE_ACTIVE_QUERY, [
-        EMBEDDINGS_QUEUE_NAME,
-      ]);
-      return Number(result.rows[0]?.active ?? 0);
+    const fetchStats = async (): Promise<QueueStatsSnapshot | null> => {
+      const rows = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE_NAME);
+      const s = rows?.[0];
+      if (!s) {
+        return { queued: 0, running: 0, failed: 0, succeeded: 0, nextRunnableAt: null };
+      }
+      return {
+        queued: s.queued,
+        running: s.running,
+        failed: s.failed,
+        succeeded: s.succeeded,
+        nextRunnableAt: s.nextRunnableAt ?? null,
+      };
     };
 
     const handlePollError = (error: unknown) => {
@@ -95,11 +106,13 @@ export function EmbeddingJobQueueTracker({
     };
 
     const runPoll = async () => {
-      const activeCount = await fetchActiveCount();
+      const stats = await fetchStats();
       if (cancelled) {
         return;
       }
-      updateJobQueueActive(activeCount > 0);
+      setDurableQueueStats(stats);
+      const isActive = stats ? stats.queued > 0 || stats.running > 0 : false;
+      updateJobQueueActive(isActive);
     };
 
     const safeRunPoll = async () => {
@@ -136,8 +149,9 @@ export function EmbeddingJobQueueTracker({
       }
       jobQueueActiveRef.current = false;
       setIsJobQueueActive(false);
+      setDurableQueueStats(null);
     };
-  }, [db, intervalMs, setIsJobQueueActive]);
+  }, [jobQueue, intervalMs, setIsJobQueueActive, setDurableQueueStats]);
 
   return null;
 }
