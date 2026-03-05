@@ -105,6 +105,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 let currentDb: unknown = null;
 const usePGliteDatabaseMock = vi.fn(() => currentDb);
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: () => usePGliteDatabaseMock(),
 }));
 

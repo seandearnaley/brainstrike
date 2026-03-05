@@ -10,6 +10,7 @@ import { ModelRegistrySettingsSection } from '../model-registry-settings-section
 
 // Mock imports
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: vi.fn(() => ({})),
 }));
 

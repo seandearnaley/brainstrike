@@ -45,7 +45,11 @@ const mockDbProvider = vi.fn(
 
 vi.mock('@brainstrike/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return { ...actual, DbProvider: mockDbProvider };
+  return {
+    ...actual,
+    DbProvider: mockDbProvider,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  };
 });
 
 vi.mock('../../renderer/components/root-layout-content', () => ({

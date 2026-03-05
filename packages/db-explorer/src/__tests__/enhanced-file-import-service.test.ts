@@ -19,6 +19,7 @@ vi.mock('../base-file-import-service', () => ({
 
 // Mock dependencies
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useFileRecordRepository: () => ({
     findById: vi.fn(),
     update: vi.fn(),

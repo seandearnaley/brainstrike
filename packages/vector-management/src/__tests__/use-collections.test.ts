@@ -64,6 +64,7 @@ const mockStoreState = {
 };
 
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteLiveQuery: vi.fn(() => mockLiveQueryResult),
 }));
 

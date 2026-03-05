@@ -45,6 +45,7 @@ vi.mock('../create-embedding-queue', () => ({
 // Mock the database module
 vi.mock('@brainstrike/db', () => ({
   DbProvider: ({ children }: { children: React.ReactNode }) => children,
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useDatabase: () => ({
     db: null,
     isLoading: false,

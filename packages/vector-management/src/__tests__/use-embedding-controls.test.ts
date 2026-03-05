@@ -50,6 +50,7 @@ vi.mock('@brainstrike/db', () => {
   class MockJobQueue {}
   return {
     JobQueue: MockJobQueue,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     usePGliteDatabase: vi.fn(() => ({})),
     useVectorEnabled: vi.fn(() => true),
   };

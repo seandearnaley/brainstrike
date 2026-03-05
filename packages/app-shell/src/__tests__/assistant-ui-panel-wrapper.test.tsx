@@ -300,9 +300,10 @@ const { mockDb } = vi.hoisted(() => ({
 
 // Mock the DB hook
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: vi.fn(() => mockDb),
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useDbInitializing: vi.fn(() => false),
   useDbProviderError: vi.fn(() => null),
+  usePGliteDatabase: vi.fn(() => mockDb),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui', () => {

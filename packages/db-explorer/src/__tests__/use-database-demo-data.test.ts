@@ -60,6 +60,7 @@ vi.mock('@brainstrike/db', async () => {
   }
   return {
     ...actual,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     MigrationRunner: MockMigrationRunner,
     migrations: [],
     usePGliteLiveQuery: vi.fn(),

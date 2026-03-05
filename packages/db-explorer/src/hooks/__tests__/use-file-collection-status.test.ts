@@ -24,6 +24,7 @@ const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryS
 );
 
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
 

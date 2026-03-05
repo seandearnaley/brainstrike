@@ -10,6 +10,7 @@ const mockClearPersistentUiState = vi.fn(() => Promise.resolve());
 
 // Mock dependencies
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useFactoryReset: mockUseFactoryReset,
 }));
 
