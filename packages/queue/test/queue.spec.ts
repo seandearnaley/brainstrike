@@ -10,6 +10,7 @@ import {
 
 const workerpoolMocks = vi.hoisted(() => {
   const cancel = vi.fn();
+  const terminate = vi.fn(async () => undefined);
 
   const createDefaultImplementation =
     () =>
@@ -25,7 +26,7 @@ const workerpoolMocks = vi.hoisted(() => {
         phase: 'embedding',
         progress: 0.5,
       });
-      const result: any = Promise.resolve({
+      const result: Promise<unknown> & { cancel: () => void } = Promise.resolve({
         type: 'result',
         id: (payload as { id: string }).id,
         vectors: [Float32Array.of(0.25, 0.5, 0.25)],
@@ -38,12 +39,13 @@ const workerpoolMocks = vi.hoisted(() => {
           fallbackApplied: false,
           dimensions: 3,
         },
-      });
+      }) as Promise<unknown> & { cancel: () => void };
       result.cancel = cancel;
       return result;
     };
 
   let implementation = createDefaultImplementation();
+  let statsImpl: undefined | (() => { pendingTasks: number });
 
   const execSpy = vi.fn<
     [
@@ -56,17 +58,22 @@ const workerpoolMocks = vi.hoisted(() => {
 
   const poolSpy = vi.fn((_script: unknown, _options: unknown) => ({
     exec: execSpy,
+    terminate,
+    stats: statsImpl,
   }));
 
   return {
     cancel,
     execSpy,
     poolSpy,
+    terminate,
     reset() {
       cancel.mockReset();
+      terminate.mockReset();
       execSpy.mockClear();
       poolSpy.mockClear();
       implementation = createDefaultImplementation();
+      statsImpl = undefined;
     },
     setImplementation(
       fn: (
@@ -76,6 +83,9 @@ const workerpoolMocks = vi.hoisted(() => {
       ) => Promise<unknown> & { cancel: () => void }
     ) {
       implementation = fn;
+    },
+    setStatsImplementation(fn: undefined | (() => { pendingTasks: number })) {
+      statsImpl = fn;
     },
   };
 });
@@ -192,9 +202,9 @@ describe('createWorkerpoolAdapter', () => {
         phase: 'embedding',
         progress: 0.25,
       });
-      const promise: any = new Promise((resolve) => {
+      const promise: Promise<unknown> & { cancel: () => void } = new Promise((resolve) => {
         resolveExec = resolve;
-      });
+      }) as Promise<unknown> & { cancel: () => void };
       promise.cancel = workerpoolMocks.cancel;
       return promise;
     });
@@ -224,6 +234,147 @@ describe('createWorkerpoolAdapter', () => {
     const result = await pending;
     expect(result.metadata.batchSize).toBe(1);
   });
+
+  it('supports idempotent resume and cancel, and rejects adds after cancel', async () => {
+    setWorkerSupport();
+    const adapter = createWorkerpoolAdapter();
+
+    adapter.resume();
+    await adapter.cancel();
+    await adapter.cancel();
+
+    expect(workerpoolMocks.terminate).toHaveBeenCalledTimes(1);
+    await expect(adapter.add(minimalTask)).rejects.toThrow('Adapter has been canceled');
+  });
+
+  it('cancels execution for pre-aborted and runtime-aborted signals', async () => {
+    setWorkerSupport();
+    let resolveExec: ((value: unknown) => void) | undefined;
+    workerpoolMocks.setImplementation((_method, args) => {
+      const [payload] = args;
+      const promise: Promise<unknown> & { cancel: () => void } = new Promise((resolve) => {
+        resolveExec = resolve;
+      }) as Promise<unknown> & { cancel: () => void };
+      promise.cancel = workerpoolMocks.cancel;
+
+      queueMicrotask(() => {
+        resolveExec?.({
+          type: 'result',
+          id: (payload as { id: string }).id,
+          vectors: [Float32Array.of(0.5, 0.5, 0.5)],
+          metadata: {
+            model: minimalTask.model,
+            device: 'webgpu',
+            dtype: 'fp16',
+            batchSize: 1,
+            elapsedMs: 1,
+            fallbackApplied: false,
+            dimensions: 3,
+          },
+        });
+      });
+
+      return promise;
+    });
+
+    const adapter = createWorkerpoolAdapter();
+
+    const preAborted = new AbortController();
+    preAborted.abort();
+    await adapter.add({ ...minimalTask, id: 'pre-aborted' }, { signal: preAborted.signal });
+
+    const runtimeAbort = new AbortController();
+    const pending = adapter.add(
+      { ...minimalTask, id: 'runtime-abort' },
+      { signal: runtimeAbort.signal }
+    );
+    runtimeAbort.abort();
+    await pending;
+
+    expect(workerpoolMocks.cancel).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits for in-flight tasks when drain() is called', async () => {
+    setWorkerSupport();
+    let resolveExec: ((value: unknown) => void) | undefined;
+    workerpoolMocks.setImplementation((_method, args) => {
+      const [payload] = args;
+      const promise: Promise<unknown> & { cancel: () => void } = new Promise((resolve) => {
+        resolveExec = resolve;
+      }) as Promise<unknown> & { cancel: () => void };
+      promise.cancel = workerpoolMocks.cancel;
+
+      queueMicrotask(() => {
+        if (resolveExec !== undefined) {
+          resolveExec({
+            type: 'result',
+            id: (payload as { id: string }).id,
+            vectors: [Float32Array.of(0.1, 0.1, 0.1)],
+            metadata: {
+              model: minimalTask.model,
+              device: 'webgpu',
+              dtype: 'fp16',
+              batchSize: 1,
+              elapsedMs: 2,
+              fallbackApplied: false,
+              dimensions: 3,
+            },
+          });
+        }
+      });
+
+      return promise;
+    });
+
+    const adapter = createWorkerpoolAdapter();
+    const taskPromise = adapter.add({ ...minimalTask, id: 'drain-task' });
+    await Promise.resolve();
+    expect(adapter.isProcessing).toBe(true);
+
+    await expect(adapter.drain()).resolves.toBeUndefined();
+    await expect(taskPromise).resolves.toMatchObject({ type: 'result', id: 'drain-task' });
+    expect(adapter.isProcessing).toBe(false);
+  });
+
+  it('waits for active tasks during cancel() cleanup', async () => {
+    setWorkerSupport();
+    workerpoolMocks.setImplementation((_method, args) => {
+      const [payload] = args;
+      const promise: Promise<unknown> & { cancel: () => void } = new Promise((resolve, reject) => {
+        queueMicrotask(() => {
+          if ((payload as { id: string }).id === 'cancel-task') {
+            reject(new Error('canceled by worker termination'));
+            return;
+          }
+          resolve({
+            type: 'result',
+            id: (payload as { id: string }).id,
+            vectors: [Float32Array.of(0.2, 0.2, 0.2)],
+            metadata: {
+              model: minimalTask.model,
+              device: 'webgpu',
+              dtype: 'fp16',
+              batchSize: 1,
+              elapsedMs: 2,
+              fallbackApplied: false,
+              dimensions: 3,
+            },
+          });
+        });
+      }) as Promise<unknown> & { cancel: () => void };
+      promise.cancel = workerpoolMocks.cancel;
+      return promise;
+    });
+
+    const adapter = createWorkerpoolAdapter();
+    const taskPromise = adapter.add({ ...minimalTask, id: 'cancel-task' });
+
+    await expect(adapter.cancel()).resolves.toBeUndefined();
+    await expect(taskPromise).rejects.toThrow('canceled by worker termination');
+    expect(workerpoolMocks.terminate).toHaveBeenCalledTimes(1);
+    expect(adapter.isPaused).toBe(true);
+    expect(adapter.isProcessing).toBe(false);
+  });
 });
 
 describe('queue telemetry', () => {
@@ -244,6 +395,31 @@ describe('queue telemetry', () => {
 
     expect(events.some((event) => event.event === 'enqueue')).toBe(true);
     expect(events.some((event) => event.event === 'complete')).toBe(true);
+  });
+
+  it('includes workerpool pending-task metadata when pool stats are available', async () => {
+    setWorkerSupport();
+    workerpoolMocks.setStatsImplementation(() => ({ pendingTasks: 7 }));
+    const adapter = createWorkerpoolAdapter();
+    const events: QueueTelemetryEvent[] = [];
+
+    const unsubscribe = addQueueTelemetryListener((event) => {
+      if (event.taskId === 'telemetry-stats') {
+        events.push(event);
+      }
+    });
+    try {
+      await adapter.add({ ...minimalTask, id: 'telemetry-stats' });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event: 'enqueue', pending: 7, metadata: { pendingTasks: 7 } }),
+        expect.objectContaining({ event: 'complete', pending: 7, metadata: { pendingTasks: 7 } }),
+      ])
+    );
   });
 
   it('aggregates throughput and latency over a sliding window', () => {

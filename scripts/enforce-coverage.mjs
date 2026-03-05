@@ -62,6 +62,13 @@ const OVERRIDES = new Map([
   ['@brainstrike/ui', { lines: 92, functions: 76, branches: 64, statements: 77 }],
   // Token cache — elevated after token-utils-lite branch/path coverage improvements
   ['@brainstrike/token-cache', { lines: 92, functions: 92, branches: 62, statements: 82 }],
+  // Queue thresholds ratcheted in 2026-03 after workerpool adapter control-flow/telemetry coverage additions.
+  ['@brainstrike/queue', { lines: 90, functions: 90, branches: 80, statements: 90 }],
+  // Queue telemetry collector thresholds ratcheted in 2026-03 after CLI shutdown-path coverage additions.
+  [
+    '@brainstrike/queue-telemetry-collector',
+    { lines: 88, functions: 90, branches: 78, statements: 88 },
+  ],
 ]);
 
 // Discover all coverage files under packages/* and apps/*
