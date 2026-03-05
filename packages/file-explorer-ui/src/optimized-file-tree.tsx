@@ -848,7 +848,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // falling back to main-thread DFS for small trees.
     const treeContext = useOptionalFileTreeContext();
     const indexContext = useOptionalFileTreeIndexContext();
-    const workerPortRef = treeContext?.workerPortRef ?? { current: null };
+    const nullPortRef = useRef<null>(null);
+    const workerPortRef = treeContext?.workerPortRef ?? nullPortRef;
     const approximateNodeCount = indexContext?.stats.totalNodes ?? 0;
 
     const { flattenedNodes, isWorkerEnabled } = useWorkerFlattenedTree({
