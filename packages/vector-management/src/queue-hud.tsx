@@ -85,15 +85,14 @@ function useQueueRetry(
       // Optimistically move failed→queued so the HUD reflects the retry immediately
       // instead of waiting for the next tracker poll (~1.5s).
       const currentStats = useVectorStatusUIStore.getState().durableQueueStats;
-      setDurableQueueStats(
-        currentStats
-          ? {
-              ...currentStats,
-              failed: 0,
-              queued: currentStats.queued + currentStats.failed,
-            }
-          : null
-      );
+      if (currentStats) {
+        const requeued = Math.min(currentStats.failed, RETRY_BATCH_SIZE);
+        setDurableQueueStats({
+          ...currentStats,
+          failed: currentStats.failed - requeued,
+          queued: currentStats.queued + requeued,
+        });
+      }
       setBusy(false);
     } catch (error) {
       setBusy(false);

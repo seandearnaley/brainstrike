@@ -33,12 +33,7 @@ import type {
 import { useCallback, useMemo } from 'react';
 import { useEmbeddingQueueSafe } from './embedding-queue-provider';
 
-export interface UseQueueHealthMetricsOptions {
-  /** @deprecated No longer used — durable stats come from the shared store. */
-  readonly enablePolling?: boolean;
-  /** @deprecated No longer used — durable stats come from the shared store. */
-  readonly pollIntervalMs?: number;
-}
+export type UseQueueHealthMetricsOptions = Record<string, never>;
 
 export interface UseQueueHealthMetricsReturn {
   /** Always null — errors are handled by EmbeddingJobQueueTracker. Kept for API compat. */
