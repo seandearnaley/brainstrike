@@ -1,7 +1,7 @@
 import type { EmbeddingDType } from '@brainstrike/embedding-worker';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { EmbeddingConfig, EmbeddingProgress, EmbeddingResult, ModelConfig } from './types';
 
 const logger = createLogger('TransformersBackend');
@@ -290,7 +290,7 @@ export class TransformersBackend {
     const warmupId =
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
-        : `warmup-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
+        : `warmup-${Date.now().toString(36)}-${generateUUID()}`;
     try {
       const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
       await queue.add({
@@ -405,7 +405,7 @@ export class TransformersBackend {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
       return crypto.randomUUID();
     }
-    return `embed-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
+    return `embed-${Date.now().toString(36)}-${generateUUID()}`;
   }
 
   private resolveDeviceHint(): 'webgpu' | 'wasm' {
