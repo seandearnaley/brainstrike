@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, isDevEnv, setupHMR } from '@brainstrike/utils';
 import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
 
@@ -152,6 +152,26 @@ class WasmLoader {
   }
 
   /**
+   * Close all cached PGlite instances and reset loader state.
+   * Used during HMR dispose to prevent stale DB handles surviving module replacement.
+   */
+  async disposeAll(): Promise<void> {
+    const entries = Array.from(this.dbCache.entries());
+    this.dbCache.clear();
+    this.wasmLoadPromise = null;
+    this.isLoaded = false;
+
+    for (const [cacheKey, db] of entries) {
+      try {
+        await db.close();
+        logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
+      } catch (err) {
+        logger.warn('HMR dispose: failed to close PGlite instance', { cacheKey, error: err });
+      }
+    }
+  }
+
+  /**
    * Deletes an IndexedDB database for PGlite storage.
    * This is necessary for factory reset to fully wipe corrupted database state.
    *
@@ -205,3 +225,26 @@ class WasmLoader {
 }
 
 export const wasmLoader = WasmLoader.getInstance();
+
+// Reset module-level extension caches during HMR so stale promise references
+// from the previous module instance don't leak into the replacement.
+function resetExtensionCaches(): void {
+  cachedVectorPromise = null;
+  cachedLivePromise = null;
+}
+
+/**
+ * Dispose function exposed for testing.
+ * In dev mode, also registered as a Vite HMR dispose handler to close
+ * cached DB instances when this module is hot-replaced.
+ */
+export async function disposeWasmLoader(): Promise<void> {
+  resetExtensionCaches();
+  await wasmLoader.disposeAll();
+}
+
+if (isDevEnv()) {
+  setupHMR(undefined, () => {
+    void disposeWasmLoader();
+  });
+}
