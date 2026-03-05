@@ -2,12 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as cli from '../src/cli';
 import * as collectorModule from '../src/collector';
 
+const cliMocks = vi.hoisted(() => {
+  const start = vi.fn().mockResolvedValue(undefined);
+  const stop = vi.fn().mockResolvedValue(undefined);
+  const getEndpoint = vi.fn().mockReturnValue('http://localhost:4130/queue-telemetry');
+  return { start, stop, getEndpoint };
+});
+
 // Mock dependencies
 vi.mock('../src/collector', () => ({
   createQueueTelemetryCollector: vi.fn(() => ({
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-    getEndpoint: vi.fn().mockReturnValue('http://localhost:4130/queue-telemetry'),
+    start: cliMocks.start,
+    stop: cliMocks.stop,
+    getEndpoint: cliMocks.getEndpoint,
   })),
 }));
 
@@ -108,5 +115,28 @@ describe('CLI', () => {
 
     expect(onSpy).toHaveBeenCalledWith('SIGINT', expect.any(Function));
     expect(onSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
+  });
+
+  it('stops collector and exits cleanly on SIGINT', async () => {
+    const handlers = new Map<string, () => Promise<void>>();
+    vi.spyOn(process, 'on').mockImplementation(
+      (event: Parameters<typeof process.on>[0], handler: (signal?: NodeJS.Signals) => void) => {
+        if (event === 'SIGINT' || event === 'SIGTERM') {
+          handlers.set(event, async () => {
+            handler(event);
+          });
+        }
+        return process;
+      }
+    );
+
+    await cli.runQueueTelemetryCollectorCli({});
+
+    const shutdown = handlers.get('SIGINT');
+    expect(shutdown).toBeDefined();
+    await shutdown?.();
+
+    expect(cliMocks.stop).toHaveBeenCalledTimes(1);
+    expect(process.exit).toHaveBeenCalledWith(0);
   });
 });
