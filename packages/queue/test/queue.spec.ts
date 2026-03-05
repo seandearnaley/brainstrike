@@ -8,6 +8,8 @@ import {
   type QueueTelemetryEvent,
 } from '../src/telemetry';
 
+type CancellablePromise = Promise<unknown> & { cancel: () => void };
+
 const workerpoolMocks = vi.hoisted(() => {
   const cancel = vi.fn();
   const terminate = vi.fn(async () => undefined);
@@ -18,7 +20,7 @@ const workerpoolMocks = vi.hoisted(() => {
       _method: string,
       args: unknown[],
       options?: { readonly on?: (event: unknown) => void; readonly priority?: number }
-    ): Promise<unknown> & { cancel: () => void } => {
+    ): CancellablePromise => {
       const [payload] = args;
       options?.on?.({
         type: 'progress',
@@ -26,7 +28,7 @@ const workerpoolMocks = vi.hoisted(() => {
         phase: 'embedding',
         progress: 0.5,
       });
-      const result: Promise<unknown> & { cancel: () => void } = Promise.resolve({
+      const result: CancellablePromise = Promise.resolve({
         type: 'result',
         id: (payload as { id: string }).id,
         vectors: [Float32Array.of(0.25, 0.5, 0.25)],
@@ -80,7 +82,7 @@ const workerpoolMocks = vi.hoisted(() => {
         method: string,
         args: unknown[],
         options?: { readonly on?: (event: unknown) => void; readonly priority?: number }
-      ) => Promise<unknown> & { cancel: () => void }
+      ) => CancellablePromise
     ) {
       implementation = fn;
     },
@@ -202,9 +204,9 @@ describe('createWorkerpoolAdapter', () => {
         phase: 'embedding',
         progress: 0.25,
       });
-      const promise: Promise<unknown> & { cancel: () => void } = new Promise((resolve) => {
+      const promise: CancellablePromise = new Promise((resolve) => {
         resolveExec = resolve;
-      }) as Promise<unknown> & { cancel: () => void };
+      }) as CancellablePromise;
       promise.cancel = workerpoolMocks.cancel;
       return promise;
     });
@@ -252,9 +254,9 @@ describe('createWorkerpoolAdapter', () => {
     let resolveExec: ((value: unknown) => void) | undefined;
     workerpoolMocks.setImplementation((_method, args) => {
       const [payload] = args;
-      const promise: Promise<unknown> & { cancel: () => void } = new Promise((resolve) => {
+      const promise: CancellablePromise = new Promise((resolve) => {
         resolveExec = resolve;
-      }) as Promise<unknown> & { cancel: () => void };
+      }) as CancellablePromise;
       promise.cancel = workerpoolMocks.cancel;
 
       queueMicrotask(() => {
@@ -299,9 +301,9 @@ describe('createWorkerpoolAdapter', () => {
     let resolveExec: ((value: unknown) => void) | undefined;
     workerpoolMocks.setImplementation((_method, args) => {
       const [payload] = args;
-      const promise: Promise<unknown> & { cancel: () => void } = new Promise((resolve) => {
+      const promise: CancellablePromise = new Promise((resolve) => {
         resolveExec = resolve;
-      }) as Promise<unknown> & { cancel: () => void };
+      }) as CancellablePromise;
       promise.cancel = workerpoolMocks.cancel;
 
       queueMicrotask(() => {
@@ -340,7 +342,7 @@ describe('createWorkerpoolAdapter', () => {
     setWorkerSupport();
     workerpoolMocks.setImplementation((_method, args) => {
       const [payload] = args;
-      const promise: Promise<unknown> & { cancel: () => void } = new Promise((resolve, reject) => {
+      const promise: CancellablePromise = new Promise((resolve, reject) => {
         queueMicrotask(() => {
           if ((payload as { id: string }).id === 'cancel-task') {
             reject(new Error('canceled by worker termination'));
@@ -361,7 +363,7 @@ describe('createWorkerpoolAdapter', () => {
             },
           });
         });
-      }) as Promise<unknown> & { cancel: () => void };
+      }) as CancellablePromise;
       promise.cancel = workerpoolMocks.cancel;
       return promise;
     });

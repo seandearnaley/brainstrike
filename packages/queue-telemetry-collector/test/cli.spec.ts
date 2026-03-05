@@ -34,9 +34,6 @@ describe('CLI', () => {
     process.env = { ...originalEnv };
     process.argv = [...originalArgv];
     process.exit = vi.fn() as any;
-    cliMocks.start.mockClear();
-    cliMocks.stop.mockClear();
-    cliMocks.getEndpoint.mockClear();
     vi.clearAllMocks();
   });
 
@@ -123,8 +120,10 @@ describe('CLI', () => {
   it('stops collector and exits cleanly on SIGINT', async () => {
     const handlers = new Map<string, () => Promise<void>>();
     vi.spyOn(process, 'on').mockImplementation(
-      (event: NodeJS.Signals, handler: () => Promise<void>) => {
-        handlers.set(event, handler);
+      (event: Parameters<typeof process.on>[0], handler: () => Promise<void>) => {
+        if (event === 'SIGINT' || event === 'SIGTERM') {
+          handlers.set(event, handler);
+        }
         return process;
       }
     );
