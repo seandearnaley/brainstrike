@@ -685,7 +685,9 @@ function buildRowsFromWorkerNodes(
 ): TreeNode<FileTreeRowData>[] {
   const rows: TreeNode<FileTreeRowData>[] = [];
 
-  // Track parent path per depth level for parentId assignment
+  // Track parent path per depth level for parentId assignment.
+  // INVARIANT: flattenedNodes must be in DFS pre-order so that a node at depth N
+  // always has a preceding node at depth N-1 already recorded in parentStack.
   const parentStack: (string | null)[] = [null];
 
   for (const { node: workerNode, depth } of flattenedNodes) {
@@ -856,14 +858,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     // Build a path-indexed map of all IFileNodes for worker result mapping.
     // Only computed when worker flattening is active to avoid overhead for small trees.
+    // Note: depends on fileTree only (not flattenedNodes) to avoid reindexing on every
+    // expand/collapse — the index maps paths to IFileNode refs which don't change.
     const fileNodeIndex = useMemo(() => {
-      if (!(isWorkerEnabled && flattenedNodes)) {
+      if (!isWorkerEnabled) {
         return null;
       }
       const index = new Map<string, IFileNode>();
       indexFileNodesByPath(fileTree, index);
       return index;
-    }, [isWorkerEnabled, flattenedNodes, fileTree]);
+    }, [isWorkerEnabled, fileTree]);
 
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.

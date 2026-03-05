@@ -161,14 +161,16 @@ class WasmLoader {
     this.wasmLoadPromise = null;
     this.isLoaded = false;
 
-    for (const [cacheKey, db] of entries) {
-      try {
-        await db.close();
-        logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
-      } catch (err) {
-        logger.warn('HMR dispose: failed to close PGlite instance', { cacheKey, error: err });
-      }
-    }
+    await Promise.allSettled(
+      entries.map(async ([cacheKey, db]) => {
+        try {
+          await db.close();
+          logger.info('HMR dispose: closed cached PGlite instance', { cacheKey });
+        } catch (err) {
+          logger.warn('HMR dispose: failed to close PGlite instance', { cacheKey, error: err });
+        }
+      })
+    );
   }
 
   /**
@@ -244,7 +246,7 @@ export async function disposeWasmLoader(): Promise<void> {
 }
 
 if (isDevEnv()) {
-  setupHMR(undefined, () => {
-    void disposeWasmLoader();
+  setupHMR(undefined, async () => {
+    await disposeWasmLoader();
   });
 }
