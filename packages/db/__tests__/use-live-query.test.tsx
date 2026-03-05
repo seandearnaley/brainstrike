@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { deepEqual, usePGliteLiveQuery } from '../src/use-live-query.js';
+import { deepEqual, makeLiveQueryKey, usePGliteLiveQuery } from '../src/use-live-query.js';
 
 // Mock the database provider
 vi.mock('../src/db-provider.js', () => ({
@@ -368,5 +368,117 @@ describe('deepEqual', () => {
 
     expect(deepEqual(obj1, obj2)).toBe(true);
     expect(deepEqual(obj1, obj3)).toBe(false);
+  });
+});
+
+describe('makeLiveQueryKey', () => {
+  it('should produce a stable string from primitives', () => {
+    expect(makeLiveQueryKey('files', 1, true)).toBe('["files",1,true]');
+  });
+
+  it('should produce the same key for identical args across calls', () => {
+    const a = makeLiveQueryKey('q', [1, 2], { page: 3 });
+    const b = makeLiveQueryKey('q', [1, 2], { page: 3 });
+    expect(a).toBe(b);
+  });
+
+  it('should produce different keys for different args', () => {
+    const a = makeLiveQueryKey('q', 1);
+    const b = makeLiveQueryKey('q', 2);
+    expect(a).not.toBe(b);
+  });
+
+  it('should handle null and undefined', () => {
+    const a = makeLiveQueryKey(null, undefined);
+    const b = makeLiveQueryKey(null, undefined);
+    expect(a).toBe(b);
+    // null and undefined both serialize to null in JSON
+    expect(a).toBe('[null,null]');
+  });
+
+  it('should handle empty args', () => {
+    expect(makeLiveQueryKey()).toBe('[]');
+  });
+});
+
+describe('usePGliteLiveQuery cacheKey', () => {
+  let mockSubscribe: ReturnType<typeof vi.fn>;
+  let mockUnsubscribe: ReturnType<typeof vi.fn>;
+  let mockQuery: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockSubscribe = vi.fn();
+    mockUnsubscribe = vi.fn();
+    mockQuery = vi.fn().mockReturnValue({
+      initialResults: { rows: [] },
+      subscribe: mockSubscribe,
+      unsubscribe: mockUnsubscribe,
+      refresh: vi.fn(),
+    });
+
+    (usePGliteDatabase as any).mockReturnValue({
+      raw: {
+        live: {
+          query: mockQuery,
+          incrementalQuery: mockQuery,
+        },
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function CacheKeyComponent({ cacheKey, params }: { cacheKey?: string; params?: unknown[] }) {
+    usePGliteLiveQuery({
+      cacheKey,
+      query: 'SELECT * FROM test WHERE id = $1',
+      params,
+    });
+    return null;
+  }
+
+  it('should not resubscribe when cacheKey stays the same despite new params reference', () => {
+    const key = makeLiveQueryKey('test', 1);
+    const { rerender } = render(<CacheKeyComponent cacheKey={key} params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    // New params array reference, same cacheKey
+    rerender(<CacheKeyComponent cacheKey={key} params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should resubscribe when cacheKey changes', () => {
+    const key1 = makeLiveQueryKey('test', 1);
+    const key2 = makeLiveQueryKey('test', 2);
+    const { rerender } = render(<CacheKeyComponent cacheKey={key1} params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    rerender(<CacheKeyComponent cacheKey={key2} params={[2]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('should pass params to the query even when using cacheKey', () => {
+    const key = makeLiveQueryKey('test', 42);
+    render(<CacheKeyComponent cacheKey={key} params={[42]} />);
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: [42],
+      })
+    );
+  });
+
+  it('should fall back to deepEqual behavior when cacheKey is not provided', () => {
+    const { rerender } = render(<CacheKeyComponent params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    // Same content, new reference - should NOT resubscribe (deepEqual catches it)
+    rerender(<CacheKeyComponent params={[1]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    // Different content - should resubscribe
+    rerender(<CacheKeyComponent params={[2]} />);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 });
