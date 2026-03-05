@@ -22,15 +22,19 @@ const loggerCalls = {
   debug: [] as unknown[][],
 };
 
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: () => ({
-    error: (...args: unknown[]) => loggerCalls.error.push(args),
-    warn: (...args: unknown[]) => loggerCalls.warn.push(args),
-    info: (...args: unknown[]) => loggerCalls.info.push(args),
-    debug: (...args: unknown[]) => loggerCalls.debug.push(args),
-  }),
-  generateUUID: () => 'test-uuid',
-}));
+vi.mock('@brainstrike/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      error: (...args: unknown[]) => loggerCalls.error.push(args),
+      warn: (...args: unknown[]) => loggerCalls.warn.push(args),
+      info: (...args: unknown[]) => loggerCalls.info.push(args),
+      debug: (...args: unknown[]) => loggerCalls.debug.push(args),
+    }),
+    generateUUID: () => 'test-uuid',
+  };
+});
 
 vi.mock('../bge-m3-service', () => {
   class MockSimpleEmbeddingService implements EmbeddingService {
