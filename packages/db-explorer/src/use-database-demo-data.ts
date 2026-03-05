@@ -6,6 +6,7 @@ import {
   type FileChunk,
   type FileRecord,
   MigrationRunner,
+  makeLiveQueryKey,
   migrations,
   type usePGliteDatabase,
   usePGliteLiveQuery,
@@ -578,6 +579,7 @@ export function useDatabaseDemoData({
     error: recordsError,
     refresh: refreshRecordsQuery,
   } = usePGliteLiveQuery<FileRecordRow>({
+    cacheKey: makeLiveQueryKey('file-records', activeCollectionId),
     query: FILE_RECORDS_LIVE_QUERY,
     ...(recordQueryParams ? { params: recordQueryParams } : {}),
     enabled: liveQueryEnabled,
@@ -589,6 +591,7 @@ export function useDatabaseDemoData({
     error: chunksError,
     refresh: refreshChunksQuery,
   } = usePGliteLiveQuery<FileChunkRow>({
+    cacheKey: makeLiveQueryKey('file-chunks', activeCollectionId),
     query: FILE_CHUNKS_LIVE_QUERY,
     ...(chunkQueryParams ? { params: chunkQueryParams } : {}),
     enabled: liveQueryEnabled,

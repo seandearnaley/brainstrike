@@ -8,6 +8,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePGliteDatabase } from './db-provider.js';
 
 interface BaseLiveQueryOptions {
+  /**
+   * Stable cache key for memoizing query dependencies.
+   * When provided, uses cheap string `===` instead of recursive `deepEqual`
+   * to detect when the query should re-subscribe. Build with `makeLiveQueryKey()`.
+   */
+  readonly cacheKey?: string;
   readonly compareParams?: 'json' | 'deep';
   readonly enabled?: boolean;
   readonly limit?: number;
@@ -154,6 +160,21 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   }
 
   return areObjectsDeepEqual(a, b);
+}
+
+/**
+ * Build a stable cache key from serializable query arguments.
+ * When passed as `cacheKey` to `usePGliteLiveQuery`, the hook uses cheap
+ * string `===` comparison instead of recursive `deepEqual` on every render.
+ *
+ * @example
+ * ```ts
+ * const key = makeLiveQueryKey('files', collectionId, page);
+ * const { rows } = usePGliteLiveQuery({ query, params, cacheKey: key });
+ * ```
+ */
+export function makeLiveQueryKey(...args: readonly unknown[]): string {
+  return JSON.stringify(args);
 }
 
 function useStableParams<T>(value: T, strategy: 'json' | 'deep'): T {
@@ -333,7 +354,25 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
 ): LiveQueryHookResult<T> {
   const db = usePGliteDatabase();
   const source = useMemo(() => resolveLiveSource(db), [db]);
-  const stableParams = useStableParams(options.params, options.compareParams ?? 'json');
+  const hasCacheKey = options.cacheKey !== undefined;
+  // When cacheKey is provided, skip expensive deep/JSON comparison — the caller
+  // guarantees that cacheKey changes iff the query deps change.
+  const stableParams = useStableParams(
+    hasCacheKey ? undefined : options.params,
+    options.compareParams ?? 'json'
+  );
+  // Resolve effective params: use raw params when cacheKey is provided (comparison
+  // is driven by the cacheKey string), otherwise use the stabilised reference.
+  const effectiveParams = hasCacheKey ? options.params : stableParams;
+  // Single reactive dependency for params: when cacheKey is provided, changes to
+  // this string trigger re-subscription (cheap ===). When absent, the stabilised
+  // params reference drives re-subscription via useStableParams.
+  const paramsDep: string | readonly unknown[] | undefined = hasCacheKey
+    ? options.cacheKey
+    : stableParams;
+  // Keep a ref so the effect closure always reads current params.
+  const effectiveParamsRef = useRef(effectiveParams);
+  effectiveParamsRef.current = effectiveParams;
   const [rawRows, setRawRows] = useState<T[]>([]);
   const [loading, setLoading] = useState<boolean>(Boolean(options.enabled ?? true));
   const [error, setError] = useState<Error | null>(null);
@@ -346,6 +385,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const select = options.select;
 
   // biome-ignore lint/plugin: Live query subscription management - async data with cleanup
+  // biome-ignore lint/correctness/useExhaustiveDependencies: paramsDep intentionally drives re-subscription timing via the dep array — the effect reads actual params from effectiveParamsRef
   useEffect(() => {
     let cancelled = false;
     let subscription: LiveSubscription<T> | null = null;
@@ -371,10 +411,11 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     setLoading(true);
     setError(null);
 
+    const currentParams = effectiveParamsRef.current;
     const normalizedOptions: InternalLiveQueryOptions = {
       query: options.query,
       mode,
-      ...(stableParams !== undefined ? { params: stableParams } : {}),
+      ...(currentParams !== undefined ? { params: currentParams } : {}),
       ...(options.offset !== undefined ? { offset: options.offset } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
       ...(options.key ? { key: options.key } : {}),
@@ -417,7 +458,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     options.key,
     options.limit,
     options.offset,
-    stableParams,
+    paramsDep,
     options.query,
     // select intentionally omitted to prevent re-subscription
     source,

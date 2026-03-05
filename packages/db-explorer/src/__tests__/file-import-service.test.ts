@@ -9,14 +9,15 @@ const mockBulkImport = vi.fn();
 const mockReadFile = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  useClearAllData: () => null,
+  useDbProviderError: () => null,
+  useFactoryReset: () => null,
+  useFileChunkRepository: () => null,
   useFileRecordRepository: () => ({
     bulkImport: mockBulkImport,
   }),
   usePGliteDatabase: () => null,
-  useFileChunkRepository: () => null,
-  useClearAllData: () => null,
-  useDbProviderError: () => null,
-  useFactoryReset: () => null,
   usePGliteLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
 }));
 

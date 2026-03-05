@@ -1,5 +1,5 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
@@ -287,6 +287,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     error,
     refresh,
   } = usePGliteLiveQuery<CollectionRow>({
+    cacheKey: makeLiveQueryKey('collections'),
     query: COLLECTIONS_QUERY,
     enabled: liveQueryEnabled,
   });

@@ -10,8 +10,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueHud } from '../queue-hud';
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: vi.fn(),
   JobQueue: vi.fn(),
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteDatabase: vi.fn(),
 }));
 
 describe('QueueHud', () => {

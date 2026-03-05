@@ -59,6 +59,7 @@ vi.mock('@brainstrike/db', async () => {
   return {
     ...actual,
     ChunkingService: vi.fn(),
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     CHUNKING_CONFIG: {
       defaultMaxTokens: 1000,
       defaultOverlap: 100,

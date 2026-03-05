@@ -1,4 +1,4 @@
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 import { useMemo, useRef } from 'react';
@@ -45,6 +45,7 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
   );
 
   const { rows, error } = usePGliteLiveQuery<{ count: number }>({
+    cacheKey: makeLiveQueryKey('indexed-chunk-count', activeCollectionId),
     query: INDEXED_CHUNK_COUNT_QUERY,
     ...(params ? { params } : {}),
     enabled: liveQueryEnabled,

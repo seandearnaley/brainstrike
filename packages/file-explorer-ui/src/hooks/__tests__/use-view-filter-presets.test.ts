@@ -17,6 +17,7 @@ const mockRepository = {
 
 // Mock the database dependencies - repository always available for coverage
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useDrizzleDb: vi.fn(() => null),
   useDrizzleLiveQuery: vi.fn(() => ({ rows: [], loading: false, error: null, refresh: vi.fn() })),
   useViewFilterPresetsRepository: vi.fn(() => mockRepository),

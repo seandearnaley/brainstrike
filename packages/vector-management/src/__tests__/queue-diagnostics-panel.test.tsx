@@ -12,8 +12,9 @@ import { useQueueHealthMetrics } from '../use-queue-health-metrics';
 
 // Mock dependencies of useQueueHealthMetrics
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: vi.fn(() => null),
   JobQueue: vi.fn(),
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  usePGliteDatabase: vi.fn(() => null),
 }));
 
 vi.mock('../embedding-queue-provider', () => ({

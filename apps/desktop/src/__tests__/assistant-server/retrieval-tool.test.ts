@@ -58,6 +58,7 @@ vi.mock('@brainstrike/agent', () => {
 });
 
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   FileChunkRepository: class {
     searchSimilar(
       embedding: number[],

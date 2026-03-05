@@ -102,6 +102,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/db')>();
   return {
     ...actual,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: () => mockRepository,
     usePGliteDatabase: () => mockDatabase,
     useFileChunkRepository: () => mockChunkRepository,

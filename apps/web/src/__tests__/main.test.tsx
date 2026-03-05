@@ -11,6 +11,7 @@ vi.mock('react-helmet-async', () => ({
 
 vi.mock('@brainstrike/db', () => ({
   DbProvider: ({ children }: { children: React.ReactNode }) => children,
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: vi.fn(() => null),
 }));
 

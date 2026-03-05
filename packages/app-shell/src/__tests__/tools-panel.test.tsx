@@ -21,13 +21,14 @@ afterEach(() => {
 
 // Mock the database dependencies
 vi.mock('@brainstrike/db', () => ({
-  useFileRecordRepository: () => null, // Return null to simulate loading state
-  usePGliteDatabase: () => null,
-  useFileChunkRepository: () => null,
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   useClearAllData: () => null,
   useDbProviderError: () => null,
-  useVectorEnabled: () => false,
   useFactoryReset: () => null,
+  useFileChunkRepository: () => null,
+  useFileRecordRepository: () => null, // Return null to simulate loading state
+  usePGliteDatabase: () => null,
+  useVectorEnabled: () => false,
 }));
 
 // Mock embeddings device helper to avoid module resolution issues in tests

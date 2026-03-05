@@ -33,6 +33,7 @@ vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
   return {
     ...actual,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     usePGliteLiveQuery: vi.fn(
       (options: { query: string; params?: readonly unknown[]; enabled?: boolean }) => {
         if (!options.enabled) {

@@ -25,6 +25,7 @@ function createMockDb(collectionCount = 1): MockDb {
 }
 
 vi.mock('@brainstrike/db', () => ({
+  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: (...args: unknown[]) => mockUsePGliteDatabase(...args),
 }));
 

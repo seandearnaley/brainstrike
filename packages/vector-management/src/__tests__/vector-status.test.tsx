@@ -38,8 +38,9 @@ vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<object>('@brainstrike/db');
   return {
     ...(actual as object),
-    useVectorEnabled: () => false,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     usePGliteDatabase: () => null,
+    useVectorEnabled: () => false,
   };
 });
 

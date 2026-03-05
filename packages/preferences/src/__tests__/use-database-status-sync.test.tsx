@@ -15,6 +15,7 @@ vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
   return {
     ...actual,
+    makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
     useFileRecordRepository: vi.fn(),
   };
 });
