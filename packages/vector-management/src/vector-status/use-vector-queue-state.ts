@@ -1,4 +1,4 @@
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
@@ -190,6 +190,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   );
 
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
+    cacheKey: makeLiveQueryKey('queue-counts', EMBEDDINGS_QUEUE),
     query: QUEUE_COUNTS_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
     enabled: liveQueryEnabled,
@@ -209,6 +210,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [queueCountsResult.rows]);
 
   const throughputResult = usePGliteLiveQuery<ThroughputRow>({
+    cacheKey: makeLiveQueryKey('throughput', EMBEDDINGS_QUEUE),
     query: THROUGHPUT_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
     enabled: liveQueryEnabled,
@@ -223,6 +225,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [throughputResult.rows]);
 
   const lastErrorResult = usePGliteLiveQuery<LastErrorRow>({
+    cacheKey: makeLiveQueryKey('last-error', EMBEDDINGS_QUEUE),
     query: LAST_ERROR_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
     enabled: liveQueryEnabled,
@@ -231,6 +234,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const lastError = useMemo(() => lastErrorResult.rows[0]?.error ?? null, [lastErrorResult.rows]);
 
   const latencyRowsResult = usePGliteLiveQuery<LatencyRow>({
+    cacheKey: makeLiveQueryKey('latency', EMBEDDINGS_QUEUE),
     query: LATENCY_ROWS_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
     enabled: liveQueryEnabled,
@@ -262,6 +266,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   );
 
   const coverageResult = usePGliteLiveQuery<CoverageRow>({
+    cacheKey: makeLiveQueryKey('coverage', activeEmbeddingSetId),
     query: COVERAGE_QUERY,
     ...(coverageParams ? { params: coverageParams } : {}),
     enabled: liveQueryEnabled && Boolean(activeEmbeddingSetId),
