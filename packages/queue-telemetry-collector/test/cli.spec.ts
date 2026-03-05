@@ -120,9 +120,11 @@ describe('CLI', () => {
   it('stops collector and exits cleanly on SIGINT', async () => {
     const handlers = new Map<string, () => Promise<void>>();
     vi.spyOn(process, 'on').mockImplementation(
-      (event: Parameters<typeof process.on>[0], handler: () => Promise<void>) => {
+      (event: Parameters<typeof process.on>[0], handler: (signal?: NodeJS.Signals) => void) => {
         if (event === 'SIGINT' || event === 'SIGTERM') {
-          handlers.set(event, handler);
+          handlers.set(event, async () => {
+            handler(event);
+          });
         }
         return process;
       }
