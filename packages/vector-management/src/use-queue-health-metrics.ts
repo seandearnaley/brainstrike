@@ -10,7 +10,7 @@
  * @example
  * ```tsx
  * function DiagnosticsPanel() {
- *   const { metrics, isLoading, refresh } = useQueueHealthMetrics();
+ *   const { metrics, isLoading } = useQueueHealthMetrics();
  *
  *   if (isLoading) return <Skeleton />;
  *
@@ -30,7 +30,7 @@ import type {
   QueueHealthMetrics,
   WorkerHealthStatus,
 } from '@brainstrike/queue';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useEmbeddingQueueSafe } from './embedding-queue-provider';
 
 export interface UseQueueHealthMetricsOptions {
@@ -41,15 +41,21 @@ export interface UseQueueHealthMetricsOptions {
 }
 
 export interface UseQueueHealthMetricsReturn {
-  /** Last error encountered, if any */
-  readonly error: string | null;
-  /** Whether initial data is still loading */
-  readonly isLoading: boolean;
+  /** Always null — errors are handled by EmbeddingJobQueueTracker. Kept for API compat. */
+  readonly error: null;
+  /** Always false — metrics are derived reactively from store + context. Kept for API compat. */
+  readonly isLoading: false;
   /** Consolidated health metrics */
   readonly metrics: QueueHealthMetrics;
-  /** Force a refresh of ephemeral metrics */
+  /**
+   * No-op — durable stats update reactively via the shared store, and ephemeral
+   * metrics update reactively via context. Kept for API compatibility with
+   * QueueDiagnosticsPanel's refresh button.
+   */
   readonly refresh: () => Promise<void>;
 }
+
+const NOOP_REFRESH = async (): Promise<void> => {};
 
 /**
  * Hook to consolidate queue health metrics from multiple sources.
@@ -62,16 +68,11 @@ export interface UseQueueHealthMetricsReturn {
 export function useQueueHealthMetrics(
   _options: UseQueueHealthMetricsOptions = {}
 ): UseQueueHealthMetricsReturn {
-  const [isLoading, setIsLoading] = useState(true);
-  const [error] = useState<string | null>(null);
-
   // BST-359: Read durable stats from shared store (written by EmbeddingJobQueueTracker)
   const durableQueueStats = useVectorStatusUIStore((s) => s.durableQueueStats);
 
   // Get ephemeral queue metrics from provider (returns null if not within provider)
   const embeddingQueueContext = useEmbeddingQueueSafe();
-
-  const mountedRef = useRef(true);
 
   const getEphemeralMetrics = useCallback((): EphemeralQueueMetrics | null => {
     if (!embeddingQueueContext) {
@@ -91,7 +92,6 @@ export function useQueueHealthMetrics(
     return null;
   }, [embeddingQueueContext]);
 
-  // Consolidate all sources into a single metrics object
   const metrics: QueueHealthMetrics = useMemo(
     () => ({
       durableQueue: durableQueueStats ?? null,
@@ -102,24 +102,10 @@ export function useQueueHealthMetrics(
     [durableQueueStats, getEphemeralMetrics, getWorkerHealth]
   );
 
-  // Mark loading complete after first render
-  useEffect(() => {
-    mountedRef.current = true;
-    setIsLoading(false);
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  const refresh = useCallback(async () => {
-    // Durable stats are reactively provided by the store.
-    // This is kept for API compatibility — ephemeral metrics update reactively too.
-  }, []);
-
   return {
     metrics,
-    isLoading,
-    refresh,
-    error,
+    isLoading: false,
+    refresh: NOOP_REFRESH,
+    error: null,
   };
 }

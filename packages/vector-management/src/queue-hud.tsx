@@ -73,6 +73,7 @@ function useQueueRetry(
   toast: ToastFn
 ): { busy: boolean; handleRetry: () => Promise<void> } {
   const [busy, setBusy] = useState(false);
+  const setDurableQueueStats = useVectorStatusUIStore((s) => s.setDurableQueueStats);
 
   const handleRetry = useCallback(async (): Promise<void> => {
     if (!jobQueue) {
@@ -81,6 +82,18 @@ function useQueueRetry(
     try {
       setBusy(true);
       await jobQueue.requeueFailed(EMBEDDING_QUEUE_NAME, RETRY_BATCH_SIZE);
+      // Optimistically move failed→queued so the HUD reflects the retry immediately
+      // instead of waiting for the next tracker poll (~1.5s).
+      const currentStats = useVectorStatusUIStore.getState().durableQueueStats;
+      setDurableQueueStats(
+        currentStats
+          ? {
+              ...currentStats,
+              failed: 0,
+              queued: currentStats.queued + currentStats.failed,
+            }
+          : null
+      );
       setBusy(false);
     } catch (error) {
       setBusy(false);
@@ -92,7 +105,7 @@ function useQueueRetry(
         variant: 'destructive',
       });
     }
-  }, [jobQueue, toast]);
+  }, [jobQueue, toast, setDurableQueueStats]);
 
   return { busy, handleRetry };
 }

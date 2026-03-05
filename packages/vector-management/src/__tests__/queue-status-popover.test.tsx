@@ -46,18 +46,19 @@ describe('QueueStatusPopover', () => {
     vi.clearAllMocks();
   });
 
-  describe('loading state', () => {
-    it('shows loading indicator when metrics are loading', () => {
+  describe('default state', () => {
+    it('renders compact status when metrics are available', () => {
       vi.mocked(useQueueHealthMetrics).mockReturnValue({
         metrics: createMetrics(),
-        isLoading: true,
+        isLoading: false,
         refresh: vi.fn(),
         error: null,
       });
 
       renderPopover();
 
-      expect(screen.getByText('Loading...')).toBeInTheDocument();
+      // Should render the trigger button (not a loading indicator)
+      expect(screen.getByTestId('queue-status-popover-trigger')).toBeInTheDocument();
     });
   });
 

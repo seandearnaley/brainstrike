@@ -274,6 +274,89 @@ describe('useChunkingWorker', () => {
     standalone.terminate();
   });
 
+  it('uses fallback message when init error has empty error field', async () => {
+    const { useChunkingWorker } = await import('../use-chunking-worker');
+    const { result, unmount } = renderHookHarness(() => useChunkingWorker());
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    act(() => {
+      worker.simulateMessage({
+        type: 'error',
+        id: '__init__',
+        error: '',
+      } as WorkerResponse);
+    });
+
+    await waitForExpect(() =>
+      expect(result.current.error?.message).toBe('Worker initialization failed')
+    );
+    unmount();
+  });
+
+  it('handles ErrorEvent with missing fields using fallback values', async () => {
+    const { useChunkingWorker } = await import('../use-chunking-worker');
+    const { result, unmount } = renderHookHarness(() => useChunkingWorker());
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    act(() => {
+      worker.simulateMessage({ type: 'ready' });
+    });
+    await waitForExpect(() => expect(result.current.isReady).toBe(true));
+
+    // Simulate ErrorEvent with all fields empty/missing
+    const event = { message: '', filename: '', lineno: 0, colno: 0 } as ErrorEvent;
+    act(() => {
+      for (const handler of (
+        worker as unknown as {
+          addEventListener: { mock: { calls: [string, (e: ErrorEvent) => void][] } };
+        }
+      ).addEventListener.mock.calls) {
+        if (handler[0] === 'error') {
+          handler[1](event);
+        }
+      }
+    });
+
+    await waitForExpect(() => {
+      expect(result.current.isReady).toBe(false);
+      expect(result.current.error?.message).toContain('Unknown worker error');
+    });
+    unmount();
+  });
+
+  it('rejects standalone waitForReady on init error message', async () => {
+    const { createStandaloneChunkingWorker } = await import('../use-chunking-worker');
+    const standalone = await createStandaloneChunkingWorker();
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const worker = workers[0];
+    if (!worker) {
+      throw new Error('Expected worker instance');
+    }
+
+    const readyPromise = standalone.waitForReady();
+    act(() => {
+      worker.simulateMessage({
+        type: 'error',
+        id: '__init__',
+        error: 'init boom',
+      } as WorkerResponse);
+    });
+
+    await expect(readyPromise).rejects.toThrow('init boom');
+    standalone.terminate();
+  });
+
   it('cleans up waitForReady message listener when standalone worker times out', async () => {
     vi.useFakeTimers();
 

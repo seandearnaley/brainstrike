@@ -151,7 +151,7 @@ describe('QueueHud', () => {
     expect(retryButton).toBeDisabled();
   });
 
-  it('updates button state during retry operation', async () => {
+  it('disables button during retry and optimistically zeroes failed count', async () => {
     const user = userEvent.setup();
     const mockDb = {} as never;
     vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
@@ -172,14 +172,17 @@ describe('QueueHud', () => {
 
     await user.click(retryButton);
 
+    // Button disabled while busy
     await waitFor(() => {
       expect(retryButton).toBeDisabled();
     });
 
     resolveRequeue?.();
 
+    // After retry completes, failed is optimistically zeroed → queued becomes 3
     await waitFor(() => {
-      expect(retryButton).not.toBeDisabled();
+      expect(useVectorStatusUIStore.getState().durableQueueStats?.failed).toBe(0);
+      expect(useVectorStatusUIStore.getState().durableQueueStats?.queued).toBe(3);
     });
   });
 

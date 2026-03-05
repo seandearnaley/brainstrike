@@ -25,14 +25,12 @@ describe('useQueueHealthMetrics', () => {
   });
 
   describe('initial state', () => {
-    it('transitions from loading to loaded', async () => {
+    it('is never loading — metrics are derived reactively', () => {
       vi.mocked(useEmbeddingQueueSafe).mockReturnValue(null);
 
       const { result, unmount } = renderHook(() => useQueueHealthMetrics());
 
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
-      });
+      expect(result.current.isLoading).toBe(false);
       expect(result.current.error).toBeNull();
       unmount();
     });
