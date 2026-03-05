@@ -161,7 +161,7 @@ class WasmLoader {
     this.wasmLoadPromise = null;
     this.isLoaded = false;
 
-    await Promise.allSettled(
+    await Promise.all(
       entries.map(async ([cacheKey, db]) => {
         try {
           await db.close();

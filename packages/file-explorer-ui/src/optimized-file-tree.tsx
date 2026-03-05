@@ -713,7 +713,8 @@ function buildRowsFromWorkerNodes(
       isLoading: rowData.isChildrenLoading,
     });
 
-    // Update parent stack for children
+    // Update parent stack for children; truncate stale entries from deeper subtrees
+    parentStack.length = depth + 1;
     parentStack[depth] = fileNode.path;
   }
 
