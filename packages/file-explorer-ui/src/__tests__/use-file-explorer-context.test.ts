@@ -211,6 +211,7 @@ describe('useFileExplorer (context)', () => {
       selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
       cancelSelectAll: vi.fn(),
       isLoadingForSelectAll: false,
+      workerPortRef: { current: null },
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({
@@ -535,6 +536,7 @@ describe('useFileExplorer (context)', () => {
         selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
         cancelSelectAll: vi.fn(),
         isLoadingForSelectAll: false,
+        workerPortRef: { current: null },
       });
 
       renderHook(() => useFileExplorer());
@@ -593,6 +595,7 @@ describe('useFileExplorer (context)', () => {
         selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
         cancelSelectAll: vi.fn(),
         isLoadingForSelectAll: false,
+        workerPortRef: { current: null },
       });
 
       renderHook(() => useFileExplorer());
@@ -664,6 +667,7 @@ describe('useFileExplorer (context)', () => {
         selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
         cancelSelectAll: vi.fn(),
         isLoadingForSelectAll: false,
+        workerPortRef: { current: null },
       });
 
       renderHook(() => useFileExplorer());

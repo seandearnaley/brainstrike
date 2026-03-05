@@ -1,4 +1,5 @@
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
+import type { FlattenedNode } from '@brainstrike/file-tree-worker';
 import { useEventCallback } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import {
@@ -24,6 +25,8 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useOptionalFileTreeContext, useOptionalFileTreeIndexContext } from './file-tree-provider';
+import { useWorkerFlattenedTree } from './hooks/use-worker-flattened-tree';
 // TODO(BST-312): extract ROW_HEIGHT into a shared constant and retire legacy row component.
 import { ROW_HEIGHT } from './optimized-file-tree-row';
 
@@ -656,6 +659,65 @@ function addChildrenToStack(
   }
 }
 
+/**
+ * Recursively index all IFileNode by path for O(1) lookup.
+ * Used by the worker-flattened path to map WorkerFileNode paths back
+ * to full IFileNode references.
+ */
+function indexFileNodesByPath(nodes: IFileNode[], out: Map<string, IFileNode>): void {
+  for (const node of nodes) {
+    out.set(node.path, node);
+    if (node.children) {
+      indexFileNodesByPath(node.children, out);
+    }
+  }
+}
+
+/**
+ * Build tree rows from worker-flattened nodes.
+ * Uses the pre-computed visible node list from the worker, avoiding
+ * the main-thread DFS traversal.
+ */
+function buildRowsFromWorkerNodes(
+  flattenedNodes: FlattenedNode[],
+  nodeIndex: Map<string, IFileNode>,
+  options: BuildFileTreeRowsOptions
+): TreeNode<FileTreeRowData>[] {
+  const rows: TreeNode<FileTreeRowData>[] = [];
+
+  // Track parent path per depth level for parentId assignment
+  const parentStack: (string | null)[] = [null];
+
+  for (const { node: workerNode, depth } of flattenedNodes) {
+    const fileNode = nodeIndex.get(workerNode.path);
+    if (!fileNode) {
+      continue;
+    }
+    if (fileNode.isVisible === false) {
+      continue;
+    }
+
+    // Resolve parentId from the depth stack
+    const parentId = depth > 0 ? (parentStack[depth - 1] ?? null) : null;
+
+    const rowData = createTreeRowData(fileNode, options);
+    rows.push({
+      id: fileNode.path,
+      type: fileNode.type,
+      depth,
+      data: rowData,
+      parentId,
+      hasChildren: fileNode.type === 'directory',
+      isLoading: rowData.isChildrenLoading,
+    });
+
+    // Update parent stack for children
+    parentStack[depth] = fileNode.path;
+  }
+
+  return rows;
+}
+
 function buildFileTreeRows(
   fileTree: IFileNode[],
   options: BuildFileTreeRowsOptions
@@ -778,6 +840,31 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     const selectedDirectoryCounts = useSelectedDirectoryCounts(selectedFilePaths, folderId);
 
+    // BST-375: Worker-based tree flattening for large trees.
+    // Uses the worker to compute visible nodes off the main thread,
+    // falling back to main-thread DFS for small trees.
+    const treeContext = useOptionalFileTreeContext();
+    const indexContext = useOptionalFileTreeIndexContext();
+    const workerPortRef = treeContext?.workerPortRef ?? { current: null };
+    const approximateNodeCount = indexContext?.stats.totalNodes ?? 0;
+
+    const { flattenedNodes, isWorkerEnabled } = useWorkerFlattenedTree({
+      approximateNodeCount,
+      expandedPaths: expandedDirectoryPaths,
+      portRef: workerPortRef,
+    });
+
+    // Build a path-indexed map of all IFileNodes for worker result mapping.
+    // Only computed when worker flattening is active to avoid overhead for small trees.
+    const fileNodeIndex = useMemo(() => {
+      if (!(isWorkerEnabled && flattenedNodes)) {
+        return null;
+      }
+      const index = new Map<string, IFileNode>();
+      indexFileNodesByPath(fileTree, index);
+      return index;
+    }, [isWorkerEnabled, flattenedNodes, fileTree]);
+
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.
     const treeRows = useMemo(() => {
@@ -790,6 +877,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         ...(isLoadingForSelection !== undefined ? { isLoadingForSelection } : {}),
         ...(loadingPathForSelection !== undefined ? { loadingPathForSelection } : {}),
       };
+
+      // When worker-flattened nodes are available, use them to avoid main-thread DFS
+      if (flattenedNodes && fileNodeIndex) {
+        return buildRowsFromWorkerNodes(flattenedNodes, fileNodeIndex, options);
+      }
+
       return buildFileTreeRows(fileTree, options);
     }, [
       fileTree,
@@ -800,6 +893,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       selectionModel,
       isLoadingForSelection,
       loadingPathForSelection,
+      flattenedNodes,
+      fileNodeIndex,
     ]);
 
     const fileNodeByPath = useMemo(() => {

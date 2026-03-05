@@ -13,7 +13,9 @@
  */
 
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { IFileNode } from '@brainstrike/types';
+import type React from 'react';
 import { useLazyFileTree } from './use-lazy-file-tree';
 
 /**
@@ -97,6 +99,8 @@ export interface CancellableFileTreeHook {
     maxSelectionCount: number,
     currentSelectionSize: number
   ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
+  /** Worker port ref for worker-based tree flattening (BST-375) */
+  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
 }
 
 export interface UseFileTreeOptions {
@@ -152,6 +156,7 @@ export function useFileTree(
     selectAllRecursively,
     cancelSelectAll,
     isLoadingForSelectAll,
+    workerPortRef,
   } = useLazyFileTree(rootDirectoryHandle, options);
 
   return {
@@ -182,5 +187,6 @@ export function useFileTree(
     selectAllRecursively,
     cancelSelectAll,
     isLoadingForSelectAll,
+    workerPortRef,
   };
 }
