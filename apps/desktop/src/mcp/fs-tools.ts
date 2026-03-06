@@ -48,6 +48,8 @@ export async function handleFilesystemRead(
       // if fewer bytes are read than expected (e.g. concurrent modification).
       const buf = Buffer.alloc(toRead);
       const { bytesRead } = await fh.read(buf, 0, toRead, 0);
+      // truncated reports whether the returned payload omits any file bytes,
+      // whether due to maxBytes capping or a short read against a changing file.
       const truncated = size > bytesRead;
       const content =
         encoding === 'base64'
