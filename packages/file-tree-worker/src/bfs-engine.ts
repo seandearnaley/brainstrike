@@ -73,7 +73,7 @@ async function yieldControl(): Promise<void> {
  * Generate a unique request ID.
  */
 function generateRequestId(): string {
-  return `req_${Date.now()}_${generateUUID()}`;
+  return generateUUID();
 }
 
 /**
