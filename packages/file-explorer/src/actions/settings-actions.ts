@@ -65,11 +65,16 @@ export const createSettingsActions = (
   _get: GetState<FileExplorerState> // Re-added underscore to satisfy linter, despite usage in callback
 ): SettingsActions => ({
   setFilters: (include: readonly string[], exclude: readonly string[]) => {
-    set({ includeFilters: [...include], excludeFilters: [...exclude] });
+    set((state: FileExplorerState) =>
+      updateWithFolderState(state, {
+        includeFilters: [...include],
+        excludeFilters: [...exclude],
+      })
+    );
   },
 
   setUseRegex: (useRegex: boolean) => {
-    set({ useRegex });
+    set((state: FileExplorerState) => updateWithFolderState(state, { useRegex }));
   },
 
   setIncludeProjectTree: (value: boolean) => {

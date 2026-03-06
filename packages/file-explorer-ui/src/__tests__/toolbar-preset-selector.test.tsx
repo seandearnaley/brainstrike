@@ -39,6 +39,16 @@ const mockSetUseRegex = vi.fn();
 const mockCreatePreset = vi.fn();
 const mockUpdatePreset = vi.fn();
 const mockDeletePreset = vi.fn();
+const defaultMockViewFilterPresetsResult = () => ({
+  presets: mockPresets,
+  loading: false,
+  error: null,
+  createPreset: mockCreatePreset,
+  updatePreset: mockUpdatePreset,
+  deletePreset: mockDeletePreset,
+  refresh: vi.fn(),
+  getPreset: vi.fn(),
+});
 
 interface MockStoreState {
   excludeFilters: string[];
@@ -89,16 +99,7 @@ vi.mock('../file-explorer-provider', () => ({
 }));
 
 vi.mock('../hooks/use-view-filter-presets', () => ({
-  useViewFilterPresets: vi.fn(() => ({
-    presets: mockPresets,
-    loading: false,
-    error: null,
-    createPreset: mockCreatePreset,
-    updatePreset: mockUpdatePreset,
-    deletePreset: mockDeletePreset,
-    refresh: vi.fn(),
-    getPreset: vi.fn(),
-  })),
+  useViewFilterPresets: vi.fn(() => defaultMockViewFilterPresetsResult()),
 }));
 
 vi.mock('@brainstrike/utils', () => ({
@@ -112,6 +113,7 @@ vi.mock('@brainstrike/utils', () => ({
 }));
 
 // Import after mocks are set up
+import { useViewFilterPresets } from '../hooks/use-view-filter-presets';
 import { ToolbarPresetSelector } from '../toolbar-preset-selector';
 
 describe('ToolbarPresetSelector', () => {
@@ -119,6 +121,7 @@ describe('ToolbarPresetSelector', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useViewFilterPresets).mockReturnValue(defaultMockViewFilterPresetsResult());
     mockStoreState = defaultMockStoreState();
     // Reset storage mock
     for (const key of Object.keys(mockStorageData)) {
@@ -349,5 +352,24 @@ describe('ToolbarPresetSelector', () => {
 
     expect(screen.getByRole('button', { name: /Select filter/i })).toBeInTheDocument();
     expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
+  });
+
+  it('does not clear the stored preset id while preset loading has failed', async () => {
+    const { useViewFilterPresets } = await import('../hooks/use-view-filter-presets');
+    mockStoreState.includeFilters = ['*.png'];
+    mockStoreState.excludeFilters = [];
+    vi.mocked(useViewFilterPresets).mockReturnValueOnce({
+      ...defaultMockViewFilterPresetsResult(),
+      presets: [],
+      error: new Error('Preset fetch failed'),
+    });
+
+    render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Select filter/i })).toBeInTheDocument();
+    });
+    expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
+    expect(mockStorage.setItem).not.toHaveBeenCalled();
   });
 });

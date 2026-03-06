@@ -59,6 +59,19 @@ describe('settings-actions', () => {
     expect(store.getState().excludeFilters).toEqual(['node_modules/**']);
   });
 
+  it('persists include/exclude filters to the active folder state', () => {
+    const store = makeStore();
+    const s = store.getState();
+
+    s.setCurrentFolderId('root');
+    s.setFilters(['*.ts', '*.tsx'], ['node_modules/**']);
+
+    expect(store.getState().includeFilters).toEqual(['*.ts', '*.tsx']);
+    expect(store.getState().excludeFilters).toEqual(['node_modules/**']);
+    expect(store.getState().folderStates['root']?.includeFilters).toEqual(['*.ts', '*.tsx']);
+    expect(store.getState().folderStates['root']?.excludeFilters).toEqual(['node_modules/**']);
+  });
+
   it('toggles useRegex and includeProjectTree', () => {
     const store = makeStore();
     const s = store.getState();
@@ -69,6 +82,17 @@ describe('settings-actions', () => {
     s.setIncludeProjectTree(false);
     expect(store.getState().useRegex).toBe(true);
     expect(store.getState().includeProjectTree).toBe(false);
+  });
+
+  it('persists useRegex to the active folder state', () => {
+    const store = makeStore();
+    const s = store.getState();
+
+    s.setCurrentFolderId('root');
+    s.setUseRegex(true);
+
+    expect(store.getState().useRegex).toBe(true);
+    expect(store.getState().folderStates['root']?.useRegex).toBe(true);
   });
 
   it('persists tokenBudget to the active folder state', () => {

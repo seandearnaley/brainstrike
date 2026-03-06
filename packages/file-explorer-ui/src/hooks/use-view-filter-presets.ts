@@ -6,6 +6,8 @@
  */
 
 import {
+  useDbInitializing,
+  useDbProviderError,
   useDrizzleDb,
   useDrizzleLiveQuery,
   useViewFilterPresetsRepository,
@@ -67,6 +69,8 @@ interface UseViewFilterPresetsResult {
  */
 export function useViewFilterPresets(): UseViewFilterPresetsResult {
   const drizzleDb = useDrizzleDb();
+  const dbInitializing = useDbInitializing();
+  const dbProviderError = useDbProviderError();
   const repository = useViewFilterPresetsRepository();
 
   // State for Electron/repository-based presets
@@ -182,8 +186,11 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
 
   // Select the appropriate presets based on path
   const presets = useDrizzlePath ? drizzlePresets : repoPresets;
-  const loading = useDrizzlePath ? drizzleLoading : repoLoading;
-  const error = useDrizzlePath ? drizzleError : repoError;
+  // Repository consumers must remain in a loading state until lazy DB initialization
+  // settles; otherwise callers cannot distinguish "no presets exist" from
+  // "preset data is temporarily unavailable".
+  const loading = useDrizzlePath ? drizzleLoading : repoLoading || dbInitializing;
+  const error = useDrizzlePath ? drizzleError : (repoError ?? dbProviderError);
 
   const createPreset = useCallback(
     async (input: CreateViewFilterPresetInput): Promise<ViewFilterPreset> => {

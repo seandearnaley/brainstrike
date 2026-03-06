@@ -187,7 +187,8 @@ const ToolbarPresetSelectorInner: React.FC<
     persistPatch,
   }) => {
     // Load presets from database
-    const { presets, loading, createPreset, updatePreset, deletePreset } = useViewFilterPresets();
+    const { presets, loading, error, createPreset, updatePreset, deletePreset } =
+      useViewFilterPresets();
 
     const activeFilters = useMemo<ActiveFilterState>(
       () => ({
@@ -205,7 +206,7 @@ const ToolbarPresetSelectorInner: React.FC<
     }, [presets, viewFilterPresetId, activeFilters]);
 
     useEffect(() => {
-      if (loading) {
+      if (loading || error) {
         return;
       }
 
@@ -216,7 +217,7 @@ const ToolbarPresetSelectorInner: React.FC<
 
       setViewFilterPresetId(selectedPresetId);
       void persistPatch({ viewFilterPresetId: selectedPresetId });
-    }, [loading, persistPatch, selectedPreset, setViewFilterPresetId, viewFilterPresetId]);
+    }, [error, loading, persistPatch, selectedPreset, setViewFilterPresetId, viewFilterPresetId]);
 
     // Handle preset selection with persistence
     const handlePresetSelect = useCallback(

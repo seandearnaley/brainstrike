@@ -63,6 +63,18 @@ vi.mock('../use-file-explorer-context', () => ({
 vi.mock('../use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
 }));
+vi.mock('../hooks/use-view-filter-presets', () => ({
+  useViewFilterPresets: vi.fn(() => ({
+    presets: [],
+    loading: false,
+    error: null,
+    createPreset: vi.fn(),
+    updatePreset: vi.fn(),
+    deletePreset: vi.fn(),
+    refresh: vi.fn(),
+    getPreset: vi.fn(),
+  })),
+}));
 vi.mock('../use-background-token-indexer-integration', () => ({
   useBackgroundTokenIndexerIntegration: vi.fn(() => ({
     isIndexing: false,
