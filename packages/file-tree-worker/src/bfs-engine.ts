@@ -6,7 +6,6 @@
  * processes results, and manages tree state.
  */
 
-import { generateUUID } from '@brainstrike/utils';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
 
@@ -73,7 +72,7 @@ async function yieldControl(): Promise<void> {
  * Generate a unique request ID.
  */
 function generateRequestId(): string {
-  return `req_${Date.now()}_${generateUUID()}`;
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 /**
