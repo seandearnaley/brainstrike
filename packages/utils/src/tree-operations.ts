@@ -28,6 +28,23 @@ export interface TreeNode {
   type: 'file' | 'directory' | 'loadMore';
 }
 
+const PATH_SEPARATOR_CODE = 47;
+
+/**
+ * Returns true only when targetPath is nested under ancestorPath on a path boundary.
+ *
+ * Invariant: shared prefixes like `/src/com` and `/src/components` are not treated
+ * as ancestor/descendant matches. Keep the cheap guards ahead of `startsWith()` to
+ * avoid extra work in the tree traversal hot path.
+ */
+export function isDescendantPath(targetPath: string, ancestorPath: string): boolean {
+  return (
+    targetPath.length > ancestorPath.length &&
+    targetPath.charCodeAt(ancestorPath.length) === PATH_SEPARATOR_CODE &&
+    targetPath.startsWith(ancestorPath)
+  );
+}
+
 /**
  * Sort nodes: directories first, then alphabetically by name.
  *
@@ -76,14 +93,8 @@ export function findNodeByPath<T extends TreeNode>(tree: T[], targetPath: string
       return node;
     }
 
-    // Check descendants if this could be an ancestor
-    // Optimization: Avoid template string allocation in hot paths by checking length and charCodeAt first.
-    if (
-      targetPath.length > node.path.length &&
-      targetPath.charCodeAt(node.path.length) === 47 /* '/' */ &&
-      targetPath.startsWith(node.path) &&
-      node.children
-    ) {
+    // Check descendants if this could be an ancestor.
+    if (node.children && isDescendantPath(targetPath, node.path)) {
       const found = findNodeByPath(node.children as T[], targetPath);
       if (found) {
         return found;
@@ -173,14 +184,8 @@ export function updateNodeChildren<T extends TreeNode>(
       } as unknown as T;
     }
 
-    // Check if target is a descendant of this node
-    // Optimization: Avoid template string allocation in hot paths by checking length and charCodeAt first.
-    if (
-      targetPath.length > node.path.length &&
-      targetPath.charCodeAt(node.path.length) === 47 /* '/' */ &&
-      targetPath.startsWith(node.path) &&
-      node.children
-    ) {
+    // Check if target is a descendant of this node.
+    if (node.children && isDescendantPath(targetPath, node.path)) {
       return {
         ...node,
         children: updateNodeChildren(node.children as T[], targetPath, children, loadState),
@@ -235,14 +240,8 @@ export function setNodeLoadState<T extends TreeNode>(
       return updated;
     }
 
-    // Check if target is a descendant of this node
-    // Optimization: Avoid template string allocation in hot paths by checking length and charCodeAt first.
-    if (
-      targetPath.length > node.path.length &&
-      targetPath.charCodeAt(node.path.length) === 47 /* '/' */ &&
-      targetPath.startsWith(node.path) &&
-      node.children
-    ) {
+    // Check if target is a descendant of this node.
+    if (node.children && isDescendantPath(targetPath, node.path)) {
       return {
         ...node,
         children: setNodeLoadState(node.children as T[], targetPath, loadState, error),
