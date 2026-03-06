@@ -77,7 +77,13 @@ export function findNodeByPath<T extends TreeNode>(tree: T[], targetPath: string
     }
 
     // Check descendants if this could be an ancestor
-    if (targetPath.startsWith(`${node.path}/`) && node.children) {
+    // Optimization: Avoid template string allocation in hot paths by checking length and charCodeAt first.
+    if (
+      targetPath.length > node.path.length &&
+      targetPath.charCodeAt(node.path.length) === 47 /* '/' */ &&
+      targetPath.startsWith(node.path) &&
+      node.children
+    ) {
       const found = findNodeByPath(node.children as T[], targetPath);
       if (found) {
         return found;
@@ -168,7 +174,13 @@ export function updateNodeChildren<T extends TreeNode>(
     }
 
     // Check if target is a descendant of this node
-    if (targetPath.startsWith(`${node.path}/`) && node.children) {
+    // Optimization: Avoid template string allocation in hot paths by checking length and charCodeAt first.
+    if (
+      targetPath.length > node.path.length &&
+      targetPath.charCodeAt(node.path.length) === 47 /* '/' */ &&
+      targetPath.startsWith(node.path) &&
+      node.children
+    ) {
       return {
         ...node,
         children: updateNodeChildren(node.children as T[], targetPath, children, loadState),
@@ -224,7 +236,13 @@ export function setNodeLoadState<T extends TreeNode>(
     }
 
     // Check if target is a descendant of this node
-    if (targetPath.startsWith(`${node.path}/`) && node.children) {
+    // Optimization: Avoid template string allocation in hot paths by checking length and charCodeAt first.
+    if (
+      targetPath.length > node.path.length &&
+      targetPath.charCodeAt(node.path.length) === 47 /* '/' */ &&
+      targetPath.startsWith(node.path) &&
+      node.children
+    ) {
       return {
         ...node,
         children: setNodeLoadState(node.children as T[], targetPath, loadState, error),
