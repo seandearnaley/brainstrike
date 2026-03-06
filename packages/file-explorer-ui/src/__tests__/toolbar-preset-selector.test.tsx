@@ -296,6 +296,16 @@ describe('ToolbarPresetSelector', () => {
     expect(screen.getByRole('button', { name: /Source Files/i })).toBeInTheDocument();
   });
 
+  it('matches a preset when filter order differs but values are identical', () => {
+    mockStoreState.viewFilterPresetId = null;
+    mockStoreState.includeFilters = ['*.tsx', '*.ts'];
+
+    render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
+
+    expect(screen.getByRole('button', { name: /Source Files/i })).toBeInTheDocument();
+    expect(mockSetViewFilterPresetId).toHaveBeenCalledWith('preset-1');
+  });
+
   it('synchronizes the preset id when active filters match a preset exactly', async () => {
     mockStoreState.viewFilterPresetId = null;
     mockStorageData['file-explorer-storage-v4'] = JSON.stringify({

@@ -102,12 +102,29 @@ interface ActiveFilterState {
   useRegex: boolean;
 }
 
-function areFilterListsEqual(left: readonly string[], right: readonly string[]): boolean {
+function areFilterListsEquivalent(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) {
     return false;
   }
 
-  return left.every((value, index) => value === right[index]);
+  const counts = new Map<string, number>();
+  for (const value of left) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  for (const value of right) {
+    const count = counts.get(value);
+    if (!count) {
+      return false;
+    }
+    if (count === 1) {
+      counts.delete(value);
+      continue;
+    }
+    counts.set(value, count - 1);
+  }
+
+  return counts.size === 0;
 }
 
 function doesPresetMatchFilters(
@@ -116,8 +133,8 @@ function doesPresetMatchFilters(
 ): boolean {
   return (
     preset.useRegex === activeFilters.useRegex &&
-    areFilterListsEqual(preset.includes, activeFilters.includeFilters) &&
-    areFilterListsEqual(preset.excludes, activeFilters.excludeFilters)
+    areFilterListsEquivalent(preset.includes, activeFilters.includeFilters) &&
+    areFilterListsEquivalent(preset.excludes, activeFilters.excludeFilters)
   );
 }
 
