@@ -121,6 +121,7 @@ const PageSizeControl = memo(function PageSizeControl({
             'h-7 text-xs tabular-nums [&>svg]:h-3 [&>svg]:w-3',
             resolvePageSizeSelectWidthClass(resolvedDensity)
           )}
+          title="Items per page"
         >
           <SelectValue />
         </SelectTrigger>
@@ -181,6 +182,7 @@ const NavigationControls = memo(function NavigationControls({
           disabled={isFirstPage}
           onClick={onGoToFirstPage}
           size="sm"
+          title="Go to first page"
           variant="ghost"
         >
           <ChevronsLeft className="h-4 w-4" />
@@ -192,6 +194,7 @@ const NavigationControls = memo(function NavigationControls({
         disabled={isFirstPage}
         onClick={onGoToPreviousPage}
         size="sm"
+        title="Go to previous page"
         variant="ghost"
       >
         <ChevronLeft className="h-4 w-4" />
@@ -230,6 +233,7 @@ const NavigationControls = memo(function NavigationControls({
         disabled={isLastPage}
         onClick={onGoToNextPage}
         size="sm"
+        title="Go to next page"
         variant="ghost"
       >
         <ChevronRight className="h-4 w-4" />
@@ -241,6 +245,7 @@ const NavigationControls = memo(function NavigationControls({
           disabled={isLastPage}
           onClick={onGoToLastPage}
           size="sm"
+          title="Go to last page"
           variant="ghost"
         >
           <ChevronsRight className="h-4 w-4" />
