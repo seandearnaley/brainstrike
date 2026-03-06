@@ -11,7 +11,7 @@ import {
   type UpdatePreviewContextFilesInput,
   UpdatePreviewContextFilesInputSchema,
 } from '@brainstrike/agent';
-import { countTokensHeuristic, createLogger } from '@brainstrike/utils';
+import { countTokensHeuristic, createLogger, defaultCollator } from '@brainstrike/utils';
 import { BrowserWindow } from 'electron';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
@@ -249,7 +249,7 @@ function sortDirectoryEntries(entries: FsDirent[]): FsDirent[] {
     if (a.isDirectory() !== b.isDirectory()) {
       return a.isDirectory() ? -1 : 1;
     }
-    return a.name.localeCompare(b.name);
+    return defaultCollator.compare(a.name, b.name);
   });
 }
 

@@ -5,7 +5,7 @@
  * for the Collection Browser. Handles filtering, sorting, and memoization.
  */
 
-import { getFileExtension } from '@brainstrike/utils';
+import { defaultCollator, englishCollator, getFileExtension } from '@brainstrike/utils';
 import * as React from 'react';
 import { warnCycleOnce } from '../lib/cycle-warning';
 import type { TreeNode } from '../tree-table/types';
@@ -340,7 +340,7 @@ function compareNodes(
 
   let result: number;
   if (typeof aVal === 'string' && typeof bVal === 'string') {
-    result = aVal.localeCompare(bVal);
+    result = defaultCollator.compare(aVal, bVal);
   } else {
     result = (aVal as number) - (bVal as number);
   }
@@ -1003,7 +1003,7 @@ function applyGrouping(
 
   // Sort groups by label
   const sortedGroupEntries = [...groups.entries()].sort(([a], [b]) =>
-    getGroupLabel(groupBy, a).localeCompare(getGroupLabel(groupBy, b), 'en')
+    englishCollator.compare(getGroupLabel(groupBy, a), getGroupLabel(groupBy, b))
   );
 
   for (const [groupValue, files] of sortedGroupEntries) {

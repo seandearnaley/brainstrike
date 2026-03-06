@@ -25,6 +25,7 @@ import {
   Input,
   Switch,
 } from '@brainstrike/ui';
+import { defaultCollator } from '@brainstrike/utils';
 import { SearchIcon } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import { useLocalRuntimeEmbeddingModelCatalog } from '../hooks/use-local-runtime-embedding-model-catalog';
@@ -205,7 +206,7 @@ function buildLocalProvider(
 
       return baseModel;
     })
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => defaultCollator.compare(a.label, b.label));
 
   return {
     id: 'local',
@@ -248,7 +249,7 @@ function toNormalizedHostedProvider(
       }
       return enrichedModel;
     })
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => defaultCollator.compare(a.label, b.label));
 
   return {
     id: definition.id as HostedEmbeddingProviderId,
@@ -303,7 +304,7 @@ function toNormalizedRuntimeProvider(
             isDefault: false,
           };
         })
-        .sort((a, b) => a.label.localeCompare(b.label))
+        .sort((a, b) => defaultCollator.compare(a.label, b.label))
         .map((model, index) => ({
           ...model,
           isDefault: index === 0,
