@@ -1,4 +1,3 @@
-import { generateUUID } from '@brainstrike/utils';
 import type { FileTapestry, LineData, TapestryRange } from './types';
 
 const FILE_NAMES = [
@@ -234,5 +233,5 @@ export const createRangeId = (): string => {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
   }
-  return `range-${generateUUID()}`;
+  return `range-${Math.random().toString(36).slice(2)}`;
 };
