@@ -11,7 +11,7 @@
  * - Progressive updates via callback
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   IndexerBatchRequest,
@@ -167,7 +167,7 @@ export interface UseBackgroundTokenIndexerReturn {
  * Create a unique ID for each indexing request
  */
 function createRequestId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `req_${generateUUID()}`;
 }
 
 interface PendingBatchTracker {

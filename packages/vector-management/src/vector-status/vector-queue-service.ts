@@ -4,7 +4,7 @@ import {
   checkApiKeyAvailability,
   formatProviderModelKey,
 } from '@brainstrike/embeddings';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 
 /**
  * Snapshot of embedding coverage statistics for a specific embedding set.
@@ -502,14 +502,7 @@ async function enqueueEmbeddingChunkJobsBatch(
 }
 
 function createJobId(): string {
-  try {
-    if (typeof globalThis.crypto?.randomUUID === 'function') {
-      return globalThis.crypto.randomUUID();
-    }
-  } catch {
-    // fall through to fallback
-  }
-  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+  return `job-${generateUUID()}`;
 }
 
 export function calculateLatency(

@@ -86,7 +86,7 @@ describe('crypto-utils', () => {
       );
     });
 
-    it('falls back to Math.random when both randomUUID and getRandomValues are unavailable', () => {
+    it('throws when secure UUID APIs are unavailable', () => {
       // Remove both crypto.randomUUID and crypto.getRandomValues
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
         value: undefined,
@@ -99,16 +99,10 @@ describe('crypto-utils', () => {
         writable: true,
       });
 
-      const spy = vi.spyOn(Math, 'random');
-
-      const result = generateUUID();
-
-      // Should have used Math.random
-      expect(spy).toHaveBeenCalled();
-      // Should be a valid UUID v4 format
-      expect(result).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      expect(() => generateUUID()).toThrowError(
+        'Secure UUID generation requires crypto.randomUUID or crypto.getRandomValues.'
       );
+      expect(mockLogger.warn).not.toHaveBeenCalled();
     });
 
     it('generates unique UUIDs each time with fallback', () => {

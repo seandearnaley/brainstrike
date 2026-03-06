@@ -6,6 +6,8 @@
  * processes results, and manages tree state.
  */
 
+// Worker bundles must use the crypto subpath to avoid pulling the full utils barrel into esbuild.
+import { generateUUID } from '@brainstrike/utils/crypto';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
 
@@ -72,7 +74,7 @@ async function yieldControl(): Promise<void> {
  * Generate a unique request ID.
  */
 function generateRequestId(): string {
-  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  return `req_${generateUUID()}`;
 }
 
 /**
