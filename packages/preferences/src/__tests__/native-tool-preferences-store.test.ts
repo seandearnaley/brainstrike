@@ -4,6 +4,23 @@ import {
   useNativeToolPreferencesStore,
 } from '../stores/native-tool-preferences-store';
 
+type PersistApi<T> = T & {
+  persist?: {
+    getOptions?: () => {
+      migrate?: (
+        persistedState: unknown,
+        version: number
+      ) => Partial<{
+        toolStates: Record<string, boolean>;
+      }>;
+    };
+  };
+};
+
+const storeWithPersist = useNativeToolPreferencesStore as PersistApi<
+  typeof useNativeToolPreferencesStore
+>;
+
 describe('native-tool-preferences-store', () => {
   beforeEach(() => {
     __resetNativeToolPreferencesStoreForTests();
@@ -31,5 +48,41 @@ describe('native-tool-preferences-store', () => {
 
     snapshot.resetTools();
     expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);
+  });
+
+  it('supports batch toggles and no-op for empty tool lists', () => {
+    const snapshot = useNativeToolPreferencesStore.getState();
+    snapshot.setToolsEnabled([], false);
+    expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);
+
+    snapshot.setToolsEnabled(['brainstrike.readWorkspaceFile'], false);
+    expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(false);
+
+    snapshot.setToolsEnabled(['brainstrike.readWorkspaceFile'], true);
+    expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);
+  });
+
+  it('migrates stored tool states by keeping only known boolean values', () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!options?.migrate) {
+      throw new Error('persist migrate unavailable for test');
+    }
+
+    const migrated = options.migrate(
+      {
+        toolStates: {
+          'brainstrike.readWorkspaceFile': false,
+          unknownTool: false,
+          'brainstrike.getSelection': 'false',
+        },
+      },
+      0
+    );
+
+    expect(migrated).toEqual({
+      toolStates: {
+        'brainstrike.readWorkspaceFile': false,
+      },
+    });
   });
 });

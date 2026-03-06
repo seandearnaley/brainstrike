@@ -34,8 +34,8 @@ const OVERRIDES = new Map([
   ['@brainstrike/test-utils', { lines: 75, functions: 70, branches: 70, statements: 65 }],
   // Build utilities close to threshold, give small buffer
   ['@brainstrike/build-utils', { lines: 90, functions: 90, branches: 80, statements: 90 }],
-  // DB package thresholds recalibrated in 2026-03.
-  ['@brainstrike/db', { lines: 84, functions: 72, branches: 60, statements: 69 }],
+  // DB package thresholds ratcheted in 2026-03 after repository coverage additions.
+  ['@brainstrike/db', { lines: 85, functions: 73, branches: 61, statements: 70 }],
   // DB Explorer thresholds recalibrated in 2026-03.
   ['@brainstrike/db-explorer', { lines: 95, functions: 75, branches: 62, statements: 74 }],
   // Web app thresholds ratcheted in 2026-03 after assistant config coverage additions.
@@ -64,6 +64,8 @@ const OVERRIDES = new Map([
   ['@brainstrike/token-cache', { lines: 92, functions: 92, branches: 62, statements: 82 }],
   // Queue thresholds ratcheted in 2026-03 after workerpool adapter control-flow/telemetry coverage additions.
   ['@brainstrike/queue', { lines: 90, functions: 90, branches: 80, statements: 90 }],
+  // Preferences package thresholds ratcheted in 2026-03 after settings/store coverage additions.
+  ['@brainstrike/preferences', { lines: 82, functions: 70, branches: 63, statements: 76 }],
   // Queue telemetry collector thresholds ratcheted in 2026-03 after CLI shutdown-path coverage additions.
   [
     '@brainstrike/queue-telemetry-collector',
