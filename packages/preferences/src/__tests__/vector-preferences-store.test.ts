@@ -1,29 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVectorPreferencesStore } from '../stores/vector-preferences-store';
-
-type PersistApi<T> = T & {
-  persist?: {
-    getOptions?: () => {
-      migrate?: (
-        persistedState: unknown,
-        version: number
-      ) =>
-        | Partial<{
-            devicePref: 'webgpu' | 'wasm';
-            reinitEveryN: number;
-            verboseOrtLogs: boolean;
-          }>
-        | undefined;
-      name: string;
-      storage: {
-        getItem: (name: string) => string | null;
-        setItem: (name: string, value: string) => void;
-        removeItem: (name: string) => void;
-      };
-    };
-    clearStorage?: () => void;
-  };
-};
+import type { PersistApi } from './persist-api-test-helper';
 
 const storeWithPersist = useVectorPreferencesStore as PersistApi<typeof useVectorPreferencesStore>;
 

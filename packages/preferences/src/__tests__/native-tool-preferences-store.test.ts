@@ -3,19 +3,7 @@ import {
   __resetNativeToolPreferencesStoreForTests,
   useNativeToolPreferencesStore,
 } from '../stores/native-tool-preferences-store';
-
-type PersistApi<T> = T & {
-  persist?: {
-    getOptions?: () => {
-      migrate?: (
-        persistedState: unknown,
-        version: number
-      ) => Partial<{
-        toolStates: Record<string, boolean>;
-      }>;
-    };
-  };
-};
+import type { PersistApi } from './persist-api-test-helper';
 
 const storeWithPersist = useNativeToolPreferencesStore as PersistApi<
   typeof useNativeToolPreferencesStore

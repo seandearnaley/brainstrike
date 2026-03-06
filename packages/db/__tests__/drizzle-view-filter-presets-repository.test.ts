@@ -67,10 +67,7 @@ describe('DrizzleViewFilterPresetsRepository', () => {
 
     expect(defaults.length).toBe(2);
     expect(defaults.every((preset) => preset.isDefault)).toBe(true);
-    expect(defaults[0]?.sortOrder).toBe(1);
-    expect(defaults.map((preset) => preset.sortOrder)).toEqual(
-      [...defaults].map((preset) => preset.sortOrder).sort((a, b) => a - b)
-    );
+    expect(defaults.map((preset) => preset.sortOrder)).toEqual([1, 2]);
     expect(all.length).toBe(3);
   });
 

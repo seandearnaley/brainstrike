@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { __resetSecretsStoreForTests, useSecretsStore } from '../../../stores/secrets-store';
 import { ApiKeysSettings } from '../api-keys-settings';
 
@@ -121,6 +121,12 @@ describe('ApiKeysSettings', () => {
       { id: 'google', displayName: 'Google' },
     ]);
     setSecretsApi(createSecretsApi());
+  });
+
+  afterEach(() => {
+    // Clean up window.secrets to prevent test pollution
+    // biome-ignore lint/performance/noDelete: test cleanup requires property removal
+    delete (window as unknown as Record<string, unknown>)['secrets'];
   });
 
   it('loads stored providers using listStored when available', async () => {
