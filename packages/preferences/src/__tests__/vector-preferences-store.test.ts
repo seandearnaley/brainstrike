@@ -1,19 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVectorPreferencesStore } from '../stores/vector-preferences-store';
-
-type PersistApi<T> = T & {
-  persist?: {
-    getOptions?: () => {
-      name: string;
-      storage: {
-        getItem: (name: string) => string | null;
-        setItem: (name: string, value: string) => void;
-        removeItem: (name: string) => void;
-      };
-    };
-    clearStorage?: () => void;
-  };
-};
+import type { PersistApi } from './persist-api-test-helper';
 
 const storeWithPersist = useVectorPreferencesStore as PersistApi<typeof useVectorPreferencesStore>;
 
@@ -93,5 +80,27 @@ describe('vector-preferences-store', () => {
     persistApi.clearStorage?.();
     const afterClear = storage.getItem(options.name)!;
     expect(afterClear).toBeNull();
+  });
+
+  it('migrates legacy snapshots strictly and passes through v2 snapshots', () => {
+    const options = storeWithPersist.persist?.getOptions?.();
+    if (!options?.migrate) {
+      throw new Error('persist migrate unavailable for test');
+    }
+
+    expect(options.migrate(undefined, 1)).toBeUndefined();
+    expect(options.migrate({ devicePref: 'wasm', reinitEveryN: 8 }, 1)).toEqual({
+      devicePref: 'wasm',
+      reinitEveryN: 8,
+      verboseOrtLogs: false,
+    });
+    expect(options.migrate({ devicePref: 'invalid', verboseOrtLogs: true }, 1)).toEqual({
+      devicePref: 'webgpu',
+      reinitEveryN: 200,
+      verboseOrtLogs: true,
+    });
+
+    const v2Snapshot = { devicePref: 'wasm' as const, reinitEveryN: 32, verboseOrtLogs: true };
+    expect(options.migrate(v2Snapshot, 2)).toEqual(v2Snapshot);
   });
 });
