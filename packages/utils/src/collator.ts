@@ -8,7 +8,9 @@
  * @module collator
  */
 
-export const defaultCollator = new Intl.Collator('en');
+export const defaultCollator = new Intl.Collator(undefined);
+
+export const englishCollator = new Intl.Collator('en');
 
 export const fileNodeCollator = new Intl.Collator(undefined, {
   numeric: true,
