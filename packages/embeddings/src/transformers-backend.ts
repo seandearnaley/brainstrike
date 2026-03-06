@@ -287,7 +287,7 @@ export class TransformersBackend {
     if (!queue) {
       return;
     }
-    const warmupId = generateUUID();
+    const warmupId = `warmup-${generateUUID()}`;
     try {
       const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
       await queue.add({
@@ -399,7 +399,7 @@ export class TransformersBackend {
   }
 
   private createTaskId(): string {
-    return generateUUID();
+    return `embed-${generateUUID()}`;
   }
 
   private resolveDeviceHint(): 'webgpu' | 'wasm' {

@@ -167,7 +167,7 @@ export interface UseBackgroundTokenIndexerReturn {
  * Create a unique ID for each indexing request
  */
 function createRequestId(): string {
-  return generateUUID();
+  return `req_${generateUUID()}`;
 }
 
 interface PendingBatchTracker {

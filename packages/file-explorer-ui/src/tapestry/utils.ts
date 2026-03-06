@@ -231,5 +231,5 @@ export const getStableColorForKey = (key: string): string => {
 };
 
 export const createRangeId = (): string => {
-  return generateUUID();
+  return `range-${generateUUID()}`;
 };

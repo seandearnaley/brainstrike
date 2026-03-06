@@ -502,7 +502,7 @@ async function enqueueEmbeddingChunkJobsBatch(
 }
 
 function createJobId(): string {
-  return generateUUID();
+  return `job-${generateUUID()}`;
 }
 
 export function calculateLatency(

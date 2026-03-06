@@ -6,7 +6,8 @@ import { createLogger } from './logger';
 const logger = createLogger('CryptoUtils');
 
 /**
- * Generate a UUID with fallback for environments without crypto.randomUUID
+ * Generate a UUID using secure runtime crypto APIs.
+ * Throws when secure entropy is unavailable instead of silently degrading to Math.random.
  */
 export function generateUUID(): string {
   // Try crypto.randomUUID if available (modern browsers and Node.js 16+)
@@ -36,15 +37,7 @@ export function generateUUID(): string {
     return result;
   }
 
-  // Last resort fallback using Math.random (not cryptographically secure)
-  logger.warn(
-    'crypto.randomUUID and crypto.getRandomValues unavailable — falling back to Math.random for UUID generation'
-  );
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  throw new Error('Secure UUID generation requires crypto.randomUUID or crypto.getRandomValues.');
 }
 
 /**
