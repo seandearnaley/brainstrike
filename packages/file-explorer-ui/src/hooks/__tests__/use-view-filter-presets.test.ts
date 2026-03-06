@@ -14,13 +14,18 @@ const mockRepository = {
   delete: mockDelete,
   findById: vi.fn(),
 };
+let mockDbInitializing = false;
+let mockDbProviderError: Error | null = null;
+let mockViewFilterPresetsRepository: typeof mockRepository | null = mockRepository;
 
 // Mock the database dependencies - repository always available for coverage
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  useDbInitializing: vi.fn(() => mockDbInitializing),
+  useDbProviderError: vi.fn(() => mockDbProviderError),
   useDrizzleDb: vi.fn(() => null),
   useDrizzleLiveQuery: vi.fn(() => ({ rows: [], loading: false, error: null, refresh: vi.fn() })),
-  useViewFilterPresetsRepository: vi.fn(() => mockRepository),
+  useViewFilterPresetsRepository: vi.fn(() => mockViewFilterPresetsRepository),
   viewFilterPresets: {},
 }));
 
@@ -68,6 +73,9 @@ const mockPresets: ViewFilterPreset[] = [
 describe('useViewFilterPresets', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDbInitializing = false;
+    mockDbProviderError = null;
+    mockViewFilterPresetsRepository = mockRepository;
     mockFindAll.mockResolvedValue(mockPresets);
     mockCreate.mockResolvedValue(mockPresets[0]);
     mockUpdate.mockResolvedValue(mockPresets[0]);
@@ -193,6 +201,28 @@ describe('useViewFilterPresets', () => {
     });
 
     expect(result.current.error?.message).toBe('String error');
+  });
+
+  it('keeps loading true while the database is still initializing', () => {
+    mockDbInitializing = true;
+    mockViewFilterPresetsRepository = null;
+
+    const { result } = renderHook(() => useViewFilterPresets());
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.presets).toEqual([]);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('surfaces database provider errors when the repository is unavailable', () => {
+    const providerError = new Error('Database unavailable');
+    mockDbProviderError = providerError;
+    mockViewFilterPresetsRepository = null;
+
+    const { result } = renderHook(() => useViewFilterPresets());
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBe(providerError);
   });
 
   describe('with Drizzle database (web path)', () => {

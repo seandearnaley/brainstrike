@@ -11,7 +11,7 @@
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import * as React from 'react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useViewFilterPresets } from './hooks/use-view-filter-presets';
 import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
@@ -19,24 +19,78 @@ import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
 const logger = createLogger('ToolbarPresetSelector');
 
 interface ZustandPersistStorage {
-  getItem: (key: string) => Promise<string | null> | string | null;
-  setItem: (key: string, value: string) => Promise<void> | void;
+  getItem: (key: string) => Promise<unknown> | unknown;
+  setItem: (key: string, value: unknown) => Promise<void> | void;
 }
 
 interface ZustandPersistOptions {
   name?: string;
+  partialize?: (state: unknown) => unknown;
   storage?: ZustandPersistStorage;
+  version?: number;
 }
 
 interface ZustandPersistApi {
   getOptions?: () => ZustandPersistOptions;
 }
 
+function readPersistedStorageValue(currentValue: unknown): unknown {
+  if (typeof currentValue !== 'string' || currentValue.length === 0) {
+    return currentValue;
+  }
+
+  try {
+    return JSON.parse(currentValue);
+  } catch {
+    return {};
+  }
+}
+
+function unwrapPersistedState(current: unknown): {
+  currentObject: Record<string, unknown>;
+  hasWrapper: boolean;
+  persistedState: Record<string, unknown>;
+} {
+  const currentIsObject = current !== null && typeof current === 'object';
+  const currentObject = currentIsObject ? (current as Record<string, unknown>) : {};
+  const hasWrapper = currentIsObject && 'state' in currentObject;
+  const wrappedState = currentObject['state'];
+  const persistedState =
+    hasWrapper && wrappedState !== null && typeof wrappedState === 'object'
+      ? (wrappedState as Record<string, unknown>)
+      : currentObject;
+
+  return { currentObject, hasWrapper, persistedState };
+}
+
+function resolveLivePersistedState(
+  getState: (() => unknown) | null,
+  partialize: ((state: unknown) => unknown) | null,
+  persistedState: Record<string, unknown>
+): Record<string, unknown> {
+  if (!(getState && partialize)) {
+    return persistedState;
+  }
+
+  const liveState = partialize(getState());
+  return liveState !== null && typeof liveState === 'object'
+    ? (liveState as Record<string, unknown>)
+    : {};
+}
+
 /** Resolve the Zustand persist API from a store reference, or null if unavailable. */
-function resolveStorePersistApi(
-  store: unknown
-): { storage: ZustandPersistStorage; name: string } | null {
-  const persistApi = (store as { persist?: ZustandPersistApi }).persist;
+function resolveStorePersistApi(store: unknown): {
+  getState: (() => unknown) | null;
+  name: string;
+  partialize: ((state: unknown) => unknown) | null;
+  storage: ZustandPersistStorage;
+  version: number;
+} | null {
+  const storeRef = store as {
+    getState?: () => unknown;
+    persist?: ZustandPersistApi;
+  };
+  const persistApi = storeRef.persist;
   if (!persistApi || typeof persistApi.getOptions !== 'function') {
     return null;
   }
@@ -45,18 +99,27 @@ function resolveStorePersistApi(
   if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') {
     return null;
   }
-  return { storage, name: opts?.name ?? 'file-explorer-storage-v4' };
+  return {
+    storage,
+    name: opts?.name ?? 'file-explorer-storage-v4',
+    version: opts?.version ?? 1,
+    partialize: typeof opts?.partialize === 'function' ? opts.partialize : null,
+    getState: typeof storeRef.getState === 'function' ? storeRef.getState : null,
+  };
 }
 
 /** Merge patch into the Zustand persisted state JSON and write it back. */
 async function mergeAndWriteStoragePatch(
   storage: ZustandPersistStorage,
   name: string,
+  version: number,
+  getState: (() => unknown) | null,
+  partialize: ((state: unknown) => unknown) | null,
   patch: Record<string, unknown>
 ): Promise<void> {
-  let currentJson: string | null = null;
+  let currentValue: unknown = null;
   try {
-    currentJson = await storage.getItem(name);
+    currentValue = await storage.getItem(name);
   } catch (error) {
     if (isDevEnv()) {
       logger.warn('Failed to read preset storage', { error });
@@ -64,24 +127,15 @@ async function mergeAndWriteStoragePatch(
     return;
   }
 
-  let current: unknown = {};
-  if (currentJson) {
-    try {
-      current = JSON.parse(currentJson);
-    } catch {
-      current = {};
-    }
-  }
-
-  const currentIsObject = current !== null && typeof current === 'object';
-  const currentObj = current as Record<string, unknown>;
-  const hasWrapper = currentIsObject && 'state' in currentObj;
-  const base = hasWrapper ? ((currentObj['state'] as Record<string, unknown>) ?? {}) : currentObj;
+  const current = readPersistedStorageValue(currentValue);
+  const { currentObject, hasWrapper, persistedState } = unwrapPersistedState(current);
+  const liveStateObject = resolveLivePersistedState(getState, partialize, persistedState);
+  const base = { ...persistedState, ...liveStateObject };
   const merged = { ...base, ...patch };
-  const wrapper = hasWrapper ? { ...currentObj, state: merged } : { version: 1, state: merged };
+  const wrapper = hasWrapper ? { ...currentObject, state: merged } : { version, state: merged };
 
   try {
-    await storage.setItem(name, JSON.stringify(wrapper));
+    await storage.setItem(name, wrapper);
   } catch (error) {
     if (isDevEnv()) {
       logger.warn('Failed to persist preset patch', { error });
@@ -96,13 +150,80 @@ interface ToolbarPresetSelectorProps {
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
 }
 
+interface ActiveFilterState {
+  excludeFilters: readonly string[];
+  includeFilters: readonly string[];
+  useRegex: boolean;
+}
+
+function areFilterListsEquivalent(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const counts = new Map<string, number>();
+  for (const value of left) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  for (const value of right) {
+    const count = counts.get(value);
+    if (!count) {
+      return false;
+    }
+    if (count === 1) {
+      counts.delete(value);
+      continue;
+    }
+    counts.set(value, count - 1);
+  }
+
+  return counts.size === 0;
+}
+
+function doesPresetMatchFilters(
+  preset: ViewFilterPreset,
+  activeFilters: ActiveFilterState
+): boolean {
+  return (
+    preset.useRegex === activeFilters.useRegex &&
+    areFilterListsEquivalent(preset.includes, activeFilters.includeFilters) &&
+    areFilterListsEquivalent(preset.excludes, activeFilters.excludeFilters)
+  );
+}
+
+function resolveSelectedPreset(
+  presets: readonly ViewFilterPreset[],
+  viewFilterPresetId: string | null,
+  activeFilters: ActiveFilterState
+): ViewFilterPreset | null {
+  // Duplicate presets are resolved deterministically by list order: the first exact
+  // filter match wins unless the stored preset id still points at a matching preset.
+  const matchingPreset =
+    presets.find((preset) => doesPresetMatchFilters(preset, activeFilters)) ?? null;
+
+  if (!viewFilterPresetId) {
+    return matchingPreset;
+  }
+
+  const presetById = presets.find((preset) => preset.id === viewFilterPresetId) ?? null;
+  if (!presetById) {
+    return matchingPreset;
+  }
+
+  return doesPresetMatchFilters(presetById, activeFilters) ? presetById : matchingPreset;
+}
+
 /**
  * Internal component that handles store connection and persistence.
  * Separated to ensure stable hook order for React Compiler.
  */
 const ToolbarPresetSelectorInner: React.FC<
   ToolbarPresetSelectorProps & {
+    excludeFilters: readonly string[];
+    includeFilters: readonly string[];
     viewFilterPresetId: string | null;
+    useRegex: boolean;
     setViewFilterPresetId: (id: string | null) => void;
     setFilters: (includes: string[], excludes: string[]) => void;
     setUseRegex: (useRegex: boolean) => void;
@@ -112,6 +233,9 @@ const ToolbarPresetSelectorInner: React.FC<
   ({
     onFilterChange,
     className,
+    includeFilters,
+    excludeFilters,
+    useRegex,
     viewFilterPresetId,
     setViewFilterPresetId,
     setFilters,
@@ -119,23 +243,84 @@ const ToolbarPresetSelectorInner: React.FC<
     persistPatch,
   }) => {
     // Load presets from database
-    const { presets, loading, createPreset, updatePreset, deletePreset } = useViewFilterPresets();
+    const { presets, loading, error, createPreset, updatePreset, deletePreset } =
+      useViewFilterPresets();
 
-    // Find the currently selected preset
+    const activeFilters = useMemo<ActiveFilterState>(
+      () => ({
+        includeFilters,
+        excludeFilters,
+        useRegex,
+      }),
+      [includeFilters, excludeFilters, useRegex]
+    );
+    const [optimisticPresetId, setOptimisticPresetId] = useState<string | null>(null);
+
+    // The active preset is the exact preset whose filter triplet matches the live filter state.
+    // viewFilterPresetId is synchronized to that canonical match and must not drift independently.
     const selectedPreset = useMemo(() => {
-      if (!viewFilterPresetId) {
-        return null;
+      return resolveSelectedPreset(presets, viewFilterPresetId, activeFilters);
+    }, [presets, viewFilterPresetId, activeFilters]);
+
+    const displayedPreset = useMemo(() => {
+      if (!optimisticPresetId) {
+        return selectedPreset;
       }
-      return presets.find((p) => p.id === viewFilterPresetId) ?? null;
-    }, [presets, viewFilterPresetId]);
+
+      return presets.find((preset) => preset.id === optimisticPresetId) ?? selectedPreset;
+    }, [optimisticPresetId, presets, selectedPreset]);
+
+    useEffect(() => {
+      if (!optimisticPresetId) {
+        return;
+      }
+
+      if (selectedPreset?.id === optimisticPresetId) {
+        setOptimisticPresetId(null);
+        return;
+      }
+
+      const optimisticPreset = presets.find((preset) => preset.id === optimisticPresetId) ?? null;
+      if (!optimisticPreset) {
+        setOptimisticPresetId(null);
+      }
+    }, [optimisticPresetId, presets, selectedPreset]);
+
+    useEffect(() => {
+      if (loading || error || optimisticPresetId) {
+        return;
+      }
+
+      const selectedPresetId = selectedPreset?.id ?? null;
+      if (viewFilterPresetId === selectedPresetId) {
+        return;
+      }
+
+      setViewFilterPresetId(selectedPresetId);
+      void persistPatch({ viewFilterPresetId: selectedPresetId }).catch((error: unknown) => {
+        if (isDevEnv()) {
+          logger.warn('Failed to persist preset sync', { error });
+        }
+      });
+    }, [
+      error,
+      loading,
+      optimisticPresetId,
+      persistPatch,
+      selectedPreset,
+      setViewFilterPresetId,
+      viewFilterPresetId,
+    ]);
 
     // Handle preset selection with persistence
     const handlePresetSelect = useCallback(
       async (preset: ViewFilterPreset) => {
-        // Update store state (batched by React 18)
-        setViewFilterPresetId(preset.id);
+        setOptimisticPresetId(preset.id);
+        // Apply the filter payload before setting the preset id so the synchronization
+        // effect never observes a new preset id against stale filter state.
         setFilters(preset.includes, preset.excludes);
         setUseRegex(preset.useRegex);
+        setViewFilterPresetId(preset.id);
 
         // Defer expensive tree filtering to prevent UI blocking on large trees.
         // startTransition allows React to interrupt this work if the user
@@ -170,7 +355,7 @@ const ToolbarPresetSelectorInner: React.FC<
         onSelect={handlePresetSelect}
         onUpdate={updatePreset}
         presets={presets}
-        selectedPreset={selectedPreset}
+        selectedPreset={displayedPreset}
       />
     );
   }
@@ -188,13 +373,15 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
   ({ onFilterChange, className }) => {
     const store = useFileExplorerStoreContext();
 
-    // Extract store values and actions - must be unconditional for React Compiler
-    const [viewFilterPresetId, setViewFilterPresetId, setFilters, setUseRegex] = store((s) => [
-      s.viewFilterPresetId,
-      s.setViewFilterPresetId,
-      s.setFilters,
-      s.setUseRegex,
-    ]);
+    // Subscribe to each store field independently so preset label updates
+    // cannot be dropped by a composite selector equality mismatch.
+    const includeFilters = store((s) => s.includeFilters);
+    const excludeFilters = store((s) => s.excludeFilters);
+    const useRegex = store((s) => s.useRegex);
+    const viewFilterPresetId = store((s) => s.viewFilterPresetId);
+    const setViewFilterPresetId = store((s) => s.setViewFilterPresetId);
+    const setFilters = store((s) => s.setFilters);
+    const setUseRegex = store((s) => s.setUseRegex);
 
     // Create persist helper - stable reference via useCallback
     const persistPatch = useCallback(
@@ -203,7 +390,14 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
         if (!resolved) {
           return;
         }
-        await mergeAndWriteStoragePatch(resolved.storage, resolved.name, patch);
+        await mergeAndWriteStoragePatch(
+          resolved.storage,
+          resolved.name,
+          resolved.version,
+          resolved.getState,
+          resolved.partialize,
+          patch
+        );
       },
       [store]
     );
@@ -211,11 +405,14 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
     return (
       <ToolbarPresetSelectorInner
         className={className}
+        excludeFilters={excludeFilters}
+        includeFilters={includeFilters}
         onFilterChange={onFilterChange}
         persistPatch={persistPatch}
         setFilters={setFilters}
         setUseRegex={setUseRegex}
         setViewFilterPresetId={setViewFilterPresetId}
+        useRegex={useRegex}
         viewFilterPresetId={viewFilterPresetId}
       />
     );
