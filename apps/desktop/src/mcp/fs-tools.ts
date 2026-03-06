@@ -44,10 +44,17 @@ export async function handleFilesystemRead(
     try {
       const size = stat.size;
       const toRead = Math.min(size, maxBytes);
-      const buf = Buffer.allocUnsafe(toRead);
-      await fh.read(buf, 0, toRead, 0);
-      const truncated = size > toRead;
-      const content = encoding === 'base64' ? buf.toString('base64') : buf.toString('utf8');
+      // Use Buffer.alloc instead of allocUnsafe to prevent memory disclosure
+      // if fewer bytes are read than expected (e.g. concurrent modification).
+      const buf = Buffer.alloc(toRead);
+      const { bytesRead } = await fh.read(buf, 0, toRead, 0);
+      // truncated reports whether the returned payload omits any file bytes,
+      // whether due to maxBytes capping or a short read against a changing file.
+      const truncated = size > bytesRead;
+      const content =
+        encoding === 'base64'
+          ? buf.toString('base64', 0, bytesRead)
+          : buf.toString('utf8', 0, bytesRead);
       return { path: filePath, size, encoding, content, truncated };
     } finally {
       await fh.close();

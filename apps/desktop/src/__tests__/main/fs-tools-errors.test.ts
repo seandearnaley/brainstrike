@@ -51,6 +51,28 @@ describe('mcp fs-tools error branches', () => {
     expect(result).toEqual({ error: 'missing' });
   });
 
+  it('marks reads as truncated when the file changes mid-read', async () => {
+    resolvePathWithinRootMock.mockResolvedValue({ ok: true, path: '/root/file.txt' });
+    statMock.mockResolvedValue({ isDirectory: () => false, size: 4 });
+    openMock.mockResolvedValue({
+      read: vi.fn(async (buffer: Buffer) => {
+        buffer.write('hi', 0, 'utf8');
+        return { bytesRead: 2, buffer };
+      }),
+      close: vi.fn(async () => {}),
+    });
+
+    const result = await handleFilesystemRead({ path: 'file.txt', maxBytes: 8 }, '/root');
+
+    expect(result).toEqual({
+      path: '/root/file.txt',
+      size: 4,
+      encoding: 'utf8',
+      content: 'hi',
+      truncated: true,
+    });
+  });
+
   it('returns error when search root is invalid', async () => {
     resolvePathWithinRootMock.mockResolvedValue({ ok: false, error: 'invalid root' });
 
