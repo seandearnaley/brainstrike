@@ -324,6 +324,8 @@ export interface UseLazyFileTreeReturn {
   ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
   /** Loading progress for recursive selection (if available) */
   selectionLoadingProgress: { loaded: number; total: number } | null;
+  /** Worker port ref for worker-based tree flattening (BST-375) */
+  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
 }
 
 export interface UseLazyFileTreeOptions {
@@ -966,5 +968,6 @@ export function useLazyFileTree(
     cancelSelectAll,
     isLoadingForSelectAll,
     selectAllLoadingProgress,
+    workerPortRef: portRef,
   };
 }

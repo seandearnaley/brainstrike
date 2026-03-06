@@ -5,7 +5,7 @@
 
 export interface HMRModule {
   accept: () => void;
-  dispose: (callback: () => void) => void;
+  dispose: (callback: () => void | Promise<void>) => void;
 }
 
 interface GlobalWithViteHMR {
@@ -53,7 +53,7 @@ export function getHMRModule(): HMRModule | null {
  * @param onAccept - Optional callback to run when the module is accepted
  * @param onDispose - Optional callback to run when the module is being disposed
  */
-export function setupHMR(onAccept?: () => void, onDispose?: () => void): void {
+export function setupHMR(onAccept?: () => void, onDispose?: () => void | Promise<void>): void {
   const hot = getHMRModule();
   if (hot) {
     hot.accept();
