@@ -502,14 +502,7 @@ async function enqueueEmbeddingChunkJobsBatch(
 }
 
 function createJobId(): string {
-  try {
-    if (typeof globalThis.crypto?.randomUUID === 'function') {
-      return globalThis.crypto.randomUUID();
-    }
-  } catch {
-    // fall through to fallback
-  }
-  return `${Date.now().toString(16)}-${generateUUID()}`;
+  return generateUUID();
 }
 
 export function calculateLatency(

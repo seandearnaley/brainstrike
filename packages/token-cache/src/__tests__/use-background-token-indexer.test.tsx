@@ -19,7 +19,7 @@ const { mockLogger, mockEmitIndexedFile, mockEmitIndexingBacklog, mockEmitIndexi
 
 vi.mock('@brainstrike/utils', () => ({
   createLogger: vi.fn(() => mockLogger),
-  generateUUID: vi.fn(() => "test-uuid"),
+  generateUUID: vi.fn(() => 'test-uuid'),
 }));
 
 vi.mock('../telemetry', () => ({

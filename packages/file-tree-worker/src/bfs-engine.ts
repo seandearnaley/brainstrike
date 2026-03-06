@@ -6,7 +6,7 @@
  * processes results, and manages tree state.
  */
 
-import { generateUUID } from '@brainstrike/utils';
+import { generateUUID } from '@brainstrike/utils/crypto';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
 

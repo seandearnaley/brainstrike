@@ -231,8 +231,5 @@ export const getStableColorForKey = (key: string): string => {
 };
 
 export const createRangeId = (): string => {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID();
-  }
-  return `range-${generateUUID()}`;
+  return generateUUID();
 };

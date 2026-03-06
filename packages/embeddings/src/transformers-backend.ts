@@ -287,10 +287,7 @@ export class TransformersBackend {
     if (!queue) {
       return;
     }
-    const warmupId =
-      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `warmup-${Date.now().toString(36)}-${generateUUID()}`;
+    const warmupId = generateUUID();
     try {
       const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
       await queue.add({
@@ -402,10 +399,7 @@ export class TransformersBackend {
   }
 
   private createTaskId(): string {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-    return `embed-${Date.now().toString(36)}-${generateUUID()}`;
+    return generateUUID();
   }
 
   private resolveDeviceHint(): 'webgpu' | 'wasm' {
