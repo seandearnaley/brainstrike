@@ -221,10 +221,11 @@ const ToolbarPresetSelectorInner: React.FC<
     // Handle preset selection with persistence
     const handlePresetSelect = useCallback(
       async (preset: ViewFilterPreset) => {
-        // Update store state (batched by React 18)
-        setViewFilterPresetId(preset.id);
+        // Apply the filter payload before setting the preset id so the synchronization
+        // effect never observes a new preset id against stale filter state.
         setFilters(preset.includes, preset.excludes);
         setUseRegex(preset.useRegex);
+        setViewFilterPresetId(preset.id);
 
         // Defer expensive tree filtering to prevent UI blocking on large trees.
         // startTransition allows React to interrupt this work if the user

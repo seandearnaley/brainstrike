@@ -166,6 +166,12 @@ describe('ToolbarPresetSelector', () => {
     });
     expect(mockSetFilters).toHaveBeenCalledWith(['*.md'], []);
     expect(mockSetUseRegex).toHaveBeenCalledWith(false);
+    expect(mockSetFilters.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSetViewFilterPresetId.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
+    expect(mockSetUseRegex.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSetViewFilterPresetId.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
   });
 
   it('persists preset selection to storage', async () => {
