@@ -11,7 +11,7 @@
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import * as React from 'react';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useViewFilterPresets } from './hooks/use-view-filter-presets';
 import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
@@ -198,12 +198,42 @@ const ToolbarPresetSelectorInner: React.FC<
       }),
       [includeFilters, excludeFilters, useRegex]
     );
+    const [optimisticPresetId, setOptimisticPresetId] = useState<string | null>(null);
 
     // The active preset is the exact preset whose filter triplet matches the live filter state.
     // viewFilterPresetId is synchronized to that canonical match and must not drift independently.
     const selectedPreset = useMemo(() => {
       return resolveSelectedPreset(presets, viewFilterPresetId, activeFilters);
     }, [presets, viewFilterPresetId, activeFilters]);
+
+    const displayedPreset = useMemo(() => {
+      if (!optimisticPresetId) {
+        return selectedPreset;
+      }
+
+      return presets.find((preset) => preset.id === optimisticPresetId) ?? selectedPreset;
+    }, [optimisticPresetId, presets, selectedPreset]);
+
+    useEffect(() => {
+      if (!optimisticPresetId) {
+        return;
+      }
+
+      if (selectedPreset?.id === optimisticPresetId) {
+        setOptimisticPresetId(null);
+        return;
+      }
+
+      if (selectedPreset && selectedPreset.id !== optimisticPresetId) {
+        setOptimisticPresetId(null);
+        return;
+      }
+
+      const optimisticPreset = presets.find((preset) => preset.id === optimisticPresetId) ?? null;
+      if (!optimisticPreset) {
+        setOptimisticPresetId(null);
+      }
+    }, [optimisticPresetId, presets, selectedPreset]);
 
     useEffect(() => {
       if (loading || error) {
@@ -222,6 +252,7 @@ const ToolbarPresetSelectorInner: React.FC<
     // Handle preset selection with persistence
     const handlePresetSelect = useCallback(
       async (preset: ViewFilterPreset) => {
+        setOptimisticPresetId(preset.id);
         // Apply the filter payload before setting the preset id so the synchronization
         // effect never observes a new preset id against stale filter state.
         setFilters(preset.includes, preset.excludes);
@@ -261,7 +292,7 @@ const ToolbarPresetSelectorInner: React.FC<
         onSelect={handlePresetSelect}
         onUpdate={updatePreset}
         presets={presets}
-        selectedPreset={selectedPreset}
+        selectedPreset={displayedPreset}
       />
     );
   }
@@ -279,24 +310,15 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
   ({ onFilterChange, className }) => {
     const store = useFileExplorerStoreContext();
 
-    // Extract store values and actions - must be unconditional for React Compiler
-    const [
-      includeFilters,
-      excludeFilters,
-      useRegex,
-      viewFilterPresetId,
-      setViewFilterPresetId,
-      setFilters,
-      setUseRegex,
-    ] = store((s) => [
-      s.includeFilters,
-      s.excludeFilters,
-      s.useRegex,
-      s.viewFilterPresetId,
-      s.setViewFilterPresetId,
-      s.setFilters,
-      s.setUseRegex,
-    ]);
+    // Subscribe to each store field independently so preset label updates
+    // cannot be dropped by a composite selector equality mismatch.
+    const includeFilters = store((s) => s.includeFilters);
+    const excludeFilters = store((s) => s.excludeFilters);
+    const useRegex = store((s) => s.useRegex);
+    const viewFilterPresetId = store((s) => s.viewFilterPresetId);
+    const setViewFilterPresetId = store((s) => s.setViewFilterPresetId);
+    const setFilters = store((s) => s.setFilters);
+    const setUseRegex = store((s) => s.setUseRegex);
 
     // Create persist helper - stable reference via useCallback
     const persistPatch = useCallback(
