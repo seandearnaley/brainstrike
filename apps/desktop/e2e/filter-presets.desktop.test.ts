@@ -39,6 +39,21 @@ async function selectMockRoot(window: Page): Promise<void> {
   });
 }
 
+async function selectDocumentationPreset(window: Page): Promise<void> {
+  const presetTrigger = window.getByRole('button', { name: /select filter/i });
+  await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
+  await presetTrigger.click();
+
+  const documentationOption = window.getByRole('button', { name: /documentation/i }).first();
+  await expect(documentationOption).toBeVisible({ timeout: 10_000 });
+  await documentationOption.click();
+
+  await expect(window.getByRole('button', { name: /documentation/i })).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(window.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
+}
+
 test.describe('Desktop filter presets', () => {
   test.beforeEach(async ({ window }) => {
     await mockFileSystemOperations(window);
@@ -50,18 +65,31 @@ test.describe('Desktop filter presets', () => {
     await ensureLeftPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
+    await selectDocumentationPreset(window);
+  });
 
-    const presetTrigger = window.getByRole('button', { name: /select filter/i });
-    await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
-    await presetTrigger.click();
+  test('keeps the selected preset after app restart', async ({ electron, window }) => {
+    test.setTimeout(90_000);
 
-    const documentationOption = window.getByRole('button', { name: /documentation/i }).first();
-    await expect(documentationOption).toBeVisible({ timeout: 10_000 });
-    await documentationOption.click();
+    await ensureLeftPanelVisible(window);
+    await selectMockRoot(window);
+    await ensureViewFiltersExpanded(window);
+    await selectDocumentationPreset(window);
 
-    await expect(window.getByRole('button', { name: /documentation/i })).toBeVisible({
+    const relaunched = await electron.restart();
+    const relaunchedWindow = relaunched.window;
+    await mockFileSystemOperations(relaunchedWindow);
+    await ensureLeftPanelVisible(relaunchedWindow);
+
+    const viewFiltersButton = relaunchedWindow.getByRole('button', { name: /view filters/i });
+    if (!(await viewFiltersButton.isVisible().catch(() => false))) {
+      await selectMockRoot(relaunchedWindow);
+    }
+
+    await ensureViewFiltersExpanded(relaunchedWindow);
+    await expect(relaunchedWindow.getByRole('button', { name: /documentation/i })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(window.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
+    await expect(relaunchedWindow.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
   });
 });
