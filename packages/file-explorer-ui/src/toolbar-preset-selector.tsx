@@ -11,7 +11,7 @@
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import * as React from 'react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useViewFilterPresets } from './hooks/use-view-filter-presets';
 import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
@@ -96,13 +96,61 @@ interface ToolbarPresetSelectorProps {
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
 }
 
+interface ActiveFilterState {
+  excludeFilters: readonly string[];
+  includeFilters: readonly string[];
+  useRegex: boolean;
+}
+
+function areFilterListsEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function doesPresetMatchFilters(
+  preset: ViewFilterPreset,
+  activeFilters: ActiveFilterState
+): boolean {
+  return (
+    preset.useRegex === activeFilters.useRegex &&
+    areFilterListsEqual(preset.includes, activeFilters.includeFilters) &&
+    areFilterListsEqual(preset.excludes, activeFilters.excludeFilters)
+  );
+}
+
+function resolveSelectedPreset(
+  presets: readonly ViewFilterPreset[],
+  viewFilterPresetId: string | null,
+  activeFilters: ActiveFilterState
+): ViewFilterPreset | null {
+  const matchingPreset =
+    presets.find((preset) => doesPresetMatchFilters(preset, activeFilters)) ?? null;
+
+  if (!viewFilterPresetId) {
+    return matchingPreset;
+  }
+
+  const presetById = presets.find((preset) => preset.id === viewFilterPresetId) ?? null;
+  if (!presetById) {
+    return matchingPreset;
+  }
+
+  return doesPresetMatchFilters(presetById, activeFilters) ? presetById : matchingPreset;
+}
+
 /**
  * Internal component that handles store connection and persistence.
  * Separated to ensure stable hook order for React Compiler.
  */
 const ToolbarPresetSelectorInner: React.FC<
   ToolbarPresetSelectorProps & {
+    excludeFilters: readonly string[];
+    includeFilters: readonly string[];
     viewFilterPresetId: string | null;
+    useRegex: boolean;
     setViewFilterPresetId: (id: string | null) => void;
     setFilters: (includes: string[], excludes: string[]) => void;
     setUseRegex: (useRegex: boolean) => void;
@@ -112,6 +160,9 @@ const ToolbarPresetSelectorInner: React.FC<
   ({
     onFilterChange,
     className,
+    includeFilters,
+    excludeFilters,
+    useRegex,
     viewFilterPresetId,
     setViewFilterPresetId,
     setFilters,
@@ -121,13 +172,34 @@ const ToolbarPresetSelectorInner: React.FC<
     // Load presets from database
     const { presets, loading, createPreset, updatePreset, deletePreset } = useViewFilterPresets();
 
-    // Find the currently selected preset
+    const activeFilters = useMemo<ActiveFilterState>(
+      () => ({
+        includeFilters,
+        excludeFilters,
+        useRegex,
+      }),
+      [includeFilters, excludeFilters, useRegex]
+    );
+
+    // The active preset is the exact preset whose filter triplet matches the live filter state.
+    // viewFilterPresetId is synchronized to that canonical match and must not drift independently.
     const selectedPreset = useMemo(() => {
-      if (!viewFilterPresetId) {
-        return null;
+      return resolveSelectedPreset(presets, viewFilterPresetId, activeFilters);
+    }, [presets, viewFilterPresetId, activeFilters]);
+
+    useEffect(() => {
+      if (loading) {
+        return;
       }
-      return presets.find((p) => p.id === viewFilterPresetId) ?? null;
-    }, [presets, viewFilterPresetId]);
+
+      const selectedPresetId = selectedPreset?.id ?? null;
+      if (viewFilterPresetId === selectedPresetId) {
+        return;
+      }
+
+      setViewFilterPresetId(selectedPresetId);
+      void persistPatch({ viewFilterPresetId: selectedPresetId });
+    }, [loading, persistPatch, selectedPreset, setViewFilterPresetId, viewFilterPresetId]);
 
     // Handle preset selection with persistence
     const handlePresetSelect = useCallback(
@@ -189,7 +261,18 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
     const store = useFileExplorerStoreContext();
 
     // Extract store values and actions - must be unconditional for React Compiler
-    const [viewFilterPresetId, setViewFilterPresetId, setFilters, setUseRegex] = store((s) => [
+    const [
+      includeFilters,
+      excludeFilters,
+      useRegex,
+      viewFilterPresetId,
+      setViewFilterPresetId,
+      setFilters,
+      setUseRegex,
+    ] = store((s) => [
+      s.includeFilters,
+      s.excludeFilters,
+      s.useRegex,
       s.viewFilterPresetId,
       s.setViewFilterPresetId,
       s.setFilters,
@@ -211,11 +294,14 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
     return (
       <ToolbarPresetSelectorInner
         className={className}
+        excludeFilters={excludeFilters}
+        includeFilters={includeFilters}
         onFilterChange={onFilterChange}
         persistPatch={persistPatch}
         setFilters={setFilters}
         setUseRegex={setUseRegex}
         setViewFilterPresetId={setViewFilterPresetId}
+        useRegex={useRegex}
         viewFilterPresetId={viewFilterPresetId}
       />
     );

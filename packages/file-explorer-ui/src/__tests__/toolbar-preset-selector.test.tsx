@@ -40,6 +40,28 @@ const mockCreatePreset = vi.fn();
 const mockUpdatePreset = vi.fn();
 const mockDeletePreset = vi.fn();
 
+interface MockStoreState {
+  excludeFilters: string[];
+  includeFilters: string[];
+  setFilters: typeof mockSetFilters;
+  setUseRegex: typeof mockSetUseRegex;
+  setViewFilterPresetId: typeof mockSetViewFilterPresetId;
+  useRegex: boolean;
+  viewFilterPresetId: string | null;
+}
+
+const defaultMockStoreState = (): MockStoreState => ({
+  includeFilters: ['*.ts', '*.tsx'],
+  excludeFilters: ['node_modules'],
+  useRegex: false,
+  viewFilterPresetId: 'preset-1',
+  setViewFilterPresetId: mockSetViewFilterPresetId,
+  setFilters: mockSetFilters,
+  setUseRegex: mockSetUseRegex,
+});
+
+let mockStoreState: MockStoreState = defaultMockStoreState();
+
 // Create mock persist API
 const mockStorageData: Record<string, string> = {};
 const mockStorage = {
@@ -53,13 +75,7 @@ vi.mock('../file-explorer-provider', () => ({
   useFileExplorerStoreContext: vi.fn(() => {
     // Create a store-like function that returns values based on selector
     const storeFn = (selector: (state: Record<string, unknown>) => unknown) => {
-      const state = {
-        viewFilterPresetId: 'preset-1',
-        setViewFilterPresetId: mockSetViewFilterPresetId,
-        setFilters: mockSetFilters,
-        setUseRegex: mockSetUseRegex,
-      };
-      return selector(state);
+      return selector(mockStoreState as unknown as Record<string, unknown>);
     };
     // Add persist API to the store function
     storeFn.persist = {
@@ -103,6 +119,7 @@ describe('ToolbarPresetSelector', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStoreState = defaultMockStoreState();
     // Reset storage mock
     for (const key of Object.keys(mockStorageData)) {
       delete mockStorageData[key];
@@ -261,22 +278,60 @@ describe('ToolbarPresetSelector', () => {
   });
 
   it('handles null selected preset', async () => {
-    const { useFileExplorerStoreContext } = await import('../file-explorer-provider');
-    vi.mocked(useFileExplorerStoreContext).mockReturnValueOnce(((
-      selector: (state: Record<string, unknown>) => unknown
-    ) => {
-      const state = {
-        viewFilterPresetId: null,
-        setViewFilterPresetId: mockSetViewFilterPresetId,
-        setFilters: mockSetFilters,
-        setUseRegex: mockSetUseRegex,
-      };
-      return selector(state);
-    }) as ReturnType<typeof useFileExplorerStoreContext>);
+    mockStoreState.viewFilterPresetId = null;
+    mockStoreState.includeFilters = ['*.png'];
+    mockStoreState.excludeFilters = [];
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
     // Component should render without selected preset - shows placeholder text
     expect(screen.getByRole('button', { name: /Select filter/i })).toBeInTheDocument();
+  });
+
+  it('shows the matching preset when active filters match exactly and preset id is missing', () => {
+    mockStoreState.viewFilterPresetId = null;
+
+    render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
+
+    expect(screen.getByRole('button', { name: /Source Files/i })).toBeInTheDocument();
+  });
+
+  it('synchronizes the preset id when active filters match a preset exactly', async () => {
+    mockStoreState.viewFilterPresetId = null;
+    mockStorageData['file-explorer-storage-v4'] = JSON.stringify({
+      version: 1,
+      state: {},
+    });
+
+    render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
+
+    await waitFor(() => {
+      expect(mockSetViewFilterPresetId).toHaveBeenCalledWith('preset-1');
+    });
+    await waitFor(() => {
+      expect(mockStorage.setItem).toHaveBeenCalled();
+    });
+  });
+
+  it('clears a stale preset id when active filters do not match any preset', async () => {
+    mockStoreState.includeFilters = ['*.png'];
+    mockStoreState.excludeFilters = [];
+
+    render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
+
+    expect(screen.getByRole('button', { name: /Select filter/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockSetViewFilterPresetId).toHaveBeenCalledWith(null);
+    });
+  });
+
+  it('does not infer a preset from a partial filter match', () => {
+    mockStoreState.viewFilterPresetId = null;
+    mockStoreState.includeFilters = ['*.ts'];
+
+    render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
+
+    expect(screen.getByRole('button', { name: /Select filter/i })).toBeInTheDocument();
+    expect(mockSetViewFilterPresetId).not.toHaveBeenCalled();
   });
 });
