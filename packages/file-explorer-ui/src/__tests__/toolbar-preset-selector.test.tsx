@@ -211,6 +211,25 @@ describe('ToolbarPresetSelector', () => {
     );
   });
 
+  it('keeps the newly selected preset visible while store updates are still catching up', async () => {
+    const user = userEvent.setup();
+    render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
+
+    const triggerButton = screen.getByRole('button', { name: /Source Files/i });
+    await user.click(triggerButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Documentation')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('Documentation'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Documentation/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /Source Files/i })).not.toBeInTheDocument();
+  });
+
   it('persists preset selection to storage', async () => {
     const user = userEvent.setup();
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);

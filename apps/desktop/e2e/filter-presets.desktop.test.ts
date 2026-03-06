@@ -54,6 +54,18 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
   await expect(window.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
 }
 
+async function switchPreset(window: Page, currentName: RegExp, nextName: RegExp): Promise<void> {
+  const presetTrigger = window.getByRole('button', { name: currentName });
+  await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
+  await presetTrigger.click();
+
+  const nextOption = window.getByRole('button', { name: nextName }).first();
+  await expect(nextOption).toBeVisible({ timeout: 10_000 });
+  await nextOption.click();
+
+  await expect(window.getByRole('button', { name: nextName })).toBeVisible({ timeout: 10_000 });
+}
+
 test.describe('Desktop filter presets', () => {
   test.beforeEach(async ({ window }) => {
     await mockFileSystemOperations(window);
@@ -91,5 +103,22 @@ test.describe('Desktop filter presets', () => {
       timeout: 10_000,
     });
     await expect(relaunchedWindow.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
+  });
+
+  test('switches to a different preset without snapping back to the previous selection', async ({
+    window,
+  }) => {
+    test.setTimeout(60_000);
+
+    await ensureLeftPanelVisible(window);
+    await selectMockRoot(window);
+    await ensureViewFiltersExpanded(window);
+    await selectDocumentationPreset(window);
+    await switchPreset(window, /documentation/i, /typescript\/javascript/i);
+
+    await expect(window.getByText('Documentation')).toBeHidden({ timeout: 10_000 });
+    await expect(window.getByRole('button', { name: /typescript\/javascript/i })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 });

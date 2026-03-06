@@ -280,11 +280,6 @@ const ToolbarPresetSelectorInner: React.FC<
         return;
       }
 
-      if (selectedPreset && selectedPreset.id !== optimisticPresetId) {
-        setOptimisticPresetId(null);
-        return;
-      }
-
       const optimisticPreset = presets.find((preset) => preset.id === optimisticPresetId) ?? null;
       if (!optimisticPreset) {
         setOptimisticPresetId(null);
@@ -292,7 +287,7 @@ const ToolbarPresetSelectorInner: React.FC<
     }, [optimisticPresetId, presets, selectedPreset]);
 
     useEffect(() => {
-      if (loading || error) {
+      if (loading || error || optimisticPresetId) {
         return;
       }
 
@@ -307,7 +302,15 @@ const ToolbarPresetSelectorInner: React.FC<
           logger.warn('Failed to persist preset sync', { error });
         }
       });
-    }, [error, loading, persistPatch, selectedPreset, setViewFilterPresetId, viewFilterPresetId]);
+    }, [
+      error,
+      loading,
+      optimisticPresetId,
+      persistPatch,
+      selectedPreset,
+      setViewFilterPresetId,
+      viewFilterPresetId,
+    ]);
 
     // Handle preset selection with persistence
     const handlePresetSelect = useCallback(
