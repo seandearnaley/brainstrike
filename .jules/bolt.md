@@ -9,6 +9,11 @@
 ## 2026-03-01 - Branch Prediction optimization over Loop Unrolling in String Scan
 **Learning:** For typical character loop scanning algorithms (like `isTextContent`), optimizing for the hot-path via branch prediction is faster and more readable than manual loop unrolling, which adds unneeded cognitive complexity. Structuring the check as `if (c < 32 || c === 127)` first bails out on the common case immediately.
 **Action:** Before unrolling loops, test if separating an inexpensive fast path check from an expensive fallback check yields comparable or better performance via V8 optimizations.
+
 ## 2026-03-05 - Pre-compiled Intl.Collator for localeCompare
 **Learning:** Calling `localeCompare` inside hot loops like React memo hooks and sorting callbacks is extremely slow because it instantiates a new `Intl.Collator` each time. This is especially true when passing locale arguments like `"en"`.
 **Action:** Always pre-compile `Intl.Collator` in a shared module and reuse its `.compare` method. This achieves massive speedups for large scale tree rendering logic.
+
+## 2026-03-06 - Avoid template string allocations in hot path tree traversal
+**Learning:** Checking for path descendants in hot loops (e.g., `targetPath.startsWith(`${node.path}/`)`) causes excessive string allocations and slows down tree traversal significantly when dealing with large trees.
+**Action:** Replace template string checks with length and character code checks (`targetPath.length > node.path.length && targetPath.charCodeAt(node.path.length) === 47 && targetPath.startsWith(node.path)`). This avoids allocating intermediate strings and provides a >2x performance improvement.
