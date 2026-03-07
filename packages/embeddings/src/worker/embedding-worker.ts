@@ -14,6 +14,7 @@ import type {
 import { isLocalProviderType } from '../provider-types';
 import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
 import type {
+  EmbeddingConfig,
   EmbeddingResult,
   EmbeddingService,
   EmbeddingStreamBatch,
@@ -276,6 +277,12 @@ export interface EmbeddingWorkerOptions {
   embeddingCache?: EmbeddingCacheInterface;
   enable?: boolean; // explicit runtime toggle; overrides env flag
   heartbeatIntervalMs?: number; // default: 10000
+  /**
+   * If false, the worker starts its queue/lease loop without initializing the
+   * local embedding model. The first claimed local job must perform the model
+   * initialization explicitly.
+   */
+  initializeLocalModelOnStart?: boolean;
   leaseMs?: number; // default: 60000
   log?: (msg: string, meta?: unknown) => void;
   metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
@@ -729,11 +736,13 @@ function validateHostedEmbeddingDimensions(
 
 async function initializeEmbeddingService(
   options: EmbeddingWorkerOptions,
-  modelKey: string
+  modelKey: string,
+  mode?: { initializeLocalService?: boolean }
 ): Promise<{ service: EmbeddingService; modelConfig: ModelConfig }> {
   workerLogger.info('initializeEmbeddingService: START', { modelKey });
 
   const service = options.service ?? new SimpleEmbeddingService();
+  const initializeLocalService = mode?.initializeLocalService ?? true;
 
   const parsedForRegistry = parseProviderModelKey(modelKey);
   const registryModelKey =
@@ -785,7 +794,7 @@ async function initializeEmbeddingService(
     const parsed = parseProviderModelKey(modelKey);
     const isHosted = parsed && isHostedProvider(parsed.provider);
 
-    if (!isHosted) {
+    if (!isHosted && initializeLocalService) {
       // Initialize with the MODEL CONFIG from DB (not just the key)
       // This bypasses the static registry lookup in SimpleEmbeddingService
       const simpleService = service as SimpleEmbeddingService;
@@ -899,12 +908,32 @@ export async function startEmbeddingWorker(
   const concurrency = Math.max(1, options.concurrency ?? 1);
   const modelResolution = resolveWorkerModel(options.modelKey);
   ensureLocalRuntime(modelResolution);
+  const initializeLocalModelOnStart = options.initializeLocalModelOnStart ?? true;
   let activeModelId = modelResolution.modelId;
   let activeCompositeKey = modelResolution.compositeKey;
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
+  let service: EmbeddingService;
+  let modelConfig: ModelConfig | null = null;
+  let localServiceInitialized = false;
 
-  let { service, modelConfig } = await initializeEmbeddingService(options, activeCompositeKey);
-  ensureModelDimension(modelConfig, activeCompositeKey, log);
+  if (isLocalProviderType(modelResolution.provider) && !initializeLocalModelOnStart) {
+    service = options.service ?? new SimpleEmbeddingService();
+    localServiceInitialized = service.getStatus() === 'ready';
+    workerLogger.info('Deferring local embedding model initialization until first claimed job', {
+      modelKey: activeCompositeKey,
+      serviceReady: localServiceInitialized,
+    });
+  } else {
+    const initializedService = await initializeEmbeddingService(options, activeCompositeKey, {
+      initializeLocalService: true,
+    });
+    service = initializedService.service;
+    modelConfig = initializedService.modelConfig;
+    if (isLocalProviderType(modelResolution.provider)) {
+      localServiceInitialized = service.getStatus() === 'ready';
+    }
+    ensureModelDimension(initializedService.modelConfig, activeCompositeKey, log);
+  }
 
   // Determine ID column type for file_chunks to support both UUID (Prod) and TEXT (Test/Electron) schemas
   const fileChunkIdType = await resolveIdType(options.db, 'file_chunks');
@@ -950,47 +979,67 @@ export async function startEmbeddingWorker(
       const parsed = Number(raw);
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
     })();
-  async function ensureLocalModel(
-    targetModelId: string,
-    targetCompositeKey: string,
-    opts?: { forceReinit?: boolean }
-  ): Promise<void> {
-    const forceReinit = opts?.forceReinit ?? false;
-    const shouldReinitialize = forceReinit || targetModelId !== activeModelId;
 
-    workerLogger.debug('ensureLocalModel check', {
-      targetModelId,
-      activeModelId,
-      shouldReinitialize,
-      forceReinit,
-    });
-
-    if (!shouldReinitialize) {
+  function assertLocalModelSwitchAllowed(targetModelId: string): void {
+    const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
+    if (targetModelId === activeModelId || !isElectronMainProcess() || allowMainRuntime) {
       return;
     }
 
-    const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
-    // CRITICAL FIX: In Electron main process, TransformersBackend tries to create Web Workers
-    // which don't exist in Node.js. This causes it to fall back to synchronous execution,
-    // blocking the entire app. Reject model switching for local providers unless explicitly allowed.
-    if (targetModelId !== activeModelId && isElectronMainProcess() && !allowMainRuntime) {
-      throw new Error(
-        `Cannot switch local embedding models in main process (from ${activeModelId} to ${targetModelId}). ` +
-          'Web Workers are not available in Node.js/Electron main process. ' +
-          `Either process this job in the renderer, or ensure all jobs use the same local model: ${activeModelId}`
-      );
+    throw new Error(
+      `Cannot switch local embedding models in main process (from ${activeModelId} to ${targetModelId}). ` +
+        'Web Workers are not available in Node.js/Electron main process. ' +
+        `Either process this job in the renderer, or ensure all jobs use the same local model: ${activeModelId}`
+    );
+  }
+
+  function logLocalModelInitialization(shouldReinitialize: boolean): void {
+    workerLogger.warn(
+      shouldReinitialize
+        ? 'Reinitializing embedding service; this blocks the main thread'
+        : 'Initializing deferred local embedding model for claimed work'
+    );
+  }
+
+  async function resolveLocalModelConfig(
+    targetModelId: string,
+    shouldReinitialize: boolean
+  ): Promise<ModelConfig> {
+    const cachedConfig =
+      modelConfig && !shouldReinitialize && modelConfig.id === targetModelId ? modelConfig : null;
+    if (cachedConfig) {
+      return cachedConfig;
     }
 
-    workerLogger.warn('Reinitializing embedding service; this blocks the main thread');
-
-    // Get model config from database FIRST (single source of truth)
-    const cfg = await getModelConfigFromDb(options.db, targetModelId);
-    if (!cfg) {
+    const loadedConfig = await getModelConfigFromDb(options.db, targetModelId);
+    if (!loadedConfig) {
       throw new Error(
         `Model '${targetModelId}' not found in database. Add it via Settings > Models.`
       );
     }
+    return loadedConfig;
+  }
 
+  function createLocalServiceConfig(cfg: ModelConfig): Partial<EmbeddingConfig> {
+    return {
+      modelId: cfg.id,
+      ...(options.device ? { device: options.device } : {}),
+      ...(cfg.quantized !== undefined ? { quantized: cfg.quantized } : {}),
+      ...(options.cacheDir ? { cacheDir: options.cacheDir } : {}),
+    };
+  }
+
+  async function initializeExistingLocalService(cfg: ModelConfig): Promise<void> {
+    const simpleService = service as SimpleEmbeddingService;
+    if (typeof simpleService.initializeWithModel === 'function') {
+      await simpleService.initializeWithModel(cfg, undefined, options.device, options.cacheDir);
+      return;
+    }
+
+    await service.initialize(createLocalServiceConfig(cfg), undefined);
+  }
+
+  async function createReinitializedLocalService(cfg: ModelConfig): Promise<EmbeddingService> {
     try {
       await service.dispose();
     } catch (error) {
@@ -998,22 +1047,55 @@ export async function startEmbeddingWorker(
     }
 
     const nextService = new SimpleEmbeddingService();
-    // Pass the MODEL CONFIG from DB (not just the key) to bypass static registry
-    await nextService.initializeWithModel(cfg, undefined, options.device);
-    service = nextService;
-    modelConfig = cfg;
+    await nextService.initializeWithModel(cfg, undefined, options.device, options.cacheDir);
+    return nextService;
+  }
 
+  function finalizeLocalModelState(
+    cfg: ModelConfig,
+    targetModelId: string,
+    targetCompositeKey: string
+  ): void {
+    modelConfig = cfg;
+    localServiceInitialized = true;
     activeModelId = targetModelId;
     activeCompositeKey = targetCompositeKey;
-
     ensureModelDimension(modelConfig, activeCompositeKey, log);
-
-    // REMOVED: Worker no longer auto-creates embedding sets when switching models
-    // Collections should ONLY be created by the user via the Create Collection dialog
-    // The worker will use embeddingSetId from job payloads (see resolveTargetSetId function)
-
     processedSinceInit = 0;
     consecutiveFailures = 0;
+  }
+
+  async function ensureLocalModel(
+    targetModelId: string,
+    targetCompositeKey: string,
+    opts?: { forceReinit?: boolean }
+  ): Promise<void> {
+    const forceReinit = opts?.forceReinit ?? false;
+    const shouldReinitialize = forceReinit || targetModelId !== activeModelId;
+    const shouldInitializeCurrentModel = !localServiceInitialized;
+
+    workerLogger.debug('ensureLocalModel check', {
+      targetModelId,
+      activeModelId,
+      shouldReinitialize,
+      shouldInitializeCurrentModel,
+      forceReinit,
+    });
+
+    if (!(shouldReinitialize || shouldInitializeCurrentModel)) {
+      return;
+    }
+
+    assertLocalModelSwitchAllowed(targetModelId);
+    logLocalModelInitialization(shouldReinitialize);
+    const cfg = await resolveLocalModelConfig(targetModelId, shouldReinitialize);
+
+    if (shouldReinitialize) {
+      service = await createReinitializedLocalService(cfg);
+    } else {
+      await initializeExistingLocalService(cfg);
+    }
+    finalizeLocalModelState(cfg, targetModelId, targetCompositeKey);
   }
 
   async function resetService() {

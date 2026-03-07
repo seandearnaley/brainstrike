@@ -63,6 +63,7 @@ export function EmbeddingHostRuntime(): null {
       try {
         const controller = await startEmbeddingWorker({
           ...createEmbeddingWorkerConfig(db),
+          initializeLocalModelOnStart: false,
           onWorkerActivityChange: (active: boolean) => {
             activeRef.current = active;
             reportStatus({

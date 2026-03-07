@@ -17,6 +17,7 @@ import {
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
+import './log-buffer';
 import './styles.css';
 import { EmbeddingHostApp } from './components/embedding-host-app';
 

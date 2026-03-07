@@ -40,6 +40,8 @@ vi.mock('../../renderer/components/root-layout-content', () => ({
   default: () => <div>RootLayout</div>,
 }));
 
+vi.mock('../../renderer/log-buffer', () => ({}));
+
 // Utility type guard for React elements
 function isReactElement(element: unknown): element is ReactElement {
   return typeof element === 'object' && element !== null && 'type' in element && 'props' in element;

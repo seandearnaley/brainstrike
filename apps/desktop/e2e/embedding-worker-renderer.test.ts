@@ -3,6 +3,11 @@ import { expect, test } from './fixtures/electron-fixture';
 import { waitForAppReady } from './utils/electron-helpers';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 
+interface BufferedLogRecord {
+  args: readonly unknown[];
+  message?: string;
+}
+
 interface EmbeddingHostStatus {
   active: boolean;
   lastError: string | null;
@@ -65,6 +70,52 @@ test.describe('Embedding Host Renderer', () => {
       await page.waitForTimeout(250);
     }
     throw new Error('Timed out waiting for embedding host state');
+  }
+
+  async function getEmbeddingHostPage(window: Page): Promise<Page> {
+    const context = window.context();
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < 15_000) {
+      const hostPage = context
+        .pages()
+        .find((page) => page.url().includes('mode=embedding-host') && !page.isClosed());
+
+      if (hostPage) {
+        await hostPage.waitForLoadState('domcontentloaded');
+        return hostPage;
+      }
+
+      await window.waitForTimeout(250);
+    }
+
+    throw new Error('Timed out waiting for hidden embedding host page');
+  }
+
+  async function getRendererLogRecords(page: Page): Promise<BufferedLogRecord[]> {
+    return await page.evaluate<BufferedLogRecord[]>(() => {
+      const logBuffer = (
+        window as Window & {
+          __brainstrikeRendererLogBuffer?: {
+            getRecords?: () => readonly BufferedLogRecord[];
+          };
+        }
+      ).__brainstrikeRendererLogBuffer;
+
+      if (!logBuffer?.getRecords) {
+        throw new Error('Renderer log buffer is not available');
+      }
+
+      return [...logBuffer.getRecords()];
+    });
+  }
+
+  function recordContainsText(record: BufferedLogRecord, text: string): boolean {
+    if (typeof record.message === 'string' && record.message.includes(text)) {
+      return true;
+    }
+
+    return record.args.some((arg) => typeof arg === 'string' && arg.includes(text));
   }
 
   async function createTestBackfillJob(page: Page): Promise<{
@@ -261,6 +312,36 @@ test.describe('Embedding Host Renderer', () => {
 
     expect(status.state).toBe('running');
     expect(status.lastError).toBeNull();
+
+    const hostPage = await getEmbeddingHostPage(window);
+    await hostPage.waitForTimeout(1000);
+    const hostLogs = await getRendererLogRecords(hostPage);
+
+    expect(
+      hostLogs.some((record) =>
+        recordContainsText(
+          record,
+          'Deferring local embedding model initialization until first claimed job'
+        )
+      )
+    ).toBe(true);
+    expect(
+      hostLogs.some((record) => recordContainsText(record, 'Warmup job submission failed'))
+    ).toBe(false);
+    expect(
+      hostLogs.some((record) => recordContainsText(record, 'worker_model_dimension_notice'))
+    ).toBe(false);
+    expect(
+      hostLogs.some((record) =>
+        recordContainsText(record, 'Failed to create WebGPU Context Provider')
+      )
+    ).toBe(false);
+    expect(hostLogs.some((record) => recordContainsText(record, 'Pipeline load failed'))).toBe(
+      false
+    );
+    expect(
+      hostLogs.some((record) => recordContainsText(record, 'Workerpool embedding task failed'))
+    ).toBe(false);
   });
 
   test('keeps the visible UI responsive while jobs are queued for the hidden host', async ({

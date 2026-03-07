@@ -186,6 +186,19 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
     await controller.stop();
   });
 
+  it('can start the worker loop without initializing the local model', async () => {
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      initializeLocalModelOnStart: false,
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockState.initializedWith).toEqual([]);
+
+    await controller.stop();
+  });
+
   it('throws a clear error when the model is missing from the database', async () => {
     await expect(
       startEmbeddingWorker({
@@ -262,6 +275,71 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
     // The worker initializes with the default fallback model first,
     // then switches to the job's requested model
     expect(mockState.initializedWith.map((m) => m.id)).toContain('Xenova/all-MiniLM-L6-v2');
+
+    await controller.stop();
+  });
+
+  it('initializes the deferred local model when the first local job is claimed', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-lazy';
+    const fileId = 'file-lazy';
+    const chunkId = 'chunk-lazy';
+    const payloadModelKey = 'transformers::Xenova/all-MiniLM-L6-v2';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, payloadModelKey, 'Xenova/all-MiniLM-L6-v2', 384, 'cosine', now]
+    );
+
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [fileId, 'lazy.ts', '/lazy.ts', 42, 'hello lazy', 'hash-lazy', 11, now]
+    );
+
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+       VALUES ($1,$2,0,$3,$4,$5,'text',$6,$7,$7)`,
+      [chunkId, fileId, 'hello lazy', 'hash-lazy', 11, 11, now]
+    );
+
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+       VALUES ('job-lazy','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: payloadModelKey,
+          expectedDimension: 384,
+        }),
+        now,
+      ]
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 2000,
+      initializeLocalModelOnStart: false,
+    });
+
+    expect(mockState.initializedWith).toEqual([]);
+
+    await waitFor(async () => {
+      const res = await db.query<{ state: string }>(
+        `SELECT state FROM job_queue WHERE id = 'job-lazy'`
+      );
+      return res.rows[0]?.state === 'succeeded';
+    }, 10_000);
+
+    expect(mockState.initializedWith).toEqual([
+      {
+        id: 'Xenova/all-MiniLM-L6-v2',
+        dimensions: 384,
+      },
+    ]);
 
     await controller.stop();
   });
