@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+// Pre-compiled Intl.Collator for sorting results by title
+// This avoids the massive performance overhead of inline localeCompare inside the sorting callback.
+const docsTitleCollator = new Intl.Collator(undefined);
+
 const DEFAULT_SEARCH_LIMIT = 5;
 const MAX_SEARCH_LIMIT = 10;
 const MAX_QUERY_LENGTH = 200;
@@ -249,7 +253,7 @@ export async function searchDocsExecute(
     if (b.score !== a.score) {
       return b.score - a.score;
     }
-    return a.doc.title.localeCompare(b.doc.title);
+    return docsTitleCollator.compare(a.doc.title, b.doc.title);
   });
 
   const top = ranked.slice(0, limit);
