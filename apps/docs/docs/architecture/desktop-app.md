@@ -8,8 +8,9 @@ sidebar_position: 8
 ```mermaid
 flowchart LR
   subgraph Electron
-    Main["Main Process\\n(IPC, assistant server, DB init)"]
-    Renderer["Renderer\\n(EmbeddingWorkerProvider + Vector Status)"]
+    Main["Main Process\\n(IPC, assistant server, DB init, host lifecycle)"]
+    Renderer["Visible Renderer\\n(Vector Status + UI)"]
+    Host["Hidden Host Renderer\\n(EmbeddingHostRuntime)"]
   end
 
   subgraph Adapters
@@ -20,14 +21,17 @@ flowchart LR
 
   User --> Renderer
   Renderer <--> Main
+  Main <--> Host
   Main --> FSA
   Main --> STA
   Main --> DRepo
-  Renderer --> Worker["Embedding Worker\\nstartEmbeddingWorker()"]
+  Host --> Worker["Embedding Worker\\nstartEmbeddingWorker()"]
   Worker --> DB[(local DB\\nPGlite + pgvector + job_queue)]
 ```
 
 **Notes**
-- Desktop keeps embedding work in the renderer for privacy and to ensure Web Workers are available for local models.
-- Hosted embedding providers (OpenAI/Google) still run in the renderer today; main process remains IPC + lifecycle only.
+- Desktop keeps embedding work in renderer context for privacy and to ensure Web Workers are available for local models.
+- The visible window no longer starts the worker. Electron main owns a hidden host `BrowserWindow` and exposes lifecycle/status through `window.embeddingHost`.
+- Hosted embedding providers (OpenAI/Google) still run through the same hidden renderer worker path today; main process remains IPC + lifecycle only.
+- Only the hidden host disables `backgroundThrottling`; the visible window uses Chromium defaults.
 - DB providers/repositories have electron-specific implementations for performance and sandboxing.

@@ -12,6 +12,8 @@ export interface ElectronAppContext {
   window: Page;
 }
 
+const intentionallyClosingApps = new WeakSet<ElectronApplication>();
+
 // Single launch attempt - extracted for reduced complexity
 async function attemptElectronLaunch(
   launchOptions: Parameters<typeof electron.launch>[0],
@@ -335,9 +337,6 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
       }
       const str = data.toString();
       console.log(`[Electron Stdout]: ${str}`);
-      if (str.includes('debugger') || str.includes('inspector') || str.includes('Debugger')) {
-        console.log('[DEBUG][HYP-A] V8 Inspector activity detected in stdout');
-      }
     });
     electronProcess.stderr?.on('data', (data) => {
       if (!stderrReceived) {
@@ -350,15 +349,15 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
       }
       const str = data.toString();
       console.error(`[Electron Stderr]: ${str}`);
-      if (str.includes('debugger') || str.includes('inspector') || str.includes('Debugger')) {
-        console.log('[DEBUG][HYP-A] V8 Inspector activity detected in stderr');
-      }
     });
     // #endregion
 
     // #region agent log - Hypothesis H: Heartbeat to track if we're waiting
     const heartbeatInterval = setInterval(() => {
       const elapsed = Date.now() - launchStartTime;
+      if (stdoutReceived || stderrReceived || elapsed < 15_000) {
+        return;
+      }
       console.log(
         `[DEBUG][HYP-H] Heartbeat: ${elapsed}ms elapsed, stdout=${stdoutReceived}, stderr=${stderrReceived}`
       );
@@ -382,6 +381,9 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     });
 
     app.on('close', () => {
+      if (intentionallyClosingApps.has(app)) {
+        return;
+      }
       console.log('⚠️ Electron app closed unexpectedly');
     });
     return app;
@@ -429,12 +431,15 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
 
     const appClosed = appContext.app.waitForEvent('close');
     await Promise.all(windowClosePromises);
+    intentionallyClosingApps.add(appContext.app);
     await appContext.app.close();
     await appClosed;
     console.log('✅ Electron app closed');
   } catch (error) {
     console.error('❌ Error closing Electron app:', error);
     throw error;
+  } finally {
+    intentionallyClosingApps.delete(appContext.app);
   }
 }
 

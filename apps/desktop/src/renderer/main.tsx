@@ -18,6 +18,7 @@ import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './styles.css';
+import { EmbeddingHostApp } from './components/embedding-host-app';
 
 // Import layout component
 import RootLayoutContent from './components/root-layout-content';
@@ -168,7 +169,7 @@ function App() {
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
       <DbSchemaVerifier>
-        <ChunkingWorkerProvider>
+        <ChunkingWorkerProvider autoStart={false}>
           <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
             <RootLayoutContent />
           </AdaptersProvider>
@@ -176,6 +177,10 @@ function App() {
       </DbSchemaVerifier>
     </DbProvider>
   );
+}
+
+function isEmbeddingHostMode(): boolean {
+  return new URLSearchParams(window.location.search).get('mode') === 'embedding-host';
 }
 
 const rootElement = document.getElementById('root');
@@ -191,7 +196,11 @@ if (!existingRoot) {
 }
 
 root.render(
-  <StrictMode>
-    <App />
-  </StrictMode>
+  isEmbeddingHostMode() ? (
+    <EmbeddingHostApp />
+  ) : (
+    <StrictMode>
+      <App />
+    </StrictMode>
+  )
 );

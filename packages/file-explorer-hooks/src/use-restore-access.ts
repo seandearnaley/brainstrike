@@ -250,12 +250,11 @@ export function useRestoreAccess(): RestoreAccessState {
   const handleCache = useMemo(() => {
     const adapter = fileSystemAdapter as WebAdapterWithCache | null;
     const cache = adapter?.getHandleCache?.() ?? null;
-    logger.debug('Handle cache availability', {
-      hasAdapter: !!adapter,
-      hasGetHandleCache: typeof adapter?.getHandleCache === 'function',
-      hasCache: !!cache,
-      hasNewMethod: typeof cache?.getLastRootHandleForRestore === 'function',
-    });
+    if (cache) {
+      logger.debug('Handle cache available for restore checks', {
+        hasNewMethod: typeof cache.getLastRootHandleForRestore === 'function',
+      });
+    }
     return cache;
   }, [fileSystemAdapter]);
 
@@ -271,7 +270,6 @@ export function useRestoreAccess(): RestoreAccessState {
     const hasOldMethod = typeof handleCache?.getAllRootHandles === 'function';
 
     if (!(hasNewMethod || hasOldMethod)) {
-      logger.debug('Skipping restore check - no handle cache methods');
       setIsCheckingStoredHandles(false);
       return;
     }

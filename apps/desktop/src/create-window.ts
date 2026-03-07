@@ -206,15 +206,6 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       experimentalFeatures: false,
       safeDialogs: true,
       navigateOnDragDrop: false,
-      // CRITICAL: Prevents Chromium from freezing the renderer process after ~5
-      // minutes of inactivity. Without this, the embedding worker's WebGPU
-      // keep-alive timer stops firing, the GPU device idles out, and ONNX
-      // Runtime hits a V8 CHECK() on the stale handle → SIGTRAP → crash.
-      // See: docs/debug-handoff-renderer-crash.md
-      // Future optimization: move embedding work to a dedicated hidden window
-      // with this setting, allowing the primary renderer to keep default
-      // throttling for better background battery behavior.
-      backgroundThrottling: false,
     },
     titleBarStyle: 'default',
     backgroundColor: '#0b1020',

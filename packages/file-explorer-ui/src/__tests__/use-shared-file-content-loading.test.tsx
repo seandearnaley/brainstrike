@@ -324,6 +324,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
 
 describe('useSharedFileContentLoading - additional edge cases', () => {
   afterEach(() => {
+    vi.useRealTimers();
     resetFileSizeConfig();
   });
 
@@ -535,5 +536,165 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.loadingFiles.size).toBe(0);
     expect(result.current.error).toBeNull();
+  });
+
+  it('defers direct-path reads until the tree is initialized', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const readFileByPathSpy = vi
+      .fn()
+      .mockResolvedValue('deferred-content') as unknown as MockFileSystemAdapter['readFile'];
+    (
+      adapter as unknown as {
+        readFileByPath: typeof readFileByPathSpy;
+      }
+    ).readFileByPath = readFileByPathSpy;
+
+    const compositeKey = encodeFileSelection('root1', '/deferred.txt');
+    const fileNode = createFileNode({ path: '/deferred.txt', rootFolderId: 'root1' });
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({ [compositeKey]: 'deferred-content' });
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(
+      ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
+      {
+        wrapper,
+        initialProps: { tree: [] as IFileNode[] },
+      }
+    );
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+    });
+
+    expect(mockWorker).not.toHaveBeenCalled();
+    expect(readFileByPathSpy).not.toHaveBeenCalled();
+    expect(result.current.fileContents[compositeKey]).toBeUndefined();
+
+    await act(async () => {
+      rerender({ tree: [fileNode] });
+      await Promise.resolve();
+    });
+
+    expect(mockWorker).toHaveBeenCalledWith(
+      [expect.objectContaining({ compositeKey })],
+      expect.any(Function)
+    );
+    expect(result.current.fileContents[compositeKey]).toBe('deferred-content');
+  });
+
+  it('defers restored Electron tab loads until the file enters the tree', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const readFileByPathSpy = vi
+      .fn()
+      .mockResolvedValue('should-not-be-used') as unknown as MockFileSystemAdapter['readFile'];
+    (
+      adapter as unknown as {
+        readFileByPath: typeof readFileByPathSpy;
+      }
+    ).readFileByPath = readFileByPathSpy;
+
+    const otherNode = createFileNode({ path: '/other.txt', rootFolderId: 'root1' });
+    const fileNode = createFileNode({ path: '/restored.txt', rootFolderId: 'root1' });
+    const compositeKey = encodeFileSelection('root1', '/restored.txt');
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockImplementation(async (requests: FileReadRequest[]) => {
+      if (requests.length === 0) {
+        return {};
+      }
+      return { [compositeKey]: 'restored-content' };
+    });
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(
+      ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
+      {
+        wrapper,
+        initialProps: { tree: [otherNode] },
+      }
+    );
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+    });
+
+    expect(mockWorker).toHaveBeenCalledWith([], expect.any(Function));
+    expect(readFileByPathSpy).not.toHaveBeenCalled();
+    expect(result.current.fileContents[compositeKey]).toBeUndefined();
+
+    await act(async () => {
+      rerender({ tree: [otherNode, fileNode] });
+      await Promise.resolve();
+    });
+
+    expect(mockWorker).toHaveBeenCalledWith(
+      [expect.objectContaining({ compositeKey })],
+      expect.any(Function)
+    );
+    expect(readFileByPathSpy).not.toHaveBeenCalled();
+    expect(result.current.fileContents[compositeKey]).toBe('restored-content');
+  });
+
+  it('fails explicitly instead of falling back to direct-path reads when the tree never contains the file', async () => {
+    vi.useFakeTimers();
+    const adapter = new MockFileSystemAdapter();
+    const readFileByPathSpy = vi
+      .fn()
+      .mockResolvedValue('should-not-be-used') as unknown as MockFileSystemAdapter['readFile'];
+    (
+      adapter as unknown as {
+        readFileByPath: typeof readFileByPathSpy;
+      }
+    ).readFileByPath = readFileByPathSpy;
+
+    const compositeKey = encodeFileSelection('root1', '/missing.txt');
+    const fileNode = createFileNode({ path: '/other.txt', rootFolderId: 'root1' });
+
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi.fn().mockResolvedValue({});
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(
+      ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
+      {
+        wrapper,
+        initialProps: { tree: [fileNode] },
+      }
+    );
+
+    await act(async () => {
+      const loadPromise = result.current.handleFileContentLoading([compositeKey]);
+      vi.advanceTimersByTime(100);
+      await loadPromise;
+    });
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const nextTree = Array.from({ length: attempt + 2 }, (_, index) =>
+        createFileNode({ path: `/other-${index}.txt`, rootFolderId: 'root1' })
+      );
+
+      await act(async () => {
+        rerender({ tree: nextTree });
+        vi.advanceTimersByTime(100);
+        await Promise.resolve();
+      });
+    }
+
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+      await Promise.resolve();
+    });
+
+    expect(readFileByPathSpy).not.toHaveBeenCalled();
+    expect(mockWorker).toHaveBeenLastCalledWith([], expect.any(Function));
+    expect(result.current.fileContents[compositeKey]).toBe(
+      'File not found in file tree: /missing.txt'
+    );
+    vi.useRealTimers();
   });
 });

@@ -1,6 +1,20 @@
 import type { EmbeddingWorkerController, EmbeddingWorkerOptions } from '@brainstrike/embeddings';
 import { startEmbeddingWorker } from '@brainstrike/embeddings';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+interface EmbeddingHostStatus {
+  active: boolean;
+  lastError: string | null;
+  state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+}
+
+interface EmbeddingHostApi {
+  ensureStarted: () => Promise<EmbeddingHostStatus>;
+  getStatus: () => Promise<EmbeddingHostStatus>;
+  onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
+  reset: () => Promise<EmbeddingHostStatus>;
+  stop: () => Promise<EmbeddingHostStatus>;
+}
 
 export interface UseEmbeddingWorkerControlsParams {
   activeEmbeddingSetId: string | null;
@@ -32,6 +46,40 @@ function dispatchQueueDrainedEvent(): void {
   }
 }
 
+function isElectronRendererWithHost(): boolean {
+  const currentWindow = window as Window & {
+    electronAPI?: unknown;
+    embeddingHost?: EmbeddingHostApi;
+  };
+  return Boolean(currentWindow.electronAPI && currentWindow.embeddingHost);
+}
+
+function getEmbeddingHostApi(): EmbeddingHostApi {
+  const currentWindow = window as Window & {
+    embeddingHost?: EmbeddingHostApi;
+  };
+  const api = currentWindow.embeddingHost;
+  if (!api) {
+    throw new Error('Embedding host API is unavailable in this renderer.');
+  }
+  return api;
+}
+
+function applyHostStatus(
+  status: EmbeddingHostStatus,
+  setters: {
+    setStartWorkerError: (value: string | null) => void;
+    setStartingWorker: (value: boolean) => void;
+    setWorkerLocalRunning: (value: boolean) => void;
+  }
+): void {
+  setters.setStartingWorker(status.state === 'starting' || status.state === 'stopping');
+  setters.setWorkerLocalRunning(status.state === 'running');
+  setters.setStartWorkerError(
+    status.state === 'error' ? (status.lastError ?? 'Embedding host failed.') : null
+  );
+}
+
 export function useEmbeddingWorkerControls(
   params: UseEmbeddingWorkerControlsParams
 ): UseEmbeddingWorkerControlsResult {
@@ -50,13 +98,53 @@ export function useEmbeddingWorkerControls(
   const [workerLocalRunning, setWorkerLocalRunning] = useState(false);
   const [startingWorker, setStartingWorker] = useState(false);
   const [startWorkerError, setStartWorkerError] = useState<string | null>(null);
+  const useEmbeddingHost = typeof window !== 'undefined' && isElectronRendererWithHost();
 
   const clearWorkerError = useCallback(() => setStartWorkerError(null), []);
 
+  useEffect(() => {
+    if (!useEmbeddingHost) {
+      return;
+    }
+
+    const host = getEmbeddingHostApi();
+    const syncStatus = (status: EmbeddingHostStatus) => {
+      applyHostStatus(status, {
+        setStartWorkerError,
+        setStartingWorker,
+        setWorkerLocalRunning,
+      });
+    };
+
+    void host
+      .getStatus()
+      .then(syncStatus)
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setStartWorkerError(message);
+      });
+
+    return host.onStatus(syncStatus);
+  }, [useEmbeddingHost]);
+
   const launchWorker = useCallback(
     async (successToast: { title: string; description: string }) => {
-      if (!db) {
+      if (useEmbeddingHost) {
+        const status = await getEmbeddingHostApi().ensureStarted();
+        applyHostStatus(status, {
+          setStartWorkerError,
+          setStartingWorker,
+          setWorkerLocalRunning,
+        });
+        if (status.state === 'error') {
+          throw new Error(status.lastError ?? 'Embedding host failed to start.');
+        }
+        dispatchQueueDrainedEvent();
+        toast(successToast);
         return;
+      }
+      if (!db) {
+        throw new Error('Database is required to start the local embedding worker.');
       }
       const options: EmbeddingWorkerOptions = {
         db,
@@ -67,17 +155,18 @@ export function useEmbeddingWorkerControls(
       const controller = await startEmbeddingWorker(options);
       workerControllerRef.current = controller;
       setWorkerLocalRunning(true);
+      setStartWorkerError(null);
       dispatchQueueDrainedEvent();
       // Auto-backfill on worker start is disabled - backfill must be triggered manually
       // via the Backfill button in Vector Status. This gives users explicit control
       // over when embedding jobs are enqueued.
       toast(successToast);
     },
-    [db, devicePreference, reinitEveryN, toast]
+    [db, devicePreference, reinitEveryN, toast, useEmbeddingHost]
   );
 
   const startWorker = useCallback(async () => {
-    if (!db || startingWorker) {
+    if (!(db || useEmbeddingHost) || startingWorker) {
       return;
     }
     setStartingWorker(true);
@@ -94,9 +183,19 @@ export function useEmbeddingWorkerControls(
     } finally {
       setStartingWorker(false);
     }
-  }, [db, startingWorker, launchWorker, toast]);
+  }, [db, startingWorker, launchWorker, toast, useEmbeddingHost]);
 
   const stopWorker = useCallback(async () => {
+    if (useEmbeddingHost) {
+      const status = await getEmbeddingHostApi().stop();
+      applyHostStatus(status, {
+        setStartWorkerError,
+        setStartingWorker,
+        setWorkerLocalRunning,
+      });
+      toast({ title: 'Worker stopped' });
+      return;
+    }
     try {
       await workerControllerRef.current?.stop();
     } finally {
@@ -104,15 +203,31 @@ export function useEmbeddingWorkerControls(
       setWorkerLocalRunning(false);
       toast({ title: 'Worker stopped' });
     }
-  }, [toast]);
+  }, [toast, useEmbeddingHost]);
 
   const resetWorker = useCallback(async () => {
-    if (!db) {
+    if (!(db || useEmbeddingHost)) {
       return;
     }
     setStartWorkerError(null);
     setStartingWorker(true);
     try {
+      if (useEmbeddingHost) {
+        const status = await getEmbeddingHostApi().reset();
+        applyHostStatus(status, {
+          setStartWorkerError,
+          setStartingWorker,
+          setWorkerLocalRunning,
+        });
+        if (status.state === 'error') {
+          throw new Error(status.lastError ?? 'Embedding host failed to reset.');
+        }
+        toast({
+          title: 'Worker reset',
+          description: 'Embedding worker restarted successfully.',
+        });
+        return;
+      }
       if (workerLocalRunning) {
         await workerControllerRef.current?.stop();
       }
@@ -129,7 +244,7 @@ export function useEmbeddingWorkerControls(
     } finally {
       setStartingWorker(false);
     }
-  }, [db, workerLocalRunning, launchWorker, toast]);
+  }, [db, workerLocalRunning, launchWorker, toast, useEmbeddingHost]);
 
   return {
     workerLocalRunning,

@@ -1,3 +1,4 @@
+import type { ElectronAPI } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -11,13 +12,32 @@ vi.mock('@brainstrike/embeddings', () => ({
 
 import { startEmbeddingWorker } from '@brainstrike/embeddings';
 
+type TestWindowGlobals = Window & {
+  electronAPI?: unknown;
+  embeddingHost?: unknown;
+};
+
+function createElectronApiStub(): ElectronAPI {
+  return {
+    fileSystem: {} as ElectronAPI['fileSystem'],
+    loadLayout: vi.fn(async () => ({ success: true })),
+    saveLayout: vi.fn(async () => ({ success: true })),
+    storage: {} as ElectronAPI['storage'],
+  };
+}
+
 describe('useEmbeddingWorkerControls', () => {
   const toast = vi.fn();
   const db = {} as UseEmbeddingWorkerControlsParams['db'];
+  const testWindow = window as TestWindowGlobals;
+  const originalElectronApi = testWindow.electronAPI;
+  const originalEmbeddingHost = testWindow.embeddingHost;
 
   beforeEach(() => {
     vi.clearAllMocks();
     toast.mockClear();
+    Reflect.deleteProperty(testWindow, 'electronAPI');
+    Reflect.deleteProperty(testWindow, 'embeddingHost');
   });
 
   describe('auto-backfill disabled behavior', () => {
@@ -171,6 +191,148 @@ describe('useEmbeddingWorkerControls', () => {
   });
 
   describe('worker lifecycle', () => {
+    it('uses the desktop embedding host bridge instead of starting the worker in the visible renderer', async () => {
+      const ensureStarted = vi.fn(async () => ({
+        state: 'running' as const,
+        active: false,
+        lastError: null,
+      }));
+      const stop = vi.fn(async () => ({
+        state: 'stopped' as const,
+        active: false,
+        lastError: null,
+      }));
+      const reset = vi.fn(async () => ({
+        state: 'running' as const,
+        active: false,
+        lastError: null,
+      }));
+      const getStatus = vi.fn(async () => ({
+        state: 'stopped' as const,
+        active: false,
+        lastError: null,
+      }));
+      const onStatus = vi.fn(() => () => {});
+
+      testWindow.electronAPI = createElectronApiStub();
+      (
+        window as Window & {
+          embeddingHost?: {
+            ensureStarted: typeof ensureStarted;
+            stop: typeof stop;
+            reset: typeof reset;
+            getStatus: typeof getStatus;
+            onStatus: typeof onStatus;
+          };
+        }
+      ).embeddingHost = {
+        ensureStarted,
+        stop,
+        reset,
+        getStatus,
+        onStatus,
+      };
+
+      const { result } = renderHook(() =>
+        useEmbeddingWorkerControls({
+          db,
+          devicePreference: 'webgpu',
+          reinitEveryN: 100,
+          activeEmbeddingSetId: 'set-1',
+          onBackfill: vi.fn(),
+          toast,
+        })
+      );
+
+      await act(async () => {
+        await result.current.startWorker();
+      });
+
+      expect(startEmbeddingWorker).not.toHaveBeenCalled();
+      expect(ensureStarted).toHaveBeenCalledTimes(1);
+      expect(result.current.workerLocalRunning).toBe(true);
+
+      await act(async () => {
+        await result.current.stopWorker();
+      });
+
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(result.current.workerLocalRunning).toBe(false);
+
+      await act(async () => {
+        await result.current.resetWorker();
+      });
+
+      expect(reset).toHaveBeenCalledTimes(1);
+    });
+
+    it('tracks embedding host status push events', async () => {
+      let statusListener:
+        | ((status: {
+            active: boolean;
+            lastError: string | null;
+            state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+          }) => void)
+        | null = null;
+
+      testWindow.electronAPI = createElectronApiStub();
+      (
+        window as Window & {
+          embeddingHost?: {
+            ensureStarted: () => Promise<unknown>;
+            stop: () => Promise<unknown>;
+            reset: () => Promise<unknown>;
+            getStatus: () => Promise<unknown>;
+            onStatus: (
+              callback: typeof statusListener extends null
+                ? never
+                : NonNullable<typeof statusListener>
+            ) => () => void;
+          };
+        }
+      ).embeddingHost = {
+        ensureStarted: vi.fn(async () => ({ state: 'running', active: false, lastError: null })),
+        stop: vi.fn(async () => ({ state: 'stopped', active: false, lastError: null })),
+        reset: vi.fn(async () => ({ state: 'running', active: false, lastError: null })),
+        getStatus: vi.fn(async () => ({ state: 'stopped', active: false, lastError: null })),
+        onStatus: vi.fn((callback) => {
+          statusListener = callback;
+          return () => {
+            statusListener = null;
+          };
+        }),
+      };
+
+      const { result } = renderHook(() =>
+        useEmbeddingWorkerControls({
+          db,
+          devicePreference: 'webgpu',
+          reinitEveryN: 100,
+          activeEmbeddingSetId: 'set-1',
+          onBackfill: vi.fn(),
+          toast,
+        })
+      );
+
+      expect(result.current.workerLocalRunning).toBe(false);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(statusListener).not.toBeNull();
+
+      await act(async () => {
+        statusListener?.({ state: 'running', active: true, lastError: null });
+      });
+
+      expect(result.current.workerLocalRunning).toBe(true);
+
+      await act(async () => {
+        statusListener?.({ state: 'error', active: false, lastError: 'host failed' });
+      });
+
+      expect(result.current.startWorkerError).toBe('host failed');
+    });
+
     it('starts and stops the worker correctly', async () => {
       const stop = vi.fn(async () => {});
       vi.mocked(startEmbeddingWorker).mockResolvedValueOnce({ stop } as {
@@ -362,5 +524,19 @@ describe('useEmbeddingWorkerControls', () => {
       const callArg = vi.mocked(startEmbeddingWorker).mock.calls[0]?.[0];
       expect(callArg).toEqual(expect.objectContaining({ device: 'wasm' }));
     });
+  });
+
+  afterEach(() => {
+    if (originalElectronApi === undefined) {
+      Reflect.deleteProperty(testWindow, 'electronAPI');
+    } else {
+      testWindow.electronAPI = originalElectronApi;
+    }
+
+    if (originalEmbeddingHost === undefined) {
+      Reflect.deleteProperty(testWindow, 'embeddingHost');
+    } else {
+      testWindow.embeddingHost = originalEmbeddingHost;
+    }
   });
 });

@@ -15,8 +15,27 @@ import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 // Sandboxed preloads cannot depend on additional local modules at runtime.
-// Keep this IPC payload guard self-contained in this file.
+// Keep all IPC contracts used here self-contained in this file.
 const FILE_READ_ERROR_CODE_TOO_LARGE = 'TOO_LARGE' as const;
+const EMBEDDING_HOST_STATUS_EVENT = 'embedding-host:status' as const;
+const EMBEDDING_HOST_COMMAND_EVENT = 'embedding-host:command' as const;
+const EMBEDDING_HOST_REPORT_STATUS_CHANNEL = 'embedding-host:report-status' as const;
+const EMBEDDING_HOST_ENSURE_STARTED_CHANNEL = 'embedding-host:ensure-started' as const;
+const EMBEDDING_HOST_STOP_CHANNEL = 'embedding-host:stop' as const;
+const EMBEDDING_HOST_RESET_CHANNEL = 'embedding-host:reset' as const;
+const EMBEDDING_HOST_GET_STATUS_CHANNEL = 'embedding-host:get-status' as const;
+
+type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
+
+interface EmbeddingHostStatus {
+  readonly active: boolean;
+  readonly lastError: string | null;
+  readonly state: EmbeddingHostLifecycleState;
+}
+
+interface EmbeddingHostCommand {
+  readonly type: 'reset' | 'stop';
+}
 
 interface FileReadErrorPayload {
   code: typeof FILE_READ_ERROR_CODE_TOO_LARGE;
@@ -207,6 +226,32 @@ contextBridge.exposeInMainWorld('power', {
     ipcRenderer.on('app:power-state', listener);
     return () => {
       ipcRenderer.removeListener('app:power-state', listener);
+    };
+  },
+});
+
+contextBridge.exposeInMainWorld('embeddingHost', {
+  ensureStarted: (): Promise<EmbeddingHostStatus> =>
+    ipcRenderer.invoke(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL),
+  stop: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_STOP_CHANNEL),
+  reset: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_RESET_CHANNEL),
+  getStatus: (): Promise<EmbeddingHostStatus> =>
+    ipcRenderer.invoke(EMBEDDING_HOST_GET_STATUS_CHANNEL),
+  reportStatus: (status: EmbeddingHostStatus): void => {
+    ipcRenderer.send(EMBEDDING_HOST_REPORT_STATUS_CHANNEL, status);
+  },
+  onStatus: (callback: (status: EmbeddingHostStatus) => void) => {
+    const listener = (_event: unknown, status: EmbeddingHostStatus) => callback(status);
+    ipcRenderer.on(EMBEDDING_HOST_STATUS_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(EMBEDDING_HOST_STATUS_EVENT, listener);
+    };
+  },
+  onCommand: (callback: (command: EmbeddingHostCommand) => void) => {
+    const listener = (_event: unknown, command: EmbeddingHostCommand) => callback(command);
+    ipcRenderer.on(EMBEDDING_HOST_COMMAND_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(EMBEDDING_HOST_COMMAND_EVENT, listener);
     };
   },
 });

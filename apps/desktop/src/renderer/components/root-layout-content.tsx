@@ -9,7 +9,6 @@ import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
 import { EmbeddingJobQueueTracker } from '@brainstrike/vector-management';
 import type { ReactElement, ReactNode } from 'react';
 import { embeddingQueue } from '../create-embedding-queue';
-import { EmbeddingWorkerProvider } from './embedding-worker-provider';
 import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -20,7 +19,11 @@ import SettingsPageContent from './settings/page-content';
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
   const db = usePGliteDatabase();
-  return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
+  return (
+    <TokenCacheProvider db={db} lazyWorkerInit={true}>
+      {children}
+    </TokenCacheProvider>
+  );
 }
 
 /**
@@ -60,10 +63,8 @@ export default function RootLayoutContent() {
 
   return (
     <TokenCacheWrapper>
-      <EmbeddingWorkerProvider>
-        <EmbeddingJobQueueTracker />
-        <RootLayout {...sharedProps} />
-      </EmbeddingWorkerProvider>
+      <EmbeddingJobQueueTracker />
+      <RootLayout {...sharedProps} />
     </TokenCacheWrapper>
   );
 }

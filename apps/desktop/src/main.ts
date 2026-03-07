@@ -19,21 +19,14 @@ import {
   type LoggingPreferences,
   LogLevel,
 } from '@brainstrike/utils';
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  Menu,
-  powerMonitor,
-  powerSaveBlocker,
-  shell,
-} from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
 import { createWindow } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
+import { EmbeddingHostManager } from './embedding-host-manager';
 import { registerAgentIpcHandlers } from './ipc-agent';
+import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerIpcHandlers, setBackgrounded } from './ipc-handlers';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
@@ -82,8 +75,8 @@ function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
   return _settingsStore;
 }
 
-// Note: Embedding worker configuration moved to renderer process (see renderer/components/embedding-worker-provider.tsx)
-// Main process cannot run Web Workers - WASM/WebGPU require browser context
+// Note: Embedding worker configuration stays renderer-only via the hidden embedding host window.
+// Main process owns host lifecycle/IPC, but it must not execute local WASM/WebGPU embeddings.
 
 function createDesktopDefaultPreferences(): LoggingPreferences {
   const logPath = getLogFilePath();
@@ -378,6 +371,7 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 
 let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
+let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
@@ -435,6 +429,7 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       await stopAssistantServer();
       stopAssistantServer = null;
     }
+    await embeddingHostManager.dispose();
     await closeDatabase();
     clearForcedProcessExitTimer();
   })();
@@ -482,6 +477,7 @@ function registerShutdownSignalHandlers(): void {
 
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
+const embeddingHostManager = new EmbeddingHostManager();
 
 registerLoggingIpcHandlers({
   getState: getLoggingSettingsPayload,
@@ -495,6 +491,7 @@ registerLoggingIpcHandlers({
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
   onResetLocal: handleResetLocal,
 });
+unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -521,7 +518,9 @@ if (singleInstanceLockAcquired) {
   app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
 
   app.on('second-instance', () => {
-    const existingWindow = BrowserWindow.getAllWindows()[0];
+    const existingWindow =
+      BrowserWindow.getAllWindows().find((window) => !embeddingHostManager.isHostWindow(window)) ??
+      null;
     if (!existingWindow) {
       return;
     }
@@ -680,15 +679,19 @@ if (singleInstanceLockAcquired) {
         return win;
       };
 
+      const broadcastPowerState = (state: 'resume' | 'suspend') => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (window.isDestroyed()) {
+            continue;
+          }
+          window.webContents.send('app:power-state', state);
+        }
+      };
+
       logger.info('Creating main window...');
       const mainWindow = await createMainWindow();
       logger.info('Main window created successfully');
-
-      // Prevent macOS App Nap from throttling the main process.
-      // App Nap kicks in after ~5 min of being unfocused and modifies timer
-      // coalescing, which can break libuv's event loop and cause 100% CPU spin.
-      const powerSaveId = powerSaveBlocker.start('prevent-app-suspension');
-      logger.info('powerSaveBlocker started', { id: powerSaveId });
+      void embeddingHostManager.ensureStarted({ waitForRunning: false });
 
       // ---------------------------------------------------------------
       // Event loop health diagnostics — logs CPU and loop lag every 30s.
@@ -801,18 +804,14 @@ if (singleInstanceLockAcquired) {
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
         logger.info('power:suspend');
-        if (!mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('app:power-state', 'suspend');
-        }
+        broadcastPowerState('suspend');
       });
 
       powerMonitor.on('resume', () => {
         logger.info('power:resume');
         // Delay to let OS settle (GPU re-init, network reconnect)
         setTimeout(() => {
-          if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('app:power-state', 'resume');
-          }
+          broadcastPowerState('resume');
         }, 2000);
       });
 
@@ -830,7 +829,10 @@ if (singleInstanceLockAcquired) {
       });
 
       app.on('activate', async () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
+        const hasVisibleWindow = BrowserWindow.getAllWindows().some(
+          (window) => !embeddingHostManager.isHostWindow(window)
+        );
+        if (!hasVisibleWindow) {
           await createMainWindow();
         }
       });
@@ -877,6 +879,10 @@ app.on('will-quit', () => {
   // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
   console.log('--- RAW CONSOLE LOG: WILL-QUIT TRIGGERED ---');
   clearForcedProcessExitTimer();
+  if (unregisterEmbeddingHostIpcHandlers) {
+    unregisterEmbeddingHostIpcHandlers();
+    unregisterEmbeddingHostIpcHandlers = null;
+  }
   if (unregisterMainIpcHandlers) {
     unregisterMainIpcHandlers();
     unregisterMainIpcHandlers = null;

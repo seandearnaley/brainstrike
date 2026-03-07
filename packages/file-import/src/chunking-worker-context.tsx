@@ -75,6 +75,8 @@ function getTerminalTokenizerErrorMessage(data: unknown): WorkerErrorMessage | n
 // ============================================================================
 
 export interface ChunkingWorkerContextValue {
+  /** Start the worker if it has not been created yet */
+  ensureStarted: () => Promise<ChunkingWorkerPort>;
   /** Any error that occurred during worker initialization */
   error: Error | null;
   /** Whether the worker is currently processing a request */
@@ -94,6 +96,7 @@ const ChunkingWorkerContext = createContext<ChunkingWorkerContextValue | null>(n
 // ============================================================================
 
 export interface ChunkingWorkerProviderProps {
+  autoStart?: boolean;
   children: ReactNode;
 }
 
@@ -114,7 +117,10 @@ export interface ChunkingWorkerProviderProps {
  * const { port, isReady } = useChunkingWorkerContext();
  * ```
  */
-export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps): ReactNode {
+export function ChunkingWorkerProvider({
+  autoStart = true,
+  children,
+}: ChunkingWorkerProviderProps): ReactNode {
   const [isReady, setIsReady] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -152,10 +158,14 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
     setCurrentPortState(null);
   }, []);
 
-  const initialize = useCallback(async () => {
+  const initialize = useCallback(async (): Promise<ChunkingWorkerPort> => {
     // Prevent double initialization
     if (initPromiseRef.current) {
-      return initPromiseRef.current;
+      await initPromiseRef.current;
+      if (!portRef.current) {
+        throw new Error('Chunking worker port was not created');
+      }
+      return portRef.current;
     }
 
     initPromiseRef.current = (async () => {
@@ -255,7 +265,11 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
       }
     })();
 
-    return initPromiseRef.current;
+    await initPromiseRef.current;
+    if (!portRef.current) {
+      throw new Error('Chunking worker port was not created');
+    }
+    return portRef.current;
   }, [enterTerminalFailureState]);
 
   const reinitialize = useCallback(() => {
@@ -283,9 +297,10 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
     void initialize();
   }, [initialize]);
 
-  // Initialize on mount
   useEffect(() => {
-    void initialize();
+    if (autoStart) {
+      void initialize();
+    }
 
     // Cleanup on unmount - reset all state for React StrictMode double-mount
     return () => {
@@ -301,7 +316,7 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
       initPromiseRef.current = null;
       terminalFailureActiveRef.current = false;
     };
-  }, [initialize]);
+  }, [autoStart, initialize]);
 
   // Create wrapped port that tracks processing state
   // This returns the port even when not ready - consumers should check isReady()
@@ -346,13 +361,14 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
 
   const contextValue = useMemo<ChunkingWorkerContextValue>(
     () => ({
+      ensureStarted: initialize,
       port: wrappedPort,
       isReady,
       isProcessing,
       error,
       reinitialize,
     }),
-    [wrappedPort, isReady, isProcessing, error, reinitialize]
+    [initialize, wrappedPort, isReady, isProcessing, error, reinitialize]
   );
 
   return (

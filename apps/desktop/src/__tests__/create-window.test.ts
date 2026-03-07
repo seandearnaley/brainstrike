@@ -97,7 +97,6 @@ describe('createWindow', () => {
           experimentalFeatures: false,
           safeDialogs: true,
           navigateOnDragDrop: false,
-          backgroundThrottling: false,
         },
         titleBarStyle: 'default',
         backgroundColor: '#0b1020',

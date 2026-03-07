@@ -18,7 +18,7 @@ flowchart LR
   C --> D["JobQueue Enqueue\\npackages/db/src/queue/job-queue.ts"]
   D --> E{Runtime}
   E -->|Web| F["Renderer Worker\\nstartEmbeddingWorker()"]
-  E -->|Desktop| G["Renderer Worker\\nEmbeddingWorkerProvider"]
+  E -->|Desktop| G["Hidden Host Renderer\\nEmbeddingHostRuntime"]
   F & G --> H["Provider Resolution\\nprovider::modelId + models table"]
   H --> I{Provider Type}
   I -->|Local| J["TransformersBackend\\nWebGPU/WASM"]
@@ -37,7 +37,7 @@ sequenceDiagram
   participant FS as File System Adapter
   participant CH as Chunking Service
   participant Q as JobQueue
-  participant W as Embedding Worker
+  participant W as Embedding Worker / Hidden Host
   participant PF as Provider Factory
   participant EP as Embedding Provider
   participant DB as DB (PGlite/pgvector)
@@ -46,15 +46,16 @@ sequenceDiagram
   UI->>FS: Read file streams
   FS-->>UI: Chunks or raw content
   UI->>DB: create/select embedding set
+  UI->>W: ensure host started (desktop only)
   UI->>CH: normalize + chunk content
   CH-->>Q: enqueue embed_chunk jobs (embeddingSetId, modelKey)
   loop per job batch
     W->>Q: claim lease
     W->>DB: load chunks + set dimension
     W->>PF: resolve provider (local/hosted)
-    PF->>EP: embed text array
-    EP-->>PF: vectors array
-    W->>DB: upsert embeddings + complete job
+    PF->>EP: embed text batch
+    EP-->>PF: vectors batch stream
+    W->>DB: persist completed batch + complete matching jobs
   end
   UI->>DB: refresh coverage/status
   UI-->>User: Searchable vectors available
@@ -79,6 +80,7 @@ stateDiagram-v2
 ## 3.4 Backpressure & Throughput (Guidance)
 
 - Keep job payloads *small and uniform* (chunk IDs + embeddingSetId + modelKey). Avoid large text blobs in the queue payload.
+- Desktop visible windows do not run the worker directly. They proxy lifecycle/status through `window.embeddingHost` while a hidden renderer owns inference.
 - Use provider-side batching where supported; otherwise N-way parallelism at the worker level.
 - Persist *incrementally* to DB to make progress visible in `vector-status` and to enable partial search.
 - Hosted providers require API keys; the worker currently supports OpenAI and Google. Cohere/Voyage providers exist in `@brainstrike/embeddings` but are not wired into the worker yet.

@@ -430,7 +430,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(cancelIndexingMock).toHaveBeenCalled();
     });
 
-    it('does not index when backgroundIndexer is not ready', () => {
+    it('still queues indexing when cache is operational even if the background indexer is not ready yet', () => {
       mockBackgroundIndexer.isReady = false;
 
       renderHook(() =>
@@ -443,7 +443,15 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       flushTimers();
 
-      expect(indexFilesMock).not.toHaveBeenCalled();
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock).toHaveBeenCalledWith([
+        {
+          compositeKey: fileAKey,
+          fileHandle: webHandle,
+          filePath: 'a.txt',
+          folderId: 'root',
+        },
+      ]);
 
       // Reset for other tests
       mockBackgroundIndexer.isReady = true;

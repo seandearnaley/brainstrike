@@ -10,6 +10,11 @@ vi.mock('electron', async () => {
     documentsPath: '/mock/userData',
   });
   const ipcMain = electronUtils.createIpcMainMock();
+  Object.assign(ipcMain, {
+    on: vi.fn(),
+    removeAllListeners: vi.fn(),
+    removeHandler: vi.fn(),
+  });
   const ipcRenderer = electronUtils.createIpcRendererMock();
   const screen = electronUtils.createScreenMock();
   // Wire renderer invokes to main handlers for convenience
@@ -38,6 +43,9 @@ vi.mock('electron', async () => {
   BrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, mockBrowserWindowInstance);
   });
+  Object.assign(BrowserWindow, {
+    getAllWindows: vi.fn(() => []),
+  });
   return {
     app,
     ipcMain,
@@ -54,6 +62,8 @@ vi.mock('electron', async () => {
     },
     powerSaveBlocker: {
       start: vi.fn(() => 1),
+      isStarted: vi.fn(() => true),
+      stop: vi.fn(),
     },
   };
 });
@@ -100,9 +110,9 @@ describe('db:getUserDataPath IPC handler', () => {
 
   it('returns the user database path', async () => {
     // In test environment (NODE_ENV=test), we expect the isolated path structure
-    // defined in db-main.ts: path.join(app.getPath('userData'), 'pgdata')
+    // defined in db-main.ts: path.join(app.getPath('userData'), 'profiles', 'test', 'pgdata')
     // The default app mock returns '/mock/path' for 'userData'
-    const expected = path.join('/mock/path', 'pgdata');
+    const expected = path.join('/mock/path', 'profiles', 'test', 'pgdata');
     const result = await ipcRenderer.invoke('db:getUserDataPath');
     expect(result).toBe(expected);
   });

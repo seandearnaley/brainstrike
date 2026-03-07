@@ -1,8 +1,14 @@
-import type { EmbeddingDType } from '@brainstrike/embedding-worker';
+import { type EmbeddingDType, StreamingEmbeddingWorkerClient } from '@brainstrike/embedding-worker';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import type { EmbeddingConfig, EmbeddingProgress, EmbeddingResult, ModelConfig } from './types';
+import type {
+  EmbeddingConfig,
+  EmbeddingProgress,
+  EmbeddingResult,
+  EmbeddingStreamBatch,
+  ModelConfig,
+} from './types';
 
 const logger = createLogger('TransformersBackend');
 
@@ -226,6 +232,7 @@ export class TransformersBackend {
   private _quantized: boolean | undefined;
   private _useWorkerQueue = false;
   private _queue: QueueAdapter | null = null;
+  private _streamingClient: StreamingEmbeddingWorkerClient | null = null;
   private _targetDimensions: number | null = null;
   private _selectedDType: EmbeddingDType | null = null;
 
@@ -330,6 +337,49 @@ export class TransformersBackend {
     return this.tryGenerateBatchWithQueue(texts, modelId);
   }
 
+  async generateEmbeddingsStream(
+    texts: string[],
+    modelId: string,
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
+  ): Promise<void> {
+    if (!this._isInitialized) {
+      throw new Error('Backend not initialized. Call initialize() first.');
+    }
+    if (texts.length === 0) {
+      return;
+    }
+
+    const client = this.ensureStreamingClient();
+    try {
+      await client.stream(this.createWorkerRequest(texts, modelId), {
+        onBatch: async (event) => {
+          const results = event.vectors.map((vector) => {
+            const embedding = Array.from(vector) as number[];
+            return {
+              embedding,
+              dimensions: embedding.length,
+              model: modelId,
+            };
+          });
+          await onBatch({
+            startIndex: event.startIndex,
+            endIndex: event.endIndex,
+            results,
+          });
+        },
+      });
+
+      TransformersBackend._inferenceCount += texts.length;
+    } catch (error) {
+      logger.error('Embedding worker streaming failed', {
+        modelId,
+        error,
+        batchSize: texts.length,
+      });
+      throw error;
+    }
+  }
+
   private async tryGenerateWithQueue(text: string, modelId: string): Promise<EmbeddingResult> {
     const batch = await this.tryGenerateBatchWithQueue([text], modelId);
     const first = batch[0];
@@ -348,18 +398,7 @@ export class TransformersBackend {
     }
     try {
       const queue = await this.ensureQueue();
-      const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
-      const response = await queue.add({
-        kind: 'embed',
-        id: this.createTaskId(),
-        model: modelId,
-        texts,
-        ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
-        targetDimension,
-        deviceHint: this.resolveDeviceHint(),
-        dtype: this.resolveQueueDType(),
-        maxBatchSize: Math.max(1, texts.length), // Allow full batch
-      });
+      const response = await queue.add(this.createWorkerRequest(texts, modelId));
 
       if (!response.vectors || response.vectors.length === 0) {
         // If input was empty, return empty
@@ -398,8 +437,32 @@ export class TransformersBackend {
     return queue;
   }
 
+  private ensureStreamingClient(): StreamingEmbeddingWorkerClient {
+    if (this._streamingClient) {
+      return this._streamingClient;
+    }
+    this._streamingClient = new StreamingEmbeddingWorkerClient();
+    return this._streamingClient;
+  }
+
   private createTaskId(): string {
     return `embed-${generateUUID()}`;
+  }
+
+  private createWorkerRequest(texts: string[], modelId: string) {
+    const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
+    return {
+      kind: 'embed' as const,
+      type: 'embed' as const,
+      id: this.createTaskId(),
+      model: modelId,
+      texts,
+      ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
+      targetDimension,
+      deviceHint: this.resolveDeviceHint(),
+      dtype: this.resolveQueueDType(),
+      maxBatchSize: Math.max(1, texts.length),
+    };
   }
 
   private resolveDeviceHint(): 'webgpu' | 'wasm' {
@@ -465,6 +528,8 @@ export class TransformersBackend {
     this._transformers = null;
     this._selectedDevice = null;
     this._isInitialized = false;
+    this._streamingClient?.terminate();
+    this._streamingClient = null;
   }
 
   /**

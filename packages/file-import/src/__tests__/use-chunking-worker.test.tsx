@@ -23,6 +23,26 @@ async function waitForExpect(assertion: () => void, timeoutMs = 2000): Promise<v
   assertion();
 }
 
+async function emitWorkerMessage(
+  worker: ReturnType<typeof createMockWorker>,
+  data: WorkerResponse
+): Promise<void> {
+  await act(async () => {
+    worker.simulateMessage(data);
+    await Promise.resolve();
+  });
+}
+
+async function emitWorkerRuntimeError(
+  worker: ReturnType<typeof createMockWorker>,
+  message: string
+): Promise<void> {
+  await act(async () => {
+    worker.simulateError(message);
+    await Promise.resolve();
+  });
+}
+
 function renderHookHarness<T>(useHook: () => T): {
   result: { readonly current: T };
   unmount: () => void;
@@ -150,9 +170,7 @@ describe('useChunkingWorker', () => {
       throw new Error('Expected worker instance');
     }
 
-    act(() => {
-      worker.simulateMessage({ type: 'ready' });
-    });
+    await emitWorkerMessage(worker, { type: 'ready' });
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
 
     const port = result.current.port;
@@ -180,26 +198,23 @@ describe('useChunkingWorker', () => {
       skipped: false,
     };
 
-    act(() => {
-      worker.simulateMessage(workerResult);
-    });
+    await emitWorkerMessage(worker, workerResult);
     await expect(chunkPromise).resolves.toEqual(workerResult);
     await waitForExpect(() => expect(result.current.isProcessing).toBe(false));
 
-    act(() => {
-      worker.simulateError('runtime failed');
-    });
+    await emitWorkerRuntimeError(worker, 'runtime failed');
     await waitForExpect(() => {
       expect(result.current.isReady).toBe(false);
       expect(result.current.error?.message).toContain('runtime failed');
     });
 
-    act(() => {
+    await act(async () => {
       result.current.reinitialize();
+      await Promise.resolve();
     });
     await waitForExpect(() => expect(workers).toHaveLength(2));
     unmount();
-  });
+  }, 15_000);
 
   it('creates a standalone worker that resolves ready and supports terminate', async () => {
     const { createStandaloneChunkingWorker } = await import('../use-chunking-worker');
@@ -212,14 +227,12 @@ describe('useChunkingWorker', () => {
     }
 
     const readyPromise = standalone.waitForReady();
-    act(() => {
-      worker.simulateMessage({ type: 'ready' });
-    });
+    await emitWorkerMessage(worker, { type: 'ready' });
     await expect(readyPromise).resolves.toBeUndefined();
 
     standalone.terminate();
     expect(worker.terminate).toHaveBeenCalled();
-  });
+  }, 15_000);
 
   it('surfaces initialization message errors from worker bootstrap', async () => {
     const { useChunkingWorker } = await import('../use-chunking-worker');
@@ -231,13 +244,11 @@ describe('useChunkingWorker', () => {
       throw new Error('Expected worker instance');
     }
 
-    act(() => {
-      worker.simulateMessage({
-        type: 'error',
-        id: '__init__',
-        error: 'bootstrap failed',
-      } as WorkerResponse);
-    });
+    await emitWorkerMessage(worker, {
+      type: 'error',
+      id: '__init__',
+      error: 'bootstrap failed',
+    } as WorkerResponse);
 
     await waitForExpect(() => expect(result.current.error?.message).toBe('bootstrap failed'));
     unmount();
@@ -253,9 +264,7 @@ describe('useChunkingWorker', () => {
       throw new Error('Expected worker instance');
     }
 
-    act(() => {
-      worker.simulateMessage({ type: 'ready' });
-    });
+    await emitWorkerMessage(worker, { type: 'ready' });
 
     await expect(standalone.waitForReady()).resolves.toBeUndefined();
     standalone.terminate();
@@ -284,13 +293,11 @@ describe('useChunkingWorker', () => {
       throw new Error('Expected worker instance');
     }
 
-    act(() => {
-      worker.simulateMessage({
-        type: 'error',
-        id: '__init__',
-        error: '',
-      } as WorkerResponse);
-    });
+    await emitWorkerMessage(worker, {
+      type: 'error',
+      id: '__init__',
+      error: '',
+    } as WorkerResponse);
 
     await waitForExpect(() =>
       expect(result.current.error?.message).toBe('Worker initialization failed')
@@ -308,14 +315,12 @@ describe('useChunkingWorker', () => {
       throw new Error('Expected worker instance');
     }
 
-    act(() => {
-      worker.simulateMessage({ type: 'ready' });
-    });
+    await emitWorkerMessage(worker, { type: 'ready' });
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
 
     // Simulate ErrorEvent with all fields empty/missing
     const event = { message: '', filename: '', lineno: 0, colno: 0 } as ErrorEvent;
-    act(() => {
+    await act(async () => {
       for (const handler of (
         worker as unknown as {
           addEventListener: { mock: { calls: [string, (e: ErrorEvent) => void][] } };
@@ -325,6 +330,7 @@ describe('useChunkingWorker', () => {
           handler[1](event);
         }
       }
+      await Promise.resolve();
     });
 
     await waitForExpect(() => {
@@ -344,16 +350,16 @@ describe('useChunkingWorker', () => {
       throw new Error('Expected worker instance');
     }
 
-    const readyPromise = standalone.waitForReady();
-    act(() => {
-      worker.simulateMessage({
-        type: 'error',
-        id: '__init__',
-        error: 'init boom',
-      } as WorkerResponse);
-    });
+    const readyErrorPromise = standalone.waitForReady().catch((error: unknown) => error);
+    await emitWorkerMessage(worker, {
+      type: 'error',
+      id: '__init__',
+      error: 'init boom',
+    } as WorkerResponse);
 
-    await expect(readyPromise).rejects.toThrow('init boom');
+    const readyError = await readyErrorPromise;
+    expect(readyError).toBeInstanceOf(Error);
+    expect((readyError as Error).message).toBe('init boom');
     standalone.terminate();
   });
 

@@ -3,7 +3,11 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnhancedFileImportService } from '../enhanced-file-import-service';
 
-const { runEnhancedImportMock, mockUsePGliteDatabase } = vi.hoisted(() => ({
+const { ensureStartedMock, runEnhancedImportMock, mockUsePGliteDatabase } = vi.hoisted(() => ({
+  ensureStartedMock: vi.fn(async () => ({
+    chunkFile: vi.fn(),
+    terminate: vi.fn(),
+  })),
   runEnhancedImportMock: vi.fn(),
   mockUsePGliteDatabase: vi.fn(() => null),
 }));
@@ -81,6 +85,7 @@ vi.mock('@brainstrike/file-import', async () => {
       isReady: false,
       isProcessing: false,
       error: null,
+      ensureStarted: ensureStartedMock,
       reinitialize: vi.fn(),
     }),
   };
@@ -92,6 +97,7 @@ describe('useEnhancedFileImportService', () => {
     runEnhancedImportMock.mockReset();
     mockUsePGliteDatabase.mockReset();
     mockUsePGliteDatabase.mockReturnValue(null);
+    ensureStartedMock.mockClear();
     runEnhancedImportMock.mockImplementation(async (params) => {
       const baseResults = await params.baseImportRunner({
         selectedFilePaths: params.request.selectedFilePaths,

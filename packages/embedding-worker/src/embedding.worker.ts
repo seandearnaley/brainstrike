@@ -7,7 +7,10 @@ import type {
   EmbeddingDevice,
   EmbeddingDeviceHint,
   EmbeddingDType,
+  EmbedWorkerBatch,
+  EmbedWorkerComplete,
   EmbedWorkerError,
+  EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerSuccess,
 } from './shared';
@@ -214,6 +217,27 @@ let keepAliveTickCount = 0;
 
 /** Handle for the idle-sweep interval. */
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
+const batchAckWaiters = new Map<string, () => void>();
+
+function buildAckKey(id: string, batchIndex: number): string {
+  return `${id}:${batchIndex}`;
+}
+
+function waitForBatchAck(id: string, batchIndex: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    batchAckWaiters.set(buildAckKey(id, batchIndex), resolve);
+  });
+}
+
+function acknowledgeBatch(id: string, batchIndex: number): void {
+  const key = buildAckKey(id, batchIndex);
+  const resolve = batchAckWaiters.get(key);
+  if (!resolve) {
+    return;
+  }
+  batchAckWaiters.delete(key);
+  resolve();
+}
 
 /**
  * Obtain the GPUDevice that ONNX Runtime created internally.
@@ -748,6 +772,86 @@ async function processEmbeddings(
   return new Transfer(success, transferList) as unknown as EmbedWorkerSuccess;
 }
 
+function postStreamEvent(
+  event: EmbedWorkerBatch | EmbedWorkerComplete | EmbedWorkerError | EmbedWorkerProgress,
+  transferList?: Transferable[]
+): void {
+  if (typeof self === 'undefined' || typeof self.postMessage !== 'function') {
+    return;
+  }
+  self.postMessage(event, transferList ?? []);
+}
+
+async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState): Promise<void> {
+  const extractor = await loadPipeline(context.model, state.device, context.dtype);
+  const { texts, truncateDim, id, total } = context;
+  const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+  postStreamEvent({
+    type: 'progress',
+    id,
+    progress: 0,
+    phase: 'initializing',
+  });
+
+  let batchIndex = 0;
+  let dimensions = context.truncateDim ?? 0;
+
+  for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
+    const endIndex = Math.min(total, startIndex + state.batchSize);
+    const slice = texts.slice(startIndex, endIndex);
+    const rawOutput = await extractor(slice, {
+      pooling: 'mean',
+      normalize: false,
+    });
+    const vectorsFromBatch =
+      rawOutput instanceof Tensor
+        ? convertTensorToVectors(rawOutput, truncateDim)
+        : vectorsFromPipelineOutput(rawOutput, truncateDim);
+    if (vectorsFromBatch.length === 0) {
+      throw new Error('Embedding pipeline returned no tensors');
+    }
+    dimensions = vectorsFromBatch[0]?.length ?? dimensions;
+
+    postStreamEvent(
+      {
+        type: 'batch',
+        id,
+        batchIndex,
+        startIndex,
+        endIndex,
+        vectors: vectorsFromBatch,
+      },
+      vectorsFromBatch.map((vector) => vector.buffer)
+    );
+
+    postStreamEvent({
+      type: 'progress',
+      id,
+      phase: 'embedding',
+      progress: normalizeProgress(endIndex / total),
+    });
+
+    await waitForBatchAck(id, batchIndex);
+    batchIndex += 1;
+  }
+
+  const finished = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  postStreamEvent({
+    type: 'complete',
+    id,
+    metadata: {
+      model: context.model,
+      device: state.device,
+      dtype: context.dtype,
+      batchSize: state.batchSize,
+      elapsedMs: finished - started,
+      fallbackApplied: state.fallbackApplied,
+      dimensions,
+    },
+  });
+}
+
 async function runBatches(
   context: EmbeddingContext,
   state: EmbeddingState,
@@ -877,3 +981,53 @@ worker({
   // Source: https://github.com/josdejong/workerpool#progress
   runEmbedding: embed,
 });
+
+if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') {
+  self.addEventListener('message', (event: MessageEvent<unknown>) => {
+    const message = event.data as {
+      batchIndex?: unknown;
+      id?: unknown;
+      request?: unknown;
+      type?: unknown;
+    };
+    if (message.type === 'stream-ack') {
+      if (typeof message.id === 'string' && typeof message.batchIndex === 'number') {
+        acknowledgeBatch(message.id, message.batchIndex);
+      }
+      return;
+    }
+    if (message.type !== 'stream-embed') {
+      return;
+    }
+    const request = message.request;
+    if (!request || typeof request !== 'object') {
+      postStreamEvent({
+        type: 'error',
+        id: 'unknown',
+        message: 'Streaming request payload must be an object.',
+      });
+      return;
+    }
+
+    const payload = request as EmbedWorkerRequest;
+    void (async () => {
+      const context = createContext(payload);
+      const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
+      assertValidDimension(payload, requestedDimension);
+      const state = createInitialState(context, payload.deviceHint, payload.maxBatchSize);
+      isInferenceActive = true;
+      try {
+        await streamEmbeddings(context, state);
+      } catch (error) {
+        postStreamEvent({
+          type: 'error',
+          id: context.id,
+          message: error instanceof Error ? error.message : String(error),
+          cause: serializeErrorCause(error),
+        });
+      } finally {
+        isInferenceActive = false;
+      }
+    })();
+  });
+}

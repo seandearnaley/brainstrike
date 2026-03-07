@@ -7,6 +7,13 @@ import type {
 } from '@brainstrike/db';
 import { useModelRegistryStore } from '@brainstrike/preferences';
 import type { SearchConfig } from '@brainstrike/ui';
+import {
+  addLogListener,
+  configureLogger,
+  LogLevel,
+  type LogRecord,
+  setLogLevel,
+} from '@brainstrike/utils';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSemanticSearchExecutor } from '../use-semantic-search-executor';
@@ -129,9 +136,16 @@ const createSearchConfig = (overrides: Partial<SearchConfig> = {}): SearchConfig
   ...overrides,
 });
 
+interface AvailabilityHookProps {
+  chunkRepository: DrizzleFileChunkRepository | null;
+  fileRepository: DrizzleFileRecordRepository | null;
+}
+
 describe('useSemanticSearchExecutor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    configureLogger({ enableInProduction: true });
+    setLogLevel(LogLevel.DEBUG);
     mockDb.query.mockResolvedValue({
       rows: [
         {
@@ -193,6 +207,59 @@ describe('useSemanticSearchExecutor', () => {
     );
 
     expect(result.current).toBeUndefined();
+  });
+
+  it('logs semantic search executor availability only when availability changes', () => {
+    const captured: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.scope === 'SemanticSearchExecutor') {
+        captured.push(record);
+      }
+    });
+
+    const firstFileRepo = createMockFileRepository();
+    const secondFileRepo = createMockFileRepository();
+    const initialProps: AvailabilityHookProps = {
+      chunkRepository: null,
+      fileRepository: firstFileRepo,
+    };
+
+    const { rerender } = renderHook(
+      ({ chunkRepository, fileRepository }: AvailabilityHookProps) =>
+        useSemanticSearchExecutor({ chunkRepository, fileRepository }),
+      { initialProps }
+    );
+
+    rerender({
+      chunkRepository: null,
+      fileRepository: secondFileRepo,
+    });
+
+    rerender({
+      chunkRepository: createMockChunkRepository(),
+      fileRepository: secondFileRepo,
+    });
+
+    rerender({
+      chunkRepository: createMockChunkRepository(),
+      fileRepository: createMockFileRepository(),
+    });
+
+    const availabilityLogs = captured.filter(
+      (record) =>
+        record.level === LogLevel.DEBUG &&
+        record.message === 'Semantic search executor availability changed'
+    );
+
+    expect(availabilityLogs).toHaveLength(2);
+    expect(availabilityLogs[0]?.args).toContainEqual(
+      expect.objectContaining({ hasExecutor: false, hasChunkRepo: false, hasFileRepo: true })
+    );
+    expect(availabilityLogs[1]?.args).toContainEqual(
+      expect.objectContaining({ hasExecutor: true, hasChunkRepo: true, hasFileRepo: true })
+    );
+
+    unsubscribe();
   });
 
   it('returns a search executor function when repositories are available', () => {

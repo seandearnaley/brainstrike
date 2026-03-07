@@ -6,6 +6,7 @@ import type {
   PanelPersistenceState,
 } from '@brainstrike/ui';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import type { EmbeddingHostCommand, EmbeddingHostStatus } from '../embedding-host-shared';
 
 import type { LoggingSettingsPayload } from '../logging-shared';
 
@@ -80,6 +81,15 @@ declare global {
       // Database path method (legacy)
       getUserDataPath: () => Promise<string>;
     };
+    embeddingHost: {
+      ensureStarted: () => Promise<EmbeddingHostStatus>;
+      stop: () => Promise<EmbeddingHostStatus>;
+      reset: () => Promise<EmbeddingHostStatus>;
+      getStatus: () => Promise<EmbeddingHostStatus>;
+      reportStatus: (status: EmbeddingHostStatus) => void;
+      onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
+      onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+    };
     logging: {
       getPreferences: () => Promise<LoggingSettingsPayload>;
       setPreferences: (preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>;
@@ -137,6 +147,9 @@ declare global {
         disabled: number;
         servers: number;
       }>;
+    };
+    power: {
+      onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
     };
     secrets: {
       saveKey: (

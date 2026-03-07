@@ -24,8 +24,8 @@ render-process-gone { reason: 'crashed', exitCode: 5 }
 ### Root Cause
 
 ```
-Renderer main thread
-  └── EmbeddingWorkerProvider
+Hidden host renderer main thread
+  └── EmbeddingHostRuntime
         └── startEmbeddingWorker()
               └── SimpleEmbeddingService
                     └── TransformersBackend
@@ -48,11 +48,11 @@ Research into Dawn (Chromium's WebGPU implementation) and macOS Metal confirmed 
 
 ### The Fix (Three Layers)
 
-#### Layer 1: Prevent renderer backgrounding (ROOT CAUSE FIX)
+#### Layer 1: Isolate renderer backgrounding to the hidden host (ROOT CAUSE FIX)
 
-**File:** `apps/desktop/src/create-window.ts`
+**Files:** `apps/desktop/src/create-window.ts`, `apps/desktop/src/embedding-host-manager.ts`
 
-Added `backgroundThrottling: false` to `BrowserWindow` webPreferences. This prevents Chromium from throttling or freezing the renderer process when the window is unfocused.
+The visible BrowserWindow now keeps Chromium defaults. The hidden embedding host BrowserWindow sets `backgroundThrottling: false`, so only the renderer that owns WebGPU/WASM inference stays unthrottled when unfocused.
 
 #### Layer 2: GPU keep-alive and device loss guard
 

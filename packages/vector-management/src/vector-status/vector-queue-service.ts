@@ -1,9 +1,5 @@
 import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
-import {
-  canonicalizeProviderModelKey,
-  checkApiKeyAvailability,
-  formatProviderModelKey,
-} from '@brainstrike/embeddings';
+import { canonicalizeProviderModelKey, checkApiKeyAvailability } from '@brainstrike/embeddings';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 
 /**
@@ -374,10 +370,9 @@ async function resolveEmbeddingSetJobMetadata(
 ): Promise<EmbeddingSetJobMetadata> {
   const result = await db.query<{
     modelKey: string | null;
-    modelId: string | null;
     dimensions: number | string | null;
   }>(
-    `SELECT model_key AS "modelKey", model_id AS "modelId", dimensions
+    `SELECT model_key AS "modelKey", dimensions
        FROM embedding_sets
       WHERE id = $1
       LIMIT 1`,
@@ -392,27 +387,21 @@ async function resolveEmbeddingSetJobMetadata(
 
   const canonicalKey = (() => {
     const rawKey = row.modelKey?.trim();
-    if (rawKey) {
-      const canonical = canonicalizeProviderModelKey(rawKey);
-      if (canonical) {
-        return canonical.composite;
-      }
-      if (rawKey.includes('::')) {
-        return rawKey;
-      }
+    if (!rawKey) {
+      logger.error('Failed to resolve embedding set metadata (missing model_key)', {
+        embeddingSetId,
+      });
+      throw new Error(`Embedding set ${embeddingSetId} is missing model_key metadata`);
     }
-    if (row.modelId) {
-      return formatProviderModelKey('local', row.modelId);
+    const canonical = canonicalizeProviderModelKey(rawKey);
+    if (!canonical) {
+      logger.error('Failed to resolve embedding set metadata (invalid model_key)', {
+        embeddingSetId,
+        modelKey: row.modelKey,
+      });
+      throw new Error(`Embedding set ${embeddingSetId} has invalid model_key metadata`);
     }
-    if (rawKey) {
-      return rawKey;
-    }
-    logger.error('Failed to resolve embedding set metadata (missing model info)', {
-      embeddingSetId,
-      modelKey: row.modelKey,
-      modelId: row.modelId,
-    });
-    throw new Error(`Embedding set ${embeddingSetId} is missing model metadata`);
+    return canonical.composite;
   })();
 
   const expectedDimension = Number(row.dimensions ?? Number.NaN);

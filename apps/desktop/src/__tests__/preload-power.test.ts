@@ -1,5 +1,14 @@
 import Module from 'node:module';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  EMBEDDING_HOST_COMMAND_EVENT,
+  EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
+  EMBEDDING_HOST_GET_STATUS_CHANNEL,
+  EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
+  EMBEDDING_HOST_RESET_CHANNEL,
+  EMBEDDING_HOST_STATUS_EVENT,
+  EMBEDDING_HOST_STOP_CHANNEL,
+} from '../embedding-host-shared';
 
 // CJS require('electron') in preload.ts resolves via Node's native module loader,
 // which returns the Electron binary path (a string), not the API object.
@@ -8,6 +17,7 @@ const mockOn = vi.fn();
 const mockRemoveListener = vi.fn();
 const mockExposeInMainWorld = vi.fn();
 const mockInvoke = vi.fn();
+const mockSend = vi.fn();
 
 const mockElectron = {
   contextBridge: { exposeInMainWorld: mockExposeInMainWorld },
@@ -15,6 +25,7 @@ const mockElectron = {
     invoke: mockInvoke,
     on: mockOn,
     removeListener: mockRemoveListener,
+    send: mockSend,
   },
   clipboard: { writeText: vi.fn(), readText: vi.fn(() => '') },
 };
@@ -41,6 +52,23 @@ describe('preload power bridge', () => {
   function getPowerApi() {
     const call = mockExposeInMainWorld.mock.calls.find(([key]: [string]) => key === 'power');
     return call?.[1] as { onPowerState: (cb: (state: string) => void) => () => void } | undefined;
+  }
+
+  function getEmbeddingHostApi() {
+    const call = mockExposeInMainWorld.mock.calls.find(
+      ([key]: [string]) => key === 'embeddingHost'
+    );
+    return call?.[1] as
+      | {
+          ensureStarted: () => Promise<unknown>;
+          stop: () => Promise<unknown>;
+          reset: () => Promise<unknown>;
+          getStatus: () => Promise<unknown>;
+          reportStatus: (status: unknown) => void;
+          onStatus: (cb: (status: unknown) => void) => () => void;
+          onCommand: (cb: (command: unknown) => void) => () => void;
+        }
+      | undefined;
   }
 
   it('exposes power.onPowerState via contextBridge', () => {
@@ -82,5 +110,72 @@ describe('preload power bridge', () => {
 
     cleanup?.();
     expect(mockRemoveListener).toHaveBeenCalledWith('app:power-state', expect.any(Function));
+  });
+
+  it('exposes the embeddingHost lifecycle bridge', async () => {
+    mockInvoke.mockResolvedValue({ state: 'running', active: false, lastError: null });
+    const embeddingHostApi = getEmbeddingHostApi();
+    expect(embeddingHostApi).toBeDefined();
+
+    await embeddingHostApi?.ensureStarted();
+    await embeddingHostApi?.stop();
+    await embeddingHostApi?.reset();
+    await embeddingHostApi?.getStatus();
+
+    expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL);
+    expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_STOP_CHANNEL);
+    expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_RESET_CHANNEL);
+    expect(mockInvoke).toHaveBeenCalledWith(EMBEDDING_HOST_GET_STATUS_CHANNEL);
+  });
+
+  it('forwards embedding host reports and subscribes to host events', () => {
+    mockOn.mockClear();
+    mockSend.mockClear();
+    mockRemoveListener.mockClear();
+
+    const embeddingHostApi = getEmbeddingHostApi();
+    const statusCallback = vi.fn();
+    const commandCallback = vi.fn();
+
+    embeddingHostApi?.reportStatus({ state: 'running', active: true, lastError: null });
+    const cleanupStatus = embeddingHostApi?.onStatus(statusCallback);
+    const cleanupCommand = embeddingHostApi?.onCommand(commandCallback);
+
+    expect(mockSend).toHaveBeenCalledWith(EMBEDDING_HOST_REPORT_STATUS_CHANNEL, {
+      state: 'running',
+      active: true,
+      lastError: null,
+    });
+    expect(mockOn).toHaveBeenCalledWith(EMBEDDING_HOST_STATUS_EVENT, expect.any(Function));
+    expect(mockOn).toHaveBeenCalledWith(EMBEDDING_HOST_COMMAND_EVENT, expect.any(Function));
+
+    const statusListener = mockOn.mock.calls.find(
+      ([channel]: [string]) => channel === EMBEDDING_HOST_STATUS_EVENT
+    )?.[1] as (event: unknown, status: unknown) => void;
+    const commandListener = mockOn.mock.calls.find(
+      ([channel]: [string]) => channel === EMBEDDING_HOST_COMMAND_EVENT
+    )?.[1] as (event: unknown, command: unknown) => void;
+
+    statusListener(null, { state: 'running', active: false, lastError: null });
+    commandListener(null, { type: 'reset' });
+
+    expect(statusCallback).toHaveBeenCalledWith({
+      state: 'running',
+      active: false,
+      lastError: null,
+    });
+    expect(commandCallback).toHaveBeenCalledWith({ type: 'reset' });
+
+    cleanupStatus?.();
+    cleanupCommand?.();
+
+    expect(mockRemoveListener).toHaveBeenCalledWith(
+      EMBEDDING_HOST_STATUS_EVENT,
+      expect.any(Function)
+    );
+    expect(mockRemoveListener).toHaveBeenCalledWith(
+      EMBEDDING_HOST_COMMAND_EVENT,
+      expect.any(Function)
+    );
   });
 });

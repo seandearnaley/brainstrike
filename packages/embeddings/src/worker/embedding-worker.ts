@@ -13,7 +13,12 @@ import type {
 } from '../provider-types';
 import { isLocalProviderType } from '../provider-types';
 import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
-import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
+import type {
+  EmbeddingResult,
+  EmbeddingService,
+  EmbeddingStreamBatch,
+  ModelConfig,
+} from '../types';
 import { FALLBACK_MODEL_CONFIG } from '../types';
 
 /**
@@ -276,6 +281,7 @@ export interface EmbeddingWorkerOptions {
   metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
   modelKey?: string | undefined; // default: registry default
   onDownloadProgress?: (modelId: string, progress: number) => void;
+  onWorkerActivityChange?: (active: boolean) => void;
   queue?: string; // default: 'embeddings'
   reinitEveryN?: number; // reinitialize service every N successes (default disabled unless env/option set)
   service?: EmbeddingService; // optional DI for tests or custom backends
@@ -290,11 +296,18 @@ interface EmbedChunkPayload {
   chunkId: string;
   dimensionParameter?: ProviderDimensionParameter | null;
   embeddingSetId?: string | null;
-  expectedDimension?: number; // Expected embedding dimension; falls back to model metadata when omitted
+  expectedDimension?: number;
   fileRecordId?: string;
   modelKey?: string | null;
   provider?: EmbeddingProviderType | null;
 }
+
+type StreamingEmbeddingService = EmbeddingService & {
+  generateEmbeddingsStream: (
+    texts: string[],
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
+  ) => Promise<void>;
+};
 
 async function sha256Hex(input: string): Promise<string> {
   try {
@@ -853,6 +866,26 @@ export async function startEmbeddingWorker(
     ((message: string, meta?: unknown) => {
       workerLogger.debug(message, meta);
     });
+  let activeBatchCount = 0;
+  let lastReportedActive = false;
+
+  const reportWorkerActivity = (active: boolean) => {
+    if (lastReportedActive === active) {
+      return;
+    }
+    lastReportedActive = active;
+    options.onWorkerActivityChange?.(active);
+  };
+
+  const beginActiveBatch = () => {
+    activeBatchCount += 1;
+    reportWorkerActivity(activeBatchCount > 0);
+  };
+
+  const endActiveBatch = () => {
+    activeBatchCount = Math.max(0, activeBatchCount - 1);
+    reportWorkerActivity(activeBatchCount > 0);
+  };
 
   // Check if worker is disabled BEFORE resolving model to avoid errors in tests
   if (!shouldStartWorker(options, log)) {
@@ -871,7 +904,7 @@ export async function startEmbeddingWorker(
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
 
   let { service, modelConfig } = await initializeEmbeddingService(options, activeCompositeKey);
-  let activeModelDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
+  ensureModelDimension(modelConfig, activeCompositeKey, log);
 
   // Determine ID column type for file_chunks to support both UUID (Prod) and TEXT (Test/Electron) schemas
   const fileChunkIdType = await resolveIdType(options.db, 'file_chunks');
@@ -973,8 +1006,7 @@ export async function startEmbeddingWorker(
     activeModelId = targetModelId;
     activeCompositeKey = targetCompositeKey;
 
-    const refreshedDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
-    activeModelDimension = refreshedDimension;
+    ensureModelDimension(modelConfig, activeCompositeKey, log);
 
     // REMOVED: Worker no longer auto-creates embedding sets when switching models
     // Collections should ONLY be created by the user via the Create Collection dialog
@@ -1039,6 +1071,16 @@ export async function startEmbeddingWorker(
     return results;
   }
 
+  function assertStreamingService(candidate: EmbeddingService): StreamingEmbeddingService {
+    const streamingService = candidate as StreamingEmbeddingService;
+    if (typeof streamingService.generateEmbeddingsStream !== 'function') {
+      throw new Error(
+        'Local embedding service must implement generateEmbeddingsStream for background worker processing.'
+      );
+    }
+    return streamingService;
+  }
+
   function handleHostedError(provider: SupportedHostedProvider, error: EmbeddingProviderError) {
     if (error.type === 'rate_limit_exceeded') {
       const retryAfter = error.retryAfter;
@@ -1090,24 +1132,23 @@ export async function startEmbeddingWorker(
       throw new Error(`Unsupported job type: ${claimed.jobType}`);
     }
     const payload = (claimed.payload || {}) as EmbedChunkPayload;
-    if (!payload.chunkId) {
+    if (typeof payload.chunkId !== 'string' || payload.chunkId.length === 0) {
       throw new Error('Missing chunkId in payload');
+    }
+    if (typeof payload.embeddingSetId !== 'string' || payload.embeddingSetId.length === 0) {
+      throw new Error('Missing embeddingSetId in payload');
+    }
+    if (typeof payload.modelKey !== 'string' || payload.modelKey.length === 0) {
+      throw new Error('Missing modelKey in payload');
+    }
+    if (!Number.isFinite(payload.expectedDimension) || (payload.expectedDimension ?? 0) <= 0) {
+      throw new Error('Missing expectedDimension in payload');
     }
     return payload;
   }
 
-  function resolveTargetSetId(
-    payload: EmbedChunkPayload,
-    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>
-  ): string {
-    const targetSetId = payload.embeddingSetId ?? chunk.embeddingSetId;
-    if (!targetSetId) {
-      throw new Error(
-        'Job payload missing embeddingSetId. Jobs must specify which collection to use. ' +
-          'Collections should be created via the Create Collection dialog before enqueueing jobs.'
-      );
-    }
-    return targetSetId;
+  function resolveTargetSetId(payload: EmbedChunkPayload): string {
+    return payload.embeddingSetId ?? '';
   }
 
   async function determineExpectedDimension(
@@ -1115,24 +1156,20 @@ export async function startEmbeddingWorker(
     payload: EmbedChunkPayload
   ): Promise<number> {
     const setDimension = await resolveEmbeddingSetDimension(options.db, targetSetId);
-    if (
-      typeof payload.expectedDimension === 'number' &&
-      payload.expectedDimension !== setDimension &&
-      Number.isFinite(payload.expectedDimension)
-    ) {
+    if (payload.expectedDimension !== setDimension) {
       log('worker_expected_dimension_mismatch', {
         chunkId: payload.chunkId,
         payload: payload.expectedDimension,
         embeddingSetId: targetSetId,
         embeddingSetDimension: setDimension,
       });
+      throw new Error(
+        `Embedding dimension mismatch for set '${targetSetId}': payload=${payload.expectedDimension}, set=${setDimension}.`
+      );
     }
 
     if (!Number.isFinite(setDimension) || setDimension <= 0) {
-      if (!Number.isFinite(activeModelDimension) || activeModelDimension <= 0) {
-        throw new Error(`Invalid expected embedding dimension (${activeModelDimension}).`);
-      }
-      return activeModelDimension;
+      throw new Error(`Invalid expected embedding dimension for set '${targetSetId}'.`);
     }
 
     return setDimension;
@@ -1404,7 +1441,7 @@ export async function startEmbeddingWorker(
   async function validateBatchDimensions(toProcess: LoadedChunkItem[]) {
     const dimensions = await Promise.all(
       toProcess.map((item) =>
-        determineExpectedDimension(resolveTargetSetId(item.payload, item.chunk), item.payload)
+        determineExpectedDimension(resolveTargetSetId(item.payload), item.payload)
       )
     );
 
@@ -1445,7 +1482,7 @@ export async function startEmbeddingWorker(
       if (!(item && embedding)) {
         throw new Error(`Missing item or embedding at index ${index} in batch.`);
       }
-      const targetSetId = resolveTargetSetId(item.payload, item.chunk);
+      const targetSetId = resolveTargetSetId(item.payload);
       updates.push({
         id: item.chunk.id,
         embedding,
@@ -1468,18 +1505,90 @@ export async function startEmbeddingWorker(
     return completedJobIds;
   }
 
+  async function completeBatchAndTrack(
+    toProcess: LoadedChunkItem[],
+    embeddings: number[][],
+    completedJobIds: Set<string>
+  ): Promise<void> {
+    const newlyCompleted = await completeBatch(toProcess, embeddings);
+    for (const id of newlyCompleted) {
+      completedJobIds.add(id);
+    }
+    metrics.jobsProcessed += toProcess.length;
+    processedSinceInit += toProcess.length;
+    consecutiveFailures = 0;
+  }
+
+  async function processLocalGroupIncrementally(
+    jobModel: ReturnType<typeof resolveJobModel>,
+    toProcess: LoadedChunkItem[],
+    expectedDimension: number,
+    completedJobIds: Set<string>,
+    checkLease: () => boolean
+  ): Promise<void> {
+    const modelKey = jobModel.compositeKey;
+    const cacheHits = await lookupCacheHits(toProcess, modelKey);
+    const cacheMisses = filterCacheMisses(toProcess, cacheHits, modelKey);
+    const cacheHitItems = toProcess.filter((item) =>
+      cacheHits.has(`${item.chunk.contentHash}:${modelKey}`)
+    );
+
+    if (cacheHitItems.length > 0) {
+      if (checkLease()) {
+        throw new Error('Lease lost during processing');
+      }
+      const cachedEmbeddings = reconstructResults(cacheHitItems, cacheHits, [], modelKey);
+      await completeBatchAndTrack(cacheHitItems, cachedEmbeddings, completedJobIds);
+    }
+
+    if (cacheMisses.length === 0) {
+      await maybeReinitialize();
+      return;
+    }
+
+    await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
+    const streamingService = assertStreamingService(service);
+
+    await streamingService.generateEmbeddingsStream(
+      cacheMisses.map((item) => item.chunk.content),
+      async (batch) => {
+        if (checkLease()) {
+          throw new Error('Lease lost during processing');
+        }
+
+        const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
+        if (batchItems.length !== batch.results.length) {
+          throw new Error(
+            `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
+          );
+        }
+
+        const embeddings = batch.results.map((result, index) => {
+          if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
+            throw new Error(
+              `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
+            );
+          }
+          return result.embedding;
+        });
+
+        await completeBatchAndTrack(batchItems, embeddings, completedJobIds);
+        storeToCacheAsync(batchItems, embeddings, modelKey, expectedDimension);
+      }
+    );
+
+    await maybeReinitialize();
+  }
+
   function resolveJobModel(payload: EmbedChunkPayload): {
     compositeKey: string;
     provider: EmbeddingProviderType;
     modelId: string;
   } {
-    const rawModelKey = payload.modelKey ?? undefined;
+    const rawModelKey = payload.modelKey ?? '';
     const providerHint = payload.provider ?? undefined;
 
     const candidateComposite = (() => {
-      if (!rawModelKey) {
-        return;
-      }
       const parsed = parseProviderModelKey(rawModelKey);
       if (parsed) {
         return rawModelKey;
@@ -1487,10 +1596,10 @@ export async function startEmbeddingWorker(
       if (providerHint && isHostedProvider(providerHint)) {
         return formatProviderModelKey(providerHint, rawModelKey);
       }
-      return rawModelKey;
+      throw new Error(`Invalid modelKey in payload: ${rawModelKey}`);
     })();
 
-    const compositeKey = candidateComposite ?? activeCompositeKey;
+    const compositeKey = candidateComposite;
     const parsed = parseProviderModelKey(compositeKey);
 
     if (parsed) {
@@ -1575,22 +1684,24 @@ export async function startEmbeddingWorker(
         throw new Error('Lease lost during processing');
       }
 
-      const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
+      if (isLocalProviderType(jobModel.provider)) {
+        await processLocalGroupIncrementally(
+          jobModel,
+          toProcess,
+          expectedDimension,
+          completedJobIds,
+          checkLease
+        );
+      } else {
+        const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
 
-      if (checkLease()) {
-        throw new Error('Lease lost during processing');
+        if (checkLease()) {
+          throw new Error('Lease lost during processing');
+        }
+
+        await completeBatchAndTrack(toProcess, embeddings, completedJobIds);
+        await maybeReinitialize();
       }
-
-      const newlyCompleted = await completeBatch(toProcess, embeddings);
-      for (const id of newlyCompleted) {
-        completedJobIds.add(id);
-      }
-
-      metrics.jobsProcessed += toProcess.length;
-      processedSinceInit += toProcess.length;
-      consecutiveFailures = 0;
-
-      await maybeReinitialize();
     } catch (err) {
       const remainingJobs = jobs.filter((job) => !completedJobIds.has(job.id));
       throw new JobProcessingError('Failed processing job group', remainingJobs, err);
@@ -1768,6 +1879,7 @@ export async function startEmbeddingWorker(
       })) as ClaimedJob[];
 
       if (jobs.length === 0) {
+        reportWorkerActivity(false);
         if (scheduledReinitPending) {
           workerLogger.info('Queue idle; performing scheduled embedding service reinitialization.');
           try {
@@ -1781,7 +1893,12 @@ export async function startEmbeddingWorker(
         return;
       }
 
-      await processClaimedJobs(jobs);
+      beginActiveBatch();
+      try {
+        await processClaimedJobs(jobs);
+      } finally {
+        endActiveBatch();
+      }
 
       // Yield between batches to let V8 GC run and prevent Dawn GPU buffer
       // pool exhaustion under sustained background embedding load.
@@ -1842,6 +1959,7 @@ export async function startEmbeddingWorker(
   return {
     stop: async () => {
       running = false;
+      reportWorkerActivity(false);
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);
       try {
         await service.dispose();

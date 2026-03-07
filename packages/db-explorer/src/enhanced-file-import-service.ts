@@ -292,7 +292,8 @@ export function useEnhancedFileImportService(
   const devicePref = useVectorPreferencesStore((s) => s.devicePref);
 
   // Get chunking worker from context - initialized at app root, not affected by progress re-renders
-  const { port: chunkingWorkerPort } = useChunkingWorkerContext();
+  const { port: chunkingWorkerPort, ensureStarted: ensureChunkingWorkerStarted } =
+    useChunkingWorkerContext();
 
   // Feature flag to control embedding queue producer (Phase 3)
   const embedQueueEnabled = (() => {
@@ -604,6 +605,11 @@ export function useEnhancedFileImportService(
       const bulkContext = createBulkOperationContext({ level: LogLevel.WARN });
       bulkContext.enter();
       try {
+        const resolvedChunkingWorkerPort =
+          options.enableChunking && chunkingWorkerPort === null
+            ? await ensureChunkingWorkerStarted()
+            : chunkingWorkerPort;
+
         await runImportFlow({
           controller,
           selectedFilePaths,
@@ -613,7 +619,7 @@ export function useEnhancedFileImportService(
           baseImportRunner,
           repository,
           chunkRepository,
-          chunkingWorkerPort: chunkingWorkerPort ?? null,
+          chunkingWorkerPort: resolvedChunkingWorkerPort ?? null,
           queuePort,
           sqlPort: sqlPort ?? null,
           setProgress,
@@ -630,6 +636,7 @@ export function useEnhancedFileImportService(
       baseImportRunner,
       chunkRepository,
       chunkingWorkerPort,
+      ensureChunkingWorkerStarted,
       options,
       queuePort,
       repository,

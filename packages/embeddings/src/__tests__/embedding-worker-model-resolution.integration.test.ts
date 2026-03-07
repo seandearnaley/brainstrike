@@ -14,9 +14,11 @@ import type {
 } from '../types';
 import { clearModelConfigCache } from '../worker/embedding-worker';
 
-const mockState = {
-  initializedWith: [] as Array<{ id: string; dimensions: number }>,
-};
+const { mockState } = vi.hoisted(() => ({
+  mockState: {
+    initializedWith: [] as Array<{ id: string; dimensions: number }>,
+  },
+}));
 
 vi.mock('../bge-m3-service', () => {
   class MockSimpleEmbeddingService implements EmbeddingService {
@@ -64,6 +66,17 @@ vi.mock('../bge-m3-service', () => {
 
     async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
       return Promise.all(texts.map((t) => this.generateEmbedding(t)));
+    }
+    async generateEmbeddingsStream(
+      texts: string[],
+      onBatch: (batch: {
+        startIndex: number;
+        endIndex: number;
+        results: EmbeddingResult[];
+      }) => Promise<void> | void
+    ): Promise<void> {
+      const results = await this.generateEmbeddings(texts);
+      await onBatch({ startIndex: 0, endIndex: results.length, results });
     }
 
     async generateDocEmbedding(text: string): Promise<EmbeddingResult> {

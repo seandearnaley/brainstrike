@@ -53,6 +53,17 @@ class MockWorker {
     this.listeners.set(type, handlers);
   }
 
+  removeEventListener(type: string, listener: (...args: unknown[]) => void): void {
+    const handlers = this.listeners.get(type);
+    if (!handlers) {
+      return;
+    }
+    this.listeners.set(
+      type,
+      handlers.filter((registeredListener) => registeredListener !== listener)
+    );
+  }
+
   emitEvent(type: string, event: unknown): void {
     const handlers = this.listeners.get(type) ?? [];
     for (const handler of handlers) {
@@ -64,6 +75,19 @@ class MockWorker {
 vi.mock('../resolve-worker-url', () => ({
   resolveBackgroundIndexerWorkerUrl: () => new URL('http://localhost/background-indexer.worker.js'),
 }));
+
+async function waitForWorker(): Promise<MockWorker> {
+  await waitFor(() => expect(mockWorkers.length).toBeGreaterThan(0));
+  return mockWorkers[0]!;
+}
+
+async function markWorkerReady(): Promise<MockWorker> {
+  const worker = await waitForWorker();
+  act(() => {
+    worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+  });
+  return worker;
+}
 
 describe('useBackgroundTokenIndexer', () => {
   beforeEach(() => {
@@ -105,10 +129,7 @@ describe('useBackgroundTokenIndexer', () => {
     );
 
     // Simulate worker ready message so indexFiles is allowed to run.
-    act(() => {
-      const worker = mockWorkers[0]!;
-      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
-    });
+    await markWorkerReady();
 
     let indexPromise!: Promise<void>;
     act(() => {
@@ -157,10 +178,7 @@ describe('useBackgroundTokenIndexer', () => {
       })
     );
 
-    act(() => {
-      const worker = mockWorkers[0]!;
-      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
-    });
+    await markWorkerReady();
 
     let indexPromise!: Promise<void>;
     act(() => {
@@ -171,6 +189,11 @@ describe('useBackgroundTokenIndexer', () => {
           filePath: 'bad.txt',
         },
       ]);
+    });
+
+    await waitFor(() => {
+      const worker = mockWorkers[0]!;
+      expect(worker.postMessage).toHaveBeenCalledTimes(1);
     });
 
     await act(async () => {
@@ -400,7 +423,7 @@ describe('useBackgroundTokenIndexer', () => {
     ]);
   });
 
-  it('routes worker creation failure through the terminal fail path', () => {
+  it('routes worker creation failure through the terminal fail path', async () => {
     class ThrowingWorker {
       constructor() {
         throw new Error('worker constructor failed');
@@ -418,9 +441,11 @@ describe('useBackgroundTokenIndexer', () => {
       })
     );
 
-    expect(onFileError).toHaveBeenCalledWith(
-      '__worker__',
-      expect.stringContaining('(createWorkerInstance): worker constructor failed')
+    await waitFor(() =>
+      expect(onFileError).toHaveBeenCalledWith(
+        '__worker__',
+        expect.stringContaining('(createWorkerInstance): worker constructor failed')
+      )
     );
     expect(mockEmitIndexingError).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -441,10 +466,7 @@ describe('useBackgroundTokenIndexer', () => {
       })
     );
 
-    act(() => {
-      const worker = mockWorkers[0]!;
-      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
-    });
+    await markWorkerReady();
 
     let indexPromise!: Promise<void>;
     act(() => {
@@ -506,10 +528,7 @@ describe('useBackgroundTokenIndexer', () => {
       })
     );
 
-    act(() => {
-      const worker = mockWorkers[0]!;
-      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
-    });
+    await markWorkerReady();
 
     let indexPromise!: Promise<void>;
     act(() => {
@@ -563,34 +582,50 @@ describe('useBackgroundTokenIndexer', () => {
     );
   });
 
-  it('reports hard failure when indexFiles is called before worker ready', async () => {
+  it('starts the worker on first indexFiles request when autoStart is disabled', async () => {
     const onFileError = vi.fn();
 
     const { result } = renderHook(() =>
       useBackgroundTokenIndexer({
+        autoStart: false,
         store: null,
         mode: 'accurate',
         onFileError,
       })
     );
 
-    await act(async () => {
-      await expect(
-        result.current.indexFiles([
-          {
-            compositeKey: 'folder|@|slow.txt',
-            folderId: 'folder',
-            filePath: 'slow.txt',
-          },
-        ])
-      ).rejects.toThrow('Background token indexer worker is not ready');
+    expect(mockWorkers).toHaveLength(0);
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        {
+          compositeKey: 'folder|@|slow.txt',
+          folderId: 'folder',
+          filePath: 'slow.txt',
+        },
+      ]);
     });
 
-    expect(onFileError).toHaveBeenCalledTimes(1);
-    expect(onFileError).toHaveBeenCalledWith(
-      '__worker__',
-      'Background token indexer worker is not ready. Requested files dropped: 1.'
-    );
+    const worker = await markWorkerReady();
+
+    await waitFor(() => {
+      expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      worker.onmessage?.({
+        data: {
+          type: 'error',
+          compositeKey: 'folder|@|slow.txt',
+          error: 'boom',
+          id: 'req-1',
+        },
+      } as MessageEvent);
+    });
+
+    await expect(indexPromise).resolves.toBeUndefined();
+    expect(onFileError).toHaveBeenCalledWith('folder|@|slow.txt', 'boom');
     expect(result.current.isIndexing).toBe(false);
     expect(result.current.progress).toBeNull();
   });
@@ -613,10 +648,7 @@ describe('useBackgroundTokenIndexer', () => {
       })
     );
 
-    act(() => {
-      const worker = mockWorkers[0]!;
-      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
-    });
+    await markWorkerReady();
 
     await act(async () => {
       await expect(
@@ -659,10 +691,7 @@ describe('useBackgroundTokenIndexer', () => {
       })
     );
 
-    act(() => {
-      const worker = mockWorkers[0]!;
-      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
-    });
+    await markWorkerReady();
 
     let indexPromise!: Promise<void>;
     act(() => {
@@ -715,10 +744,7 @@ describe('useBackgroundTokenIndexer', () => {
       })
     );
 
-    act(() => {
-      const worker = mockWorkers[0]!;
-      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
-    });
+    await markWorkerReady();
 
     let indexPromise!: Promise<void>;
     act(() => {
@@ -770,10 +796,7 @@ describe('useBackgroundTokenIndexer', () => {
       })
     );
 
-    act(() => {
-      const worker = mockWorkers[0]!;
-      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
-    });
+    await markWorkerReady();
 
     await act(async () => {
       const worker = mockWorkers[0]!;
@@ -796,13 +819,11 @@ describe('useBackgroundTokenIndexer', () => {
           { compositeKey: 'folder|@|b.ts', folderId: 'folder', filePath: 'b.ts' },
           { compositeKey: 'folder|@|c.ts', folderId: 'folder', filePath: 'c.ts' },
         ])
-      ).rejects.toThrow('Background token indexer unavailable:');
+      ).rejects.toThrow(
+        'Accurate token counting unavailable: tiktoken encoder failed to initialize'
+      );
     });
 
-    expect(onFileError).toHaveBeenCalledTimes(1);
-    expect(onFileError).toHaveBeenCalledWith(
-      '__worker__',
-      expect.stringContaining('Requested files dropped: 3')
-    );
+    expect(onFileError).not.toHaveBeenCalled();
   });
 });

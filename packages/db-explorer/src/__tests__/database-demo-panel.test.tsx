@@ -15,6 +15,13 @@ import { setActiveEmbeddingSetId } from '../vector-preferences';
 const renderWithProviders = (ui: React.ReactElement) =>
   render(<TooltipProvider>{ui}</TooltipProvider>);
 
+const { ensureStartedMock } = vi.hoisted(() => ({
+  ensureStartedMock: vi.fn(async () => ({
+    chunkFile: vi.fn(),
+    terminate: vi.fn(),
+  })),
+}));
+
 // Mock all external dependencies at the top level
 const mockRepository = {
   findAll: vi.fn(),
@@ -281,6 +288,7 @@ vi.mock('@brainstrike/file-import', async (importOriginal) => {
       isReady: false,
       isProcessing: false,
       error: null,
+      ensureStarted: ensureStartedMock,
       reinitialize: vi.fn(),
     }),
   };
@@ -364,6 +372,7 @@ describe('DatabaseDemoPanel', () => {
     __resetTokenPreferencesStoreForTests();
     __resetVectorStatusUIStoreForTests();
     vi.clearAllMocks();
+    ensureStartedMock.mockClear();
     mockImportFiles.mockReset();
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
 

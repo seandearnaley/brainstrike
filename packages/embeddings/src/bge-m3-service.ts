@@ -7,6 +7,7 @@ import type {
   EmbeddingResult,
   EmbeddingService,
   EmbeddingStatus,
+  EmbeddingStreamBatch,
   ModelConfig,
   SimilarityResult,
 } from './types';
@@ -155,6 +156,24 @@ export class SimpleEmbeddingService implements EmbeddingService {
       )
     );
     return this._backend.generateEmbeddings(withPrompts, this._config.modelId);
+  }
+
+  async generateEmbeddingsStream(
+    texts: string[],
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
+  ): Promise<void> {
+    if (this._status !== 'ready' || !this._backend.isInitialized()) {
+      throw new Error('Service not initialized. Call initialize() first.');
+    }
+    const withPrompts = texts.map((text) =>
+      applyRetrievalPrompt(
+        text,
+        'document',
+        this._currentModelConfig?.id || this._config.modelId,
+        this._currentModelKey
+      )
+    );
+    await this._backend.generateEmbeddingsStream(withPrompts, this._config.modelId, onBatch);
   }
 
   calculateSimilarity(embedding1: number[], embedding2: number[]): SimilarityResult {

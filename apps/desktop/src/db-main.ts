@@ -381,12 +381,16 @@ function getGitProfileContext(): GitProfileContext | null {
   return mutableState.cachedGitProfileContext;
 }
 
+function isIsolatedDesktopTestRun(): boolean {
+  return process.env['NODE_ENV'] === 'test' || process.argv.includes('--test-mode');
+}
+
 function getDatabaseProfile(): string {
   if (mutableState.cachedDatabaseProfile !== null) {
     return mutableState.cachedDatabaseProfile;
   }
 
-  if (process.env['NODE_ENV'] === 'test') {
+  if (isIsolatedDesktopTestRun()) {
     mutableState.cachedDatabaseProfile = 'test';
     return mutableState.cachedDatabaseProfile;
   }
@@ -421,7 +425,7 @@ function getDatabaseProfile(): string {
 }
 
 function getDatabaseRootPath(): string {
-  if (process.env['NODE_ENV'] === 'test') {
+  if (isIsolatedDesktopTestRun()) {
     return app.getPath('userData');
   }
 
@@ -431,21 +435,18 @@ function getDatabaseRootPath(): string {
 }
 
 function getAppDataPath(): string {
-  if (process.env['NODE_ENV'] === 'test') {
-    return path.join(app.getPath('userData'), 'pgdata');
+  if (isIsolatedDesktopTestRun()) {
+    return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
   }
   return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
 }
 
 function getDatabasePath(): string {
-  if (process.env['NODE_ENV'] === 'test') {
-    return path.join(app.getPath('userData'), 'pgdata');
-  }
   return path.join(getAppDataPath(), 'pgdata');
 }
 
 function createResetBackup(appDataDir: string): string | null {
-  if (process.env['NODE_ENV'] === 'test' || !existsSync(appDataDir)) {
+  if (isIsolatedDesktopTestRun() || !existsSync(appDataDir)) {
     return null;
   }
 

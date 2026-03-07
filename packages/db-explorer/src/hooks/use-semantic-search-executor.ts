@@ -356,6 +356,7 @@ export function useSemanticSearchExecutor({
   chunkRepository,
   fileRepository,
 }: UseSemanticSearchExecutorOptions): SearchExecutor | undefined {
+  const previousAvailabilityRef = useRef<boolean | null>(null);
   const db = usePGliteDatabase();
   const { models } = useModelRegistryStore();
   const embedderRef = useRef<SearchEmbedder | null>(null);
@@ -600,12 +601,23 @@ export function useSemanticSearchExecutor({
     [chunkRepository, fileRepository, getModelInfo, ensureEmbedderReady]
   );
 
-  // Only return executor if repositories are available
-  if (!(chunkRepository && fileRepository)) {
-    logger.debug('Semantic search executor not available', {
+  const hasExecutor = Boolean(chunkRepository && fileRepository);
+
+  useEffect(() => {
+    if (previousAvailabilityRef.current === hasExecutor) {
+      return;
+    }
+
+    previousAvailabilityRef.current = hasExecutor;
+    logger.debug('Semantic search executor availability changed', {
+      hasExecutor,
       hasChunkRepo: !!chunkRepository,
       hasFileRepo: !!fileRepository,
     });
+  }, [chunkRepository, fileRepository, hasExecutor]);
+
+  // Only return executor if repositories are available
+  if (!hasExecutor) {
     return;
   }
 

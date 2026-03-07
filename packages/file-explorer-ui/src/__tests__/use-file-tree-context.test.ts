@@ -1,8 +1,10 @@
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { addLogListener, LogLevel, resetLogger, setLogLevel } from '@brainstrike/utils';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileTree } from '../use-file-tree-context';
+import { __resetInFlightRootLoads } from '../use-lazy-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 // Mock the file-tree-worker to avoid Worker instantiation in tests
@@ -60,6 +62,9 @@ describe('useFileTree (lazy loading version)', () => {
   beforeEach(() => {
     mockAdapter = new MockFileSystemAdapter();
     vi.clearAllTimers();
+    __resetInFlightRootLoads();
+    resetLogger();
+    setLogLevel(LogLevel.DEBUG);
   });
 
   it('initializes with empty state when handle is null', () => {
@@ -232,6 +237,52 @@ describe('useFileTree (lazy loading version)', () => {
   });
 
   describe('Refresh functionality', () => {
+    it('coalesces root-load startup logging and I/O under StrictMode remounts', async () => {
+      const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+      mockAdapter.setStreamingDelay(20);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      const readDirectoryStreamingSpy = vi.spyOn(mockAdapter, 'readDirectoryStreaming');
+      const lazyFileTreeMessages: string[] = [];
+      const unsubscribe = addLogListener((record) => {
+        if (record.scope !== 'LazyFileTree' || typeof record.message !== 'string') {
+          return;
+        }
+
+        lazyFileTreeMessages.push(record.message);
+      });
+
+      const StrictWrapper = ({ children }: { children: ReactNode }) =>
+        createElement(
+          StrictMode,
+          null,
+          createElement(FileExplorerTestWrapper, {
+            children,
+            mockFileSystemAdapter: mockAdapter,
+          })
+        );
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: StrictWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      unsubscribe();
+
+      expect(readDirectoryStreamingSpy).toHaveBeenCalledTimes(1);
+      expect(
+        lazyFileTreeMessages.filter(
+          (message) => message === 'loadRoot running - will reinitialize worker'
+        )
+      ).toHaveLength(1);
+      expect(
+        lazyFileTreeMessages.filter(
+          (message) => message === 'loadRoot completed - handle map built'
+        )
+      ).toHaveLength(1);
+    });
+
     it('should refresh the tree when refreshTree is called', async () => {
       const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
       mockAdapter.setMockFileSystem(mockFS);
@@ -318,6 +369,76 @@ describe('useFileTree (lazy loading version)', () => {
 
       const names = result.current.fileTree.map((node) => node.name);
       expect(names).toEqual(['src', 'package.json', 'README.md']);
+    });
+
+    it('does not reload the tree when the handle object changes for the same root path', async () => {
+      const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const initialHandle = await mockAdapter.requestDirectoryAccess();
+      const samePathHandle = { ...initialHandle };
+      const readDirectoryStreamingSpy = vi.spyOn(mockAdapter, 'readDirectoryStreaming');
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result, rerender } = renderHook(({ handle }) => useFileTree(handle), {
+        wrapper: TestWrapper,
+        initialProps: { handle: initialHandle },
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(readDirectoryStreamingSpy).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        rerender({ handle: samePathHandle });
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(readDirectoryStreamingSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('deduplicates concurrent root loads for the same path across hook instances', async () => {
+      const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+      let releaseRootLoad: (() => void) | null = null;
+      const rootLoadGate = new Promise<void>((resolve) => {
+        releaseRootLoad = resolve;
+      });
+
+      const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (...args) => {
+          await rootLoadGate;
+          return originalReadDirectoryStreaming(...args);
+        });
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const firstHook = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+      const secondHook = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await act(async () => {
+        releaseRootLoad?.();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(firstHook.result.current.isLoading).toBe(false);
+        expect(secondHook.result.current.isLoading).toBe(false);
+      });
+
+      expect(readDirectoryStreamingSpy).toHaveBeenCalledTimes(1);
+      expect(firstHook.result.current.fileTree.length).toBeGreaterThan(0);
+      expect(secondHook.result.current.fileTree.length).toBeGreaterThan(0);
     });
   });
 

@@ -58,6 +58,11 @@ const {
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');
   const typedIpcMain = electronUtils.createIpcMainMock();
+  Object.assign(typedIpcMain, {
+    on: vi.fn(),
+    removeAllListeners: vi.fn(),
+    removeHandler: vi.fn(),
+  });
   // Track handlers for direct invocation
   typedIpcMain.handle.mockImplementation(
     (channel: string, listener: (...args: unknown[]) => unknown) => {
@@ -109,6 +114,8 @@ vi.mock('electron', async () => {
     },
     powerSaveBlocker: {
       start: vi.fn(() => 1),
+      isStarted: vi.fn(() => true),
+      stop: vi.fn(),
     },
   };
 });

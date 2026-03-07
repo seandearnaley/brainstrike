@@ -34,6 +34,17 @@ class FakeEmbeddingService implements EmbeddingService {
   async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
     return Promise.all(texts.map((t) => this.generateEmbedding(t)));
   }
+  async generateEmbeddingsStream(
+    texts: string[],
+    onBatch: (batch: {
+      startIndex: number;
+      endIndex: number;
+      results: EmbeddingResult[];
+    }) => Promise<void> | void
+  ): Promise<void> {
+    const results = await this.generateEmbeddings(texts);
+    await onBatch({ startIndex: 0, endIndex: results.length, results });
+  }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
   }
@@ -106,7 +117,7 @@ describe('embedding-worker-batch', () => {
       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         embeddingSetId,
-        'local::jina-code',
+        'local::jinaai/jina-embeddings-v2-base-code',
         'jinaai/jina-embeddings-v2-base-code',
         768,
         'cosine',
@@ -136,7 +147,16 @@ describe('embedding-worker-batch', () => {
       await db.query(
         `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
             VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
-        [jobId, JSON.stringify({ chunkId, embeddingSetId }), now]
+        [
+          jobId,
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+            expectedDimension: 768,
+          }),
+          now,
+        ]
       );
     }
 
@@ -177,7 +197,7 @@ describe('embedding-worker-batch', () => {
       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         embeddingSetId,
-        'local::jina-code',
+        'local::jinaai/jina-embeddings-v2-base-code',
         'jinaai/jina-embeddings-v2-base-code',
         768,
         'cosine',
@@ -190,7 +210,16 @@ describe('embedding-worker-batch', () => {
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
         VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
-      [jobId, JSON.stringify({ chunkId: 'missing-chunk-id', embeddingSetId }), now]
+      [
+        jobId,
+        JSON.stringify({
+          chunkId: 'missing-chunk-id',
+          embeddingSetId,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          expectedDimension: 768,
+        }),
+        now,
+      ]
     );
 
     const controller = await startEmbeddingWorker({
@@ -228,7 +257,7 @@ describe('embedding-worker-batch', () => {
       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         embeddingSetId,
-        'local::jina-code',
+        'local::jinaai/jina-embeddings-v2-base-code',
         'jinaai/jina-embeddings-v2-base-code',
         768,
         'cosine',
@@ -255,7 +284,16 @@ describe('embedding-worker-batch', () => {
       await db.query(
         `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
           VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
-        [jobId, JSON.stringify({ chunkId, embeddingSetId }), now]
+        [
+          jobId,
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+            expectedDimension: 768,
+          }),
+          now,
+        ]
       );
     }
 

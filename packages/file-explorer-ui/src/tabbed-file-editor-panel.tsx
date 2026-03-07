@@ -38,6 +38,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
 
     // Track in-progress permission requests to prevent race conditions from double-clicks
     const permissionRequestsInProgressRef = useRef<Set<string>>(new Set());
+    const activeTabLoadRequestsRef = useRef<Set<string>>(new Set());
 
     // Handle tab click - also handles permission requests for tabs needing restoration
     const handleTabClick = useCallback(
@@ -103,22 +104,14 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       [loadFileContent]
     );
 
+    // biome-ignore lint/plugin: Active tab restoration intentionally triggers a content load side effect
     useEffect(() => {
-      logger.debug('Active tab effect triggered', {
-        activeTabId,
-        canLoadWithoutTree,
-        treeLength: fileTree.length,
-        tabsCount: tabs.length,
-      });
-
       if (!activeTabId) {
-        logger.debug('Bailing: no activeTabId');
         return;
       }
       // On Electron (canLoadWithoutTree), we can load files without the tree.
       // On web, we need the tree to get file handles.
       if (!canLoadWithoutTree && fileTree.length === 0) {
-        logger.debug('Bailing: no tree and canLoadWithoutTree is false');
         return;
       }
       const activeTab = tabs.find((tab) => tab.id === activeTabId);
@@ -132,18 +125,21 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       const alreadyLoaded = !!fileContents[activeTab.compositeKey];
       const isLoading = loadingFiles.has(activeTab.compositeKey);
       if (alreadyLoaded || isLoading) {
-        logger.debug('Bailing: already loaded or loading', {
-          alreadyLoaded,
-          isLoading,
-          compositeKey: activeTab.compositeKey,
-        });
+        activeTabLoadRequestsRef.current.delete(activeTab.compositeKey);
         return;
       }
+      if (activeTabLoadRequestsRef.current.has(activeTab.compositeKey)) {
+        return;
+      }
+
+      activeTabLoadRequestsRef.current.add(activeTab.compositeKey);
       logger.debug('Loading file content for active tab', {
         compositeKey: activeTab.compositeKey,
         path: activeTab.path,
       });
-      void loadFileContent(activeTab.compositeKey);
+      void Promise.resolve(loadFileContent(activeTab.compositeKey)).finally(() => {
+        activeTabLoadRequestsRef.current.delete(activeTab.compositeKey);
+      });
     }, [
       activeTabId,
       canLoadWithoutTree,

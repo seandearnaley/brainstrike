@@ -45,6 +45,17 @@ class TerminalErrorService implements EmbeddingService {
     this.callCount++;
     throw new Error('API request failed with status 400');
   }
+  async generateEmbeddingsStream(
+    texts: string[],
+    onBatch: (batch: {
+      startIndex: number;
+      endIndex: number;
+      results: EmbeddingResult[];
+    }) => Promise<void> | void
+  ): Promise<void> {
+    const results = await this.generateEmbeddings(texts);
+    await onBatch({ startIndex: 0, endIndex: results.length, results });
+  }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
   }
@@ -105,14 +116,19 @@ describe('Embedding Worker - Terminal Errors', () => {
     await db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [setId, 'local:test-model', 'test-model', 1536, 'cosine']
+      [setId, 'local::test-model', 'test-model', 1536, 'cosine']
     );
 
     // 3. Enqueue a job
     await jq.enqueue({
       queue: 'embeddings',
       jobType: 'embed_chunk',
-      payload: { chunkId, embeddingSetId: setId },
+      payload: {
+        chunkId,
+        embeddingSetId: setId,
+        modelKey: 'local::test-model',
+        expectedDimension: 1536,
+      },
     });
 
     // 4. Start worker with terminal error service

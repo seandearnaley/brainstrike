@@ -75,11 +75,18 @@ vi.mock('@brainstrike/utils', async () => {
 });
 
 describe('initializeMainDatabase', () => {
+  const originalArgv = [...process.argv];
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+    process.argv = [...originalArgv];
+  });
+
+  afterEach(() => {
+    process.argv = [...originalArgv];
   });
 
   it('creates directory, migrates, and returns singleton instance', async () => {
@@ -91,7 +98,7 @@ describe('initializeMainDatabase', () => {
     const db1 = await initializeMainDatabase();
 
     // In NODE_ENV=test, we expect it to use 'userData' path for isolation
-    const expectedPath = path.join('/mock/userData', 'pgdata');
+    const expectedPath = path.join('/mock/userData', 'profiles', 'test', 'pgdata');
 
     expect(appGetPathMock).toHaveBeenCalledWith('userData');
     expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
@@ -125,5 +132,26 @@ describe('initializeMainDatabase', () => {
     // Subsequent calls return the same instance
     const db2 = await getDatabase();
     expect(db2).toBe(db);
+  });
+
+  it('uses the isolated userData database path for Electron --test-mode runs', async () => {
+    process.env['NODE_ENV'] = 'development';
+    process.argv = [...originalArgv, '--test-mode'];
+    existsSyncMock.mockReturnValue(false);
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    const expectedPath = path.join('/mock/userData', 'profiles', 'test', 'pgdata');
+
+    expect(appGetPathMock).toHaveBeenCalledWith('userData');
+    expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
+    expect(PGliteMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dataDir: expectedPath,
+        extensions: expect.anything(),
+      })
+    );
   });
 });

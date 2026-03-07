@@ -23,6 +23,16 @@ async function waitForExpect(assertion: () => void, timeoutMs = 2000): Promise<v
   assertion();
 }
 
+async function emitWorkerMessage(
+  worker: ReturnType<typeof createMockWorker>,
+  data: WorkerResponse
+): Promise<void> {
+  await act(async () => {
+    worker.simulateMessage(data);
+    await Promise.resolve();
+  });
+}
+
 function renderHookHarness<T>(
   useHook: () => T,
   wrapper?: (children: ReactNode) => ReactNode
@@ -158,9 +168,7 @@ describe('ChunkingWorkerProvider', () => {
       throw new Error('Expected worker instance');
     }
 
-    act(() => {
-      worker.simulateMessage({ type: 'ready' });
-    });
+    await emitWorkerMessage(worker, { type: 'ready' });
 
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
     expect(result.current.port).not.toBeNull();
@@ -190,9 +198,7 @@ describe('ChunkingWorkerProvider', () => {
       skipped: false,
     };
 
-    act(() => {
-      worker.simulateMessage(workerResult);
-    });
+    await emitWorkerMessage(worker, workerResult);
 
     await expect(chunkPromise).resolves.toEqual(workerResult);
     await waitForExpect(() => expect(result.current.isProcessing).toBe(false));
@@ -214,18 +220,14 @@ describe('ChunkingWorkerProvider', () => {
       throw new Error('Expected initial worker');
     }
 
-    act(() => {
-      initialWorker.simulateMessage({ type: 'ready' });
-    });
+    await emitWorkerMessage(initialWorker, { type: 'ready' });
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
 
-    act(() => {
-      initialWorker.simulateMessage({
-        type: 'error',
-        id: 'req-1',
-        fileRecordId: 'file-1',
-        error: 'tiktoken encoder failed to initialize',
-      });
+    await emitWorkerMessage(initialWorker, {
+      type: 'error',
+      id: 'req-1',
+      fileRecordId: 'file-1',
+      error: 'tiktoken encoder failed to initialize',
     });
 
     await waitForExpect(() => {
@@ -235,8 +237,9 @@ describe('ChunkingWorkerProvider', () => {
     });
     expect(initialWorker.terminate).toHaveBeenCalled();
 
-    act(() => {
+    await act(async () => {
       result.current.reinitialize();
+      await Promise.resolve();
     });
 
     await waitForExpect(() => expect(workers).toHaveLength(2));
@@ -245,9 +248,7 @@ describe('ChunkingWorkerProvider', () => {
       throw new Error('Expected reinitialized worker');
     }
 
-    act(() => {
-      reinitializedWorker.simulateMessage({ type: 'ready' });
-    });
+    await emitWorkerMessage(reinitializedWorker, { type: 'ready' });
 
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
     expect(result.current.error).toBeNull();

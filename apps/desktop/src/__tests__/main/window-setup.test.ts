@@ -38,6 +38,9 @@ const mockBrowserWindow = vi.fn();
 mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
   Object.assign(this, mockBrowserWindowInstance);
 });
+Object.assign(mockBrowserWindow, {
+  getAllWindows: vi.fn(() => []),
+});
 
 const whenReadyMock = vi.fn(() => Promise.resolve());
 
@@ -59,7 +62,12 @@ vi.mock('electron', () => ({
   screen: {
     getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1536, height: 800 } }]),
   },
-  ipcMain: { handle: vi.fn() },
+  ipcMain: {
+    handle: vi.fn(),
+    on: vi.fn(),
+    removeHandler: vi.fn(),
+    removeAllListeners: vi.fn(),
+  },
   Menu: {
     setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
@@ -69,6 +77,8 @@ vi.mock('electron', () => ({
   },
   powerSaveBlocker: {
     start: vi.fn(() => 1),
+    isStarted: vi.fn(() => true),
+    stop: vi.fn(),
   },
 }));
 

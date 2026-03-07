@@ -9,7 +9,15 @@
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import type { JSX, ReactNode } from 'react';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 const logger = createLogger('SemanticSearchContext');
 
@@ -100,9 +108,17 @@ export function SemanticSearchProvider({
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Log when searchExecutor changes
+  const previousExecutorAvailabilityRef = useRef<boolean | null>(null);
+
+  // Log only true availability transitions, not callback identity churn.
   useEffect(() => {
-    logger.debug('Search executor changed', { hasExecutor: !!searchExecutor });
+    const hasExecutor = Boolean(searchExecutor);
+    if (previousExecutorAvailabilityRef.current === hasExecutor) {
+      return;
+    }
+
+    previousExecutorAvailabilityRef.current = hasExecutor;
+    logger.debug('Search executor availability changed', { hasExecutor });
   }, [searchExecutor]);
 
   // Clear results action

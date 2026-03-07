@@ -32,6 +32,17 @@ class WrongDimService implements EmbeddingService {
   async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
     return Promise.all(texts.map((t) => this.generateEmbedding(t)));
   }
+  async generateEmbeddingsStream(
+    texts: string[],
+    onBatch: (batch: {
+      startIndex: number;
+      endIndex: number;
+      results: EmbeddingResult[];
+    }) => Promise<void> | void
+  ): Promise<void> {
+    const results = await this.generateEmbeddings(texts);
+    await onBatch({ startIndex: 0, endIndex: results.length, results });
+  }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
   }
@@ -110,7 +121,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         embeddingSetId,
-        'local::jina-code',
+        'local::jinaai/jina-embeddings-v2-base-code',
         'jinaai/jina-embeddings-v2-base-code',
         768,
         'cosine',
@@ -132,7 +143,15 @@ describe('embedding-worker: dimension mismatch handling', () => {
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
        VALUES ('job-d1','embeddings','embed_chunk', $1, 'queued', $2, 0, 1, 0, $2, $2)`,
-      [JSON.stringify({ chunkId, embeddingSetId }), now]
+      [
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          expectedDimension: 768,
+        }),
+        now,
+      ]
     );
 
     const controller = await startEmbeddingWorker({
@@ -161,7 +180,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
     await controller.stop();
   });
 
-  it('processes jobs even when payload expectedDimension is stale', async () => {
+  it('fails jobs when payload expectedDimension does not match the target set dimension', async () => {
     const now = new Date().toISOString();
     const embeddingSetId = 'set-d2';
     const fileId = 'file-d2';
@@ -173,7 +192,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         embeddingSetId,
-        'local::jina-code',
+        'local::jinaai/jina-embeddings-v2-base-code',
         'jinaai/jina-embeddings-v2-base-code',
         768,
         'cosine',
@@ -191,11 +210,19 @@ describe('embedding-worker: dimension mismatch handling', () => {
        VALUES ($1,$2,0,$3,$4,5,'text',5,$5,$5)`,
       [chunkId, fileId, 'dim test 2', 'h2', now]
     );
-    // Job with expectedDimension=384 in payload
+    // Job intentionally carries stale dimension metadata and must fail fast.
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
        VALUES ('job-d2','embeddings','embed_chunk', $1, 'queued', $2, 0, 1, 0, $2, $2)`,
-      [JSON.stringify({ chunkId, embeddingSetId, expectedDimension: 384 }), now]
+      [
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          expectedDimension: 384,
+        }),
+        now,
+      ]
     );
 
     const controller = await startEmbeddingWorker({
@@ -205,30 +232,23 @@ describe('embedding-worker: dimension mismatch handling', () => {
       modelKey: 'jinaai/jina-embeddings-v2-base-code', // 768D model
     });
 
-    // Wait for job completion
+    // Wait for job failure
     for (let i = 0; i < 200; i++) {
       const res = await db.query(`SELECT state FROM job_queue WHERE id = 'job-d2'`);
       const rowData = res.rows[0] as { state: string } | undefined;
-      if (rowData?.state === 'completed') {
+      if (rowData?.state === 'failed') {
         break;
       }
       await new Promise((r) => setTimeout(r, 25));
     }
 
-    const row = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-d2'`);
-    const rowData = row.rows[0] as { state: string; attempts: number } | undefined;
-    expect(rowData?.state).toBe('completed');
-    expect(rowData?.attempts).toBeGreaterThanOrEqual(1);
-
-    const chunkRow = await db.query(
-      'SELECT embedding_set_id, embedding_updated_at FROM file_chunks WHERE id = $1',
-      [chunkId]
-    );
-    const chunkData = chunkRow.rows[0] as
-      | { embedding_set_id: string | null; embedding_updated_at: string | null }
+    const row = await db.query(`SELECT state, attempts, error FROM job_queue WHERE id = 'job-d2'`);
+    const rowData = row.rows[0] as
+      | { state: string; attempts: number; error: string | null }
       | undefined;
-    expect(chunkData?.embedding_set_id).toBeTruthy();
-    expect(chunkData?.embedding_updated_at).toBeTruthy();
+    expect(rowData?.state).toBe('failed');
+    expect(rowData?.attempts).toBeGreaterThanOrEqual(1);
+    expect(rowData?.error).toContain('payload=384, set=768');
 
     await controller.stop();
   });
