@@ -78,7 +78,7 @@ export const createSettingsActions = (
   },
 
   setIncludeProjectTree: (value: boolean) => {
-    set({ includeProjectTree: value });
+    set((state: FileExplorerState) => updateWithFolderState(state, { includeProjectTree: value }));
   },
 
   setTokenBudget: (budget: number) => {
@@ -103,15 +103,36 @@ export const createSettingsActions = (
   setMaxSelectionCount: (count: number) => {
     const clampedCount = Math.max(MIN_MAX_SELECTION_COUNT, Math.min(count, MAX_SELECTION_COUNT));
     set((state: FileExplorerState) => {
-      // Added explicit type for state
       let newSelectedFilePaths = state.selectedFilePaths;
-      // If reducing the count, trim excess selected files
       if (clampedCount < state.selectedFilePaths.size) {
         newSelectedFilePaths = new Set(Array.from(state.selectedFilePaths).slice(0, clampedCount));
       }
-      return {
+
+      const baseUpdates: Partial<FileExplorerState> = {
         maxSelectionCount: clampedCount,
         selectedFilePaths: newSelectedFilePaths,
+      };
+
+      const { currentFolderId } = state;
+      if (!currentFolderId) {
+        return baseUpdates;
+      }
+
+      const folderState = state.folderStates[currentFolderId];
+      if (!folderState) {
+        return baseUpdates;
+      }
+
+      return {
+        ...baseUpdates,
+        folderStates: {
+          ...state.folderStates,
+          [currentFolderId]: {
+            ...folderState,
+            maxSelectionCount: clampedCount,
+            selectedFilePaths: newSelectedFilePaths,
+          },
+        },
       };
     });
   },

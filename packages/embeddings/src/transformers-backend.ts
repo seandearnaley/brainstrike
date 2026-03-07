@@ -90,8 +90,8 @@ async function getBrowserQueue(): Promise<QueueAdapter> {
     return Promise.resolve(customQueueFactory());
   }
   if (!browserQueuePromise) {
-    browserQueuePromise = import('@brainstrike/queue').then(({ createBrowserEmbeddingQueue }) =>
-      createBrowserEmbeddingQueue({ requireWorkerpool: true })
+    browserQueuePromise = import('@brainstrike/queue/browser').then(
+      ({ createBrowserEmbeddingQueue }) => createBrowserEmbeddingQueue({ requireWorkerpool: true })
     );
   }
   return browserQueuePromise;

@@ -1,4 +1,5 @@
-import { createBrowserEmbeddingQueue, type QueueAdapter } from '@brainstrike/queue';
+import type { QueueAdapter } from '@brainstrike/queue';
+import { createBrowserEmbeddingQueue } from '@brainstrike/queue/browser';
 
 const singletonQueue: QueueAdapter = createBrowserEmbeddingQueue({
   requireWorkerpool: true,

@@ -29,6 +29,21 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js"
+    },
+    "./browser-queue-port": {
+      "types": "./dist/browser-queue-port.d.ts",
+      "import": "./dist/browser-queue-port.js",
+      "require": "./dist/browser-queue-port.js"
+    },
+    "./chunking-worker-context": {
+      "types": "./dist/chunking-worker-context.d.ts",
+      "import": "./dist/chunking-worker-context.js",
+      "require": "./dist/chunking-worker-context.js"
+    },
+    "./enhanced-import": {
+      "types": "./dist/enhanced-import.d.ts",
+      "import": "./dist/enhanced-import.js",
+      "require": "./dist/enhanced-import.js"
     }
   },
   "files": [

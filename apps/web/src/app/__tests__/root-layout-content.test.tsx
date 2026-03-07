@@ -4,8 +4,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let RootLayoutContent: React.ComponentType;
 
-// Mock the file-import package to prevent worker initialization during tests
-vi.mock('@brainstrike/file-import', () => ({
+// Mock the chunking worker context to prevent worker initialization during tests
+vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   ChunkingWorkerProvider: ({ children }: { children: React.ReactNode }) => children,
   useChunkingWorkerContext: vi.fn(() => ({
     port: null,
@@ -14,14 +14,9 @@ vi.mock('@brainstrike/file-import', () => ({
     error: null,
     reinitialize: vi.fn(),
   })),
-  useChunkingWorker: vi.fn(() => ({
-    port: null,
-    isReady: false,
-    isProcessing: false,
-    error: null,
-    reinitialize: vi.fn(),
-  })),
-  // Additional exports used by enhanced-file-import-service
+}));
+
+vi.mock('@brainstrike/file-import/browser-queue-port', () => ({
   createBrowserEmbeddingQueuePort: vi.fn(() => ({
     add: vi.fn(),
     addBulk: vi.fn(),
@@ -30,6 +25,9 @@ vi.mock('@brainstrike/file-import', () => ({
     resume: vi.fn(),
     drain: vi.fn(),
   })),
+}));
+
+vi.mock('@brainstrike/file-import/enhanced-import', () => ({
   runEnhancedImport: vi.fn(async () => ({
     totalFiles: 0,
     importedFiles: 0,

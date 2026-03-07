@@ -3,7 +3,7 @@ import {
   isPathInsideRoot,
   normalizeRootDir,
   resolveValidatedPath,
-} from '@brainstrike/file-system';
+} from '@brainstrike/file-system/path-validation';
 
 export { expandHome, isPathInsideRoot, normalizeRootDir };
 

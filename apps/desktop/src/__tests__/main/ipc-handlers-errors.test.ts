@@ -1,5 +1,5 @@
-import type { ElectronFileSystemAdapter } from '@brainstrike/file-system';
-import type { ElectronStorageAdapter } from '@brainstrike/storage';
+import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

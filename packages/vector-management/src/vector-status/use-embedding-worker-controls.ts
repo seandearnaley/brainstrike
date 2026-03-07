@@ -1,5 +1,6 @@
 import type { EmbeddingWorkerController, EmbeddingWorkerOptions } from '@brainstrike/embeddings';
 import { startEmbeddingWorker } from '@brainstrike/embeddings';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface EmbeddingHostStatus {
@@ -80,6 +81,20 @@ function applyHostStatus(
   );
 }
 
+function syncEmbeddingActivityFromHost(
+  status: EmbeddingHostStatus,
+  setIsEmbeddingQueueActive: (active: boolean) => void
+): void {
+  if (status.active) {
+    setIsEmbeddingQueueActive(true);
+    return;
+  }
+
+  if (status.state === 'error' || status.state === 'stopped' || status.state === 'stopping') {
+    setIsEmbeddingQueueActive(false);
+  }
+}
+
 export function useEmbeddingWorkerControls(
   params: UseEmbeddingWorkerControlsParams
 ): UseEmbeddingWorkerControlsResult {
@@ -98,6 +113,7 @@ export function useEmbeddingWorkerControls(
   const [workerLocalRunning, setWorkerLocalRunning] = useState(false);
   const [startingWorker, setStartingWorker] = useState(false);
   const [startWorkerError, setStartWorkerError] = useState<string | null>(null);
+  const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
   const useEmbeddingHost = typeof window !== 'undefined' && isElectronRendererWithHost();
 
   const clearWorkerError = useCallback(() => setStartWorkerError(null), []);
@@ -114,6 +130,7 @@ export function useEmbeddingWorkerControls(
         setStartingWorker,
         setWorkerLocalRunning,
       });
+      syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
     };
 
     void host
@@ -125,7 +142,7 @@ export function useEmbeddingWorkerControls(
       });
 
     return host.onStatus(syncStatus);
-  }, [useEmbeddingHost]);
+  }, [setIsEmbeddingQueueActive, useEmbeddingHost]);
 
   const launchWorker = useCallback(
     async (successToast: { title: string; description: string }) => {
@@ -136,6 +153,7 @@ export function useEmbeddingWorkerControls(
           setStartingWorker,
           setWorkerLocalRunning,
         });
+        syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
         if (status.state === 'error') {
           throw new Error(status.lastError ?? 'Embedding host failed to start.');
         }
@@ -162,7 +180,7 @@ export function useEmbeddingWorkerControls(
       // over when embedding jobs are enqueued.
       toast(successToast);
     },
-    [db, devicePreference, reinitEveryN, toast, useEmbeddingHost]
+    [db, devicePreference, reinitEveryN, setIsEmbeddingQueueActive, toast, useEmbeddingHost]
   );
 
   const startWorker = useCallback(async () => {
@@ -193,6 +211,7 @@ export function useEmbeddingWorkerControls(
         setStartingWorker,
         setWorkerLocalRunning,
       });
+      syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
       toast({ title: 'Worker stopped' });
       return;
     }
@@ -201,9 +220,10 @@ export function useEmbeddingWorkerControls(
     } finally {
       workerControllerRef.current = null;
       setWorkerLocalRunning(false);
+      setIsEmbeddingQueueActive(false);
       toast({ title: 'Worker stopped' });
     }
-  }, [toast, useEmbeddingHost]);
+  }, [setIsEmbeddingQueueActive, toast, useEmbeddingHost]);
 
   const resetWorker = useCallback(async () => {
     if (!(db || useEmbeddingHost)) {
@@ -219,6 +239,7 @@ export function useEmbeddingWorkerControls(
           setStartingWorker,
           setWorkerLocalRunning,
         });
+        syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
         if (status.state === 'error') {
           throw new Error(status.lastError ?? 'Embedding host failed to reset.');
         }
@@ -233,6 +254,7 @@ export function useEmbeddingWorkerControls(
       }
       workerControllerRef.current = null;
       setWorkerLocalRunning(false);
+      setIsEmbeddingQueueActive(false);
       await launchWorker({
         title: 'Worker reset',
         description: 'Embedding worker restarted successfully.',
@@ -244,7 +266,7 @@ export function useEmbeddingWorkerControls(
     } finally {
       setStartingWorker(false);
     }
-  }, [db, workerLocalRunning, launchWorker, toast, useEmbeddingHost]);
+  }, [db, workerLocalRunning, launchWorker, setIsEmbeddingQueueActive, toast, useEmbeddingHost]);
 
   return {
     workerLocalRunning,

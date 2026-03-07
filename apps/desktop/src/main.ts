@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
-import { ElectronStorageAdapter } from '@brainstrike/storage';
+import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 
 // Raw debug log to verify main process startup
@@ -22,10 +22,12 @@ import {
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
+import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { registerAgentIpcHandlers } from './ipc-agent';
+import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerIpcHandlers, setBackgrounded } from './ipc-handlers';
 import { registerMcpIpcHandlers } from './ipc-mcp';
@@ -371,6 +373,7 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 
 let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
+let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
@@ -429,6 +432,7 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       await stopAssistantServer();
       stopAssistantServer = null;
     }
+    await chunkingHostManager.dispose();
     await embeddingHostManager.dispose();
     await closeDatabase();
     clearForcedProcessExitTimer();
@@ -477,6 +481,7 @@ function registerShutdownSignalHandlers(): void {
 
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
+const chunkingHostManager = new ChunkingHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 
 registerLoggingIpcHandlers({
@@ -489,8 +494,10 @@ registerLoggingIpcHandlers({
 
 // Register IPC handlers early to avoid renderer calls racing registration during startup.
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
+  embeddingHostManager,
   onResetLocal: handleResetLocal,
 });
+unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
 unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
 
 // Add global error handlers to catch silent crashes
@@ -519,8 +526,10 @@ if (singleInstanceLockAcquired) {
 
   app.on('second-instance', () => {
     const existingWindow =
-      BrowserWindow.getAllWindows().find((window) => !embeddingHostManager.isHostWindow(window)) ??
-      null;
+      BrowserWindow.getAllWindows().find(
+        (window) =>
+          !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+      ) ?? null;
     if (!existingWindow) {
       return;
     }
@@ -830,7 +839,8 @@ if (singleInstanceLockAcquired) {
 
       app.on('activate', async () => {
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
-          (window) => !embeddingHostManager.isHostWindow(window)
+          (window) =>
+            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
         );
         if (!hasVisibleWindow) {
           await createMainWindow();
@@ -882,6 +892,10 @@ app.on('will-quit', () => {
   if (unregisterEmbeddingHostIpcHandlers) {
     unregisterEmbeddingHostIpcHandlers();
     unregisterEmbeddingHostIpcHandlers = null;
+  }
+  if (unregisterChunkingHostIpcHandlers) {
+    unregisterChunkingHostIpcHandlers();
+    unregisterChunkingHostIpcHandlers = null;
   }
   if (unregisterMainIpcHandlers) {
     unregisterMainIpcHandlers();

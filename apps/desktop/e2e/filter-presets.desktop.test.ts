@@ -40,6 +40,12 @@ async function selectMockRoot(window: Page): Promise<void> {
 }
 
 async function selectDocumentationPreset(window: Page): Promise<void> {
+  const selectedDocumentationTrigger = window.getByRole('button', { name: /documentation/i });
+  if (await selectedDocumentationTrigger.isVisible().catch(() => false)) {
+    await expect(window.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
+    return;
+  }
+
   const presetTrigger = window.getByRole('button', { name: /select filter/i });
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
   await presetTrigger.click();

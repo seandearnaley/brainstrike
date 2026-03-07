@@ -20,12 +20,12 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 vi.mock('@brainstrike/file-system', () => ({
-  createFileSystemAdapter: () => ({}),
+  createWebFileSystemAdapter: () => ({}),
   createFixtureCapableAdapter: (adapter: unknown) => adapter,
 }));
 
 vi.mock('@brainstrike/storage', () => ({
-  createStorageAdapter: () => ({}),
+  createBrowserStorageAdapter: () => ({}),
 }));
 
 // Mock preferences stores
@@ -76,8 +76,8 @@ vi.mock('@brainstrike/queue', () => ({
   initializeQueueTelemetrySink: initializeQueueTelemetrySinkMock,
 }));
 
-// Mock file-import to prevent worker initialization during tests
-vi.mock('@brainstrike/file-import', () => ({
+// Mock chunking worker context to prevent worker initialization during tests
+vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
   ChunkingWorkerProvider: ({ children }: { children: React.ReactNode }) => children,
   useChunkingWorkerContext: vi.fn(() => ({
     port: null,
@@ -86,13 +86,9 @@ vi.mock('@brainstrike/file-import', () => ({
     error: null,
     reinitialize: vi.fn(),
   })),
-  useChunkingWorker: vi.fn(() => ({
-    port: null,
-    isReady: false,
-    isProcessing: false,
-    error: null,
-    reinitialize: vi.fn(),
-  })),
+}));
+
+vi.mock('@brainstrike/file-import/browser-queue-port', () => ({
   createBrowserEmbeddingQueuePort: vi.fn(() => ({
     add: vi.fn(),
     addBulk: vi.fn(),
@@ -101,6 +97,9 @@ vi.mock('@brainstrike/file-import', () => ({
     resume: vi.fn(),
     drain: vi.fn(),
   })),
+}));
+
+vi.mock('@brainstrike/file-import/enhanced-import', () => ({
   runEnhancedImport: vi.fn(async () => ({
     totalFiles: 0,
     importedFiles: 0,

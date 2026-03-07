@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ChunkingWorkerPort } from '../chunking-worker-port';
 
 const resolveChunkingWorkerUrlMock = vi.hoisted(() => vi.fn());
 
@@ -135,6 +136,7 @@ describe('ChunkingWorkerProvider', () => {
     vi.resetModules();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+    Reflect.deleteProperty(window as Window & { chunkingHost?: unknown }, 'chunkingHost');
     workers = [];
     resolveChunkingWorkerUrlMock.mockResolvedValue(new URL('file:///chunking.worker.js'));
     function MockWorkerConstructor(_scriptUrl: URL | string, _options?: WorkerOptions): Worker {
@@ -252,6 +254,152 @@ describe('ChunkingWorkerProvider', () => {
 
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
     expect(result.current.error).toBeNull();
+    unmount();
+  });
+
+  it('proxies chunking work through the desktop chunking host bridge', async () => {
+    const onStatus = vi.fn();
+    const onProgress = vi.fn();
+    const ensureStarted = vi.fn(async () => ({
+      state: 'running' as const,
+      active: false,
+      lastError: null,
+    }));
+    const chunkFile = vi.fn(async () => ({
+      type: 'result' as const,
+      id: 'file-request',
+      fileRecordId: 'file-1',
+      chunks: [],
+      strategyUsed: 'sentence' as const,
+      totalTokens: 12,
+      skipped: false,
+    }));
+    const chunkBatch = vi.fn(async () => [
+      {
+        type: 'result' as const,
+        id: 'batch-request',
+        fileRecordId: 'file-1',
+        chunks: [],
+        strategyUsed: 'sentence' as const,
+        totalTokens: 12,
+        skipped: false,
+      },
+    ]);
+
+    Object.assign(window, {
+      chunkingHost: {
+        ensureStarted,
+        getStatus: vi.fn(async () => ({
+          state: 'stopped' as const,
+          active: false,
+          lastError: null,
+        })),
+        reset: vi.fn(async () => ({ state: 'running' as const, active: false, lastError: null })),
+        chunkFile,
+        chunkBatch,
+        onStatus: (
+          callback: (status: { state: 'running'; active: boolean; lastError: null }) => void
+        ) => {
+          onStatus.mockImplementation(callback);
+          return () => {};
+        },
+        onProgress: (
+          callback: (progress: {
+            type: 'progress' | 'file-complete' | 'file-error';
+            requestId: string;
+            fileRecordId: string;
+            chunksCreated?: number;
+            currentIndex?: number;
+            totalFiles?: number;
+            result?: ChunkResult;
+            error?: string;
+          }) => void
+        ) => {
+          onProgress.mockImplementation(callback);
+          return () => {};
+        },
+      },
+    });
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => (
+        <ChunkingWorkerProvider autoStart={false} mode="host-proxy">
+          {children}
+        </ChunkingWorkerProvider>
+      )
+    );
+
+    let port: ChunkingWorkerPort | null = null;
+    await act(async () => {
+      port = await result.current.ensureStarted();
+    });
+    expect(ensureStarted).toHaveBeenCalledTimes(1);
+    await waitForExpect(() => expect(result.current.isReady).toBe(true));
+
+    if (!port) {
+      throw new Error('Expected chunking host proxy port');
+    }
+    const resolvedPort: ChunkingWorkerPort = port;
+
+    await expect(
+      resolvedPort.chunkFile('file-1', 'content', 'file.ts', '/file.ts', { strategy: 'sentence' })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        fileRecordId: 'file-1',
+        totalTokens: 12,
+      })
+    );
+
+    const batchPromise = resolvedPort.chunkBatch(
+      [{ fileRecordId: 'file-1', content: 'content', fileName: 'file.ts', filePath: '/file.ts' }],
+      { strategy: 'sentence' },
+      {
+        onProgress: vi.fn(),
+        onFileComplete: vi.fn(),
+      }
+    );
+
+    const batchCall = chunkBatch.mock.calls[0] as [unknown] | undefined;
+    const batchRequest = batchCall?.[0] as { requestId: string } | undefined;
+    if (!batchRequest) {
+      throw new Error('Expected chunk batch request payload');
+    }
+
+    onProgress({
+      type: 'progress',
+      requestId: batchRequest.requestId,
+      fileRecordId: 'file-1',
+      chunksCreated: 3,
+      currentIndex: 1,
+      totalFiles: 1,
+    });
+
+    await expect(batchPromise).resolves.toHaveLength(1);
+    unmount();
+  });
+
+  it('surfaces a missing desktop chunking host bridge as an explicit error', async () => {
+    Reflect.deleteProperty(window as Window & { chunkingHost?: unknown }, 'chunkingHost');
+
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => (
+        <ChunkingWorkerProvider autoStart={false} mode="host-proxy">
+          {children}
+        </ChunkingWorkerProvider>
+      )
+    );
+
+    await expect(result.current.ensureStarted()).rejects.toThrow(
+      'Chunking host bridge is not available.'
+    );
     unmount();
   });
 });

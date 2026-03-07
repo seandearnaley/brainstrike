@@ -65,31 +65,20 @@ vi.mock('@brainstrike/utils', async () => {
   };
 });
 
-vi.mock('@brainstrike/file-import', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/file-import')>(
-    '@brainstrike/file-import'
-  );
-  return {
-    ...actual,
-    runEnhancedImport: runEnhancedImportMock,
-    // Mock chunking worker hooks/contexts to prevent worker initialization in tests
-    useChunkingWorker: vi.fn().mockReturnValue({
-      port: null,
-      isReady: false,
-      isProcessing: false,
-      error: null,
-      reinitialize: vi.fn(),
-    }),
-    useChunkingWorkerContext: vi.fn().mockReturnValue({
-      port: null,
-      isReady: false,
-      isProcessing: false,
-      error: null,
-      ensureStarted: ensureStartedMock,
-      reinitialize: vi.fn(),
-    }),
-  };
-});
+vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
+  useChunkingWorkerContext: vi.fn().mockReturnValue({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    ensureStarted: ensureStartedMock,
+    reinitialize: vi.fn(),
+  }),
+}));
+
+vi.mock('@brainstrike/file-import/enhanced-import', () => ({
+  runEnhancedImport: runEnhancedImportMock,
+}));
 
 describe('useEnhancedFileImportService', () => {
   beforeEach(() => {

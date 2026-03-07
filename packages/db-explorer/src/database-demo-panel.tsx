@@ -127,6 +127,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   // Read import state from Zustand store (shared with VectorStatus for query pausing)
   const isImportActive = useVectorStatusUIStore((s) => s.isImporting);
+  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
 
   const data = useDatabaseDemoData({
     repository,
@@ -135,6 +136,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     database: dbContext,
     activeCollectionId,
     isImporting: isImportActive,
+    isEmbeddingActive,
   });
   const { records, chunks, refreshing, loadRecords, loadChunks } = data;
 

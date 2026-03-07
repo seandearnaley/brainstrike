@@ -1,7 +1,7 @@
-import { useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
-import { decodeFileSelection, generateProjectTreeText } from '@brainstrike/utils';
+import { createLogger, decodeFileSelection, generateProjectTreeText } from '@brainstrike/utils';
 import { useCallback, useMemo, useState } from 'react';
 import type { ContextExportOptions } from './context-export-options';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
@@ -12,6 +12,9 @@ import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 import { useTokenCounting } from './use-token-counting';
 import { buildFileNodeCache } from './utils/file-node-cache';
+import { persistFileExplorerStateImmediately } from './utils/persist-file-explorer-state';
+
+const logger = createLogger('FileExplorerMiddlePanelBase');
 
 interface FileExplorerMiddlePanelBaseProps {
   estimateTokenCost?: (tokens: number) => number;
@@ -35,6 +38,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
 
   const tokenCounting = useTokenCounting();
   const { handleSelectionLimitError } = useToastManager();
+  const { storageAdapter } = useAdapters();
 
   const store = useFileExplorerStoreContext();
   const [
@@ -68,6 +72,15 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
   const [projectTreeUsesViewFilters, setProjectTreeUsesViewFilters] = useState(false);
 
   const fileNodeCache = useMemo(() => buildFileNodeCache(unfilteredFileTree), [unfilteredFileTree]);
+  const handleIncludeProjectTreeChange = useCallback(
+    (checked: boolean) => {
+      setIncludeProjectTree(checked);
+      void persistFileExplorerStateImmediately(store, storageAdapter).catch((error: unknown) => {
+        logger.error('Failed to persist includeProjectTree immediately', { error });
+      });
+    },
+    [setIncludeProjectTree, store, storageAdapter]
+  );
 
   const projectTreeSource = projectTreeUsesViewFilters ? filteredFileTree : unfilteredFileTree;
 
@@ -217,7 +230,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
               onDownloadContext={handleDownloadContextFromPanel}
               onFileClick={handleFileClick}
               onFolderSummaryThresholdChange={setFolderSummaryThreshold}
-              onIncludeProjectTreeChange={setIncludeProjectTree}
+              onIncludeProjectTreeChange={handleIncludeProjectTreeChange}
               onProjectTreeUsesViewFiltersChange={setProjectTreeUsesViewFilters}
               onRequestFileContent={handlePreviewContentRequest}
               onSelectionChange={handleSelectionChange}

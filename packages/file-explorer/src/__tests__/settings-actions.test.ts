@@ -84,6 +84,48 @@ describe('settings-actions', () => {
     expect(store.getState().includeProjectTree).toBe(false);
   });
 
+  it('persists includeProjectTree to the active folder state', () => {
+    const store = makeStore();
+    const s = store.getState();
+
+    s.setCurrentFolderId('root');
+    s.setIncludeProjectTree(false);
+
+    expect(store.getState().includeProjectTree).toBe(false);
+    expect(store.getState().folderStates['root']?.includeProjectTree).toBe(false);
+  });
+
+  it('seeds a newly tracked folder from current top-level settings', () => {
+    const store = makeStore();
+    const s = store.getState();
+
+    s.setIncludeProjectTree(false);
+    s.setMaxSelectionCount(5);
+    s.setUseRegex(true);
+    s.setCurrentFolderId('root');
+
+    expect(store.getState().folderStates['root']?.includeProjectTree).toBe(false);
+    expect(store.getState().folderStates['root']?.maxSelectionCount).toBe(5);
+    expect(store.getState().folderStates['root']?.useRegex).toBe(true);
+  });
+
+  it('persists maxSelectionCount to the active folder state', () => {
+    const store = makeStore();
+    const s = store.getState();
+
+    s.setCurrentFolderId('root');
+    s.addSelectedFile('root', '/a');
+    s.addSelectedFile('root', '/b');
+    s.addSelectedFile('root', '/c');
+
+    s.setMaxSelectionCount(2);
+
+    expect(store.getState().maxSelectionCount).toBe(2);
+    expect(store.getState().selectedFilePaths.size).toBe(2);
+    expect(store.getState().folderStates['root']?.maxSelectionCount).toBe(2);
+    expect(store.getState().folderStates['root']?.selectedFilePaths.size).toBe(2);
+  });
+
   it('persists useRegex to the active folder state', () => {
     const store = makeStore();
     const s = store.getState();

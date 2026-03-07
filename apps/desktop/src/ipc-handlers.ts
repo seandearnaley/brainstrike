@@ -1,15 +1,10 @@
 import path from 'node:path';
-import type {
-  DirectoryHandle,
-  ElectronFileSystemAdapter,
-  FileHandle,
-} from '@brainstrike/file-system';
-import {
-  AccessError,
-  getTestDirectoryStructure,
-  resolveValidatedPath,
-} from '@brainstrike/file-system';
-import type { ElectronStorageAdapter } from '@brainstrike/storage';
+import { JobQueue } from '@brainstrike/db';
+import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system';
+import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
+import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
@@ -17,6 +12,8 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
+import { enqueueEmbeddingBackfill } from './embedding-backfill';
+import type { EmbeddingHostManager } from './embedding-host-manager';
 import { createFileReadErrorPayload } from './file-read-errors';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
@@ -30,6 +27,7 @@ const MOCK_PATH_PREFIX = '/mock/' as const;
  * Register all IPC handlers used by the desktop application.
  */
 interface RegisterIpcHandlerOptions {
+  embeddingHostManager?: EmbeddingHostManager;
   onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
 }
 
@@ -58,6 +56,10 @@ let isBackgrounded = false;
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_INTERVAL_MS = 2000;
+const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill';
+const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress';
+const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
+let embeddingBackfillInFlight: { embeddingSetId: string } | null = null;
 
 function flushPendingLiveUpdates(): void {
   if (liveFlushTimer) {
@@ -321,6 +323,7 @@ export function registerIpcHandlers(
   getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null,
   options?: RegisterIpcHandlerOptions
 ): () => void {
+  const embeddingHostManager = options?.embeddingHostManager;
   const registeredChannels = new Set<string>();
   const registerHandler = <Args extends unknown[], Result>(
     channel: string,
@@ -601,6 +604,66 @@ export function registerIpcHandlers(
       const db = await getDatabase();
       return await db.exec(sql);
     }, 'db:exec')
+  );
+
+  registerHandler(
+    EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
+    async (event: IpcMainInvokeEvent, embeddingSetId: unknown) =>
+      withCorruptionRecovery(async () => {
+        if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
+          throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
+        }
+        if (embeddingBackfillInFlight) {
+          throw new Error(
+            `Embedding backfill is already running for set ${embeddingBackfillInFlight.embeddingSetId}.`
+          );
+        }
+
+        const normalizedEmbeddingSetId = embeddingSetId.trim();
+        embeddingBackfillInFlight = {
+          embeddingSetId: normalizedEmbeddingSetId,
+        };
+
+        try {
+          const { getDatabase } = await import('./db-main');
+          const db = await getDatabase();
+          const jobQueue = new JobQueue(db);
+          return await enqueueEmbeddingBackfill(
+            db,
+            jobQueue,
+            normalizedEmbeddingSetId,
+            (done: number, total: number) => {
+              if (event.sender.isDestroyed()) {
+                return;
+              }
+              event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+                embeddingSetId: normalizedEmbeddingSetId,
+                done,
+                total,
+              });
+            },
+            {
+              assertCanContinue: () => {
+                const status = embeddingHostManager?.getStatus();
+                if (!status) {
+                  return;
+                }
+                if (status.state === 'error') {
+                  throw new Error(
+                    status.lastError ?? 'Embedding host entered an error state during backfill.'
+                  );
+                }
+                if (status.state === 'stopped' || status.state === 'stopping') {
+                  throw new Error('Embedding host stopped while backfill was in progress.');
+                }
+              },
+              progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
+            }
+          );
+        } finally {
+          embeddingBackfillInFlight = null;
+        }
+      }, EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)
   );
 
   registerHandler(

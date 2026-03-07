@@ -24,8 +24,22 @@ const EMBEDDING_HOST_ENSURE_STARTED_CHANNEL = 'embedding-host:ensure-started' as
 const EMBEDDING_HOST_STOP_CHANNEL = 'embedding-host:stop' as const;
 const EMBEDDING_HOST_RESET_CHANNEL = 'embedding-host:reset' as const;
 const EMBEDDING_HOST_GET_STATUS_CHANNEL = 'embedding-host:get-status' as const;
+const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill' as const;
+const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress' as const;
+const CHUNKING_HOST_STATUS_EVENT = 'chunking-host:status' as const;
+const CHUNKING_HOST_REQUEST_EVENT = 'chunking-host:request' as const;
+const CHUNKING_HOST_PROGRESS_EVENT = 'chunking-host:progress' as const;
+const CHUNKING_HOST_REPORT_STATUS_CHANNEL = 'chunking-host:report-status' as const;
+const CHUNKING_HOST_REPORT_RESPONSE_CHANNEL = 'chunking-host:report-response' as const;
+const CHUNKING_HOST_ENSURE_STARTED_CHANNEL = 'chunking-host:ensure-started' as const;
+const CHUNKING_HOST_STOP_CHANNEL = 'chunking-host:stop' as const;
+const CHUNKING_HOST_RESET_CHANNEL = 'chunking-host:reset' as const;
+const CHUNKING_HOST_GET_STATUS_CHANNEL = 'chunking-host:get-status' as const;
+const CHUNKING_HOST_CHUNK_FILE_CHANNEL = 'chunking-host:chunk-file' as const;
+const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = 'chunking-host:chunk-batch' as const;
 
 type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
+type ChunkingHostLifecycleState = EmbeddingHostLifecycleState;
 
 interface EmbeddingHostStatus {
   readonly active: boolean;
@@ -35,6 +49,66 @@ interface EmbeddingHostStatus {
 
 interface EmbeddingHostCommand {
   readonly type: 'reset' | 'stop';
+}
+
+interface EmbeddingHostBackfillProgress {
+  readonly done: number;
+  readonly embeddingSetId: string;
+  readonly total: number;
+}
+
+interface ChunkingHostStatus {
+  readonly active: boolean;
+  readonly lastError: string | null;
+  readonly state: ChunkingHostLifecycleState;
+}
+
+interface ChunkingHostFilePayload {
+  readonly content: string;
+  readonly fileName: string;
+  readonly filePath: string;
+  readonly fileRecordId: string;
+}
+
+interface ChunkingHostChunkFileRequest extends ChunkingHostFilePayload {
+  readonly kind: 'chunk-file';
+  readonly options: unknown;
+  readonly requestId: string;
+}
+
+interface ChunkingHostChunkBatchRequest {
+  readonly files: readonly ChunkingHostFilePayload[];
+  readonly kind: 'chunk-batch';
+  readonly options: unknown;
+  readonly requestId: string;
+}
+
+type ChunkingHostRequest = ChunkingHostChunkBatchRequest | ChunkingHostChunkFileRequest;
+
+interface ChunkingHostProgressEvent {
+  readonly chunksCreated?: number;
+  readonly currentIndex?: number;
+  readonly error?: string;
+  readonly fileRecordId: string;
+  readonly requestId: string;
+  readonly result?: unknown;
+  readonly totalFiles?: number;
+  readonly type: 'file-complete' | 'file-error' | 'progress';
+}
+
+interface ChunkingHostResponseReport {
+  readonly error?: string;
+  readonly fileRecordId?: string;
+  readonly requestId: string;
+  readonly result?: unknown;
+  readonly results?: readonly unknown[];
+  readonly type:
+    | 'batch-complete'
+    | 'error'
+    | 'file-complete'
+    | 'file-error'
+    | 'progress'
+    | 'result';
 }
 
 interface FileReadErrorPayload {
@@ -233,10 +307,20 @@ contextBridge.exposeInMainWorld('power', {
 contextBridge.exposeInMainWorld('embeddingHost', {
   ensureStarted: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL),
+  enqueueBackfill: (embeddingSetId: string) =>
+    ipcRenderer.invoke(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL, embeddingSetId),
   stop: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_STOP_CHANNEL),
   reset: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_RESET_CHANNEL),
   getStatus: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(EMBEDDING_HOST_GET_STATUS_CHANNEL),
+  onBackfillProgress: (callback: (progress: EmbeddingHostBackfillProgress) => void) => {
+    const listener = (_event: unknown, progress: EmbeddingHostBackfillProgress) =>
+      callback(progress);
+    ipcRenderer.on(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, listener);
+    };
+  },
   reportStatus: (status: EmbeddingHostStatus): void => {
     ipcRenderer.send(EMBEDDING_HOST_REPORT_STATUS_CHANNEL, status);
   },
@@ -252,6 +336,46 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     ipcRenderer.on(EMBEDDING_HOST_COMMAND_EVENT, listener);
     return () => {
       ipcRenderer.removeListener(EMBEDDING_HOST_COMMAND_EVENT, listener);
+    };
+  },
+});
+
+contextBridge.exposeInMainWorld('chunkingHost', {
+  ensureStarted: (): Promise<ChunkingHostStatus> =>
+    ipcRenderer.invoke(CHUNKING_HOST_ENSURE_STARTED_CHANNEL),
+  stop: (): Promise<ChunkingHostStatus> => ipcRenderer.invoke(CHUNKING_HOST_STOP_CHANNEL),
+  reset: (): Promise<ChunkingHostStatus> => ipcRenderer.invoke(CHUNKING_HOST_RESET_CHANNEL),
+  getStatus: (): Promise<ChunkingHostStatus> =>
+    ipcRenderer.invoke(CHUNKING_HOST_GET_STATUS_CHANNEL),
+  chunkFile: (request: ChunkingHostChunkFileRequest) =>
+    ipcRenderer.invoke(CHUNKING_HOST_CHUNK_FILE_CHANNEL, request),
+  chunkBatch: (request: ChunkingHostChunkBatchRequest) =>
+    ipcRenderer.invoke(CHUNKING_HOST_CHUNK_BATCH_CHANNEL, request),
+  reportStatus: (status: ChunkingHostStatus): void => {
+    ipcRenderer.send(CHUNKING_HOST_REPORT_STATUS_CHANNEL, status);
+  },
+  reportResponse: (response: ChunkingHostResponseReport): void => {
+    ipcRenderer.send(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL, response);
+  },
+  onStatus: (callback: (status: ChunkingHostStatus) => void) => {
+    const listener = (_event: unknown, status: ChunkingHostStatus) => callback(status);
+    ipcRenderer.on(CHUNKING_HOST_STATUS_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(CHUNKING_HOST_STATUS_EVENT, listener);
+    };
+  },
+  onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => {
+    const listener = (_event: unknown, progress: ChunkingHostProgressEvent) => callback(progress);
+    ipcRenderer.on(CHUNKING_HOST_PROGRESS_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(CHUNKING_HOST_PROGRESS_EVENT, listener);
+    };
+  },
+  onRequest: (callback: (request: ChunkingHostRequest) => void) => {
+    const listener = (_event: unknown, request: ChunkingHostRequest) => callback(request);
+    ipcRenderer.on(CHUNKING_HOST_REQUEST_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(CHUNKING_HOST_REQUEST_EVENT, listener);
     };
   },
 });

@@ -6,6 +6,7 @@ import type {
   PanelPersistenceState,
 } from '@brainstrike/ui';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import type { ChunkResult, ChunkingRequestOptions } from '@brainstrike/chunking-worker';
 import type { EmbeddingHostCommand, EmbeddingHostStatus } from '../embedding-host-shared';
 
 import type { LoggingSettingsPayload } from '../logging-shared';
@@ -27,6 +28,98 @@ declare global {
   interface Window {
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
+    };
+    chunkingHost: {
+      ensureStarted: () => Promise<{
+        active: boolean;
+        lastError: string | null;
+        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+      }>;
+      stop: () => Promise<{
+        active: boolean;
+        lastError: string | null;
+        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+      }>;
+      reset: () => Promise<{
+        active: boolean;
+        lastError: string | null;
+        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+      }>;
+      getStatus: () => Promise<{
+        active: boolean;
+        lastError: string | null;
+        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+      }>;
+      chunkFile: (request: {
+        content: string;
+        fileName: string;
+        filePath: string;
+        fileRecordId: string;
+        kind: 'chunk-file';
+        options: ChunkingRequestOptions;
+        requestId: string;
+      }) => Promise<ChunkResult>;
+      chunkBatch: (request: {
+        files: readonly {
+          content: string;
+          fileName: string;
+          filePath: string;
+          fileRecordId: string;
+        }[];
+        kind: 'chunk-batch';
+        options: ChunkingRequestOptions;
+        requestId: string;
+      }) => Promise<readonly ChunkResult[]>;
+      reportStatus: (status: {
+        active: boolean;
+        lastError: string | null;
+        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+      }) => void;
+      reportResponse: (response: unknown) => void;
+      onStatus: (
+        callback: (status: {
+          active: boolean;
+          lastError: string | null;
+          state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+        }) => void
+      ) => () => void;
+      onProgress: (
+        callback: (progress: {
+          chunksCreated?: number;
+          currentIndex?: number;
+          error?: string;
+          fileRecordId: string;
+          requestId: string;
+          result?: ChunkResult;
+          totalFiles?: number;
+          type: 'file-complete' | 'file-error' | 'progress';
+        }) => void
+      ) => () => void;
+      onRequest: (
+        callback: (
+          request:
+            | {
+                content: string;
+                fileName: string;
+                filePath: string;
+                fileRecordId: string;
+                kind: 'chunk-file';
+                options: ChunkingRequestOptions;
+                requestId: string;
+              }
+            | {
+                files: readonly {
+                  content: string;
+                  fileName: string;
+                  filePath: string;
+                  fileRecordId: string;
+                }[];
+                kind: 'chunk-batch';
+                options: ChunkingRequestOptions;
+                requestId: string;
+              }
+        ) => void
+      ) => () => void;
     };
     electronAPI: {
       storage: {

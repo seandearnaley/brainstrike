@@ -16,7 +16,13 @@ import { clearModelConfigCache } from '../worker/embedding-worker';
 
 const { mockState } = vi.hoisted(() => ({
   mockState: {
+    failureMessage: null as string | null,
+    failureModelId: null as string | null,
     initializedWith: [] as Array<{ id: string; dimensions: number }>,
+    initializeAttempts: [] as string[],
+    streamFailureMessage: null as string | null,
+    streamFailureModelId: null as string | null,
+    streamAttempts: [] as string[],
   },
 }));
 
@@ -44,6 +50,10 @@ vi.mock('../bge-m3-service', () => {
 
       this.modelId = cfg.id;
       this.dimensions = cfg.dimensions;
+      mockState.initializeAttempts.push(cfg.id);
+      if (mockState.failureModelId === cfg.id) {
+        throw new Error(mockState.failureMessage ?? `Failed to initialize ${cfg.id}`);
+      }
       this.status = 'ready';
       mockState.initializedWith.push({ id: cfg.id, dimensions: cfg.dimensions });
     }
@@ -75,6 +85,12 @@ vi.mock('../bge-m3-service', () => {
         results: EmbeddingResult[];
       }) => Promise<void> | void
     ): Promise<void> {
+      mockState.streamAttempts.push(this.modelId);
+      if (mockState.streamFailureModelId === this.modelId) {
+        throw new Error(
+          mockState.streamFailureMessage ?? `Failed to stream embeddings for ${this.modelId}`
+        );
+      }
       const results = await this.generateEmbeddings(texts);
       await onBatch({ startIndex: 0, endIndex: results.length, results });
     }
@@ -132,7 +148,13 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
   let db: PGlite;
 
   beforeEach(async () => {
+    mockState.failureMessage = null;
+    mockState.failureModelId = null;
     mockState.initializedWith.length = 0;
+    mockState.initializeAttempts.length = 0;
+    mockState.streamFailureMessage = null;
+    mockState.streamFailureModelId = null;
+    mockState.streamAttempts.length = 0;
     clearModelConfigCache();
     db = await wasmLoader.createPGlite('memory://embedding-worker-model-resolution');
     await migrate(db);
@@ -207,6 +229,243 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
         modelKey: 'nonexistent-model',
       })
     ).rejects.toThrow(/not found in database/i);
+  });
+
+  it('latches local model initialization failures and fails later jobs without retrying init', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-init-failure';
+    const payloadModelKey = 'transformers::Xenova/all-MiniLM-L6-v2';
+    mockState.failureModelId = 'Xenova/all-MiniLM-L6-v2';
+    mockState.failureMessage = 'WebGPU initialization failed';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, payloadModelKey, 'Xenova/all-MiniLM-L6-v2', 384, 'cosine', now]
+    );
+
+    for (const suffix of ['a', 'b']) {
+      const fileId = `file-init-failure-${suffix}`;
+      const chunkId = `chunk-init-failure-${suffix}`;
+      const jobId = `job-init-failure-${suffix}`;
+
+      await db.query(
+        `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+        [fileId, `${suffix}.ts`, `/${suffix}.ts`, 42, `hello ${suffix}`, `hash-${suffix}`, 11, now]
+      );
+
+      await db.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+         VALUES ($1,$2,0,$3,$4,$5,'text',$6,$7,$7)`,
+        [chunkId, fileId, `hello ${suffix}`, `hash-${suffix}`, 11, 11, now]
+      );
+
+      await db.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+         VALUES ($1,'embeddings','embed_chunk',$2,'queued',$3,0,1,0,$3,$3)`,
+        [
+          jobId,
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            modelKey: payloadModelKey,
+            expectedDimension: 384,
+          }),
+          now,
+        ]
+      );
+    }
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      claimBatchSize: 1,
+      initializeLocalModelOnStart: false,
+      leaseMs: 2000,
+    });
+
+    await waitFor(async () => {
+      const res = await db.query<{ failed_count: string }>(
+        `SELECT COUNT(*)::text AS failed_count
+           FROM job_queue
+          WHERE id IN ('job-init-failure-a', 'job-init-failure-b')
+            AND state = 'failed'`
+      );
+      return Number(res.rows[0]?.failed_count ?? 0) === 2;
+    });
+
+    expect(mockState.initializeAttempts).toEqual(['Xenova/all-MiniLM-L6-v2']);
+
+    await controller.stop();
+  });
+
+  it('latches local embedding stream failures and fails later jobs without retrying execution', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-stream-failure';
+    const payloadModelKey = 'transformers::Xenova/all-MiniLM-L6-v2';
+    mockState.streamFailureModelId = 'Xenova/all-MiniLM-L6-v2';
+    mockState.streamFailureMessage = 'WebGPU execution failed';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, payloadModelKey, 'Xenova/all-MiniLM-L6-v2', 384, 'cosine', now]
+    );
+
+    for (const suffix of ['a', 'b']) {
+      const fileId = `file-stream-failure-${suffix}`;
+      const chunkId = `chunk-stream-failure-${suffix}`;
+      const jobId = `job-stream-failure-${suffix}`;
+
+      await db.query(
+        `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+        [
+          fileId,
+          `${suffix}.ts`,
+          `/${suffix}.ts`,
+          42,
+          `hello ${suffix}`,
+          `stream-hash-${suffix}`,
+          11,
+          now,
+        ]
+      );
+
+      await db.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+         VALUES ($1,$2,0,$3,$4,$5,'text',$6,$7,$7)`,
+        [chunkId, fileId, `hello ${suffix}`, `stream-hash-${suffix}`, 11, 11, now]
+      );
+
+      await db.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+         VALUES ($1,'embeddings','embed_chunk',$2,'queued',$3,0,1,0,$3,$3)`,
+        [
+          jobId,
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            modelKey: payloadModelKey,
+            expectedDimension: 384,
+          }),
+          now,
+        ]
+      );
+    }
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      claimBatchSize: 1,
+      initializeLocalModelOnStart: false,
+      leaseMs: 2000,
+    });
+
+    await waitFor(async () => {
+      const res = await db.query<{ failed_count: string }>(
+        `SELECT COUNT(*)::text AS failed_count
+           FROM job_queue
+          WHERE id IN ('job-stream-failure-a', 'job-stream-failure-b')
+            AND state = 'failed'`
+      );
+      return Number(res.rows[0]?.failed_count ?? 0) === 2;
+    });
+
+    expect(mockState.streamAttempts).toEqual(['Xenova/all-MiniLM-L6-v2']);
+
+    await controller.stop();
+  });
+
+  it('stops claiming new jobs after a fatal local stream failure when configured', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-fatal-stream-failure';
+    const payloadModelKey = 'transformers::Xenova/all-MiniLM-L6-v2';
+    const fatalErrors: string[] = [];
+    mockState.streamFailureModelId = 'Xenova/all-MiniLM-L6-v2';
+    mockState.streamFailureMessage = 'WebGPU execution failed';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, payloadModelKey, 'Xenova/all-MiniLM-L6-v2', 384, 'cosine', now]
+    );
+
+    for (const suffix of ['a', 'b']) {
+      const fileId = `file-fatal-stream-failure-${suffix}`;
+      const chunkId = `chunk-fatal-stream-failure-${suffix}`;
+      const jobId = `job-fatal-stream-failure-${suffix}`;
+
+      await db.query(
+        `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+        [
+          fileId,
+          `${suffix}.ts`,
+          `/${suffix}.ts`,
+          42,
+          `hello ${suffix}`,
+          `fatal-stream-hash-${suffix}`,
+          11,
+          now,
+        ]
+      );
+
+      await db.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+         VALUES ($1,$2,0,$3,$4,$5,'text',$6,$7,$7)`,
+        [chunkId, fileId, `hello ${suffix}`, `fatal-stream-hash-${suffix}`, 11, 11, now]
+      );
+
+      await db.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+         VALUES ($1,'embeddings','embed_chunk',$2,'queued',$3,0,1,0,$3,$3)`,
+        [
+          jobId,
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            modelKey: payloadModelKey,
+            expectedDimension: 384,
+          }),
+          now,
+        ]
+      );
+    }
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      claimBatchSize: 1,
+      initializeLocalModelOnStart: false,
+      leaseMs: 2000,
+      stopOnFatalLocalError: true,
+      onFatalError: (error) => {
+        fatalErrors.push(error.message);
+      },
+    });
+
+    await waitFor(async () => {
+      const res = await db.query<{ state: string }>(
+        `SELECT state FROM job_queue WHERE id = 'job-fatal-stream-failure-a'`
+      );
+      return res.rows[0]?.state === 'failed';
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const followUpJob = await db.query<{ state: string }>(
+      `SELECT state FROM job_queue WHERE id = 'job-fatal-stream-failure-b'`
+    );
+
+    expect(followUpJob.rows[0]?.state).toBe('queued');
+    expect(mockState.streamAttempts).toEqual(['Xenova/all-MiniLM-L6-v2']);
+    expect(fatalErrors).toEqual([
+      "Local embedding execution failed for 'transformers::Xenova/all-MiniLM-L6-v2': WebGPU execution failed",
+    ]);
+
+    await controller.stop();
   });
 
   it('processes jobs that request a different local model via payload', async () => {

@@ -1,3 +1,7 @@
+import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences';
 import type { ElectronAPI } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,6 +40,7 @@ describe('useEmbeddingWorkerControls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     toast.mockClear();
+    __resetVectorStatusUIStoreForTests();
     Reflect.deleteProperty(testWindow, 'electronAPI');
     Reflect.deleteProperty(testWindow, 'embeddingHost');
   });
@@ -325,12 +330,85 @@ describe('useEmbeddingWorkerControls', () => {
       });
 
       expect(result.current.workerLocalRunning).toBe(true);
+      expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(true);
 
       await act(async () => {
         statusListener?.({ state: 'error', active: false, lastError: 'host failed' });
       });
 
       expect(result.current.startWorkerError).toBe('host failed');
+      expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(false);
+    });
+
+    it('keeps the visible renderer latched in embedding-active mode until the host stops', async () => {
+      let statusListener:
+        | ((status: {
+            active: boolean;
+            lastError: string | null;
+            state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+          }) => void)
+        | null = null;
+
+      testWindow.electronAPI = createElectronApiStub();
+      (
+        window as Window & {
+          embeddingHost?: {
+            ensureStarted: () => Promise<unknown>;
+            stop: () => Promise<unknown>;
+            reset: () => Promise<unknown>;
+            getStatus: () => Promise<unknown>;
+            onStatus: (
+              callback: typeof statusListener extends null
+                ? never
+                : NonNullable<typeof statusListener>
+            ) => () => void;
+          };
+        }
+      ).embeddingHost = {
+        ensureStarted: vi.fn(async () => ({ state: 'running', active: false, lastError: null })),
+        stop: vi.fn(async () => ({ state: 'stopped', active: false, lastError: null })),
+        reset: vi.fn(async () => ({ state: 'running', active: false, lastError: null })),
+        getStatus: vi.fn(async () => ({ state: 'running', active: false, lastError: null })),
+        onStatus: vi.fn((callback) => {
+          statusListener = callback;
+          return () => {
+            statusListener = null;
+          };
+        }),
+      };
+
+      renderHook(() =>
+        useEmbeddingWorkerControls({
+          db,
+          devicePreference: 'webgpu',
+          reinitEveryN: 100,
+          activeEmbeddingSetId: 'set-1',
+          onBackfill: vi.fn(),
+          toast,
+        })
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        statusListener?.({ state: 'running', active: true, lastError: null });
+      });
+
+      expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(true);
+
+      await act(async () => {
+        statusListener?.({ state: 'running', active: false, lastError: null });
+      });
+
+      expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(true);
+
+      await act(async () => {
+        statusListener?.({ state: 'stopped', active: false, lastError: null });
+      });
+
+      expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(false);
     });
 
     it('starts and stops the worker correctly', async () => {

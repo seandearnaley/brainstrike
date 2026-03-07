@@ -164,11 +164,36 @@ export default defineConfig({
         __dirname,
         '../../packages/file-explorer-hooks/src'
       ),
+      '@brainstrike/app-shell': path.resolve(__dirname, '../../packages/app-shell/src'),
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
+      '@brainstrike/db-explorer': path.resolve(__dirname, '../../packages/db-explorer/src'),
+      '@brainstrike/embeddings': path.resolve(__dirname, '../../packages/embeddings/src'),
+      '@brainstrike/queue/browser': path.resolve(__dirname, '../../packages/queue/src/browser.ts'),
+      '@brainstrike/queue': path.resolve(__dirname, '../../packages/queue/src'),
+      '@brainstrike/file-import/browser-queue-port': path.resolve(
+        __dirname,
+        '../../packages/file-import/src/browser-queue-port.ts'
+      ),
+      '@brainstrike/file-import/chunking-worker-context': path.resolve(
+        __dirname,
+        '../../packages/file-import/src/chunking-worker-context.tsx'
+      ),
+      '@brainstrike/file-import/enhanced-import': path.resolve(
+        __dirname,
+        '../../packages/file-import/src/enhanced-import.ts'
+      ),
+      '@brainstrike/file-import': path.resolve(__dirname, '../../packages/file-import/src'),
+      '@brainstrike/preferences': path.resolve(__dirname, '../../packages/preferences/src'),
+      '@brainstrike/platform-utils': path.resolve(__dirname, '../../packages/platform-utils/src'),
       '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
+      '@brainstrike/ui': path.resolve(__dirname, '../../packages/ui/src'),
       '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
       '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
       '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
+      '@brainstrike/vector-management': path.resolve(
+        __dirname,
+        '../../packages/vector-management/src'
+      ),
       '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
       // Force pino to browser build to avoid dynamic require of node libs
       pino: pinoBrowserPath,

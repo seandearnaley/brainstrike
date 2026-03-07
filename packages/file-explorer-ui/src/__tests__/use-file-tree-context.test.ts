@@ -7,21 +7,23 @@ import { useFileTree } from '../use-file-tree-context';
 import { __resetInFlightRootLoads } from '../use-lazy-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
+const mockWorkerPort = {
+  init: vi.fn(),
+  expandAll: vi.fn().mockResolvedValue({ tree: [], expandedPaths: [] }),
+  abort: vi.fn(),
+  terminate: vi.fn(),
+  updateTree: vi.fn(),
+  onRequestLoad: vi.fn(() => () => {}),
+  onTreeSnapshot: vi.fn(() => () => {}),
+  onProgress: vi.fn(() => () => {}),
+  onError: vi.fn(() => () => {}),
+  onLog: vi.fn(() => () => {}),
+};
+
 // Mock the file-tree-worker to avoid Worker instantiation in tests
 vi.mock('@brainstrike/file-tree-worker', () => ({
   resolveFileTreeWorkerUrl: vi.fn(() => new URL('data:text/javascript,')),
-  createFileTreeWorkerPort: vi.fn(() => ({
-    init: vi.fn(),
-    expandAll: vi.fn().mockResolvedValue({ tree: [], expandedPaths: [] }),
-    abort: vi.fn(),
-    terminate: vi.fn(),
-    updateTree: vi.fn(),
-    onRequestLoad: vi.fn(() => () => {}),
-    onTreeSnapshot: vi.fn(() => () => {}),
-    onProgress: vi.fn(() => () => {}),
-    onError: vi.fn(() => () => {}),
-    onLog: vi.fn(() => () => {}),
-  })),
+  createFileTreeWorkerPort: vi.fn(() => mockWorkerPort),
 }));
 
 // Mock global Worker for jsdom environment
@@ -61,7 +63,7 @@ describe('useFileTree (lazy loading version)', () => {
 
   beforeEach(() => {
     mockAdapter = new MockFileSystemAdapter();
-    vi.clearAllTimers();
+    vi.clearAllMocks();
     __resetInFlightRootLoads();
     resetLogger();
     setLogLevel(LogLevel.DEBUG);
@@ -281,6 +283,7 @@ describe('useFileTree (lazy loading version)', () => {
           (message) => message === 'loadRoot completed - handle map built'
         )
       ).toHaveLength(1);
+      expect(mockWorkerPort.init).toHaveBeenCalledTimes(1);
     });
 
     it('should refresh the tree when refreshTree is called', async () => {

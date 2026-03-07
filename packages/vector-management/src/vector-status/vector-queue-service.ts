@@ -1,6 +1,6 @@
 import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
 import { canonicalizeProviderModelKey, checkApiKeyAvailability } from '@brainstrike/embeddings';
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils';
 
 /**
  * Snapshot of embedding coverage statistics for a specific embedding set.
@@ -63,7 +63,7 @@ export interface VectorQueueDatabase {
 export interface VectorQueueServiceDependencies {
   chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'>;
   db: VectorQueueDatabase;
-  jobQueue: Pick<JobQueue, 'getQueueStats' | 'clear' | 'requeueFailed'>;
+  jobQueue: Pick<JobQueue, 'clear' | 'enqueueBatch' | 'getQueueStats' | 'requeueFailed'>;
 }
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
@@ -76,11 +76,44 @@ interface EmbeddingSetJobMetadata {
 }
 
 const logger = createLogger('VectorQueueService');
+const BACKFILL_ENQUEUE_BATCH_SIZE = 32;
+const BACKFILL_MAX_QUEUE_DEPTH = 64;
+const BACKFILL_BACKLOG_POLL_MS = 100;
 
-function* chunkArray<T>(items: T[], size: number): Generator<T[]> {
-  const step = Math.max(1, size);
-  for (let i = 0; i < items.length; i += step) {
-    yield items.slice(i, i + step);
+function cooperativeYield(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function getEmbeddingQueueBacklog(
+  jobQueue: Pick<JobQueue, 'getQueueStats'>
+): Promise<number> {
+  const snapshot = (await jobQueue.getQueueStats(EMBEDDINGS_QUEUE))[0];
+  if (!snapshot) {
+    return 0;
+  }
+  return Math.max(0, snapshot.queued + snapshot.running);
+}
+
+async function waitForQueueCapacity(
+  jobQueue: Pick<JobQueue, 'getQueueStats'>,
+  maxQueueDepth: number,
+  backlogPollMs: number
+): Promise<number> {
+  while (true) {
+    const backlog = await getEmbeddingQueueBacklog(jobQueue);
+    const capacity = maxQueueDepth - backlog;
+    if (capacity > 0) {
+      return capacity;
+    }
+    await sleep(backlogPollMs);
   }
 }
 
@@ -252,48 +285,37 @@ export function createVectorQueueService(
 
     async backfill(activeSetId, onProgress) {
       logger.info('Backfill requested', { embeddingSetId: activeSetId });
-      // Match the coverage query logic: include chunks where embedding_set_id is directly
-      // on the chunk OR where chunk.embedding_set_id is NULL but file_record.embedding_set_id matches.
-      // This handles both the new pattern (embedding_set_id on chunk) and legacy pattern (on file_record only).
-      const candidates = await db.query<{
-        id: string;
-        fileRecordId: string;
-        contentHash: string;
-      }>(
-        `SELECT c.id,
-                c.file_record_id AS "fileRecordId",
-                c.content_hash   AS "contentHash"
-           FROM file_chunks c
-           JOIN file_records fr ON fr.id = c.file_record_id
-          WHERE (
-                  c.embedding_set_id = $1
-                  OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = $1)
-                )
-            AND c.embedding IS NULL
-            AND NOT EXISTS (
-                  SELECT 1
-                    FROM job_queue j
-                   WHERE j.queue = $2
-                     AND j.state IN ('queued','running')
-                     AND j.dedupe_key = (c.id || ':' || $1 || ':' || c.content_hash)
-                )`,
-        [activeSetId, EMBEDDINGS_QUEUE]
-      );
-
       const setMetadata = await resolveEmbeddingSetJobMetadata(db, activeSetId);
+      const total = await countBackfillCandidates(db, activeSetId);
       logger.info('Embedding set metadata resolved for backfill', {
         embeddingSetId: activeSetId,
         modelKey: setMetadata.modelKey,
         expectedDimension: setMetadata.expectedDimension,
-        candidates: candidates.rows.length,
+        candidates: total,
       });
 
-      const total = candidates.rows.length;
       let done = 0;
+      let cursor: string | null = null;
       onProgress(done, total);
 
-      for (const batch of chunkArray(candidates.rows, 500)) {
-        const inserted = await enqueueEmbeddingChunkJobsBatch(db, batch, activeSetId, setMetadata);
+      while (done < total) {
+        const availableCapacity = await waitForQueueCapacity(
+          jobQueue,
+          BACKFILL_MAX_QUEUE_DEPTH,
+          BACKFILL_BACKLOG_POLL_MS
+        );
+        const batchLimit = Math.min(BACKFILL_ENQUEUE_BATCH_SIZE, total - done, availableCapacity);
+        const batch = await loadBackfillCandidateBatch(db, activeSetId, cursor, batchLimit);
+        if (batch.length === 0) {
+          break;
+        }
+        cursor = batch.at(-1)?.id ?? cursor;
+        const { inserted, selected } = await enqueueEmbeddingChunkJobsBatch(
+          jobQueue,
+          batch,
+          activeSetId,
+          setMetadata
+        );
         logger.debug('Embedded batch enqueued', {
           embeddingSetId: activeSetId,
           batchSize: batch.length,
@@ -301,6 +323,9 @@ export function createVectorQueueService(
         });
         done = Math.min(total, done + inserted);
         onProgress(done, total);
+        if (selected === batchLimit && done < total) {
+          await cooperativeYield();
+        }
       }
 
       if (done < total) {
@@ -314,13 +339,13 @@ export function createVectorQueueService(
         enqueued: done,
         queueCounts: stats[0] ?? null,
       });
-      const s = stats[0];
-      return s
+      const snapshot = stats[0];
+      return snapshot
         ? {
-            queued: s.queued,
-            running: s.running,
-            failed: s.failed,
-            succeeded: s.succeeded,
+            queued: snapshot.queued,
+            running: snapshot.running,
+            failed: snapshot.failed,
+            succeeded: snapshot.succeeded,
           }
         : defaultCounts;
     },
@@ -364,6 +389,68 @@ interface BackfillCandidate {
   id: string;
 }
 
+interface BackfillBatchResult {
+  inserted: number;
+  selected: number;
+}
+
+async function countBackfillCandidates(
+  db: VectorQueueDatabase,
+  embeddingSetId: string
+): Promise<number> {
+  const result = await db.query<{ count: number | string | null }>(
+    `SELECT COUNT(*)::int AS count
+       FROM file_chunks c
+       JOIN file_records fr ON fr.id = c.file_record_id
+      WHERE (
+              c.embedding_set_id = $1
+              OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = $1)
+            )
+        AND c.embedding IS NULL
+        AND NOT EXISTS (
+              SELECT 1
+                FROM job_queue j
+               WHERE j.queue = $2
+                 AND j.state IN ('queued','running')
+                 AND j.dedupe_key = (c.id::text || ':' || $1 || ':' || c.content_hash)
+            )`,
+    [embeddingSetId, EMBEDDINGS_QUEUE]
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function loadBackfillCandidateBatch(
+  db: VectorQueueDatabase,
+  embeddingSetId: string,
+  afterChunkId: string | null,
+  limit: number
+): Promise<BackfillCandidate[]> {
+  const result = await db.query<BackfillCandidate>(
+    `SELECT c.id::text            AS id,
+            c.file_record_id::text AS "fileRecordId",
+            c.content_hash         AS "contentHash"
+       FROM file_chunks c
+       JOIN file_records fr ON fr.id = c.file_record_id
+      WHERE (
+              c.embedding_set_id = $1
+              OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = $1)
+            )
+        AND c.embedding IS NULL
+        AND ($3::text IS NULL OR c.id::text > $3)
+        AND NOT EXISTS (
+              SELECT 1
+                FROM job_queue j
+               WHERE j.queue = $2
+                 AND j.state IN ('queued','running')
+                 AND j.dedupe_key = (c.id::text || ':' || $1 || ':' || c.content_hash)
+            )
+      ORDER BY c.id::text ASC
+      LIMIT $4`,
+    [embeddingSetId, EMBEDDINGS_QUEUE, afterChunkId, limit]
+  );
+  return result.rows;
+}
+
 async function resolveEmbeddingSetJobMetadata(
   db: VectorQueueDatabase,
   embeddingSetId: string
@@ -385,24 +472,22 @@ async function resolveEmbeddingSetJobMetadata(
     throw new Error(`Embedding set ${embeddingSetId} not found`);
   }
 
-  const canonicalKey = (() => {
-    const rawKey = row.modelKey?.trim();
-    if (!rawKey) {
-      logger.error('Failed to resolve embedding set metadata (missing model_key)', {
-        embeddingSetId,
-      });
-      throw new Error(`Embedding set ${embeddingSetId} is missing model_key metadata`);
-    }
-    const canonical = canonicalizeProviderModelKey(rawKey);
-    if (!canonical) {
-      logger.error('Failed to resolve embedding set metadata (invalid model_key)', {
-        embeddingSetId,
-        modelKey: row.modelKey,
-      });
-      throw new Error(`Embedding set ${embeddingSetId} has invalid model_key metadata`);
-    }
-    return canonical.composite;
-  })();
+  const rawKey = row.modelKey?.trim();
+  if (!rawKey) {
+    logger.error('Failed to resolve embedding set metadata (missing model_key)', {
+      embeddingSetId,
+    });
+    throw new Error(`Embedding set ${embeddingSetId} is missing model_key metadata`);
+  }
+
+  const canonical = canonicalizeProviderModelKey(rawKey);
+  if (!canonical) {
+    logger.error('Failed to resolve embedding set metadata (invalid model_key)', {
+      embeddingSetId,
+      modelKey: row.modelKey,
+    });
+    throw new Error(`Embedding set ${embeddingSetId} has invalid model_key metadata`);
+  }
 
   const expectedDimension = Number(row.dimensions ?? Number.NaN);
   if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
@@ -414,84 +499,41 @@ async function resolveEmbeddingSetJobMetadata(
   }
 
   return {
-    modelKey: canonicalKey,
+    modelKey: canonical.composite,
     expectedDimension,
   };
 }
 
 async function enqueueEmbeddingChunkJobsBatch(
-  db: VectorQueueDatabase,
+  jobQueue: Pick<JobQueue, 'enqueueBatch'>,
   batch: BackfillCandidate[],
   embeddingSetId: string,
   metadata: EmbeddingSetJobMetadata
-): Promise<number> {
+): Promise<BackfillBatchResult> {
   if (!batch.length) {
-    return 0;
+    return { inserted: 0, selected: 0 };
   }
 
-  const tuples: string[] = [];
-  const params: unknown[] = [];
-  batch.forEach((row, index) => {
-    const jobId = createJobId();
-    const payload = JSON.stringify({
-      chunkId: String(row.id),
-      fileRecordId: String(row.fileRecordId),
-      embeddingSetId,
-      modelKey: metadata.modelKey,
-      expectedDimension: metadata.expectedDimension,
-    });
-    const dedupeKey = `${row.id}:${embeddingSetId}:${row.contentHash}`;
-    const base = index * 4;
-    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`);
-    params.push(String(row.id), jobId, payload, dedupeKey);
-  });
+  const jobs = await jobQueue.enqueueBatch(
+    batch.map((row) => ({
+      queue: EMBEDDINGS_QUEUE,
+      jobType: 'embed_chunk' as const,
+      payload: {
+        chunkId: String(row.id),
+        fileRecordId: String(row.fileRecordId),
+        embeddingSetId,
+        modelKey: metadata.modelKey,
+        expectedDimension: metadata.expectedDimension,
+      },
+      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
+      maxAttempts: 5,
+    }))
+  );
 
-  const timestampParam = params.length + 1;
-  params.push(new Date().toISOString());
-
-  const sql = `WITH pending (chunk_id, job_id, payload_json, dedupe_key) AS (
-      VALUES ${tuples.join(',')}
-    ),
-    inserted AS (
-      INSERT INTO job_queue (
-        id, queue, job_type, payload, state, run_at,
-        attempts, max_attempts, backoff_ms,
-        lease_token, leased_until, worker_id,
-        dedupe_key, error, created_at, updated_at
-      )
-      SELECT pending.job_id,
-             '${EMBEDDINGS_QUEUE}',
-             'embed_chunk',
-             pending.payload_json::jsonb,
-             'queued',
-             $${timestampParam},
-             0,
-             5,
-             0,
-             NULL,
-             NULL,
-             NULL,
-             pending.dedupe_key,
-             NULL,
-             $${timestampParam},
-             $${timestampParam}
-        FROM pending
-       WHERE NOT EXISTS (
-         SELECT 1
-           FROM job_queue j
-          WHERE j.dedupe_key = pending.dedupe_key
-            AND j.state IN ('queued','running')
-       )
-      RETURNING 1
-    )
-    SELECT COUNT(*)::int AS inserted FROM inserted`;
-
-  const result = await db.query<{ inserted: number }>(sql, params);
-  return Number(result.rows[0]?.inserted ?? 0);
-}
-
-function createJobId(): string {
-  return `job-${generateUUID()}`;
+  return {
+    inserted: jobs.length,
+    selected: batch.length,
+  };
 }
 
 export function calculateLatency(

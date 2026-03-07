@@ -89,6 +89,14 @@ export default defineConfig({
         find: '@brainstrike/file-explorer-ui/styles.css',
         replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
       },
+      {
+        find: '@brainstrike/ui/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/ui/styles.css'),
+      },
+      {
+        find: '@brainstrike/ui/globals.css',
+        replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
+      },
       // Use source for consistent transforms and single React instance
       {
         find: '@brainstrike/file-explorer-ui',
@@ -114,12 +122,74 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/utils/src'),
       },
       {
+        find: '@brainstrike/ui',
+        replacement: path.resolve(__dirname, '../../packages/ui/src'),
+      },
+      {
+        find: '@brainstrike/platform-utils',
+        replacement: path.resolve(__dirname, '../../packages/platform-utils/src'),
+      },
+      {
         find: '@brainstrike/app-shell',
         replacement: path.resolve(__dirname, '../../packages/app-shell/src'),
       },
       {
+        find: '@brainstrike/db-explorer',
+        replacement: path.resolve(__dirname, '../../packages/db-explorer/src'),
+      },
+      {
+        find: '@brainstrike/embeddings',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src'),
+      },
+      {
+        find: '@brainstrike/queue/browser',
+        replacement: path.resolve(__dirname, '../../packages/queue/src/browser.ts'),
+      },
+      {
+        find: '@brainstrike/queue',
+        replacement: path.resolve(__dirname, '../../packages/queue/src'),
+      },
+      {
+        find: '@brainstrike/file-import/browser-queue-port',
+        replacement: path.resolve(
+          __dirname,
+          '../../packages/file-import/src/browser-queue-port.ts'
+        ),
+      },
+      {
+        find: '@brainstrike/file-import/chunking-worker-context',
+        replacement: path.resolve(
+          __dirname,
+          '../../packages/file-import/src/chunking-worker-context.tsx'
+        ),
+      },
+      {
+        find: '@brainstrike/file-import/enhanced-import',
+        replacement: path.resolve(__dirname, '../../packages/file-import/src/enhanced-import.ts'),
+      },
+      {
+        find: '@brainstrike/file-import',
+        replacement: path.resolve(__dirname, '../../packages/file-import/src'),
+      },
+      {
+        find: '@brainstrike/preferences',
+        replacement: path.resolve(__dirname, '../../packages/preferences/src'),
+      },
+      {
+        find: '@brainstrike/storage/electron',
+        replacement: path.resolve(__dirname, '../../packages/storage/src/electron.ts'),
+      },
+      {
         find: '@brainstrike/storage',
         replacement: path.resolve(__dirname, '../../packages/storage/src'),
+      },
+      {
+        find: '@brainstrike/file-system/path-validation',
+        replacement: path.resolve(__dirname, '../../packages/file-system/src/path-validation.ts'),
+      },
+      {
+        find: '@brainstrike/file-system/electron',
+        replacement: path.resolve(__dirname, '../../packages/file-system/src/electron.ts'),
       },
       {
         find: '@brainstrike/file-system',
@@ -132,6 +202,10 @@ export default defineConfig({
       {
         find: '@brainstrike/workers',
         replacement: path.resolve(__dirname, '../../packages/workers'),
+      },
+      {
+        find: '@brainstrike/vector-management',
+        replacement: path.resolve(__dirname, '../../packages/vector-management/src'),
       },
       {
         // Force pino to browser build to avoid dynamic require of node libs in renderer

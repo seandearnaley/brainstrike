@@ -1,3 +1,4 @@
+import type { StorageAdapter } from '@brainstrike/storage';
 import { createLogger } from '@brainstrike/utils';
 import { resolveWorkerStorageUrl, WorkerStorage } from './worker-storage';
 
@@ -8,49 +9,23 @@ export interface WorkerInitResult {
 
 const logger = createLogger('Persistence');
 
-function isHeadlessEnvironment(): boolean {
-  const ciKey = 'CI';
-  return (
-    typeof navigator !== 'undefined' &&
-    (navigator.webdriver === true ||
-      navigator.userAgent.includes('HeadlessChrome') ||
-      navigator.userAgent.includes('PhantomJS') ||
-      'playwright' in globalThis ||
-      (typeof process !== 'undefined' && process.env?.[ciKey] === 'true'))
-  );
-}
-
-function isElectronEnvironment(): boolean {
-  const electronKey = 'electron';
-  return (
-    (typeof window !== 'undefined' &&
-      (window as { process?: { type?: string } }).process?.type === 'renderer') ||
-    navigator?.userAgent.toLowerCase().includes('electron') ||
-    (typeof globalThis !== 'undefined' && ('require' in globalThis || 'electron' in globalThis)) ||
-    (typeof process !== 'undefined' && process.versions?.[electronKey] !== undefined)
-  );
-}
-
-function getEnvironmentReason(isTest: boolean, isElectron: boolean, isHeadless: boolean): string {
+function getEnvironmentReason(isTest: boolean): string {
   if (isTest) {
     return 'test environment';
-  }
-  if (isElectron) {
-    return 'Electron environment';
-  }
-  if (isHeadless) {
-    return 'headless/CI environment';
   }
   return 'SSR environment';
 }
 
-function tryInitializeWorker(shouldLog: boolean): {
+function tryInitializeWorker(
+  storageAdapter: StorageAdapter,
+  shouldLog: boolean
+): {
   workerStorage: WorkerStorage | null;
   useWorker: boolean;
 } {
   try {
     const workerUrl = resolveWorkerStorageUrl();
-    const workerStorage = new WorkerStorage(workerUrl);
+    const workerStorage = new WorkerStorage(workerUrl, storageAdapter);
     const useWorker = workerStorage.isWorkerAvailable;
     if (shouldLog && useWorker) {
       logger.debug('Web Worker enabled for background state persistence');
@@ -66,28 +41,40 @@ function tryInitializeWorker(shouldLog: boolean): {
 
 function setupCleanupHandlers(workerStorage: WorkerStorage | null): void {
   if (typeof window !== 'undefined') {
+    const flushPendingWrites = () => {
+      workerStorage?.flushPendingWrites();
+    };
     const handleBeforeUnload = () => {
       if (workerStorage) {
+        flushPendingWrites();
         workerStorage.destroy();
       }
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPendingWrites();
+      }
+    };
+    window.addEventListener('unload', handleBeforeUnload);
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   }
 }
 
-export function initWorker(isTest: boolean, shouldLog: boolean): WorkerInitResult {
-  const isHeadless = isHeadlessEnvironment();
-  const isElectron = isElectronEnvironment();
-
-  if (typeof window !== 'undefined' && !isTest && !isElectron && !isHeadless) {
-    const { workerStorage, useWorker } = tryInitializeWorker(shouldLog);
+export function initWorker(
+  storageAdapter: StorageAdapter,
+  isTest: boolean,
+  shouldLog: boolean
+): WorkerInitResult {
+  if (typeof window !== 'undefined' && !isTest) {
+    const { workerStorage, useWorker } = tryInitializeWorker(storageAdapter, shouldLog);
     setupCleanupHandlers(workerStorage);
     return { workerStorage, useWorker };
   }
 
   if (shouldLog) {
-    const reason = getEnvironmentReason(isTest, isElectron, isHeadless);
+    const reason = getEnvironmentReason(isTest);
     logger.debug(`Web Worker disabled due to ${reason}, using immediate persistence`);
   }
 

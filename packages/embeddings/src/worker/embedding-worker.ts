@@ -269,6 +269,11 @@ type HostedProviderConfig = Extract<
 
 export interface EmbeddingWorkerOptions {
   cacheDir?: string; // directory to cache/load models from
+  /**
+   * Maximum number of queue jobs claimed in a single poll iteration.
+   * Keep this modest in desktop flows to reduce bursty CPU/memory pressure.
+   */
+  claimBatchSize?: number;
   concurrency?: number; // default: 1..4
   db: IDatabase;
   device?: 'webgpu' | 'wasm'; // preferred device for transformers backend
@@ -283,20 +288,48 @@ export interface EmbeddingWorkerOptions {
    * initialization explicitly.
    */
   initializeLocalModelOnStart?: boolean;
+  /**
+   * Delay between claimed batches.
+   * Use this to deliberately trade throughput for smoother foreground responsiveness.
+   */
+  interBatchDelayMs?: number;
   leaseMs?: number; // default: 60000
   log?: (msg: string, meta?: unknown) => void;
   metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
   modelKey?: string | undefined; // default: registry default
   onDownloadProgress?: (modelId: string, progress: number) => void;
+  onFatalError?: (error: Error) => void;
   onWorkerActivityChange?: (active: boolean) => void;
   queue?: string; // default: 'embeddings'
   reinitEveryN?: number; // reinitialize service every N successes (default disabled unless env/option set)
   service?: EmbeddingService; // optional DI for tests or custom backends
+  /**
+   * When true, a fatal local-model initialization/execution error stops the
+   * worker loop immediately instead of continuing to claim and fail later jobs.
+   * This is intended for desktop hidden-host mode to avoid renderer churn.
+   */
+  stopOnFatalLocalError?: boolean;
   workerId?: string; // optional
 }
 
 export interface EmbeddingWorkerController {
   stop: () => Promise<void>;
+}
+
+const DEFAULT_CLAIM_BATCH_SIZE = 50;
+
+function resolvePositiveIntegerOption(
+  value: number | undefined,
+  optionName: string,
+  fallback: number
+): number {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${optionName} must be a positive integer when configured.`);
+  }
+  return value;
 }
 
 interface EmbedChunkPayload {
@@ -317,22 +350,24 @@ type StreamingEmbeddingService = EmbeddingService & {
 };
 
 async function sha256Hex(input: string): Promise<string> {
-  try {
-    // Use Web Crypto when available
-    if ('crypto' in globalThis && globalThis.crypto?.subtle) {
-      const subtle = globalThis.crypto.subtle;
-      const data = new TextEncoder().encode(input);
-      const digest = await subtle.digest('SHA-256', data);
-      return Array.from(new Uint8Array(digest))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-    }
-  } catch (error) {
-    workerLogger.debug('Web Crypto SHA-256 failed, falling back to node:crypto', { error });
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error('Web Crypto SHA-256 is unavailable in the renderer embedding worker.');
   }
-  // Node crypto path (Node 16+)
-  const { createHash } = await import('node:crypto');
-  return createHash('sha256').update(input).digest('hex');
+
+  try {
+    const data = new TextEncoder().encode(input);
+    const digest = await subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  } catch (error) {
+    throw new Error(
+      `Web Crypto SHA-256 failed in the renderer embedding worker: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
 }
 
 async function loadChunk(db: IDatabase, id: string) {
@@ -905,7 +940,17 @@ export async function startEmbeddingWorker(
   const queueName = options.queue ?? 'embeddings';
   const leaseMs = options.leaseMs ?? 60_000;
   const heartbeatMs = options.heartbeatIntervalMs ?? 10_000;
-  const concurrency = Math.max(1, options.concurrency ?? 1);
+  const concurrency = resolvePositiveIntegerOption(options.concurrency, 'concurrency', 1);
+  const interBatchDelayMs = resolvePositiveIntegerOption(
+    options.interBatchDelayMs,
+    'interBatchDelayMs',
+    50
+  );
+  const claimBatchSize = resolvePositiveIntegerOption(
+    options.claimBatchSize,
+    'claimBatchSize',
+    DEFAULT_CLAIM_BATCH_SIZE
+  );
   const modelResolution = resolveWorkerModel(options.modelKey);
   ensureLocalRuntime(modelResolution);
   const initializeLocalModelOnStart = options.initializeLocalModelOnStart ?? true;
@@ -915,6 +960,17 @@ export async function startEmbeddingWorker(
   let service: EmbeddingService;
   let modelConfig: ModelConfig | null = null;
   let localServiceInitialized = false;
+  let localModelExecutionFailure: {
+    compositeKey: string;
+    message: string;
+    modelId: string;
+  } | null = null;
+  let fatalWorkerError: Error | null = null;
+  let localModelInitializationFailure: {
+    compositeKey: string;
+    message: string;
+    modelId: string;
+  } | null = null;
 
   if (isLocalProviderType(modelResolution.provider) && !initializeLocalModelOnStart) {
     service = options.service ?? new SimpleEmbeddingService();
@@ -979,6 +1035,25 @@ export async function startEmbeddingWorker(
       const parsed = Number(raw);
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
     })();
+
+  function triggerFatalLocalWorkerError(error: Error): void {
+    if (!options.stopOnFatalLocalError || fatalWorkerError) {
+      return;
+    }
+    fatalWorkerError = error;
+    running = false;
+    reportWorkerActivity(false);
+    workerLogger.error('Stopping embedding worker after fatal local model error', {
+      error: error.message,
+    });
+    try {
+      options.onFatalError?.(error);
+    } catch (callbackError) {
+      workerLogger.error('Embedding worker fatal error callback failed', {
+        error: callbackError,
+      });
+    }
+  }
 
   function assertLocalModelSwitchAllowed(targetModelId: string): void {
     const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
@@ -1058,11 +1133,96 @@ export async function startEmbeddingWorker(
   ): void {
     modelConfig = cfg;
     localServiceInitialized = true;
+    localModelExecutionFailure = null;
+    localModelInitializationFailure = null;
     activeModelId = targetModelId;
     activeCompositeKey = targetCompositeKey;
     ensureModelDimension(modelConfig, activeCompositeKey, log);
     processedSinceInit = 0;
     consecutiveFailures = 0;
+  }
+
+  function failFastOnLatchedLocalModelInitializationFailure(
+    targetModelId: string,
+    targetCompositeKey: string,
+    forceReinit: boolean
+  ): void {
+    if (forceReinit || !localModelInitializationFailure) {
+      return;
+    }
+    if (
+      localModelInitializationFailure.modelId !== targetModelId ||
+      localModelInitializationFailure.compositeKey !== targetCompositeKey
+    ) {
+      return;
+    }
+
+    throw new Error(
+      `Local embedding model initialization previously failed for '${targetCompositeKey}': ${localModelInitializationFailure.message}`
+    );
+  }
+
+  function latchLocalModelInitializationFailure(
+    targetModelId: string,
+    targetCompositeKey: string,
+    error: unknown
+  ): Error {
+    const message = error instanceof Error ? error.message : String(error);
+    const wrappedError = new Error(
+      `Local embedding model initialization failed for '${targetCompositeKey}': ${message}`
+    );
+    localModelInitializationFailure = {
+      modelId: targetModelId,
+      compositeKey: targetCompositeKey,
+      message,
+    };
+    triggerFatalLocalWorkerError(wrappedError);
+    return options.stopOnFatalLocalError
+      ? wrappedError
+      : error instanceof Error
+        ? error
+        : new Error(message);
+  }
+
+  function failFastOnLatchedLocalModelExecutionFailure(
+    targetModelId: string,
+    targetCompositeKey: string
+  ): void {
+    if (!localModelExecutionFailure) {
+      return;
+    }
+    if (
+      localModelExecutionFailure.modelId !== targetModelId ||
+      localModelExecutionFailure.compositeKey !== targetCompositeKey
+    ) {
+      return;
+    }
+
+    throw new Error(
+      `Local embedding execution previously failed for '${targetCompositeKey}': ${localModelExecutionFailure.message}`
+    );
+  }
+
+  function latchLocalModelExecutionFailure(
+    targetModelId: string,
+    targetCompositeKey: string,
+    error: unknown
+  ): Error {
+    const message = error instanceof Error ? error.message : String(error);
+    const wrappedError = new Error(
+      `Local embedding execution failed for '${targetCompositeKey}': ${message}`
+    );
+    localModelExecutionFailure = {
+      modelId: targetModelId,
+      compositeKey: targetCompositeKey,
+      message,
+    };
+    triggerFatalLocalWorkerError(wrappedError);
+    return options.stopOnFatalLocalError
+      ? wrappedError
+      : error instanceof Error
+        ? error
+        : new Error(message);
   }
 
   async function ensureLocalModel(
@@ -1087,18 +1247,29 @@ export async function startEmbeddingWorker(
     }
 
     assertLocalModelSwitchAllowed(targetModelId);
+    failFastOnLatchedLocalModelInitializationFailure(
+      targetModelId,
+      targetCompositeKey,
+      forceReinit
+    );
     logLocalModelInitialization(shouldReinitialize);
-    const cfg = await resolveLocalModelConfig(targetModelId, shouldReinitialize);
+    try {
+      const cfg = await resolveLocalModelConfig(targetModelId, shouldReinitialize);
 
-    if (shouldReinitialize) {
-      service = await createReinitializedLocalService(cfg);
-    } else {
-      await initializeExistingLocalService(cfg);
+      if (shouldReinitialize) {
+        service = await createReinitializedLocalService(cfg);
+      } else {
+        await initializeExistingLocalService(cfg);
+      }
+      finalizeLocalModelState(cfg, targetModelId, targetCompositeKey);
+    } catch (error) {
+      throw latchLocalModelInitializationFailure(targetModelId, targetCompositeKey, error);
     }
-    finalizeLocalModelState(cfg, targetModelId, targetCompositeKey);
   }
 
   async function resetService() {
+    localModelExecutionFailure = null;
+    localModelInitializationFailure = null;
     await ensureLocalModel(activeModelId, activeCompositeKey, {
       forceReinit: true,
     });
@@ -1342,6 +1513,10 @@ export async function startEmbeddingWorker(
     metrics.jobsFailed += jobs.length;
     consecutiveFailures += 1;
 
+    if (fatalWorkerError) {
+      return;
+    }
+
     if (reinitEveryN > 0 && consecutiveFailures >= reinitEveryN) {
       workerLogger.warn(
         `Consecutive failures (${consecutiveFailures}); forcing service reinitialization.`
@@ -1500,10 +1675,17 @@ export async function startEmbeddingWorker(
 
     if (isLocalProviderType(jobModel.provider)) {
       await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
-      const results = await generateLocalEmbeddings(
-        cacheMisses.map((item) => item.chunk),
-        expectedDimension
-      );
+      failFastOnLatchedLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey);
+      let results: EmbeddingResult[];
+      try {
+        results = await generateLocalEmbeddings(
+          cacheMisses.map((item) => item.chunk),
+          expectedDimension
+        );
+      } catch (error) {
+        throw latchLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey, error);
+      }
+      localModelExecutionFailure = null;
       generatedEmbeddings = results.map((r) => r.embedding);
     } else {
       generatedEmbeddings = await generateHostedEmbeddings(
@@ -1629,35 +1811,42 @@ export async function startEmbeddingWorker(
     }
 
     await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
+    failFastOnLatchedLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey);
     const streamingService = assertStreamingService(service);
 
-    await streamingService.generateEmbeddingsStream(
-      cacheMisses.map((item) => item.chunk.content),
-      async (batch) => {
-        if (checkLease()) {
-          throw new Error('Lease lost during processing');
-        }
+    try {
+      await streamingService.generateEmbeddingsStream(
+        cacheMisses.map((item) => item.chunk.content),
+        async (batch) => {
+          if (checkLease()) {
+            throw new Error('Lease lost during processing');
+          }
 
-        const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
-        if (batchItems.length !== batch.results.length) {
-          throw new Error(
-            `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
-          );
-        }
-
-        const embeddings = batch.results.map((result, index) => {
-          if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
+          const batchItems = cacheMisses.slice(batch.startIndex, batch.endIndex);
+          if (batchItems.length !== batch.results.length) {
             throw new Error(
-              `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
+              `Local embedding stream batch mismatch: ${batchItems.length} items for ${batch.results.length} results.`
             );
           }
-          return result.embedding;
-        });
 
-        await completeBatchAndTrack(batchItems, embeddings, completedJobIds);
-        storeToCacheAsync(batchItems, embeddings, modelKey, expectedDimension);
-      }
-    );
+          const embeddings = batch.results.map((result, index) => {
+            if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
+              throw new Error(
+                `Embedding dimension mismatch for model '${jobModel.compositeKey}' batch item ${batch.startIndex + index}: received ${result.embedding.length}, expected ${expectedDimension}.`
+              );
+            }
+            return result.embedding;
+          });
+
+          await completeBatchAndTrack(batchItems, embeddings, completedJobIds);
+          storeToCacheAsync(batchItems, embeddings, modelKey, expectedDimension);
+        }
+      );
+    } catch (error) {
+      throw latchLocalModelExecutionFailure(jobModel.modelId, jobModel.compositeKey, error);
+    }
+
+    localModelExecutionFailure = null;
 
     await maybeReinitialize();
   }
@@ -1949,6 +2138,25 @@ export async function startEmbeddingWorker(
     }
   }
 
+  async function handleIdleBatch(): Promise<void> {
+    reportWorkerActivity(false);
+    if (scheduledReinitPending) {
+      workerLogger.info('Queue idle; performing scheduled embedding service reinitialization.');
+      try {
+        await resetService();
+      } catch (error) {
+        workerLogger.error('Scheduled embedding service reinitialization failed', { error });
+      }
+    }
+    // Silent on empty polls - this happens constantly during idle
+    await sleep(400); // idle backoff
+  }
+
+  function isClosedDatabaseError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('PGlite is closed') || message.includes('closed');
+  }
+
   async function processBatch(): Promise<void> {
     const batchStart = performance.now();
     try {
@@ -1957,21 +2165,11 @@ export async function startEmbeddingWorker(
         queue: queueName,
         leaseMs,
         workerId,
-        limit: 50, // Configurable batch size
+        limit: claimBatchSize,
       })) as ClaimedJob[];
 
       if (jobs.length === 0) {
-        reportWorkerActivity(false);
-        if (scheduledReinitPending) {
-          workerLogger.info('Queue idle; performing scheduled embedding service reinitialization.');
-          try {
-            await resetService();
-          } catch (error) {
-            workerLogger.error('Scheduled embedding service reinitialization failed', { error });
-          }
-        }
-        // Silent on empty polls - this happens constantly during idle
-        await sleep(400); // idle backoff
+        await handleIdleBatch();
         return;
       }
 
@@ -1982,13 +2180,13 @@ export async function startEmbeddingWorker(
         endActiveBatch();
       }
 
-      // Yield between batches to let V8 GC run and prevent Dawn GPU buffer
-      // pool exhaustion under sustained background embedding load.
-      await sleep(50);
+      // Yield between batches to let V8/GC and the foreground renderer breathe
+      // under sustained background embedding load.
+      if (running) {
+        await sleep(interBatchDelayMs);
+      }
     } catch (err) {
-      // If database is closed/closing, gracefully stop the worker
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('PGlite is closed') || message.includes('closed')) {
+      if (isClosedDatabaseError(err)) {
         running = false; // Stop the worker loop
         return;
       }
@@ -2031,6 +2229,8 @@ export async function startEmbeddingWorker(
         failed: metrics.jobsFailed,
         avgDurationMs: Math.round(avgMs),
         concurrency,
+        claimBatchSize,
+        interBatchDelayMs,
         queue: queueName,
         modelKey: activeCompositeKey,
       });

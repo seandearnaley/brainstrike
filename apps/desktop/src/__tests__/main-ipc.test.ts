@@ -72,18 +72,15 @@ vi.mock('electron', async () => {
 import { ipcMain, ipcRenderer } from 'electron';
 
 // Use function syntax for Vitest 4 constructor mocks
-vi.mock('@brainstrike/file-system', () => {
+vi.mock('@brainstrike/file-system/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});
   });
-  return {
-    ElectronFileSystemAdapter: MockAdapter,
-    createFixtureCapableAdapter: (adapter: unknown) => adapter,
-  };
+  return { ElectronFileSystemAdapter: MockAdapter };
 });
 
-vi.mock('@brainstrike/storage', () => {
+vi.mock('@brainstrike/storage/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});

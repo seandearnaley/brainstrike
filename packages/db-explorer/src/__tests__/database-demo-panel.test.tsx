@@ -2,6 +2,7 @@ import {
   __resetImportSettingsStoreForTests,
   __resetTokenPreferencesStoreForTests,
   __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
 } from '@brainstrike/preferences';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -271,28 +272,16 @@ vi.mock('file-saver', () => ({
   saveAs: vi.fn(),
 }));
 
-// Mock the file-import package to prevent chunking worker initialization
-vi.mock('@brainstrike/file-import', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-import')>();
-  return {
-    ...actual,
-    useChunkingWorker: vi.fn().mockReturnValue({
-      port: null,
-      isReady: false,
-      isProcessing: false,
-      error: null,
-      reinitialize: vi.fn(),
-    }),
-    useChunkingWorkerContext: vi.fn().mockReturnValue({
-      port: null,
-      isReady: false,
-      isProcessing: false,
-      error: null,
-      ensureStarted: ensureStartedMock,
-      reinitialize: vi.fn(),
-    }),
-  };
-});
+vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
+  useChunkingWorkerContext: vi.fn().mockReturnValue({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    ensureStarted: ensureStartedMock,
+    reinitialize: vi.fn(),
+  }),
+}));
 
 vi.mock('./enhanced-file-import-service', () => ({
   useEnhancedFileImportService: vi.fn().mockReturnValue({
@@ -375,6 +364,7 @@ describe('DatabaseDemoPanel', () => {
     ensureStartedMock.mockClear();
     mockImportFiles.mockReset();
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
+    useVectorStatusUIStore.getState().setSchemaVerified(true);
 
     // Setup default mock returns
     mockRepository.findAll.mockResolvedValue([]);
@@ -550,8 +540,10 @@ describe('DatabaseDemoPanel', () => {
       const refreshButton = screen.getByRole('button', { name: /Refresh/ });
       await user.click(refreshButton);
 
-      // Now using live queries, so refresh should call the live query refresh
-      expect(mockRecordLiveQueryResult.refresh).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(mockRecordLiveQueryResult.refresh).toHaveBeenCalledTimes(1);
+        expect(mockChunkLiveQueryResult.refresh).toHaveBeenCalledTimes(1);
+      });
     });
   });
 

@@ -12,7 +12,7 @@ import { useDatabaseDemoData } from '../use-database-demo-data';
 
 // Mock preferences store state for useVectorStatusUIStore
 const mockVectorStatusUIStore = {
-  schemaVerified: false,
+  schemaVerified: true,
   setSchemaVerified: vi.fn((value: boolean) => {
     mockVectorStatusUIStore.schemaVerified = value;
   }),
@@ -144,7 +144,7 @@ const createMockDatabase = () =>
 beforeEach(() => {
   mockedUsePGliteLiveQuery.mockReset();
   // Reset mock store state between tests
-  mockVectorStatusUIStore.schemaVerified = false;
+  mockVectorStatusUIStore.schemaVerified = true;
   mockVectorStatusUIStore.cachedFileData = null;
   mockVectorStatusUIStore.isImporting = false;
   mockVectorStatusUIStore.isEmbeddingActive = false;
@@ -154,6 +154,69 @@ beforeEach(() => {
 });
 
 describe('useDatabaseDemoData', () => {
+  it('pauses live queries while embedding is active and falls back to cached snapshots', async () => {
+    mockVectorStatusUIStore.schemaVerified = true;
+    mockVectorStatusUIStore.cachedFileData = {
+      collectionId: 'set-1',
+      records: [
+        {
+          id: 'cached-record',
+          name: 'cached.ts',
+          path: '/cached.ts',
+          size: 12,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+          content: null,
+          contentHash: 'cached-record-hash',
+          tokenCount: 1,
+          processedAt: null,
+          chunksProcessedAt: null,
+          chunksCount: 1,
+          chunkingStrategy: null,
+          hasEmbedding: false,
+          embeddingSetId: 'set-1',
+        },
+      ],
+      chunks: [
+        {
+          id: 'cached-chunk',
+          fileRecordId: 'cached-record',
+          chunkIndex: 0,
+          content: 'cached chunk',
+          contentHash: 'cached-chunk-hash',
+          tokenCount: 3,
+          chunkType: 'text',
+          chunkSize: 3,
+          hasEmbedding: false,
+          embeddingDimensions: 0,
+          embeddingSetId: 'set-1',
+          embeddingUpdatedAt: null,
+          embeddingHash: null,
+          createdAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+    };
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+        isEmbeddingActive: true,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.records.at(0)?.id).toBe('cached-record');
+    });
+
+    expect(result.current.chunks.at(0)?.id).toBe('cached-chunk');
+  });
+
   it('streams records, chunks, and db info when repositories are provided', async () => {
     const now = new Date().toISOString();
     const repository = createRepository([], 5);
@@ -209,9 +272,10 @@ describe('useDatabaseDemoData', () => {
       })
     );
 
-    // Wait for data to be loaded
+    // Wait for live query data and async db status effects to settle.
     await waitFor(() => {
       expect(result.current.records.length).toBeGreaterThan(0);
+      expect(result.current.dbInfo?.connected).toBe(true);
     });
 
     expect(result.current.records).toEqual([
@@ -226,7 +290,6 @@ describe('useDatabaseDemoData', () => {
     expect(result.current.chunks).toEqual([
       expect.objectContaining({ id: 'chunk-1', fileRecordId: '1', embeddingSetId: 'set-1' }),
     ]);
-    expect(result.current.dbInfo?.connected).toBe(true);
     expect(toast).not.toHaveBeenCalled();
   });
 

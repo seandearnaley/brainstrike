@@ -219,12 +219,11 @@ describe('window setup', () => {
     const { createWindow } = await import('../../main');
     await createWindow();
 
-    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledTimes(1);
-    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8081');
     const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map(
       (call: [string]) => call[0]
     );
-    for (const url of attemptedUrls) {
+    expect(attemptedUrls).toContain('http://localhost:8081');
+    for (const url of attemptedUrls.filter((value) => !value.includes('?mode=embedding-host'))) {
       expect(url).toBe('http://localhost:8081');
     }
     expect(mockBrowserWindowInstance.webContents.openDevTools).not.toHaveBeenCalled();

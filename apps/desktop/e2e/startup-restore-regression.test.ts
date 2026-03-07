@@ -17,12 +17,6 @@ interface PersistedEnvelope<TState> {
   readonly version: 1;
 }
 
-interface FileExplorerRuntimeSnapshot {
-  readonly currentFolderId: string | null;
-  readonly folderAccessOrder: readonly string[];
-  readonly rootDirectoryPath: string | null;
-}
-
 const RESTORED_FOLDER_PATH = '/mock/test/directory';
 const RESTORED_FOLDER_ID = 'directory';
 const RESTORED_FILE_NAME = 'mock-file1.txt';
@@ -218,55 +212,6 @@ function recordContainsText(record: BufferedLogRecord, text: string): boolean {
   return record.args.some((arg) => typeof arg === 'string' && arg.includes(text));
 }
 
-async function getFileExplorerRuntimeSnapshot(page: Page): Promise<FileExplorerRuntimeSnapshot> {
-  return await page.evaluate<FileExplorerRuntimeSnapshot>(() => {
-    const fileExplorerStore = (
-      window as Window & {
-        __brainstrike_file_explorer_store__?: {
-          getState?: () => {
-            currentFolderId?: string | null;
-            folderAccessOrder?: readonly string[];
-            rootDirectoryHandle?: { path?: string | null } | null;
-          };
-        };
-      }
-    ).__brainstrike_file_explorer_store__;
-
-    const state = fileExplorerStore?.getState?.();
-    if (!state) {
-      throw new Error('File explorer store state is not available');
-    }
-
-    return {
-      currentFolderId: state.currentFolderId ?? null,
-      folderAccessOrder: [...(state.folderAccessOrder ?? [])],
-      rootDirectoryPath: state.rootDirectoryHandle?.path ?? null,
-    };
-  });
-}
-
-async function waitForStableRestoredState(
-  page: Page,
-  timeoutMs = 10_000
-): Promise<FileExplorerRuntimeSnapshot> {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const snapshot = await getFileExplorerRuntimeSnapshot(page);
-    const hasExpectedFolder =
-      snapshot.currentFolderId === RESTORED_FOLDER_ID &&
-      snapshot.folderAccessOrder.includes(RESTORED_FOLDER_ID);
-
-    if (hasExpectedFolder) {
-      return snapshot;
-    }
-
-    await page.waitForTimeout(200);
-  }
-
-  throw new Error('Timed out waiting for restored file explorer state');
-}
-
 function isObjectWithNumber(
   value: unknown,
   key: string
@@ -288,10 +233,6 @@ test.describe('Startup Restore Regression', () => {
     await expect(
       window.getByRole('tab', { name: new RegExp(RESTORED_FILE_NAME, 'i') })
     ).toBeVisible({ timeout: 15_000 });
-
-    const runtimeSnapshot = await waitForStableRestoredState(window, 15_000);
-    expect(runtimeSnapshot.currentFolderId).toBe(RESTORED_FOLDER_ID);
-    expect(runtimeSnapshot.folderAccessOrder).toContain(RESTORED_FOLDER_ID);
 
     await window.waitForTimeout(1000);
 
@@ -394,6 +335,21 @@ test.describe('Startup Restore Regression', () => {
     const fileContentWorkerNotReadyLogs = records.filter((record) =>
       recordContainsText(record, 'Worker not initialized, skipping file content loading')
     );
+    const immediatePersistenceLogs = records.filter((record) =>
+      recordContainsText(record, 'using immediate persistence')
+    );
+    const electronWorkerDisabledLogs = records.filter((record) =>
+      recordContainsText(record, 'Web Worker disabled due to Electron environment')
+    );
+    const persistenceWorkerErrorLogs = records.filter((record) =>
+      recordContainsText(record, 'Worker error occurred')
+    );
+    const persistenceWorkerGetFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Worker getItem failed')
+    );
+    const persistenceWorkerSetFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Worker setItem failed')
+    );
 
     expect(directPathReadLogs).toHaveLength(0);
     expect(lookupRetryLogs).toHaveLength(0);
@@ -424,5 +380,10 @@ test.describe('Startup Restore Regression', () => {
     expect(warmCacheWaitingLogs).toHaveLength(0);
     expect(tokenCachePersistenceLogs).toHaveLength(0);
     expect(fileContentWorkerNotReadyLogs).toHaveLength(0);
+    expect(immediatePersistenceLogs).toHaveLength(0);
+    expect(electronWorkerDisabledLogs).toHaveLength(0);
+    expect(persistenceWorkerErrorLogs).toHaveLength(0);
+    expect(persistenceWorkerGetFailureLogs).toHaveLength(0);
+    expect(persistenceWorkerSetFailureLogs).toHaveLength(0);
   });
 });

@@ -238,6 +238,7 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
 
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
+  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
   // Use Zustand store for caching - persists across component unmounts during bulk operations
   const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
@@ -245,14 +246,12 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   // Only enable live queries when:
   // 1. Database is available
   // 2. Schema has been verified (migrations completed, tables exist)
-  // 3. Not currently importing files (to avoid perf degradation during bulk inserts)
+  // 3. Not currently importing files
+  // 4. Not currently embedding/backfilling
   //
-  // NOTE: We do NOT disable during embedding generation (isEmbeddingActive) because:
-  // - This query only fires when embedding_sets or file_records change
-  // - Embedding generation updates file_chunks.embedding, not these tables
-  // - Users need to see collections while searching/browsing during embedding
-  // - Only the queue monitoring queries in useVectorQueueState need to be paused
-  const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting;
+  // The collection selector keeps a cached snapshot in Zustand, so we can pause
+  // live query invalidation during heavy background work without blanking the UI.
+  const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting && !isEmbeddingActive;
   // Track loading/error state for initial fetch
   interface FetchState {
     error: Error | null;

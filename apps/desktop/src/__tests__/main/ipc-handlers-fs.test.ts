@@ -1,10 +1,6 @@
-import {
-  AccessError,
-  type DirectoryHandle,
-  type ElectronFileSystemAdapter,
-  type FileHandle,
-} from '@brainstrike/file-system';
-import type { ElectronStorageAdapter } from '@brainstrike/storage';
+import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
+import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

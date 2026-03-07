@@ -1,3 +1,4 @@
+import type { Job } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createVectorQueueService,
@@ -5,9 +6,36 @@ import {
   type VectorQueueServiceDependencies,
 } from '../vector-status/vector-queue-service';
 
+interface MockEnqueueJob {
+  dedupeKey?: string;
+  payload: unknown;
+}
+
+function createMockEnqueuedJobs(jobs: MockEnqueueJob[]): Job[] {
+  return jobs.map((job, index) => ({
+    id: `job-${index}`,
+    queue: 'embeddings',
+    jobType: 'embed_chunk',
+    payload: job.payload,
+    state: 'queued',
+    runAt: new Date(0).toISOString(),
+    attempts: 0,
+    max_attempts: 5,
+    backoff_ms: 0,
+    lease_token: null,
+    leasedUntil: null,
+    worker_id: null,
+    dedupe_key: job.dedupeKey ?? null,
+    error: null,
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  }));
+}
+
 describe('vector-queue-service', () => {
   it('refresh aggregates queue metrics and latency', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(),
       getQueueStats: vi.fn(async () => [
         { queue: 'embeddings', queued: 1, running: 2, failed: 3, succeeded: 4 },
       ]),
@@ -69,6 +97,7 @@ describe('vector-queue-service', () => {
 
   it('backfill enqueues chunks with dedupe keys', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
         { queue: 'embeddings', queued: 2, running: 1, failed: 0, succeeded: 5 },
       ]),
@@ -86,19 +115,25 @@ describe('vector-queue-service', () => {
         }
         if (sql.includes('FROM embedding_sets')) {
           return {
-            rows: [{ modelKey: 'local::jina-code', modelId: 'jina-code', dimensions: 768 }],
+            rows: [
+              {
+                modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+                modelId: 'jinaai/jina-embeddings-v2-base-code',
+                dimensions: 768,
+              },
+            ],
           } as { rows: unknown[] };
         }
-        if (sql.startsWith('SELECT c.id')) {
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 2 }] } as { rows: unknown[] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
           return {
             rows: [
               { id: '1', fileRecordId: '10', contentHash: 'aa' },
               { id: '2', fileRecordId: '11', contentHash: 'bb' },
             ],
           } as { rows: unknown[] };
-        }
-        if (sql.includes('INSERT INTO job_queue')) {
-          return { rows: [{ inserted: 2 }] } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
       }) as VectorQueueDatabase['query'],
@@ -121,27 +156,30 @@ describe('vector-queue-service', () => {
     });
 
     const metadataQuery = queries.find((entry) => entry.sql.includes('FROM embedding_sets'));
-    const selectQuery = queries.find((entry) => entry.sql.includes('FROM file_chunks'));
-    const insertQuery = queries.find((entry) => entry.sql.includes('INSERT INTO job_queue'));
+    const countQuery = queries.find((entry) => entry.sql.includes('COUNT(*)::int AS count'));
+    const selectQuery = queries.find((entry) => entry.sql.includes('ORDER BY c.id::text ASC'));
 
-    if (!(metadataQuery && selectQuery && insertQuery)) {
-      throw new Error('Expected metadata, select, and insert queries');
+    if (!(metadataQuery && countQuery && selectQuery)) {
+      throw new Error('Expected metadata, count, and select queries');
     }
 
     expect(metadataQuery.sql).toContain('FROM embedding_sets');
+    expect(countQuery.sql).toContain('COUNT(*)::int AS count');
     expect(selectQuery.sql).toContain('FROM file_chunks');
-    expect(insertQuery.sql).toContain('INSERT INTO job_queue');
 
-    const insertParams = insertQuery.params ?? [];
-    expect(insertParams).toEqual(expect.arrayContaining(['1:set-1:aa', '2:set-1:bb']));
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    const enqueuedJobs = vi.mocked(jobQueue.enqueueBatch).mock.calls[0]?.[0];
+    expect(enqueuedJobs).toBeDefined();
+    expect(enqueuedJobs).toHaveLength(2);
 
-    const payloads = insertParams
-      .filter((value) => typeof value === 'string' && String(value).includes('"chunkId"'))
-      .map((value) => JSON.parse(String(value)) as Record<string, unknown>);
-    expect(payloads).toHaveLength(2);
+    const payloads = enqueuedJobs?.map((job) => job.payload as Record<string, unknown>) ?? [];
     for (const payload of payloads) {
-      expect(payload).toMatchObject({ modelKey: 'local::jina-code', expectedDimension: 768 });
+      expect(payload).toMatchObject({
+        modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+        expectedDimension: 768,
+      });
     }
+    expect(enqueuedJobs?.map((job) => job.dedupeKey)).toEqual(['1:set-1:aa', '2:set-1:bb']);
     expect(progressUpdates).toEqual([
       { done: 0, total: 2 },
       { done: 2, total: 2 },
@@ -149,8 +187,93 @@ describe('vector-queue-service', () => {
     expect(counts).toEqual({ queued: 2, running: 1, failed: 0, succeeded: 5 });
   });
 
+  it('backfill splits large enqueue work into cooperative batches', async () => {
+    const queueStatsSequence = [
+      { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      { queue: 'embeddings', queued: 32, running: 0, failed: 0, succeeded: 0 },
+      { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+      { queue: 'embeddings', queued: 24, running: 8, failed: 0, succeeded: 0 },
+    ];
+    const finalQueueStats = {
+      queue: 'embeddings',
+      queued: 56,
+      running: 8,
+      failed: 0,
+      succeeded: 0,
+    };
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
+      getQueueStats: vi.fn(async () => [queueStatsSequence.shift() ?? finalQueueStats]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+    };
+
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+                modelId: 'jinaai/jina-embeddings-v2-base-code',
+                dimensions: 768,
+              },
+            ],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 96 }] } as { rows: unknown[] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          const start = afterChunkId ? Number(afterChunkId) : 0;
+          const limit = Number(params?.[3] ?? 32);
+          return {
+            rows: Array.from({ length: Math.max(0, Math.min(limit, 96 - start)) }, (_, index) => {
+              const id = start + index + 1;
+              return {
+                id: `${id}`,
+                fileRecordId: `${id + 1000}`,
+                contentHash: `hash-${id}`,
+              };
+            }),
+          } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository,
+    });
+
+    const progressUpdates: Array<{ done: number; total: number }> = [];
+    await service.backfill('set-1', (done, total) => {
+      progressUpdates.push({ done, total });
+    });
+
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(jobQueue.enqueueBatch).mock.calls.map(([jobs]) => jobs.length)).toEqual([
+      32, 32, 32,
+    ]);
+    expect(progressUpdates).toEqual([
+      { done: 0, total: 96 },
+      { done: 32, total: 96 },
+      { done: 64, total: 96 },
+      { done: 96, total: 96 },
+    ]);
+  });
+
   it('reembedSet clears embeddings then triggers backfill', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
       getQueueStats: vi.fn(async () => [
         { queue: 'embeddings', queued: 3, running: 0, failed: 0, succeeded: 10 },
       ]),
@@ -165,7 +288,10 @@ describe('vector-queue-service', () => {
             rows: [{ modelKey: 'openai::text-embedding-3-small', modelId: null, dimensions: 1536 }],
           } as { rows: unknown[] };
         }
-        if (sql.startsWith('SELECT c.id')) {
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 3 }] } as { rows: unknown[] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
           // Return 3 chunks that need re-embedding
           return {
             rows: [
@@ -174,9 +300,6 @@ describe('vector-queue-service', () => {
               { id: '3', fileRecordId: '12', contentHash: 'hash3' },
             ],
           } as { rows: unknown[] };
-        }
-        if (sql.includes('INSERT INTO job_queue')) {
-          return { rows: [{ inserted: 3 }] } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
       }) as VectorQueueDatabase['query'],
@@ -215,6 +338,7 @@ describe('vector-queue-service', () => {
 
   it('reembedSet returns zero cleared when no embeddings exist', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async () => []),
       getQueueStats: vi.fn(async () => [
         { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
       ]),

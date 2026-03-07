@@ -149,6 +149,23 @@ describe('MigrationRunner', () => {
       expect(result.rows).toHaveLength(3); // id, name, created_at columns
     });
 
+    it('logs cached skips as a single summary entry', async () => {
+      await runner.up([testMigration1, testMigration2, testMigration3]);
+      mockLogger.debug.mockReset();
+
+      await runner.up([testMigration3, testMigration2, testMigration1]);
+
+      expect(mockLogger.debug).toHaveBeenCalledTimes(1);
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        'Skipped already applied migrations from cache',
+        {
+          count: 3,
+          firstVersion: 1,
+          lastVersion: 3,
+        }
+      );
+    });
+
     it('should handle migration failures with rollback', async () => {
       const badMigration: Migration = {
         version: 99,

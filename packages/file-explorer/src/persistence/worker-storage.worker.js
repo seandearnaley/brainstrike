@@ -1,16 +1,5 @@
-// Operation handlers for different storage operations
-interface StorageOperation {
-  id: string;
-  key?: string;
-  operation?: string;
-  rawValue?: string;
-  success?: boolean;
-  type: string;
-  value?: unknown;
-}
-
 // Handle save operation
-function handleSaveOperation(data: StorageOperation): void {
+function handleSaveOperation(data) {
   if (!data.key || data.value === undefined) {
     throw new Error('Save operation requires key and value');
   }
@@ -29,7 +18,7 @@ function handleSaveOperation(data: StorageOperation): void {
 }
 
 // Handle load operation
-function handleLoadOperation(data: StorageOperation): void {
+function handleLoadOperation(data) {
   if (!data.key) {
     throw new Error('Load operation requires key');
   }
@@ -43,7 +32,7 @@ function handleLoadOperation(data: StorageOperation): void {
 }
 
 // Handle remove operation
-function handleRemoveOperation(data: StorageOperation): void {
+function handleRemoveOperation(data) {
   if (!data.key) {
     throw new Error('Remove operation requires key');
   }
@@ -57,8 +46,8 @@ function handleRemoveOperation(data: StorageOperation): void {
 }
 
 // Handle storage response
-function handleStorageResponse(data: StorageOperation): void {
-  let result: unknown = true;
+function handleStorageResponse(data) {
+  let result = true;
   if (data.operation === 'getItem') {
     if (data.rawValue) {
       try {
@@ -78,9 +67,8 @@ function handleStorageResponse(data: StorageOperation): void {
   });
 }
 
-// Main event handler
 self.addEventListener('message', async (event) => {
-  const data = event.data as StorageOperation;
+  const data = event.data;
 
   try {
     switch (data.type) {

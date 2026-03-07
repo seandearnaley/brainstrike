@@ -1,6 +1,5 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { ChunkingWorkerProvider } from '@brainstrike/file-import';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
 import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
@@ -19,6 +18,8 @@ import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './log-buffer';
 import './styles.css';
+import { ChunkingHostApp } from './components/chunking-host-app';
+import { DesktopChunkingWorkerProvider } from './components/desktop-chunking-worker-provider';
 import { EmbeddingHostApp } from './components/embedding-host-app';
 
 // Import layout component
@@ -170,11 +171,11 @@ function App() {
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
       <DbSchemaVerifier>
-        <ChunkingWorkerProvider autoStart={false}>
+        <DesktopChunkingWorkerProvider autoStart={false} mode="host-proxy">
           <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
             <RootLayoutContent />
           </AdaptersProvider>
-        </ChunkingWorkerProvider>
+        </DesktopChunkingWorkerProvider>
       </DbSchemaVerifier>
     </DbProvider>
   );
@@ -182,6 +183,10 @@ function App() {
 
 function isEmbeddingHostMode(): boolean {
   return new URLSearchParams(window.location.search).get('mode') === 'embedding-host';
+}
+
+function isChunkingHostMode(): boolean {
+  return new URLSearchParams(window.location.search).get('mode') === 'chunking-host';
 }
 
 const rootElement = document.getElementById('root');
@@ -199,6 +204,8 @@ if (!existingRoot) {
 root.render(
   isEmbeddingHostMode() ? (
     <EmbeddingHostApp />
+  ) : isChunkingHostMode() ? (
+    <ChunkingHostApp />
   ) : (
     <StrictMode>
       <App />

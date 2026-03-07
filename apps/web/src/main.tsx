@@ -1,10 +1,10 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { ChunkingWorkerProvider } from '@brainstrike/file-import';
-import { createFileSystemAdapter, createFixtureCapableAdapter } from '@brainstrike/file-system';
+import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
+import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
 import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
-import { createStorageAdapter } from '@brainstrike/storage';
+import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import {
   applyLoggingPreferences,
   initializeLogging,
@@ -23,9 +23,9 @@ import './app/globals.css';
 import RootLayoutContent from './app/root-layout-content';
 
 // Create web adapters
-const baseFileSystemAdapter = createFileSystemAdapter('web');
+const baseFileSystemAdapter = createWebFileSystemAdapter();
 const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, { platform: 'web' });
-const storageAdapter = createStorageAdapter('web');
+const storageAdapter = createBrowserStorageAdapter();
 
 // Default to INFO in development - use LOG_LEVEL=DEBUG env var for verbose debugging
 const defaultLevel = LogLevel.INFO;

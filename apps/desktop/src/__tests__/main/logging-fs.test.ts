@@ -107,18 +107,15 @@ import { LogLevel } from '@brainstrike/utils';
 import { ipcRenderer } from 'electron';
 
 // Mock other dependencies
-vi.mock('@brainstrike/file-system', () => {
+vi.mock('@brainstrike/file-system/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});
   });
-  return {
-    ElectronFileSystemAdapter: MockAdapter,
-    createFixtureCapableAdapter: (adapter: unknown) => adapter,
-  };
+  return { ElectronFileSystemAdapter: MockAdapter };
 });
 
-vi.mock('@brainstrike/storage', () => {
+vi.mock('@brainstrike/storage/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});

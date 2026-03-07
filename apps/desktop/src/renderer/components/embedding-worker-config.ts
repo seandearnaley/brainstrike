@@ -4,6 +4,12 @@ import { useModelRegistryStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('EmbeddingWorkerConfig');
+// Keep the hidden host responsive, but avoid the one-job-at-a-time churn that
+// creates excessive DB/queue pressure during large backfills.
+const DESKTOP_EMBED_CLAIM_BATCH_SIZE = 4;
+// Leave a short gap between claimed batches so the hidden host yields without
+// stretching backfills into a long sequence of tiny bursts.
+const DESKTOP_EMBED_INTER_BATCH_DELAY_MS = 75;
 
 function parsePositiveIntegerEnv(
   name: 'VITE_EMBED_CONCURRENCY' | 'VITE_EMBED_LEASE_MS',
@@ -27,7 +33,9 @@ export function createEmbeddingWorkerConfig(db: IDatabase): EmbeddingWorkerOptio
 
   return {
     db,
+    claimBatchSize: DESKTOP_EMBED_CLAIM_BATCH_SIZE,
     concurrency,
+    interBatchDelayMs: DESKTOP_EMBED_INTER_BATCH_DELAY_MS,
     leaseMs,
     ...(modelKey ? { modelKey } : {}),
     log: (msg: string, meta?: unknown) => {

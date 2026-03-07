@@ -10,6 +10,7 @@ const {
   handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
   getDatabaseDiagnosticsMock,
+  enqueueEmbeddingBackfillMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockDb = {
@@ -26,6 +27,7 @@ const {
   const isCorruptionErrorMock = vi.fn(() => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
+  const enqueueEmbeddingBackfillMock = vi.fn();
   const getDatabaseDiagnosticsMock = vi.fn(() => ({
     databaseProfile: 'test',
     dataDir: '/mock/documents/BrainStrike-dev/profiles/test/pgdata',
@@ -52,6 +54,7 @@ const {
     handleRuntimeCorruptionMock,
     resetLocalDatabaseMock,
     getDatabaseDiagnosticsMock,
+    enqueueEmbeddingBackfillMock,
   };
 });
 
@@ -128,6 +131,10 @@ vi.mock('../../db-main', () => ({
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
 }));
 
+vi.mock('../../embedding-backfill', () => ({
+  enqueueEmbeddingBackfill: enqueueEmbeddingBackfillMock,
+}));
+
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();
   return {
@@ -142,18 +149,15 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
 });
 
 // Use function syntax for Vitest 4 constructor mocks
-vi.mock('@brainstrike/file-system', () => {
+vi.mock('@brainstrike/file-system/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});
   });
-  return {
-    ElectronFileSystemAdapter: MockAdapter,
-    createFixtureCapableAdapter: (adapter: unknown) => adapter,
-  };
+  return { ElectronFileSystemAdapter: MockAdapter };
 });
 
-vi.mock('@brainstrike/storage', () => {
+vi.mock('@brainstrike/storage/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});
@@ -215,6 +219,99 @@ describe('database IPC handlers', () => {
     mockDb.exec.mockRejectedValue(err);
 
     await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
+  });
+
+  it('embedding-host:enqueue-backfill runs backfill in main and streams progress', async () => {
+    const handler = handlers.get('embedding-host:enqueue-backfill');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        onProgress: (done: number, total: number) => void
+      ) => {
+        onProgress(0, 450);
+        onProgress(128, 450);
+        onProgress(450, 450);
+        return {
+          queued: 450,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    const result = await handler({ sender } as unknown, 'set-123');
+
+    expect(getDatabaseMock).toHaveBeenCalledTimes(1);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
+      mockDb,
+      expect.any(Object),
+      'set-123',
+      expect.any(Function),
+      expect.objectContaining({
+        assertCanContinue: expect.any(Function),
+        progressIntervalBatches: 4,
+      })
+    );
+    expect(sender.send).toHaveBeenCalledWith('embedding-host:backfill-progress', {
+      embeddingSetId: 'set-123',
+      done: 0,
+      total: 450,
+    });
+    expect(sender.send).toHaveBeenLastCalledWith('embedding-host:backfill-progress', {
+      embeddingSetId: 'set-123',
+      done: 450,
+      total: 450,
+    });
+    expect(result).toEqual({
+      queued: 450,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    });
+  });
+
+  it('embedding-host:enqueue-backfill rejects concurrent submissions', async () => {
+    const handler = handlers.get('embedding-host:enqueue-backfill');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    let resolveBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async () =>
+        await new Promise((resolve) => {
+          resolveBackfill = () => resolve(undefined);
+        })
+    );
+
+    const sender = {
+      id: 45,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    const first = handler({ sender } as unknown, 'set-a');
+    await expect(handler({ sender } as unknown, 'set-b')).rejects.toThrow(
+      'Embedding backfill is already running for set set-a.'
+    );
+    resolveBackfill?.();
+    await first;
   });
 
   it('db:live-query:start subscribes and forwards updates', async () => {

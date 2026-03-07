@@ -7,6 +7,7 @@
  * - Cleanup and destroy functionality
  */
 
+import type { StorageAdapter } from '@brainstrike/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the logger
@@ -43,6 +44,24 @@ Object.defineProperty(global, 'localStorage', {
   configurable: true,
 });
 
+const mockStorageAdapter: StorageAdapter = {
+  async clear(): Promise<void> {
+    mockLocalStorage.clear();
+  },
+  async getAllKeys(): Promise<string[]> {
+    return [...mockLocalStorage.data.keys()];
+  },
+  async getItem(key: string): Promise<string | null> {
+    return mockLocalStorage.getItem(key);
+  },
+  async removeItem(key: string): Promise<void> {
+    mockLocalStorage.removeItem(key);
+  },
+  async setItem(key: string, value: string): Promise<void> {
+    mockLocalStorage.setItem(key, value);
+  },
+};
+
 describe('WorkerStorage - No Worker Environment', () => {
   let originalWorker: typeof Worker | undefined;
   const mockWorkerUrl = new URL('file:///mock-worker-storage.worker.mjs');
@@ -70,14 +89,14 @@ describe('WorkerStorage - No Worker Environment', () => {
 
   it('should set isWorkerAvailable to false when Worker is undefined', async () => {
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     expect(storage.isWorkerAvailable).toBe(false);
   });
 
   it('should fallback to localStorage for getItem when worker is not available', async () => {
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     mockLocalStorage.data.set('test-key', JSON.stringify({ foo: 'bar' }));
 
@@ -89,7 +108,7 @@ describe('WorkerStorage - No Worker Environment', () => {
 
   it('should return null for non-existent keys in localStorage fallback', async () => {
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     const result = await storage.getItem('non-existent');
 
@@ -98,7 +117,7 @@ describe('WorkerStorage - No Worker Environment', () => {
 
   it('should return raw value when JSON parse fails in localStorage fallback', async () => {
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     mockLocalStorage.data.set('raw-key', 'not-valid-json');
 
@@ -110,7 +129,7 @@ describe('WorkerStorage - No Worker Environment', () => {
   it('should fallback to localStorage for setItem when worker is not available', async () => {
     vi.useFakeTimers();
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     const setPromise = storage.setItem('test-key', { foo: 'bar' });
 
@@ -129,7 +148,7 @@ describe('WorkerStorage - No Worker Environment', () => {
   it('should store string values directly without double-serialization', async () => {
     vi.useFakeTimers();
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     const setPromise = storage.setItem('string-key', 'plain-string');
 
@@ -142,7 +161,7 @@ describe('WorkerStorage - No Worker Environment', () => {
 
   it('should fallback to localStorage for removeItem when worker is not available', async () => {
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     mockLocalStorage.data.set('remove-key', 'value');
 
@@ -153,7 +172,7 @@ describe('WorkerStorage - No Worker Environment', () => {
 
   it('should not throw on destroy when worker is not available', async () => {
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     expect(() => storage.destroy()).not.toThrow();
     expect(storage.isWorkerAvailable).toBe(false);
@@ -178,13 +197,15 @@ describe('WorkerStorage - Worker Initialization Errors', () => {
   it('should handle Worker constructor errors gracefully', async () => {
     vi.stubGlobal(
       'Worker',
-      vi.fn(() => {
-        throw new Error('Worker initialization failed');
-      })
+      class MockWorkerThatThrows {
+        constructor() {
+          throw new Error('Worker initialization failed');
+        }
+      }
     );
 
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     expect(storage.isWorkerAvailable).toBe(false);
     expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -215,7 +236,7 @@ describe('WorkerStorage - Debouncing Behavior', () => {
   it('should debounce rapid setItem calls for the same key', async () => {
     vi.useFakeTimers();
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     // Fire multiple rapid setItem calls
     void storage.setItem('debounce-key', 'value1');
@@ -235,7 +256,7 @@ describe('WorkerStorage - Debouncing Behavior', () => {
   it('should handle independent keys without debounce interference', async () => {
     vi.useFakeTimers();
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     const promise1 = storage.setItem('key1', 'value1');
     const promise2 = storage.setItem('key2', 'value2');
@@ -264,14 +285,14 @@ describe('WorkerStorage - Destroy Cleanup', () => {
     vi.restoreAllMocks();
   });
 
-  it('should clear debounce timers on destroy', async () => {
+  it('flushes the latest debounced value on destroy', async () => {
     vi.useFakeTimers();
 
     // Ensure Worker is undefined
     (global as unknown as { Worker: typeof Worker | undefined }).Worker = undefined;
 
     const { WorkerStorage } = await import('../worker-storage');
-    const storage = new WorkerStorage(mockWorkerUrl);
+    const storage = new WorkerStorage(mockWorkerUrl, mockStorageAdapter);
 
     // Start a setItem that will be debounced
     void storage.setItem('pending-key', 'pending-value');
@@ -282,8 +303,8 @@ describe('WorkerStorage - Destroy Cleanup', () => {
     // Advance time to ensure debounce timer would have fired
     await vi.advanceTimersByTimeAsync(200);
 
-    // The setItem should NOT have been called because destroy cleared the timer
-    expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+    expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(1);
+    expect(mockLocalStorage.setItem).toHaveBeenCalledWith('pending-key', 'pending-value');
     vi.useRealTimers();
   });
 });

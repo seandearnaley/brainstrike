@@ -5,9 +5,7 @@ import {
   type ElectronFileRecordRepository,
   type FileChunk,
   type FileRecord,
-  MigrationRunner,
   makeLiveQueryKey,
-  migrations,
   type usePGliteDatabase,
   usePGliteLiveQuery,
 } from '@brainstrike/db';
@@ -48,6 +46,8 @@ export interface UseDatabaseDemoDataOptions {
   activeCollectionId: string | null;
   chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
   database?: ReturnType<typeof usePGliteDatabase>;
+  /** When true, live queries are paused and cache-backed snapshots are used. */
+  isEmbeddingActive?: boolean;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
   isImporting?: boolean;
   repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
@@ -384,6 +384,7 @@ export function useDatabaseDemoData({
   toast,
   database,
   activeCollectionId,
+  isEmbeddingActive = false,
   isImporting = false,
 }: UseDatabaseDemoDataOptions): UseDatabaseDemoDataResult {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
@@ -397,52 +398,22 @@ export function useDatabaseDemoData({
   const [cacheVersion, setCacheVersion] = useState(0);
   const [fallbackLoading, setFallbackLoading] = useState(false);
   const [fallbackError, setFallbackError] = useState<Error | null>(null);
-  const schemaStateRef = useRef<{
-    db: ReturnType<typeof usePGliteDatabase> | null;
-    ensured: boolean;
-    promise: Promise<void> | null;
-  }>({
-    db: null,
-    ensured: false,
-    promise: null,
-  });
 
   // Global schema verification cache - persists across component remounts
   const globalSchemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
-  const setGlobalSchemaVerified = useVectorStatusUIStore((s) => s.setSchemaVerified);
   // Global file data cache - persists across component remounts during imports
   const globalCachedFileData = useVectorStatusUIStore((s) => s.cachedFileData);
   const setGlobalCachedFileData = useVectorStatusUIStore((s) => s.setCachedFileData);
 
   void _chunkRepository;
 
-  // biome-ignore lint/plugin: Sync state when database changes - necessary for tracking DB lifecycle
   useEffect(() => {
-    const previousDb = schemaStateRef.current.db;
-    const databaseChanged = previousDb !== database;
-
-    if (databaseChanged) {
-      schemaStateRef.current = {
-        db: database ?? null,
-        ensured: false,
-        promise: null,
-      };
-
-      // Only clear caches if database ACTUALLY changed (not just remount)
-      // On remount with same database, keep caches intact
-      if (previousDb !== null && database !== null) {
-        cachedRecordsRef.current.clear();
-        cachedChunksRef.current.clear();
-        loadedRecordsRef.current.clear();
-        loadedChunksRef.current.clear();
-        setCacheVersion((prev) => prev + 1);
-        setFallbackLoading(false);
-        setFallbackError(null);
-        // Reset schema state when database changes
-        setSchemaReady(false);
-      }
+    if (!database) {
+      setSchemaReady(false);
+      return;
     }
-  }, [database]);
+    setSchemaReady(globalSchemaVerified);
+  }, [database, globalSchemaVerified]);
 
   // Restore cached data from global store on mount
   useEffect(() => {
@@ -475,66 +446,14 @@ export function useDatabaseDemoData({
     }
   }, [activeCollectionId, globalCachedFileData]);
 
-  // Schema verification effect - runs migrations if needed, then enables queries
-  // Key principle: schemaReady is set INSIDE the promise to avoid race conditions
   useEffect(() => {
     if (!database) {
-      setSchemaReady(false);
       return;
     }
-
-    // If schema was already verified globally (persisted across remounts), skip migration
-    // We only check globalSchemaVerified because the ref resets on remount but the store persists
     if (globalSchemaVerified) {
-      schemaStateRef.current.ensured = true; // Sync ref with global state
-      setSchemaReady(true);
-      return;
+      setFallbackError(null);
     }
-
-    // If we already have a running promise, wait for it
-    if (schemaStateRef.current.promise) {
-      let cancelled = false;
-      schemaStateRef.current.promise
-        .then(() => {
-          if (!cancelled) {
-            setSchemaReady(true);
-          }
-        })
-        .catch(() => {
-          // Error already handled by original promise
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    // Start migration - set schemaReady and globalSchemaVerified INSIDE the promise
-    // to avoid race conditions from re-renders triggered by Zustand updates
-    schemaStateRef.current.promise = (async () => {
-      const runner = new MigrationRunner(
-        database as unknown as ConstructorParameters<typeof MigrationRunner>[0]
-      );
-      await runner.initialize();
-      await runner.up(migrations);
-      schemaStateRef.current.ensured = true;
-      // Set BOTH states inside the promise - this is atomic from React's perspective
-      setGlobalSchemaVerified(true);
-      setSchemaReady(true);
-    })().catch((error) => {
-      schemaStateRef.current.promise = null;
-      logger.error('Failed to verify database schema', { error });
-      setSchemaReady(false);
-      toast({
-        title: 'Database Error',
-        description: 'Unable to initialize local database schema. Try Factory Reset.',
-        variant: 'destructive',
-      });
-      throw error;
-    });
-
-    // No cleanup needed - the promise handles state atomically
-    return;
-  }, [database, globalSchemaVerified, setGlobalSchemaVerified, toast]);
+  }, [database, globalSchemaVerified]);
 
   const recordErrorRef = useRef<string | null>(null);
   const chunkErrorRef = useRef<string | null>(null);
@@ -564,14 +483,12 @@ export function useDatabaseDemoData({
     [activeCollectionId]
   );
 
-  // Pause live queries during IMPORT to avoid performance degradation
-  // Live queries fire on every DB mutation, causing O(n²) work during bulk inserts
-  //
-  // NOTE: We do NOT pause during embedding (isEmbeddingActive) because:
-  // 1. Embedding updates file_chunks.embedding which we no longer fetch in live queries
-  // 2. Users need to browse/search collections while embedding runs in background
-  // 3. Embedding worker runs in separate thread and shouldn't block UI
-  const liveQueryEnabled = Boolean(database && schemaReady && activeCollectionId && !isImporting);
+  // Pause live queries during import and active embedding. These queries still
+  // re-run on every file_chunks mutation, and cache-backed snapshots are enough
+  // to keep the database panel responsive while background work is active.
+  const liveQueryEnabled = Boolean(
+    database && schemaReady && activeCollectionId && !isImporting && !isEmbeddingActive
+  );
 
   const {
     rows: recordRows,

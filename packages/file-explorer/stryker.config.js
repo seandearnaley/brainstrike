@@ -21,7 +21,7 @@ const config = {
     '!src/**/*.test.ts',
     '!src/**/__tests__/**',
     '!src/**/__mocks__/**',
-    '!src/persistence/worker-storage.worker.ts',
+    '!src/persistence/worker-storage.worker.js',
     '!src/persistence/worker-storage.ts',
     '!src/persistence/worker-init.ts',
   ],

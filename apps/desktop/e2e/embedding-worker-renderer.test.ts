@@ -14,6 +14,13 @@ interface EmbeddingHostStatus {
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 }
 
+interface QueueStatsRow {
+  failed: number;
+  queued: number;
+  running: number;
+  succeeded: number;
+}
+
 test.describe('Embedding Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -56,6 +63,22 @@ test.describe('Embedding Host Renderer', () => {
     });
   }
 
+  async function resetEmbeddingHost(page: Page): Promise<EmbeddingHostStatus> {
+    return await page.evaluate<EmbeddingHostStatus>(async () => {
+      const host = (
+        window as Window & {
+          embeddingHost?: {
+            reset?: () => Promise<EmbeddingHostStatus>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.reset) {
+        throw new Error('Embedding host reset bridge is not available');
+      }
+      return await host.reset();
+    });
+  }
+
   async function waitForEmbeddingHostState(
     page: Page,
     predicate: (status: EmbeddingHostStatus) => boolean,
@@ -70,6 +93,83 @@ test.describe('Embedding Host Renderer', () => {
       await page.waitForTimeout(250);
     }
     throw new Error('Timed out waiting for embedding host state');
+  }
+
+  async function waitForActiveProcessingOrFatalError(
+    page: Page,
+    timeoutMs = 60_000
+  ): Promise<'error' | 'running'> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const [status, queueStats] = await Promise.all([
+        getEmbeddingHostStatus(page),
+        getEmbeddingQueueStats(page),
+      ]);
+
+      if (status.state === 'error') {
+        return 'error';
+      }
+
+      if (status.active && queueStats.running > 0 && queueStats.running <= 4) {
+        return 'running';
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error('Timed out waiting for active embedding processing or fatal host error');
+  }
+
+  async function waitForBackfillButtonEnabled(
+    page: Page,
+    backfillButton: ReturnType<Page['locator']>,
+    timeoutMs = 15_000
+  ): Promise<void> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const [enabled, queueStats] = await Promise.all([
+        backfillButton.isEnabled(),
+        getEmbeddingQueueStats(page),
+      ]);
+
+      if (enabled && queueStats.queued === 0 && queueStats.running === 0) {
+        return;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error('Timed out waiting for the backfill button to become enabled');
+  }
+
+  async function waitForBoundedBackfillEnqueueOrFatalError(
+    page: Page,
+    timeoutMs = 15_000
+  ): Promise<'error' | 'queued'> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const [status, queueStats] = await Promise.all([
+        getEmbeddingHostStatus(page),
+        getEmbeddingQueueStats(page),
+      ]);
+
+      if (status.state === 'error') {
+        return 'error';
+      }
+
+      const totalObserved =
+        queueStats.queued + queueStats.running + queueStats.failed + queueStats.succeeded;
+      if (totalObserved > 0 && queueStats.queued + queueStats.running <= 64) {
+        return 'queued';
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error('Timed out waiting for bounded backfill enqueue or fatal host error');
   }
 
   async function getEmbeddingHostPage(window: Page): Promise<Page> {
@@ -116,6 +216,10 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     return record.args.some((arg) => typeof arg === 'string' && arg.includes(text));
+  }
+
+  function countRecordsContainingText(records: readonly BufferedLogRecord[], text: string): number {
+    return records.filter((record) => recordContainsText(record, text)).length;
   }
 
   async function createTestBackfillJob(page: Page): Promise<{
@@ -230,6 +334,121 @@ test.describe('Embedding Host Renderer', () => {
     });
   }
 
+  async function clearEmbeddingQueue(page: Page): Promise<void> {
+    await page.evaluate(async () => {
+      const api = (
+        window as Window & {
+          electronAPI?: {
+            db?: {
+              query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+            };
+          };
+        }
+      ).electronAPI;
+      if (!api?.db?.query) {
+        throw new Error('Database API not available');
+      }
+
+      await api.db.query(`DELETE FROM job_queue WHERE queue = 'embeddings'`);
+    });
+  }
+
+  async function createLargeBackfillFixture(
+    page: Page,
+    chunkCount: number,
+    options?: { persistActiveSet?: boolean }
+  ): Promise<{ embeddingSetId: string }> {
+    return await page.evaluate<
+      { embeddingSetId: string },
+      { chunkCount: number; persistActiveSet: boolean }
+    >(
+      async ({ chunkCount: count, persistActiveSet }) => {
+        const api = (
+          window as Window & {
+            electronAPI?: {
+              db?: {
+                query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+              };
+              storage?: {
+                setItem?: (key: string, value: string) => Promise<void>;
+              };
+            };
+          }
+        ).electronAPI;
+
+        if (!api?.db?.query) {
+          throw new Error('Database API not available');
+        }
+        if (!api?.storage?.setItem) {
+          throw new Error('Storage API not available');
+        }
+
+        const now = new Date().toISOString();
+        const randomSuffix = Math.random().toString(36).slice(2, 10);
+        const embeddingSetId = `large-set-${randomSuffix}`;
+        const fileRecordId = `large-file-${randomSuffix}`;
+        const modelId = 'Xenova/all-MiniLM-L6-v2';
+        const modelKey = `local::${modelId}`;
+
+        await api.db.query(
+          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [embeddingSetId, modelKey, modelId, 384, 'cosine', 'Large Backfill', now]
+        );
+
+        await api.db.query(
+          `INSERT INTO file_records (
+           id, path, name, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+          [
+            fileRecordId,
+            `/test/${fileRecordId}.txt`,
+            `${fileRecordId}.txt`,
+            count * 32,
+            'Large backfill file',
+            `file-hash-${randomSuffix}`,
+            count * 8,
+            embeddingSetId,
+            now,
+          ]
+        );
+
+        for (let index = 0; index < count; index += 1) {
+          await api.db.query(
+            `INSERT INTO file_chunks (
+             id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, 'text', $7, $8, $8)`,
+            [
+              `${fileRecordId}-chunk-${index}`,
+              fileRecordId,
+              index,
+              `Chunk ${index} content for backfill responsiveness`,
+              `chunk-hash-${randomSuffix}-${index}`,
+              8,
+              8,
+              now,
+            ]
+          );
+        }
+
+        if (persistActiveSet) {
+          await api.storage.setItem(
+            'vector-status-ui.v1',
+            JSON.stringify({
+              state: { activeEmbeddingSetId: embeddingSetId },
+              version: 1,
+            })
+          );
+        }
+
+        return { embeddingSetId };
+      },
+      { chunkCount, persistActiveSet: options?.persistActiveSet ?? true }
+    );
+  }
+
   async function getJobStatus(page: Page, jobId: string): Promise<string | null> {
     return await page.evaluate<string | null, string>(async (id) => {
       const api = (
@@ -249,6 +468,37 @@ test.describe('Embedding Host Renderer', () => {
       };
       return result.rows[0]?.state ?? null;
     }, jobId);
+  }
+
+  async function getEmbeddingQueueStats(page: Page): Promise<QueueStatsRow> {
+    return await page.evaluate<QueueStatsRow>(async () => {
+      const api = (
+        window as Window & {
+          electronAPI?: {
+            db?: {
+              query?: (sql: string, params?: unknown[]) => Promise<{ rows: QueueStatsRow[] }>;
+            };
+          };
+        }
+      ).electronAPI;
+      if (!api?.db?.query) {
+        throw new Error('Database API not available');
+      }
+      const result = await api.db.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE state = 'queued')::int AS queued,
+           COUNT(*) FILTER (WHERE state = 'running')::int AS running,
+           COUNT(*) FILTER (WHERE state = 'failed')::int AS failed,
+           COUNT(*) FILTER (WHERE state = 'succeeded')::int AS succeeded
+         FROM job_queue
+         WHERE queue = 'embeddings'`
+      );
+      const row = result.rows[0] as QueueStatsRow | undefined;
+      if (!row) {
+        throw new Error('Queue stats query returned no rows');
+      }
+      return row;
+    });
   }
 
   test.beforeAll(async ({ electron }) => {
@@ -367,6 +617,115 @@ test.describe('Embedding Host Renderer', () => {
     expect(status.state).toBe('running');
   });
 
+  test('keeps the visible UI responsive while a large backfill is being enqueued', async ({
+    window,
+  }) => {
+    const activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    const fixture = await createLargeBackfillFixture(activeWindow, 160);
+    await activeWindow.reload();
+    await waitForAppReady(activeWindow);
+    await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const backfillButton = activeWindow
+      .locator('[data-testid="database-demo-panel"]')
+      .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+
+    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+
+    await backfillButton.click({ timeout: 5000 });
+    await assertToolsPanelResponsive(activeWindow);
+
+    const enqueueState = await waitForBoundedBackfillEnqueueOrFatalError(activeWindow);
+    const queueStats = await getEmbeddingQueueStats(activeWindow);
+
+    if (enqueueState === 'queued') {
+      expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
+      expect(
+        queueStats.queued + queueStats.running + queueStats.failed + queueStats.succeeded
+      ).toBeGreaterThan(0);
+      return;
+    }
+
+    const status = await getEmbeddingHostStatus(activeWindow);
+    expect(status.state).toBe('error');
+    expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
+    expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
+  });
+
+  test('keeps the visible UI responsive while the hidden host is actively processing a backfill', async ({
+    window,
+  }) => {
+    const activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
+    await activeWindow.reload();
+    await waitForAppReady(activeWindow);
+    await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const backfillButton = activeWindow
+      .locator('[data-testid="database-demo-panel"]')
+      .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+
+    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+    await backfillButton.click({ timeout: 5000 });
+
+    const finalState = await waitForActiveProcessingOrFatalError(activeWindow);
+    const queueStats = await getEmbeddingQueueStats(activeWindow);
+
+    if (finalState === 'running') {
+      expect(queueStats.running).toBeGreaterThan(0);
+      expect(queueStats.running).toBeLessThanOrEqual(4);
+      expect(queueStats.queued).toBeGreaterThan(0);
+    } else {
+      const status = await getEmbeddingHostStatus(activeWindow);
+      const hostPage = await getEmbeddingHostPage(activeWindow);
+      await hostPage.waitForTimeout(1000);
+      const hostLogs = await getRendererLogRecords(hostPage);
+
+      expect(status.state).toBe('error');
+      expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
+      expect(countRecordsContainingText(hostLogs, 'Pipeline load failed')).toBeLessThanOrEqual(1);
+      expect(
+        countRecordsContainingText(hostLogs, 'Embedding worker streaming failed')
+      ).toBeLessThanOrEqual(1);
+      expect(queueStats.running).toBe(0);
+      expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
+      expect(
+        countRecordsContainingText(
+          hostLogs,
+          'Stopping embedding worker after fatal local model error'
+        )
+      ).toBeLessThanOrEqual(1);
+    }
+
+    await assertToolsPanelResponsive(activeWindow);
+    await activeWindow.waitForTimeout(500);
+    await assertToolsPanelResponsive(activeWindow);
+  });
+
   test('fails invalid job payloads without taking down the embedding host or visible UI', async ({
     window,
   }) => {
@@ -376,6 +735,9 @@ test.describe('Embedding Host Renderer', () => {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
+
+    await resetEmbeddingHost(activeWindow);
+    await waitForEmbeddingHostState(activeWindow, (status) => status.state === 'running');
 
     const invalidJobId = await createInvalidJob(activeWindow);
 
@@ -399,6 +761,7 @@ test.describe('Embedding Host Renderer', () => {
       return;
     }
 
+    const hostPageBefore = await getEmbeddingHostPage(activeWindow);
     const before = await createTestBackfillJob(activeWindow);
     expect(await getJobStatus(activeWindow, before.jobId)).not.toBeNull();
 
@@ -408,10 +771,16 @@ test.describe('Embedding Host Renderer', () => {
 
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 
+    const hostPageAfter = await getEmbeddingHostPage(activeWindow);
+    expect(hostPageAfter).toBe(hostPageBefore);
+
     const after = await createTestBackfillJob(activeWindow);
     expect(await getJobStatus(activeWindow, after.jobId)).not.toBeNull();
 
     const status = await getEmbeddingHostStatus(activeWindow);
-    expect(status.state).toBe('running');
+    expect(status.state === 'running' || status.state === 'error').toBe(true);
+    if (status.state === 'error') {
+      expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
+    }
   });
 });

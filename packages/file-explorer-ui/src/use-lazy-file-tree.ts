@@ -291,13 +291,13 @@ function loadRootChildren(args: {
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
   rootDirectoryHandle: DirectoryHandle;
   rootPath: string;
-}): { promise: Promise<IFileNode[]>; started: boolean } {
+}): { request: InFlightRootLoad; started: boolean } {
   const { fileSystemAdapter, rootDirectoryHandle, rootPath } = args;
   const existingRequest = inFlightRootLoads.get(rootPath);
   if (existingRequest) {
     logger.debug('loadRoot joined existing in-flight request', { rootPath });
     return {
-      promise: existingRequest.promise,
+      request: existingRequest,
       started: false,
     };
   }
@@ -351,7 +351,7 @@ function loadRootChildren(args: {
     .catch(() => {});
 
   return {
-    promise,
+    request,
     started: true,
   };
 }
@@ -511,6 +511,7 @@ export function useLazyFileTree(
   // This handles React StrictMode double-mount and rapid re-renders
   const isLoadingRootRef = useRef(false);
   const loadRootRunIdRef = useRef(0);
+  const lastAppliedRootLoadRef = useRef<InFlightRootLoad | null>(null);
 
   // Error handler for worker
   const handleWorkerError = useCallback((error: Error) => {
@@ -645,9 +646,13 @@ export function useLazyFileTree(
 
       setState((s) => createLoadRootPendingState(s, rootLoadRequest.started));
 
-      const children = await rootLoadRequest.promise;
+      const children = await rootLoadRequest.request.promise;
 
-      if (isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId)) {
+      if (
+        isActiveLoadRootRun(isUnmountedRef, loadRootRunIdRef, currentRunId) &&
+        lastAppliedRootLoadRef.current !== rootLoadRequest.request
+      ) {
+        lastAppliedRootLoadRef.current = rootLoadRequest.request;
         handleLoadRootSuccess(
           children,
           rootPath,

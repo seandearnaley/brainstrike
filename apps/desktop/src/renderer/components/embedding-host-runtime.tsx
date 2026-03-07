@@ -42,6 +42,7 @@ function reportStatus(status: EmbeddingHostStatus): void {
 export function EmbeddingHostRuntime(): null {
   const db = usePGliteDatabase();
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
+  const fatalErrorRef = useRef<string | null>(null);
   const startingRef = useRef(false);
   const activeRef = useRef(false);
 
@@ -58,13 +59,26 @@ export function EmbeddingHostRuntime(): null {
       }
 
       startingRef.current = true;
+      fatalErrorRef.current = null;
       reportStatus({ state: 'starting', active: false, lastError: null });
 
       try {
         const controller = await startEmbeddingWorker({
           ...createEmbeddingWorkerConfig(db),
           initializeLocalModelOnStart: false,
+          onFatalError: (error: Error) => {
+            const message = error.message;
+            fatalErrorRef.current = message;
+            activeRef.current = false;
+            logger.error('Embedding host worker stopped after fatal local model error', {
+              error: message,
+            });
+            reportStatus({ state: 'error', active: false, lastError: message });
+          },
           onWorkerActivityChange: (active: boolean) => {
+            if (fatalErrorRef.current) {
+              return;
+            }
             activeRef.current = active;
             reportStatus({
               state: 'running',
@@ -72,16 +86,22 @@ export function EmbeddingHostRuntime(): null {
               lastError: null,
             });
           },
+          stopOnFatalLocalError: true,
         });
         if (disposed) {
           await controller.stop();
           return;
         }
         controllerRef.current = controller;
+        if (fatalErrorRef.current) {
+          reportStatus({ state: 'error', active: false, lastError: fatalErrorRef.current });
+          return;
+        }
         reportStatus({ state: 'running', active: activeRef.current, lastError: null });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('Failed to start embedding host worker', { error: message });
+        fatalErrorRef.current = message;
         reportStatus({ state: 'error', active: false, lastError: message });
       } finally {
         startingRef.current = false;
@@ -91,6 +111,7 @@ export function EmbeddingHostRuntime(): null {
     const stopWorker = async (): Promise<void> => {
       const controller = controllerRef.current;
       controllerRef.current = null;
+      fatalErrorRef.current = null;
       activeRef.current = false;
       if (controller) {
         await controller.stop();

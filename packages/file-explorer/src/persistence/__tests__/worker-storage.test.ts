@@ -2,6 +2,7 @@
  * Worker Storage Tests
  */
 
+import type { StorageAdapter } from '@brainstrike/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the logger using vi.hoisted
@@ -73,6 +74,24 @@ const mockLocalStorage = {
 // Add localStorage to global
 (global as unknown as { localStorage: typeof mockLocalStorage }).localStorage = mockLocalStorage;
 
+const mockStorageAdapter: StorageAdapter = {
+  async clear(): Promise<void> {
+    mockLocalStorage.clear();
+  },
+  async getAllKeys(): Promise<string[]> {
+    return [...mockLocalStorage.data.keys()];
+  },
+  async getItem(key: string): Promise<string | null> {
+    return mockLocalStorage.getItem(key);
+  },
+  async removeItem(key: string): Promise<void> {
+    mockLocalStorage.removeItem(key);
+  },
+  async setItem(key: string, value: string): Promise<void> {
+    mockLocalStorage.setItem(key, value);
+  },
+};
+
 // Mock ErrorEvent
 class MockErrorEvent extends Event {
   constructor(
@@ -100,12 +119,12 @@ class MockErrorEvent extends Event {
 (global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
 
 describe('resolveWorkerStorageUrl', () => {
-  it('returns a URL ending with .mjs extension', async () => {
+  it('returns a URL ending with the worker source path', async () => {
     const { resolveWorkerStorageUrl } = await import('../worker-storage');
     const url = resolveWorkerStorageUrl();
 
     expect(url).toBeInstanceOf(URL);
-    expect(url.href).toMatch(/worker-storage\.worker\.mjs$/);
+    expect(url.href).toMatch(/worker-storage\.worker\.js$/);
   });
 
   it('returns a URL with the persistence directory in path', async () => {
@@ -122,6 +141,11 @@ const mockWorkerUrl = new URL('file:///mock-worker-storage.worker.mjs');
 const WORKER_TIMEOUT = 5000;
 // Buffer to ensure we're past the timeout
 const TIMEOUT_BUFFER = 1000;
+
+async function flushAsyncWork(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
 
 describe('WorkerStorage', () => {
   let originalWorker: typeof Worker | undefined;
@@ -188,7 +212,7 @@ describe('WorkerStorage', () => {
 
   describe('initialization', () => {
     it('should initialize worker in browser environment', () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       // It's called once for the real worker.
       expect(MockWorkerConstructorSpy).toHaveBeenCalledTimes(1);
@@ -211,7 +235,7 @@ describe('WorkerStorage', () => {
       const mod = await import('../worker-storage');
       const Storage = mod.WorkerStorage;
 
-      const storage = new Storage(mockWorkerUrl);
+      const storage = new Storage(mockWorkerUrl, mockStorageAdapter);
 
       expect(storage.isWorkerAvailable).toBe(false);
     });
@@ -232,7 +256,7 @@ describe('WorkerStorage', () => {
       const mod = await import('../worker-storage');
       const Storage = mod.WorkerStorage;
 
-      const storage = new Storage(mockWorkerUrl);
+      const storage = new Storage(mockWorkerUrl, mockStorageAdapter);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'Failed to initialize Web Worker for state persistence:',
@@ -244,7 +268,7 @@ describe('WorkerStorage', () => {
 
   describe('getItem', () => {
     it('should send load message to worker and return result', async () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
       const testData = { foo: 'bar' };
 
       // Setup mock response
@@ -270,7 +294,7 @@ describe('WorkerStorage', () => {
     });
 
     it('should fallback to localStorage when worker fails', async () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
       const testData = { test: 'data' };
       mockLocalStorage.data.set('fallback-key', JSON.stringify(testData));
 
@@ -293,7 +317,7 @@ describe('WorkerStorage', () => {
     });
 
     it('should return null when key does not exist', async () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
@@ -316,7 +340,7 @@ describe('WorkerStorage', () => {
       const mod = await import('../worker-storage');
       const Storage = mod.WorkerStorage;
 
-      const storage = new Storage(mockWorkerUrl);
+      const storage = new Storage(mockWorkerUrl, mockStorageAdapter);
 
       const result = await storage.getItem('test-key');
 
@@ -328,7 +352,7 @@ describe('WorkerStorage', () => {
   describe('setItem', () => {
     it('should send save message to worker', async () => {
       vi.useFakeTimers();
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
       const testData = { foo: 'bar' };
 
       // Setup mock to respond when called
@@ -357,7 +381,7 @@ describe('WorkerStorage', () => {
 
     it('should fallback to localStorage when worker fails', async () => {
       vi.useFakeTimers();
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
       const testValue = 'test-value';
 
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
@@ -385,7 +409,7 @@ describe('WorkerStorage', () => {
       const mod = await import('../worker-storage');
       const Storage = mod.WorkerStorage;
 
-      const storage = new Storage(mockWorkerUrl);
+      const storage = new Storage(mockWorkerUrl, mockStorageAdapter);
       const testValue = 'test-value';
 
       await storage.setItem('test-key', testValue);
@@ -396,7 +420,7 @@ describe('WorkerStorage', () => {
 
   describe('removeItem', () => {
     it('should send remove message to worker', async () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
@@ -418,7 +442,7 @@ describe('WorkerStorage', () => {
     });
 
     it('should fallback to localStorage when worker fails', async () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
@@ -442,7 +466,7 @@ describe('WorkerStorage', () => {
       const mod = await import('../worker-storage');
       const Storage = mod.WorkerStorage;
 
-      const storage = new Storage(mockWorkerUrl);
+      const storage = new Storage(mockWorkerUrl, mockStorageAdapter);
 
       await storage.removeItem('test-key');
 
@@ -452,7 +476,7 @@ describe('WorkerStorage', () => {
 
   describe('error handling', () => {
     it('should handle worker error events', async () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       // Create a promise that will fall back to localStorage
       // We don't resolve the postMessage here, we simulate a crash
@@ -467,9 +491,9 @@ describe('WorkerStorage', () => {
       expect(mockLogger.error).toHaveBeenCalledWith('Worker error occurred:', expect.anything());
     });
 
-    it('should resolve pending debounced setItem calls when worker errors', async () => {
+    it('flushes pending debounced setItem calls when worker errors', async () => {
       vi.useFakeTimers();
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       const promise = storage.setItem('debounced-key', 'value');
 
@@ -477,14 +501,14 @@ describe('WorkerStorage', () => {
 
       await expect(promise).resolves.toBeUndefined();
 
-      // Debounced timer should be cleared and never reach localStorage fallback.
       await vi.advanceTimersByTimeAsync(200);
-      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+      expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('debounced-key', 'value');
     });
 
     it('should mark worker unavailable after error for fast fallback writes', async () => {
       vi.useFakeTimers();
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       mockWorker.emitError(new Error('Worker crashed'));
       expect(storage.isWorkerAvailable).toBe(false);
@@ -498,7 +522,7 @@ describe('WorkerStorage', () => {
     });
 
     it('should handle unknown response IDs gracefully', () => {
-      new WorkerStorageClass(mockWorkerUrl);
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       // Send response with unknown ID
       mockWorker.emitMessage({
@@ -513,7 +537,7 @@ describe('WorkerStorage', () => {
 
     it('should timeout long-running requests', async () => {
       vi.useFakeTimers();
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       // Don't mock response for this one to simulate timeout
       const promise = storage.getItem('test');
@@ -528,7 +552,7 @@ describe('WorkerStorage', () => {
     });
 
     it('should handle missing error message in worker response', async () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
@@ -549,7 +573,7 @@ describe('WorkerStorage', () => {
 
   describe('cleanup', () => {
     it('should cleanup resources on destroy', () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       // Add some pending requests
       void storage.getItem('test1');
@@ -567,16 +591,31 @@ describe('WorkerStorage', () => {
       const mod = await import('../worker-storage');
       const Storage = mod.WorkerStorage;
 
-      const storage = new Storage(mockWorkerUrl);
+      const storage = new Storage(mockWorkerUrl, mockStorageAdapter);
 
       // Should not throw
       expect(() => storage.destroy()).not.toThrow();
+    });
+
+    it('flushes the latest pending value when the worker errors', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      void storage.setItem('pending-key', 'pending-value');
+
+      mockWorker.emitError(new ErrorEvent('error', { message: 'worker crashed' }));
+
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('pending-key', 'pending-value');
+      expect(mockWorker.terminate).toHaveBeenCalled();
     });
   });
 
   describe('edge cases', () => {
     it('should handle multiple concurrent requests', async () => {
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       // Auto-respond to all messages
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
@@ -600,7 +639,7 @@ describe('WorkerStorage', () => {
 
     it('should generate unique message IDs', async () => {
       vi.useFakeTimers();
-      const storage = new WorkerStorageClass(mockWorkerUrl);
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
       const sentIds = new Set<string>();
 
       mockWorker.postMessage.mockImplementation((data: { id: string }) => {
@@ -629,7 +668,7 @@ describe('WorkerStorage', () => {
       const mod = await import('../worker-storage');
       const Storage = mod.WorkerStorage;
 
-      const storage = new Storage(mockWorkerUrl);
+      const storage = new Storage(mockWorkerUrl, mockStorageAdapter);
 
       // Since the worker is not available, it should fall back to localStorage
       // and return null for non-existent keys
@@ -639,8 +678,8 @@ describe('WorkerStorage', () => {
   });
 
   describe('storage_request', () => {
-    it('handles setItem requests', () => {
-      new WorkerStorageClass(mockWorkerUrl);
+    it('handles setItem requests', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       mockWorker.emitMessage({
         id: '1',
@@ -651,6 +690,7 @@ describe('WorkerStorage', () => {
         opId: 1,
       });
 
+      await flushAsyncWork();
       expect(mockLocalStorage.setItem).toHaveBeenCalledWith('foo', 'bar');
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
@@ -660,8 +700,8 @@ describe('WorkerStorage', () => {
       });
     });
 
-    it('ignores older opId values', () => {
-      new WorkerStorageClass(mockWorkerUrl);
+    it('ignores older opId values', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       mockWorker.emitMessage({
         id: '1',
@@ -681,14 +721,16 @@ describe('WorkerStorage', () => {
         opId: 1,
       });
 
+      await flushAsyncWork();
       expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(1);
-      expect(mockWorker.postMessage).toHaveBeenNthCalledWith(1, {
+      expect(mockWorker.postMessage).toHaveBeenCalledTimes(2);
+      expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
         type: 'storage_response',
         operation: 'setItem',
         success: true,
       });
-      expect(mockWorker.postMessage).toHaveBeenNthCalledWith(2, {
+      expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '2',
         type: 'storage_response',
         operation: 'setItem',
@@ -696,8 +738,8 @@ describe('WorkerStorage', () => {
       });
     });
 
-    it('handles getItem requests', () => {
-      new WorkerStorageClass(mockWorkerUrl);
+    it('handles getItem requests', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
       mockLocalStorage.data.set('foo', 'bar');
 
       mockWorker.emitMessage({
@@ -707,6 +749,7 @@ describe('WorkerStorage', () => {
         key: 'foo',
       });
 
+      await flushAsyncWork();
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
         type: 'storage_response',
@@ -715,8 +758,8 @@ describe('WorkerStorage', () => {
       });
     });
 
-    it('handles removeItem requests', () => {
-      new WorkerStorageClass(mockWorkerUrl);
+    it('handles removeItem requests', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
       mockLocalStorage.data.set('foo', 'bar');
 
       mockWorker.emitMessage({
@@ -726,6 +769,7 @@ describe('WorkerStorage', () => {
         key: 'foo',
       });
 
+      await flushAsyncWork();
       expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('foo');
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
@@ -735,8 +779,8 @@ describe('WorkerStorage', () => {
       });
     });
 
-    it('logs warnings on localStorage errors', () => {
-      new WorkerStorageClass(mockWorkerUrl);
+    it('returns explicit storage_response errors when adapter operations fail', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
       mockLocalStorage.setItem.mockImplementationOnce(() => {
         throw new Error('fail');
@@ -747,7 +791,6 @@ describe('WorkerStorage', () => {
       mockLocalStorage.removeItem.mockImplementationOnce(() => {
         throw new Error('fail');
       });
-      const warnSpy = vi.spyOn(mockLogger, 'warn').mockImplementation(() => {});
 
       mockWorker.emitMessage({
         id: '1',
@@ -772,8 +815,28 @@ describe('WorkerStorage', () => {
         key: 'foo',
       });
 
-      expect(warnSpy).toHaveBeenCalledTimes(3);
-      warnSpy.mockRestore();
+      await flushAsyncWork();
+      expect(mockWorker.postMessage).toHaveBeenNthCalledWith(1, {
+        id: '1',
+        type: 'storage_response',
+        operation: 'setItem',
+        success: false,
+        error: 'fail',
+      });
+      expect(mockWorker.postMessage).toHaveBeenNthCalledWith(2, {
+        id: '2',
+        type: 'storage_response',
+        operation: 'getItem',
+        success: false,
+        error: 'fail',
+      });
+      expect(mockWorker.postMessage).toHaveBeenNthCalledWith(3, {
+        id: '3',
+        type: 'storage_response',
+        operation: 'removeItem',
+        success: false,
+        error: 'fail',
+      });
     });
   });
 });

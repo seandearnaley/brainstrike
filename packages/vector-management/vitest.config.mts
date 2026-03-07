@@ -51,6 +51,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
+      '@brainstrike/queue/browser': resolve(__dirname, '../queue/src/browser.ts'),
       '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
       '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
       '@brainstrike/preferences': resolve(__dirname, '../preferences/src/index.ts'),

@@ -4,6 +4,7 @@ export * from './actions/folder-state-actions';
 export * from './actions/selection-model-actions';
 export * from './actions/settings-actions';
 export * from './constants';
+export * from './persistence/file-explorer-persistence';
 export * from './persistence/tab-persistence';
 export { resolveWorkerStorageUrl } from './persistence/worker-storage';
 export * from './store';

@@ -138,16 +138,14 @@ describe('useCollections', () => {
       );
     });
 
-    it('should keep live query enabled during embedding generation (isEmbeddingActive)', () => {
-      // This is intentional - embedding updates file_chunks.embedding,
-      // not embedding_sets or file_records, so live query can stay active
+    it('should disable live query during embedding generation and use cached data', () => {
       mockStoreState.isEmbeddingActive = true;
 
       renderHook(() => useCollections(mockDb as any));
 
       expect(usePGliteLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
-          enabled: true,
+          enabled: false,
         })
       );
     });

@@ -4,6 +4,17 @@ import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
 import type { VectorQueueService } from '../vector-status/vector-queue-service';
 import { patchMockQueueMetrics, resetMockQueueMetrics } from './setup-mock-queue';
 
+const vectorStatusUiStoreState = {
+  durableQueueStats: null as null | {
+    failed: number;
+    nextRunnableAt: string | null;
+    queued: number;
+    running: number;
+    succeeded: number;
+  },
+  setIsJobQueueActive: vi.fn(),
+};
+
 interface LiveQueryShape {
   rows: unknown[];
 }
@@ -86,6 +97,12 @@ vi.mock('@brainstrike/db', async () => {
   };
 });
 
+vi.mock('@brainstrike/preferences', () => ({
+  useVectorStatusUIStore: vi.fn((selector: (state: typeof vectorStatusUiStoreState) => unknown) =>
+    selector(vectorStatusUiStoreState)
+  ),
+}));
+
 function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQueueService {
   return {
     backfill: vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 })),
@@ -114,6 +131,14 @@ describe('useVectorQueueState', () => {
   afterEach(() => {
     resetLiveQueryData();
     resetMockQueueMetrics();
+    vectorStatusUiStoreState.durableQueueStats = null;
+    vectorStatusUiStoreState.setIsJobQueueActive.mockReset();
+    const testWindow = window as unknown as {
+      electronAPI: unknown | undefined;
+      embeddingHost: unknown | undefined;
+    };
+    testWindow.electronAPI = undefined;
+    testWindow.embeddingHost = undefined;
   });
 
   describe('auto-backfill disabled behavior', () => {
@@ -259,6 +284,37 @@ describe('useVectorQueueState', () => {
   });
 
   describe('manual backfill functionality', () => {
+    it('uses durable queue stats while live queries are paused for active embedding', async () => {
+      vectorStatusUiStoreState.durableQueueStats = {
+        queued: 12,
+        running: 4,
+        failed: 1,
+        succeeded: 33,
+        nextRunnableAt: null,
+      };
+      patchMockQueueMetrics({
+        throughputPerMinute: 6.5,
+      });
+      const service = createMockService();
+
+      const { result } = renderHook(() =>
+        useVectorQueueState({
+          service,
+          activeEmbeddingSetId: 'set-1',
+          shouldAutoBackfill: false,
+          isEmbeddingActive: true,
+        })
+      );
+
+      expect(result.current.queueCounts).toEqual({
+        queued: 12,
+        running: 4,
+        failed: 1,
+        succeeded: 33,
+      });
+      expect(result.current.throughput).toBe(6.5);
+    });
+
     it('allows manual backfill via backfillActiveSet', async () => {
       liveQueryState.coverage.rows = [{ totalChunks: 10, chunksWithEmbeddingsForSet: 2 }];
       const backfillMock = vi.fn(async () => ({ queued: 5, running: 0, failed: 0, succeeded: 0 }));
@@ -356,6 +412,7 @@ describe('useVectorQueueState', () => {
 
       // Should be backfilling now
       expect(result.current.backfilling).toBe(true);
+      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenCalledWith(true);
 
       // Resolve the backfill
       await act(async () => {
@@ -366,6 +423,29 @@ describe('useVectorQueueState', () => {
       // Should no longer be backfilling
       expect(result.current.backfilling).toBe(false);
       expect(backfillDone).toBe(true);
+    });
+
+    it('clears immediate queue-active state when backfill submission fails', async () => {
+      const service = createMockService({
+        backfill: vi.fn(async () => {
+          throw new Error('backfill failed');
+        }),
+      });
+
+      const { result } = renderHook(() =>
+        useVectorQueueState({
+          service,
+          activeEmbeddingSetId: 'set-1',
+          shouldAutoBackfill: false,
+        })
+      );
+
+      await act(async () => {
+        await result.current.backfillActiveSet();
+      });
+
+      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
+      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(2, false);
     });
 
     it('reports backfill progress via callback', async () => {
@@ -394,6 +474,58 @@ describe('useVectorQueueState', () => {
 
       // Progress callback should have been passed
       expect(progressCallback).toBeDefined();
+    });
+
+    it('uses the desktop embedding host bridge for backfill submission in Electron renderers', async () => {
+      const backfillHostMock = vi.fn(async () => ({
+        queued: 5,
+        running: 0,
+        failed: 0,
+        succeeded: 0,
+      }));
+      const progressListeners = new Set<
+        (progress: { done: number; embeddingSetId: string; total: number }) => void
+      >();
+      const testWindow = window as unknown as {
+        electronAPI?: unknown;
+        embeddingHost?: {
+          enqueueBackfill: typeof backfillHostMock;
+          onBackfillProgress: (
+            callback: (progress: { done: number; embeddingSetId: string; total: number }) => void
+          ) => () => void;
+        };
+      };
+      testWindow.electronAPI = {};
+      testWindow.embeddingHost = {
+        enqueueBackfill: backfillHostMock,
+        onBackfillProgress: (callback) => {
+          progressListeners.add(callback);
+          return () => {
+            progressListeners.delete(callback);
+          };
+        },
+      };
+
+      const service = createMockService();
+      const { result } = renderHook(() =>
+        useVectorQueueState({
+          service,
+          activeEmbeddingSetId: 'set-1',
+          shouldAutoBackfill: false,
+        })
+      );
+
+      await act(async () => {
+        const pending = result.current.backfillActiveSet();
+        progressListeners.forEach((listener) => {
+          listener({ embeddingSetId: 'set-1', done: 128, total: 450 });
+        });
+        await pending;
+      });
+
+      expect(backfillHostMock).toHaveBeenCalledWith('set-1');
+      expect(service.backfill).not.toHaveBeenCalled();
+      expect(result.current.backfillProgress).toEqual({ done: 128, total: 450 });
     });
   });
 
@@ -525,8 +657,8 @@ describe('useVectorQueueState', () => {
         await Promise.resolve();
       });
 
-      // When the live query is disabled (service: null), metrics still drive telemetry but not HUD stats
-      expect(result.current.throughput).toBe(0);
+      // When the live query is disabled, throughput falls back to the shared queue metrics source.
+      expect(result.current.throughput).toBe(4.25);
       expect(result.current.latencyStats).toEqual({ avgMs: 0, p50Ms: 0, p95Ms: 0 });
       expect(result.current.recentErrorCount).toBe(3);
       expect(result.current.telemetryTrend.length).toBeGreaterThan(0);

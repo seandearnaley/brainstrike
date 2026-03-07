@@ -20,9 +20,9 @@ import type {
 import {
   createBrowserEmbeddingQueuePort,
   type QueueProgressEventDetail,
-  runEnhancedImport,
-  useChunkingWorkerContext,
-} from '@brainstrike/file-import';
+} from '@brainstrike/file-import/browser-queue-port';
+import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
+import { runEnhancedImport } from '@brainstrike/file-import/enhanced-import';
 import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';

@@ -5,6 +5,7 @@
  * to a Web Worker to prevent UI blocking during large state saves.
  */
 
+import type { StorageAdapter } from '@brainstrike/storage';
 import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('worker-storage');
@@ -24,7 +25,7 @@ const logger = createLogger('worker-storage');
  * real value, and the runtime guard in worker-init.ts is sufficient.
  */
 export function resolveWorkerStorageUrl(): URL {
-  return new URL('./persistence/worker-storage.worker.mjs', import.meta.url);
+  return new URL('./worker-storage.worker.js', import.meta.url);
 }
 
 export interface WorkerMessage {
@@ -53,6 +54,8 @@ export interface StorageRequest {
 export class WorkerStorage {
   private worker: Worker | null = null;
   private messageId = 0;
+  private readonly storageAdapter: StorageAdapter;
+  private readonly pendingSaveValues = new Map<string, unknown>();
   private readonly pendingRequests = new Map<
     string,
     {
@@ -67,6 +70,7 @@ export class WorkerStorage {
     {
       timer: ReturnType<typeof setTimeout>;
       resolve: () => void;
+      value: unknown;
     }
   >();
 
@@ -75,14 +79,17 @@ export class WorkerStorage {
    * @param workerUrl - Pre-resolved worker URL from `resolveWorkerStorageUrl()`.
    *   This parameter is required to ensure Vite can statically analyze the worker URL
    *   at the call site. Call `resolveWorkerStorageUrl()` before constructing.
+   * @param storageAdapter - Canonical persistence adapter used for all actual reads/writes.
+   *   The worker only offloads message handling and serialization; it does not own storage.
    *
    * @example
    * ```ts
    * const workerUrl = resolveWorkerStorageUrl();
-   * const storage = new WorkerStorage(workerUrl);
+   * const storage = new WorkerStorage(workerUrl, storageAdapter);
    * ```
    */
-  constructor(workerUrl: URL) {
+  constructor(workerUrl: URL, storageAdapter: StorageAdapter) {
+    this.storageAdapter = storageAdapter;
     this.initializeWorker(workerUrl);
   }
 
@@ -149,13 +156,13 @@ export class WorkerStorage {
     try {
       switch (operation) {
         case 'setItem':
-          this.processSetItemRequest(id, key, value, opId);
+          await this.processSetItemRequest(id, key, value, opId);
           break;
         case 'getItem':
-          this.processGetItemRequest(id, key);
+          await this.processGetItemRequest(id, key);
           break;
         case 'removeItem':
-          this.processRemoveItemRequest(id, key);
+          await this.processRemoveItemRequest(id, key);
           break;
         default:
           break;
@@ -171,7 +178,12 @@ export class WorkerStorage {
     }
   }
 
-  private processSetItemRequest(id: string, key: string, value: string | undefined, opId?: number) {
+  private async processSetItemRequest(
+    id: string,
+    key: string,
+    value: string | undefined,
+    opId?: number
+  ) {
     const lastOp = this.activeSaveOps.get(key) ?? 0;
     if (opId && opId < lastOp) {
       this.worker?.postMessage({
@@ -198,30 +210,17 @@ export class WorkerStorage {
       return;
     }
 
-    try {
-      localStorage.setItem(key, value);
-    } catch (e) {
-      logger.warn('localStorage setItem failed:', e);
-    }
+    await this.storageAdapter.setItem(key, value);
     this.worker?.postMessage({ id, type: 'storage_response', operation: 'setItem', success: true });
   }
 
-  private processGetItemRequest(id: string, key: string) {
-    let rawValue: string | null = null;
-    try {
-      rawValue = localStorage.getItem(key);
-    } catch (e) {
-      logger.warn('localStorage getItem failed:', e);
-    }
+  private async processGetItemRequest(id: string, key: string) {
+    const rawValue = await this.storageAdapter.getItem(key);
     this.worker?.postMessage({ id, type: 'storage_response', operation: 'getItem', rawValue });
   }
 
-  private processRemoveItemRequest(id: string, key: string) {
-    try {
-      localStorage.removeItem(key);
-    } catch (e) {
-      logger.warn('localStorage removeItem failed:', e);
-    }
+  private async processRemoveItemRequest(id: string, key: string) {
+    await this.storageAdapter.removeItem(key);
     this.worker?.postMessage({
       id,
       type: 'storage_response',
@@ -232,6 +231,8 @@ export class WorkerStorage {
 
   private handleWorkerError(error: ErrorEvent) {
     logger.error('Worker error occurred:', error.error || error.message);
+
+    this.flushPendingSaveValues();
 
     if (this.worker) {
       this.worker.terminate();
@@ -256,6 +257,34 @@ export class WorkerStorage {
       resolve();
     }
     this.debounceState.clear();
+  }
+
+  private clearTrackedPendingSave(key: string, value: unknown): void {
+    if (this.pendingSaveValues.get(key) === value) {
+      this.pendingSaveValues.delete(key);
+    }
+  }
+
+  private flushPendingSaveValues(): void {
+    for (const [key, value] of this.pendingSaveValues.entries()) {
+      try {
+        // Worker persistence is only enabled in browser contexts where the canonical
+        // adapter is localStorage-backed. We flush synchronously on teardown so a
+        // reload/pagehide cannot drop the latest debounced explorer settings.
+        const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+        void this.storageAdapter.setItem(key, serialized);
+      } catch (error) {
+        logger.error('Failed to flush pending worker storage write:', {
+          key,
+          error,
+        });
+      }
+    }
+    this.pendingSaveValues.clear();
+  }
+
+  flushPendingWrites(): void {
+    this.flushPendingSaveValues();
   }
 
   private sendMessage(
@@ -301,8 +330,7 @@ export class WorkerStorage {
       return result as T | null;
     } catch (error) {
       logger.error('Worker getItem failed:', error);
-      // Fallback to direct localStorage access
-      const rawValue = localStorage.getItem(key);
+      const rawValue = await this.storageAdapter.getItem(key);
       if (!rawValue) {
         return null;
       }
@@ -327,6 +355,8 @@ export class WorkerStorage {
    */
   async setItem(key: string, value: unknown): Promise<void> {
     return new Promise((resolve, reject) => {
+      this.pendingSaveValues.set(key, value);
+
       // Resolve any superseded caller's Promise before replacing
       const existing = this.debounceState.get(key);
       if (existing) {
@@ -339,13 +369,15 @@ export class WorkerStorage {
         this.debounceState.delete(key);
         try {
           await this.sendMessage('save', key, value);
+          this.clearTrackedPendingSave(key, value);
           resolve();
         } catch (error) {
           logger.error('Worker setItem failed:', error);
           // Fallback path, ensure we store stringified value
           const serialized = typeof value === 'string' ? value : JSON.stringify(value);
           try {
-            localStorage.setItem(key, serialized);
+            await this.storageAdapter.setItem(key, serialized);
+            this.clearTrackedPendingSave(key, value);
             resolve();
           } catch (e) {
             reject(e);
@@ -353,17 +385,24 @@ export class WorkerStorage {
         }
       }, 100); // 100ms debounce
 
-      this.debounceState.set(key, { timer, resolve });
+      this.debounceState.set(key, { timer, resolve, value });
     });
   }
 
   async removeItem(key: string): Promise<void> {
+    const existing = this.debounceState.get(key);
+    if (existing) {
+      clearTimeout(existing.timer);
+      existing.resolve();
+      this.debounceState.delete(key);
+    }
+    this.pendingSaveValues.delete(key);
+
     try {
       await this.sendMessage('remove', key);
     } catch (error) {
       logger.error('Worker removeItem failed:', error);
-      // Fallback to direct localStorage access
-      localStorage.removeItem(key);
+      await this.storageAdapter.removeItem(key);
     }
   }
 
@@ -378,6 +417,8 @@ export class WorkerStorage {
    * Cleanup worker resources
    */
   destroy() {
+    this.flushPendingSaveValues();
+
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
