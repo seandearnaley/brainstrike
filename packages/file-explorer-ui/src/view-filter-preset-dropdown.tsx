@@ -169,7 +169,14 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
     <div className="space-y-3 bg-muted/10 p-3">
       <div className="flex items-center justify-between border-b pb-2">
         <span className="font-semibold text-muted-foreground text-xs uppercase">New Preset</span>
-        <Button className="size-5" onClick={onCancel} size="icon" variant="ghost">
+        <Button
+          aria-label="Cancel preset creation"
+          className="size-5"
+          onClick={onCancel}
+          size="icon"
+          title="Cancel preset creation"
+          variant="ghost"
+        >
           <X className="size-3" />
         </Button>
       </div>
@@ -281,7 +288,14 @@ function PresetEditForm({
         <span className="font-semibold text-muted-foreground text-xs uppercase">
           Editing {preset.name}
         </span>
-        <Button className="size-6" onClick={onCancel} size="icon" variant="ghost">
+        <Button
+          aria-label="Cancel editing preset"
+          className="size-6"
+          onClick={onCancel}
+          size="icon"
+          title="Cancel editing preset"
+          variant="ghost"
+        >
           <X className="size-3" />
         </Button>
       </div>
@@ -634,12 +648,14 @@ export function ViewFilterPresetDropdown({
                         <Check className="size-4 shrink-0 text-primary" />
                       )}
                       <Button
+                        aria-label="Edit preset"
                         className="size-6 opacity-0 transition-opacity group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation();
                           startEditing(preset);
                         }}
                         size="icon"
+                        title="Edit preset"
                         variant="ghost"
                       >
                         <Settings2 className="size-3" />
