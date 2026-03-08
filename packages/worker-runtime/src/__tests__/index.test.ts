@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   assertBackgroundRuntimeStatus,
   bindRuntimeLogRecord,
+  createBackgroundRuntimeDescriptor,
   createBackgroundRuntimeLifecycleChannels,
   createBackgroundRuntimeScopedChannel,
   createBackgroundRuntimeStatus,
@@ -140,6 +141,24 @@ describe('@brainstrike/worker-runtime', () => {
       stop: 'chunking-host:stop',
       reset: 'chunking-host:reset',
       getStatus: 'chunking-host:get-status',
+    });
+  });
+
+  it('builds canonical runtime descriptors', () => {
+    const descriptor = createBackgroundRuntimeDescriptor('embedding-host');
+
+    expect(descriptor.runtimeKind).toBe('embedding-host');
+    expect(descriptor.stoppedRuntimeId).toBe('embedding-host:stopped');
+    expect(descriptor.lifecycleChannels.statusEvent).toBe('embedding-host:status');
+    expect(descriptor.createScopedChannel('backfill-progress')).toBe(
+      'embedding-host:backfill-progress'
+    );
+    expect(descriptor.createStoppedStatus()).toEqual({
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host:stopped',
+      state: 'stopped',
+      active: false,
+      lastError: null,
     });
   });
 

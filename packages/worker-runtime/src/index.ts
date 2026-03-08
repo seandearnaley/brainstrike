@@ -48,6 +48,17 @@ export interface BackgroundRuntimeLifecycleChannels<TRuntimeKind extends string>
   readonly stop: BackgroundRuntimeScopedChannel<TRuntimeKind, 'stop'>;
 }
 
+export interface BackgroundRuntimeDescriptor<TRuntimeKind extends string> {
+  createScopedChannel: <TSuffix extends string>(
+    suffix: TSuffix
+  ) => BackgroundRuntimeScopedChannel<TRuntimeKind, TSuffix>;
+  createStoppedStatus: (runtimeId?: string) => BackgroundRuntimeStatus<TRuntimeKind>;
+  readonly lifecycleChannels: BackgroundRuntimeLifecycleChannels<TRuntimeKind>;
+  readonly runtimeKind: TRuntimeKind;
+  readonly statusAdapter: BackgroundRuntimeStatusAdapter<TRuntimeKind>;
+  readonly stoppedRuntimeId: `${TRuntimeKind}:stopped`;
+}
+
 export interface SerializedRuntimeError {
   readonly cause?: string;
   readonly code?: string;
@@ -237,6 +248,22 @@ export function createBackgroundRuntimeLifecycleChannels<TRuntimeKind extends st
     stop: createBackgroundRuntimeScopedChannel(runtimeKind, 'stop'),
     reset: createBackgroundRuntimeScopedChannel(runtimeKind, 'reset'),
     getStatus: createBackgroundRuntimeScopedChannel(runtimeKind, 'get-status'),
+  };
+}
+
+export function createBackgroundRuntimeDescriptor<TRuntimeKind extends string>(
+  runtimeKind: TRuntimeKind
+): BackgroundRuntimeDescriptor<TRuntimeKind> {
+  const statusAdapter = createBackgroundRuntimeStatusAdapter(runtimeKind);
+  const stoppedRuntimeId = `${runtimeKind}:stopped` as const;
+  return {
+    runtimeKind,
+    lifecycleChannels: createBackgroundRuntimeLifecycleChannels(runtimeKind),
+    statusAdapter,
+    stoppedRuntimeId,
+    createScopedChannel: <TSuffix extends string>(suffix: TSuffix) =>
+      createBackgroundRuntimeScopedChannel(runtimeKind, suffix),
+    createStoppedStatus: (runtimeId?: string) => statusAdapter.createStoppedStatus(runtimeId),
   };
 }
 

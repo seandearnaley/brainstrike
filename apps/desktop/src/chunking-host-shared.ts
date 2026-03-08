@@ -5,40 +5,24 @@ import type {
   RuntimeRequestEnvelope,
   RuntimeResultEnvelope,
 } from '@brainstrike/worker-runtime';
-import {
-  createBackgroundRuntimeLifecycleChannels,
-  createBackgroundRuntimeScopedChannel,
-  createBackgroundRuntimeStatusAdapter,
-} from '@brainstrike/worker-runtime';
+import { createBackgroundRuntimeDescriptor } from '@brainstrike/worker-runtime';
 
-export const CHUNKING_HOST_LIFECYCLE_CHANNELS =
-  createBackgroundRuntimeLifecycleChannels('chunking-host');
+export const CHUNKING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('chunking-host');
+export const CHUNKING_HOST_LIFECYCLE_CHANNELS = CHUNKING_HOST_RUNTIME.lifecycleChannels;
 export const CHUNKING_HOST_STATUS_EVENT = CHUNKING_HOST_LIFECYCLE_CHANNELS.statusEvent;
-export const CHUNKING_HOST_REQUEST_EVENT = createBackgroundRuntimeScopedChannel(
-  'chunking-host',
-  'request'
-);
-export const CHUNKING_HOST_PROGRESS_EVENT = createBackgroundRuntimeScopedChannel(
-  'chunking-host',
-  'progress'
-);
+export const CHUNKING_HOST_REQUEST_EVENT = CHUNKING_HOST_RUNTIME.createScopedChannel('request');
+export const CHUNKING_HOST_PROGRESS_EVENT = CHUNKING_HOST_RUNTIME.createScopedChannel('progress');
 export const CHUNKING_HOST_REPORT_STATUS_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.reportStatus;
-export const CHUNKING_HOST_REPORT_RESPONSE_CHANNEL = createBackgroundRuntimeScopedChannel(
-  'chunking-host',
-  'report-response'
-);
+export const CHUNKING_HOST_REPORT_RESPONSE_CHANNEL =
+  CHUNKING_HOST_RUNTIME.createScopedChannel('report-response');
 export const CHUNKING_HOST_ENSURE_STARTED_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.ensureStarted;
 export const CHUNKING_HOST_STOP_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.stop;
 export const CHUNKING_HOST_RESET_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.reset;
 export const CHUNKING_HOST_GET_STATUS_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.getStatus;
-export const CHUNKING_HOST_CHUNK_FILE_CHANNEL = createBackgroundRuntimeScopedChannel(
-  'chunking-host',
-  'chunk-file'
-);
-export const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = createBackgroundRuntimeScopedChannel(
-  'chunking-host',
-  'chunk-batch'
-);
+export const CHUNKING_HOST_CHUNK_FILE_CHANNEL =
+  CHUNKING_HOST_RUNTIME.createScopedChannel('chunk-file');
+export const CHUNKING_HOST_CHUNK_BATCH_CHANNEL =
+  CHUNKING_HOST_RUNTIME.createScopedChannel('chunk-batch');
 
 export type ChunkingHostChunkingStrategy = 'sentence' | 'token' | 'recursive';
 
@@ -54,7 +38,7 @@ export interface ChunkingHostRequestOptions {
   readonly tokenTrueSizing?: boolean;
 }
 
-export const CHUNKING_HOST_STATUS_ADAPTER = createBackgroundRuntimeStatusAdapter('chunking-host');
+export const CHUNKING_HOST_STATUS_ADAPTER = CHUNKING_HOST_RUNTIME.statusAdapter;
 export type ChunkingHostStatus = BackgroundRuntimeStatus<'chunking-host'>;
 export type ChunkingHostStatusReport = BackgroundRuntimeStatus<'chunking-host'>;
 
@@ -158,10 +142,10 @@ export type ChunkingHostResponseReport =
   | ChunkingHostProgressReport
   | ChunkingHostResultReport;
 
-export const CHUNKING_HOST_STOPPED_RUNTIME_ID = 'chunking-host:stopped';
+export const CHUNKING_HOST_STOPPED_RUNTIME_ID = CHUNKING_HOST_RUNTIME.stoppedRuntimeId;
 
 export function createStoppedChunkingHostStatus(
   runtimeId: string = CHUNKING_HOST_STOPPED_RUNTIME_ID
 ): ChunkingHostStatus {
-  return CHUNKING_HOST_STATUS_ADAPTER.createStoppedStatus(runtimeId);
+  return CHUNKING_HOST_RUNTIME.createStoppedStatus(runtimeId);
 }
