@@ -14,6 +14,7 @@ import {
   installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/utils';
+import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
@@ -40,6 +41,26 @@ const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
 let removeHiddenHostLogForwarder: (() => void) | null = null;
 
+type DesktopRendererRole = 'chunking-host' | 'embedding-host' | 'visible-ui';
+
+function getDesktopRendererRole(): DesktopRendererRole {
+  const mode = new URLSearchParams(window.location.search).get('mode');
+  if (mode === 'embedding-host') {
+    return 'embedding-host';
+  }
+  if (mode === 'chunking-host') {
+    return 'chunking-host';
+  }
+  return 'visible-ui';
+}
+
+const desktopRendererRole = getDesktopRendererRole();
+const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
+const rendererRuntimeKind =
+  desktopRendererRole === 'embedding-host' || desktopRendererRole === 'chunking-host'
+    ? desktopRendererRole
+    : null;
+
 if (typeof window !== 'undefined') {
   installConsoleGuard();
   installPerformanceMeasureGuard();
@@ -54,6 +75,14 @@ initializeLogging({
   baseBindings: {
     mode: import.meta.env.MODE,
     userAgent: window.navigator.userAgent,
+    windowRole: desktopRendererRole,
+    ...(rendererRuntimeKind && rendererRuntimeId
+      ? createRuntimeLogBindings({
+          runtimeKind: rendererRuntimeKind,
+          runtimeId: rendererRuntimeId,
+          windowRole: desktopRendererRole,
+        })
+      : {}),
   },
 });
 
@@ -91,21 +120,6 @@ void syncLoggingPreferencesFromMain();
 
 applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'electron-renderer');
 
-type DesktopRendererRole = 'chunking-host' | 'embedding-host' | 'visible-ui';
-
-function getDesktopRendererRole(): DesktopRendererRole {
-  const mode = new URLSearchParams(window.location.search).get('mode');
-  if (mode === 'embedding-host') {
-    return 'embedding-host';
-  }
-  if (mode === 'chunking-host') {
-    return 'chunking-host';
-  }
-  return 'visible-ui';
-}
-
-const desktopRendererRole = getDesktopRendererRole();
-
 function sanitizeLogValue(value: unknown): unknown {
   if (
     value === null ||
@@ -141,16 +155,35 @@ function sanitizeLogValue(value: unknown): unknown {
 
 if (desktopRendererRole !== 'visible-ui') {
   removeHiddenHostLogForwarder = addLogListener((record) => {
+    const runtimeAwareRecord =
+      rendererRuntimeKind && rendererRuntimeId
+        ? bindRuntimeLogRecord(record, {
+            runtimeKind: rendererRuntimeKind,
+            runtimeId: rendererRuntimeId,
+            windowRole: desktopRendererRole,
+          })
+        : record;
+
     window.logging?.ingestBufferedRecord?.({
-      ...record,
-      args: record.args.map((arg) => sanitizeLogValue(arg)),
+      ...runtimeAwareRecord,
+      args: runtimeAwareRecord.args.map((arg) => sanitizeLogValue(arg)),
       bindings: Object.fromEntries(
-        Object.entries(record.bindings).map(([key, value]) => [key, sanitizeLogValue(value)])
+        Object.entries(runtimeAwareRecord.bindings).map(([key, value]) => [
+          key,
+          sanitizeLogValue(value),
+        ])
       ),
     });
   });
   rendererLogger.info('Background renderer log forwarding enabled', {
     windowRole: desktopRendererRole,
+    ...(rendererRuntimeKind && rendererRuntimeId
+      ? createRuntimeLogBindings({
+          runtimeKind: rendererRuntimeKind,
+          runtimeId: rendererRuntimeId,
+          windowRole: desktopRendererRole,
+        })
+      : {}),
   });
 }
 

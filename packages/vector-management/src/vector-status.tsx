@@ -30,6 +30,7 @@ const logger = createLogger('VectorStatus');
 
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
+import { useEmbeddingRuntimeController } from './vector-status/embedding-runtime-controller';
 import {
   EmbeddingSetSelector,
   useEmbeddingSetSelection,
@@ -656,6 +657,13 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     });
   }, [coverageRepository, db]);
 
+  const runtimeController = useEmbeddingRuntimeController({
+    db,
+    devicePreference: devicePref,
+    reinitEveryN,
+    service,
+  });
+
   const backfillRef = useRef<() => Promise<void>>(async () => {});
   const validateApiKeyRef = useRef<() => Promise<{ valid: boolean; message?: string }>>(
     async () => ({ valid: true })
@@ -676,15 +684,14 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   }, [toast]);
 
   const workerControls = useEmbeddingWorkerControls({
-    db,
-    devicePreference: devicePref,
-    reinitEveryN,
+    controller: runtimeController,
     activeEmbeddingSetId: activeId,
     onBackfill: invokeBackfill,
     toast,
   });
 
   const queueState = useVectorQueueState({
+    controller: runtimeController,
     service,
     activeEmbeddingSetId: activeId,
     shouldAutoBackfill: workerControls.workerLocalRunning,

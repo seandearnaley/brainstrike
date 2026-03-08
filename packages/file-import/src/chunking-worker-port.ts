@@ -19,6 +19,11 @@ import type {
 } from '@brainstrike/chunking-worker';
 import type { FileChunkInsert } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils';
+import {
+  createRequestTracker,
+  createTerminalRuntimeFailureLatch,
+  createWorkerTransport,
+} from '@brainstrike/worker-runtime';
 
 const logger = createLogger('ChunkingWorkerPort');
 
@@ -131,14 +136,12 @@ export function toFileChunkInserts(
  */
 export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   let ready = false;
-  let terminalFailure: Error | null = null;
-  const pendingRequests = new Map<
-    string,
-    {
-      resolve: (result: ChunkResult) => void;
-      reject: (error: Error) => void;
-    }
-  >();
+  const terminalFailure = createTerminalRuntimeFailureLatch();
+  const pendingRequests = createRequestTracker<{
+    reject: (error: Error) => void;
+    resolve: (result: ChunkResult) => void;
+  }>();
+  const transport = createWorkerTransport(worker);
   let batchCallbacks: ChunkingBatchCallbacks | null = null;
   const batchResults = new Map<string, ChunkResult>();
   let batchResolve: ((results: ChunkResult[]) => void) | null = null;
@@ -154,7 +157,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   }
 
   function rejectAllPending(error: Error): void {
-    for (const pending of pendingRequests.values()) {
+    for (const [, pending] of pendingRequests.entries()) {
       pending.reject(error);
     }
     pendingRequests.clear();
@@ -165,9 +168,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   }
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker message dispatch handles multiple variants.
-  function handleMessage(event: MessageEvent<WorkerResponse>) {
-    const message = event.data;
-
+  function handleMessage(message: WorkerResponse) {
     switch (message.type) {
       case 'ready':
         ready = true;
@@ -227,7 +228,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
               ? `Chunking worker entered terminal tokenizer failure state: ${error.error}`
               : `Chunking worker initialization failed: ${error.error}`
           );
-          terminalFailure = failure;
+          terminalFailure.markFailed(failure);
           ready = false;
 
           // CRITICAL: init/runtime worker errors are terminal. Reject all pending
@@ -235,7 +236,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
           // Tokenizer-init failures are terminal too: retrying the same worker only
           // fans out duplicate errors and hides the root cause.
           rejectAllPending(failure);
-          worker.removeEventListener('message', handleMessage);
+          removeMessageListener();
           worker.removeEventListener('error', handleErrorEvent);
           worker.terminate();
           break;
@@ -288,13 +289,15 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
         ? `Chunking worker runtime error: ${event.message}`
         : 'Chunking worker runtime error (missing ErrorEvent.message)'
     );
-    terminalFailure = failure;
+    terminalFailure.markFailed(failure);
     rejectAllPending(failure);
-    worker.removeEventListener('message', handleMessage);
+    removeMessageListener();
     worker.removeEventListener('error', handleErrorEvent);
     worker.terminate();
   };
-  worker.addEventListener('message', handleMessage);
+  const removeMessageListener = transport.onMessage((message) => {
+    handleMessage(message as WorkerResponse);
+  });
   worker.addEventListener('error', handleErrorEvent);
 
   let requestIdCounter = 0;
@@ -307,13 +310,14 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
       filePath: string,
       options: ChunkingRequestOptions
     ): Promise<ChunkResult> {
-      if (terminalFailure) {
-        return Promise.reject(terminalFailure);
+      const failure = terminalFailure.getFailure();
+      if (failure) {
+        return Promise.reject(failure);
       }
       return new Promise((resolve, reject) => {
         const id = `chunk-${++requestIdCounter}`;
 
-        pendingRequests.set(id, { resolve, reject });
+        pendingRequests.register(id, { resolve, reject });
 
         const request: ChunkRequest = {
           type: 'chunk',
@@ -325,7 +329,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
           options,
         };
 
-        worker.postMessage(request);
+        transport.postMessage(request);
       });
     },
 
@@ -339,8 +343,9 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
       options: ChunkingRequestOptions,
       callbacks?: ChunkingBatchCallbacks
     ): Promise<ChunkResult[]> {
-      if (terminalFailure) {
-        return Promise.reject(terminalFailure);
+      const failure = terminalFailure.getFailure();
+      if (failure) {
+        return Promise.reject(failure);
       }
       return new Promise((resolve, reject) => {
         batchResolve = resolve;
@@ -363,21 +368,21 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
           requests,
         };
 
-        worker.postMessage(batchRequest);
+        transport.postMessage(batchRequest);
       });
     },
 
     isReady(): boolean {
-      return ready && terminalFailure === null;
+      return ready && !terminalFailure.isFailed();
     },
 
     terminate(): void {
-      worker.removeEventListener('message', handleMessage);
+      removeMessageListener();
       worker.removeEventListener('error', handleErrorEvent);
       rejectAllPending(new Error('Chunking worker terminated'));
       worker.terminate();
       ready = false;
-      terminalFailure = null;
+      terminalFailure.clear();
     },
   };
 }

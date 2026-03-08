@@ -162,9 +162,13 @@ export default defineConfig({
 
   // Web server configuration - optimized for CI
   webServer: {
-    command: config.isCI ? 'pnpm run start' : 'pnpm run dev',
+    // Use the built preview server for deterministic E2E runs.
+    // The repo contract runs `pnpm build` before `pnpm test:e2e`, so we should
+    // execute against the built app instead of a live dev server that can still
+    // optimize dependencies and trigger mid-test reloads.
+    command: 'pnpm run start',
     url: serverURL,
-    reuseExistingServer: !config.isCI,
+    reuseExistingServer: false,
     timeout: 60_000, // 1 minute timeout for server startup
     stderr: 'pipe',
     stdout: 'pipe',

@@ -1,3 +1,11 @@
+import type {
+  BackgroundRuntimeStatus,
+  RuntimeErrorEnvelope,
+  RuntimeProgressEnvelope,
+  RuntimeRequestEnvelope,
+  RuntimeResultEnvelope,
+} from '@brainstrike/worker-runtime';
+
 export const CHUNKING_HOST_STATUS_EVENT = 'chunking-host:status';
 export const CHUNKING_HOST_REQUEST_EVENT = 'chunking-host:request';
 export const CHUNKING_HOST_PROGRESS_EVENT = 'chunking-host:progress';
@@ -10,8 +18,6 @@ export const CHUNKING_HOST_GET_STATUS_CHANNEL = 'chunking-host:get-status';
 export const CHUNKING_HOST_CHUNK_FILE_CHANNEL = 'chunking-host:chunk-file';
 export const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = 'chunking-host:chunk-batch';
 
-export type ChunkingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
-
 export type ChunkingHostChunkingStrategy = 'sentence' | 'token' | 'recursive';
 
 export interface ChunkingHostRequestOptions {
@@ -19,17 +25,8 @@ export interface ChunkingHostRequestOptions {
   readonly [key: string]: unknown;
 }
 
-export interface ChunkingHostStatus {
-  readonly active: boolean;
-  readonly lastError: string | null;
-  readonly state: ChunkingHostLifecycleState;
-}
-
-export interface ChunkingHostStatusReport {
-  readonly active: boolean;
-  readonly lastError: string | null;
-  readonly state: Exclude<ChunkingHostLifecycleState, 'stopping'>;
-}
+export type ChunkingHostStatus = BackgroundRuntimeStatus<'chunking-host'>;
+export type ChunkingHostStatusReport = BackgroundRuntimeStatus<'chunking-host'>;
 
 export interface ChunkingHostFilePayload {
   readonly content: string;
@@ -51,49 +48,64 @@ export interface ChunkingHostChunkBatchRequest {
   readonly requestId: string;
 }
 
-export type ChunkingHostRequest = ChunkingHostChunkBatchRequest | ChunkingHostChunkFileRequest;
+export type ChunkingHostRequestPayload =
+  | ChunkingHostChunkBatchRequest
+  | ChunkingHostChunkFileRequest;
+export type ChunkingHostRequest = RuntimeRequestEnvelope<'chunk', ChunkingHostRequestPayload>;
 
-export interface ChunkingHostProgressReport {
+export interface ChunkingHostProgressReportPayload {
   readonly chunksCreated: number;
   readonly currentIndex?: number;
   readonly fileRecordId: string;
-  readonly requestId: string;
   readonly totalFiles?: number;
-  readonly type: 'progress';
 }
 
-export interface ChunkingHostFileCompleteReport {
+export interface ChunkingHostFileCompleteReportPayload {
   readonly fileRecordId: string;
-  readonly requestId: string;
   readonly result: unknown;
-  readonly type: 'file-complete';
 }
 
-export interface ChunkingHostFileErrorReport {
-  readonly error: string;
+export interface ChunkingHostFileErrorReportPayload {
+  readonly errorMessage: string;
   readonly fileRecordId: string;
-  readonly requestId: string;
-  readonly type: 'file-error';
 }
 
-export interface ChunkingHostResultReport {
-  readonly requestId: string;
+export interface ChunkingHostResultReportPayload {
   readonly result: unknown;
-  readonly type: 'result';
 }
 
-export interface ChunkingHostBatchCompleteReport {
-  readonly requestId: string;
+export interface ChunkingHostBatchCompleteReportPayload {
   readonly results: readonly unknown[];
-  readonly type: 'batch-complete';
 }
 
-export interface ChunkingHostErrorReport {
-  readonly error: string;
+export interface ChunkingHostErrorReportPayload {
+  readonly errorMessage: string;
   readonly fileRecordId?: string;
-  readonly requestId: string;
-  readonly type: 'error';
 }
+
+export type ChunkingHostProgressReport = RuntimeProgressEnvelope<
+  'chunk',
+  ChunkingHostProgressReportPayload
+>;
+export type ChunkingHostFileCompleteReport = RuntimeProgressEnvelope<
+  'chunk-file-complete',
+  ChunkingHostFileCompleteReportPayload
+>;
+export type ChunkingHostFileErrorReport = RuntimeProgressEnvelope<
+  'chunk-file-error',
+  ChunkingHostFileErrorReportPayload
+>;
+export type ChunkingHostResultReport = RuntimeResultEnvelope<
+  'chunk-result',
+  ChunkingHostResultReportPayload
+>;
+export type ChunkingHostBatchCompleteReport = RuntimeResultEnvelope<
+  'chunk-batch-complete',
+  ChunkingHostBatchCompleteReportPayload
+>;
+export type ChunkingHostErrorReport = RuntimeErrorEnvelope<'chunk-error'> & {
+  readonly payload: RuntimeErrorEnvelope<'chunk-error'>['payload'] & ChunkingHostErrorReportPayload;
+};
 
 export type ChunkingHostProgressEvent =
   | ChunkingHostFileCompleteReport
@@ -108,8 +120,14 @@ export type ChunkingHostResponseReport =
   | ChunkingHostProgressReport
   | ChunkingHostResultReport;
 
-export function createStoppedChunkingHostStatus(): ChunkingHostStatus {
+export const CHUNKING_HOST_STOPPED_RUNTIME_ID = 'chunking-host:stopped';
+
+export function createStoppedChunkingHostStatus(
+  runtimeId: string = CHUNKING_HOST_STOPPED_RUNTIME_ID
+): ChunkingHostStatus {
   return {
+    runtimeKind: 'chunking-host',
+    runtimeId,
     state: 'stopped',
     active: false,
     lastError: null,

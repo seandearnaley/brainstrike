@@ -3,6 +3,7 @@ import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
+import type { EmbeddingRuntimeController } from './embedding-runtime-controller';
 import {
   calculateLatency,
   EMBEDDINGS_QUEUE,
@@ -16,6 +17,7 @@ export type BackfillProgress = { done: number; total: number } | null;
 
 export interface UseVectorQueueStateParams {
   activeEmbeddingSetId: string | null;
+  controller: EmbeddingRuntimeController;
   /** When true, live queries are paused to avoid performance degradation during embedding generation */
   isEmbeddingActive?: boolean;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
@@ -147,22 +149,6 @@ interface CoverageRow {
   totalChunks: number | string | null;
 }
 
-interface EmbeddingHostBackfillProgress {
-  done: number;
-  embeddingSetId: string;
-  total: number;
-}
-
-interface EmbeddingHostApi {
-  enqueueBackfill?: (embeddingSetId: string) => Promise<QueueCounts>;
-  onBackfillProgress?: (callback: (progress: EmbeddingHostBackfillProgress) => void) => () => void;
-}
-
-interface DesktopBackfillApi {
-  enqueueBackfill: (embeddingSetId: string) => Promise<QueueCounts>;
-  onBackfillProgress: (callback: (progress: EmbeddingHostBackfillProgress) => void) => () => void;
-}
-
 function dispatchQueueDrainedEvent(embeddingSetId: string): void {
   if (typeof window === 'undefined') {
     return;
@@ -181,58 +167,16 @@ const DEFAULT_METRICS = {
   latencyP95Ms: 0,
 } as const;
 
-function getEmbeddingHostApi(): EmbeddingHostApi | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const currentWindow = window as Window & {
-    electronAPI?: unknown;
-    embeddingHost?: EmbeddingHostApi;
-  };
-  if (!currentWindow.electronAPI) {
-    return null;
-  }
-  return currentWindow.embeddingHost ?? null;
-}
-
-function getDesktopBackfillApi(embeddingHost: EmbeddingHostApi | null): DesktopBackfillApi | null {
-  if (
-    typeof embeddingHost?.enqueueBackfill !== 'function' ||
-    typeof embeddingHost?.onBackfillProgress !== 'function'
-  ) {
-    return null;
-  }
-
-  return {
-    enqueueBackfill: embeddingHost.enqueueBackfill,
-    onBackfillProgress: embeddingHost.onBackfillProgress,
-  };
-}
-
 function subscribeBackfillProgress(
-  desktopBackfillApi: DesktopBackfillApi | null,
+  controller: EmbeddingRuntimeController,
   activeEmbeddingSetId: string,
   setBackfillProgress: (progress: BackfillProgress) => void
-): (() => void) | null {
-  if (!desktopBackfillApi) {
-    return null;
-  }
-
-  return desktopBackfillApi.onBackfillProgress((progress) => {
+): () => void {
+  return controller.onBackfillProgress((progress) => {
     if (progress.embeddingSetId !== activeEmbeddingSetId) {
       return;
     }
-    setBackfillProgress({ done: progress.done, total: progress.total });
-  });
-}
-
-async function runServiceBackfill(
-  service: VectorQueueService,
-  activeEmbeddingSetId: string,
-  setBackfillProgress: (progress: BackfillProgress) => void
-): Promise<void> {
-  await service.backfill(activeEmbeddingSetId, (done, total) => {
-    setBackfillProgress({ done, total });
+    setBackfillProgress({ done: progress.current, total: progress.total });
   });
 }
 
@@ -248,6 +192,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const embeddingQueueContext = useEmbeddingQueueSafe();
   const metrics = embeddingQueueContext?.metrics ?? DEFAULT_METRICS;
   const service = params.service;
+  const controller = params.controller;
   const durableQueueStats = useVectorStatusUIStore((s) => s.durableQueueStats);
   const setIsJobQueueActive = useVectorStatusUIStore((s) => s.setIsJobQueueActive);
 
@@ -482,38 +427,20 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [metrics]);
 
   const backfillActiveSet = useCallback(async () => {
-    // CRITICAL: Log precondition failures - these were previously silent failures
-    const desktopBackfillApi = getDesktopBackfillApi(getEmbeddingHostApi());
-
-    if (!(service || desktopBackfillApi)) {
-      logger.warn('backfillActiveSet: service is null - cannot backfill', {
-        hasActiveEmbeddingSetId: Boolean(activeEmbeddingSetId),
-        activeEmbeddingSetId,
-      });
-      return;
-    }
     if (!activeEmbeddingSetId) {
-      logger.warn('backfillActiveSet: activeEmbeddingSetId is null - cannot backfill', {
-        hasService: Boolean(service),
-      });
-      return;
+      throw new Error('No active embedding set selected.');
     }
     setBackfilling(true);
     setIsJobQueueActive(true);
     setBackfillProgress(null);
     const unsubscribeProgress = subscribeBackfillProgress(
-      desktopBackfillApi,
+      controller,
       activeEmbeddingSetId,
       setBackfillProgress
     );
     try {
       logger.info('backfillActiveSet: starting backfill', { activeEmbeddingSetId });
-      if (desktopBackfillApi) {
-        await desktopBackfillApi.enqueueBackfill(activeEmbeddingSetId);
-      } else if (service) {
-        await runServiceBackfill(service, activeEmbeddingSetId, setBackfillProgress);
-      }
-      setIsJobQueueActive(false);
+      await controller.enqueueBackfill(activeEmbeddingSetId);
       dispatchQueueDrainedEvent(activeEmbeddingSetId);
       logger.info('backfillActiveSet: backfill completed', { activeEmbeddingSetId });
     } catch (error) {
@@ -522,10 +449,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         activeEmbeddingSetId,
         error: error instanceof Error ? error.message : String(error),
       });
-      setIsJobQueueActive(false);
       throw error;
     } finally {
-      unsubscribeProgress?.();
+      unsubscribeProgress();
       setBackfilling(false);
       setIsJobQueueActive(false);
       if (backfillTimeoutRef.current) {
@@ -536,7 +462,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         backfillTimeoutRef.current = null;
       }, 1000);
     }
-  }, [service, activeEmbeddingSetId, setIsJobQueueActive]);
+  }, [activeEmbeddingSetId, controller, setIsJobQueueActive]);
 
   const validateApiKey = useCallback(async (): Promise<ApiKeyValidationResult> => {
     if (!(service && activeEmbeddingSetId)) {

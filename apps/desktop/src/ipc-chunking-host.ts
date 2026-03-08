@@ -1,10 +1,17 @@
+import { serializeRuntimeError } from '@brainstrike/worker-runtime';
 import { type IpcMainEvent, type IpcMainInvokeEvent, ipcMain } from 'electron';
 import type { ChunkingHostManager } from './chunking-host-manager';
 import type {
+  ChunkingHostBatchCompleteReportPayload,
   ChunkingHostChunkBatchRequest,
   ChunkingHostChunkFileRequest,
+  ChunkingHostErrorReport,
+  ChunkingHostFileCompleteReportPayload,
+  ChunkingHostFileErrorReportPayload,
   ChunkingHostFilePayload,
+  ChunkingHostProgressReportPayload,
   ChunkingHostResponseReport,
+  ChunkingHostResultReportPayload,
   ChunkingHostStatusReport,
 } from './chunking-host-shared';
 import {
@@ -26,6 +33,7 @@ function assertChunkingHostStatusReport(value: unknown): ChunkingHostStatusRepor
   if (
     candidate['state'] !== 'starting' &&
     candidate['state'] !== 'running' &&
+    candidate['state'] !== 'stopping' &&
     candidate['state'] !== 'stopped' &&
     candidate['state'] !== 'error'
   ) {
@@ -37,10 +45,18 @@ function assertChunkingHostStatusReport(value: unknown): ChunkingHostStatusRepor
   if (candidate['lastError'] !== null && typeof candidate['lastError'] !== 'string') {
     throw new Error('Chunking host status report must include string or null lastError.');
   }
+  if (candidate['runtimeKind'] !== 'chunking-host') {
+    throw new Error('Chunking host status report must include runtimeKind="chunking-host".');
+  }
+  if (typeof candidate['runtimeId'] !== 'string' || candidate['runtimeId'].trim().length === 0) {
+    throw new Error('Chunking host status report must include a non-empty runtimeId.');
+  }
   return {
     state: candidate['state'],
     active: candidate['active'],
     lastError: candidate['lastError'],
+    runtimeKind: 'chunking-host',
+    runtimeId: candidate['runtimeId'],
   } as ChunkingHostStatusReport;
 }
 
@@ -125,7 +141,17 @@ function assertChunkBatchRequest(value: unknown): ChunkingHostChunkBatchRequest 
   };
 }
 
-function assertChunkingHostResponseReport(value: unknown): ChunkingHostResponseReport {
+interface ChunkingHostEnvelopeBase {
+  readonly channel: string;
+  readonly requestId: string;
+  readonly runtimeId: string;
+}
+
+function assertChunkingHostEnvelopeBase(value: unknown): {
+  readonly candidate: Record<string, unknown>;
+  readonly envelopeBase: ChunkingHostEnvelopeBase;
+  readonly payload: Record<string, unknown>;
+} {
   if (!value || typeof value !== 'object') {
     throw new Error('Chunking host response report must be an object.');
   }
@@ -133,42 +159,176 @@ function assertChunkingHostResponseReport(value: unknown): ChunkingHostResponseR
   if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
     throw new Error('Chunking host response report must include a non-empty requestId.');
   }
+  if (typeof candidate['runtimeId'] !== 'string' || candidate['runtimeId'].trim().length === 0) {
+    throw new Error('Chunking host response report must include a non-empty runtimeId.');
+  }
+  if (typeof candidate['channel'] !== 'string' || candidate['channel'].trim().length === 0) {
+    throw new Error('Chunking host response report must include a non-empty channel.');
+  }
+  const payload = candidate['payload'];
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Chunking host response report must include a payload object.');
+  }
+  return {
+    candidate,
+    envelopeBase: {
+      channel: candidate['channel'],
+      requestId: candidate['requestId'],
+      runtimeId: candidate['runtimeId'],
+    },
+    payload: payload as Record<string, unknown>,
+  };
+}
+
+function assertChunkProgressPayload(
+  payload: Record<string, unknown>
+): ChunkingHostProgressReportPayload {
+  if (typeof payload['fileRecordId'] !== 'string' || typeof payload['chunksCreated'] !== 'number') {
+    throw new Error('Chunking host progress payload is invalid.');
+  }
+  return {
+    fileRecordId: payload['fileRecordId'],
+    chunksCreated: payload['chunksCreated'],
+    ...(typeof payload['currentIndex'] === 'number'
+      ? { currentIndex: payload['currentIndex'] }
+      : {}),
+    ...(typeof payload['totalFiles'] === 'number' ? { totalFiles: payload['totalFiles'] } : {}),
+  };
+}
+
+function assertChunkFileCompletePayload(
+  payload: Record<string, unknown>
+): ChunkingHostFileCompleteReportPayload {
+  if (typeof payload['fileRecordId'] !== 'string') {
+    throw new Error('Chunking host file-complete payload is invalid.');
+  }
+  return {
+    fileRecordId: payload['fileRecordId'],
+    result: payload['result'],
+  };
+}
+
+function assertChunkFileErrorPayload(
+  payload: Record<string, unknown>
+): ChunkingHostFileErrorReportPayload {
+  if (typeof payload['fileRecordId'] !== 'string' || typeof payload['errorMessage'] !== 'string') {
+    throw new Error('Chunking host file-error payload is invalid.');
+  }
+  return {
+    fileRecordId: payload['fileRecordId'],
+    errorMessage: payload['errorMessage'],
+  };
+}
+
+function assertChunkBatchCompletePayload(
+  payload: Record<string, unknown>
+): ChunkingHostBatchCompleteReportPayload {
+  if (!Array.isArray(payload['results'])) {
+    throw new Error('Chunking host batch-complete payload must include results array.');
+  }
+  return {
+    results: payload['results'],
+  };
+}
+
+function assertChunkResultPayload(
+  payload: Record<string, unknown>
+): ChunkingHostResultReportPayload {
+  if (!('result' in payload)) {
+    throw new Error('Chunking host result payload must include result.');
+  }
+  return {
+    result: payload['result'],
+  };
+}
+
+function createChunkingHostErrorPayload(
+  payload: Record<string, unknown>
+): ChunkingHostErrorReport['payload'] {
+  if (typeof payload['message'] !== 'string') {
+    throw new Error('Chunking host error payload must include message string.');
+  }
+  const fileRecordId = payload['fileRecordId'];
+  return {
+    ...serializeRuntimeError(payload['message']),
+    ...(typeof fileRecordId === 'string' ? { fileRecordId } : {}),
+    errorMessage: payload['message'],
+  };
+}
+
+function assertChunkingHostProgressReport(
+  envelopeBase: ChunkingHostEnvelopeBase,
+  channel: string,
+  payload: Record<string, unknown>
+): ChunkingHostResponseReport {
+  switch (channel) {
+    case 'chunk':
+      return {
+        ...envelopeBase,
+        type: 'progress',
+        channel,
+        payload: assertChunkProgressPayload(payload),
+      };
+    case 'chunk-file-complete':
+      return {
+        ...envelopeBase,
+        type: 'progress',
+        channel,
+        payload: assertChunkFileCompletePayload(payload),
+      };
+    case 'chunk-file-error':
+      return {
+        ...envelopeBase,
+        type: 'progress',
+        channel,
+        payload: assertChunkFileErrorPayload(payload),
+      };
+    default:
+      throw new Error('Chunking host progress report has invalid channel.');
+  }
+}
+
+function assertChunkingHostResultReport(
+  envelopeBase: ChunkingHostEnvelopeBase,
+  channel: string,
+  payload: Record<string, unknown>
+): ChunkingHostResponseReport {
+  switch (channel) {
+    case 'chunk-result':
+      return {
+        ...envelopeBase,
+        type: 'result',
+        channel,
+        payload: assertChunkResultPayload(payload),
+      };
+    case 'chunk-batch-complete':
+      return {
+        ...envelopeBase,
+        type: 'result',
+        channel,
+        payload: assertChunkBatchCompletePayload(payload),
+      };
+    default:
+      throw new Error('Chunking host result report has invalid channel.');
+  }
+}
+
+function assertChunkingHostResponseReport(value: unknown): ChunkingHostResponseReport {
+  const { candidate, envelopeBase, payload } = assertChunkingHostEnvelopeBase(value);
   switch (candidate['type']) {
     case 'progress':
-      if (
-        typeof candidate['fileRecordId'] !== 'string' ||
-        typeof candidate['chunksCreated'] !== 'number'
-      ) {
-        throw new Error('Chunking host progress report is invalid.');
-      }
-      return value as ChunkingHostResponseReport;
-    case 'file-complete':
-      if (typeof candidate['fileRecordId'] !== 'string' || !candidate['result']) {
-        throw new Error('Chunking host file-complete report is invalid.');
-      }
-      return value as ChunkingHostResponseReport;
-    case 'file-error':
-      if (typeof candidate['fileRecordId'] !== 'string' || typeof candidate['error'] !== 'string') {
-        throw new Error('Chunking host file-error report is invalid.');
-      }
-      return value as ChunkingHostResponseReport;
+      return assertChunkingHostProgressReport(envelopeBase, envelopeBase.channel, payload);
     case 'result':
-      if (!candidate['result']) {
-        throw new Error('Chunking host result report must include a result.');
-      }
-      return value as ChunkingHostResponseReport;
-    case 'batch-complete':
-      if (!Array.isArray(candidate['results'])) {
-        throw new Error('Chunking host batch-complete report must include results array.');
-      }
-      return value as ChunkingHostResponseReport;
+      return assertChunkingHostResultReport(envelopeBase, envelopeBase.channel, payload);
     case 'error':
-      if (typeof candidate['error'] !== 'string') {
-        throw new Error('Chunking host error report must include an error string.');
-      }
-      return value as ChunkingHostResponseReport;
+      return {
+        ...envelopeBase,
+        type: 'error',
+        channel: 'chunk-error',
+        payload: createChunkingHostErrorPayload(payload),
+      } satisfies Extract<ChunkingHostResponseReport, { type: 'error' }>;
     default:
-      throw new Error('Chunking host response report has invalid type.');
+      throw new Error('Chunking host response report has invalid envelope type.');
   }
 }
 

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { app, BrowserWindow } from 'electron';
 import { assignWindowRole, type DesktopWindowRole, getWindowRole } from './window-role';
 
@@ -10,6 +11,7 @@ export type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'sto
 export interface RendererHostStatusShape {
   readonly active: boolean;
   readonly lastError: string | null;
+  readonly runtimeId: string;
   readonly state: RendererHostLifecycleState;
 }
 
@@ -87,16 +89,18 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       );
     }
 
+    const runtimeId = createRuntimeId(this.options.role);
     this.setStatus(
       this.options.createStatus({
         state: 'starting',
         active: false,
         lastError: null,
+        runtimeId,
       })
     );
 
     try {
-      const window = await this.createWindow();
+      const window = await this.createWindow(runtimeId);
       this.hostWindow = window;
       this.attachWindow(window);
     } catch (error) {
@@ -106,6 +110,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           state: 'error',
           active: false,
           lastError: message,
+          runtimeId,
         })
       );
       return this.getStatus();
@@ -127,6 +132,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           state: 'error',
           active: false,
           lastError: message,
+          runtimeId: this.status.runtimeId,
         })
       );
       return this.getStatus();
@@ -186,7 +192,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     this.status = this.options.createStoppedStatus();
   }
 
-  private async createWindow(): Promise<BrowserWindow> {
+  private async createWindow(runtimeId: string): Promise<BrowserWindow> {
     const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
     const enableSandbox = !isTestMode;
     const preloadPath = path.join(resolveDistRoot(), 'preload.js');
@@ -214,12 +220,12 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
 
     if (app.isPackaged || isTestMode) {
       await window.loadFile(path.join(resolveDistRoot(), 'renderer/index.html'), {
-        query: { mode: this.options.mode },
+        query: { mode: this.options.mode, runtimeId },
       });
       return window;
     }
 
-    await window.loadURL(`${DEV_RENDERER_URL}?mode=${this.options.mode}`);
+    await window.loadURL(`${DEV_RENDERER_URL}?mode=${this.options.mode}&runtimeId=${runtimeId}`);
     return window;
   }
 

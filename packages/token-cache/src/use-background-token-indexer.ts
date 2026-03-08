@@ -12,6 +12,7 @@
  */
 
 import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createTerminalRuntimeFailureLatch } from '@brainstrike/worker-runtime';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   IndexerBatchRequest,
@@ -205,7 +206,7 @@ export function useBackgroundTokenIndexer({
   const workerInitPromiseRef = useRef<Promise<Worker> | null>(null);
   const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readyRef = useRef(false);
-  const workerFailureRef = useRef<Error | null>(null);
+  const workerFailureLatchRef = useRef(createTerminalRuntimeFailureLatch());
   const pendingBatchTrackersRef = useRef<PendingBatchTracker[]>([]);
 
   // Track pending files to enable cancellation
@@ -305,7 +306,7 @@ export function useBackgroundTokenIndexer({
     (error: unknown, context: string) => {
       // CRITICAL: terminal worker failure is latched. Duplicate failure signals
       // can arrive from queued worker events and must not fan out callbacks/logging.
-      if (workerFailureRef.current) {
+      if (workerFailureLatchRef.current.isFailed()) {
         return;
       }
 
@@ -313,7 +314,7 @@ export function useBackgroundTokenIndexer({
         error instanceof Error
           ? error
           : new Error(`Background token indexer failure: ${formatErrorMessage(error)}`);
-      workerFailureRef.current = failure;
+      workerFailureLatchRef.current.markFailed(failure);
       readyRef.current = false;
       setIsReady(false);
       setIsIndexing(false);
@@ -346,8 +347,9 @@ export function useBackgroundTokenIndexer({
   );
 
   const ensureWorkerReady = useCallback(async (): Promise<Worker> => {
-    if (workerFailureRef.current) {
-      throw workerFailureRef.current;
+    const workerFailure = workerFailureLatchRef.current.getFailure();
+    if (workerFailure) {
+      throw workerFailure;
     }
 
     if (readyRef.current && workerRef.current) {
@@ -389,13 +391,13 @@ export function useBackgroundTokenIndexer({
 
           const message = event.data;
 
-          if (workerFailureRef.current && message.type !== 'ready') {
+          if (workerFailureLatchRef.current.isFailed() && message.type !== 'ready') {
             return;
           }
 
           if (message.type === 'ready') {
             readyRef.current = true;
-            workerFailureRef.current = null;
+            workerFailureLatchRef.current.clear();
             setIsReady(true);
             if (readinessTimerRef.current) {
               clearTimeout(readinessTimerRef.current);
@@ -541,7 +543,7 @@ export function useBackgroundTokenIndexer({
       workerRef.current = null;
       workerInitPromiseRef.current = null;
       readyRef.current = false;
-      workerFailureRef.current = null;
+      workerFailureLatchRef.current.clear();
       rejectAllPendingBatchTrackers(
         new Error('Background token indexer worker terminated during cleanup')
       );
@@ -688,13 +690,14 @@ export function useBackgroundTokenIndexer({
       await ensureWorkerReady();
 
       // CRITICAL: No skip/degraded fallback path. Worker unavailability is a hard failure.
-      if (workerFailureRef.current) {
+      const workerFailure = workerFailureLatchRef.current.getFailure();
+      if (workerFailure) {
         const message =
-          `Background token indexer unavailable: ${workerFailureRef.current.message}. ` +
+          `Background token indexer unavailable: ${workerFailure.message}. ` +
           `Requested files dropped: ${files.length}.`;
         logger.error('indexFiles rejected - worker previously failed', {
           fileCount: files.length,
-          error: workerFailureRef.current.message,
+          error: workerFailure.message,
         });
         emitTerminalIndexingError(message);
         pendingFilesRef.current.clear();
@@ -796,7 +799,7 @@ export function useBackgroundTokenIndexer({
         pendingFilesRef.current.clear();
         rejectAllPendingBatchTrackers(normalizedError);
         const droppedCount = Math.max(requestedFiles, pendingBeforeClear);
-        if (!workerFailureRef.current) {
+        if (!workerFailureLatchRef.current.isFailed()) {
           emitTerminalIndexingError(
             `Background token indexer failed before dispatch: ${normalizedError.message}. ` +
               `Requested files dropped: ${droppedCount}.`

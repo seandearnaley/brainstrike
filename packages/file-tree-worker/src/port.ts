@@ -5,6 +5,7 @@
  * Handles message correlation, event registration, and promise-based operations.
  */
 
+import { createWorkerTransport } from '@brainstrike/worker-runtime';
 import type {
   BatchLoadResult,
   FlattenedNode,
@@ -171,6 +172,7 @@ export interface FileTreeWorkerPort {
  */
 export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   let ready = false;
+  const transport = createWorkerTransport(worker);
 
   // Handler registrations (mutable state for callbacks)
   let requestLoadHandler: RequestLoadHandler | null = null;
@@ -296,15 +298,17 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
    * Using a sync wrapper ensures removeEventListener works correctly,
    * since async arrow functions create new closure instances.
    */
-  const handleMessage = (event: MessageEvent<WorkerToMainMessage>): void => {
-    void handleMessageAsync(event);
+  const handleMessage = (message: WorkerToMainMessage): void => {
+    void handleMessageAsync({ data: message } as MessageEvent<WorkerToMainMessage>);
   };
 
-  worker.addEventListener('message', handleMessage);
+  const removeMessageListener = transport.onMessage((message) => {
+    handleMessage(message as WorkerToMainMessage);
+  });
 
   return {
     init(rootNodes, folderId) {
-      worker.postMessage({
+      transport.postMessage({
         type: 'init',
         payload: { rootNodes, folderId },
       } satisfies MainToWorkerMessage);
@@ -323,7 +327,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
         pending.operation = { resolve, reject, operationId: thisOperationId };
 
-        worker.postMessage({
+        transport.postMessage({
           type: 'expandAll',
           payload: { folderId },
         } satisfies MainToWorkerMessage);
@@ -343,7 +347,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
         pending.operation = { resolve, reject, operationId: thisOperationId };
 
-        worker.postMessage({
+        transport.postMessage({
           type: 'loadPaths',
           payload: { paths },
         } satisfies MainToWorkerMessage);
@@ -363,7 +367,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
         pending.operation = { resolve, reject, operationId: thisOperationId };
 
-        worker.postMessage({
+        transport.postMessage({
           type: 'loadSubtree',
           payload: { startPath },
         } satisfies MainToWorkerMessage);
@@ -371,7 +375,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     collapseAll() {
-      worker.postMessage({
+      transport.postMessage({
         type: 'collapseAll',
       } satisfies MainToWorkerMessage);
     },
@@ -381,27 +385,27 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
         pending.operation.reject(new Error('Operation aborted'));
         pending.operation = null;
       }
-      worker.postMessage({
+      transport.postMessage({
         type: 'abort',
       } satisfies MainToWorkerMessage);
     },
 
     updateTree(path, children) {
-      worker.postMessage({
+      transport.postMessage({
         type: 'updateTree',
         payload: { path, children, loadState: 'loaded' },
       } satisfies MainToWorkerMessage);
     },
 
     sendLoadResult(path, children) {
-      worker.postMessage({
+      transport.postMessage({
         type: 'loadResult',
         payload: { path, children },
       } satisfies MainToWorkerMessage);
     },
 
     sendLoadError(path, error) {
-      worker.postMessage({
+      transport.postMessage({
         type: 'loadError',
         payload: { path, error },
       } satisfies MainToWorkerMessage);
@@ -450,7 +454,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     flattenTree(expandedPaths) {
-      worker.postMessage({
+      transport.postMessage({
         type: 'flattenTree',
         payload: { expandedPaths },
       } satisfies MainToWorkerMessage);
@@ -461,7 +465,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     terminate() {
-      worker.removeEventListener('message', handleMessage);
+      removeMessageListener();
       worker.terminate();
     },
   };

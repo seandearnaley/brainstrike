@@ -123,7 +123,9 @@ describe('RendererHostLifecycle', () => {
     const status = await lifecycle.ensureStarted({ waitForRunning: false });
 
     expect(status.state).toBe('starting');
-    expect(hostWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081?mode=chunking-host');
+    expect(hostWindow.loadURL).toHaveBeenCalledWith(
+      expect.stringMatching(/^http:\/\/localhost:8081\?mode=chunking-host&runtimeId=chunking-host:/)
+    );
   });
 
   it('broadcasts status updates to non-host windows only', async () => {

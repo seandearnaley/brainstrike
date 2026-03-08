@@ -7,6 +7,7 @@ import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
+import { createRequestId } from '@brainstrike/worker-runtime';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
@@ -623,6 +624,7 @@ export function registerIpcHandlers(
         }
 
         const normalizedEmbeddingSetId = embeddingSetId.trim();
+        const backfillRequestId = createRequestId('embedding-backfill');
         embeddingBackfillInFlight = {
           embeddingSetId: normalizedEmbeddingSetId,
         };
@@ -647,7 +649,9 @@ export function registerIpcHandlers(
               }
               event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
                 embeddingSetId: normalizedEmbeddingSetId,
-                done,
+                requestId: backfillRequestId,
+                stage: 'backfill',
+                current: done,
                 total,
               });
             },

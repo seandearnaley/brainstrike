@@ -314,12 +314,16 @@ describe('database IPC handlers', () => {
     );
     expect(sender.send).toHaveBeenCalledWith('embedding-host:backfill-progress', {
       embeddingSetId: 'set-123',
-      done: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+      stage: 'backfill',
+      current: 0,
       total: 450,
     });
     expect(sender.send).toHaveBeenLastCalledWith('embedding-host:backfill-progress', {
       embeddingSetId: 'set-123',
-      done: 450,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+      stage: 'backfill',
+      current: 450,
       total: 450,
     });
     expect(result).toEqual({

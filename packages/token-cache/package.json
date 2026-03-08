@@ -5,6 +5,7 @@
   "dependencies": {
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@brainstrike/worker-runtime": "workspace:*",
     "@electric-sql/pglite": "^0.3.15",
     "tiktoken": "^1.0.22",
     "workerpool": "^10.0.1",

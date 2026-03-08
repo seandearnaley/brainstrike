@@ -1,5 +1,6 @@
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { createLogger } from '@brainstrike/utils';
+import { serializeRuntimeError } from '@brainstrike/worker-runtime';
 import { useEffect, useRef } from 'react';
 import type {
   ChunkingHostRequest,
@@ -32,20 +33,37 @@ function reportResponse(response: ChunkingHostResponseReport): void {
   getChunkingHostBridge()?.reportResponse?.(response);
 }
 
+function resolveChunkingHostRuntimeId(): string {
+  const runtimeId = new URLSearchParams(window.location.search).get('runtimeId');
+  if (!(runtimeId && runtimeId.trim().length > 0)) {
+    throw new Error('Chunking host renderer requires a runtimeId query parameter.');
+  }
+  return runtimeId;
+}
+
 export function ChunkingHostRuntime(): null {
   const { ensureStarted, error } = useChunkingWorkerContext();
   const activeRequestCountRef = useRef(0);
   const fatalErrorRef = useRef<string | null>(null);
+  const runtimeIdRef = useRef<string>(resolveChunkingHostRuntimeId());
 
   useEffect(() => {
     let disposed = false;
 
     const syncActiveStatus = (): void => {
       if (fatalErrorRef.current) {
-        reportStatus({ state: 'error', active: false, lastError: fatalErrorRef.current });
+        reportStatus({
+          runtimeKind: 'chunking-host',
+          runtimeId: runtimeIdRef.current,
+          state: 'error',
+          active: false,
+          lastError: fatalErrorRef.current,
+        });
         return;
       }
       reportStatus({
+        runtimeKind: 'chunking-host',
+        runtimeId: runtimeIdRef.current,
         state: 'running',
         active: activeRequestCountRef.current > 0,
         lastError: null,
@@ -54,7 +72,13 @@ export function ChunkingHostRuntime(): null {
 
     const startHost = async (): Promise<void> => {
       fatalErrorRef.current = null;
-      reportStatus({ state: 'starting', active: false, lastError: null });
+      reportStatus({
+        runtimeKind: 'chunking-host',
+        runtimeId: runtimeIdRef.current,
+        state: 'starting',
+        active: false,
+        lastError: null,
+      });
       try {
         await ensureStarted();
         if (disposed) {
@@ -64,8 +88,17 @@ export function ChunkingHostRuntime(): null {
       } catch (startError) {
         const message = startError instanceof Error ? startError.message : String(startError);
         fatalErrorRef.current = message;
-        logger.error('Failed to start chunking host worker', { error: message });
-        reportStatus({ state: 'error', active: false, lastError: message });
+        logger.error('Failed to start chunking host worker', {
+          error: message,
+          runtimeId: runtimeIdRef.current,
+        });
+        reportStatus({
+          runtimeKind: 'chunking-host',
+          runtimeId: runtimeIdRef.current,
+          state: 'error',
+          active: false,
+          lastError: message,
+        });
       }
     };
 
@@ -79,66 +112,96 @@ export function ChunkingHostRuntime(): null {
         activeRequestCountRef.current += 1;
         syncActiveStatus();
 
-        if (request.kind === 'chunk-file') {
+        const payload = request.payload;
+
+        if (payload.kind === 'chunk-file') {
           const result = await port.chunkFile(
-            request.fileRecordId,
-            request.content,
-            request.fileName,
-            request.filePath,
-            request.options
+            payload.fileRecordId,
+            payload.content,
+            payload.fileName,
+            payload.filePath,
+            payload.options
           );
           reportResponse({
             type: 'result',
+            channel: 'chunk-result',
             requestId: request.requestId,
-            result,
+            runtimeId: runtimeIdRef.current,
+            payload: {
+              result,
+            },
           });
         } else {
-          const results = await port.chunkBatch([...request.files], request.options, {
+          const results = await port.chunkBatch([...payload.files], payload.options, {
             onFileComplete: (fileRecordId, result) => {
               reportResponse({
-                type: 'file-complete',
+                type: 'progress',
+                channel: 'chunk-file-complete',
                 requestId: request.requestId,
-                fileRecordId,
-                result,
+                runtimeId: runtimeIdRef.current,
+                payload: {
+                  fileRecordId,
+                  result,
+                },
               });
             },
             onFileError: (fileRecordId, errorMessage) => {
               reportResponse({
-                type: 'file-error',
+                type: 'progress',
+                channel: 'chunk-file-error',
                 requestId: request.requestId,
-                fileRecordId,
-                error: errorMessage,
+                runtimeId: runtimeIdRef.current,
+                payload: {
+                  fileRecordId,
+                  errorMessage,
+                },
               });
             },
             onProgress: (fileRecordId, chunksCreated, currentIndex, total) => {
               reportResponse({
                 type: 'progress',
+                channel: 'chunk',
                 requestId: request.requestId,
-                fileRecordId,
-                chunksCreated,
-                currentIndex,
-                totalFiles: total,
+                runtimeId: runtimeIdRef.current,
+                payload: {
+                  fileRecordId,
+                  chunksCreated,
+                  currentIndex,
+                  totalFiles: total,
+                },
               });
             },
           });
           reportResponse({
-            type: 'batch-complete',
+            type: 'result',
+            channel: 'chunk-batch-complete',
             requestId: request.requestId,
-            results,
+            runtimeId: runtimeIdRef.current,
+            payload: {
+              results,
+            },
           });
         }
       } catch (requestError) {
         const message = requestError instanceof Error ? requestError.message : String(requestError);
         logger.error('Chunking host request failed', {
-          kind: request.kind,
+          kind: request.payload.kind,
           requestId: request.requestId,
           error: message,
+          runtimeId: runtimeIdRef.current,
         });
         reportResponse({
           type: 'error',
+          channel: 'chunk-error',
           requestId: request.requestId,
-          ...(request.kind === 'chunk-file' ? { fileRecordId: request.fileRecordId } : {}),
-          error: message,
+          runtimeId: runtimeIdRef.current,
+          payload: {
+            ...serializeRuntimeError(message),
+            ...(request.payload.kind === 'chunk-file'
+              ? { fileRecordId: request.payload.fileRecordId }
+              : {}),
+            errorMessage: message,
+          },
         });
       } finally {
         if (activeRequestCountRef.current > 0) {
@@ -160,7 +223,13 @@ export function ChunkingHostRuntime(): null {
       disposed = true;
       unsubscribeRequest?.();
       activeRequestCountRef.current = 0;
-      reportStatus({ state: 'stopped', active: false, lastError: null });
+      reportStatus({
+        runtimeKind: 'chunking-host',
+        runtimeId: runtimeIdRef.current,
+        state: 'stopped',
+        active: false,
+        lastError: null,
+      });
     };
   }, [ensureStarted]);
 
@@ -169,7 +238,13 @@ export function ChunkingHostRuntime(): null {
       return;
     }
     fatalErrorRef.current = error.message;
-    reportStatus({ state: 'error', active: false, lastError: error.message });
+    reportStatus({
+      runtimeKind: 'chunking-host',
+      runtimeId: runtimeIdRef.current,
+      state: 'error',
+      active: false,
+      lastError: error.message,
+    });
   }, [error]);
   return null;
 }

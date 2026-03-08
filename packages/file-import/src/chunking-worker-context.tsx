@@ -97,6 +97,8 @@ export interface ChunkingWorkerProviderProps {
 interface ChunkingHostLifecycleState {
   active: boolean;
   lastError: string | null;
+  runtimeId: string;
+  runtimeKind: 'chunking-host';
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 }
 
@@ -120,23 +122,34 @@ interface ChunkingHostChunkBatchRequest {
   requestId: string;
 }
 
-interface ChunkingHostProgressEvent {
-  chunksCreated?: number;
-  currentIndex?: number;
-  error?: string;
-  fileRecordId: string;
-  requestId: string;
-  result?: ChunkResult;
-  totalFiles?: number;
-  type: 'file-complete' | 'file-error' | 'progress';
-}
-
 interface ChunkingHostBridge {
   chunkBatch: (request: ChunkingHostChunkBatchRequest) => Promise<ChunkResult[]>;
   chunkFile: (request: ChunkingHostChunkFileRequest) => Promise<ChunkResult>;
   ensureStarted: () => Promise<ChunkingHostLifecycleState>;
   getStatus: () => Promise<ChunkingHostLifecycleState>;
-  onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => () => void;
+  onProgress: (
+    callback: (progress: {
+      channel: 'chunk' | 'chunk-file-complete' | 'chunk-file-error';
+      payload:
+        | {
+            chunksCreated: number;
+            currentIndex?: number;
+            fileRecordId: string;
+            totalFiles?: number;
+          }
+        | {
+            fileRecordId: string;
+            result: ChunkResult;
+          }
+        | {
+            errorMessage: string;
+            fileRecordId: string;
+          };
+      requestId: string;
+      runtimeId: string;
+      type: 'progress';
+    }) => void
+  ) => () => void;
   onStatus: (callback: (status: ChunkingHostLifecycleState) => void) => () => void;
   reset: () => Promise<ChunkingHostLifecycleState>;
 }
@@ -164,6 +177,8 @@ function ChunkingHostProxyProvider({
     state: 'stopped',
     active: false,
     lastError: null,
+    runtimeKind: 'chunking-host',
+    runtimeId: 'chunking-host:stopped',
   });
   const [error, setError] = useState<Error | null>(null);
   const pendingBatchCallbacksRef = useRef(new Map<string, ChunkingBatchCallbacks | undefined>());
@@ -325,21 +340,29 @@ function createChunkingHostProxyPort(
         if (!registeredCallbacks) {
           return;
         }
-        if (progress.type === 'progress') {
+        if (progress.channel === 'chunk') {
+          const payload = progress.payload as {
+            chunksCreated: number;
+            currentIndex?: number;
+            fileRecordId: string;
+            totalFiles?: number;
+          };
           registeredCallbacks.onProgress?.(
-            progress.fileRecordId,
-            progress.chunksCreated ?? 0,
-            progress.currentIndex ?? 0,
-            progress.totalFiles ?? 0
+            payload.fileRecordId,
+            payload.chunksCreated,
+            payload.currentIndex ?? 0,
+            payload.totalFiles ?? 0
           );
           return;
         }
-        if (progress.type === 'file-complete' && progress.result) {
-          registeredCallbacks.onFileComplete?.(progress.fileRecordId, progress.result);
+        if (progress.channel === 'chunk-file-complete') {
+          const payload = progress.payload as { fileRecordId: string; result: ChunkResult };
+          registeredCallbacks.onFileComplete?.(payload.fileRecordId, payload.result);
           return;
         }
-        if (progress.type === 'file-error' && progress.error) {
-          registeredCallbacks.onFileError?.(progress.fileRecordId, progress.error);
+        if (progress.channel === 'chunk-file-error') {
+          const payload = progress.payload as { errorMessage: string; fileRecordId: string };
+          registeredCallbacks.onFileError?.(payload.fileRecordId, payload.errorMessage);
         }
       });
 

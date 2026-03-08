@@ -1,13 +1,25 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { AssistantSelectionUpdatePayload, IFileNode } from '@brainstrike/types';
 import type {
+  ChunkingHostChunkBatchRequest,
+  ChunkingHostChunkFileRequest,
+  ChunkingHostProgressEvent,
+  ChunkingHostRequest,
+  ChunkingHostResponseReport,
+  ChunkingHostStatus,
+} from '../chunking-host-shared';
+import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
   PanelPersistenceState,
 } from '@brainstrike/ui';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
-import type { ChunkResult, ChunkingRequestOptions } from '@brainstrike/chunking-worker';
-import type { EmbeddingHostCommand, EmbeddingHostStatus } from '../embedding-host-shared';
+import type { ChunkResult } from '@brainstrike/chunking-worker';
+import type {
+  EmbeddingHostBackfillProgress,
+  EmbeddingHostCommand,
+  EmbeddingHostStatus,
+} from '../embedding-host-shared';
 
 import type { LoggingSettingsPayload } from '../logging-shared';
 
@@ -30,96 +42,17 @@ declare global {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
     };
     chunkingHost: {
-      ensureStarted: () => Promise<{
-        active: boolean;
-        lastError: string | null;
-        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-      }>;
-      stop: () => Promise<{
-        active: boolean;
-        lastError: string | null;
-        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-      }>;
-      reset: () => Promise<{
-        active: boolean;
-        lastError: string | null;
-        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-      }>;
-      getStatus: () => Promise<{
-        active: boolean;
-        lastError: string | null;
-        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-      }>;
-      chunkFile: (request: {
-        content: string;
-        fileName: string;
-        filePath: string;
-        fileRecordId: string;
-        kind: 'chunk-file';
-        options: ChunkingRequestOptions;
-        requestId: string;
-      }) => Promise<ChunkResult>;
-      chunkBatch: (request: {
-        files: readonly {
-          content: string;
-          fileName: string;
-          filePath: string;
-          fileRecordId: string;
-        }[];
-        kind: 'chunk-batch';
-        options: ChunkingRequestOptions;
-        requestId: string;
-      }) => Promise<readonly ChunkResult[]>;
-      reportStatus: (status: {
-        active: boolean;
-        lastError: string | null;
-        state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-      }) => void;
-      reportResponse: (response: unknown) => void;
-      onStatus: (
-        callback: (status: {
-          active: boolean;
-          lastError: string | null;
-          state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-        }) => void
-      ) => () => void;
-      onProgress: (
-        callback: (progress: {
-          chunksCreated?: number;
-          currentIndex?: number;
-          error?: string;
-          fileRecordId: string;
-          requestId: string;
-          result?: ChunkResult;
-          totalFiles?: number;
-          type: 'file-complete' | 'file-error' | 'progress';
-        }) => void
-      ) => () => void;
-      onRequest: (
-        callback: (
-          request:
-            | {
-                content: string;
-                fileName: string;
-                filePath: string;
-                fileRecordId: string;
-                kind: 'chunk-file';
-                options: ChunkingRequestOptions;
-                requestId: string;
-              }
-            | {
-                files: readonly {
-                  content: string;
-                  fileName: string;
-                  filePath: string;
-                  fileRecordId: string;
-                }[];
-                kind: 'chunk-batch';
-                options: ChunkingRequestOptions;
-                requestId: string;
-              }
-        ) => void
-      ) => () => void;
+      ensureStarted: () => Promise<ChunkingHostStatus>;
+      stop: () => Promise<ChunkingHostStatus>;
+      reset: () => Promise<ChunkingHostStatus>;
+      getStatus: () => Promise<ChunkingHostStatus>;
+      chunkFile: (request: ChunkingHostChunkFileRequest) => Promise<ChunkResult>;
+      chunkBatch: (request: ChunkingHostChunkBatchRequest) => Promise<readonly ChunkResult[]>;
+      reportStatus: (status: ChunkingHostStatus) => void;
+      reportResponse: (response: ChunkingHostResponseReport) => void;
+      onStatus: (callback: (status: ChunkingHostStatus) => void) => () => void;
+      onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => () => void;
+      onRequest: (callback: (request: ChunkingHostRequest) => void) => () => void;
     };
     desktopLifecycle?: {
       noteReloadIntent: (reason: string) => Promise<void>;
@@ -179,10 +112,14 @@ declare global {
     };
     embeddingHost: {
       ensureStarted: () => Promise<EmbeddingHostStatus>;
+      enqueueBackfill: (embeddingSetId: string) => Promise<unknown>;
       stop: () => Promise<EmbeddingHostStatus>;
       reset: () => Promise<EmbeddingHostStatus>;
       getStatus: () => Promise<EmbeddingHostStatus>;
       reportStatus: (status: EmbeddingHostStatus) => void;
+      onBackfillProgress: (
+        callback: (progress: EmbeddingHostBackfillProgress) => void
+      ) => () => void;
       onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
       onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
     };

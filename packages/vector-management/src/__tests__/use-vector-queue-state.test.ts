@@ -1,5 +1,9 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type {
+  EmbeddingRuntimeBackfillProgress,
+  EmbeddingRuntimeController,
+} from '../vector-status/embedding-runtime-controller';
 import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
 import type { VectorQueueService } from '../vector-status/vector-queue-service';
 import { patchMockQueueMetrics, resetMockQueueMetrics } from './setup-mock-queue';
@@ -20,11 +24,11 @@ interface LiveQueryShape {
 }
 
 const liveQueryRefresh = {
-  queueCounts: vi.fn(),
-  throughput: vi.fn(),
-  lastError: vi.fn(),
-  latency: vi.fn(),
-  coverage: vi.fn(),
+  queueCounts: vi.fn(async () => {}),
+  throughput: vi.fn(async () => {}),
+  lastError: vi.fn(async () => {}),
+  latency: vi.fn(async () => {}),
+  coverage: vi.fn(async () => {}),
 };
 
 const liveQueryState: Record<
@@ -56,7 +60,7 @@ vi.mock('@brainstrike/db', async () => {
     usePGliteLiveQuery: vi.fn(
       (options: { query: string; params?: readonly unknown[]; enabled?: boolean }) => {
         if (!options.enabled) {
-          return { rows: [], loading: false, error: null, refresh: vi.fn() };
+          return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
         }
         const query = options.query;
         if (query.includes("FILTER (WHERE state = 'queued'")) {
@@ -99,7 +103,7 @@ vi.mock('@brainstrike/db', async () => {
             refresh: liveQueryRefresh.coverage,
           };
         }
-        return { rows: [], loading: false, error: null, refresh: vi.fn() };
+        return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
       }
     ),
   };
@@ -111,6 +115,24 @@ vi.mock('@brainstrike/preferences', () => ({
   ),
 }));
 
+interface MockController {
+  readonly controller: EmbeddingRuntimeController;
+  readonly emitBackfillProgress: (progress: EmbeddingRuntimeBackfillProgress) => void;
+  readonly enqueueBackfillMock: ReturnType<typeof vi.fn>;
+}
+
+function createRuntimeStatus(
+  state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping'
+): Awaited<ReturnType<EmbeddingRuntimeController['getStatus']>> {
+  return {
+    runtimeKind: 'embedding-worker',
+    runtimeId: 'embedding-worker:test',
+    state,
+    active: false,
+    lastError: null,
+  };
+}
+
 function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQueueService {
   return {
     backfill: vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 })),
@@ -119,23 +141,58 @@ function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQ
       clearedCount: 0,
       queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
     })),
-    retryFailed: vi.fn(),
-    clearQueue: vi.fn(),
-    wipeQueue: vi.fn(),
-    refresh: vi.fn(),
+    retryFailed: vi.fn(async () => {}),
+    clearQueue: vi.fn(async () => {}),
+    wipeQueue: vi.fn(async () => {}),
+    refresh: vi.fn(async () => ({
+      coverage: null,
+      lastError: null,
+      latency: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+      queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+      throughput: 0,
+    })),
     ...overrides,
   };
 }
 
-describe('useVectorQueueState', () => {
-  function resetLiveQueryData() {
-    liveQueryState.queueCounts.rows = [{ queued: 0, running: 0, failed: 0, succeeded: 0 }];
-    liveQueryState.throughput.rows = [{ count: 0 }];
-    liveQueryState.lastError.rows = [];
-    liveQueryState.latency.rows = [];
-    liveQueryState.coverage.rows = [];
-  }
+function createMockController(): MockController {
+  const progressListeners = new Set<(progress: EmbeddingRuntimeBackfillProgress) => void>();
+  const enqueueBackfillMock = vi.fn(async (_embeddingSetId: string) => {});
 
+  return {
+    controller: {
+      enqueueBackfill: enqueueBackfillMock,
+      ensureStarted: vi.fn(async () => createRuntimeStatus('running')),
+      getStatus: vi.fn(async () => createRuntimeStatus('stopped')),
+      onBackfillProgress: (callback) => {
+        progressListeners.add(callback);
+        return () => {
+          progressListeners.delete(callback);
+        };
+      },
+      onStatus: () => () => {},
+      reset: vi.fn(async () => createRuntimeStatus('running')),
+      start: vi.fn(async () => createRuntimeStatus('running')),
+      stop: vi.fn(async () => createRuntimeStatus('stopped')),
+    },
+    emitBackfillProgress: (progress) => {
+      for (const listener of progressListeners) {
+        listener(progress);
+      }
+    },
+    enqueueBackfillMock,
+  };
+}
+
+function resetLiveQueryData(): void {
+  liveQueryState.queueCounts.rows = [{ queued: 0, running: 0, failed: 0, succeeded: 0 }];
+  liveQueryState.throughput.rows = [{ count: 0 }];
+  liveQueryState.lastError.rows = [];
+  liveQueryState.latency.rows = [];
+  liveQueryState.coverage.rows = [];
+}
+
+describe('useVectorQueueState', () => {
   afterEach(() => {
     resetLiveQueryData();
     liveQueryRefresh.queueCounts.mockReset();
@@ -146,691 +203,166 @@ describe('useVectorQueueState', () => {
     resetMockQueueMetrics();
     vectorStatusUiStoreState.durableQueueStats = null;
     vectorStatusUiStoreState.setIsJobQueueActive.mockReset();
-    const testWindow = window as unknown as {
-      electronAPI: unknown | undefined;
-      embeddingHost: unknown | undefined;
+    const testWindow = window as Window & {
+      electronAPI?: unknown;
+      embeddingHost?: unknown;
     };
-    testWindow.electronAPI = undefined;
-    testWindow.embeddingHost = undefined;
-  });
-
-  describe('auto-backfill disabled behavior', () => {
-    it('does NOT auto-backfill even when coverage incomplete and shouldAutoBackfill is true', async () => {
-      liveQueryState.coverage.rows = [{ totalChunks: 10, chunksWithEmbeddingsForSet: 2 }];
-      const service = createMockService();
-
-      renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: true,
-        })
-      );
-
-      await act(async () => Promise.resolve());
-
-      // Auto-backfill is disabled - backfill should NOT be called automatically
-      expect(service.backfill).not.toHaveBeenCalled();
+    Object.defineProperty(testWindow, 'electronAPI', {
+      configurable: true,
+      writable: true,
+      value: undefined,
     });
-
-    it('does NOT auto-backfill when shouldAutoBackfill is false', async () => {
-      liveQueryState.coverage.rows = [{ totalChunks: 10, chunksWithEmbeddingsForSet: 2 }];
-      const service = createMockService();
-
-      renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => Promise.resolve());
-
-      expect(service.backfill).not.toHaveBeenCalled();
-    });
-
-    it('does NOT auto-backfill when coverage is zero (no chunks)', async () => {
-      liveQueryState.coverage.rows = [{ totalChunks: 0, chunksWithEmbeddingsForSet: 0 }];
-      const service = createMockService();
-
-      renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: true,
-        })
-      );
-
-      await act(async () => Promise.resolve());
-
-      expect(service.backfill).not.toHaveBeenCalled();
-    });
-
-    it('does NOT auto-backfill when activeEmbeddingSetId is null', async () => {
-      liveQueryState.coverage.rows = [{ totalChunks: 10, chunksWithEmbeddingsForSet: 2 }];
-      const service = createMockService();
-
-      renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: null,
-          shouldAutoBackfill: true,
-        })
-      );
-
-      await act(async () => Promise.resolve());
-
-      expect(service.backfill).not.toHaveBeenCalled();
-    });
-
-    it('never auto-backfills even with coverage state changes', async () => {
-      let coverageState = { totalChunks: 10, chunksWithEmbeddingsForSet: 2 };
-      liveQueryState.coverage.rows = [coverageState];
-      const backfillMock = vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 }));
-      const service = createMockService({ backfill: backfillMock });
-
-      const { rerender } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: true,
-        })
-      );
-
-      await act(async () => Promise.resolve());
-      expect(backfillMock).not.toHaveBeenCalled();
-
-      // Simulate coverage reaching completion
-      coverageState = { totalChunks: 10, chunksWithEmbeddingsForSet: 10 };
-      liveQueryState.coverage.rows = [coverageState];
-      await act(async () => {
-        rerender();
-        await Promise.resolve();
-      });
-
-      // Introduce new pending chunks for the same set
-      coverageState = { totalChunks: 10, chunksWithEmbeddingsForSet: 4 };
-      liveQueryState.coverage.rows = [coverageState];
-      await act(async () => {
-        rerender();
-        await Promise.resolve();
-      });
-
-      // Still should not auto-backfill - it's disabled
-      expect(backfillMock).not.toHaveBeenCalled();
-    });
-
-    it('never auto-backfills when switching embedding sets', async () => {
-      liveQueryState.coverage.rows = [{ totalChunks: 10, chunksWithEmbeddingsForSet: 2 }];
-      const service = createMockService();
-
-      const { rerender } = renderHook(
-        ({ setId }: { setId: string | null }) =>
-          useVectorQueueState({
-            service,
-            activeEmbeddingSetId: setId,
-            shouldAutoBackfill: true,
-          }),
-        { initialProps: { setId: 'set-1' } }
-      );
-
-      await act(async () => Promise.resolve());
-      expect(service.backfill).not.toHaveBeenCalled();
-
-      // Switch to a different set
-      await act(async () => {
-        rerender({ setId: 'set-2' });
-        await Promise.resolve();
-      });
-
-      expect(service.backfill).not.toHaveBeenCalled();
-
-      // Switch back
-      await act(async () => {
-        rerender({ setId: 'set-1' });
-        await Promise.resolve();
-      });
-
-      expect(service.backfill).not.toHaveBeenCalled();
+    Object.defineProperty(testWindow, 'embeddingHost', {
+      configurable: true,
+      writable: true,
+      value: undefined,
     });
   });
 
-  describe('manual backfill functionality', () => {
-    it('uses durable queue stats while live queries are paused for active embedding', async () => {
-      vectorStatusUiStoreState.durableQueueStats = {
-        queued: 12,
-        running: 4,
-        failed: 1,
-        succeeded: 33,
-        nextRunnableAt: null,
-      };
-      patchMockQueueMetrics({
-        throughputPerMinute: 6.5,
-      });
-      const service = createMockService();
+  it('reads queue and coverage state from live queries', () => {
+    liveQueryState.queueCounts.rows = [{ queued: 3, running: 1, failed: 2, succeeded: 9 }];
+    liveQueryState.throughput.rows = [{ count: 14 }];
+    liveQueryState.lastError.rows = [{ error: 'embedding failed' }];
+    liveQueryState.latency.rows = [
+      { runAt: '2026-03-08T00:00:00.000Z', updatedAt: '2026-03-08T00:00:00.100Z' },
+      { runAt: '2026-03-08T00:00:01.000Z', updatedAt: '2026-03-08T00:00:01.300Z' },
+    ];
+    liveQueryState.coverage.rows = [{ totalChunks: 12, chunksWithEmbeddingsForSet: 7 }];
+    patchMockQueueMetrics({ throughputPerMinute: 999, windowErrorCount: 4, latencyP95Ms: 25 });
 
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-          isEmbeddingActive: true,
-        })
-      );
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: createMockController().controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
 
-      expect(result.current.queueCounts).toEqual({
-        queued: 12,
-        running: 4,
-        failed: 1,
-        succeeded: 33,
+    expect(result.current.queueCounts).toEqual({
+      queued: 3,
+      running: 1,
+      failed: 2,
+      succeeded: 9,
+    });
+    expect(result.current.throughput).toBe(14);
+    expect(result.current.lastError).toBe('embedding failed');
+    expect(result.current.coverage).toEqual({ total: 12, withSet: 7 });
+    expect(result.current.latencyStats.avgMs).toBeGreaterThan(0);
+    expect(result.current.recentErrorCount).toBe(4);
+    expect(result.current.telemetryTrend).toHaveLength(1);
+  });
+
+  it('uses the controller for backfill progress and clears queue-active state afterwards', async () => {
+    const controller = createMockController();
+    controller.enqueueBackfillMock.mockImplementationOnce(async (embeddingSetId: string) => {
+      controller.emitBackfillProgress({
+        embeddingSetId,
+        requestId: 'embedding-backfill:test',
+        stage: 'backfill',
+        current: 2,
+        total: 5,
       });
-      expect(result.current.throughput).toBe(6.5);
+      controller.emitBackfillProgress({
+        embeddingSetId,
+        requestId: 'embedding-backfill:test',
+        stage: 'backfill',
+        current: 5,
+        total: 5,
+      });
     });
 
-    it('allows manual backfill via backfillActiveSet', async () => {
-      liveQueryState.coverage.rows = [{ totalChunks: 10, chunksWithEmbeddingsForSet: 2 }];
-      const backfillMock = vi.fn(async () => ({ queued: 5, running: 0, failed: 0, succeeded: 0 }));
-      const service = createMockService({ backfill: backfillMock });
-      const queueDrainedHandler = vi.fn();
-      window.addEventListener('brainstrike:queue-drained', queueDrainedHandler);
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
 
-      try {
-        const { result } = renderHook(() =>
-          useVectorQueueState({
-            service,
-            activeEmbeddingSetId: 'set-1',
-            shouldAutoBackfill: false,
-          })
-        );
-
-        await act(async () => Promise.resolve());
-
-        // No auto-backfill
-        expect(backfillMock).not.toHaveBeenCalled();
-
-        // Manual backfill
-        await act(async () => {
-          await result.current.backfillActiveSet();
-        });
-
-        expect(backfillMock).toHaveBeenCalledTimes(1);
-        expect(backfillMock).toHaveBeenCalledWith('set-1', expect.any(Function));
-        expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
-        expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
-        expect(queueDrainedHandler).toHaveBeenCalledTimes(1);
-        const drainedEvent = queueDrainedHandler.mock.calls[0]?.[0];
-        expect(drainedEvent).toBeInstanceOf(CustomEvent);
-        expect((drainedEvent as CustomEvent).detail).toEqual({
-          embeddingSetId: 'set-1',
-          queue: 'embeddings',
-        });
-      } finally {
-        window.removeEventListener('brainstrike:queue-drained', queueDrainedHandler);
-      }
+    await act(async () => {
+      await result.current.backfillActiveSet();
     });
 
-    it('does not call backfill when service is null', async () => {
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service: null,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
+    expect(controller.enqueueBackfillMock).toHaveBeenCalledWith('set-1');
+    expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
+    expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
 
-      await act(async () => {
-        await result.current.backfillActiveSet();
-      });
-
-      // No error thrown, just a no-op
-      expect(result.current.backfilling).toBe(false);
-    });
-
-    it('does not call backfill when activeEmbeddingSetId is null', async () => {
-      const service = createMockService();
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: null,
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => {
-        await result.current.backfillActiveSet();
-      });
-
-      expect(service.backfill).not.toHaveBeenCalled();
-    });
-
-    it('sets backfilling state during manual backfill', async () => {
-      let resolveBackfill: () => void;
-      const backfillPromise = new Promise<{
-        queued: number;
-        running: number;
-        failed: number;
-        succeeded: number;
-      }>((resolve) => {
-        resolveBackfill = () => resolve({ queued: 0, running: 0, failed: 0, succeeded: 0 });
-      });
-      const backfillMock = vi.fn(() => backfillPromise);
-      const service = createMockService({ backfill: backfillMock });
-
-      liveQueryState.coverage.rows = [{ totalChunks: 10, chunksWithEmbeddingsForSet: 2 }];
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      expect(result.current.backfilling).toBe(false);
-
-      // Start backfill (but don't await)
-      let backfillDone = false;
-      act(() => {
-        result.current.backfillActiveSet().then(() => {
-          backfillDone = true;
-        });
-      });
-
-      // Should be backfilling now
-      expect(result.current.backfilling).toBe(true);
-      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenCalledWith(true);
-
-      // Resolve the backfill
-      await act(async () => {
-        resolveBackfill!();
-        await Promise.resolve();
-      });
-
-      // Should no longer be backfilling
-      expect(result.current.backfilling).toBe(false);
-      expect(backfillDone).toBe(true);
-    });
-
-    it('clears immediate queue-active state when backfill submission fails', async () => {
-      const service = createMockService({
-        backfill: vi.fn(async () => {
-          throw new Error('backfill failed');
-        }),
-      });
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => {
-        await expect(result.current.backfillActiveSet()).rejects.toThrow('backfill failed');
-      });
-
-      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
-      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(2, false);
-    });
-
-    it('reports backfill progress via callback', async () => {
-      let progressCallback: ((done: number, total: number) => void) | undefined;
-      const backfillMock = vi.fn(
-        async (_setId: string, onProgress: (done: number, total: number) => void) => {
-          progressCallback = onProgress;
-          return { queued: 0, running: 0, failed: 0, succeeded: 0 };
-        }
-      );
-      const service = createMockService({ backfill: backfillMock });
-
-      liveQueryState.coverage.rows = [{ totalChunks: 10, chunksWithEmbeddingsForSet: 2 }];
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => {
-        await result.current.backfillActiveSet();
-      });
-
-      // Progress callback should have been passed
-      expect(progressCallback).toBeDefined();
-    });
-
-    it('uses the desktop embedding host bridge for backfill submission in Electron renderers', async () => {
-      const backfillHostMock = vi.fn(async () => ({
-        queued: 5,
-        running: 0,
-        failed: 0,
-        succeeded: 0,
-      }));
-      const progressListeners = new Set<
-        (progress: { done: number; embeddingSetId: string; total: number }) => void
-      >();
-      const testWindow = window as unknown as {
-        electronAPI?: unknown;
-        embeddingHost?: {
-          enqueueBackfill: typeof backfillHostMock;
-          onBackfillProgress: (
-            callback: (progress: { done: number; embeddingSetId: string; total: number }) => void
-          ) => () => void;
-        };
-      };
-      testWindow.electronAPI = {};
-      testWindow.embeddingHost = {
-        enqueueBackfill: backfillHostMock,
-        onBackfillProgress: (callback) => {
-          progressListeners.add(callback);
-          return () => {
-            progressListeners.delete(callback);
-          };
-        },
-      };
-
-      const service = createMockService();
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => {
-        const pending = result.current.backfillActiveSet();
-        progressListeners.forEach((listener) => {
-          listener({ embeddingSetId: 'set-1', done: 128, total: 450 });
-        });
-        await pending;
-      });
-
-      expect(backfillHostMock).toHaveBeenCalledWith('set-1');
-      expect(service.backfill).not.toHaveBeenCalled();
-      expect(result.current.backfillProgress).toEqual({ done: 128, total: 450 });
-      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
-      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
+    await waitFor(() => {
+      expect(result.current.backfillProgress).toEqual({ done: 5, total: 5 });
     });
   });
 
-  describe('queue operations', () => {
-    it('retryFailed calls service.retryFailed with limit', async () => {
-      const retryFailedMock = vi.fn();
-      const service = createMockService({ retryFailed: retryFailedMock });
+  it('refreshes live queries when the queue drained event targets the active embedding set', async () => {
+    renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: createMockController().controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
 
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('brainstrike:queue-drained', {
+          detail: { embeddingSetId: 'set-1', queue: 'embeddings' },
         })
       );
-
-      await act(async () => {
-        await result.current.retryFailed(10);
-      });
-
-      expect(retryFailedMock).toHaveBeenCalledWith(10);
     });
 
-    it('retryFailed uses default limit of 20', async () => {
-      const retryFailedMock = vi.fn();
-      const service = createMockService({ retryFailed: retryFailedMock });
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => {
-        await result.current.retryFailed();
-      });
-
-      expect(retryFailedMock).toHaveBeenCalledWith(20);
-    });
-
-    it('clearQueue calls service.clearQueue with failed states', async () => {
-      const clearQueueMock = vi.fn();
-      const service = createMockService({ clearQueue: clearQueueMock });
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => {
-        await result.current.clearQueue();
-      });
-
-      expect(clearQueueMock).toHaveBeenCalledWith(['failed']);
-    });
-
-    it('wipeQueue calls service.wipeQueue', async () => {
-      const wipeQueueMock = vi.fn();
-      const service = createMockService({ wipeQueue: wipeQueueMock });
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => {
-        await result.current.wipeQueue();
-      });
-
-      expect(wipeQueueMock).toHaveBeenCalled();
-    });
-
-    it('queue operations are no-op when service is null', async () => {
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service: null,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      // These should not throw
-      await act(async () => {
-        await result.current.retryFailed();
-        await result.current.clearQueue();
-        await result.current.wipeQueue();
-      });
-    });
-  });
-
-  describe('telemetry and metrics', () => {
-    it('refreshes coverage and queue live queries when embedding activity settles', async () => {
-      const service = createMockService();
-
-      const { rerender } = renderHook(
-        ({ isEmbeddingActive }: { isEmbeddingActive: boolean }) =>
-          useVectorQueueState({
-            service,
-            activeEmbeddingSetId: 'set-1',
-            shouldAutoBackfill: false,
-            isEmbeddingActive,
-          }),
-        { initialProps: { isEmbeddingActive: true } }
-      );
-
-      await act(async () => {
-        rerender({ isEmbeddingActive: false });
-        await Promise.resolve();
-      });
-
+    await waitFor(() => {
       expect(liveQueryRefresh.queueCounts).toHaveBeenCalledTimes(1);
-      expect(liveQueryRefresh.throughput).toHaveBeenCalledTimes(1);
-      expect(liveQueryRefresh.lastError).toHaveBeenCalledTimes(1);
-      expect(liveQueryRefresh.latency).toHaveBeenCalledTimes(1);
-      expect(liveQueryRefresh.coverage).toHaveBeenCalledTimes(1);
     });
+    expect(liveQueryRefresh.throughput).toHaveBeenCalledTimes(1);
+    expect(liveQueryRefresh.lastError).toHaveBeenCalledTimes(1);
+    expect(liveQueryRefresh.latency).toHaveBeenCalledTimes(1);
+    expect(liveQueryRefresh.coverage).toHaveBeenCalledTimes(1);
+  });
 
-    it('refreshes coverage and queue live queries when the embeddings queue drains', async () => {
-      const service = createMockService();
+  it('ignores queue drained events for a different embedding set', async () => {
+    renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: createMockController().controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
 
-      renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('brainstrike:queue-drained', {
+          detail: { embeddingSetId: 'set-2', queue: 'embeddings' },
         })
       );
-
-      await act(async () => {
-        window.dispatchEvent(
-          new CustomEvent('brainstrike:queue-drained', {
-            detail: { queue: 'embeddings', embeddingSetId: 'set-1' },
-          })
-        );
-        await Promise.resolve();
-      });
-
-      expect(liveQueryRefresh.queueCounts).toHaveBeenCalledTimes(1);
-      expect(liveQueryRefresh.throughput).toHaveBeenCalledTimes(1);
-      expect(liveQueryRefresh.lastError).toHaveBeenCalledTimes(1);
-      expect(liveQueryRefresh.latency).toHaveBeenCalledTimes(1);
-      expect(liveQueryRefresh.coverage).toHaveBeenCalledTimes(1);
     });
 
-    it('reflects metrics from the embedding queue context', async () => {
-      const { result, rerender } = renderHook(() =>
-        useVectorQueueState({
-          service: null,
-          activeEmbeddingSetId: null,
-          shouldAutoBackfill: false,
-        })
-      );
+    expect(liveQueryRefresh.queueCounts).not.toHaveBeenCalled();
+    expect(liveQueryRefresh.coverage).not.toHaveBeenCalled();
+  });
 
-      expect(result.current.throughput).toBe(0);
-      expect(result.current.recentErrorCount).toBe(0);
-      expect(result.current.latencyStats).toEqual({ avgMs: 0, p50Ms: 0, p95Ms: 0 });
-      expect(result.current.telemetryTrend.length).toBeLessThanOrEqual(1);
+  it('delegates API key validation to the queue service for the active set', async () => {
+    const validateApiKeyForSet = vi.fn(async () => ({
+      valid: false as const,
+      message: 'Missing API key',
+    }));
+    const service = createMockService({ validateApiKeyForSet });
 
-      act(() => {
-        patchMockQueueMetrics({
-          active: 2,
-          completed: 7,
-          failed: 1,
-          throughputPerMinute: 4.25,
-          latencyAvgMs: 120,
-          latencyP50Ms: 90,
-          latencyP95Ms: 240,
-          windowErrorCount: 3,
-        });
-      });
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service,
+        controller: createMockController().controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
 
-      await act(async () => {
-        rerender();
-        await Promise.resolve();
-      });
-
-      // When the live query is disabled, throughput falls back to the shared queue metrics source.
-      expect(result.current.throughput).toBe(4.25);
-      expect(result.current.latencyStats).toEqual({ avgMs: 0, p50Ms: 0, p95Ms: 0 });
-      expect(result.current.recentErrorCount).toBe(3);
-      expect(result.current.telemetryTrend.length).toBeGreaterThan(0);
-      const lastTelemetryPoint = result.current.telemetryTrend.at(-1);
-      expect(lastTelemetryPoint).toBeDefined();
-      if (lastTelemetryPoint) {
-        expect(lastTelemetryPoint.throughput).toBeCloseTo(4.25, 2);
-        expect(lastTelemetryPoint.latencyP95).toBe(240);
-        expect(lastTelemetryPoint.errorCount).toBe(3);
-      }
+    await expect(result.current.validateApiKey()).resolves.toEqual({
+      valid: false,
+      message: 'Missing API key',
     });
-
-    it('returns queue counts from live query', async () => {
-      liveQueryState.queueCounts.rows = [{ queued: 5, running: 2, failed: 1, succeeded: 100 }];
-      const service = createMockService();
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => Promise.resolve());
-
-      expect(result.current.queueCounts).toEqual({
-        queued: 5,
-        running: 2,
-        failed: 1,
-        succeeded: 100,
-      });
-    });
-
-    it('returns coverage from live query', async () => {
-      liveQueryState.coverage.rows = [{ totalChunks: 100, chunksWithEmbeddingsForSet: 75 }];
-      const service = createMockService();
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => Promise.resolve());
-
-      expect(result.current.coverage).toEqual({
-        total: 100,
-        withSet: 75,
-      });
-    });
-
-    it('returns default coverage when no activeEmbeddingSetId', async () => {
-      liveQueryState.coverage.rows = [{ totalChunks: 100, chunksWithEmbeddingsForSet: 75 }];
-      const service = createMockService();
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: null,
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => Promise.resolve());
-
-      expect(result.current.coverage).toEqual({
-        total: 0,
-        withSet: 0,
-      });
-    });
-
-    it('returns last error from live query', async () => {
-      liveQueryState.lastError.rows = [{ error: 'Model loading failed' }];
-      const service = createMockService();
-
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
-
-      await act(async () => Promise.resolve());
-
-      expect(result.current.lastError).toBe('Model loading failed');
-    });
+    expect(validateApiKeyForSet).toHaveBeenCalledWith('set-1');
   });
 });

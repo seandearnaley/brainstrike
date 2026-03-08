@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/utils';
+import { createRequestId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {
   createStoppedEmbeddingHostStatus,
@@ -16,6 +17,8 @@ const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
 
 function createEmbeddingHostStatus(status: RendererHostStatusShape): EmbeddingHostStatus {
   return {
+    runtimeKind: 'embedding-host',
+    runtimeId: status.runtimeId,
     state: status.state,
     active: status.active,
     lastError: status.lastError,
@@ -39,6 +42,7 @@ export class EmbeddingHostManager {
             state: 'error',
             active: false,
             lastError: message,
+            runtimeId: this.getStatus().runtimeId,
           })
         );
       },
@@ -53,6 +57,7 @@ export class EmbeddingHostManager {
             state: 'error',
             active: false,
             lastError: message,
+            runtimeId: this.getStatus().runtimeId,
           })
         );
       },
@@ -93,10 +98,17 @@ export class EmbeddingHostManager {
         state: 'stopping',
         active: false,
         lastError: null,
+        runtimeId: this.getStatus().runtimeId,
       })
     );
 
-    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, { type: 'stop' });
+    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, {
+      type: 'request',
+      channel: 'control',
+      requestId: createRequestId('embedding-host-command'),
+      runtimeId: this.getStatus().runtimeId,
+      payload: { action: 'stop' },
+    });
 
     try {
       return await this.lifecycle.waitForStatus((status) => status.state === 'stopped', 10_000);
@@ -118,10 +130,17 @@ export class EmbeddingHostManager {
         state: 'starting',
         active: false,
         lastError: null,
+        runtimeId: this.getStatus().runtimeId,
       })
     );
 
-    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, { type: 'reset' });
+    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, {
+      type: 'request',
+      channel: 'control',
+      requestId: createRequestId('embedding-host-command'),
+      runtimeId: this.getStatus().runtimeId,
+      payload: { action: 'reset' },
+    });
     try {
       return await this.lifecycle.waitForStatus(
         (status) => status.state === 'running' || status.state === 'error',
@@ -134,6 +153,7 @@ export class EmbeddingHostManager {
           state: 'error',
           active: false,
           lastError: message,
+          runtimeId: this.getStatus().runtimeId,
         })
       );
       return this.getStatus();
@@ -164,6 +184,7 @@ export class EmbeddingHostManager {
         state: report.state,
         active: report.active,
         lastError: report.lastError,
+        runtimeId: report.runtimeId,
       })
     );
   }
@@ -176,6 +197,7 @@ export class EmbeddingHostManager {
         this.powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
         logger.info('powerSaveBlocker started for active embedding host work', {
           id: this.powerSaveBlockerId,
+          runtimeId: status.runtimeId,
         });
       }
       return;
@@ -217,6 +239,7 @@ export class EmbeddingHostManager {
       powerSaveBlocker.stop(this.powerSaveBlockerId);
       logger.info('powerSaveBlocker stopped for idle embedding host', {
         id: this.powerSaveBlockerId,
+        runtimeId: this.getStatus().runtimeId,
       });
     }
     this.powerSaveBlockerId = null;

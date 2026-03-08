@@ -45,22 +45,35 @@ type ChunkingHostLifecycleState = EmbeddingHostLifecycleState;
 interface EmbeddingHostStatus {
   readonly active: boolean;
   readonly lastError: string | null;
+  readonly runtimeId: string;
+  readonly runtimeKind: 'embedding-host';
   readonly state: EmbeddingHostLifecycleState;
 }
 
 interface EmbeddingHostCommand {
-  readonly type: 'reset' | 'stop';
+  readonly channel: 'control';
+  readonly payload: {
+    readonly action: 'reset' | 'stop';
+  };
+  readonly requestId: string;
+  readonly runtimeId: string;
+  readonly type: 'request';
 }
 
 interface EmbeddingHostBackfillProgress {
-  readonly done: number;
+  readonly current: number;
   readonly embeddingSetId: string;
+  readonly message?: string;
+  readonly requestId: string;
+  readonly stage: string;
   readonly total: number;
 }
 
 interface ChunkingHostStatus {
   readonly active: boolean;
   readonly lastError: string | null;
+  readonly runtimeId: string;
+  readonly runtimeKind: 'chunking-host';
   readonly state: ChunkingHostLifecycleState;
 }
 
@@ -84,32 +97,48 @@ interface ChunkingHostChunkBatchRequest {
   readonly requestId: string;
 }
 
-type ChunkingHostRequest = ChunkingHostChunkBatchRequest | ChunkingHostChunkFileRequest;
+interface ChunkingHostRequest {
+  readonly channel: 'chunk';
+  readonly payload: ChunkingHostChunkBatchRequest | ChunkingHostChunkFileRequest;
+  readonly requestId: string;
+  readonly runtimeId: string;
+  readonly type: 'request';
+}
 
 interface ChunkingHostProgressEvent {
-  readonly chunksCreated?: number;
-  readonly currentIndex?: number;
-  readonly error?: string;
-  readonly fileRecordId: string;
+  readonly channel: 'chunk' | 'chunk-file-complete' | 'chunk-file-error';
+  readonly payload:
+    | {
+        readonly chunksCreated: number;
+        readonly currentIndex?: number;
+        readonly fileRecordId: string;
+        readonly totalFiles?: number;
+      }
+    | {
+        readonly fileRecordId: string;
+        readonly result: unknown;
+      }
+    | {
+        readonly errorMessage: string;
+        readonly fileRecordId: string;
+      };
   readonly requestId: string;
-  readonly result?: unknown;
-  readonly totalFiles?: number;
-  readonly type: 'file-complete' | 'file-error' | 'progress';
+  readonly runtimeId: string;
+  readonly type: 'progress';
 }
 
 interface ChunkingHostResponseReport {
-  readonly error?: string;
-  readonly fileRecordId?: string;
+  readonly channel:
+    | 'chunk'
+    | 'chunk-batch-complete'
+    | 'chunk-error'
+    | 'chunk-file-complete'
+    | 'chunk-file-error'
+    | 'chunk-result';
+  readonly payload: Record<string, unknown>;
   readonly requestId: string;
-  readonly result?: unknown;
-  readonly results?: readonly unknown[];
-  readonly type:
-    | 'batch-complete'
-    | 'error'
-    | 'file-complete'
-    | 'file-error'
-    | 'progress'
-    | 'result';
+  readonly runtimeId: string;
+  readonly type: 'error' | 'progress' | 'result';
 }
 
 interface FileReadErrorPayload {

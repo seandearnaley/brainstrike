@@ -13,6 +13,7 @@ import {
   launchElectronApp,
   reloadRenderer,
   resetAppState,
+  waitForAppReady,
 } from '../utils/electron-helpers';
 import { resetToAppHome } from '../utils/test-reset';
 
@@ -89,6 +90,8 @@ class ElectronHarness {
     if (page.isClosed()) {
       return this.restartAndResetRenderer(recoveryAttempt, 'Renderer page was already closed.');
     }
+
+    await waitForAppReady(page);
 
     let resetTriggeredNavigation = false;
     try {

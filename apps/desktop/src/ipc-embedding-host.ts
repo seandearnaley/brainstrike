@@ -17,6 +17,7 @@ function assertEmbeddingHostStatusReport(value: unknown): EmbeddingHostStatusRep
   if (
     candidate['state'] !== 'starting' &&
     candidate['state'] !== 'running' &&
+    candidate['state'] !== 'stopping' &&
     candidate['state'] !== 'stopped' &&
     candidate['state'] !== 'error'
   ) {
@@ -28,10 +29,18 @@ function assertEmbeddingHostStatusReport(value: unknown): EmbeddingHostStatusRep
   if (candidate['lastError'] !== null && typeof candidate['lastError'] !== 'string') {
     throw new Error('Embedding host status report must include string or null lastError.');
   }
+  if (candidate['runtimeKind'] !== 'embedding-host') {
+    throw new Error('Embedding host status report must include runtimeKind="embedding-host".');
+  }
+  if (typeof candidate['runtimeId'] !== 'string' || candidate['runtimeId'].trim().length === 0) {
+    throw new Error('Embedding host status report must include a non-empty runtimeId.');
+  }
   return {
     state: candidate['state'],
     active: candidate['active'],
     lastError: candidate['lastError'],
+    runtimeKind: 'embedding-host',
+    runtimeId: candidate['runtimeId'],
   } as EmbeddingHostStatusReport;
 }
 

@@ -6,6 +6,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import type { EmbeddingActionsDropdownProps } from './embedding-actions-dropdown';
 import type { EmbeddingStatusBarProps } from './embedding-status-bar';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
+import { useEmbeddingRuntimeController } from './vector-status/embedding-runtime-controller';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
 import { createVectorQueueService } from './vector-status/vector-queue-service';
@@ -120,6 +121,13 @@ export function useEmbeddingControls({
     });
   }, [db, chunkRepository]);
 
+  const runtimeController = useEmbeddingRuntimeController({
+    db,
+    devicePreference: devicePref,
+    reinitEveryN,
+    service,
+  });
+
   // Refs for backfill and validation callbacks
   const backfillRef = useRef<() => Promise<void>>(async () => {});
   const validateApiKeyRef = useRef<() => Promise<{ valid: boolean; message?: string }>>(
@@ -142,9 +150,7 @@ export function useEmbeddingControls({
 
   // Worker controls (start/stop/reset)
   const workerControls = useEmbeddingWorkerControls({
-    db,
-    devicePreference: devicePref,
-    reinitEveryN,
+    controller: runtimeController,
     activeEmbeddingSetId: activeId,
     onBackfill: invokeBackfill,
     toast,
@@ -152,6 +158,7 @@ export function useEmbeddingControls({
 
   // Queue state (coverage, counts, throughput, latency, etc.)
   const queueState = useVectorQueueState({
+    controller: runtimeController,
     service,
     activeEmbeddingSetId: activeId,
     shouldAutoBackfill: workerControls.workerLocalRunning,

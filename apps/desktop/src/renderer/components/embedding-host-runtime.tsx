@@ -39,12 +39,21 @@ function reportStatus(status: EmbeddingHostStatus): void {
   getEmbeddingHostBridge()?.reportStatus?.(status);
 }
 
+function resolveEmbeddingHostRuntimeId(): string {
+  const runtimeId = new URLSearchParams(window.location.search).get('runtimeId');
+  if (!(runtimeId && runtimeId.trim().length > 0)) {
+    throw new Error('Embedding host renderer requires a runtimeId query parameter.');
+  }
+  return runtimeId;
+}
+
 export function EmbeddingHostRuntime(): null {
   const db = usePGliteDatabase();
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
   const fatalErrorRef = useRef<string | null>(null);
   const startingRef = useRef(false);
   const activeRef = useRef(false);
+  const runtimeIdRef = useRef<string>(resolveEmbeddingHostRuntimeId());
 
   useEffect(() => {
     if (!db) {
@@ -60,7 +69,13 @@ export function EmbeddingHostRuntime(): null {
 
       startingRef.current = true;
       fatalErrorRef.current = null;
-      reportStatus({ state: 'starting', active: false, lastError: null });
+      reportStatus({
+        runtimeKind: 'embedding-host',
+        runtimeId: runtimeIdRef.current,
+        state: 'starting',
+        active: false,
+        lastError: null,
+      });
 
       try {
         const controller = await startEmbeddingWorker({
@@ -72,8 +87,15 @@ export function EmbeddingHostRuntime(): null {
             activeRef.current = false;
             logger.error('Embedding host worker stopped after fatal local model error', {
               error: message,
+              runtimeId: runtimeIdRef.current,
             });
-            reportStatus({ state: 'error', active: false, lastError: message });
+            reportStatus({
+              runtimeKind: 'embedding-host',
+              runtimeId: runtimeIdRef.current,
+              state: 'error',
+              active: false,
+              lastError: message,
+            });
           },
           onWorkerActivityChange: (active: boolean) => {
             if (fatalErrorRef.current) {
@@ -81,6 +103,8 @@ export function EmbeddingHostRuntime(): null {
             }
             activeRef.current = active;
             reportStatus({
+              runtimeKind: 'embedding-host',
+              runtimeId: runtimeIdRef.current,
               state: 'running',
               active,
               lastError: null,
@@ -94,15 +118,36 @@ export function EmbeddingHostRuntime(): null {
         }
         controllerRef.current = controller;
         if (fatalErrorRef.current) {
-          reportStatus({ state: 'error', active: false, lastError: fatalErrorRef.current });
+          reportStatus({
+            runtimeKind: 'embedding-host',
+            runtimeId: runtimeIdRef.current,
+            state: 'error',
+            active: false,
+            lastError: fatalErrorRef.current,
+          });
           return;
         }
-        reportStatus({ state: 'running', active: activeRef.current, lastError: null });
+        reportStatus({
+          runtimeKind: 'embedding-host',
+          runtimeId: runtimeIdRef.current,
+          state: 'running',
+          active: activeRef.current,
+          lastError: null,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        logger.error('Failed to start embedding host worker', { error: message });
+        logger.error('Failed to start embedding host worker', {
+          error: message,
+          runtimeId: runtimeIdRef.current,
+        });
         fatalErrorRef.current = message;
-        reportStatus({ state: 'error', active: false, lastError: message });
+        reportStatus({
+          runtimeKind: 'embedding-host',
+          runtimeId: runtimeIdRef.current,
+          state: 'error',
+          active: false,
+          lastError: message,
+        });
       } finally {
         startingRef.current = false;
       }
@@ -116,7 +161,13 @@ export function EmbeddingHostRuntime(): null {
       if (controller) {
         await controller.stop();
       }
-      reportStatus({ state: 'stopped', active: false, lastError: null });
+      reportStatus({
+        runtimeKind: 'embedding-host',
+        runtimeId: runtimeIdRef.current,
+        state: 'stopped',
+        active: false,
+        lastError: null,
+      });
     };
 
     const resetWorker = async (): Promise<void> => {
@@ -125,11 +176,11 @@ export function EmbeddingHostRuntime(): null {
     };
 
     const unsubscribeCommand = getEmbeddingHostBridge()?.onCommand?.((command) => {
-      if (command.type === 'stop') {
+      if (command.payload.action === 'stop') {
         void stopWorker();
         return;
       }
-      if (command.type === 'reset') {
+      if (command.payload.action === 'reset') {
         void resetWorker();
       }
     });

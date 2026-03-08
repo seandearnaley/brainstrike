@@ -7,6 +7,7 @@ import {
   type ChunkingHostChunkBatchRequest,
   type ChunkingHostChunkFileRequest,
   type ChunkingHostProgressEvent,
+  type ChunkingHostRequest,
   type ChunkingHostResponseReport,
   type ChunkingHostStatus,
   type ChunkingHostStatusReport,
@@ -18,6 +19,8 @@ const logger = createLogger('ChunkingHostManager');
 
 function createChunkingHostStatus(status: RendererHostStatusShape): ChunkingHostStatus {
   return {
+    runtimeKind: 'chunking-host',
+    runtimeId: status.runtimeId,
     state: status.state,
     active: status.active,
     lastError: status.lastError,
@@ -64,6 +67,7 @@ export class ChunkingHostManager {
             state: 'error',
             active: false,
             lastError: message,
+            runtimeId: this.getStatus().runtimeId,
           })
         );
       },
@@ -79,6 +83,7 @@ export class ChunkingHostManager {
             state: 'error',
             active: false,
             lastError: message,
+            runtimeId: this.getStatus().runtimeId,
           })
         );
       },
@@ -111,6 +116,7 @@ export class ChunkingHostManager {
         state: 'stopping',
         active: false,
         lastError: null,
+        runtimeId: this.getStatus().runtimeId,
       })
     );
 
@@ -153,7 +159,14 @@ export class ChunkingHostManager {
         resolve,
         reject,
       });
-      this.lifecycle.getHostWindow()?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, request);
+      const message: ChunkingHostRequest = {
+        type: 'request',
+        channel: 'chunk',
+        requestId: request.requestId,
+        runtimeId: this.getStatus().runtimeId,
+        payload: request,
+      };
+      this.lifecycle.getHostWindow()?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, message);
     });
   }
 
@@ -176,7 +189,14 @@ export class ChunkingHostManager {
         resolve,
         reject,
       });
-      this.lifecycle.getHostWindow()?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, request);
+      const message: ChunkingHostRequest = {
+        type: 'request',
+        channel: 'chunk',
+        requestId: request.requestId,
+        runtimeId: this.getStatus().runtimeId,
+        payload: request,
+      };
+      this.lifecycle.getHostWindow()?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, message);
     });
   }
 
@@ -194,6 +214,7 @@ export class ChunkingHostManager {
         state: report.state,
         active: report.active,
         lastError: report.lastError,
+        runtimeId: report.runtimeId,
       })
     );
   }
@@ -208,6 +229,7 @@ export class ChunkingHostManager {
         senderId,
         requestId: report.requestId,
         type: report.type,
+        channel: report.channel,
       });
       return;
     }
@@ -217,50 +239,50 @@ export class ChunkingHostManager {
       logger.warn('Received chunking host response for unknown request', {
         requestId: report.requestId,
         type: report.type,
+        channel: report.channel,
       });
       return;
     }
 
-    switch (report.type) {
-      case 'progress':
-      case 'file-complete':
-      case 'file-error':
-        this.forwardProgressEvent(pending.requesterWebContentsId, report);
-        return;
-
-      case 'result':
-        if (pending.kind !== 'file') {
-          pending.reject(
-            createRequestFailure(
-              `Chunking host returned a single-file result for batch request ${report.requestId}.`
-            )
-          );
-          this.pendingRequests.delete(report.requestId);
-          return;
-        }
-        this.pendingRequests.delete(report.requestId);
-        pending.resolve(report.result);
-        return;
-
-      case 'batch-complete':
-        if (pending.kind !== 'batch') {
-          pending.reject(
-            createRequestFailure(
-              `Chunking host returned a batch result for single-file request ${report.requestId}.`
-            )
-          );
-          this.pendingRequests.delete(report.requestId);
-          return;
-        }
-        this.pendingRequests.delete(report.requestId);
-        pending.resolve(Array.from(report.results));
-        return;
-
-      case 'error':
-        this.pendingRequests.delete(report.requestId);
-        pending.reject(createRequestFailure(report.error));
-        return;
+    if (report.type === 'progress') {
+      this.forwardProgressEvent(pending.requesterWebContentsId, report);
+      return;
     }
+
+    if (report.type === 'result') {
+      switch (report.channel) {
+        case 'chunk-result':
+          if (pending.kind !== 'file') {
+            pending.reject(
+              createRequestFailure(
+                `Chunking host returned a single-file result for batch request ${report.requestId}.`
+              )
+            );
+            this.pendingRequests.delete(report.requestId);
+            return;
+          }
+          this.pendingRequests.delete(report.requestId);
+          pending.resolve(report.payload.result);
+          return;
+
+        case 'chunk-batch-complete':
+          if (pending.kind !== 'batch') {
+            pending.reject(
+              createRequestFailure(
+                `Chunking host returned a batch result for single-file request ${report.requestId}.`
+              )
+            );
+            this.pendingRequests.delete(report.requestId);
+            return;
+          }
+          this.pendingRequests.delete(report.requestId);
+          pending.resolve(Array.from(report.payload.results));
+          return;
+      }
+    }
+
+    this.pendingRequests.delete(report.requestId);
+    pending.reject(createRequestFailure(report.payload.message));
   }
 
   private async assertReadyForRequests(): Promise<void> {
