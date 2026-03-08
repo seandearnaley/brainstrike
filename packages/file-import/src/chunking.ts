@@ -79,7 +79,10 @@ interface ChunkingOptions {
   useStreamingForLargeFiles?: boolean;
 }
 
-const MAX_HOST_PROXY_CHUNKING_CONCURRENCY = 1;
+// Host-proxy chunking still loads file content in the visible renderer per request,
+// so concurrency must stay bounded. Serial execution was too slow for real imports,
+// but we also do not allow unbounded fan-out that would recreate the earlier crash.
+const MAX_HOST_PROXY_CHUNKING_CONCURRENCY = 4;
 const MAX_LOCAL_WORKER_CHUNKING_CONCURRENCY = 10;
 
 interface ChunkingProgressSnapshot {

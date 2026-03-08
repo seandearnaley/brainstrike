@@ -652,6 +652,59 @@ describe('processChunking', () => {
     expect(mockRepository.findById).toHaveBeenCalledWith('file-1');
   });
 
+  it('uses bounded parallelism for host-proxy chunking transport', async () => {
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+
+    const hostProxyWorkerPort = createMockChunkingWorkerPort({
+      transportKind: 'host-proxy',
+      chunkFile: vi.fn().mockImplementation(async (fileRecordId: string) => {
+        activeRequests += 1;
+        maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeRequests -= 1;
+        return {
+          fileRecordId,
+          chunks: [
+            {
+              chunkIndex: 0,
+              content: `Chunk content for ${fileRecordId}`,
+              contentHash: `hash-${fileRecordId}`,
+              tokenCount: 10,
+              chunkType: 'sentence',
+            },
+          ],
+          strategyUsed: 'sentence',
+          totalTokens: 10,
+          skipped: false,
+        };
+      }),
+    });
+
+    mockRepository.findById.mockImplementation(async (id: string) => ({
+      id,
+      name: `${id}.txt`,
+      path: `/${id}.txt`,
+      content: `content for ${id}`,
+    }));
+
+    const importResults = Array.from({ length: 40 }, (_, index) => ({
+      id: `file-${index + 1}`,
+      imported: true,
+      existed: false,
+    }));
+
+    await processChunking(
+      importResults,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress, chunkingWorkerPort: hostProxyWorkerPort }
+    );
+
+    expect(maxActiveRequests).toBeGreaterThan(1);
+    expect(maxActiveRequests).toBeLessThanOrEqual(4);
+    expect(mockRepository.findByIds).not.toHaveBeenCalled();
+  });
+
   it('updates final progress correctly via worker', async () => {
     await processChunking(
       [{ id: 'file-1', imported: true, existed: false }],
