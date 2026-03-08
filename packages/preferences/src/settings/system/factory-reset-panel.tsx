@@ -35,9 +35,9 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       // Ensure a full reload so the renderer boots cleanly.
       try {
         const currentWindow = window as Window & {
-          desktopLifecycle?: { noteReloadIntent: (reason: string) => void };
+          desktopLifecycle?: { noteReloadIntent: (reason: string) => Promise<void> };
         };
-        currentWindow.desktopLifecycle?.noteReloadIntent('factory-reset');
+        await currentWindow.desktopLifecycle?.noteReloadIntent('factory-reset');
         window.location.reload();
       } catch {
         /* swallow reload errors; UI may still be in a reset state */

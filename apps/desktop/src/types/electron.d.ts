@@ -122,7 +122,7 @@ declare global {
       ) => () => void;
     };
     desktopLifecycle?: {
-      noteReloadIntent: (reason: string) => void;
+      noteReloadIntent: (reason: string) => Promise<void>;
     };
     electronAPI: {
       storage: {

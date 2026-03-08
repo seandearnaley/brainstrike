@@ -11,8 +11,8 @@ import type { ElectronAppContext } from '../utils/electron-helpers';
 import {
   closeElectronApp,
   launchElectronApp,
+  reloadRenderer,
   resetAppState,
-  waitForAppReady,
 } from '../utils/electron-helpers';
 import { resetToAppHome } from '../utils/test-reset';
 
@@ -90,23 +90,25 @@ class ElectronHarness {
       return this.restartAndResetRenderer(recoveryAttempt, 'Renderer page was already closed.');
     }
 
+    let resetTriggeredNavigation = false;
     try {
-      await resetAppState(page);
+      resetTriggeredNavigation = await resetAppState(page);
     } catch (error) {
       console.warn('Failed to reset app state before reload:', error);
     }
 
-    try {
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      await waitForAppReady(page);
-    } catch (error) {
-      if (this.isRecoverableRendererError(error)) {
-        return this.restartAndResetRenderer(
-          recoveryAttempt,
-          `Renderer reset failed due to page crash/closure: ${String(error)}`
-        );
+    if (!resetTriggeredNavigation) {
+      try {
+        await reloadRenderer(page, 'playwright-reset-renderer');
+      } catch (error) {
+        if (this.isRecoverableRendererError(error)) {
+          return this.restartAndResetRenderer(
+            recoveryAttempt,
+            `Renderer reset failed due to page crash/closure: ${String(error)}`
+          );
+        }
+        throw error;
       }
-      throw error;
     }
 
     try {

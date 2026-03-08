@@ -2,12 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
-
-// Raw debug log to verify main process startup
-// biome-ignore lint/suspicious/noConsole: Critical startup debugging
-console.log('--- RAW CONSOLE LOG: MAIN PROCESS EXECUTING ---');
-
 import {
   addLogListener,
   applyLoggingPreferences,
@@ -26,6 +20,7 @@ import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
@@ -85,6 +80,22 @@ function createDesktopDefaultPreferences(): LoggingPreferences {
   const logPath = getLogFilePath();
   return createDefaultLoggingPreferences({
     level: LogLevel.DEBUG,
+    consoleLevel: LogLevel.WARN,
+    includeTimestamp: true,
+    file: {
+      enabled: !disableFileLogs && Boolean(logPath),
+      destination: logPath ?? null,
+      level: LogLevel.DEBUG,
+      append: true,
+      mkdir: true,
+    },
+  });
+}
+
+function createLegacyDesktopDefaultPreferences(): LoggingPreferences {
+  const logPath = getLogFilePath();
+  return createDefaultLoggingPreferences({
+    level: LogLevel.DEBUG,
     consoleLevel: LogLevel.INFO,
     includeTimestamp: true,
     file: {
@@ -95,6 +106,19 @@ function createDesktopDefaultPreferences(): LoggingPreferences {
       mkdir: true,
     },
   });
+}
+
+function areLoggingPreferencesEqual(left: LoggingPreferences, right: LoggingPreferences): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function migrateStoredLoggingPreferences(stored: LoggingPreferences): LoggingPreferences {
+  const sanitizedStored = sanitizeDesktopPreferences(stored);
+  const legacyDefaults = sanitizeDesktopPreferences(createLegacyDesktopDefaultPreferences());
+  if (areLoggingPreferencesEqual(sanitizedStored, legacyDefaults)) {
+    return sanitizeDesktopPreferences(createDesktopDefaultPreferences());
+  }
+  return sanitizedStored;
 }
 
 function mergeStoredPreferences(
@@ -155,7 +179,10 @@ function readStoredLoggingPreferences(): LoggingPreferences | undefined {
         get: (key: string) => unknown;
       }
     ).get('loggingPreferences') as DesktopSettingsStoreSchema['loggingPreferences'] | undefined;
-    return record?.v1;
+    if (!record?.v1) {
+      return;
+    }
+    return migrateStoredLoggingPreferences(record.v1);
   } catch {
     return;
   }
@@ -732,15 +759,13 @@ if (singleInstanceLockAcquired) {
 
       // IPC to provide assistant URL to renderer
       ipcMain.handle('assistant:get-url', () => assistantUrl);
-      ipcMain.on('app:lifecycle:note-reload-intent', (event, reason: unknown) => {
+      ipcMain.handle('app:lifecycle:note-reload-intent', async (event, reason: unknown) => {
         if (typeof reason !== 'string' || reason.trim().length === 0) {
-          logger.warn({ reason }, 'Rejected renderer reload intent with invalid reason');
-          return;
+          throw new Error('Renderer reload intent reason must be a non-empty string.');
         }
         const window = BrowserWindow.fromWebContents(event.sender);
         if (!window || window.isDestroyed()) {
-          logger.warn({ reason }, 'Rejected renderer reload intent from unknown window');
-          return;
+          throw new Error('Renderer reload intent must originate from a live BrowserWindow.');
         }
         noteNextWindowReload(window, {
           reason: reason.trim(),
@@ -920,8 +945,6 @@ if (singleInstanceLockAcquired) {
       });
     } catch (error) {
       logger.error('Failed to initialize application:', error);
-      // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-      console.error('❌ FATAL: Failed to initialize application:', error);
       app.quit();
     }
   });
@@ -938,8 +961,7 @@ app.on('window-all-closed', () => {
 
 // Clean shutdown
 app.on('before-quit', (event) => {
-  // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
-  console.log('--- RAW CONSOLE LOG: BEFORE-QUIT TRIGGERED ---');
+  logger.debug('before-quit triggered');
   if (allowImmediateQuit) {
     return;
   }
@@ -958,8 +980,7 @@ app.on('before-quit', (event) => {
 });
 
 app.on('will-quit', () => {
-  // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
-  console.log('--- RAW CONSOLE LOG: WILL-QUIT TRIGGERED ---');
+  logger.debug('will-quit triggered');
   clearForcedProcessExitTimer();
   if (unregisterEmbeddingHostIpcHandlers) {
     unregisterEmbeddingHostIpcHandlers();

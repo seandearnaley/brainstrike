@@ -1,7 +1,7 @@
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
-import { waitForAppReady } from './utils/electron-helpers';
+import { reloadRenderer } from './utils/electron-helpers';
 
 interface BufferedLogRecord {
   readonly args: readonly unknown[];
@@ -228,8 +228,7 @@ test.describe('Startup Restore Regression', () => {
   test('restores folder and active tab without startup churn signatures', async ({ window }) => {
     await seedRestoredStartupState(window);
 
-    await window.reload({ waitUntil: 'domcontentloaded' });
-    await waitForAppReady(window);
+    await reloadRenderer(window, 'startup-restore-regression');
     await expect(
       window.getByRole('tab', { name: new RegExp(RESTORED_FILE_NAME, 'i') })
     ).toBeVisible({ timeout: 15_000 });

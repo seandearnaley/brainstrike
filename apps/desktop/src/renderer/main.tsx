@@ -35,6 +35,7 @@ const storageAdapter = new ElectronRendererStorageAdapter();
 
 // Default to INFO - use LOG_LEVEL=DEBUG env var for verbose debugging
 const rendererLevel = LogLevel.INFO;
+const rendererConsoleLevel = LogLevel.WARN;
 const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
 let removeHiddenHostLogForwarder: (() => void) | null = null;
@@ -47,7 +48,7 @@ if (typeof window !== 'undefined') {
 initializeLogging({
   runtime: 'electron-renderer',
   level: rendererLevel,
-  consoleLevel: rendererLevel,
+  consoleLevel: rendererConsoleLevel,
   appName: 'brainstrike-desktop',
   appVersion: import.meta.env['VITE_APP_VERSION'] ?? 'desktop-renderer',
   baseBindings: {
@@ -70,7 +71,7 @@ const loggingStore = useLoggingPreferencesStore.getState();
 if (!loggingStore.hasHydrated) {
   loggingStore.updatePreferences({
     level: rendererLevel,
-    consoleLevel: rendererLevel,
+    consoleLevel: rendererConsoleLevel,
   });
 }
 

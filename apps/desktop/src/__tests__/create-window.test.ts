@@ -362,7 +362,7 @@ describe('createWindow', () => {
       }
     });
 
-    it('marks post-startup loads without recorded intent as unattributed', async () => {
+    it('ignores post-startup loading churn without reload intent or top-level navigation', async () => {
       existsSyncMock.mockReturnValue(true);
       const captured: Array<{ args: readonly unknown[]; message?: string; scope?: string }> = [];
       const unsubscribe = addLogListener((record) => {
@@ -385,6 +385,47 @@ describe('createWindow', () => {
         didFinishLoadHandler?.();
         didStartLoadingHandler?.();
 
+        const postStartupDidStartLoadingRecords = captured.filter(
+          (entry) =>
+            entry.scope === 'CreateWindow' && entry.message === 'Window startup: did-start-loading'
+        );
+
+        expect(postStartupDidStartLoadingRecords).toHaveLength(0);
+      } finally {
+        unsubscribe();
+      }
+    });
+
+    it('marks post-startup top-level navigation without recorded intent', async () => {
+      existsSyncMock.mockReturnValue(true);
+      const captured: Array<{ args: readonly unknown[]; message?: string; scope?: string }> = [];
+      const unsubscribe = addLogListener((record) => {
+        captured.push(record);
+      });
+
+      try {
+        await createWindow();
+
+        const didFinishLoadHandler = mockWebContents.on.mock.calls.find(
+          (call: [string, (...args: unknown[]) => void]) => call[0] === 'did-finish-load'
+        )?.[1] as (() => void) | undefined;
+        const didStartNavigationHandler = mockWebContents.on.mock.calls.find(
+          (call: [string, (...args: unknown[]) => void]) => call[0] === 'did-start-navigation'
+        )?.[1] as
+          | ((event: unknown, url: string, isInPlace: boolean, isMainFrame: boolean) => void)
+          | undefined;
+        const didStartLoadingHandler = mockWebContents.on.mock.calls.find(
+          (call: [string, (...args: unknown[]) => void]) => call[0] === 'did-start-loading'
+        )?.[1] as (() => void) | undefined;
+
+        expect(didFinishLoadHandler).toBeDefined();
+        expect(didStartNavigationHandler).toBeDefined();
+        expect(didStartLoadingHandler).toBeDefined();
+
+        didFinishLoadHandler?.();
+        didStartNavigationHandler?.({}, 'http://localhost:8081/#settings/database', false, true);
+        didStartLoadingHandler?.();
+
         const record = [...captured]
           .reverse()
           .find(
@@ -395,9 +436,9 @@ describe('createWindow', () => {
 
         expect(record?.args).toContainEqual(
           expect.objectContaining({
-            reloadReason: 'unattributed-post-startup-load',
+            reloadReason: 'top-level-navigation',
             reloadSource: 'unknown',
-            url: 'http://localhost:8081/',
+            url: 'http://localhost:8081/#settings/database',
             windowRole: 'visible-ui',
           })
         );

@@ -513,7 +513,40 @@ export async function waitForAppReady(page: Page): Promise<void> {
   }
 }
 
-export async function resetAppState(window: Page): Promise<void> {
+export async function noteRendererReloadIntent(page: Page, reason: string): Promise<void> {
+  await page.evaluate((reloadReason: string) => {
+    const lifecycle = (
+      window as Window & {
+        desktopLifecycle?: {
+          noteReloadIntent?: (reason: string) => Promise<void>;
+        };
+      }
+    ).desktopLifecycle;
+
+    if (!lifecycle?.noteReloadIntent) {
+      throw new Error('desktopLifecycle.noteReloadIntent is unavailable');
+    }
+
+    return lifecycle.noteReloadIntent(reloadReason);
+  }, reason);
+}
+
+export async function reloadRenderer(page: Page, reason: string): Promise<void> {
+  await noteRendererReloadIntent(page, reason);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForAppReady(page);
+}
+
+export async function resetAppState(window: Page): Promise<boolean> {
+  await noteRendererReloadIntent(window, 'playwright-reset-state-clear');
+  const navigationPromise = window
+    .waitForEvent('framenavigated', {
+      timeout: 1500,
+      predicate: (frame) => frame === window.mainFrame(),
+    })
+    .then(() => true)
+    .catch(() => false);
+
   await window.evaluate(async () => {
     localStorage.clear();
     sessionStorage.clear();
@@ -529,12 +562,19 @@ export async function resetAppState(window: Page): Promise<void> {
     if (electronAPI?.storage?.clear) {
       try {
         await electronAPI.storage.clear();
-        console.log('🔸 Backend storage cleared');
       } catch (error) {
         console.warn('🔸 Failed to clear backend storage:', error);
       }
     }
   });
+
+  const navigated = await navigationPromise;
+  if (navigated) {
+    await window.waitForLoadState('domcontentloaded');
+    await waitForAppReady(window);
+  }
+
+  return navigated;
 }
 
 export async function getAppVersion(app: ElectronApplication): Promise<string> {

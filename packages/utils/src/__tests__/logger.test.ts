@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as envUtils from '../env-utils';
 import {
+  __loggerTesting,
   addLogListener,
   configureLogger,
   createLogger,
@@ -17,6 +18,12 @@ import {
   setLogLevel,
   warn,
 } from '../logger';
+
+interface BrowserWriteMethods {
+  error?: (value: unknown) => void;
+  info?: (value: unknown) => void;
+  warn?: (value: unknown) => void;
+}
 
 function collectLogs(callback: () => void): LogRecord[] {
   const records: LogRecord[] = [];
@@ -361,6 +368,115 @@ describe('logger', () => {
       unsubscribe1();
       unsubscribe2();
       consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('browser console formatting', () => {
+    it('formats scoped structured logs as a single readable console line', () => {
+      const formattedMessage = __loggerTesting.formatBrowserConsoleMessage(
+        {
+          application: 'brainstrike-desktop',
+          level: 30,
+          msg: 'Background renderer log forwarding enabled',
+          runtime: 'electron-renderer',
+          scope: 'DesktopRenderer',
+          time: 123,
+          version: '0.1.0',
+          windowRole: 'embedding-host',
+        },
+        'scope',
+        {
+          runtime: 'electron-renderer',
+          application: 'brainstrike-desktop',
+          version: '0.1.0',
+        }
+      );
+
+      expect(formattedMessage).toBe(
+        '[DesktopRenderer] Background renderer log forwarding enabled {"windowRole":"embedding-host"}'
+      );
+    });
+
+    it('serializes error metadata instead of relying on browser object formatting', () => {
+      const formattedMessage = __loggerTesting.formatBrowserConsoleMessage(
+        {
+          error: new Error('boom'),
+          level: 40,
+          msg: 'Failed to initialize database',
+          scope: 'DbProvider',
+          time: 123,
+        },
+        'scope',
+        {}
+      );
+
+      expect(formattedMessage).toEqual(
+        expect.stringContaining(
+          '[DbProvider] Failed to initialize database {"error":{"name":"Error","message":"boom"'
+        )
+      );
+    });
+
+    it('respects browser console thresholds without affecting retained log records', () => {
+      const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const browserWrite = __loggerTesting.createBrowserWrite({
+        enableInProduction: true,
+        includeTimestamp: false,
+        scopeKey: 'scope',
+        baseBindings: { runtime: 'electron-renderer' },
+        console: {
+          enabled: true,
+          level: LogLevel.WARN,
+          options: {},
+        },
+        customTransports: [],
+      }) as BrowserWriteMethods;
+
+      browserWrite.info?.({
+        level: 30,
+        msg: 'renderer info',
+        runtime: 'electron-renderer',
+        scope: 'DesktopRenderer',
+        time: 1,
+      });
+      browserWrite.warn?.({
+        level: 40,
+        msg: 'renderer warn',
+        runtime: 'electron-renderer',
+        scope: 'DesktopRenderer',
+        time: 2,
+      });
+
+      expect(consoleInfoSpy).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).toHaveBeenCalledWith('[DesktopRenderer] renderer warn');
+    });
+
+    it('honors browser console disablement', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const browserWrite = __loggerTesting.createBrowserWrite({
+        enableInProduction: true,
+        includeTimestamp: false,
+        scopeKey: 'scope',
+        baseBindings: { runtime: 'electron-renderer' },
+        console: {
+          enabled: false,
+          options: {},
+        },
+        customTransports: [],
+      }) as BrowserWriteMethods;
+
+      browserWrite.error?.({
+        level: 50,
+        msg: 'renderer error',
+        runtime: 'electron-renderer',
+        scope: 'DesktopRenderer',
+        time: 3,
+      });
+
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
     });
   });
 });

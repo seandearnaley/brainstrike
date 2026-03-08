@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { waitForAppReady } from './electron-helpers';
+import { reloadRenderer } from './electron-helpers';
 
 const DEFAULT_MODELS: Record<string, string> = {
   openai: 'gpt-5.2',
@@ -323,6 +323,5 @@ export async function setupAssistantMock(
     }
   );
 
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await waitForAppReady(page);
+  await reloadRenderer(page, 'assistant-mock-init-script');
 }

@@ -119,7 +119,7 @@ describe('preload power bridge', () => {
     );
     return call?.[1] as
       | {
-          noteReloadIntent: (reason: string) => void;
+          noteReloadIntent: (reason: string) => Promise<void>;
         }
       | undefined;
   }
@@ -360,13 +360,14 @@ describe('preload power bridge', () => {
     });
   });
 
-  it('exposes a renderer reload-intent bridge for desktop lifecycle attribution', () => {
-    mockSend.mockClear();
+  it('exposes a renderer reload-intent bridge for desktop lifecycle attribution', async () => {
+    mockInvoke.mockClear();
+    mockInvoke.mockResolvedValue(undefined);
     const desktopLifecycleApi = getDesktopLifecycleApi();
     expect(desktopLifecycleApi).toBeDefined();
 
-    desktopLifecycleApi?.noteReloadIntent('factory-reset');
+    await desktopLifecycleApi?.noteReloadIntent('factory-reset');
 
-    expect(mockSend).toHaveBeenCalledWith('app:lifecycle:note-reload-intent', 'factory-reset');
+    expect(mockInvoke).toHaveBeenCalledWith('app:lifecycle:note-reload-intent', 'factory-reset');
   });
 });

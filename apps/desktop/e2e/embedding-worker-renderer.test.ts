@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { waitForAppReady } from './utils/electron-helpers';
+import { reloadRenderer, waitForAppReady } from './utils/electron-helpers';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 
 interface BufferedLogRecord {
@@ -629,8 +629,7 @@ test.describe('Embedding Host Renderer', () => {
 
     await clearEmbeddingQueue(activeWindow);
     const fixture = await createLargeBackfillFixture(activeWindow, 160);
-    await activeWindow.reload();
-    await waitForAppReady(activeWindow);
+    await reloadRenderer(activeWindow, 'embedding-worker-large-backfill-fixture');
     await showDatabaseDemoPanel(activeWindow);
 
     const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
@@ -676,8 +675,7 @@ test.describe('Embedding Host Renderer', () => {
 
     await clearEmbeddingQueue(activeWindow);
     const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
-    await activeWindow.reload();
-    await waitForAppReady(activeWindow);
+    await reloadRenderer(activeWindow, 'embedding-worker-host-processing-fixture');
     await showDatabaseDemoPanel(activeWindow);
 
     const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);

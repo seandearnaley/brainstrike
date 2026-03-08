@@ -135,13 +135,14 @@ async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
   const rendererPath = path.join(distRoot, 'renderer/index.html');
   const hasBuiltRenderer = fs.existsSync(rendererPath);
 
-  // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-  console.log(
-    '[createWindow] Loading renderer...\n' +
-      `[createWindow] distRoot: ${distRoot}\n` +
-      `[createWindow] Expected renderer path: ${rendererPath}\n` +
-      `[createWindow] Has built renderer: ${hasBuiltRenderer}\n` +
-      `[createWindow] Is packaged: ${app.isPackaged}`
+  startupLogger.debug(
+    {
+      distRoot,
+      rendererPath,
+      hasBuiltRenderer,
+      isPackaged: app.isPackaged,
+    },
+    'Loading renderer'
   );
 
   if (app.isPackaged || options.isTestMode) {
@@ -151,8 +152,7 @@ async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
       );
     }
 
-    // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-    console.log('[createWindow] Loading built renderer file');
+    startupLogger.debug('Loading built renderer file');
     loadProductionRenderer(win, rendererPath);
     return;
   }
@@ -160,8 +160,7 @@ async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
   try {
     // In local development, always prefer Vite dev server.
     // Using file:// renderer in dev can break module workers (opaque origin).
-    // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-    console.log('[createWindow] Attempting dev server renderer first');
+    startupLogger.debug('Attempting dev server renderer first');
     await connectToDevServer(win);
     // Keep DevTools opt-in so local startup remains deterministic and we don't
     // force-open a debug window on every launch.
@@ -191,6 +190,8 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   let crashCountInWindow = 0;
   let lastCrashAt = 0;
   let hasFinishedInitialLoad = false;
+  let pendingMainFrameNavigation: { readonly isInPlace: boolean; readonly url: string } | null =
+    null;
   const logStartupPhase = (phase: string, extra: Record<string, unknown> = {}) => {
     startupLogger.info(
       { elapsedMs: Date.now() - startupStartedAt, ...extra },
@@ -239,6 +240,24 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     isPackaged: app.isPackaged,
   });
 
+  win.webContents.on(
+    'did-start-navigation',
+    (_event: Electron.Event, navigationUrl: string, isInPlace: boolean, isMainFrame: boolean) => {
+      if (!isMainFrame) {
+        return;
+      }
+      pendingMainFrameNavigation = {
+        url: navigationUrl,
+        isInPlace,
+      };
+    }
+  );
+  win.webContents.on('did-navigate', () => {
+    pendingMainFrameNavigation = null;
+  });
+  win.webContents.on('did-navigate-in-page', () => {
+    pendingMainFrameNavigation = null;
+  });
   win.webContents.on('did-start-loading', () => {
     const reloadMetadata = pendingWindowReloadMetadata.get(win);
     if (reloadMetadata) {
@@ -251,12 +270,23 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       return;
     }
     if (hasFinishedInitialLoad) {
-      logStartupPhase('did-start-loading', {
-        reloadReason: 'unattributed-post-startup-load',
-        reloadSource: 'unknown',
-        windowRole: getWindowRole(win) ?? 'visible-ui',
-        url: getCurrentWindowUrl(win),
-      });
+      if (pendingMainFrameNavigation && !pendingMainFrameNavigation.isInPlace) {
+        logStartupPhase('did-start-loading', {
+          reloadReason: 'top-level-navigation',
+          reloadSource: 'unknown',
+          windowRole: getWindowRole(win) ?? 'visible-ui',
+          url: pendingMainFrameNavigation.url,
+        });
+      } else {
+        startupLogger.trace(
+          {
+            isInPlaceNavigation: pendingMainFrameNavigation?.isInPlace ?? false,
+            url: pendingMainFrameNavigation?.url ?? getCurrentWindowUrl(win),
+            windowRole: getWindowRole(win) ?? 'visible-ui',
+          },
+          'Ignored did-start-loading without explicit reload intent'
+        );
+      }
       return;
     }
     logStartupPhase('did-start-loading', {

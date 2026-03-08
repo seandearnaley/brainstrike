@@ -41,11 +41,11 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     this.props.onError?.(error, errorInfo);
   }
 
-  protected handleReload = () => {
+  protected handleReload = async () => {
     const currentWindow = window as Window & {
-      desktopLifecycle?: { noteReloadIntent: (reason: string) => void };
+      desktopLifecycle?: { noteReloadIntent: (reason: string) => Promise<void> };
     };
-    currentWindow.desktopLifecycle?.noteReloadIntent('error-boundary-reload');
+    await currentWindow.desktopLifecycle?.noteReloadIntent('error-boundary-reload');
     window.location.reload();
   };
 

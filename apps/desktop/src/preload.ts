@@ -221,7 +221,7 @@ contextBridge.exposeInMainWorld('settings', {
 
 contextBridge.exposeInMainWorld('desktopLifecycle', {
   noteReloadIntent: (reason: string) =>
-    ipcRenderer.send(APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL, reason),
+    ipcRenderer.invoke(APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL, reason),
 });
 
 // Local Agent API (non-streaming aggregate; renderer can pseudo-stream chunks)

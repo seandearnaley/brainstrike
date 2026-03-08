@@ -188,6 +188,19 @@ describe('window setup', () => {
     );
   });
 
+  it('desktop logging defaults renderer console output to warn', async () => {
+    mockApp.isPackaged = false;
+    isDevEnvMock.mockReturnValue(false);
+
+    await import('../../main');
+
+    expect(createDefaultLoggingPreferencesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        consoleLevel: 'warn',
+      })
+    );
+  });
+
   it('setupSecurity prod mode sets restrictive CSP', async () => {
     mockApp.isPackaged = true;
     isDevEnvMock.mockReturnValue(false);
