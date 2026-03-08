@@ -296,21 +296,31 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     if (!(schemaVerified && canQuery)) {
       return;
     }
-    const result = await (
-      db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
-    ).query(COLLECTIONS_QUERY);
-    setCachedCollections(normalizeCollectionRows(result.rows));
+    try {
+      const result = await (
+        db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
+      ).query(COLLECTIONS_QUERY);
+      setCachedCollections(normalizeCollectionRows(result.rows));
+      dispatchFetch({ type: 'success' });
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      dispatchFetch({ type: 'error', error: normalized });
+      throw normalized;
+    }
   }, [db, schemaVerified, setCachedCollections]);
 
   // Listen for embedding set update events (create/delete/rename) and refresh live query
   // This ensures UI updates on Electron where PGlite live query may not auto-detect changes
   useEffect(() => {
-    if (typeof window === 'undefined' || !liveQueryEnabled) {
+    if (typeof window === 'undefined') {
       return;
     }
 
     const handleEmbeddingSetUpdated = () => {
-      void refresh();
+      if (liveQueryEnabled) {
+        void refresh();
+      }
+      void refreshCollectionsSnapshot();
     };
 
     window.addEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
@@ -318,7 +328,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       window.removeEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
     };
-  }, [liveQueryEnabled, refresh]);
+  }, [liveQueryEnabled, refresh, refreshCollectionsSnapshot]);
 
   const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
 
@@ -388,13 +398,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
         dispatchFetch({ type: 'start' });
       }
       try {
-        const result = await (
-          db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
-        ).query(COLLECTIONS_QUERY);
-        if (!cancelled) {
-          setCachedCollections(normalizeCollectionRows(result.rows));
-          dispatchFetch({ type: 'success' });
-        }
+        await refreshCollectionsSnapshot();
       } catch (err) {
         if (!cancelled) {
           const normalized = err instanceof Error ? err : new Error(String(err));
@@ -410,7 +414,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       cancelled = true;
     };
-  }, [db, schemaVerified, setCachedCollections]);
+  }, [db, refreshCollectionsSnapshot, schemaVerified]);
 
   // Reset initial fetch flag when db changes (e.g., reconnection)
   useEffect(() => {

@@ -273,6 +273,69 @@ describe('useCollections', () => {
         expect.arrayContaining([expect.objectContaining({ embeddingCount: 100 })])
       );
     });
+
+    it('refreshes cached collections when an embedding set is created while live queries are paused', async () => {
+      mockStoreState.isEmbeddingActive = true;
+      mockDb.query.mockResolvedValue({
+        rows: [{ ...mockCollectionRows[0], id: 'set-2', name: 'Created Collection' }],
+      });
+
+      renderHook(() => useCollections(mockDb as never));
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:embedding-set-updated', {
+            detail: { id: 'set-2' },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'));
+      });
+      expect(mockStoreState.setCachedCollections).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'set-2', name: 'Created Collection' }),
+        ])
+      );
+    });
+
+    it('clears loading when a paused live-query refresh succeeds after an embedding set update', async () => {
+      mockStoreState.isEmbeddingActive = true;
+      let resolveInitialQuery: ((value: { rows: typeof mockCollectionRows }) => void) | undefined;
+      const initialQuery = new Promise<{ rows: typeof mockCollectionRows }>((resolve) => {
+        resolveInitialQuery = resolve;
+      });
+
+      mockDb.query
+        .mockImplementationOnce(() => initialQuery)
+        .mockResolvedValueOnce({ rows: mockCollectionRows });
+
+      const { result } = renderHook(() => useCollections(mockDb as never));
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(true);
+      });
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:embedding-set-updated', {
+            detail: { id: 'set-1' },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false);
+      });
+
+      expect(resolveInitialQuery).toBeDefined();
+      await act(async () => {
+        resolveInitialQuery?.({ rows: mockCollectionRows });
+      });
+    });
   });
 
   describe('Initial Fetch Behavior', () => {
