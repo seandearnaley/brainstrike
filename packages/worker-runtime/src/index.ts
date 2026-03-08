@@ -34,6 +34,20 @@ export interface BackgroundRuntimeStatusAdapter<TRuntimeKind extends string> {
   readonly runtimeKind: TRuntimeKind;
 }
 
+export type BackgroundRuntimeScopedChannel<
+  TRuntimeKind extends string,
+  TSuffix extends string,
+> = `${TRuntimeKind}:${TSuffix}`;
+
+export interface BackgroundRuntimeLifecycleChannels<TRuntimeKind extends string> {
+  readonly ensureStarted: BackgroundRuntimeScopedChannel<TRuntimeKind, 'ensure-started'>;
+  readonly getStatus: BackgroundRuntimeScopedChannel<TRuntimeKind, 'get-status'>;
+  readonly reportStatus: BackgroundRuntimeScopedChannel<TRuntimeKind, 'report-status'>;
+  readonly reset: BackgroundRuntimeScopedChannel<TRuntimeKind, 'reset'>;
+  readonly statusEvent: BackgroundRuntimeScopedChannel<TRuntimeKind, 'status'>;
+  readonly stop: BackgroundRuntimeScopedChannel<TRuntimeKind, 'stop'>;
+}
+
 export interface SerializedRuntimeError {
   readonly cause?: string;
   readonly code?: string;
@@ -200,6 +214,29 @@ export function createBackgroundRuntimeStatusAdapter<TRuntimeKind extends string
       }),
     createStoppedStatus: (runtimeId?: string) =>
       createStoppedBackgroundRuntimeStatus(runtimeKind, runtimeId),
+  };
+}
+
+export function createBackgroundRuntimeScopedChannel<
+  TRuntimeKind extends string,
+  TSuffix extends string,
+>(
+  runtimeKind: TRuntimeKind,
+  suffix: TSuffix
+): BackgroundRuntimeScopedChannel<TRuntimeKind, TSuffix> {
+  return `${runtimeKind}:${suffix}`;
+}
+
+export function createBackgroundRuntimeLifecycleChannels<TRuntimeKind extends string>(
+  runtimeKind: TRuntimeKind
+): BackgroundRuntimeLifecycleChannels<TRuntimeKind> {
+  return {
+    statusEvent: createBackgroundRuntimeScopedChannel(runtimeKind, 'status'),
+    reportStatus: createBackgroundRuntimeScopedChannel(runtimeKind, 'report-status'),
+    ensureStarted: createBackgroundRuntimeScopedChannel(runtimeKind, 'ensure-started'),
+    stop: createBackgroundRuntimeScopedChannel(runtimeKind, 'stop'),
+    reset: createBackgroundRuntimeScopedChannel(runtimeKind, 'reset'),
+    getStatus: createBackgroundRuntimeScopedChannel(runtimeKind, 'get-status'),
   };
 }
 

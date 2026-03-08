@@ -3,15 +3,33 @@ import type {
   BackgroundRuntimeStatus,
   RuntimeRequestEnvelope,
 } from '@brainstrike/worker-runtime';
-import { createBackgroundRuntimeStatusAdapter } from '@brainstrike/worker-runtime';
+import {
+  createBackgroundRuntimeLifecycleChannels,
+  createBackgroundRuntimeScopedChannel,
+  createBackgroundRuntimeStatusAdapter,
+} from '@brainstrike/worker-runtime';
 
-export const EMBEDDING_HOST_STATUS_EVENT = 'embedding-host:status';
-export const EMBEDDING_HOST_COMMAND_EVENT = 'embedding-host:command';
-export const EMBEDDING_HOST_REPORT_STATUS_CHANNEL = 'embedding-host:report-status';
-export const EMBEDDING_HOST_ENSURE_STARTED_CHANNEL = 'embedding-host:ensure-started';
-export const EMBEDDING_HOST_STOP_CHANNEL = 'embedding-host:stop';
-export const EMBEDDING_HOST_RESET_CHANNEL = 'embedding-host:reset';
-export const EMBEDDING_HOST_GET_STATUS_CHANNEL = 'embedding-host:get-status';
+export const EMBEDDING_HOST_LIFECYCLE_CHANNELS =
+  createBackgroundRuntimeLifecycleChannels('embedding-host');
+export const EMBEDDING_HOST_STATUS_EVENT = EMBEDDING_HOST_LIFECYCLE_CHANNELS.statusEvent;
+export const EMBEDDING_HOST_COMMAND_EVENT = createBackgroundRuntimeScopedChannel(
+  'embedding-host',
+  'command'
+);
+export const EMBEDDING_HOST_REPORT_STATUS_CHANNEL = EMBEDDING_HOST_LIFECYCLE_CHANNELS.reportStatus;
+export const EMBEDDING_HOST_ENSURE_STARTED_CHANNEL =
+  EMBEDDING_HOST_LIFECYCLE_CHANNELS.ensureStarted;
+export const EMBEDDING_HOST_STOP_CHANNEL = EMBEDDING_HOST_LIFECYCLE_CHANNELS.stop;
+export const EMBEDDING_HOST_RESET_CHANNEL = EMBEDDING_HOST_LIFECYCLE_CHANNELS.reset;
+export const EMBEDDING_HOST_GET_STATUS_CHANNEL = EMBEDDING_HOST_LIFECYCLE_CHANNELS.getStatus;
+export const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = createBackgroundRuntimeScopedChannel(
+  'embedding-host',
+  'enqueue-backfill'
+);
+export const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = createBackgroundRuntimeScopedChannel(
+  'embedding-host',
+  'backfill-progress'
+);
 
 export interface EmbeddingHostCommandPayload {
   readonly action: 'reset' | 'stop';

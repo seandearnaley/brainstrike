@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+  EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
+} from '../../embedding-host-shared';
 
 // Hoist Electron and db mocks safely
 const {
@@ -266,7 +270,7 @@ describe('database IPC handlers', () => {
   });
 
   it('embedding-host:enqueue-backfill runs backfill in main and streams progress', async () => {
-    const handler = handlers.get('embedding-host:enqueue-backfill');
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {
       throw new Error('handler not registered');
     }
@@ -312,14 +316,14 @@ describe('database IPC handlers', () => {
         progressIntervalBatches: 4,
       })
     );
-    expect(sender.send).toHaveBeenCalledWith('embedding-host:backfill-progress', {
+    expect(sender.send).toHaveBeenCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
       stage: 'backfill',
       current: 0,
       total: 450,
     });
-    expect(sender.send).toHaveBeenLastCalledWith('embedding-host:backfill-progress', {
+    expect(sender.send).toHaveBeenLastCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
       embeddingSetId: 'set-123',
       requestId: expect.stringMatching(/^embedding-backfill:/),
       stage: 'backfill',
@@ -335,7 +339,7 @@ describe('database IPC handlers', () => {
   });
 
   it('embedding-host:enqueue-backfill fails fast when the embedding host cannot reach running', async () => {
-    const handler = handlers.get('embedding-host:enqueue-backfill');
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {
       throw new Error('handler not registered');
     }
@@ -358,7 +362,7 @@ describe('database IPC handlers', () => {
   });
 
   it('embedding-host:enqueue-backfill rejects concurrent submissions', async () => {
-    const handler = handlers.get('embedding-host:enqueue-backfill');
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {
       throw new Error('handler not registered');
     }

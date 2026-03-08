@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   assertBackgroundRuntimeStatus,
   bindRuntimeLogRecord,
+  createBackgroundRuntimeLifecycleChannels,
+  createBackgroundRuntimeScopedChannel,
   createBackgroundRuntimeStatus,
   createBackgroundRuntimeStatusAdapter,
   createRequestTracker,
@@ -124,6 +126,20 @@ describe('@brainstrike/worker-runtime', () => {
       state: 'error',
       active: false,
       lastError: 'boom',
+    });
+  });
+
+  it('builds canonical scoped runtime channels', () => {
+    expect(createBackgroundRuntimeScopedChannel('embedding-host', 'command')).toBe(
+      'embedding-host:command'
+    );
+    expect(createBackgroundRuntimeLifecycleChannels('chunking-host')).toEqual({
+      statusEvent: 'chunking-host:status',
+      reportStatus: 'chunking-host:report-status',
+      ensureStarted: 'chunking-host:ensure-started',
+      stop: 'chunking-host:stop',
+      reset: 'chunking-host:reset',
+      getStatus: 'chunking-host:get-status',
     });
   });
 

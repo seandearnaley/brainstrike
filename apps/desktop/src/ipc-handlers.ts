@@ -15,6 +15,10 @@ import type ElectronStore from 'electron-store';
 import { z } from 'zod';
 import { enqueueEmbeddingBackfill } from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
+import {
+  EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+  EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
+} from './embedding-host-shared';
 import { createFileReadErrorPayload } from './file-read-errors';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
@@ -57,8 +61,6 @@ let isBackgrounded = false;
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_INTERVAL_MS = 2000;
-const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill';
-const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress';
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 let embeddingBackfillInFlight: { embeddingSetId: string } | null = null;
 
