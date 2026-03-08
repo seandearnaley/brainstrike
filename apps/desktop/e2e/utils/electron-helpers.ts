@@ -14,6 +14,63 @@ export interface ElectronAppContext {
 
 const intentionallyClosingApps = new WeakSet<ElectronApplication>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
+const ignoredElectronOutputPatterns = [
+  'Electron Security Warning (Insecure Content-Security-Policy)',
+  'This renderer process has either no Content Security',
+  'Policy set or a policy with "unsafe-eval" enabled.',
+  'For more information and help, consult',
+  'https://electronjs.org/docs/tutorial/security.',
+  'This warning will not show up',
+  'once the app is packaged.',
+  "Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+  '(Use `Electron --trace-warnings ...` to show where the warning was created)',
+  '🔸 Setting up file system API mocks...',
+  '🔸 Mocked requestDirectoryAccess called',
+  '🔸 Mocked exists called with path:',
+  '🔸 Mocked readDirectory called with path:',
+  '🔸 Mocked readFile called with path:',
+  '🔸 Mocked writeFile called with path:',
+  '🔸 Mocked watchDirectory called with path:',
+  '🔸 Mocked unwatch called',
+  '🔸 Mocked showDirectoryPicker called',
+  '🔸 Mocked showOpenDialog called with options:',
+  '🔸 Mocked showSaveDialog called with options:',
+  '🔸 Mocked showMessageBox called with options:',
+  '🔸 Mocked showErrorBox called:',
+  '🔸 Mocked showCertificateTrustDialog called with args:',
+  'Failed to create WebGPU Context Provider',
+  '[EmbeddingWorker] Initializing deferred local embedding model for claimed work',
+  '[EmbeddingWorker] Stopping embedding worker after fatal local model error',
+  '[EmbeddingHostRuntime] Embedding host worker stopped after fatal local model error',
+  '[EmbeddingWorker] handleBatchFailure: Job(s) failed',
+  '"scope":"DatabaseMain","msg":"Lazy-loading database (triggered by IPC usage)"',
+  '"scope":"DatabaseMain","msg":"Created database directory:',
+  '"scope":"DatabaseMain","msg":"pgvector extension loaded successfully (ESM)"',
+  '"scope":"DatabaseMain","msg":"pglite live query extension loaded successfully (ESM)"',
+  '"scope":"DatabaseMain","msg":"Database initialized with pgvector extension at:"',
+  '"scope":"DatabaseMain","msg":"Database initialized successfully at:',
+  '"scope":"DatabaseMain","msg":"Database connection closed"',
+] as const;
+
+function shouldIgnoreElectronOutput(output: string): boolean {
+  if (isVerboseE2eLoggingEnabled) {
+    return false;
+  }
+
+  return ignoredElectronOutputPatterns.some((pattern) => output.includes(pattern));
+}
+
+function printElectronOutput(
+  prefix: string,
+  output: string,
+  printer: (...args: unknown[]) => void
+): void {
+  if (shouldIgnoreElectronOutput(output)) {
+    return;
+  }
+
+  printer(`${prefix}${output}`);
+}
 
 function verboseLog(...args: unknown[]): void {
   if (!isVerboseE2eLoggingEnabled) {
@@ -348,7 +405,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
         stdoutReceived = true;
       }
       const str = data.toString();
-      console.log(`[Electron Stdout]: ${str}`);
+      printElectronOutput('[Electron Stdout]: ', str, console.log);
     });
     electronProcess.stderr?.on('data', (data) => {
       if (!stderrReceived) {
@@ -360,7 +417,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
         stderrReceived = true;
       }
       const str = data.toString();
-      console.error(`[Electron Stderr]: ${str}`);
+      printElectronOutput('[Electron Stderr]: ', str, console.error);
     });
     // #endregion
 
@@ -632,32 +689,42 @@ export async function isDevMode(app: ElectronApplication): Promise<boolean> {
 }
 
 export async function setupDialogMocking(app: ElectronApplication): Promise<void> {
-  await app.evaluate(async ({ dialog }) => {
+  await app.evaluate(async ({ dialog }, verboseLogging: boolean) => {
     dialog.showOpenDialog = async (options) => {
-      console.log('🔸 Mocked showOpenDialog called with options:', options);
+      if (verboseLogging) {
+        console.log('🔸 Mocked showOpenDialog called with options:', options);
+      }
       return { canceled: false, filePaths: ['/mock/test/directory'] };
     };
     dialog.showSaveDialog = async (options) => {
-      console.log('🔸 Mocked showSaveDialog called with options:', options);
+      if (verboseLogging) {
+        console.log('🔸 Mocked showSaveDialog called with options:', options);
+      }
       return { canceled: false, filePath: '/mock/test/file.txt' };
     };
     dialog.showMessageBox = async (options) => {
-      console.log('🔸 Mocked showMessageBox called with options:', options);
+      if (verboseLogging) {
+        console.log('🔸 Mocked showMessageBox called with options:', options);
+      }
       return { response: 0, checkboxChecked: false };
     };
     dialog.showErrorBox = (title, content) => {
-      console.log('🔸 Mocked showErrorBox called:', { title, content });
+      if (verboseLogging) {
+        console.log('🔸 Mocked showErrorBox called:', { title, content });
+      }
     };
     if (dialog.showCertificateTrustDialog) {
       dialog.showCertificateTrustDialog = async (...args: unknown[]) => {
-        console.log('🔸 Mocked showCertificateTrustDialog called with args:', args);
+        if (verboseLogging) {
+          console.log('🔸 Mocked showCertificateTrustDialog called with args:', args);
+        }
       };
     }
-  });
+  }, isVerboseE2eLoggingEnabled);
 }
 
 export async function mockFileSystemOperations(window: Page): Promise<void> {
-  await window.evaluate(() => {
+  await window.evaluate((verboseLogging: boolean) => {
     const electronAPI = (
       window as unknown as {
         electronAPI?: { fileSystem?: Record<string, unknown> };
@@ -665,10 +732,14 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
     ).electronAPI;
 
     if (electronAPI?.fileSystem) {
-      console.log('🔸 Setting up file system API mocks...');
+      if (verboseLogging) {
+        console.log('🔸 Setting up file system API mocks...');
+      }
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.requestDirectoryAccess = async () => {
-        console.log('🔸 Mocked requestDirectoryAccess called');
+        if (verboseLogging) {
+          console.log('🔸 Mocked requestDirectoryAccess called');
+        }
         return {
           id: 'mock-directory-handle',
           name: 'mock-test-directory',
@@ -680,40 +751,63 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.exists = async (p: string) => {
-        console.log('🔸 Mocked exists called with path:', p);
+        if (verboseLogging) {
+          console.log('🔸 Mocked exists called with path:', p);
+        }
         return p.includes('/mock/');
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readDirectory = async (_p: string) => {
         const rootPath = '/mock/test/directory';
-        console.log('🔸 Mocked readDirectory called with path:', _p);
+        if (verboseLogging) {
+          console.log('🔸 Mocked readDirectory called with path:', _p);
+        }
         return getTestDirectoryStructure(rootPath);
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readFile = async (_p: string) => {
-        console.log('🔸 Mocked readFile called with path:', _p);
+        if (verboseLogging) {
+          console.log('🔸 Mocked readFile called with path:', _p);
+        }
         return 'Mock file content for testing';
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.writeFile = async (p: string, content: string) => {
-        console.log('🔸 Mocked writeFile called with path:', p, 'content length:', content.length);
+        if (verboseLogging) {
+          console.log(
+            '🔸 Mocked writeFile called with path:',
+            p,
+            'content length:',
+            content.length
+          );
+        }
         return true;
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.watchDirectory = async (p: string) => {
-        console.log('🔸 Mocked watchDirectory called with path:', p);
-        return { unwatch: () => console.log('🔸 Mocked unwatch called') };
+        if (verboseLogging) {
+          console.log('🔸 Mocked watchDirectory called with path:', p);
+        }
+        return {
+          unwatch: () => {
+            if (verboseLogging) {
+              console.log('🔸 Mocked unwatch called');
+            }
+          },
+        };
       };
-    } else {
+    } else if (verboseLogging) {
       console.log('🔸 No electronAPI.fileSystem found to mock');
     }
 
     const w = window as unknown as { showDirectoryPicker?: () => Promise<unknown> };
     if (w.showDirectoryPicker) {
       w.showDirectoryPicker = async () => {
-        console.log('🔸 Mocked showDirectoryPicker called');
+        if (verboseLogging) {
+          console.log('🔸 Mocked showDirectoryPicker called');
+        }
         return { name: 'mock-directory', kind: 'directory' };
       };
     }
-  });
+  }, isVerboseE2eLoggingEnabled);
 }
