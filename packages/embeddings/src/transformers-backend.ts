@@ -371,7 +371,7 @@ export class TransformersBackend {
 
       TransformersBackend._inferenceCount += texts.length;
     } catch (error) {
-      logger.error('Embedding worker streaming failed', {
+      logger.debug('Embedding worker streaming failed', {
         modelId,
         error,
         batchSize: texts.length,

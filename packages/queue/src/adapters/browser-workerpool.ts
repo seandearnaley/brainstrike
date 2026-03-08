@@ -248,9 +248,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       errorMessage,
     };
     emitQueueTelemetry(telemetry);
-    // Use warn level - task failures are expected (warmup, timeouts, cancellations)
-    // and callers handle errors appropriately
-    logger.warn('Workerpool embedding task failed', {
+    logger.debug('Workerpool embedding task failed', {
       taskId: task.id,
       model: task.model,
       elapsedMs: calculateElapsed(startedAt),

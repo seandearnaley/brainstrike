@@ -13,6 +13,21 @@ export interface ElectronAppContext {
 }
 
 const intentionallyClosingApps = new WeakSet<ElectronApplication>();
+const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
+
+function verboseLog(...args: unknown[]): void {
+  if (!isVerboseE2eLoggingEnabled) {
+    return;
+  }
+  console.log(...args);
+}
+
+function verboseError(...args: unknown[]): void {
+  if (!isVerboseE2eLoggingEnabled) {
+    return;
+  }
+  console.error(...args);
+}
 
 // Single launch attempt - extracted for reduced complexity
 async function attemptElectronLaunch(
@@ -31,15 +46,15 @@ async function attemptElectronLaunch(
 
 // Log environment diagnostics for debugging CI issues
 function logEnvironmentDiagnostics(userDataDir?: string): void {
-  console.log('[DEBUG][HYP-A] NODE_OPTIONS:', process.env['NODE_OPTIONS'] ?? '<not set>');
-  console.log('[DEBUG][HYP-A] NODE_DEBUG:', process.env['NODE_DEBUG'] ?? '<not set>');
-  console.log(
+  verboseLog('[DEBUG][HYP-A] NODE_OPTIONS:', process.env['NODE_OPTIONS'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-A] NODE_DEBUG:', process.env['NODE_DEBUG'] ?? '<not set>');
+  verboseLog(
     '[DEBUG][HYP-A] ELECTRON_ENABLE_STACK_DUMPING:',
     process.env['ELECTRON_ENABLE_STACK_DUMPING'] ?? '<not set>'
   );
-  console.log('[DEBUG][HYP-C] DISPLAY:', process.env['DISPLAY'] ?? '<not set>');
-  console.log('[DEBUG][HYP-C] WAYLAND_DISPLAY:', process.env['WAYLAND_DISPLAY'] ?? '<not set>');
-  console.log('[DEBUG][HYP-C] XDG_SESSION_TYPE:', process.env['XDG_SESSION_TYPE'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-C] DISPLAY:', process.env['DISPLAY'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-C] WAYLAND_DISPLAY:', process.env['WAYLAND_DISPLAY'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-C] XDG_SESSION_TYPE:', process.env['XDG_SESSION_TYPE'] ?? '<not set>');
   if (userDataDir) {
     console.log(`📂 Using custom user data dir: ${userDataDir}`);
   }
@@ -154,7 +169,7 @@ function createLaunchOptions(
   const currentDisplay = process.env['DISPLAY'];
   const isLinuxCI = process.platform === 'linux' && process.env['CI'];
   const needsDisplayFallback = isLinuxCI && !currentDisplay;
-  console.log('[DEBUG][HYP-C] DISPLAY resolution:', {
+  verboseLog('[DEBUG][HYP-C] DISPLAY resolution:', {
     platform: process.platform,
     isCI: Boolean(process.env['CI']),
     currentDisplay: currentDisplay ?? '<not set>',
@@ -213,39 +228,39 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
   const { execSync } = require('node:child_process');
 
   const effectiveDisplay = displayEnv ?? process.env['DISPLAY'];
-  console.log('[DEBUG][HYP-F] Checking Electron binary...');
-  console.log('[DEBUG][HYP-F] Binary path:', electronBinaryPath);
-  console.log('[DEBUG][HYP-F] Effective DISPLAY:', effectiveDisplay);
+  verboseLog('[DEBUG][HYP-F] Checking Electron binary...');
+  verboseLog('[DEBUG][HYP-F] Binary path:', electronBinaryPath);
+  verboseLog('[DEBUG][HYP-F] Effective DISPLAY:', effectiveDisplay);
 
   // #region agent log - Hypothesis I: Verify X display is accessible
   try {
-    console.log('[DEBUG][HYP-I] Checking if X display is accessible...');
+    verboseLog('[DEBUG][HYP-I] Checking if X display is accessible...');
     const xdpyOutput = execSync(`xdpyinfo -display "${effectiveDisplay}" 2>&1 | head -5`, {
       encoding: 'utf8',
       timeout: 5000,
     });
-    console.log('[DEBUG][HYP-I] X display accessible:', xdpyOutput.trim().split('\n')[0]);
+    verboseLog('[DEBUG][HYP-I] X display accessible:', xdpyOutput.trim().split('\n')[0]);
   } catch (xdpyErr) {
-    console.error('[DEBUG][HYP-I] X DISPLAY NOT ACCESSIBLE:', (xdpyErr as Error).message);
+    verboseError('[DEBUG][HYP-I] X DISPLAY NOT ACCESSIBLE:', (xdpyErr as Error).message);
     // Try to list what Xvfb servers are running
     try {
       const psOutput = execSync('ps aux | grep -i xvfb | grep -v grep', {
         encoding: 'utf8',
         timeout: 5000,
       });
-      console.log('[DEBUG][HYP-I] Running Xvfb processes:', psOutput.trim());
+      verboseLog('[DEBUG][HYP-I] Running Xvfb processes:', psOutput.trim());
     } catch {
-      console.log('[DEBUG][HYP-I] No Xvfb processes found');
+      verboseLog('[DEBUG][HYP-I] No Xvfb processes found');
     }
   }
   // #endregion
 
   try {
     const stats = fs.statSync(electronBinaryPath);
-    console.log('[DEBUG][HYP-F] Binary exists, size:', stats.size);
-    console.log('[DEBUG][HYP-F] Binary mode:', stats.mode.toString(8));
+    verboseLog('[DEBUG][HYP-F] Binary exists, size:', stats.size);
+    verboseLog('[DEBUG][HYP-F] Binary mode:', stats.mode.toString(8));
   } catch (statErr) {
-    console.error('[DEBUG][HYP-F] Cannot stat binary:', statErr);
+    verboseError('[DEBUG][HYP-F] Cannot stat binary:', statErr);
   }
 
   // Check for missing libraries using ldd
@@ -255,15 +270,15 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
       timeout: 5000,
     });
     if (lddOutput.trim()) {
-      console.error('[DEBUG][HYP-F] MISSING LIBRARIES DETECTED:');
-      console.error(lddOutput);
+      verboseError('[DEBUG][HYP-F] MISSING LIBRARIES DETECTED:');
+      verboseError(lddOutput);
     }
   } catch (lddErr) {
     // grep returns exit code 1 when no matches - that's good (no missing libs)
     if ((lddErr as { status?: number }).status === 1) {
-      console.log('[DEBUG][HYP-F] No missing libraries detected');
+      verboseLog('[DEBUG][HYP-F] No missing libraries detected');
     } else {
-      console.log('[DEBUG][HYP-F] ldd check inconclusive:', (lddErr as Error).message);
+      verboseLog('[DEBUG][HYP-F] ldd check inconclusive:', (lddErr as Error).message);
     }
   }
 
@@ -275,22 +290,22 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       env: { ...process.env, DISPLAY: displayEnv ?? process.env['DISPLAY'] },
     });
-    console.log('[DEBUG][HYP-F] Electron version check:', versionOutput.trim());
+    verboseLog('[DEBUG][HYP-F] Electron version check:', versionOutput.trim());
   } catch (versionErr) {
-    console.error('[DEBUG][HYP-F] Electron version check FAILED:', (versionErr as Error).message);
+    verboseError('[DEBUG][HYP-F] Electron version check FAILED:', (versionErr as Error).message);
   }
 }
 // #endregion
 
 async function startElectron(launchOptions: Parameters<typeof electron.launch>[0]) {
   // #region agent log - Hypothesis D: Pre-launch diagnostics
-  console.log('[DEBUG][HYP-D] Pre-launch diagnostics:');
-  console.log('[DEBUG][HYP-D] Platform:', process.platform);
-  console.log('[DEBUG][HYP-D] Arch:', process.arch);
-  console.log('[DEBUG][HYP-D] CI:', process.env['CI'] ?? '<not set>');
-  console.log('[DEBUG][HYP-D] GITHUB_ACTIONS:', process.env['GITHUB_ACTIONS'] ?? '<not set>');
-  console.log('[DEBUG][HYP-D] Launch args:', JSON.stringify(launchOptions?.args ?? []));
-  console.log('[DEBUG][HYP-D] Launch env keys:', Object.keys(launchOptions?.env ?? {}).join(', '));
+  verboseLog('[DEBUG][HYP-D] Pre-launch diagnostics:');
+  verboseLog('[DEBUG][HYP-D] Platform:', process.platform);
+  verboseLog('[DEBUG][HYP-D] Arch:', process.arch);
+  verboseLog('[DEBUG][HYP-D] CI:', process.env['CI'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-D] GITHUB_ACTIONS:', process.env['GITHUB_ACTIONS'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-D] Launch args:', JSON.stringify(launchOptions?.args ?? []));
+  verboseLog('[DEBUG][HYP-D] Launch env keys:', Object.keys(launchOptions?.env ?? {}).join(', '));
   // #endregion
 
   // Run pre-flight check for Linux CI environments
@@ -298,9 +313,9 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
 
   const launchStartTime = Date.now();
   try {
-    console.log('[DEBUG] Calling electron.launch() at', new Date().toISOString());
+    verboseLog('[DEBUG] Calling electron.launch() at', new Date().toISOString());
     const app = await electron.launch(launchOptions);
-    console.log('[DEBUG] electron.launch() returned after', Date.now() - launchStartTime, 'ms');
+    verboseLog('[DEBUG] electron.launch() returned after', Date.now() - launchStartTime, 'ms');
 
     // Pipe stdout and stderr for debugging CI crashes
     const electronProcess = app.process();
@@ -308,18 +323,15 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     console.log(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
 
     // #region agent log - Hypothesis G: Verify stdio pipe status
-    console.log(
+    verboseLog(
       '[DEBUG][HYP-G] stdout pipe:',
       electronProcess.stdout ? 'available' : 'NOT AVAILABLE'
     );
-    console.log(
+    verboseLog(
       '[DEBUG][HYP-G] stderr pipe:',
       electronProcess.stderr ? 'available' : 'NOT AVAILABLE'
     );
-    console.log(
-      '[DEBUG][HYP-G] stdin pipe:',
-      electronProcess.stdin ? 'available' : 'NOT AVAILABLE'
-    );
+    verboseLog('[DEBUG][HYP-G] stdin pipe:', electronProcess.stdin ? 'available' : 'NOT AVAILABLE');
     // #endregion
 
     let stdoutReceived = false;
@@ -328,7 +340,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     // #region agent log - Hypothesis A: Check for V8 inspector messages
     electronProcess.stdout?.on('data', (data) => {
       if (!stdoutReceived) {
-        console.log(
+        verboseLog(
           '[DEBUG][HYP-G] First stdout data received at',
           Date.now() - launchStartTime,
           'ms'
@@ -340,7 +352,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     });
     electronProcess.stderr?.on('data', (data) => {
       if (!stderrReceived) {
-        console.log(
+        verboseLog(
           '[DEBUG][HYP-G] First stderr data received at',
           Date.now() - launchStartTime,
           'ms'
@@ -358,7 +370,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
       if (stdoutReceived || stderrReceived || elapsed < 15_000) {
         return;
       }
-      console.log(
+      verboseLog(
         `[DEBUG][HYP-H] Heartbeat: ${elapsed}ms elapsed, stdout=${stdoutReceived}, stderr=${stderrReceived}`
       );
     }, 5000);
@@ -373,7 +385,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
       );
       // #region agent log - Hypothesis E: Analyze exit timing
       if (elapsed < 2000) {
-        console.log(
+        verboseLog(
           '[DEBUG][HYP-E] RAPID EXIT: Process exited within 2 seconds - likely startup failure'
         );
       }
@@ -390,7 +402,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
   } catch (error) {
     console.error('❌ Failed to launch Electron app:', error);
     // #region agent log - Additional error context
-    console.error('[DEBUG] Launch error details:', {
+    verboseError('[DEBUG] Launch error details:', {
       name: error instanceof Error ? error.name : 'unknown',
       message: error instanceof Error ? error.message : String(error),
       elapsed: Date.now() - launchStartTime,

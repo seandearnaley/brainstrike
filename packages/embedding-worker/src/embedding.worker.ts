@@ -24,6 +24,21 @@ import {
   vectorsFromPipelineOutput,
 } from './shared';
 
+function debugLog(message: string, data?: Record<string, unknown>): void {
+  void message;
+  void data;
+}
+
+function warnLog(message: string, data?: Record<string, unknown>): void {
+  // biome-ignore lint/suspicious/noConsole: Worker warnings are only surfaced for high-signal device-loss paths.
+  console.warn('[EmbeddingWorker]', message, data ?? '');
+}
+
+function errorLog(message: string, data?: Record<string, unknown>): void {
+  // biome-ignore lint/suspicious/noConsole: Worker errors must surface when the worker hits unexpected global failures.
+  console.error('[EmbeddingWorker]', message, data ?? '');
+}
+
 // Global error handlers - only set up in actual worker environment.
 // This code only runs in browser Web Worker context where `self` exists.
 // It cannot be tested in Node.js. Coverage is excluded via c8 ignore.
@@ -34,8 +49,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     const message = typeof event === 'string' ? event : (event as ErrorEvent).message;
     const filename = typeof event === 'object' ? (event as ErrorEvent).filename : undefined;
     const lineno = typeof event === 'object' ? (event as ErrorEvent).lineno : undefined;
-    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-    console.error('[EmbeddingWorker] Uncaught error:', { message, filename, lineno, event });
+    errorLog('Uncaught worker error', { message, filename, lineno, event });
     workerEmit({
       type: 'error',
       id: 'global',
@@ -49,8 +63,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     const reason = event.reason;
     const message = reason instanceof Error ? reason.message : String(reason);
     const stack = reason instanceof Error ? reason.stack : undefined;
-    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-    console.error('[EmbeddingWorker] Unhandled promise rejection:', { message, stack, reason });
+    errorLog('Unhandled worker promise rejection', { message, stack, reason });
     workerEmit({
       type: 'error',
       id: 'global',
@@ -70,12 +83,10 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     powerChannel.onmessage = (event) => {
       if (event.data === 'suspend') {
         keepAlivePaused = true;
-        // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-        console.log('[EmbeddingWorker] GPU keep-alive paused (system suspend)');
+        debugLog('GPU keep-alive paused for system suspend');
       } else if (event.data === 'resume') {
         keepAlivePaused = false;
-        // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-        console.log('[EmbeddingWorker] GPU keep-alive resumed (system resume)');
+        debugLog('GPU keep-alive resumed after system resume');
       }
     };
   }
@@ -254,14 +265,12 @@ async function getOrtWebGpuDevice(): Promise<GpuDeviceHandle | null> {
     const onnxEnv = (env as { backends?: { onnx?: { webgpu?: { device?: unknown } } } }).backends
       ?.onnx as { webgpu?: { device: Promise<GpuDeviceHandle> | GpuDeviceHandle } } | undefined;
     if (!onnxEnv?.webgpu) {
-      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-      console.warn('[EmbeddingWorker] GPU guard: env.backends.onnx.webgpu not found');
+      debugLog('GPU guard skipped because env.backends.onnx.webgpu is unavailable');
       return null;
     }
     const device = await onnxEnv.webgpu.device;
     if (!device || typeof device.createCommandEncoder !== 'function') {
-      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-      console.warn('[EmbeddingWorker] GPU guard: device missing or invalid', {
+      debugLog('GPU guard skipped because device is missing or invalid', {
         hasDevice: Boolean(device),
         type: typeof device,
       });
@@ -269,8 +278,9 @@ async function getOrtWebGpuDevice(): Promise<GpuDeviceHandle | null> {
     }
     return device;
   } catch (error) {
-    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-    console.warn('[EmbeddingWorker] GPU guard: failed to get device', error);
+    debugLog('GPU guard could not acquire device', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
@@ -289,8 +299,7 @@ function startKeepAlive(device: GpuDeviceHandle): void {
   if (keepAliveTimer !== null) {
     return;
   }
-  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-  console.log(`[EmbeddingWorker] GPU keep-alive started (interval=${GPU_KEEPALIVE_INTERVAL_MS}ms)`);
+  debugLog('GPU keep-alive started', { intervalMs: GPU_KEEPALIVE_INTERVAL_MS });
   keepAliveTimer = setInterval(() => {
     if (keepAlivePaused || isInferenceActive) {
       return;
@@ -306,12 +315,12 @@ function startKeepAlive(device: GpuDeviceHandle): void {
       // Log periodically (every ~2 min) to confirm the keep-alive is running.
       // `=== 1` intentionally logs the first tick immediately, then every 8 ticks.
       if (keepAliveTickCount % 8 === 1) {
-        // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-        console.log(`[EmbeddingWorker] GPU keep-alive tick #${keepAliveTickCount}`);
+        debugLog('GPU keep-alive tick', { tick: keepAliveTickCount });
       }
     } catch (error) {
-      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-      console.warn('[EmbeddingWorker] GPU keep-alive tick failed:', error);
+      debugLog('GPU keep-alive tick failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       // Device may already be lost; the device-loss watcher handles cleanup.
       stopKeepAlive();
     }
@@ -322,8 +331,7 @@ function stopKeepAlive(): void {
   if (keepAliveTimer !== null) {
     clearInterval(keepAliveTimer);
     keepAliveTimer = null;
-    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-    console.log('[EmbeddingWorker] GPU keep-alive stopped');
+    debugLog('GPU keep-alive stopped');
   }
 }
 
@@ -353,8 +361,7 @@ async function disposePipeline(key: string): Promise<void> {
   } catch {
     // Pipeline load may have failed — nothing to dispose
   }
-  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-  console.log(`[EmbeddingWorker] Disposed pipeline: ${key}`);
+  debugLog('Disposed cached pipeline', { cacheKey: key });
   updateKeepAliveState();
   if (pipelines.size === 0) {
     stopIdleSweep();
@@ -371,8 +378,7 @@ function invalidateWebGpuPipelines(): void {
   for (const key of keysToDispose) {
     void disposePipeline(key);
   }
-  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-  console.warn(`[EmbeddingWorker] Invalidated ${keysToDispose.length} WebGPU pipeline(s)`);
+  debugLog('Invalidated cached WebGPU pipelines', { count: keysToDispose.length });
 }
 
 function evictLruByDevice(device: EmbeddingDevice, maxResident: number): void {
@@ -461,8 +467,7 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
   deviceLossWatcherAttached = true;
 
   void device.lost.then((info: GpuDeviceLostInfo) => {
-    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-    console.warn('[EmbeddingWorker] WebGPU device lost:', info.message, '| reason:', info.reason);
+    warnLog('WebGPU device lost', { message: info.message, reason: info.reason });
 
     stopKeepAlive();
     invalidateWebGpuPipelines();
@@ -479,8 +484,7 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
     // (minWorkers: 1) which can acquire a new GPUDevice.
     // Any in-flight request rejects and is expected to be retried by the
     // embedding queue's existing retry path.
-    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-    console.warn('[EmbeddingWorker] Terminating worker after device loss for clean recovery');
+    warnLog('Terminating worker after WebGPU device loss for clean recovery');
     if (typeof self !== 'undefined' && typeof self.close === 'function') {
       self.close();
     }
@@ -494,14 +498,10 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
 async function initWebGpuDeviceGuard(): Promise<void> {
   const device = await getOrtWebGpuDevice();
   if (!device) {
-    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-    console.warn(
-      '[EmbeddingWorker] GPU guard: could not obtain ORT WebGPU device — guard NOT active'
-    );
+    debugLog('GPU guard could not obtain ORT WebGPU device');
     return;
   }
-  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-  console.log('[EmbeddingWorker] GPU guard: device acquired, starting keep-alive + loss watcher');
+  debugLog('GPU guard acquired device and attached keep-alive plus loss watcher');
   startKeepAlive(device);
   watchDeviceLoss(device);
 }
@@ -538,9 +538,7 @@ async function loadPipeline(
     return existing.pipeline;
   }
 
-  // Only log first-time pipeline loading (not cached hits)
-  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-  console.log('[EmbeddingWorker] Loading pipeline:', model, device);
+  debugLog('Loading pipeline', { model, device, dtype });
 
   const loader = (async () => {
     try {
@@ -561,8 +559,7 @@ async function loadPipeline(
 
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
-      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-      console.error('[EmbeddingWorker] Pipeline load failed:', {
+      debugLog('Pipeline load failed', {
         model,
         device,
         dtype,
