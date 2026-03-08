@@ -1,5 +1,5 @@
 import type { LogRecord } from '@brainstrike/utils';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   bindRuntimeLogRecord,
   createBackgroundRuntimeStatus,
@@ -7,6 +7,7 @@ import {
   createRuntimeId,
   createRuntimeStatusStore,
   createTerminalRuntimeFailureLatch,
+  createWorkerRuntimeClient,
   deserializeRuntimeError,
   serializeRuntimeError,
 } from '../index';
@@ -106,5 +107,43 @@ describe('@brainstrike/worker-runtime', () => {
       channel: 'control',
       requestId: 'request-1',
     });
+  });
+
+  it('tracks worker readiness and latches worker error events', () => {
+    const errorHandlers = new Set<(event: ErrorEvent) => void>();
+    const worker = {
+      addEventListener: vi.fn((type: string, handler: (event: ErrorEvent) => void) => {
+        if (type === 'error') {
+          errorHandlers.add(handler);
+        }
+      }),
+      removeEventListener: vi.fn((type: string, handler: (event: ErrorEvent) => void) => {
+        if (type === 'error') {
+          errorHandlers.delete(handler);
+        }
+      }),
+      postMessage: vi.fn(),
+    } as unknown as Worker;
+
+    const failures: string[] = [];
+    const client = createWorkerRuntimeClient(worker, {
+      onFailure: (error) => {
+        failures.push(error.message);
+      },
+    });
+
+    client.markReady();
+    expect(client.isReady()).toBe(true);
+
+    for (const handler of errorHandlers) {
+      handler({ message: 'boom' } as ErrorEvent);
+    }
+
+    expect(client.isReady()).toBe(false);
+    expect(client.isFailed()).toBe(true);
+    expect(failures).toEqual(['Worker runtime error: boom']);
+
+    client.dispose();
+    expect(worker.removeEventListener).toHaveBeenCalled();
   });
 });

@@ -1,7 +1,4 @@
-import {
-  createTerminalRuntimeFailureLatch,
-  createWorkerTransport,
-} from '@brainstrike/worker-runtime';
+import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
@@ -46,9 +43,14 @@ function isStreamEvent(value: unknown): value is EmbedWorkerStreamEvent {
 }
 
 export class StreamingEmbeddingWorkerClient {
+  private activeStream: {
+    readonly cleanup: () => void;
+    readonly reject: (error: Error) => void;
+    readonly requestId: string;
+  } | null = null;
   private readonly worker: Worker;
-  private readonly failureLatch = createTerminalRuntimeFailureLatch();
-  private readonly transport: ReturnType<typeof createWorkerTransport>;
+  private readonly runtime: ReturnType<typeof createWorkerRuntimeClient>;
+  private readonly transport: ReturnType<typeof createWorkerRuntimeClient>['transport'];
   private executionChain: Promise<void> = Promise.resolve();
 
   constructor(worker?: Worker) {
@@ -57,7 +59,24 @@ export class StreamingEmbeddingWorkerClient {
       new Worker(resolveEmbeddingWorkerUrl(), {
         type: 'module',
       });
-    this.transport = createWorkerTransport(this.worker);
+    this.runtime = createWorkerRuntimeClient(this.worker, {
+      createErrorFromEvent: (event) =>
+        new Error(
+          event.message
+            ? `Embedding worker runtime error: ${event.message}`
+            : 'Embedding worker runtime error (missing ErrorEvent.message)'
+        ),
+      onFailure: (error) => {
+        const activeStream = this.activeStream;
+        if (activeStream) {
+          this.activeStream = null;
+          activeStream.cleanup();
+          activeStream.reject(error);
+        }
+        this.worker.terminate();
+      },
+    });
+    this.transport = this.runtime.transport;
   }
 
   async embed(
@@ -87,7 +106,7 @@ export class StreamingEmbeddingWorkerClient {
     request: EmbedWorkerRequest,
     options: StreamingEmbedOptions = {}
   ): Promise<EmbedWorkerComplete['metadata']> {
-    this.failureLatch.throwIfFailed();
+    this.runtime.throwIfFailed();
     const run = async (): Promise<EmbedWorkerComplete['metadata']> =>
       await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
         const cleanup = this.transport.onMessage((message) => {
@@ -107,13 +126,15 @@ export class StreamingEmbeddingWorkerClient {
 
           if (payload.type === 'error') {
             options.onError?.(payload);
-            const failure = this.failureLatch.markFailed(new Error(payload.message));
+            const failure = this.runtime.markFailed(new Error(payload.message));
+            this.activeStream = null;
             cleanup();
             reject(failure);
             return;
           }
 
           if (payload.type === 'complete') {
+            this.activeStream = null;
             cleanup();
             resolve(payload.metadata);
             return;
@@ -128,10 +149,16 @@ export class StreamingEmbeddingWorkerClient {
               });
             })
             .catch((error: unknown) => {
+              this.activeStream = null;
               cleanup();
               reject(error instanceof Error ? error : new Error(String(error)));
             });
         });
+        this.activeStream = {
+          requestId: request.id,
+          cleanup,
+          reject,
+        };
         this.postMessage({
           type: 'stream-embed',
           request,
@@ -147,7 +174,8 @@ export class StreamingEmbeddingWorkerClient {
   }
 
   terminate(): void {
-    this.failureLatch.clear();
+    this.runtime.clearFailure();
+    this.runtime.dispose();
     this.worker.terminate();
   }
 

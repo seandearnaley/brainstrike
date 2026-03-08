@@ -12,7 +12,7 @@
  */
 
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import { createTerminalRuntimeFailureLatch } from '@brainstrike/worker-runtime';
+import { createWorkerRuntimeClient, type WorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   IndexerBatchRequest,
@@ -203,10 +203,11 @@ export function useBackgroundTokenIndexer({
   const [isIndexing, setIsIndexing] = useState(false);
   const [progress, setProgress] = useState<IndexingProgress | null>(null);
   const workerErrorLoggedRef = useRef(false);
+  const workerFailureHandledRef = useRef(false);
   const workerInitPromiseRef = useRef<Promise<Worker> | null>(null);
+  const workerMessageCleanupRef = useRef<(() => void) | null>(null);
   const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const readyRef = useRef(false);
-  const workerFailureLatchRef = useRef(createTerminalRuntimeFailureLatch());
+  const workerRuntimeRef = useRef<WorkerRuntimeClient | null>(null);
   const pendingBatchTrackersRef = useRef<PendingBatchTracker[]>([]);
 
   // Track pending files to enable cancellation
@@ -306,16 +307,18 @@ export function useBackgroundTokenIndexer({
     (error: unknown, context: string) => {
       // CRITICAL: terminal worker failure is latched. Duplicate failure signals
       // can arrive from queued worker events and must not fan out callbacks/logging.
-      if (workerFailureLatchRef.current.isFailed()) {
+      if (workerFailureHandledRef.current) {
         return;
       }
+      workerFailureHandledRef.current = true;
 
-      const failure =
-        error instanceof Error
+      const runtime = workerRuntimeRef.current;
+      const failure = runtime
+        ? runtime.markFailed(error)
+        : error instanceof Error
           ? error
           : new Error(`Background token indexer failure: ${formatErrorMessage(error)}`);
-      workerFailureLatchRef.current.markFailed(failure);
-      readyRef.current = false;
+      runtime?.resetReady();
       setIsReady(false);
       setIsIndexing(false);
       setProgress(null);
@@ -340,6 +343,11 @@ export function useBackgroundTokenIndexer({
         workerRef.current.terminate();
         workerRef.current = null;
       }
+      workerMessageCleanupRef.current?.();
+      workerMessageCleanupRef.current = null;
+      if (runtime) {
+        runtime.dispose();
+      }
 
       logWorkerErrorOnce(failure, context);
     },
@@ -347,12 +355,12 @@ export function useBackgroundTokenIndexer({
   );
 
   const ensureWorkerReady = useCallback(async (): Promise<Worker> => {
-    const workerFailure = workerFailureLatchRef.current.getFailure();
+    const workerFailure = workerRuntimeRef.current?.getFailure() ?? null;
     if (workerFailure) {
       throw workerFailure;
     }
 
-    if (readyRef.current && workerRef.current) {
+    if (workerRuntimeRef.current?.isReady() && workerRef.current) {
       return workerRef.current;
     }
 
@@ -370,10 +378,22 @@ export function useBackgroundTokenIndexer({
         throw normalizedError;
       }
       workerRef.current = worker;
+      const runtime = createWorkerRuntimeClient(worker, {
+        createErrorFromEvent: (event) =>
+          new Error(`Worker error event: ${event.message || 'unknown worker error event'}`),
+        onFailure: (failure) => {
+          logger.error('Worker error event', {
+            type: 'error',
+            message: failure.message,
+          });
+          failWorker(failure, 'worker.addEventListener(error)');
+        },
+      });
+      workerRuntimeRef.current = runtime;
+      const transport = runtime.transport;
 
       await new Promise<void>((resolve, reject) => {
         const settleReady = (): void => {
-          worker.removeEventListener('error', handleErrorEvent);
           worker.removeEventListener('messageerror', handleMessageChannelError);
           resolve();
         };
@@ -391,13 +411,14 @@ export function useBackgroundTokenIndexer({
 
           const message = event.data;
 
-          if (workerFailureLatchRef.current.isFailed() && message.type !== 'ready') {
+          if (workerRuntimeRef.current?.isFailed() && message.type !== 'ready') {
             return;
           }
 
           if (message.type === 'ready') {
-            readyRef.current = true;
-            workerFailureLatchRef.current.clear();
+            runtime.clearFailure();
+            runtime.markReady();
+            workerFailureHandledRef.current = false;
             setIsReady(true);
             if (readinessTimerRef.current) {
               clearTimeout(readinessTimerRef.current);
@@ -496,19 +517,18 @@ export function useBackgroundTokenIndexer({
           );
         };
 
-        const handleErrorEvent = (event: Event) =>
-          handleWorkerError(event as ErrorEvent, 'worker.addEventListener(error)');
         const handleMessageChannelError = (event: Event) =>
           handleWorkerError(event as MessageEvent, 'worker.onmessageerror');
 
-        worker.onmessage = handleMessage;
+        workerMessageCleanupRef.current = transport.onMessage((message) => {
+          void handleMessage({ data: message } as MessageEvent<WorkerResponse | { type: 'ready' }>);
+        });
         worker.onerror = (event) => handleWorkerError(event, 'worker.onerror');
         worker.onmessageerror = (event) => handleWorkerError(event, 'worker.onmessageerror');
-        worker.addEventListener('error', handleErrorEvent);
         worker.addEventListener('messageerror', handleMessageChannelError);
 
         readinessTimerRef.current = setTimeout(() => {
-          if (!readyRef.current) {
+          if (!runtime.isReady()) {
             settleFailure(new Error('Worker did not signal ready within 5s'), 'ready-timeout');
           }
         }, 5000);
@@ -542,8 +562,14 @@ export function useBackgroundTokenIndexer({
       const worker = workerRef.current;
       workerRef.current = null;
       workerInitPromiseRef.current = null;
-      readyRef.current = false;
-      workerFailureLatchRef.current.clear();
+      workerMessageCleanupRef.current?.();
+      workerMessageCleanupRef.current = null;
+      const runtime = workerRuntimeRef.current;
+      workerRuntimeRef.current = null;
+      workerFailureHandledRef.current = false;
+      runtime?.resetReady();
+      runtime?.clearFailure();
+      runtime?.dispose();
       rejectAllPendingBatchTrackers(
         new Error('Background token indexer worker terminated during cleanup')
       );
@@ -690,7 +716,7 @@ export function useBackgroundTokenIndexer({
       await ensureWorkerReady();
 
       // CRITICAL: No skip/degraded fallback path. Worker unavailability is a hard failure.
-      const workerFailure = workerFailureLatchRef.current.getFailure();
+      const workerFailure = workerRuntimeRef.current?.getFailure() ?? null;
       if (workerFailure) {
         const message =
           `Background token indexer unavailable: ${workerFailure.message}. ` +
@@ -706,11 +732,11 @@ export function useBackgroundTokenIndexer({
         throw new Error(message);
       }
 
-      if (!(workerRef.current && readyRef.current)) {
+      if (!(workerRef.current && workerRuntimeRef.current?.isReady())) {
         const message = `Background token indexer worker is not ready. Requested files dropped: ${files.length}.`;
         logger.error('indexFiles rejected - worker not ready', {
           hasWorker: !!workerRef.current,
-          isReady: readyRef.current,
+          isReady: workerRuntimeRef.current?.isReady() ?? false,
           fileCount: files.length,
         });
         emitTerminalIndexingError(message);
@@ -799,7 +825,7 @@ export function useBackgroundTokenIndexer({
         pendingFilesRef.current.clear();
         rejectAllPendingBatchTrackers(normalizedError);
         const droppedCount = Math.max(requestedFiles, pendingBeforeClear);
-        if (!workerFailureLatchRef.current.isFailed()) {
+        if (!workerRuntimeRef.current?.isFailed()) {
           emitTerminalIndexingError(
             `Background token indexer failed before dispatch: ${normalizedError.message}. ` +
               `Requested files dropped: ${droppedCount}.`

@@ -8,21 +8,29 @@ import type {
 } from './types';
 
 type WorkerMessageListener = (event: MessageEvent<WorkerToMainMessage>) => void;
+type WorkerErrorListener = (event: ErrorEvent) => void;
 
 class MockWorker {
   public postedMessages: MainToWorkerMessage[] = [];
   public listeners = new Set<WorkerMessageListener>();
+  public errorListeners = new Set<WorkerErrorListener>();
   public terminated = false;
 
-  addEventListener(type: string, listener: WorkerMessageListener): void {
+  addEventListener(type: string, listener: WorkerMessageListener | WorkerErrorListener): void {
     if (type === 'message') {
-      this.listeners.add(listener);
+      this.listeners.add(listener as WorkerMessageListener);
+    }
+    if (type === 'error') {
+      this.errorListeners.add(listener as WorkerErrorListener);
     }
   }
 
-  removeEventListener(type: string, listener: WorkerMessageListener): void {
+  removeEventListener(type: string, listener: WorkerMessageListener | WorkerErrorListener): void {
     if (type === 'message') {
-      this.listeners.delete(listener);
+      this.listeners.delete(listener as WorkerMessageListener);
+    }
+    if (type === 'error') {
+      this.errorListeners.delete(listener as WorkerErrorListener);
     }
   }
 
@@ -38,6 +46,17 @@ class MockWorker {
     const event = { data: message } as MessageEvent<WorkerToMainMessage>;
     for (const listener of this.listeners) {
       listener(event);
+    }
+  }
+
+  emitError(message: string): void {
+    const event = { message } as ErrorEvent;
+    for (const listener of this.errorListeners) {
+      try {
+        listener(event);
+      } catch {
+        // Browser EventTarget dispatch does not rethrow listener exceptions to the caller.
+      }
     }
   }
 }

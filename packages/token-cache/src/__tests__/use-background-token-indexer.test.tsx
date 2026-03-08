@@ -65,6 +65,9 @@ class MockWorker {
   }
 
   emitEvent(type: string, event: unknown): void {
+    if (type === 'message') {
+      this.onmessage?.(event as MessageEvent);
+    }
     const handlers = this.listeners.get(type) ?? [];
     for (const handler of handlers) {
       handler(event);
@@ -84,7 +87,7 @@ async function waitForWorker(): Promise<MockWorker> {
 async function markWorkerReady(): Promise<MockWorker> {
   const worker = await waitForWorker();
   act(() => {
-    worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+    worker.emitEvent('message', { data: { type: 'ready' } } as MessageEvent);
   });
   return worker;
 }
@@ -146,7 +149,7 @@ describe('useBackgroundTokenIndexer', () => {
     // Simulate a skipped result (hash matched) coming back from the worker.
     await act(async () => {
       const worker = mockWorkers[0]!;
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'result',
           skipped: true,
@@ -198,7 +201,7 @@ describe('useBackgroundTokenIndexer', () => {
 
     await act(async () => {
       const worker = mockWorkers[0]!;
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'error',
           compositeKey: 'folder|@|bad.txt',
@@ -289,10 +292,12 @@ describe('useBackgroundTokenIndexer', () => {
       );
     });
 
-    expect(onFileError).toHaveBeenCalledWith(
-      '__worker__',
-      expect.stringContaining('(worker.addEventListener(error)): Worker error event: event boom')
-    );
+    await waitFor(() => {
+      expect(onFileError).toHaveBeenCalledWith(
+        '__worker__',
+        expect.stringContaining('(worker.addEventListener(error)): Worker error event: event boom')
+      );
+    });
     expect(mockEmitIndexingError).toHaveBeenCalledWith(
       expect.objectContaining({
         compositeKey: '__worker__',
@@ -484,7 +489,7 @@ describe('useBackgroundTokenIndexer', () => {
 
     await act(async () => {
       const worker = mockWorkers[0]!;
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'error',
           id: '1',
@@ -495,7 +500,7 @@ describe('useBackgroundTokenIndexer', () => {
       } as MessageEvent);
 
       // Simulate a trailing queued message from the terminated worker.
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'error',
           id: '2',
@@ -546,7 +551,7 @@ describe('useBackgroundTokenIndexer', () => {
 
     await act(async () => {
       const worker = mockWorkers[0]!;
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'log',
           level: 'error',
@@ -558,7 +563,7 @@ describe('useBackgroundTokenIndexer', () => {
       } as MessageEvent);
 
       // Simulate duplicate queued signals after failure latch.
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'log',
           level: 'error',
@@ -614,7 +619,7 @@ describe('useBackgroundTokenIndexer', () => {
     });
 
     await act(async () => {
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'error',
           compositeKey: 'folder|@|slow.txt',
@@ -711,7 +716,7 @@ describe('useBackgroundTokenIndexer', () => {
 
     await act(async () => {
       const worker = mockWorkers[0]!;
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'result',
           skipped: false,
@@ -762,7 +767,7 @@ describe('useBackgroundTokenIndexer', () => {
 
     await act(async () => {
       const worker = mockWorkers[0]!;
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'error',
           id: '__batch__',
@@ -800,7 +805,7 @@ describe('useBackgroundTokenIndexer', () => {
 
     await act(async () => {
       const worker = mockWorkers[0]!;
-      worker.onmessage?.({
+      worker.emitEvent('message', {
         data: {
           type: 'error',
           id: '__batch__',

@@ -170,6 +170,9 @@ describe('ChunkingWorkerProvider', () => {
       throw new Error('Expected worker instance');
     }
 
+    await waitForExpect(() =>
+      expect(worker.addEventListener).toHaveBeenCalledWith('message', expect.any(Function))
+    );
     await emitWorkerMessage(worker, { type: 'ready' });
 
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
@@ -222,6 +225,9 @@ describe('ChunkingWorkerProvider', () => {
       throw new Error('Expected initial worker');
     }
 
+    await waitForExpect(() =>
+      expect(initialWorker.addEventListener).toHaveBeenCalledWith('message', expect.any(Function))
+    );
     await emitWorkerMessage(initialWorker, { type: 'ready' });
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
 
@@ -250,6 +256,12 @@ describe('ChunkingWorkerProvider', () => {
       throw new Error('Expected reinitialized worker');
     }
 
+    await waitForExpect(() =>
+      expect(reinitializedWorker.addEventListener).toHaveBeenCalledWith(
+        'message',
+        expect.any(Function)
+      )
+    );
     await emitWorkerMessage(reinitializedWorker, { type: 'ready' });
 
     await waitForExpect(() => expect(result.current.isReady).toBe(true));

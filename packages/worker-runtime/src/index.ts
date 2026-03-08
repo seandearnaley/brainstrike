@@ -108,6 +108,24 @@ export interface RuntimeMessageTransport {
   postMessage: (message: unknown, transfer?: Transferable[]) => void;
 }
 
+export interface WorkerRuntimeClient {
+  clearFailure: () => void;
+  dispose: () => void;
+  getFailure: () => Error | null;
+  isFailed: () => boolean;
+  isReady: () => boolean;
+  markFailed: (error: unknown) => Error;
+  markReady: () => void;
+  resetReady: () => void;
+  throwIfFailed: () => void;
+  transport: RuntimeMessageTransport;
+}
+
+export interface WorkerRuntimeClientOptions {
+  readonly createErrorFromEvent?: (event: ErrorEvent) => Error;
+  readonly onFailure?: (error: Error) => void;
+}
+
 export function createRuntimeId(runtimeKind: string): string {
   if (
     typeof globalThis.crypto === 'undefined' ||
@@ -295,6 +313,61 @@ export function createWorkerTransport(worker: Worker): RuntimeMessageTransport {
       }
       worker.postMessage(message);
     },
+  };
+}
+
+export function createWorkerRuntimeClient(
+  worker: Worker,
+  options: WorkerRuntimeClientOptions = {}
+): WorkerRuntimeClient {
+  const transport = createWorkerTransport(worker);
+  const failureLatch = createTerminalRuntimeFailureLatch();
+  let ready = false;
+
+  const handleError = (event: ErrorEvent) => {
+    if (typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    ready = false;
+    const failure = failureLatch.markFailed(
+      options.createErrorFromEvent?.(event) ??
+        new Error(
+          event.message
+            ? `Worker runtime error: ${event.message}`
+            : 'Worker runtime error (missing ErrorEvent.message)'
+        )
+    );
+    options.onFailure?.(failure);
+  };
+
+  worker.addEventListener('error', handleError);
+
+  return {
+    clearFailure: () => {
+      failureLatch.clear();
+    },
+    dispose: () => {
+      worker.removeEventListener('error', handleError);
+    },
+    getFailure: () => failureLatch.getFailure(),
+    isFailed: () => failureLatch.isFailed(),
+    isReady: () => ready && !failureLatch.isFailed(),
+    markFailed: (error: unknown) => {
+      ready = false;
+      const failure = failureLatch.markFailed(error);
+      options.onFailure?.(failure);
+      return failure;
+    },
+    markReady: () => {
+      ready = true;
+    },
+    resetReady: () => {
+      ready = false;
+    },
+    throwIfFailed: () => {
+      failureLatch.throwIfFailed();
+    },
+    transport,
   };
 }
 

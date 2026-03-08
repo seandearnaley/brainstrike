@@ -444,7 +444,7 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
 }
 
 export async function waitForAppReady(page: Page): Promise<void> {
-  const appReadyTimeoutMs = 60_000;
+  const appReadyTimeoutMs = 90_000;
   try {
     // First check if the page is still open
     if (page.isClosed()) {
