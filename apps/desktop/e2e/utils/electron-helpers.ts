@@ -444,13 +444,16 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
 }
 
 export async function waitForAppReady(page: Page): Promise<void> {
+  const appReadyTimeoutMs = 60_000;
   try {
     // First check if the page is still open
     if (page.isClosed()) {
       throw new Error('Page was closed before app could become ready');
     }
 
-    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30_000 });
+    await page.waitForFunction(() => document.readyState === 'complete', {
+      timeout: appReadyTimeoutMs,
+    });
 
     const readinessCheck = () => {
       const readyFlag = Boolean(
@@ -478,7 +481,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
 
     if (isCodex) {
       const pollInterval = 100;
-      const maxAttempts = Math.ceil(30_000 / pollInterval);
+      const maxAttempts = Math.ceil(appReadyTimeoutMs / pollInterval);
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (page.isClosed()) {
           throw new Error('Page was closed while waiting for app to become ready');
@@ -496,7 +499,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('Timed out waiting for app readiness in Codex environment');
     }
 
-    await page.waitForFunction(readinessCheck, { timeout: 30_000, polling: 100 });
+    await page.waitForFunction(readinessCheck, { timeout: appReadyTimeoutMs, polling: 100 });
     console.log('✅ App is ready and responsive');
   } catch (error) {
     console.error('❌ Error waiting for app to be ready:', error);

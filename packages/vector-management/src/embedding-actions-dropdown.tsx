@@ -47,6 +47,13 @@ export interface EmbeddingActionsDropdownProps {
   willAutoStartWorker?: boolean;
 }
 
+function invokeAsyncAction(action: () => Promise<void>): void {
+  // Action handlers own user-facing errors via toasts/status. Swallow the promise at
+  // the click boundary so rejected async handlers do not surface as global
+  // unhandledrejection events in the renderer.
+  void action().catch(() => {});
+}
+
 /**
  * Determines button text based on current state
  */
@@ -158,9 +165,7 @@ export function EmbeddingActionsDropdown({
       aria-label={buttonText}
       className="h-8 rounded-r-none border-r-0 px-3 text-xs"
       disabled={isBackfillDisabled}
-      onClick={() => {
-        void onBackfill();
-      }}
+      onClick={() => invokeAsyncAction(onBackfill)}
       size="sm"
       variant="outline"
     >
@@ -203,7 +208,10 @@ export function EmbeddingActionsDropdown({
             </DropdownMenuTrigger>
 
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem disabled={isRetryDisabled} onClick={() => void onRetryFailed()}>
+              <DropdownMenuItem
+                disabled={isRetryDisabled}
+                onClick={() => invokeAsyncAction(onRetryFailed)}
+              >
                 <RotateCcw className="mr-2 h-3.5 w-3.5" />
                 <span>Retry Failed</span>
                 {failedCount > 0 && (
@@ -213,7 +221,10 @@ export function EmbeddingActionsDropdown({
 
               <DropdownMenuSeparator />
 
-              <DropdownMenuItem disabled={isClearDisabled} onClick={() => void onClearQueue()}>
+              <DropdownMenuItem
+                disabled={isClearDisabled}
+                onClick={() => invokeAsyncAction(onClearQueue)}
+              >
                 <RefreshCw className="mr-2 h-3.5 w-3.5" />
                 <span>Clear Queue</span>
               </DropdownMenuItem>
@@ -221,7 +232,7 @@ export function EmbeddingActionsDropdown({
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 disabled={isWipeDisabled}
-                onClick={() => void onWipeQueue()}
+                onClick={() => invokeAsyncAction(onWipeQueue)}
               >
                 <Trash2 className="mr-2 h-3.5 w-3.5" />
                 <span>Wipe All Jobs</span>
