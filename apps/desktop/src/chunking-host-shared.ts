@@ -5,6 +5,7 @@ import type {
   RuntimeRequestEnvelope,
   RuntimeResultEnvelope,
 } from '@brainstrike/worker-runtime';
+import { createStoppedBackgroundRuntimeStatus } from '@brainstrike/worker-runtime';
 
 export const CHUNKING_HOST_STATUS_EVENT = 'chunking-host:status';
 export const CHUNKING_HOST_REQUEST_EVENT = 'chunking-host:request';
@@ -140,11 +141,5 @@ export const CHUNKING_HOST_STOPPED_RUNTIME_ID = 'chunking-host:stopped';
 export function createStoppedChunkingHostStatus(
   runtimeId: string = CHUNKING_HOST_STOPPED_RUNTIME_ID
 ): ChunkingHostStatus {
-  return {
-    runtimeKind: 'chunking-host',
-    runtimeId,
-    state: 'stopped',
-    active: false,
-    lastError: null,
-  };
+  return createStoppedBackgroundRuntimeStatus('chunking-host', runtimeId);
 }

@@ -1,11 +1,13 @@
 import type { LogRecord } from '@brainstrike/utils';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  assertBackgroundRuntimeStatus,
   bindRuntimeLogRecord,
   createBackgroundRuntimeStatus,
   createRequestTracker,
   createRuntimeId,
   createRuntimeStatusStore,
+  createStoppedBackgroundRuntimeStatus,
   createTerminalRuntimeFailureLatch,
   createWorkerRuntimeClient,
   deserializeRuntimeError,
@@ -35,6 +37,50 @@ describe('@brainstrike/worker-runtime', () => {
 
     expect(store.getStatus().state).toBe('running');
     expect(statuses).toEqual(['starting', 'running']);
+  });
+
+  it('creates stopped statuses with canonical runtime ids', () => {
+    expect(createStoppedBackgroundRuntimeStatus('chunking-host')).toEqual({
+      runtimeKind: 'chunking-host',
+      runtimeId: 'chunking-host:stopped',
+      state: 'stopped',
+      active: false,
+      lastError: null,
+    });
+  });
+
+  it('strictly validates runtime status payloads', () => {
+    expect(
+      assertBackgroundRuntimeStatus(
+        {
+          runtimeKind: 'embedding-host',
+          runtimeId: 'embedding-host:123',
+          state: 'running',
+          active: true,
+          lastError: null,
+        },
+        'embedding-host'
+      )
+    ).toEqual({
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host:123',
+      state: 'running',
+      active: true,
+      lastError: null,
+    });
+
+    expect(() =>
+      assertBackgroundRuntimeStatus(
+        {
+          runtimeKind: 'embedding-worker',
+          runtimeId: 'embedding-host:123',
+          state: 'running',
+          active: true,
+          lastError: null,
+        },
+        'embedding-host'
+      )
+    ).toThrow('embedding-host status report must include runtimeKind="embedding-host".');
   });
 
   it('tracks pending requests and fails duplicate ids', () => {

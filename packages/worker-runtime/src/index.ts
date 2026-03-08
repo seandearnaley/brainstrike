@@ -164,6 +164,13 @@ export function createBackgroundRuntimeStatus<TRuntimeKind extends string>(
   };
 }
 
+export function createStoppedBackgroundRuntimeStatus<TRuntimeKind extends string>(
+  runtimeKind: TRuntimeKind,
+  runtimeId = `${runtimeKind}:stopped`
+): BackgroundRuntimeStatus<TRuntimeKind> {
+  return createBackgroundRuntimeStatus(runtimeKind, runtimeId, 'stopped');
+}
+
 export function createRuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<string>>(
   initialStatus: TStatus
 ): RuntimeStatusStore<TStatus> {
@@ -273,6 +280,47 @@ export function deserializeRuntimeError(error: SerializedRuntimeError | unknown)
     return restored;
   }
   return toRuntimeError(error);
+}
+
+export function assertBackgroundRuntimeStatus<TRuntimeKind extends string>(
+  value: unknown,
+  runtimeKind: TRuntimeKind
+): BackgroundRuntimeStatus<TRuntimeKind> {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${runtimeKind} status report must be an object.`);
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const state = candidate['state'];
+  if (
+    state !== 'starting' &&
+    state !== 'running' &&
+    state !== 'stopping' &&
+    state !== 'stopped' &&
+    state !== 'error'
+  ) {
+    throw new Error(`${runtimeKind} status report has invalid state.`);
+  }
+  if (typeof candidate['active'] !== 'boolean') {
+    throw new Error(`${runtimeKind} status report must include active boolean.`);
+  }
+  if (candidate['lastError'] !== null && typeof candidate['lastError'] !== 'string') {
+    throw new Error(`${runtimeKind} status report must include string or null lastError.`);
+  }
+  if (candidate['runtimeKind'] !== runtimeKind) {
+    throw new Error(`${runtimeKind} status report must include runtimeKind="${runtimeKind}".`);
+  }
+  if (typeof candidate['runtimeId'] !== 'string' || candidate['runtimeId'].trim().length === 0) {
+    throw new Error(`${runtimeKind} status report must include a non-empty runtimeId.`);
+  }
+
+  return {
+    state,
+    active: candidate['active'],
+    lastError: candidate['lastError'],
+    runtimeKind,
+    runtimeId: candidate['runtimeId'],
+  };
 }
 
 export function createRuntimeLogBindings(bindings: RuntimeLogBindings): Record<string, unknown> {

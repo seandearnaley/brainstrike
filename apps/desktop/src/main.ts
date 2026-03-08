@@ -409,6 +409,34 @@ let gracefulShutdownPromise: Promise<void> | null = null;
 let forcedProcessExitTimeout: NodeJS.Timeout | null = null;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 
+function serializeDesktopError(error: unknown): Record<string, string | undefined> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+  return {
+    message: String(error),
+  };
+}
+
+async function runShutdownStep(
+  step: string,
+  fn: () => Promise<void>
+): Promise<Record<string, string | undefined> | null> {
+  try {
+    await fn();
+    return null;
+  } catch (error) {
+    return {
+      step,
+      ...serializeDesktopError(error),
+    };
+  }
+}
+
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
   // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
 
@@ -447,30 +475,56 @@ function clearForcedProcessExitTimer(): void {
 
 async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<void> {
   if (gracefulShutdownPromise) {
-    try {
-      await gracefulShutdownPromise;
-    } catch (error) {
-      logger.error('Failed during graceful shutdown', { trigger, error });
-    }
+    await gracefulShutdownPromise;
     return;
   }
 
   gracefulShutdownPromise = (async () => {
-    if (stopAssistantServer) {
-      await stopAssistantServer();
-      stopAssistantServer = null;
-    }
-    await chunkingHostManager.dispose();
-    await embeddingHostManager.dispose();
-    await closeDatabase();
-    clearForcedProcessExitTimer();
-  })();
+    const failures: Record<string, string | undefined>[] = [];
 
-  try {
-    await gracefulShutdownPromise;
-  } catch (error) {
-    logger.error('Failed during graceful shutdown', { trigger, error });
-  }
+    if (stopAssistantServer) {
+      const failure = await runShutdownStep('assistant-server', async () => {
+        if (stopAssistantServer) {
+          await stopAssistantServer();
+          stopAssistantServer = null;
+        }
+      });
+      if (failure) {
+        failures.push(failure);
+      }
+    }
+
+    const chunkingFailure = await runShutdownStep('chunking-host', async () => {
+      await chunkingHostManager.dispose();
+    });
+    if (chunkingFailure) {
+      failures.push(chunkingFailure);
+    }
+
+    const embeddingFailure = await runShutdownStep('embedding-host', async () => {
+      await embeddingHostManager.dispose();
+    });
+    if (embeddingFailure) {
+      failures.push(embeddingFailure);
+    }
+
+    const databaseFailure = await runShutdownStep('database', async () => {
+      await closeDatabase();
+    });
+    if (databaseFailure) {
+      failures.push(databaseFailure);
+    }
+
+    if (failures.length > 0) {
+      logger.warn('Graceful shutdown completed with cleanup failures', {
+        trigger,
+        failures,
+      });
+    }
+  })().finally(() => {
+    clearForcedProcessExitTimer();
+  });
+  await gracefulShutdownPromise;
 }
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {

@@ -1,4 +1,4 @@
-import { serializeRuntimeError } from '@brainstrike/worker-runtime';
+import { assertBackgroundRuntimeStatus, serializeRuntimeError } from '@brainstrike/worker-runtime';
 import { type IpcMainEvent, type IpcMainInvokeEvent, ipcMain } from 'electron';
 import type { ChunkingHostManager } from './chunking-host-manager';
 import type {
@@ -27,38 +27,7 @@ import {
 } from './chunking-host-shared';
 
 function assertChunkingHostStatusReport(value: unknown): ChunkingHostStatusReport {
-  if (!value || typeof value !== 'object') {
-    throw new Error('Chunking host status report must be an object.');
-  }
-  const candidate = value as Record<string, unknown>;
-  if (
-    candidate['state'] !== 'starting' &&
-    candidate['state'] !== 'running' &&
-    candidate['state'] !== 'stopping' &&
-    candidate['state'] !== 'stopped' &&
-    candidate['state'] !== 'error'
-  ) {
-    throw new Error('Chunking host status report has invalid state.');
-  }
-  if (typeof candidate['active'] !== 'boolean') {
-    throw new Error('Chunking host status report must include active boolean.');
-  }
-  if (candidate['lastError'] !== null && typeof candidate['lastError'] !== 'string') {
-    throw new Error('Chunking host status report must include string or null lastError.');
-  }
-  if (candidate['runtimeKind'] !== 'chunking-host') {
-    throw new Error('Chunking host status report must include runtimeKind="chunking-host".');
-  }
-  if (typeof candidate['runtimeId'] !== 'string' || candidate['runtimeId'].trim().length === 0) {
-    throw new Error('Chunking host status report must include a non-empty runtimeId.');
-  }
-  return {
-    state: candidate['state'],
-    active: candidate['active'],
-    lastError: candidate['lastError'],
-    runtimeKind: 'chunking-host',
-    runtimeId: candidate['runtimeId'],
-  } as ChunkingHostStatusReport;
+  return assertBackgroundRuntimeStatus(value, 'chunking-host') as ChunkingHostStatusReport;
 }
 
 function assertFilePayload(value: unknown, fieldName: string): ChunkingHostFilePayload {
