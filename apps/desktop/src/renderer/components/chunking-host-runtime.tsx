@@ -1,9 +1,12 @@
-import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
+import type { ChunkingRequestOptions, ChunkResult } from '@brainstrike/file-import';
+import { getChunkingStrategy, useChunkingWorkerContext } from '@brainstrike/file-import';
 import { createLogger } from '@brainstrike/utils';
 import { serializeRuntimeError } from '@brainstrike/worker-runtime';
 import { useEffect, useRef } from 'react';
 import type {
+  ChunkingHostChunkFileByIdRequest,
   ChunkingHostRequest,
+  ChunkingHostRequestOptions,
   ChunkingHostResponseReport,
   ChunkingHostStatus,
 } from '../../chunking-host-shared';
@@ -39,6 +42,217 @@ function resolveChunkingHostRuntimeId(): string {
     throw new Error('Chunking host renderer requires a runtimeId query parameter.');
   }
   return runtimeId;
+}
+
+interface FileRecordRow {
+  content: string;
+  name: string;
+  path: string;
+}
+
+function getElectronDbQuery():
+  | ((sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>)
+  | null {
+  const api = (
+    window as Window & {
+      electronAPI?: {
+        db?: {
+          query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+        };
+      };
+    }
+  ).electronAPI;
+  return api?.db?.query ?? null;
+}
+
+async function loadFileRecordById(fileRecordId: string): Promise<FileRecordRow> {
+  const query = getElectronDbQuery();
+  if (!query) {
+    throw new Error('Chunking host database bridge is not available.');
+  }
+
+  const result = await query(
+    `SELECT name, path, content
+       FROM file_records
+      WHERE id = $1
+      LIMIT 1`,
+    [fileRecordId]
+  );
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  if (!row) {
+    throw new Error(`Chunking host could not find file record ${fileRecordId}.`);
+  }
+  if (typeof row['name'] !== 'string' || row['name'].trim().length === 0) {
+    throw new Error(`Chunking host file record ${fileRecordId} is missing name metadata.`);
+  }
+  if (typeof row['path'] !== 'string' || row['path'].trim().length === 0) {
+    throw new Error(`Chunking host file record ${fileRecordId} is missing path metadata.`);
+  }
+  if (typeof row['content'] !== 'string') {
+    throw new Error(`Chunking host file record ${fileRecordId} is missing content.`);
+  }
+  return {
+    name: row['name'],
+    path: row['path'],
+    content: row['content'],
+  };
+}
+
+function toWorkerRequestOptions(
+  filePath: string,
+  options: ChunkingHostRequestOptions
+): ChunkingRequestOptions {
+  const autoStrategy = getChunkingStrategy(filePath);
+  const requestedStrategy = options.requestedStrategy;
+  const resolvedStrategy = requestedStrategy ?? autoStrategy;
+  const forceStrategy =
+    options.forceStrategy === true ||
+    (requestedStrategy !== undefined && requestedStrategy !== autoStrategy);
+
+  return {
+    strategy: resolvedStrategy,
+    ...(forceStrategy ? { forceStrategy: true } : {}),
+    ...(options.allowLargeFiles !== undefined ? { allowLargeFiles: options.allowLargeFiles } : {}),
+    ...(options.ignoreFileTypeRecommendations !== undefined
+      ? { ignoreFileTypeRecommendations: options.ignoreFileTypeRecommendations }
+      : {}),
+    ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+    ...(options.maxTokensCap !== undefined ? { maxTokensCap: options.maxTokensCap } : {}),
+    ...(options.overlap !== undefined ? { overlap: options.overlap } : {}),
+    ...(options.separators !== undefined ? { separators: [...options.separators] } : {}),
+    ...(options.tokenTrueSizing !== undefined ? { tokenTrueSizing: options.tokenTrueSizing } : {}),
+  };
+}
+
+async function chunkFileById(
+  request: ChunkingHostChunkFileByIdRequest,
+  chunkFile: (
+    fileRecordId: string,
+    content: string,
+    fileName: string,
+    filePath: string,
+    options: ChunkingRequestOptions
+  ) => Promise<ChunkResult>
+): Promise<ChunkResult> {
+  const fileRecord = await loadFileRecordById(request.fileRecordId);
+  return await chunkFile(
+    request.fileRecordId,
+    fileRecord.content,
+    fileRecord.name,
+    fileRecord.path,
+    toWorkerRequestOptions(fileRecord.path, request.options)
+  );
+}
+
+async function executeChunkRequest(
+  request: ChunkingHostRequest,
+  chunkFile: (
+    fileRecordId: string,
+    content: string,
+    fileName: string,
+    filePath: string,
+    options: ChunkingRequestOptions
+  ) => Promise<ChunkResult>
+): Promise<ChunkResult | ChunkResult[]> {
+  const payload = request.payload;
+  if (payload.kind === 'chunk-file') {
+    return await chunkFile(
+      payload.fileRecordId,
+      payload.content,
+      payload.fileName,
+      payload.filePath,
+      toWorkerRequestOptions(payload.filePath, payload.options)
+    );
+  }
+  if (payload.kind === 'chunk-file-by-id') {
+    return await chunkFileById(payload, chunkFile);
+  }
+
+  const results: ChunkResult[] = [];
+  for (const file of payload.files) {
+    const result = await chunkFile(
+      file.fileRecordId,
+      file.content,
+      file.fileName,
+      file.filePath,
+      toWorkerRequestOptions(file.filePath, payload.options)
+    );
+    results.push(result);
+  }
+  return results;
+}
+
+function reportChunkRequestSuccess(
+  request: ChunkingHostRequest,
+  result: ChunkResult | ChunkResult[],
+  runtimeId: string
+): void {
+  if (Array.isArray(result)) {
+    const batchRequest = request.payload;
+    if (batchRequest.kind !== 'chunk-batch') {
+      throw new Error('Chunk batch success reporting requires a chunk-batch request.');
+    }
+    for (const [index, batchResult] of result.entries()) {
+      const file = batchRequest.files[index];
+      if (!file) {
+        throw new Error(`Chunk batch response index ${index} has no matching request file.`);
+      }
+      reportResponse({
+        type: 'progress',
+        channel: 'chunk',
+        requestId: request.requestId,
+        runtimeId,
+        payload: {
+          fileRecordId: file.fileRecordId,
+          chunksCreated: batchResult.chunks.length,
+          currentIndex: index + 1,
+          totalFiles: batchRequest.files.length,
+        },
+      });
+      reportResponse({
+        type: 'progress',
+        channel: 'chunk-file-complete',
+        requestId: request.requestId,
+        runtimeId,
+        payload: {
+          fileRecordId: file.fileRecordId,
+          result: batchResult,
+        },
+      });
+    }
+    reportResponse({
+      type: 'result',
+      channel: 'chunk-batch-complete',
+      requestId: request.requestId,
+      runtimeId,
+      payload: {
+        results: result,
+      },
+    });
+    return;
+  }
+
+  reportResponse({
+    type: 'result',
+    channel: 'chunk-result',
+    requestId: request.requestId,
+    runtimeId,
+    payload: {
+      result,
+    },
+  });
+}
+
+function getRequestErrorPayload(request: ChunkingHostRequest, message: string) {
+  const maybeFileRecordId =
+    request.payload.kind === 'chunk-file' || request.payload.kind === 'chunk-file-by-id'
+      ? { fileRecordId: request.payload.fileRecordId }
+      : {};
+  return {
+    ...serializeRuntimeError(message),
+    ...maybeFileRecordId,
+    errorMessage: message,
+  };
 }
 
 export function ChunkingHostRuntime(): null {
@@ -112,76 +326,8 @@ export function ChunkingHostRuntime(): null {
         activeRequestCountRef.current += 1;
         syncActiveStatus();
 
-        const payload = request.payload;
-
-        if (payload.kind === 'chunk-file') {
-          const result = await port.chunkFile(
-            payload.fileRecordId,
-            payload.content,
-            payload.fileName,
-            payload.filePath,
-            payload.options
-          );
-          reportResponse({
-            type: 'result',
-            channel: 'chunk-result',
-            requestId: request.requestId,
-            runtimeId: runtimeIdRef.current,
-            payload: {
-              result,
-            },
-          });
-        } else {
-          const results = await port.chunkBatch([...payload.files], payload.options, {
-            onFileComplete: (fileRecordId, result) => {
-              reportResponse({
-                type: 'progress',
-                channel: 'chunk-file-complete',
-                requestId: request.requestId,
-                runtimeId: runtimeIdRef.current,
-                payload: {
-                  fileRecordId,
-                  result,
-                },
-              });
-            },
-            onFileError: (fileRecordId, errorMessage) => {
-              reportResponse({
-                type: 'progress',
-                channel: 'chunk-file-error',
-                requestId: request.requestId,
-                runtimeId: runtimeIdRef.current,
-                payload: {
-                  fileRecordId,
-                  errorMessage,
-                },
-              });
-            },
-            onProgress: (fileRecordId, chunksCreated, currentIndex, total) => {
-              reportResponse({
-                type: 'progress',
-                channel: 'chunk',
-                requestId: request.requestId,
-                runtimeId: runtimeIdRef.current,
-                payload: {
-                  fileRecordId,
-                  chunksCreated,
-                  currentIndex,
-                  totalFiles: total,
-                },
-              });
-            },
-          });
-          reportResponse({
-            type: 'result',
-            channel: 'chunk-batch-complete',
-            requestId: request.requestId,
-            runtimeId: runtimeIdRef.current,
-            payload: {
-              results,
-            },
-          });
-        }
+        const result = await executeChunkRequest(request, port.chunkFile);
+        reportChunkRequestSuccess(request, result, runtimeIdRef.current);
       } catch (requestError) {
         const message = requestError instanceof Error ? requestError.message : String(requestError);
         logger.error('Chunking host request failed', {
@@ -195,13 +341,7 @@ export function ChunkingHostRuntime(): null {
           channel: 'chunk-error',
           requestId: request.requestId,
           runtimeId: runtimeIdRef.current,
-          payload: {
-            ...serializeRuntimeError(message),
-            ...(request.payload.kind === 'chunk-file'
-              ? { fileRecordId: request.payload.fileRecordId }
-              : {}),
-            errorMessage: message,
-          },
+          payload: getRequestErrorPayload(request, message),
         });
       } finally {
         if (activeRequestCountRef.current > 0) {

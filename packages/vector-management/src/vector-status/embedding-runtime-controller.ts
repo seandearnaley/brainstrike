@@ -80,8 +80,10 @@ export function useEmbeddingRuntimeController(
 ): EmbeddingRuntimeController {
   const { db, devicePreference, reinitEveryN, service } = params;
   const desktopHost = getEmbeddingHostApi();
+  const desktopConfigKey = `${devicePreference}:${reinitEveryN}`;
   const localRuntimeIdRef = useRef<string>(createRuntimeId('embedding-worker'));
   const localWorkerControllerRef = useRef<EmbeddingWorkerController | null>(null);
+  const syncedDesktopConfigKeyRef = useRef<string | null>(null);
   const statusStoreRef = useRef(
     createRuntimeStatusStore<EmbeddingRuntimeStatus>(
       desktopHost
@@ -138,6 +140,30 @@ export function useEmbeddingRuntimeController(
 
     const updateLocalStatus = (status: EmbeddingRuntimeStatus): EmbeddingRuntimeStatus =>
       statusStoreRef.current.setStatus(status);
+
+    const ensureDesktopHostConfigured = async (): Promise<EmbeddingRuntimeStatus> => {
+      if (!desktopHost) {
+        throw new Error('Desktop embedding host bridge is unavailable.');
+      }
+
+      if (syncedDesktopConfigKeyRef.current === desktopConfigKey) {
+        const status = await desktopHost.ensureStarted();
+        return statusStoreRef.current.setStatus(status);
+      }
+
+      const currentStatus = await desktopHost.getStatus();
+      if (currentStatus.state !== 'stopped') {
+        const stoppedStatus = await desktopHost.stop();
+        statusStoreRef.current.setStatus(stoppedStatus);
+      }
+      const nextStatus = await desktopHost.ensureStarted();
+
+      if (nextStatus.state !== 'error') {
+        syncedDesktopConfigKeyRef.current = desktopConfigKey;
+      }
+
+      return statusStoreRef.current.setStatus(nextStatus);
+    };
 
     const ensureLocalStarted = async (): Promise<EmbeddingRuntimeStatus> => {
       const current = statusStoreRef.current.getStatus();
@@ -200,6 +226,10 @@ export function useEmbeddingRuntimeController(
     return {
       enqueueBackfill: async (embeddingSetId: string): Promise<void> => {
         if (desktopHost?.enqueueBackfill) {
+          const status = await ensureDesktopHostConfigured();
+          if (status.state === 'error') {
+            throw new Error(status.lastError ?? 'Embedding runtime failed to apply host settings.');
+          }
           await desktopHost.enqueueBackfill(embeddingSetId);
           return;
         }
@@ -219,8 +249,7 @@ export function useEmbeddingRuntimeController(
       },
       ensureStarted: async () => {
         if (desktopHost) {
-          const status = await desktopHost.ensureStarted();
-          return statusStoreRef.current.setStatus(status);
+          return ensureDesktopHostConfigured();
         }
         return ensureLocalStarted();
       },
@@ -241,6 +270,9 @@ export function useEmbeddingRuntimeController(
       reset: async () => {
         if (desktopHost) {
           const status = await desktopHost.reset();
+          if (status.state !== 'error') {
+            syncedDesktopConfigKeyRef.current = desktopConfigKey;
+          }
           return statusStoreRef.current.setStatus(status);
         }
         if (localWorkerControllerRef.current) {
@@ -253,14 +285,14 @@ export function useEmbeddingRuntimeController(
       },
       start: async () => {
         if (desktopHost) {
-          const status = await desktopHost.ensureStarted();
-          return statusStoreRef.current.setStatus(status);
+          return ensureDesktopHostConfigured();
         }
         return ensureLocalStarted();
       },
       stop: async () => {
         if (desktopHost) {
           const status = await desktopHost.stop();
+          syncedDesktopConfigKeyRef.current = null;
           return statusStoreRef.current.setStatus(status);
         }
         if (localWorkerControllerRef.current) {
@@ -270,7 +302,7 @@ export function useEmbeddingRuntimeController(
         return updateLocalStatus(createStoppedLocalStatus(localRuntimeIdRef.current));
       },
     };
-  }, [db, desktopHost, devicePreference, reinitEveryN, service]);
+  }, [db, desktopConfigKey, desktopHost, devicePreference, reinitEveryN, service]);
 
   return controller;
 }

@@ -19,7 +19,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { ChunkingBatchCallbacks, ChunkingWorkerPort } from './chunking-worker-port';
+import type {
+  ChunkingBatchCallbacks,
+  ChunkingHostProxyRequestOptions,
+  ChunkingWorkerPort,
+} from './chunking-worker-port';
 import { resolveChunkingWorkerUrl } from './resolve-chunking-worker-url';
 
 const logger = createLogger('ChunkingWorkerContext');
@@ -111,20 +115,29 @@ interface ChunkingHostFilePayload {
 
 interface ChunkingHostChunkFileRequest extends ChunkingHostFilePayload {
   kind: 'chunk-file';
-  options: ChunkingRequestOptions;
+  options: ChunkingHostProxyRequestOptions;
+  requestId: string;
+}
+
+interface ChunkingHostChunkFileByIdRequest {
+  fileRecordId: string;
+  kind: 'chunk-file-by-id';
+  options: ChunkingHostProxyRequestOptions;
   requestId: string;
 }
 
 interface ChunkingHostChunkBatchRequest {
   files: readonly ChunkingHostFilePayload[];
   kind: 'chunk-batch';
-  options: ChunkingRequestOptions;
+  options: ChunkingHostProxyRequestOptions;
   requestId: string;
 }
 
 interface ChunkingHostBridge {
   chunkBatch: (request: ChunkingHostChunkBatchRequest) => Promise<ChunkResult[]>;
-  chunkFile: (request: ChunkingHostChunkFileRequest) => Promise<ChunkResult>;
+  chunkFile: (
+    request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest
+  ) => Promise<ChunkResult>;
   ensureStarted: () => Promise<ChunkingHostLifecycleState>;
   getStatus: () => Promise<ChunkingHostLifecycleState>;
   onProgress: (
@@ -167,6 +180,24 @@ function createChunkingHostError(status: ChunkingHostLifecycleState): Error {
 
 function createChunkingRequestId(prefix: 'batch' | 'file'): string {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function toChunkingHostRequestOptions(
+  options: ChunkingRequestOptions
+): ChunkingHostProxyRequestOptions {
+  return {
+    requestedStrategy: options.strategy,
+    ...(options.allowLargeFiles !== undefined ? { allowLargeFiles: options.allowLargeFiles } : {}),
+    ...(options.forceStrategy !== undefined ? { forceStrategy: options.forceStrategy } : {}),
+    ...(options.ignoreFileTypeRecommendations !== undefined
+      ? { ignoreFileTypeRecommendations: options.ignoreFileTypeRecommendations }
+      : {}),
+    ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+    ...(options.maxTokensCap !== undefined ? { maxTokensCap: options.maxTokensCap } : {}),
+    ...(options.overlap !== undefined ? { overlap: options.overlap } : {}),
+    ...(options.separators !== undefined ? { separators: options.separators } : {}),
+    ...(options.tokenTrueSizing !== undefined ? { tokenTrueSizing: options.tokenTrueSizing } : {}),
+  };
 }
 
 function ChunkingHostProxyProvider({
@@ -305,6 +336,13 @@ function createChunkingHostProxyPort(
 ): ChunkingWorkerPort {
   return {
     transportKind: 'host-proxy',
+    chunkFileById: async (fileRecordId: string, options: ChunkingHostProxyRequestOptions) =>
+      bridge.chunkFile({
+        kind: 'chunk-file-by-id',
+        requestId: createChunkingRequestId('file'),
+        fileRecordId,
+        options,
+      }),
     chunkFile: async (
       fileRecordId: string,
       content: string,
@@ -319,7 +357,7 @@ function createChunkingHostProxyPort(
         content,
         fileName,
         filePath,
-        options,
+        options: toChunkingHostRequestOptions(options),
       }),
     chunkBatch: async (
       files: Array<{
@@ -372,7 +410,7 @@ function createChunkingHostProxyPort(
           kind: 'chunk-batch',
           requestId,
           files,
-          options,
+          options: toChunkingHostRequestOptions(options),
         });
       } finally {
         cleanupProgress();
@@ -572,7 +610,7 @@ function ChunkingLocalWorkerProvider({
       return null;
     }
 
-    return {
+    const wrappedPort: ChunkingWorkerPort = {
       transportKind: currentPortState.transportKind,
       chunkFile: async (...args) => {
         setIsProcessing(true);
@@ -596,6 +634,24 @@ function ChunkingLocalWorkerProvider({
           throw err;
         }
       },
+      ...(currentPortState.chunkFileById
+        ? {
+            chunkFileById: async (...args) => {
+              setIsProcessing(true);
+              try {
+                const result = await currentPortState.chunkFileById?.(...args);
+                if (!result) {
+                  throw new Error('Chunking worker port missing chunkFileById implementation.');
+                }
+                setIsProcessing(false);
+                return result;
+              } catch (err) {
+                setIsProcessing(false);
+                throw err;
+              }
+            },
+          }
+        : {}),
       isReady: () => currentPortState.isReady(),
       terminate: () => {
         currentPortState.terminate();
@@ -603,6 +659,8 @@ function ChunkingLocalWorkerProvider({
         setIsReady(false);
       },
     };
+
+    return wrappedPort;
   }, [currentPortState]);
 
   const contextValue = useMemo<ChunkingWorkerContextValue>(

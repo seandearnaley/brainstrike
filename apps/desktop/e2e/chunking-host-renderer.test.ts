@@ -184,7 +184,10 @@ test.describe('Chunking Host Renderer', () => {
         throw new Error('Chunking host bridge is not available');
       }
 
-      const largeContent = `${'A'.repeat(1024)}\n`.repeat(8192);
+      const largeContent = Array.from(
+        { length: 8192 },
+        (_, index) => `Sentence ${index + 1} ends here.`
+      ).join(' ');
       try {
         const result = await api.chunkFile({
           kind: 'chunk-file',
@@ -207,10 +210,9 @@ test.describe('Chunking Host Renderer', () => {
       }
     });
 
+    expect(requestOutcome.ok).toBe(true);
     if (requestOutcome.ok) {
       expect(requestOutcome.chunkCount).toBeGreaterThan(0);
-    } else {
-      expect(requestOutcome.message).toContain('chunking-host:chunk-file');
     }
     await assertVisibleWindowResponsive(window);
     const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);

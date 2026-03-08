@@ -797,7 +797,6 @@ if (singleInstanceLockAcquired) {
       logger.info('Creating main window...');
       const mainWindow = await createMainWindow();
       logger.info('Main window created successfully');
-      void embeddingHostManager.ensureStarted({ waitForRunning: false });
 
       // ---------------------------------------------------------------
       // Event loop health diagnostics — logs CPU and loop lag every 30s.

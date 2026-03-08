@@ -121,6 +121,18 @@ describe('embedding-backfill', () => {
         backlogPollMs: 0,
       })
     ).rejects.toThrow('backlogPollMs must be a positive integer when configured.');
+
+    await expect(
+      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        queueCapacityTimeoutMs: 0,
+      })
+    ).rejects.toThrow('queueCapacityTimeoutMs must be a positive integer when configured.');
+
+    await expect(
+      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        drainTimeoutMs: 0,
+      })
+    ).rejects.toThrow('drainTimeoutMs must be a positive integer when configured.');
   });
 
   it('aborts backfill when the embedding host can no longer accept queued work', async () => {
@@ -314,5 +326,108 @@ describe('embedding-backfill', () => {
         progressIntervalBatches: 1,
       })
     ).rejects.toThrow("Backfill failed for embedding set 'set-123': 2 job(s) failed.");
+  });
+
+  it('fails fast when queue capacity never becomes available', async () => {
+    vi.useFakeTimers();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 1 }] };
+        }
+        return { rows: [] };
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+
+    const backfillPromise = enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      backlogPollMs: 1,
+      maxQueueDepth: 64,
+      queueCapacityTimeoutMs: 50,
+    });
+    const rejection = expect(backfillPromise).rejects.toThrow(
+      'Backfill timed out while waiting for queue capacity below 64 jobs.'
+    );
+
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+    expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('fails fast when the embedding set never drains', async () => {
+    vi.useFakeTimers();
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 1, failed: 0, succeeded: 0 }],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: [{ id: '1', fileRecordId: '100', contentHash: 'hash-1' }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 1 }] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+
+    const backfillPromise = enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      backlogPollMs: 1,
+      maxQueueDepth: 64,
+      drainTimeoutMs: 50,
+    });
+    const rejection = expect(backfillPromise).rejects.toThrow(
+      "Backfill timed out while waiting for embedding set 'set-123' to drain."
+    );
+
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 });

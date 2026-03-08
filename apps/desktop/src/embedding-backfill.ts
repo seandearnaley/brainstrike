@@ -11,15 +11,19 @@ export interface EmbeddingBackfillQueueCounts {
 export interface EnqueueEmbeddingBackfillOptions {
   assertCanContinue?: () => void | Promise<void>;
   backlogPollMs?: number;
+  drainTimeoutMs?: number;
   maxQueueDepth?: number;
   progressIntervalBatches?: number;
+  queueCapacityTimeoutMs?: number;
 }
 
 interface ResolvedEnqueueEmbeddingBackfillOptions {
   assertCanContinue?: () => void | Promise<void>;
   backlogPollMs: number;
+  drainTimeoutMs: number;
   maxQueueDepth: number;
   progressIntervalBatches: number;
+  queueCapacityTimeoutMs: number;
 }
 
 interface EmbeddingSetJobMetadata {
@@ -43,6 +47,8 @@ const EMBEDDINGS_QUEUE = 'embeddings';
 const EMBEDDING_BACKFILL_ENQUEUE_BATCH_SIZE = 32;
 const EMBEDDING_BACKFILL_MAX_QUEUE_DEPTH = 64;
 const EMBEDDING_BACKFILL_BACKLOG_POLL_MS = 100;
+const EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 30_000;
+const EMBEDDING_BACKFILL_DRAIN_TIMEOUT_MS = 300_000;
 const PROVIDER_SEPARATOR = '::';
 const LEGACY_SEPARATOR = ':';
 
@@ -105,14 +111,21 @@ async function waitForQueueCapacity(
   jobQueue: Pick<JobQueue, 'getQueueStats'>,
   maxQueueDepth: number,
   backlogPollMs: number,
+  timeoutMs: number,
   assertCanContinue?: () => void | Promise<void>
 ): Promise<number> {
+  const startedAt = Date.now();
   while (true) {
     await assertCanContinue?.();
     const backlog = await getEmbeddingQueueBacklog(jobQueue);
     const capacity = maxQueueDepth - backlog;
     if (capacity > 0) {
       return capacity;
+    }
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error(
+        `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs.`
+      );
     }
     await sleep(backlogPollMs);
   }
@@ -131,6 +144,17 @@ function resolveEnqueueEmbeddingBackfillOptions(
     throw new Error('backlogPollMs must be a positive integer when configured.');
   }
 
+  const queueCapacityTimeoutMs =
+    options?.queueCapacityTimeoutMs ?? EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS;
+  if (!Number.isInteger(queueCapacityTimeoutMs) || queueCapacityTimeoutMs <= 0) {
+    throw new Error('queueCapacityTimeoutMs must be a positive integer when configured.');
+  }
+
+  const drainTimeoutMs = options?.drainTimeoutMs ?? EMBEDDING_BACKFILL_DRAIN_TIMEOUT_MS;
+  if (!Number.isInteger(drainTimeoutMs) || drainTimeoutMs <= 0) {
+    throw new Error('drainTimeoutMs must be a positive integer when configured.');
+  }
+
   const progressIntervalBatches = options?.progressIntervalBatches ?? 1;
   if (!Number.isInteger(progressIntervalBatches) || progressIntervalBatches <= 0) {
     throw new Error('progressIntervalBatches must be a positive integer when configured.');
@@ -138,8 +162,10 @@ function resolveEnqueueEmbeddingBackfillOptions(
 
   return {
     backlogPollMs,
+    drainTimeoutMs,
     maxQueueDepth,
     progressIntervalBatches,
+    queueCapacityTimeoutMs,
     ...(options?.assertCanContinue ? { assertCanContinue: options.assertCanContinue } : {}),
   };
 }
@@ -218,13 +244,20 @@ async function waitForEmbeddingSetDrain(
   db: Pick<IDatabase, 'query'>,
   embeddingSetId: string,
   backlogPollMs: number,
+  timeoutMs: number,
   assertCanContinue?: () => void | Promise<void>
 ): Promise<EmbeddingBackfillQueueCounts> {
+  const startedAt = Date.now();
   while (true) {
     await assertCanContinue?.();
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
     if (pending === 0) {
       return await getEmbeddingSetQueueCounts(db, embeddingSetId);
+    }
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error(
+        `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`
+      );
     }
     await sleep(backlogPollMs);
   }
@@ -383,8 +416,14 @@ export async function enqueueEmbeddingBackfill(
     throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
   }
 
-  const { assertCanContinue, backlogPollMs, maxQueueDepth, progressIntervalBatches } =
-    resolveEnqueueEmbeddingBackfillOptions(options);
+  const {
+    assertCanContinue,
+    backlogPollMs,
+    drainTimeoutMs,
+    maxQueueDepth,
+    progressIntervalBatches,
+    queueCapacityTimeoutMs,
+  } = resolveEnqueueEmbeddingBackfillOptions(options);
 
   logger.info('Backfill requested', { embeddingSetId });
   const metadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
@@ -416,6 +455,7 @@ export async function enqueueEmbeddingBackfill(
       jobQueue,
       maxQueueDepth,
       backlogPollMs,
+      queueCapacityTimeoutMs,
       assertCanContinue
     );
     const batchLimit = Math.min(
@@ -455,6 +495,7 @@ export async function enqueueEmbeddingBackfill(
     db,
     embeddingSetId,
     backlogPollMs,
+    drainTimeoutMs,
     assertCanContinue
   );
   if (drainedCounts.failed > 0) {

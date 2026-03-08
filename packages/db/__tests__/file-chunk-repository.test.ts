@@ -444,6 +444,86 @@ describe('FileChunkRepository', () => {
     });
   });
 
+  describe('getCoverageForSet', () => {
+    it('returns coverage scoped to the target embedding set', async () => {
+      const now = new Date().toISOString();
+
+      await db.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        ['set-1', 'local::model-a', 'model-a', 768, 'cosine', now]
+      );
+      await db.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        ['set-2', 'local::model-b', 'model-b', 768, 'cosine', now]
+      );
+
+      await fileRepository.update('file1', {
+        embeddingSetId: 'set-1',
+        updatedAt: now,
+      });
+      await fileRepository.update('file2', {
+        embeddingSetId: 'set-2',
+        updatedAt: now,
+      });
+
+      await repository.insertMany([
+        {
+          id: 'set-1-chunk-embedded',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content: 'Embedded set 1 chunk',
+          contentHash: 'set-1-hash-1',
+          tokenCount: 4,
+          chunkType: 'text',
+          chunkSize: 120,
+          embedding: makeVector(768, [[0, 0.1]]),
+          embeddingSetId: 'set-1',
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'set-1-chunk-pending',
+          fileRecordId: 'file1',
+          chunkIndex: 1,
+          content: 'Pending set 1 chunk',
+          contentHash: 'set-1-hash-2',
+          tokenCount: 4,
+          chunkType: 'text',
+          chunkSize: 120,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'set-2-chunk-embedded',
+          fileRecordId: 'file2',
+          chunkIndex: 0,
+          content: 'Embedded set 2 chunk',
+          contentHash: 'set-2-hash-1',
+          tokenCount: 4,
+          chunkType: 'text',
+          chunkSize: 120,
+          embedding: makeVector(768, [[0, 0.2]]),
+          embeddingSetId: 'set-2',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      const coverage = await repository.getCoverageForSet('set-1');
+
+      expect(coverage).toEqual({
+        totalChunks: 2,
+        chunksWithEmbeddingsForSet: 1,
+      });
+    });
+
+    it('rejects missing embeddingSetId', async () => {
+      await expect(repository.getCoverageForSet('')).rejects.toThrow('embeddingSetId is required');
+    });
+  });
+
   describe('embedding parsing', () => {
     it('should handle null embedding', async () => {
       const chunk: FileChunkInsert = {

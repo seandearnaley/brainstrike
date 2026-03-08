@@ -4,6 +4,7 @@ import type { ChunkingHostManager } from './chunking-host-manager';
 import type {
   ChunkingHostBatchCompleteReportPayload,
   ChunkingHostChunkBatchRequest,
+  ChunkingHostChunkFileByIdRequest,
   ChunkingHostChunkFileRequest,
   ChunkingHostErrorReport,
   ChunkingHostFileCompleteReportPayload,
@@ -88,16 +89,88 @@ function assertFilePayload(value: unknown, fieldName: string): ChunkingHostFileP
   };
 }
 
+type MutableChunkingRequestOptions = Record<string, unknown>;
+
+function readOptionalBooleanOption(
+  candidate: Record<string, unknown>,
+  options: MutableChunkingRequestOptions,
+  key: keyof ChunkingHostChunkFileRequest['options']
+): void {
+  const value = candidate[key];
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== 'boolean') {
+    throw new Error(`Chunking host request options ${String(key)} must be boolean when set.`);
+  }
+  options[key] = value;
+}
+
+function readOptionalNumberOption(
+  candidate: Record<string, unknown>,
+  options: MutableChunkingRequestOptions,
+  key: 'maxTokens' | 'maxTokensCap' | 'overlap'
+): void {
+  const value = candidate[key];
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== 'number') {
+    throw new Error(`Chunking host request options ${key} must be numeric when set.`);
+  }
+  options[key] = value;
+}
+
+function readOptionalStrategyOption(
+  candidate: Record<string, unknown>,
+  options: MutableChunkingRequestOptions
+): void {
+  const requestedStrategy = candidate['requestedStrategy'];
+  if (requestedStrategy === undefined) {
+    return;
+  }
+  if (
+    requestedStrategy !== 'sentence' &&
+    requestedStrategy !== 'token' &&
+    requestedStrategy !== 'recursive'
+  ) {
+    throw new Error('Chunking host request options has invalid requestedStrategy.');
+  }
+  options['requestedStrategy'] = requestedStrategy;
+}
+
+function readOptionalSeparatorsOption(
+  candidate: Record<string, unknown>,
+  options: MutableChunkingRequestOptions
+): void {
+  const separators = candidate['separators'];
+  if (separators === undefined) {
+    return;
+  }
+  if (!Array.isArray(separators) || separators.some((separator) => typeof separator !== 'string')) {
+    throw new Error('Chunking host request options separators must be a string array when set.');
+  }
+  options['separators'] = [...separators];
+}
+
 function assertChunkingRequestOptions(value: unknown): ChunkingHostChunkFileRequest['options'] {
   if (!value || typeof value !== 'object') {
     throw new Error('Chunking host request options must be an object.');
   }
   const candidate = value as Record<string, unknown>;
-  const strategy = candidate['strategy'];
-  if (strategy !== 'sentence' && strategy !== 'token' && strategy !== 'recursive') {
-    throw new Error('Chunking host request options must include a valid strategy.');
-  }
-  return value as ChunkingHostChunkFileRequest['options'];
+  const options: MutableChunkingRequestOptions = {};
+
+  readOptionalStrategyOption(candidate, options);
+  readOptionalBooleanOption(candidate, options, 'forceStrategy');
+  readOptionalBooleanOption(candidate, options, 'ignoreFileTypeRecommendations');
+  readOptionalBooleanOption(candidate, options, 'tokenTrueSizing');
+  readOptionalBooleanOption(candidate, options, 'allowLargeFiles');
+  readOptionalNumberOption(candidate, options, 'maxTokens');
+  readOptionalNumberOption(candidate, options, 'maxTokensCap');
+  readOptionalNumberOption(candidate, options, 'overlap');
+  readOptionalSeparatorsOption(candidate, options);
+
+  return options as ChunkingHostChunkFileRequest['options'];
 }
 
 function assertChunkFileRequest(value: unknown): ChunkingHostChunkFileRequest {
@@ -115,6 +188,33 @@ function assertChunkFileRequest(value: unknown): ChunkingHostChunkFileRequest {
     kind: 'chunk-file',
     requestId: candidate['requestId'],
     ...assertFilePayload(value, 'chunkFileRequest'),
+    options: assertChunkingRequestOptions(candidate['options']),
+  };
+}
+
+function assertChunkFileByIdRequest(value: unknown): ChunkingHostChunkFileByIdRequest {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Chunking host chunk-file-by-id request must be an object.');
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate['kind'] !== 'chunk-file-by-id') {
+    throw new Error('Chunking host chunk-file-by-id request must declare kind="chunk-file-by-id".');
+  }
+  if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
+    throw new Error('Chunking host chunk-file-by-id request must include a non-empty requestId.');
+  }
+  if (
+    typeof candidate['fileRecordId'] !== 'string' ||
+    candidate['fileRecordId'].trim().length === 0
+  ) {
+    throw new Error(
+      'Chunking host chunk-file-by-id request must include a non-empty fileRecordId.'
+    );
+  }
+  return {
+    kind: 'chunk-file-by-id',
+    requestId: candidate['requestId'],
+    fileRecordId: candidate['fileRecordId'],
     options: assertChunkingRequestOptions(candidate['options']),
   };
 }
@@ -342,7 +442,19 @@ export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): (
   ipcMain.handle(
     CHUNKING_HOST_CHUNK_FILE_CHANNEL,
     async (event: IpcMainInvokeEvent, payload: unknown) =>
-      manager.chunkFile(event.sender.id, assertChunkFileRequest(payload))
+      manager.chunkFile(
+        event.sender.id,
+        (() => {
+          if (
+            payload &&
+            typeof payload === 'object' &&
+            (payload as Record<string, unknown>)['kind'] === 'chunk-file-by-id'
+          ) {
+            return assertChunkFileByIdRequest(payload);
+          }
+          return assertChunkFileRequest(payload);
+        })()
+      )
   );
   ipcMain.handle(
     CHUNKING_HOST_CHUNK_BATCH_CHANNEL,

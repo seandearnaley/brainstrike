@@ -5,6 +5,7 @@ import {
   CHUNKING_HOST_REQUEST_EVENT,
   CHUNKING_HOST_STATUS_EVENT,
   type ChunkingHostChunkBatchRequest,
+  type ChunkingHostChunkFileByIdRequest,
   type ChunkingHostChunkFileRequest,
   type ChunkingHostProgressEvent,
   type ChunkingHostRequest,
@@ -142,7 +143,7 @@ export class ChunkingHostManager {
 
   async chunkFile(
     requesterWebContentsId: number,
-    request: ChunkingHostChunkFileRequest
+    request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest
   ): Promise<unknown> {
     await this.assertReadyForRequests();
     return new Promise<unknown>((resolve, reject) => {

@@ -4,6 +4,7 @@ import {
   POWER_BROADCAST_CHANNEL,
   startEmbeddingWorker,
 } from '@brainstrike/embeddings';
+import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 import { useEffect, useRef } from 'react';
 import type { EmbeddingHostCommand, EmbeddingHostStatus } from '../../embedding-host-shared';
@@ -78,8 +79,12 @@ export function EmbeddingHostRuntime(): null {
       });
 
       try {
+        const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
+          forceReload: true,
+        });
         const controller = await startEmbeddingWorker({
           ...createEmbeddingWorkerConfig(db),
+          device: hydratedDevicePref,
           initializeLocalModelOnStart: false,
           onFatalError: (error: Error) => {
             const message = error.message;

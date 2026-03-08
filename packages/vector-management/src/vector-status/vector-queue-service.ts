@@ -79,6 +79,8 @@ const logger = createLogger('VectorQueueService');
 const BACKFILL_ENQUEUE_BATCH_SIZE = 32;
 const BACKFILL_MAX_QUEUE_DEPTH = 64;
 const BACKFILL_BACKLOG_POLL_MS = 100;
+const BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 30_000;
+const BACKFILL_DRAIN_TIMEOUT_MS = 300_000;
 
 function cooperativeYield(): Promise<void> {
   return new Promise((resolve) => {
@@ -127,12 +129,19 @@ async function getEmbeddingSetQueueCounts(
 
 async function waitForEmbeddingSetDrain(
   db: VectorQueueDatabase,
-  embeddingSetId: string
+  embeddingSetId: string,
+  timeoutMs: number
 ): Promise<QueueCounts> {
+  const startedAt = Date.now();
   while (true) {
     const counts = await getEmbeddingSetQueueCounts(db, embeddingSetId);
     if (counts.queued === 0 && counts.running === 0) {
       return counts;
+    }
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error(
+        `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`
+      );
     }
     await sleep(BACKFILL_BACKLOG_POLL_MS);
   }
@@ -151,13 +160,20 @@ async function getEmbeddingQueueBacklog(
 async function waitForQueueCapacity(
   jobQueue: Pick<JobQueue, 'getQueueStats'>,
   maxQueueDepth: number,
-  backlogPollMs: number
+  backlogPollMs: number,
+  timeoutMs: number
 ): Promise<number> {
+  const startedAt = Date.now();
   while (true) {
     const backlog = await getEmbeddingQueueBacklog(jobQueue);
     const capacity = maxQueueDepth - backlog;
     if (capacity > 0) {
       return capacity;
+    }
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error(
+        `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs.`
+      );
     }
     await sleep(backlogPollMs);
   }
@@ -348,7 +364,8 @@ export function createVectorQueueService(
         const availableCapacity = await waitForQueueCapacity(
           jobQueue,
           BACKFILL_MAX_QUEUE_DEPTH,
-          BACKFILL_BACKLOG_POLL_MS
+          BACKFILL_BACKLOG_POLL_MS,
+          BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS
         );
         const batchLimit = Math.min(BACKFILL_ENQUEUE_BATCH_SIZE, total - done, availableCapacity);
         const batch = await loadBackfillCandidateBatch(db, activeSetId, cursor, batchLimit);
@@ -378,7 +395,11 @@ export function createVectorQueueService(
         onProgress(total, total);
       }
 
-      const drainedCounts = await waitForEmbeddingSetDrain(db, activeSetId);
+      const drainedCounts = await waitForEmbeddingSetDrain(
+        db,
+        activeSetId,
+        BACKFILL_DRAIN_TIMEOUT_MS
+      );
       if (drainedCounts.failed > 0) {
         throw new Error(
           `Backfill failed for embedding set '${activeSetId}': ${drainedCounts.failed} job(s) failed.`

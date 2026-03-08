@@ -2,6 +2,7 @@ import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { AssistantSelectionUpdatePayload, IFileNode } from '@brainstrike/types';
 import type {
   ChunkingHostChunkBatchRequest,
+  ChunkingHostChunkFileByIdRequest,
   ChunkingHostChunkFileRequest,
   ChunkingHostProgressEvent,
   ChunkingHostRequest,
@@ -46,7 +47,9 @@ declare global {
       stop: () => Promise<ChunkingHostStatus>;
       reset: () => Promise<ChunkingHostStatus>;
       getStatus: () => Promise<ChunkingHostStatus>;
-      chunkFile: (request: ChunkingHostChunkFileRequest) => Promise<ChunkResult>;
+      chunkFile: (
+        request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest
+      ) => Promise<ChunkResult>;
       chunkBatch: (request: ChunkingHostChunkBatchRequest) => Promise<readonly ChunkResult[]>;
       reportStatus: (status: ChunkingHostStatus) => void;
       reportResponse: (response: ChunkingHostResponseReport) => void;

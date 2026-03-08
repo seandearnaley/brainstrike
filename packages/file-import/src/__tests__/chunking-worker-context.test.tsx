@@ -366,6 +366,15 @@ describe('ChunkingWorkerProvider', () => {
       })
     );
 
+    await expect(
+      resolvedPort.chunkFileById?.('file-1', { requestedStrategy: 'sentence' })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        fileRecordId: 'file-1',
+        totalTokens: 12,
+      })
+    );
+
     const batchPromise = resolvedPort.chunkBatch(
       [{ fileRecordId: 'file-1', content: 'content', fileName: 'file.ts', filePath: '/file.ts' }],
       { strategy: 'sentence' },

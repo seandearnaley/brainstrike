@@ -49,6 +49,7 @@ function createStatus(status: RendererHostStatusShape): RendererHostStatusShape 
     state: status.state,
     active: status.active,
     lastError: status.lastError,
+    runtimeId: status.runtimeId,
   };
 }
 
@@ -113,7 +114,13 @@ describe('RendererHostLifecycle', () => {
 
     const lifecycle = new RendererHostLifecycle({
       createStatus,
-      createStoppedStatus: () => createStatus({ state: 'stopped', active: false, lastError: null }),
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'chunking-host:stopped',
+        }),
       mode: 'chunking-host',
       role: 'chunking-host',
       statusEventName: 'chunking-host:status',
@@ -143,7 +150,13 @@ describe('RendererHostLifecycle', () => {
 
     const lifecycle = new RendererHostLifecycle({
       createStatus,
-      createStoppedStatus: () => createStatus({ state: 'stopped', active: false, lastError: null }),
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
@@ -153,13 +166,72 @@ describe('RendererHostLifecycle', () => {
     await lifecycle.ensureStarted({ waitForRunning: false });
     hostWindow.webContents.send.mockClear();
     visibleWindow.webContents.send.mockClear();
-    lifecycle.setStatus(createStatus({ state: 'running', active: true, lastError: null }));
+    lifecycle.setStatus(
+      createStatus({
+        state: 'running',
+        active: true,
+        lastError: null,
+        runtimeId: lifecycle.getStatus().runtimeId,
+      })
+    );
 
     expect(hostWindow.webContents.send).not.toHaveBeenCalled();
     expect(visibleWindow.webContents.send).toHaveBeenCalledWith('embedding-host:status', {
       state: 'running',
       active: true,
       lastError: null,
+      runtimeId: lifecycle.getStatus().runtimeId,
     });
+  });
+
+  it('recreates an existing stopped host window instead of waiting forever', async () => {
+    const stoppedWindow = createFakeWindow(61);
+    const restartedWindow = createFakeWindow(62);
+    stoppedWindow.loadURL.mockResolvedValue(undefined);
+    restartedWindow.loadURL.mockResolvedValue(undefined);
+
+    const createdWindows = [stoppedWindow, restartedWindow];
+    MockBrowserWindow.mockImplementation(function () {
+      const nextWindow = createdWindows.shift();
+      if (!nextWindow) {
+        throw new Error('No fake BrowserWindow left to create');
+      }
+      Object.assign(this, nextWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [stoppedWindow, restartedWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+    lifecycle.setStatus(
+      createStatus({
+        state: 'stopped',
+        active: false,
+        lastError: null,
+        runtimeId: 'embedding-host:old-runtime',
+      })
+    );
+
+    const restartedStatus = await lifecycle.ensureStarted({ waitForRunning: false });
+
+    expect(stoppedWindow.destroy).toHaveBeenCalledTimes(1);
+    expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1);
+    expect(restartedStatus.state).toBe('starting');
+    expect(restartedStatus.runtimeId).not.toBe('embedding-host:old-runtime');
   });
 });

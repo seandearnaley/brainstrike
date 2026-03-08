@@ -77,16 +77,24 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     const existingWindow = this.hostWindow;
 
     if (existingWindow && !existingWindow.isDestroyed()) {
-      if (!waitForRunning) {
+      if (this.status.state === 'running') {
         return this.getStatus();
       }
-      if (this.status.state === 'running' || this.status.state === 'error') {
-        return this.getStatus();
+      if (this.status.state === 'starting') {
+        if (!waitForRunning) {
+          return this.getStatus();
+        }
+        return this.waitForStatus(
+          (status) => status.state === 'running' || status.state === 'error',
+          DEFAULT_HOST_READY_TIMEOUT_MS
+        );
       }
-      return this.waitForStatus(
-        (status) => status.state === 'running' || status.state === 'error',
-        DEFAULT_HOST_READY_TIMEOUT_MS
-      );
+
+      // An existing hidden host window in stopped/stopping/error is not usable for new work.
+      // Destroy it and create a fresh runtime instead of waiting on a state transition that
+      // will never happen on its own.
+      this.destroyHostWindow();
+      this.setStatus(this.options.createStoppedStatus());
     }
 
     const runtimeId = createRuntimeId(this.options.role);

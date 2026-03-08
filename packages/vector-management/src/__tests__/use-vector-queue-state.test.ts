@@ -294,6 +294,32 @@ describe('useVectorQueueState', () => {
     });
   });
 
+  it('clears transient backfill state when controller backfill fails', async () => {
+    const controller = createMockController();
+    controller.enqueueBackfillMock.mockRejectedValueOnce(
+      new Error("Backfill timed out while waiting for embedding set 'set-1' to drain.")
+    );
+
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await act(async () => {
+      await expect(result.current.backfillActiveSet()).rejects.toThrow(
+        "Backfill timed out while waiting for embedding set 'set-1' to drain."
+      );
+    });
+
+    expect(result.current.backfilling).toBe(false);
+    expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
+    expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
+  });
+
   it('refreshes live queries when the queue drained event targets the active embedding set', async () => {
     renderHook(() =>
       useVectorQueueState({

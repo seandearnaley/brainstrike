@@ -52,6 +52,18 @@ export interface ChunkingBatchCallbacks {
   ) => void;
 }
 
+export interface ChunkingHostProxyRequestOptions {
+  readonly allowLargeFiles?: boolean;
+  readonly forceStrategy?: boolean;
+  readonly ignoreFileTypeRecommendations?: boolean;
+  readonly maxTokens?: number;
+  readonly maxTokensCap?: number;
+  readonly overlap?: number;
+  readonly requestedStrategy?: ChunkingRequestOptions['strategy'];
+  readonly separators?: readonly string[];
+  readonly tokenTrueSizing?: boolean;
+}
+
 /**
  * Port interface for interacting with the chunking worker.
  */
@@ -79,6 +91,10 @@ export interface ChunkingWorkerPort {
     filePath: string,
     options: ChunkingRequestOptions
   ): Promise<ChunkResult>;
+  chunkFileById?: (
+    fileRecordId: string,
+    options: ChunkingHostProxyRequestOptions
+  ) => Promise<ChunkResult>;
 
   /**
    * Check if the worker is ready to receive requests.
@@ -143,11 +159,13 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
         message: event.message,
         filename: event.filename,
         lineno: event.lineno,
+        colno: event.colno,
       });
+      const detailSuffix = ` (${event.filename || 'unknown'}:${event.lineno || 0}:${event.colno || 0})`;
       return new Error(
         event.message
-          ? `Chunking worker runtime error: ${event.message}`
-          : 'Chunking worker runtime error (missing ErrorEvent.message)'
+          ? `Chunking worker runtime error: ${event.message}${detailSuffix}`
+          : `Chunking worker runtime error (missing ErrorEvent.message)${detailSuffix}`
       );
     },
     onFailure: (failure) => {

@@ -21,6 +21,18 @@ interface QueueStatsRow {
   succeeded: number;
 }
 
+interface EmbeddingSetCounts {
+  embeddedChunks: number;
+  fileCount: number;
+  totalChunks: number;
+}
+
+interface EmbeddingSetCountsRow {
+  embeddedChunks: number | string | null;
+  fileCount: number | string | null;
+  totalChunks: number | string | null;
+}
+
 test.describe('Embedding Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -501,6 +513,381 @@ test.describe('Embedding Host Renderer', () => {
     });
   }
 
+  async function getEmbeddingSetQueueStats(
+    page: Page,
+    embeddingSetId: string
+  ): Promise<QueueStatsRow> {
+    return await page.evaluate<QueueStatsRow, string>(async (id) => {
+      const api = (
+        window as Window & {
+          electronAPI?: {
+            db?: {
+              query?: (sql: string, params?: unknown[]) => Promise<{ rows: QueueStatsRow[] }>;
+            };
+          };
+        }
+      ).electronAPI;
+      if (!api?.db?.query) {
+        throw new Error('Database API not available');
+      }
+      const result = await api.db.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE state = 'queued')::int AS queued,
+           COUNT(*) FILTER (WHERE state = 'running')::int AS running,
+           COUNT(*) FILTER (WHERE state = 'failed')::int AS failed,
+           COUNT(*) FILTER (WHERE state = 'succeeded')::int AS succeeded
+         FROM job_queue
+         WHERE queue = 'embeddings'
+           AND job_type = 'embed_chunk'
+           AND payload->>'embeddingSetId' = $1`,
+        [id]
+      );
+      const row = result.rows[0] as QueueStatsRow | undefined;
+      if (!row) {
+        throw new Error('Embedding-set queue stats query returned no rows');
+      }
+      return row;
+    }, embeddingSetId);
+  }
+
+  async function getEmbeddingSetCounts(
+    page: Page,
+    embeddingSetId: string
+  ): Promise<EmbeddingSetCounts> {
+    return await page.evaluate<EmbeddingSetCounts, string>(async (id) => {
+      const api = (
+        window as Window & {
+          electronAPI?: {
+            db?: {
+              query?: (
+                sql: string,
+                params?: unknown[]
+              ) => Promise<{ rows: Record<string, number | string | null>[] }>;
+            };
+          };
+        }
+      ).electronAPI;
+      if (!api?.db?.query) {
+        throw new Error('Database API not available');
+      }
+
+      const result = await api.db.query(
+        `SELECT
+           COUNT(DISTINCT fr.id)::int AS "fileCount",
+           COUNT(c.id)::int AS "totalChunks",
+           COUNT(*) FILTER (WHERE c.embedding IS NOT NULL)::int AS "embeddedChunks"
+         FROM file_records fr
+         LEFT JOIN file_chunks c ON c.file_record_id = fr.id
+         WHERE fr.embedding_set_id = $1`,
+        [id]
+      );
+      const row = result.rows[0] as EmbeddingSetCountsRow | undefined;
+      if (!row) {
+        throw new Error('Embedding-set counts query returned no rows');
+      }
+      return {
+        fileCount: Number(row['fileCount'] ?? 0),
+        totalChunks: Number(row['totalChunks'] ?? 0),
+        embeddedChunks: Number(row['embeddedChunks'] ?? 0),
+      };
+    }, embeddingSetId);
+  }
+
+  interface CollectionSummaryCounts {
+    embeddedChunks: number;
+    fileCount: number;
+    totalChunks: number;
+  }
+
+  function parseCollectionSummaryCounts(summaryText: string): CollectionSummaryCounts {
+    const normalized = summaryText.replace(/\s+/g, ' ').trim();
+    const match = normalized.match(
+      /(\d+)\s+files?.*?(\d+)\s+chunks?.*?(\d+)\s*\/\s*(\d+)\s+embedded/i
+    );
+
+    if (!match) {
+      throw new Error(`Unable to parse collection summary counts from: ${summaryText}`);
+    }
+
+    return {
+      fileCount: Number(match[1]),
+      totalChunks: Number(match[2]),
+      embeddedChunks: Number(match[3]),
+    };
+  }
+
+  async function getCollectionSummaryCounts(
+    page: Page,
+    collectionName: string
+  ): Promise<CollectionSummaryCounts> {
+    const option = page.getByRole('option').filter({ hasText: collectionName }).first();
+    await expect(option).toBeVisible({ timeout: 15_000 });
+    const text = await option.innerText();
+    return parseCollectionSummaryCounts(text);
+  }
+
+  async function createImportTargetCollection(
+    page: Page,
+    collectionName?: string
+  ): Promise<{ collectionName: string; embeddingSetId: string }> {
+    return await page.evaluate(async (name) => {
+      const api = (
+        window as Window & {
+          electronAPI?: {
+            db?: {
+              query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+            };
+            storage?: {
+              setItem?: (key: string, value: string) => Promise<void>;
+            };
+          };
+        }
+      ).electronAPI;
+
+      if (!api?.db?.query) {
+        throw new Error('Database API not available');
+      }
+      if (!api?.storage?.setItem) {
+        throw new Error('Storage API not available');
+      }
+
+      const now = new Date().toISOString();
+      const randomSuffix = Math.random().toString(36).slice(2, 10);
+      const embeddingSetId = `import-set-${randomSuffix}`;
+      const modelId = 'Xenova/all-MiniLM-L6-v2';
+      const modelKey = `local::${modelId}`;
+
+      await api.db.query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [embeddingSetId, modelKey, modelId, 384, 'cosine', name ?? 'Import Backfill Test', now]
+      );
+
+      await api.storage.setItem(
+        'vector-status-ui.v1',
+        JSON.stringify({
+          state: { activeEmbeddingSetId: embeddingSetId },
+          version: 1,
+        })
+      );
+
+      return { embeddingSetId, collectionName: name ?? 'Import Backfill Test' };
+    }, collectionName);
+  }
+
+  async function getRendererTimeOrigin(page: Page): Promise<number> {
+    return await page.evaluate(() => window.performance.timeOrigin);
+  }
+
+  async function setVectorDevicePreference(
+    page: Page,
+    devicePref: 'wasm' | 'webgpu'
+  ): Promise<void> {
+    await page.evaluate((nextDevicePref) => {
+      const storageBridge = (
+        window as Window & {
+          electronAPI?: {
+            storage?: {
+              setItem?: (key: string, value: string) => Promise<void>;
+            };
+          };
+        }
+      ).electronAPI?.storage;
+
+      if (!storageBridge?.setItem) {
+        throw new Error('Electron storage bridge is not available');
+      }
+
+      return storageBridge.setItem(
+        'vector-preferences.v1',
+        JSON.stringify({
+          state: {
+            devicePref: nextDevicePref,
+            devicePrefConfigured: true,
+            reinitEveryN: 200,
+            verboseOrtLogs: false,
+          },
+          version: 3,
+        })
+      );
+    }, devicePref);
+  }
+
+  async function waitForImportedChunks(page: Page, embeddingSetId: string): Promise<void> {
+    await expect
+      .poll(async () => await getEmbeddingSetCounts(page, embeddingSetId), {
+        timeout: 30_000,
+      })
+      .toMatchObject({
+        fileCount: 2,
+        totalChunks: expect.any(Number),
+      });
+
+    const counts = await getEmbeddingSetCounts(page, embeddingSetId);
+    expect(counts.totalChunks).toBeGreaterThan(0);
+  }
+
+  async function createChunkedImportFixture(
+    page: Page,
+    embeddingSetId: string
+  ): Promise<{ fileCount: number; totalChunks: number }> {
+    return await page.evaluate<
+      { fileCount: number; totalChunks: number },
+      { embeddingSetId: string }
+    >(
+      async ({ embeddingSetId: id }) => {
+        const api = (
+          window as Window & {
+            electronAPI?: {
+              db?: {
+                query?: (
+                  sql: string,
+                  params?: unknown[]
+                ) => Promise<{ rows: Record<string, unknown>[] }>;
+              };
+            };
+          }
+        ).electronAPI;
+
+        if (!api?.db?.query) {
+          throw new Error('Database API not available');
+        }
+
+        const now = new Date().toISOString();
+        const files = [
+          {
+            id: `import-file-${crypto.randomUUID()}`,
+            name: 'mock-file1.txt',
+            path: '/mock/test/directory/mock-file1.txt',
+            chunks: [
+              'This is a deterministic imported text fixture used to validate desktop chunking and immediate manual backfill.',
+              'The second chunk ensures manual backfill sees multiple persisted chunks for the same imported file.',
+            ],
+            content:
+              'This is a deterministic imported text fixture used to validate desktop chunking and immediate manual backfill.\nThe second chunk ensures manual backfill sees multiple persisted chunks for the same imported file.',
+            strategy: 'sentence',
+          },
+          {
+            id: `import-file-${crypto.randomUUID()}`,
+            name: 'mock-file2.ts',
+            path: '/mock/test/directory/mock-file2.ts',
+            chunks: [
+              'export function fixtureValue(): string { return "desktop import backfill regression"; }',
+              'export const fixtureLines = ["alpha", "beta", "gamma", "delta"];',
+            ],
+            content:
+              'export function fixtureValue(): string { return "desktop import backfill regression"; }\nexport const fixtureLines = ["alpha", "beta", "gamma", "delta"];',
+            strategy: 'recursive',
+          },
+        ] as const;
+
+        let totalChunks = 0;
+
+        for (const file of files) {
+          await api.db.query(
+            `INSERT INTO file_records (
+             id, path, name, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+            [
+              file.id,
+              file.path,
+              file.name,
+              file.content.length,
+              file.content,
+              `content-hash-${file.id}`,
+              Math.max(1, Math.ceil(file.content.length / 8)),
+              id,
+              now,
+            ]
+          );
+
+          for (const [chunkIndex, chunkContent] of file.chunks.entries()) {
+            await api.db.query(
+              `INSERT INTO file_chunks (
+               id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+              [
+                `${file.id}-chunk-${chunkIndex}`,
+                file.id,
+                chunkIndex,
+                chunkContent,
+                `chunk-hash-${file.id}-${chunkIndex}`,
+                Math.max(1, Math.ceil(chunkContent.length / 8)),
+                file.name.endsWith('.ts') ? 'code' : 'text',
+                chunkContent.length,
+                now,
+              ]
+            );
+          }
+
+          await api.db.query(
+            `UPDATE file_records
+              SET chunks_processed_at = $2,
+                  chunks_count = $3,
+                  chunking_strategy = $4,
+                  updated_at = $2
+            WHERE id = $1`,
+            [file.id, now, file.chunks.length, file.strategy]
+          );
+
+          totalChunks += file.chunks.length;
+        }
+
+        return { fileCount: files.length, totalChunks };
+      },
+      { embeddingSetId }
+    );
+  }
+
+  async function waitForEmbeddedCollectionSummary(
+    page: Page,
+    collectionName: string,
+    timeoutMs = 90_000
+  ): Promise<CollectionSummaryCounts> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const summary = await getCollectionSummaryCounts(page, collectionName);
+      if (summary.totalChunks > 0 && summary.embeddedChunks === summary.totalChunks) {
+        return summary;
+      }
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error('Timed out waiting for collection summary to reach full embedding coverage');
+  }
+
+  async function waitForBackfillQueueMovementOrFatalError(
+    page: Page,
+    embeddingSetId: string,
+    timeoutMs = 30_000
+  ): Promise<'error' | 'queued'> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const [status, queueStats] = await Promise.all([
+        getEmbeddingHostStatus(page),
+        getEmbeddingSetQueueStats(page, embeddingSetId),
+      ]);
+
+      if (status.state === 'error') {
+        return 'error';
+      }
+
+      const totalObserved =
+        queueStats.queued + queueStats.running + queueStats.failed + queueStats.succeeded;
+      if (totalObserved > 0) {
+        return 'queued';
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error('Timed out waiting for set-scoped backfill queue movement or fatal host error');
+  }
+
   test.beforeAll(async ({ electron }) => {
     test.setTimeout(150_000);
     const { window: appWindow } = await electron.ensureContext();
@@ -545,7 +932,7 @@ test.describe('Embedding Host Renderer', () => {
     await electron.ensureWindow();
   });
 
-  test('starts the hidden embedding host automatically on app launch', async ({ electron }) => {
+  test('defers hidden embedding host startup until first use', async ({ electron }) => {
     const context = await electron.restart();
     const window = context.window;
     await waitForAppReady(window);
@@ -555,10 +942,52 @@ test.describe('Embedding Host Renderer', () => {
       return;
     }
 
-    const status = await waitForEmbeddingHostState(
-      window,
-      (current) => current.state === 'running' || current.state === 'error'
-    );
+    const initialStatus = await window.evaluate(async () => {
+      const api = (
+        globalThis as unknown as Window & {
+          embeddingHost?: {
+            getStatus?: () => Promise<{
+              active: boolean;
+              lastError: string | null;
+              runtimeId: string;
+              runtimeKind: 'embedding-host';
+              state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+            }>;
+          };
+        }
+      ).embeddingHost;
+
+      if (!api?.getStatus) {
+        throw new Error('Embedding host bridge is not available');
+      }
+
+      return api.getStatus();
+    });
+
+    expect(initialStatus.state).toBe('stopped');
+    expect(initialStatus.lastError).toBeNull();
+
+    const status = await window.evaluate(async () => {
+      const api = (
+        globalThis as unknown as Window & {
+          embeddingHost?: {
+            ensureStarted?: () => Promise<{
+              active: boolean;
+              lastError: string | null;
+              runtimeId: string;
+              runtimeKind: 'embedding-host';
+              state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+            }>;
+          };
+        }
+      ).embeddingHost;
+
+      if (!api?.ensureStarted) {
+        throw new Error('Embedding host bridge is not available');
+      }
+
+      return api.ensureStarted();
+    });
 
     expect(status.state).toBe('running');
     expect(status.lastError).toBeNull();
@@ -727,6 +1156,79 @@ test.describe('Embedding Host Renderer', () => {
     await assertToolsPanelResponsive(activeWindow);
     await activeWindow.waitForTimeout(500);
     await assertToolsPanelResponsive(activeWindow);
+  });
+
+  test('backfills chunked imported data without hanging and updates collection coverage', async ({
+    window,
+  }) => {
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+
+    const collectionName = `Desktop UI Import ${Date.now()}`;
+    const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
+    const chunkedFixture = await createChunkedImportFixture(activeWindow, embeddingSetId);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRenderer(activeWindow, 'embedding-worker-import-backfill-flow');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
+    const timeOriginBeforeBackfill = await getRendererTimeOrigin(activeWindow);
+
+    await waitForImportedChunks(activeWindow, embeddingSetId);
+    const countsBeforeBackfill = await getEmbeddingSetCounts(activeWindow, embeddingSetId);
+
+    expect(countsBeforeBackfill.fileCount).toBe(chunkedFixture.fileCount);
+    expect(countsBeforeBackfill.totalChunks).toBe(chunkedFixture.totalChunks);
+    expect(countsBeforeBackfill.embeddedChunks).toBe(0);
+
+    const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
+
+    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+    await backfillButton.click({ timeout: 5000 });
+
+    const outcome = await waitForBackfillQueueMovementOrFatalError(activeWindow, embeddingSetId);
+    if (outcome === 'error') {
+      const status = await getEmbeddingHostStatus(activeWindow);
+      expect(status.state).toBe('error');
+      expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
+      return;
+    }
+
+    const setQueueStats = await getEmbeddingSetQueueStats(activeWindow, embeddingSetId);
+    expect(
+      setQueueStats.queued + setQueueStats.running + setQueueStats.failed + setQueueStats.succeeded
+    ).toBeGreaterThan(0);
+
+    await waitForEmbeddedCollectionSummary(activeWindow, collectionName);
+
+    await expect
+      .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
+        timeout: 90_000,
+      })
+      .toMatchObject({
+        fileCount: chunkedFixture.fileCount,
+        totalChunks: expect.any(Number),
+        embeddedChunks: expect.any(Number),
+      });
+
+    const countsAfterBackfill = await getEmbeddingSetCounts(activeWindow, embeddingSetId);
+    expect(countsAfterBackfill.totalChunks).toBeGreaterThan(0);
+    expect(countsAfterBackfill.embeddedChunks).toBe(countsAfterBackfill.totalChunks);
+
+    const timeOriginAfterBackfill = await getRendererTimeOrigin(activeWindow);
+    expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
+    await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
   });
 
   test('fails invalid job payloads without taking down the embedding host or visible UI', async ({

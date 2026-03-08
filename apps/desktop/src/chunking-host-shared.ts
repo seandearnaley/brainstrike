@@ -21,8 +21,15 @@ export const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = 'chunking-host:chunk-batch';
 export type ChunkingHostChunkingStrategy = 'sentence' | 'token' | 'recursive';
 
 export interface ChunkingHostRequestOptions {
-  readonly strategy: ChunkingHostChunkingStrategy;
-  readonly [key: string]: unknown;
+  readonly allowLargeFiles?: boolean;
+  readonly forceStrategy?: boolean;
+  readonly ignoreFileTypeRecommendations?: boolean;
+  readonly maxTokens?: number;
+  readonly maxTokensCap?: number;
+  readonly overlap?: number;
+  readonly requestedStrategy?: ChunkingHostChunkingStrategy;
+  readonly separators?: readonly string[];
+  readonly tokenTrueSizing?: boolean;
 }
 
 export type ChunkingHostStatus = BackgroundRuntimeStatus<'chunking-host'>;
@@ -41,6 +48,13 @@ export interface ChunkingHostChunkFileRequest extends ChunkingHostFilePayload {
   readonly requestId: string;
 }
 
+export interface ChunkingHostChunkFileByIdRequest {
+  readonly fileRecordId: string;
+  readonly kind: 'chunk-file-by-id';
+  readonly options: ChunkingHostRequestOptions;
+  readonly requestId: string;
+}
+
 export interface ChunkingHostChunkBatchRequest {
   readonly files: readonly ChunkingHostFilePayload[];
   readonly kind: 'chunk-batch';
@@ -50,6 +64,7 @@ export interface ChunkingHostChunkBatchRequest {
 
 export type ChunkingHostRequestPayload =
   | ChunkingHostChunkBatchRequest
+  | ChunkingHostChunkFileByIdRequest
   | ChunkingHostChunkFileRequest;
 export type ChunkingHostRequest = RuntimeRequestEnvelope<'chunk', ChunkingHostRequestPayload>;
 
