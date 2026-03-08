@@ -9,6 +9,7 @@ describe('vector-preferences-store', () => {
     vi.restoreAllMocks();
     const store = useVectorPreferencesStore;
     store.setState({
+      devicePrefConfigured: false,
       devicePref: 'webgpu',
       reinitEveryN: 200,
       verboseOrtLogs: false,
@@ -18,8 +19,17 @@ describe('vector-preferences-store', () => {
 
   it('initializes with defaults and updates device preference', () => {
     expect(useVectorPreferencesStore.getState().devicePref).toBe('webgpu');
+    expect(useVectorPreferencesStore.getState().devicePrefConfigured).toBe(false);
     useVectorPreferencesStore.getState().setDevicePref('wasm');
     expect(useVectorPreferencesStore.getState().devicePref).toBe('wasm');
+    expect(useVectorPreferencesStore.getState().devicePrefConfigured).toBe(true);
+  });
+
+  it('updates detected device preference without marking it as user-configured', () => {
+    useVectorPreferencesStore.getState().setDetectedDevicePref('wasm');
+
+    expect(useVectorPreferencesStore.getState().devicePref).toBe('wasm');
+    expect(useVectorPreferencesStore.getState().devicePrefConfigured).toBe(false);
   });
 
   it('clamps numeric preferences to safe ranges', () => {
@@ -69,12 +79,14 @@ describe('vector-preferences-store', () => {
 
     const snapshot = persistedValue as {
       state?: {
+        devicePrefConfigured?: boolean;
         devicePref: string;
         reinitEveryN: number;
       };
     };
 
     expect(snapshot.state?.devicePref).toBe('wasm');
+    expect(snapshot.state?.devicePrefConfigured).toBe(true);
     expect(snapshot.state?.reinitEveryN).toBe(16);
 
     persistApi.clearStorage?.();
@@ -90,17 +102,32 @@ describe('vector-preferences-store', () => {
 
     expect(options.migrate(undefined, 1)).toBeUndefined();
     expect(options.migrate({ devicePref: 'wasm', reinitEveryN: 8 }, 1)).toEqual({
+      devicePrefConfigured: false,
       devicePref: 'wasm',
       reinitEveryN: 8,
       verboseOrtLogs: false,
     });
     expect(options.migrate({ devicePref: 'invalid', verboseOrtLogs: true }, 1)).toEqual({
+      devicePrefConfigured: false,
       devicePref: 'webgpu',
       reinitEveryN: 200,
       verboseOrtLogs: true,
     });
 
     const v2Snapshot = { devicePref: 'wasm' as const, reinitEveryN: 32, verboseOrtLogs: true };
-    expect(options.migrate(v2Snapshot, 2)).toEqual(v2Snapshot);
+    expect(options.migrate(v2Snapshot, 2)).toEqual({
+      devicePrefConfigured: false,
+      devicePref: 'wasm',
+      reinitEveryN: 32,
+      verboseOrtLogs: true,
+    });
+
+    const v3Snapshot = {
+      devicePrefConfigured: true,
+      devicePref: 'wasm' as const,
+      reinitEveryN: 32,
+      verboseOrtLogs: true,
+    };
+    expect(options.migrate(v3Snapshot, 3)).toEqual(v3Snapshot);
   });
 });

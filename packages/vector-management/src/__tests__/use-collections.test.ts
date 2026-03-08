@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock data
@@ -232,6 +232,46 @@ describe('useCollections', () => {
       // setCachedCollections might be called from initial fetch, but not from live query sync
       // The key is that it returns cached data, not live data
       expect(mockStoreState.cachedCollections).toEqual([]);
+    });
+
+    it('refreshes the live query when embedding activity settles', async () => {
+      mockStoreState.isEmbeddingActive = true;
+
+      const { rerender } = renderHook(() => useCollections(mockDb as any));
+
+      expect(mockLiveQueryResult.refresh).not.toHaveBeenCalled();
+
+      mockStoreState.isEmbeddingActive = false;
+      rerender();
+
+      await waitFor(() => {
+        expect(mockLiveQueryResult.refresh).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('refreshes cached collections when the embeddings queue drains', async () => {
+      mockStoreState.isEmbeddingActive = true;
+      mockDb.query.mockResolvedValue({
+        rows: [{ ...mockCollectionRows[0], embeddingCount: '100' }],
+      });
+
+      renderHook(() => useCollections(mockDb as any));
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:queue-drained', {
+            detail: { queue: 'embeddings', embeddingSetId: 'set-1' },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'));
+      });
+      expect(mockStoreState.setCachedCollections).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ embeddingCount: 100 })])
+      );
     });
   });
 

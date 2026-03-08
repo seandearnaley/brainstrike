@@ -90,8 +90,8 @@ describe('vectorsFromPipelineOutput', () => {
 });
 
 describe('resolveEmbeddingWorkerUrl', () => {
-  it('points to the compiled worker asset', () => {
+  it('points to the source worker asset when imported from source', () => {
     const url = resolveEmbeddingWorkerUrl();
-    expect(url.pathname.endsWith('embedding.worker.js')).toBe(true);
+    expect(url.pathname.endsWith('embedding.worker.ts')).toBe(true);
   });
 });

@@ -163,6 +163,17 @@ interface DesktopBackfillApi {
   onBackfillProgress: (callback: (progress: EmbeddingHostBackfillProgress) => void) => () => void;
 }
 
+function dispatchQueueDrainedEvent(embeddingSetId: string): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent('brainstrike:queue-drained', {
+      detail: { embeddingSetId, queue: EMBEDDINGS_QUEUE },
+    })
+  );
+}
+
 // Default metrics when EmbeddingQueueProvider is not available
 const DEFAULT_METRICS = {
   windowErrorCount: 0,
@@ -369,6 +380,56 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     };
   }, [activeEmbeddingSetId, coverageResult.rows]);
 
+  const refreshCoverageAndQueueState = useCallback(async () => {
+    if (!activeEmbeddingSetId) {
+      return;
+    }
+    await Promise.all([
+      queueCountsResult.refresh(),
+      throughputResult.refresh(),
+      lastErrorResult.refresh(),
+      latencyRowsResult.refresh(),
+      coverageResult.refresh(),
+    ]);
+  }, [
+    activeEmbeddingSetId,
+    coverageResult,
+    lastErrorResult,
+    latencyRowsResult,
+    queueCountsResult,
+    throughputResult,
+  ]);
+
+  const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
+
+  useEffect(() => {
+    const wasEnabled = previousLiveQueryEnabledRef.current;
+    previousLiveQueryEnabledRef.current = liveQueryEnabled;
+    if (!(liveQueryEnabled && !wasEnabled)) {
+      return;
+    }
+    void refreshCoverageAndQueueState();
+  }, [liveQueryEnabled, refreshCoverageAndQueueState]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !activeEmbeddingSetId) {
+      return;
+    }
+
+    const handleQueueDrained = (event: Event) => {
+      const detail = (event as CustomEvent<{ embeddingSetId?: string | null } | undefined>).detail;
+      if (detail?.embeddingSetId && detail.embeddingSetId !== activeEmbeddingSetId) {
+        return;
+      }
+      void refreshCoverageAndQueueState();
+    };
+
+    window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
+    return () => {
+      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
+    };
+  }, [activeEmbeddingSetId, refreshCoverageAndQueueState]);
+
   useEffect(() => {
     setRecentErrorCount(metrics.windowErrorCount);
   }, [metrics.windowErrorCount]);
@@ -452,6 +513,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       } else if (service) {
         await runServiceBackfill(service, activeEmbeddingSetId, setBackfillProgress);
       }
+      setIsJobQueueActive(false);
+      dispatchQueueDrainedEvent(activeEmbeddingSetId);
       logger.info('backfillActiveSet: backfill completed', { activeEmbeddingSetId });
     } catch (error) {
       // Log errors instead of swallowing them silently
@@ -460,9 +523,11 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         error: error instanceof Error ? error.message : String(error),
       });
       setIsJobQueueActive(false);
+      throw error;
     } finally {
       unsubscribeProgress?.();
       setBackfilling(false);
+      setIsJobQueueActive(false);
       if (backfillTimeoutRef.current) {
         clearTimeout(backfillTimeoutRef.current);
       }

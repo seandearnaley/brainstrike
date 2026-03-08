@@ -262,9 +262,7 @@ describe('getBackfillButtonText', () => {
   });
 
   it('prioritizes startingWorker over other states', () => {
-    expect(getBackfillButtonText(baseLabel, true, true, { done: 5, total: 10 }, true)).toBe(
-      'Starting…'
-    );
+    expect(getBackfillButtonText(baseLabel, true, true, { done: 5, total: 10 }, true)).toBe('5/10');
   });
 
   it('prioritizes backfilling with progress over willAutoStartWorker', () => {

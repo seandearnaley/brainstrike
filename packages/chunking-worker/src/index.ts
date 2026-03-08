@@ -60,6 +60,16 @@ interface ImportMetaLike {
   url?: string;
 }
 
+function usesTypeScriptSource(url: string): boolean {
+  return (
+    url.endsWith('.ts') || url.endsWith('.tsx') || url.endsWith('.mts') || url.endsWith('.cts')
+  );
+}
+
+function getSourceWorkerPath(path: string): string {
+  return path.replace(/\.js$/, '.ts');
+}
+
 const IMPORT_META_OVERRIDE_KEY = '__BRAINSTRIKE_IMPORT_META__';
 
 function readImportMetaOverride(): ImportMetaLike | null {
@@ -114,7 +124,9 @@ export function resolveChunkingWorkerUrl(): URL {
   const override = readImportMetaOverride();
   if (override) {
     if (typeof override.url === 'string') {
-      return new URL('./chunking.worker.js', override.url);
+      return usesTypeScriptSource(override.url)
+        ? new URL(getSourceWorkerPath('./chunking.worker.js'), override.url)
+        : new URL('./chunking.worker.js', override.url);
     }
     if (typeof override.dirname === 'string') {
       return new URL('./chunking.worker.js', `file://${override.dirname}/`);
@@ -128,7 +140,9 @@ export function resolveChunkingWorkerUrl(): URL {
 
   // Keep this literal form so bundlers rewrite to the emitted worker asset.
   if (typeof import.meta.url === 'string') {
-    return new URL('./chunking.worker.js', import.meta.url);
+    return usesTypeScriptSource(import.meta.url)
+      ? new URL(getSourceWorkerPath('./chunking.worker.js'), import.meta.url)
+      : new URL('./chunking.worker.js', import.meta.url);
   }
 
   const meta = getImportMeta();

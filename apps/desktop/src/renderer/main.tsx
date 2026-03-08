@@ -5,6 +5,7 @@ import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/prefe
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import type { LoggingPreferences } from '@brainstrike/utils';
 import {
+  addLogListener,
   applyLoggingPreferences,
   createLogger,
   initializeLogging,
@@ -36,6 +37,7 @@ const storageAdapter = new ElectronRendererStorageAdapter();
 const rendererLevel = LogLevel.INFO;
 const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
+let removeHiddenHostLogForwarder: (() => void) | null = null;
 
 if (typeof window !== 'undefined') {
   installConsoleGuard();
@@ -88,6 +90,69 @@ void syncLoggingPreferencesFromMain();
 
 applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'electron-renderer');
 
+type DesktopRendererRole = 'chunking-host' | 'embedding-host' | 'visible-ui';
+
+function getDesktopRendererRole(): DesktopRendererRole {
+  const mode = new URLSearchParams(window.location.search).get('mode');
+  if (mode === 'embedding-host') {
+    return 'embedding-host';
+  }
+  if (mode === 'chunking-host') {
+    return 'chunking-host';
+  }
+  return 'visible-ui';
+}
+
+const desktopRendererRole = getDesktopRendererRole();
+
+function sanitizeLogValue(value: unknown): unknown {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    };
+  }
+  if (value instanceof URL) {
+    return value.toString();
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeLogValue(entry));
+  }
+  if (typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      result[key] = sanitizeLogValue(entry);
+    }
+    return result;
+  }
+  return String(value);
+}
+
+if (desktopRendererRole !== 'visible-ui') {
+  removeHiddenHostLogForwarder = addLogListener((record) => {
+    window.logging?.ingestBufferedRecord?.({
+      ...record,
+      args: record.args.map((arg) => sanitizeLogValue(arg)),
+      bindings: Object.fromEntries(
+        Object.entries(record.bindings).map(([key, value]) => [key, sanitizeLogValue(value)])
+      ),
+    });
+  });
+  rendererLogger.info('Background renderer log forwarding enabled', {
+    windowRole: desktopRendererRole,
+  });
+}
+
 const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
   applyLoggingPreferences(state.preferences, 'electron-renderer');
 });
@@ -99,6 +164,8 @@ const unsubscribeLoggingEvents =
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+    removeHiddenHostLogForwarder?.();
+    removeHiddenHostLogForwarder = null;
     unsubscribeLoggingPreferences();
     unsubscribeLoggingEvents?.();
     removeRendererErrorHooks();

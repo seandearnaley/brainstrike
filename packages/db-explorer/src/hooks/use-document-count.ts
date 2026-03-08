@@ -1,7 +1,7 @@
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('useIndexedChunkCount');
 export const indexedChunkCountLogger = logger;
@@ -44,7 +44,7 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
     [activeCollectionId]
   );
 
-  const { rows, error } = usePGliteLiveQuery<{ count: number }>({
+  const { rows, error, refresh } = usePGliteLiveQuery<{ count: number }>({
     cacheKey: makeLiveQueryKey('indexed-chunk-count', activeCollectionId),
     query: INDEXED_CHUNK_COUNT_QUERY,
     ...(params ? { params } : {}),
@@ -70,6 +70,36 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
   if (liveQueryEnabled) {
     snapshotRef.current = computed;
   }
+
+  const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
+
+  useEffect(() => {
+    const wasEnabled = previousLiveQueryEnabledRef.current;
+    previousLiveQueryEnabledRef.current = liveQueryEnabled;
+    if (!(liveQueryEnabled && !wasEnabled)) {
+      return;
+    }
+    void refresh();
+  }, [liveQueryEnabled, refresh]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !activeCollectionId) {
+      return;
+    }
+
+    const handleQueueDrained = (event: Event) => {
+      const detail = (event as CustomEvent<{ embeddingSetId?: string | null } | undefined>).detail;
+      if (detail?.embeddingSetId && detail.embeddingSetId !== activeCollectionId) {
+        return;
+      }
+      void refresh();
+    };
+
+    window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
+    return () => {
+      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
+    };
+  }, [activeCollectionId, refresh]);
 
   return liveQueryEnabled ? computed : snapshotRef.current;
 }

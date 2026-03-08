@@ -19,6 +19,14 @@ interface LiveQueryShape {
   rows: unknown[];
 }
 
+const liveQueryRefresh = {
+  queueCounts: vi.fn(),
+  throughput: vi.fn(),
+  lastError: vi.fn(),
+  latency: vi.fn(),
+  coverage: vi.fn(),
+};
+
 const liveQueryState: Record<
   'queueCounts' | 'throughput' | 'lastError' | 'latency' | 'coverage',
   LiveQueryShape
@@ -56,7 +64,7 @@ vi.mock('@brainstrike/db', async () => {
             rows: liveQueryState.queueCounts.rows,
             loading: false,
             error: null,
-            refresh: vi.fn(),
+            refresh: liveQueryRefresh.queueCounts,
           };
         }
         if (query.includes("INTERVAL '60 seconds'")) {
@@ -64,7 +72,7 @@ vi.mock('@brainstrike/db', async () => {
             rows: liveQueryState.throughput.rows,
             loading: false,
             error: null,
-            refresh: vi.fn(),
+            refresh: liveQueryRefresh.throughput,
           };
         }
         if (query.includes("state = 'failed'")) {
@@ -72,7 +80,7 @@ vi.mock('@brainstrike/db', async () => {
             rows: liveQueryState.lastError.rows,
             loading: false,
             error: null,
-            refresh: vi.fn(),
+            refresh: liveQueryRefresh.lastError,
           };
         }
         if (query.includes("INTERVAL '5 minutes'")) {
@@ -80,7 +88,7 @@ vi.mock('@brainstrike/db', async () => {
             rows: liveQueryState.latency.rows,
             loading: false,
             error: null,
-            refresh: vi.fn(),
+            refresh: liveQueryRefresh.latency,
           };
         }
         if (query.includes('chunksWithEmbeddingsForSet')) {
@@ -88,7 +96,7 @@ vi.mock('@brainstrike/db', async () => {
             rows: liveQueryState.coverage.rows,
             loading: false,
             error: null,
-            refresh: vi.fn(),
+            refresh: liveQueryRefresh.coverage,
           };
         }
         return { rows: [], loading: false, error: null, refresh: vi.fn() };
@@ -130,6 +138,11 @@ describe('useVectorQueueState', () => {
 
   afterEach(() => {
     resetLiveQueryData();
+    liveQueryRefresh.queueCounts.mockReset();
+    liveQueryRefresh.throughput.mockReset();
+    liveQueryRefresh.lastError.mockReset();
+    liveQueryRefresh.latency.mockReset();
+    liveQueryRefresh.coverage.mockReset();
     resetMockQueueMetrics();
     vectorStatusUiStoreState.durableQueueStats = null;
     vectorStatusUiStoreState.setIsJobQueueActive.mockReset();
@@ -319,27 +332,42 @@ describe('useVectorQueueState', () => {
       liveQueryState.coverage.rows = [{ totalChunks: 10, chunksWithEmbeddingsForSet: 2 }];
       const backfillMock = vi.fn(async () => ({ queued: 5, running: 0, failed: 0, succeeded: 0 }));
       const service = createMockService({ backfill: backfillMock });
+      const queueDrainedHandler = vi.fn();
+      window.addEventListener('brainstrike:queue-drained', queueDrainedHandler);
 
-      const { result } = renderHook(() =>
-        useVectorQueueState({
-          service,
-          activeEmbeddingSetId: 'set-1',
-          shouldAutoBackfill: false,
-        })
-      );
+      try {
+        const { result } = renderHook(() =>
+          useVectorQueueState({
+            service,
+            activeEmbeddingSetId: 'set-1',
+            shouldAutoBackfill: false,
+          })
+        );
 
-      await act(async () => Promise.resolve());
+        await act(async () => Promise.resolve());
 
-      // No auto-backfill
-      expect(backfillMock).not.toHaveBeenCalled();
+        // No auto-backfill
+        expect(backfillMock).not.toHaveBeenCalled();
 
-      // Manual backfill
-      await act(async () => {
-        await result.current.backfillActiveSet();
-      });
+        // Manual backfill
+        await act(async () => {
+          await result.current.backfillActiveSet();
+        });
 
-      expect(backfillMock).toHaveBeenCalledTimes(1);
-      expect(backfillMock).toHaveBeenCalledWith('set-1', expect.any(Function));
+        expect(backfillMock).toHaveBeenCalledTimes(1);
+        expect(backfillMock).toHaveBeenCalledWith('set-1', expect.any(Function));
+        expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
+        expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
+        expect(queueDrainedHandler).toHaveBeenCalledTimes(1);
+        const drainedEvent = queueDrainedHandler.mock.calls[0]?.[0];
+        expect(drainedEvent).toBeInstanceOf(CustomEvent);
+        expect((drainedEvent as CustomEvent).detail).toEqual({
+          embeddingSetId: 'set-1',
+          queue: 'embeddings',
+        });
+      } finally {
+        window.removeEventListener('brainstrike:queue-drained', queueDrainedHandler);
+      }
     });
 
     it('does not call backfill when service is null', async () => {
@@ -441,7 +469,7 @@ describe('useVectorQueueState', () => {
       );
 
       await act(async () => {
-        await result.current.backfillActiveSet();
+        await expect(result.current.backfillActiveSet()).rejects.toThrow('backfill failed');
       });
 
       expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
@@ -526,6 +554,8 @@ describe('useVectorQueueState', () => {
       expect(backfillHostMock).toHaveBeenCalledWith('set-1');
       expect(service.backfill).not.toHaveBeenCalled();
       expect(result.current.backfillProgress).toEqual({ done: 128, total: 450 });
+      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
+      expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
     });
   });
 
@@ -625,6 +655,59 @@ describe('useVectorQueueState', () => {
   });
 
   describe('telemetry and metrics', () => {
+    it('refreshes coverage and queue live queries when embedding activity settles', async () => {
+      const service = createMockService();
+
+      const { rerender } = renderHook(
+        ({ isEmbeddingActive }: { isEmbeddingActive: boolean }) =>
+          useVectorQueueState({
+            service,
+            activeEmbeddingSetId: 'set-1',
+            shouldAutoBackfill: false,
+            isEmbeddingActive,
+          }),
+        { initialProps: { isEmbeddingActive: true } }
+      );
+
+      await act(async () => {
+        rerender({ isEmbeddingActive: false });
+        await Promise.resolve();
+      });
+
+      expect(liveQueryRefresh.queueCounts).toHaveBeenCalledTimes(1);
+      expect(liveQueryRefresh.throughput).toHaveBeenCalledTimes(1);
+      expect(liveQueryRefresh.lastError).toHaveBeenCalledTimes(1);
+      expect(liveQueryRefresh.latency).toHaveBeenCalledTimes(1);
+      expect(liveQueryRefresh.coverage).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes coverage and queue live queries when the embeddings queue drains', async () => {
+      const service = createMockService();
+
+      renderHook(() =>
+        useVectorQueueState({
+          service,
+          activeEmbeddingSetId: 'set-1',
+          shouldAutoBackfill: false,
+        })
+      );
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:queue-drained', {
+            detail: { queue: 'embeddings', embeddingSetId: 'set-1' },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      expect(liveQueryRefresh.queueCounts).toHaveBeenCalledTimes(1);
+      expect(liveQueryRefresh.throughput).toHaveBeenCalledTimes(1);
+      expect(liveQueryRefresh.lastError).toHaveBeenCalledTimes(1);
+      expect(liveQueryRefresh.latency).toHaveBeenCalledTimes(1);
+      expect(liveQueryRefresh.coverage).toHaveBeenCalledTimes(1);
+    });
+
     it('reflects metrics from the embedding queue context', async () => {
       const { result, rerender } = renderHook(() =>
         useVectorQueueState({

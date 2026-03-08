@@ -25,12 +25,28 @@ describe('resolve-worker-url', () => {
     expect(url.href).toBe('file:///tmp/module/token-cache.worker.js');
   });
 
+  it('resolves token cache worker TypeScript URL from source import.meta.url override', () => {
+    setImportMetaOverride({ url: 'file:///tmp/module/index.ts' });
+
+    const url = resolveTokenCacheWorkerUrl();
+
+    expect(url.href).toBe('file:///tmp/module/token-cache.worker.ts');
+  });
+
   it('resolves background indexer worker URL from import.meta.dirname override', () => {
     setImportMetaOverride({ dirname: '/tmp/module' });
 
     const url = resolveBackgroundIndexerWorkerUrl();
 
     expect(url.href).toBe('file:///tmp/module/background-indexer.worker.js');
+  });
+
+  it('resolves background indexer worker TypeScript URL from source import.meta.url override', () => {
+    setImportMetaOverride({ url: 'file:///tmp/module/index.ts' });
+
+    const url = resolveBackgroundIndexerWorkerUrl();
+
+    expect(url.href).toBe('file:///tmp/module/background-indexer.worker.ts');
   });
 
   it('throws a descriptive error when import meta is unavailable', () => {

@@ -11,6 +11,8 @@ const {
   resetLocalDatabaseMock,
   getDatabaseDiagnosticsMock,
   enqueueEmbeddingBackfillMock,
+  embeddingHostEnsureStartedMock,
+  embeddingHostGetStatusMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockDb = {
@@ -28,6 +30,16 @@ const {
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
   const enqueueEmbeddingBackfillMock = vi.fn();
+  const embeddingHostEnsureStartedMock = vi.fn(async () => ({
+    state: 'running' as const,
+    active: false,
+    lastError: null,
+  }));
+  const embeddingHostGetStatusMock = vi.fn(() => ({
+    state: 'running' as const,
+    active: false,
+    lastError: null,
+  }));
   const getDatabaseDiagnosticsMock = vi.fn(() => ({
     databaseProfile: 'test',
     dataDir: '/mock/documents/BrainStrike-dev/profiles/test/pgdata',
@@ -55,6 +67,8 @@ const {
     resetLocalDatabaseMock,
     getDatabaseDiagnosticsMock,
     enqueueEmbeddingBackfillMock,
+    embeddingHostEnsureStartedMock,
+    embeddingHostGetStatusMock,
   };
 });
 
@@ -135,6 +149,26 @@ vi.mock('../../embedding-backfill', () => ({
   enqueueEmbeddingBackfill: enqueueEmbeddingBackfillMock,
 }));
 
+vi.mock('../../embedding-host-manager', () => ({
+  EmbeddingHostManager: class MockEmbeddingHostManager {
+    acceptStatusReport = vi.fn();
+    dispose = vi.fn(async () => {});
+    ensureStarted = embeddingHostEnsureStartedMock;
+    getStatus = embeddingHostGetStatusMock;
+    isHostWindow = vi.fn(() => false);
+    reset = vi.fn(async () => ({
+      state: 'running' as const,
+      active: false,
+      lastError: null,
+    }));
+    stop = vi.fn(async () => ({
+      state: 'stopped' as const,
+      active: false,
+      lastError: null,
+    }));
+  },
+}));
+
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();
   return {
@@ -179,6 +213,16 @@ import '../../main';
 describe('database IPC handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    embeddingHostEnsureStartedMock.mockResolvedValue({
+      state: 'running',
+      active: false,
+      lastError: null,
+    });
+    embeddingHostGetStatusMock.mockReturnValue({
+      state: 'running',
+      active: false,
+      lastError: null,
+    });
   });
 
   it('db:query calls query and returns result', async () => {
@@ -255,6 +299,7 @@ describe('database IPC handlers', () => {
 
     const result = await handler({ sender } as unknown, 'set-123');
 
+    expect(embeddingHostEnsureStartedMock).toHaveBeenCalledWith({ waitForRunning: true });
     expect(getDatabaseMock).toHaveBeenCalledTimes(1);
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
     expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
@@ -283,6 +328,29 @@ describe('database IPC handlers', () => {
       failed: 0,
       succeeded: 0,
     });
+  });
+
+  it('embedding-host:enqueue-backfill fails fast when the embedding host cannot reach running', async () => {
+    const handler = handlers.get('embedding-host:enqueue-backfill');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    embeddingHostEnsureStartedMock.mockResolvedValueOnce({
+      state: 'error',
+      active: false,
+      lastError: 'host failed to start',
+    });
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow('host failed to start');
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
   });
 
   it('embedding-host:enqueue-backfill rejects concurrent submissions', async () => {

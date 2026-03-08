@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/app-shell';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
+import { useVectorPreferencesStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { EmbeddingJobQueueTracker } from '@brainstrike/vector-management';
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
@@ -19,7 +20,24 @@ import SettingsPageContent from './settings/page-content';
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
   const db = usePGliteDatabase();
-  return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
+  return (
+    <TokenCacheProvider db={db} lazyWorkerInit={true}>
+      {children}
+    </TokenCacheProvider>
+  );
+}
+
+function useInitializeWebVectorDevicePreference(): void {
+  const devicePrefConfigured = useVectorPreferencesStore((state) => state.devicePrefConfigured);
+  const devicePref = useVectorPreferencesStore((state) => state.devicePref);
+  const setDetectedDevicePref = useVectorPreferencesStore((state) => state.setDetectedDevicePref);
+
+  useEffect(() => {
+    if (devicePrefConfigured || devicePref === 'wasm') {
+      return;
+    }
+    setDetectedDevicePref('wasm');
+  }, [devicePref, devicePrefConfigured, setDetectedDevicePref]);
 }
 
 /**
@@ -44,6 +62,8 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
+  useInitializeWebVectorDevicePreference();
+
   const navigationConfig = navigationItems as NavigationItem[];
   const [embeddingQueue, setEmbeddingQueue] = useState<QueueAdapter | null>(null);
   const [queueLoadError, setQueueLoadError] = useState<Error | null>(null);

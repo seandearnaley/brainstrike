@@ -291,6 +291,17 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     enabled: liveQueryEnabled,
   });
 
+  const refreshCollectionsSnapshot = useCallback(async () => {
+    const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
+    if (!(schemaVerified && canQuery)) {
+      return;
+    }
+    const result = await (
+      db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
+    ).query(COLLECTIONS_QUERY);
+    setCachedCollections(normalizeCollectionRows(result.rows));
+  }, [db, schemaVerified, setCachedCollections]);
+
   // Listen for embedding set update events (create/delete/rename) and refresh live query
   // This ensures UI updates on Electron where PGlite live query may not auto-detect changes
   useEffect(() => {
@@ -308,6 +319,35 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
       window.removeEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
     };
   }, [liveQueryEnabled, refresh]);
+
+  const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
+
+  useEffect(() => {
+    const wasEnabled = previousLiveQueryEnabledRef.current;
+    previousLiveQueryEnabledRef.current = liveQueryEnabled;
+    if (!(liveQueryEnabled && !wasEnabled)) {
+      return;
+    }
+    void refresh();
+  }, [liveQueryEnabled, refresh]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleQueueDrained = () => {
+      if (liveQueryEnabled) {
+        void refresh();
+      }
+      void refreshCollectionsSnapshot();
+    };
+
+    window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
+    return () => {
+      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
+    };
+  }, [liveQueryEnabled, refresh, refreshCollectionsSnapshot]);
 
   const collections = useMemo<CollectionWithDocCount[]>(
     () => normalizeCollectionRows(rawCollections),

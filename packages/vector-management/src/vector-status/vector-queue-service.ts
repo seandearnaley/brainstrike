@@ -92,6 +92,52 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+async function getEmbeddingSetQueueCounts(
+  db: VectorQueueDatabase,
+  embeddingSetId: string
+): Promise<QueueCounts> {
+  const result = await db.query<QueueCounts>(
+    `SELECT
+       COUNT(*) FILTER (WHERE state = 'queued')::int AS queued,
+       COUNT(*) FILTER (WHERE state = 'running')::int AS running,
+       COUNT(*) FILTER (WHERE state = 'failed')::int AS failed,
+       COUNT(*) FILTER (WHERE state = 'succeeded')::int AS succeeded
+     FROM job_queue
+     WHERE queue = $1
+       AND job_type = 'embed_chunk'
+       AND payload->>'embeddingSetId' = $2`,
+    [EMBEDDINGS_QUEUE, embeddingSetId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return {
+      queued: 0,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    };
+  }
+  return {
+    queued: Number(row.queued ?? 0),
+    running: Number(row.running ?? 0),
+    failed: Number(row.failed ?? 0),
+    succeeded: Number(row.succeeded ?? 0),
+  };
+}
+
+async function waitForEmbeddingSetDrain(
+  db: VectorQueueDatabase,
+  embeddingSetId: string
+): Promise<QueueCounts> {
+  while (true) {
+    const counts = await getEmbeddingSetQueueCounts(db, embeddingSetId);
+    if (counts.queued === 0 && counts.running === 0) {
+      return counts;
+    }
+    await sleep(BACKFILL_BACKLOG_POLL_MS);
+  }
+}
+
 async function getEmbeddingQueueBacklog(
   jobQueue: Pick<JobQueue, 'getQueueStats'>
 ): Promise<number> {
@@ -332,22 +378,19 @@ export function createVectorQueueService(
         onProgress(total, total);
       }
 
-      const stats = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE);
+      const drainedCounts = await waitForEmbeddingSetDrain(db, activeSetId);
+      if (drainedCounts.failed > 0) {
+        throw new Error(
+          `Backfill failed for embedding set '${activeSetId}': ${drainedCounts.failed} job(s) failed.`
+        );
+      }
       logger.info('Backfill complete', {
         embeddingSetId: activeSetId,
         total,
         enqueued: done,
-        queueCounts: stats[0] ?? null,
+        queueCounts: drainedCounts,
       });
-      const snapshot = stats[0];
-      return snapshot
-        ? {
-            queued: snapshot.queued,
-            running: snapshot.running,
-            failed: snapshot.failed,
-            succeeded: snapshot.succeeded,
-          }
-        : defaultCounts;
+      return drainedCounts;
     },
 
     async retryFailed(limit) {

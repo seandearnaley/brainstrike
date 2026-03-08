@@ -34,6 +34,10 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       await clearPersistentUiState({ skipIndexedDb });
       // Ensure a full reload so the renderer boots cleanly.
       try {
+        const currentWindow = window as Window & {
+          desktopLifecycle?: { noteReloadIntent: (reason: string) => void };
+        };
+        currentWindow.desktopLifecycle?.noteReloadIntent('factory-reset');
         window.location.reload();
       } catch {
         /* swallow reload errors; UI may still be in a reset state */

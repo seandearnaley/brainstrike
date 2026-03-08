@@ -5,6 +5,16 @@ interface ImportMetaLike {
 
 const IMPORT_META_OVERRIDE_KEY = '__BRAINSTRIKE_IMPORT_META__';
 
+function usesTypeScriptSource(url: string): boolean {
+  return (
+    url.endsWith('.ts') || url.endsWith('.tsx') || url.endsWith('.mts') || url.endsWith('.cts')
+  );
+}
+
+function getSourceWorkerPath(path: string): string {
+  return path.replace(/\.js$/, '.ts');
+}
+
 function readImportMetaOverride(): ImportMetaLike | null {
   const override = (globalThis as Record<string, unknown>)[IMPORT_META_OVERRIDE_KEY];
   if (!override || typeof override !== 'object') {
@@ -42,7 +52,9 @@ export function resolveEmbeddingWorkerUrl(): URL {
   const override = readImportMetaOverride();
   if (override) {
     if (typeof override.url === 'string') {
-      return new URL('./embedding.worker.js', override.url);
+      return usesTypeScriptSource(override.url)
+        ? new URL(getSourceWorkerPath('./embedding.worker.js'), override.url)
+        : new URL('./embedding.worker.js', override.url);
     }
     if (typeof override.dirname === 'string') {
       return new URL('./embedding.worker.js', `file://${override.dirname}/`);
@@ -55,7 +67,9 @@ export function resolveEmbeddingWorkerUrl(): URL {
   }
 
   if (typeof import.meta.url === 'string') {
-    return new URL('./embedding.worker.js', import.meta.url);
+    return usesTypeScriptSource(import.meta.url)
+      ? new URL(getSourceWorkerPath('./embedding.worker.js'), import.meta.url)
+      : new URL('./embedding.worker.js', import.meta.url);
   }
 
   const meta = getImportMeta();

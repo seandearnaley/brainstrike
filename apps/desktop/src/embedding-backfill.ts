@@ -144,21 +144,30 @@ function resolveEnqueueEmbeddingBackfillOptions(
   };
 }
 
-async function finalizeBackfillCounts(
-  jobQueue: Pick<JobQueue, 'getQueueStats'>,
-  embeddingSetId: string,
-  total: number,
-  done: number
+async function getEmbeddingSetQueueCounts(
+  db: Pick<IDatabase, 'query'>,
+  embeddingSetId: string
 ): Promise<EmbeddingBackfillQueueCounts> {
-  const stats = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE);
-  logger.info('Backfill complete', {
-    embeddingSetId,
-    total,
-    enqueued: done,
-    queueCounts: stats[0] ?? null,
-  });
-  const snapshot = stats[0];
-  if (!snapshot) {
+  const result = await db.query<{
+    failed: number | string | null;
+    queued: number | string | null;
+    running: number | string | null;
+    succeeded: number | string | null;
+  }>(
+    `SELECT
+       COUNT(*) FILTER (WHERE state = 'queued')::int AS queued,
+       COUNT(*) FILTER (WHERE state = 'running')::int AS running,
+       COUNT(*) FILTER (WHERE state = 'failed')::int AS failed,
+       COUNT(*) FILTER (WHERE state = 'succeeded')::int AS succeeded
+     FROM job_queue
+     WHERE queue = $1
+       AND job_type = 'embed_chunk'
+       AND payload->>'embeddingSetId' = $2`,
+    [EMBEDDINGS_QUEUE, embeddingSetId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
     return {
       queued: 0,
       running: 0,
@@ -168,11 +177,57 @@ async function finalizeBackfillCounts(
   }
 
   return {
-    queued: snapshot.queued,
-    running: snapshot.running,
-    failed: snapshot.failed,
-    succeeded: snapshot.succeeded,
+    queued: Number(row.queued ?? 0),
+    running: Number(row.running ?? 0),
+    failed: Number(row.failed ?? 0),
+    succeeded: Number(row.succeeded ?? 0),
   };
+}
+
+function finalizeBackfillCounts(
+  embeddingSetId: string,
+  total: number,
+  done: number,
+  queueCounts: EmbeddingBackfillQueueCounts
+): EmbeddingBackfillQueueCounts {
+  logger.info('Backfill complete', {
+    embeddingSetId,
+    total,
+    enqueued: done,
+    queueCounts,
+  });
+  return queueCounts;
+}
+
+async function countPendingEmbeddingSetJobs(
+  db: Pick<IDatabase, 'query'>,
+  embeddingSetId: string
+): Promise<number> {
+  const result = await db.query<{ count: number | string | null }>(
+    `SELECT COUNT(*)::int AS count
+       FROM job_queue
+      WHERE queue = $1
+        AND state IN ('queued', 'running')
+        AND payload->>'embeddingSetId' = $2`,
+    [EMBEDDINGS_QUEUE, embeddingSetId]
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function waitForEmbeddingSetDrain(
+  db: Pick<IDatabase, 'query'>,
+  embeddingSetId: string,
+  backlogPollMs: number,
+  assertCanContinue?: () => void | Promise<void>
+): Promise<EmbeddingBackfillQueueCounts> {
+  while (true) {
+    await assertCanContinue?.();
+    const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
+    if (pending === 0) {
+      return await getEmbeddingSetQueueCounts(db, embeddingSetId);
+    }
+    await sleep(backlogPollMs);
+  }
 }
 
 async function resolveEmbeddingSetJobMetadata(
@@ -379,7 +434,7 @@ export async function enqueueEmbeddingBackfill(
       embeddingSetId,
       metadata
     );
-    logger.debug('Embedded batch enqueued', {
+    logger.trace('Embedded batch enqueued', {
       embeddingSetId,
       batchSize: batch.length,
       inserted,
@@ -396,5 +451,16 @@ export async function enqueueEmbeddingBackfill(
   }
 
   reportProgress(total, total);
-  return await finalizeBackfillCounts(jobQueue, embeddingSetId, total, done);
+  const drainedCounts = await waitForEmbeddingSetDrain(
+    db,
+    embeddingSetId,
+    backlogPollMs,
+    assertCanContinue
+  );
+  if (drainedCounts.failed > 0) {
+    throw new Error(
+      `Backfill failed for embedding set '${embeddingSetId}': ${drainedCounts.failed} job(s) failed.`
+    );
+  }
+  return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
 }

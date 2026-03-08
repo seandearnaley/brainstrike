@@ -23,7 +23,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from '
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
 import { ChunkingHostManager } from './chunking-host-manager';
-import { createWindow } from './create-window';
+import { createWindow, noteNextWindowReload } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { registerAgentIpcHandlers } from './ipc-agent';
@@ -42,6 +42,7 @@ import type { LoggingSettingsPayload } from './logging-shared';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
+import { getWindowRoleByWebContentsId } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
@@ -265,7 +266,7 @@ const loggingOptions: InitializeLoggingOptions = {
 
 const logger = createLogger('DesktopMain');
 logger.info('Main process started');
-const mainLogBuffer = new LogBuffer({ size: 1000 });
+const mainLogBuffer = new LogBuffer({ size: 3000 });
 const removeLogBufferListener = addLogListener((record) => {
   mainLogBuffer.push(record);
 });
@@ -490,6 +491,17 @@ registerLoggingIpcHandlers({
   selectDestination: selectLogDestination,
   openDestination: openLogDestination,
   getBufferedLogs: () => mainLogBuffer.getRecords(),
+  ingestBufferedLog: (senderId, record) => {
+    mainLogBuffer.push({
+      ...record,
+      bindings: {
+        ...record.bindings,
+        forwardedFrom: 'renderer',
+        sourceWebContentsId: senderId,
+        sourceWindowRole: getWindowRoleByWebContentsId(senderId) ?? 'visible-ui',
+      },
+    });
+  },
 });
 
 // Register IPC handlers early to avoid renderer calls racing registration during startup.
@@ -502,11 +514,34 @@ unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingH
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception:', error);
+  const serializedError =
+    error instanceof Error
+      ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        }
+      : { value: String(error) };
+  logger.error({ error: serializedError }, 'Uncaught exception');
+  // biome-ignore lint/suspicious/noConsole: Uncaught exception details must be visible even if structured logging output is truncated.
+  console.error('[DesktopMain] Uncaught exception', serializedError);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled promise rejection', { reason, promise });
+  const serializedReason =
+    reason instanceof Error
+      ? {
+          name: reason.name,
+          message: reason.message,
+          stack: reason.stack,
+        }
+      : { value: String(reason) };
+  logger.error({ promise, reason: serializedReason }, 'Unhandled promise rejection');
+  // biome-ignore lint/suspicious/noConsole: Unhandled rejection details must be visible even if structured logging output is truncated.
+  console.error('[DesktopMain] Unhandled promise rejection', {
+    promise,
+    reason: serializedReason,
+  });
 });
 registerShutdownSignalHandlers();
 
@@ -609,7 +644,25 @@ if (singleInstanceLockAcquired) {
         {
           label: 'View',
           submenu: [
-            { role: 'reload' },
+            {
+              label: 'Reload',
+              accelerator: process.platform === 'darwin' ? 'Cmd+R' : 'Ctrl+R',
+              click: (_menuItem, browserWindow) => {
+                const targetWindow =
+                  browserWindow instanceof BrowserWindow
+                    ? browserWindow
+                    : BrowserWindow.getFocusedWindow();
+                if (!targetWindow || targetWindow.isDestroyed()) {
+                  logger.warn('Skipped menu reload because no target window was focused');
+                  return;
+                }
+                noteNextWindowReload(targetWindow, {
+                  reason: 'menu-reload',
+                  source: 'main',
+                });
+                targetWindow.webContents.reload();
+              },
+            },
             { role: 'toggleDevTools' },
             { type: 'separator' },
             { role: 'resetZoom' },
@@ -649,6 +702,10 @@ if (singleInstanceLockAcquired) {
                     message: 'Local database has been reset. The app will reload.',
                   });
                   for (const win of BrowserWindow.getAllWindows()) {
+                    noteNextWindowReload(win, {
+                      reason: 'developer-reset-local-database',
+                      source: 'main',
+                    });
                     win.webContents.reloadIgnoringCache();
                   }
                 } catch (error) {
@@ -675,6 +732,21 @@ if (singleInstanceLockAcquired) {
 
       // IPC to provide assistant URL to renderer
       ipcMain.handle('assistant:get-url', () => assistantUrl);
+      ipcMain.on('app:lifecycle:note-reload-intent', (event, reason: unknown) => {
+        if (typeof reason !== 'string' || reason.trim().length === 0) {
+          logger.warn({ reason }, 'Rejected renderer reload intent with invalid reason');
+          return;
+        }
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window || window.isDestroyed()) {
+          logger.warn({ reason }, 'Rejected renderer reload intent from unknown window');
+          return;
+        }
+        noteNextWindowReload(window, {
+          reason: reason.trim(),
+          source: 'renderer',
+        });
+      });
 
       const createMainWindow = async () => {
         // Store is guaranteed to exist after app.whenReady()

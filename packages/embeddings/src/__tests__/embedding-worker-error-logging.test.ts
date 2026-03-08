@@ -20,6 +20,7 @@ const loggerCalls = {
   warn: [] as unknown[][],
   info: [] as unknown[][],
   debug: [] as unknown[][],
+  trace: [] as unknown[][],
 };
 
 vi.mock('@brainstrike/utils', async (importOriginal) => {
@@ -31,6 +32,7 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
       warn: (...args: unknown[]) => loggerCalls.warn.push(args),
       info: (...args: unknown[]) => loggerCalls.info.push(args),
       debug: (...args: unknown[]) => loggerCalls.debug.push(args),
+      trace: (...args: unknown[]) => loggerCalls.trace.push(args),
     }),
     generateUUID: () => 'test-uuid',
   };
@@ -138,6 +140,7 @@ describe('embedding-worker error logging', () => {
     loggerCalls.warn.length = 0;
     loggerCalls.info.length = 0;
     loggerCalls.debug.length = 0;
+    loggerCalls.trace.length = 0;
     clearModelConfigCache();
     db = await wasmLoader.createPGlite('memory://embedding-worker-error-logging');
     await migrate(db);

@@ -72,25 +72,28 @@ const WARMUP_BASE_DELAY_MS = 500;
 async function runWorkerWarmup(
   pool: WorkerPool,
   isCancelled: () => boolean
-): Promise<{ success: boolean; attempts: number }> {
+): Promise<{ attempts: number; lastError: Error | null; success: boolean }> {
   const warmupRequest: TokenCountRequest = {
     id: '__warmup__',
     content: '',
     mode: 'heuristic',
   };
+  let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < WARMUP_MAX_RETRIES; attempt++) {
     if (isCancelled()) {
-      return { success: false, attempts: attempt };
+      return { success: false, attempts: attempt, lastError };
     }
     try {
       await pool.exec('countTokens', [warmupRequest]);
-      return { success: true, attempts: attempt + 1 };
+      return { success: true, attempts: attempt + 1, lastError: null };
     } catch (error) {
+      lastError =
+        error instanceof Error ? error : new Error(`Token cache warmup failed: ${String(error)}`);
       const isLastAttempt = attempt === WARMUP_MAX_RETRIES - 1;
       logger.debug('TokenCacheProvider: warmup attempt failed', {
         attempt: attempt + 1,
-        error: error instanceof Error ? error.message : String(error),
+        error: lastError.message,
         isLastAttempt,
       });
       if (!isLastAttempt) {
@@ -99,7 +102,26 @@ async function runWorkerWarmup(
       }
     }
   }
-  return { success: false, attempts: WARMUP_MAX_RETRIES };
+  return { success: false, attempts: WARMUP_MAX_RETRIES, lastError };
+}
+
+const terminalWorkerInitErrorsByUrl = new Map<string, Error>();
+
+export function __resetTokenCacheWorkerInitErrorsForTests(): void {
+  terminalWorkerInitErrorsByUrl.clear();
+}
+
+function getResolvedTokenCacheWorkerUrl(workerUrl: string | undefined): string {
+  return workerUrl ?? resolveTokenCacheWorkerUrl().href;
+}
+
+function buildTokenCacheWarmupError(attempts: number, lastError: Error | null): Error {
+  const lastErrorMessage = lastError?.message;
+  return new Error(
+    lastErrorMessage
+      ? `Token cache worker warmup failed after ${attempts} attempts: ${lastErrorMessage}`
+      : `Token cache worker warmup failed after ${attempts} attempts`
+  );
 }
 
 class InMemoryTokenCacheStore {
@@ -404,18 +426,68 @@ export function TokenCacheProvider({
   }, [hasher]);
 
   const initializeWorkerPool = useMemo(() => {
-    const markWorkerUnavailable = (error: Error): void => {
+    const markWorkerUnavailable = (resolvedWorkerUrl: string, error: Error): void => {
+      terminalWorkerInitErrorsByUrl.set(resolvedWorkerUrl, error);
       dispatchWorker({ type: 'WARMUP_FAILED', error, noopPool: noopWorkerPool });
     };
 
-    return async (): Promise<WorkerPool> => {
+    const throwIfWorkerUnavailable = (resolvedWorkerUrl: string): void => {
       if (providerDisposedRef.current) {
         throw new Error('Token cache worker requested after provider cleanup');
+      }
+
+      const terminalInitError = terminalWorkerInitErrorsByUrl.get(resolvedWorkerUrl);
+      if (terminalInitError) {
+        dispatchWorker({
+          type: 'WARMUP_FAILED',
+          error: terminalInitError,
+          noopPool: noopWorkerPool,
+        });
+        throw terminalInitError;
       }
 
       if (workerInitError) {
         throw workerInitError;
       }
+    };
+
+    const createAndWarmWorkerPool = async (resolvedWorkerUrl: string): Promise<WorkerPool> => {
+      const pool = (await createTokenCacheWorkerPool(resolvedWorkerUrl)) as WorkerPool;
+      if (providerDisposedRef.current) {
+        await pool.terminate();
+        throw new Error('Token cache worker initialization was cancelled during cleanup');
+      }
+
+      workerPoolRef.current = pool;
+      dispatchWorker({ type: 'POOL_CREATED', pool });
+
+      const result = await runWorkerWarmup(pool, () => providerDisposedRef.current);
+      if (providerDisposedRef.current) {
+        await pool.terminate();
+        throw new Error('Token cache worker warmup was cancelled during cleanup');
+      }
+
+      if (!result.success) {
+        const warmupError = buildTokenCacheWarmupError(result.attempts, result.lastError);
+        logger.error(warmupError.message, { attempts: result.attempts });
+        markWorkerUnavailable(resolvedWorkerUrl, warmupError);
+        workerPoolRef.current = null;
+        await pool.terminate();
+        throw warmupError;
+      }
+
+      terminalWorkerInitErrorsByUrl.delete(resolvedWorkerUrl);
+      dispatchWorker({ type: 'WARMUP_SUCCESS' });
+      logger.debug('TokenCacheProvider: worker warmup succeeded', {
+        attempts: result.attempts,
+        lazyWorkerInit,
+      });
+      return pool;
+    };
+
+    return async (): Promise<WorkerPool> => {
+      const resolvedWorkerUrl = getResolvedTokenCacheWorkerUrl(workerUrl);
+      throwIfWorkerUnavailable(resolvedWorkerUrl);
 
       if (workerReady && workerPoolRef.current) {
         return workerPoolRef.current;
@@ -425,50 +497,19 @@ export function TokenCacheProvider({
         return workerInitPromiseRef.current;
       }
 
-      const url = workerUrl ?? resolveTokenCacheWorkerUrl().href;
-      logger.debug('TokenCacheProvider: creating worker pool', { url, lazyWorkerInit });
+      logger.debug('TokenCacheProvider: creating worker pool', {
+        url: resolvedWorkerUrl,
+        lazyWorkerInit,
+      });
 
-      const initPromise = (async (): Promise<WorkerPool> => {
-        const pool = (await createTokenCacheWorkerPool(url)) as WorkerPool;
-        if (providerDisposedRef.current) {
-          await pool.terminate();
-          throw new Error('Token cache worker initialization was cancelled during cleanup');
-        }
-
-        workerPoolRef.current = pool;
-        dispatchWorker({ type: 'POOL_CREATED', pool });
-
-        const result = await runWorkerWarmup(pool, () => providerDisposedRef.current);
-        if (providerDisposedRef.current) {
-          await pool.terminate();
-          throw new Error('Token cache worker warmup was cancelled during cleanup');
-        }
-
-        if (!result.success) {
-          const warmupError = new Error(
-            `Token cache worker warmup failed after ${result.attempts} attempts`
-          );
-          logger.error(warmupError.message, { attempts: result.attempts });
-          markWorkerUnavailable(warmupError);
-          workerPoolRef.current = null;
-          await pool.terminate();
-          throw warmupError;
-        }
-
-        dispatchWorker({ type: 'WARMUP_SUCCESS' });
-        logger.debug('TokenCacheProvider: worker warmup succeeded', {
-          attempts: result.attempts,
-          lazyWorkerInit,
-        });
-        return pool;
-      })().catch((error: unknown) => {
+      const initPromise = createAndWarmWorkerPool(resolvedWorkerUrl).catch((error: unknown) => {
         const initError =
           error instanceof Error
             ? error
             : new Error(`Failed to create token cache worker pool: ${String(error)}`);
         if (!providerDisposedRef.current) {
           logger.error('TokenCacheProvider: failed to create worker pool', { error: initError });
-          markWorkerUnavailable(initError);
+          markWorkerUnavailable(resolvedWorkerUrl, initError);
         }
         workerPoolRef.current = null;
         throw initError;

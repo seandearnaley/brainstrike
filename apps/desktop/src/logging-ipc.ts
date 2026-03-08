@@ -5,6 +5,7 @@ import type { LoggingSettingsPayload } from './logging-shared';
 export interface LoggingIpcHandlers {
   getBufferedLogs: () => readonly LogRecord[];
   getState: () => LoggingSettingsPayload;
+  ingestBufferedLog: (senderId: number, record: LogRecord) => void;
   openDestination: (target: string | null) => Promise<boolean>;
   selectDestination: () => Promise<string | null>;
   setPreferences: (
@@ -44,6 +45,56 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {
   );
 
   ipcMain.handle('logging:get-buffered-logs', async () => handlers.getBufferedLogs());
+  ipcMain.on('logging:ingest-buffered-record', (event, payload: unknown) => {
+    handlers.ingestBufferedLog(event.sender.id, assertLogRecord(payload));
+  });
+}
+
+function assertLogRecord(payload: unknown): LogRecord {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Buffered log record must be an object.');
+  }
+
+  const candidate = payload as Record<string, unknown>;
+  if (
+    candidate['level'] !== 'trace' &&
+    candidate['level'] !== 'debug' &&
+    candidate['level'] !== 'info' &&
+    candidate['level'] !== 'warn' &&
+    candidate['level'] !== 'error' &&
+    candidate['level'] !== 'fatal' &&
+    candidate['level'] !== 'silent'
+  ) {
+    throw new Error('Buffered log record has invalid level.');
+  }
+  if (typeof candidate['timestamp'] !== 'number' || !Number.isFinite(candidate['timestamp'])) {
+    throw new Error('Buffered log record must include a finite numeric timestamp.');
+  }
+  if (!Array.isArray(candidate['args'])) {
+    throw new Error('Buffered log record must include args array.');
+  }
+  if (
+    !candidate['bindings'] ||
+    typeof candidate['bindings'] !== 'object' ||
+    Array.isArray(candidate['bindings'])
+  ) {
+    throw new Error('Buffered log record must include bindings object.');
+  }
+  if (candidate['message'] !== undefined && typeof candidate['message'] !== 'string') {
+    throw new Error('Buffered log record message must be a string when present.');
+  }
+  if (candidate['scope'] !== undefined && typeof candidate['scope'] !== 'string') {
+    throw new Error('Buffered log record scope must be a string when present.');
+  }
+
+  return {
+    level: candidate['level'] as LogRecord['level'],
+    timestamp: candidate['timestamp'],
+    args: candidate['args'],
+    bindings: candidate['bindings'] as Record<string, unknown>,
+    ...(typeof candidate['message'] === 'string' ? { message: candidate['message'] } : {}),
+    ...(typeof candidate['scope'] === 'string' ? { scope: candidate['scope'] } : {}),
+  } satisfies LogRecord;
 }
 
 function broadcastLoggingPreferences(preferences: LoggingPreferences): void {

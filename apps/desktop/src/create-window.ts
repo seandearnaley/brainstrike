@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
 import { app, BrowserWindow } from 'electron';
 import type { DesktopWindowState } from './store-schema';
+import { assignWindowRole, getWindowRole } from './window-role';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
 
 const startupLogger = createLogger('CreateWindow');
@@ -53,6 +54,21 @@ const DEV_RENDERER_URL =
   process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim() || 'http://localhost:8081';
 const MAX_RENDERER_CRASHES_IN_WINDOW = 3;
 const RENDERER_CRASH_WINDOW_MS = 30_000;
+const pendingWindowReloadMetadata = new WeakMap<BrowserWindow, WindowReloadMetadata>();
+
+interface WindowReloadMetadata {
+  readonly reason: string;
+  readonly source: 'main' | 'renderer';
+}
+
+function getCurrentWindowUrl(win: BrowserWindow): string | null {
+  try {
+    const currentUrl = win.webContents.getURL();
+    return currentUrl.trim().length > 0 ? currentUrl : null;
+  } catch {
+    return null;
+  }
+}
 
 function shouldAutoOpenDevTools(): boolean {
   return process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] === '1';
@@ -101,6 +117,10 @@ async function connectToDevServer(win: BrowserWindow) {
       cause: lastError instanceof Error ? lastError : undefined,
     }
   );
+}
+
+export function noteNextWindowReload(win: BrowserWindow, metadata: WindowReloadMetadata): void {
+  pendingWindowReloadMetadata.set(win, metadata);
 }
 
 /**
@@ -170,6 +190,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   const startupStartedAt = Date.now();
   let crashCountInWindow = 0;
   let lastCrashAt = 0;
+  let hasFinishedInitialLoad = false;
   const logStartupPhase = (phase: string, extra: Record<string, unknown> = {}) => {
     startupLogger.info(
       { elapsedMs: Date.now() - startupStartedAt, ...extra },
@@ -211,6 +232,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     backgroundColor: '#0b1020',
     show: false,
   });
+  assignWindowRole(win, 'visible-ui');
 
   logStartupPhase('browser-window-created', {
     isTestMode,
@@ -218,12 +240,36 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   });
 
   win.webContents.on('did-start-loading', () => {
-    logStartupPhase('did-start-loading');
+    const reloadMetadata = pendingWindowReloadMetadata.get(win);
+    if (reloadMetadata) {
+      pendingWindowReloadMetadata.delete(win);
+      logStartupPhase('did-start-loading', {
+        reloadReason: reloadMetadata.reason,
+        reloadSource: reloadMetadata.source,
+        windowRole: getWindowRole(win) ?? 'visible-ui',
+      });
+      return;
+    }
+    if (hasFinishedInitialLoad) {
+      logStartupPhase('did-start-loading', {
+        reloadReason: 'unattributed-post-startup-load',
+        reloadSource: 'unknown',
+        windowRole: getWindowRole(win) ?? 'visible-ui',
+        url: getCurrentWindowUrl(win),
+      });
+      return;
+    }
+    logStartupPhase('did-start-loading', {
+      reloadReason: 'initial-load',
+      reloadSource: 'main',
+      windowRole: getWindowRole(win) ?? 'visible-ui',
+    });
   });
   win.webContents.on('dom-ready', () => {
     logStartupPhase('dom-ready');
   });
   win.webContents.on('did-finish-load', () => {
+    hasFinishedInitialLoad = true;
     logStartupPhase('did-finish-load');
   });
   win.webContents.on(
@@ -259,6 +305,10 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     pendingRendererRecovery = false;
     startupLogger.info('Executing deferred renderer reload');
     try {
+      noteNextWindowReload(win, {
+        reason: 'renderer-crash-recovery',
+        source: 'main',
+      });
       win.webContents.reload();
     } catch (reloadError) {
       startupLogger.error({ reloadError }, 'Renderer reload failed after crash');
@@ -290,6 +340,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
           reason: details.reason,
           exitCode: details.exitCode,
           elapsedMs: Date.now() - startupStartedAt,
+          windowRole: getWindowRole(win) ?? 'visible-ui',
         },
         'Renderer process gone'
       );
@@ -328,6 +379,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
             reason: details.reason,
             exitCode: details.exitCode,
             crashCountInWindow,
+            windowRole: getWindowRole(win) ?? 'visible-ui',
           },
           'Renderer crashed; deferring recovery (immediate reload causes main-thread freeze)'
         );

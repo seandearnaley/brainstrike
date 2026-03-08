@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { mockFileSystemOperations } from './utils/electron-helpers';
 
@@ -29,6 +29,16 @@ async function ensureViewFiltersExpanded(window: Page): Promise<void> {
   await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
 }
 
+async function resolvePresetTrigger(window: Page): Promise<Locator> {
+  const explorerPanel = window.locator('#explorer-panel');
+  const presetTrigger = explorerPanel
+    .locator('button')
+    .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
+    .first();
+  await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
+  return presetTrigger;
+}
+
 async function selectMockRoot(window: Page): Promise<void> {
   const selectRootButton = window.getByRole('button', { name: /select root/i }).first();
   await expect(selectRootButton).toBeVisible({ timeout: 10_000 });
@@ -40,14 +50,15 @@ async function selectMockRoot(window: Page): Promise<void> {
 }
 
 async function selectDocumentationPreset(window: Page): Promise<void> {
-  const selectedDocumentationTrigger = window.getByRole('button', { name: /documentation/i });
+  const selectedDocumentationTrigger = window.locator('#explorer-panel').getByRole('button', {
+    name: /documentation/i,
+  });
   if (await selectedDocumentationTrigger.isVisible().catch(() => false)) {
     await expect(window.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });
     return;
   }
 
-  const presetTrigger = window.getByRole('button', { name: /select filter/i });
-  await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
+  const presetTrigger = await resolvePresetTrigger(window);
   await presetTrigger.click();
 
   const documentationOption = window.getByRole('button', { name: /documentation/i }).first();
@@ -61,7 +72,9 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
 }
 
 async function switchPreset(window: Page, currentName: RegExp, nextName: RegExp): Promise<void> {
-  const presetTrigger = window.getByRole('button', { name: currentName });
+  const presetTrigger = window.locator('#explorer-panel').getByRole('button', {
+    name: currentName,
+  });
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
   await presetTrigger.click();
 

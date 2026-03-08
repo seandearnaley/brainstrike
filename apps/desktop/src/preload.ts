@@ -37,6 +37,7 @@ const CHUNKING_HOST_RESET_CHANNEL = 'chunking-host:reset' as const;
 const CHUNKING_HOST_GET_STATUS_CHANNEL = 'chunking-host:get-status' as const;
 const CHUNKING_HOST_CHUNK_FILE_CHANNEL = 'chunking-host:chunk-file' as const;
 const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = 'chunking-host:chunk-batch' as const;
+const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
 
 type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 type ChunkingHostLifecycleState = EmbeddingHostLifecycleState;
@@ -218,6 +219,11 @@ contextBridge.exposeInMainWorld('settings', {
   clearAll: () => ipcRenderer.invoke('settings:clearAll'),
 });
 
+contextBridge.exposeInMainWorld('desktopLifecycle', {
+  noteReloadIntent: (reason: string) =>
+    ipcRenderer.send(APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL, reason),
+});
+
 // Local Agent API (non-streaming aggregate; renderer can pseudo-stream chunks)
 contextBridge.exposeInMainWorld('agent', {
   chat: (messages: unknown[], runtime?: unknown) =>
@@ -284,6 +290,9 @@ contextBridge.exposeInMainWorld('logging', {
   openDestination: (target: string | null): Promise<boolean> =>
     ipcRenderer.invoke('logging:open-destination', target ?? null),
   getBufferedLogs: (): Promise<LogRecord[]> => ipcRenderer.invoke('logging:get-buffered-logs'),
+  ingestBufferedRecord: (record: LogRecord): void => {
+    ipcRenderer.send('logging:ingest-buffered-record', record);
+  },
   onPreferencesUpdated: (callback: (preferences: LoggingPreferences) => void) => {
     const listener = (_event: unknown, prefs: LoggingPreferences) => callback(prefs);
     ipcRenderer.on('logging:preferences-updated', listener);

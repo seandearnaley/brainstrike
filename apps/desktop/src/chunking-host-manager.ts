@@ -1,7 +1,5 @@
-import { EventEmitter } from 'node:events';
-import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
-import { app, BrowserWindow } from 'electron';
+import { BrowserWindow } from 'electron';
 import {
   CHUNKING_HOST_PROGRESS_EVENT,
   CHUNKING_HOST_REQUEST_EVENT,
@@ -14,27 +12,11 @@ import {
   type ChunkingHostStatusReport,
   createStoppedChunkingHostStatus,
 } from './chunking-host-shared';
+import { RendererHostLifecycle, type RendererHostStatusShape } from './renderer-host-lifecycle';
 
 const logger = createLogger('ChunkingHostManager');
 
-const DEV_RENDERER_URL =
-  process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim() || 'http://localhost:8081';
-const HOST_READY_TIMEOUT_MS = 30_000;
-
-function resolveDistRoot(): string {
-  const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
-  return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
-}
-
-function createErrorStatus(message: string): ChunkingHostStatus {
-  return {
-    state: 'error',
-    active: false,
-    lastError: message,
-  };
-}
-
-function copyStatus(status: ChunkingHostStatus): ChunkingHostStatus {
+function createChunkingHostStatus(status: RendererHostStatusShape): ChunkingHostStatus {
   return {
     state: status.state,
     active: status.active,
@@ -61,83 +43,84 @@ function createRequestFailure(message: string): Error {
 }
 
 export class ChunkingHostManager {
-  private readonly events = new EventEmitter();
-  private hostWindow: BrowserWindow | null = null;
+  private readonly lifecycle: RendererHostLifecycle<ChunkingHostStatus>;
   private readonly pendingRequests = new Map<string, PendingChunkingRequest>();
-  private status: ChunkingHostStatus = createStoppedChunkingHostStatus();
+
+  constructor() {
+    this.lifecycle = new RendererHostLifecycle<ChunkingHostStatus>({
+      createStatus: createChunkingHostStatus,
+      createStoppedStatus: createStoppedChunkingHostStatus,
+      mode: 'chunking-host',
+      onDidFailLoad: ({ errorCode, errorDescription, message, url }) => {
+        logger.error(message, {
+          errorCode,
+          errorDescription,
+          url,
+          windowRole: 'chunking-host',
+        });
+        this.rejectPendingRequests(message);
+        this.lifecycle.setStatus(
+          createChunkingHostStatus({
+            state: 'error',
+            active: false,
+            lastError: message,
+          })
+        );
+      },
+      onRenderProcessGone: ({ exitCode, message, reason }) => {
+        logger.error(message, {
+          reason,
+          exitCode,
+          windowRole: 'chunking-host',
+        });
+        this.rejectPendingRequests(message);
+        this.lifecycle.setStatus(
+          createChunkingHostStatus({
+            state: 'error',
+            active: false,
+            lastError: message,
+          })
+        );
+      },
+      onWindowClosed: () => {
+        this.rejectPendingRequests('Chunking host window closed while requests were in flight.');
+        this.lifecycle.setStatus(createStoppedChunkingHostStatus());
+      },
+      role: 'chunking-host',
+      statusEventName: CHUNKING_HOST_STATUS_EVENT,
+      timeoutMessage: 'Timed out waiting for chunking host state transition.',
+    });
+  }
 
   getStatus(): ChunkingHostStatus {
-    return copyStatus(this.status);
+    return this.lifecycle.getStatus();
   }
 
   isHostWindow(window: BrowserWindow): boolean {
-    return this.hostWindow?.id === window.id;
+    return this.lifecycle.isHostWindow(window);
   }
 
   async ensureStarted(options?: { waitForRunning?: boolean }): Promise<ChunkingHostStatus> {
-    const waitForRunning = options?.waitForRunning ?? true;
-    const existingWindow = this.hostWindow;
-
-    if (existingWindow && !existingWindow.isDestroyed()) {
-      if (!waitForRunning) {
-        return this.getStatus();
-      }
-      if (this.status.state === 'running' || this.status.state === 'error') {
-        return this.getStatus();
-      }
-      return this.waitForStatus(
-        (status) => status.state === 'running' || status.state === 'error',
-        HOST_READY_TIMEOUT_MS
-      );
-    }
-
-    this.setStatus({
-      state: 'starting',
-      active: false,
-      lastError: null,
-    });
-
-    try {
-      const window = await this.createWindow();
-      this.hostWindow = window;
-      this.attachWindow(window);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.setStatus(createErrorStatus(message));
-      return this.getStatus();
-    }
-
-    if (!waitForRunning) {
-      return this.getStatus();
-    }
-
-    try {
-      return await this.waitForStatus(
-        (status) => status.state === 'running' || status.state === 'error',
-        HOST_READY_TIMEOUT_MS
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.setStatus(createErrorStatus(message));
-      return this.getStatus();
-    }
+    return this.lifecycle.ensureStarted(options);
   }
 
   async stop(): Promise<ChunkingHostStatus> {
-    const window = this.hostWindow;
     this.rejectPendingRequests('Chunking host stopped while requests were in flight.');
-    this.setStatus({
-      state: 'stopping',
-      active: false,
-      lastError: null,
-    });
+    this.lifecycle.setStatus(
+      createChunkingHostStatus({
+        state: 'stopping',
+        active: false,
+        lastError: null,
+      })
+    );
 
+    const window = this.lifecycle.getHostWindow();
     if (window && !window.isDestroyed()) {
-      window.destroy();
+      this.lifecycle.destroyHostWindow();
     }
 
-    this.hostWindow = null;
-    this.setStatus(createStoppedChunkingHostStatus());
+    this.lifecycle.clearHostWindow();
+    this.lifecycle.setStatus(createStoppedChunkingHostStatus());
     return this.getStatus();
   }
 
@@ -148,8 +131,7 @@ export class ChunkingHostManager {
 
   async dispose(): Promise<void> {
     await this.stop();
-    this.events.removeAllListeners();
-    this.status = createStoppedChunkingHostStatus();
+    this.lifecycle.dispose();
   }
 
   async chunkFile(
@@ -171,7 +153,7 @@ export class ChunkingHostManager {
         resolve,
         reject,
       });
-      this.hostWindow?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, request);
+      this.lifecycle.getHostWindow()?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, request);
     });
   }
 
@@ -194,12 +176,12 @@ export class ChunkingHostManager {
         resolve,
         reject,
       });
-      this.hostWindow?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, request);
+      this.lifecycle.getHostWindow()?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, request);
     });
   }
 
   acceptStatusReport(senderId: number, report: ChunkingHostStatusReport): void {
-    const window = this.hostWindow;
+    const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       return;
     }
@@ -207,15 +189,17 @@ export class ChunkingHostManager {
       logger.warn('Rejected chunking host status report from unknown renderer', { senderId });
       return;
     }
-    this.setStatus({
-      state: report.state,
-      active: report.active,
-      lastError: report.lastError,
-    });
+    this.lifecycle.setStatus(
+      createChunkingHostStatus({
+        state: report.state,
+        active: report.active,
+        lastError: report.lastError,
+      })
+    );
   }
 
   acceptResponseReport(senderId: number, report: ChunkingHostResponseReport): void {
-    const window = this.hostWindow;
+    const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       return;
     }
@@ -287,7 +271,8 @@ export class ChunkingHostManager {
     if (status.state !== 'running') {
       throw new Error(`Chunking host is not ready for requests (state: ${status.state}).`);
     }
-    if (!(this.hostWindow && !this.hostWindow.isDestroyed())) {
+    const window = this.lifecycle.getHostWindow();
+    if (!(window && !window.isDestroyed())) {
       throw new Error('Chunking host window is not available.');
     }
   }
@@ -313,121 +298,6 @@ export class ChunkingHostManager {
     for (const [requestId, pending] of this.pendingRequests) {
       pending.reject(failure);
       this.pendingRequests.delete(requestId);
-    }
-  }
-
-  private async createWindow(): Promise<BrowserWindow> {
-    const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
-    const enableSandbox = !isTestMode;
-    const preloadPath = path.join(resolveDistRoot(), 'preload.js');
-    const window = new BrowserWindow({
-      width: 320,
-      height: 240,
-      show: false,
-      skipTaskbar: true,
-      focusable: false,
-      webPreferences: {
-        preload: preloadPath,
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: enableSandbox,
-        webSecurity: true,
-        allowRunningInsecureContent: false,
-        experimentalFeatures: false,
-        safeDialogs: true,
-        navigateOnDragDrop: false,
-        backgroundThrottling: false,
-      },
-    });
-
-    if (app.isPackaged || isTestMode) {
-      await window.loadFile(path.join(resolveDistRoot(), 'renderer/index.html'), {
-        query: { mode: 'chunking-host' },
-      });
-      return window;
-    }
-
-    await window.loadURL(`${DEV_RENDERER_URL}?mode=chunking-host`);
-    return window;
-  }
-
-  private attachWindow(window: BrowserWindow): void {
-    window.on('closed', () => {
-      if (this.hostWindow?.id !== window.id) {
-        return;
-      }
-      this.hostWindow = null;
-      this.rejectPendingRequests('Chunking host window closed while requests were in flight.');
-      this.setStatus(createStoppedChunkingHostStatus());
-    });
-
-    window.webContents.on('render-process-gone', (_event, details) => {
-      if (this.hostWindow?.id !== window.id) {
-        return;
-      }
-      const message = `Chunking host renderer exited (${details.reason}, code ${details.exitCode})`;
-      logger.error(message, {
-        reason: details.reason,
-        exitCode: details.exitCode,
-      });
-      this.rejectPendingRequests(message);
-      this.setStatus(createErrorStatus(message));
-    });
-
-    window.webContents.on(
-      'did-fail-load',
-      (_event, errorCode, errorDescription, url, isMainFrame) => {
-        if (!isMainFrame) {
-          return;
-        }
-        const message = `Chunking host failed to load (${errorCode}): ${errorDescription}`;
-        logger.error(message, { url });
-        this.rejectPendingRequests(message);
-        this.setStatus(createErrorStatus(message));
-      }
-    );
-  }
-
-  private waitForStatus(
-    predicate: (status: ChunkingHostStatus) => boolean,
-    timeoutMs: number
-  ): Promise<ChunkingHostStatus> {
-    if (predicate(this.status)) {
-      return Promise.resolve(this.getStatus());
-    }
-
-    return new Promise<ChunkingHostStatus>((resolve, reject) => {
-      const listener = (status: ChunkingHostStatus) => {
-        if (!predicate(status)) {
-          return;
-        }
-        clearTimeout(timeoutId);
-        this.events.removeListener(CHUNKING_HOST_STATUS_EVENT, listener);
-        resolve(copyStatus(status));
-      };
-
-      const timeoutId = setTimeout(() => {
-        this.events.removeListener(CHUNKING_HOST_STATUS_EVENT, listener);
-        reject(new Error('Timed out waiting for chunking host state transition.'));
-      }, timeoutMs);
-
-      this.events.on(CHUNKING_HOST_STATUS_EVENT, listener);
-    });
-  }
-
-  private setStatus(status: ChunkingHostStatus): void {
-    this.status = copyStatus(status);
-    this.broadcastStatus();
-    this.events.emit(CHUNKING_HOST_STATUS_EVENT, this.getStatus());
-  }
-
-  private broadcastStatus(): void {
-    const snapshot = this.getStatus();
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (this.hostWindow?.id === window.id || window.isDestroyed()) {
-        continue;
-      }
-      window.webContents.send(CHUNKING_HOST_STATUS_EVENT, snapshot);
     }
   }
 }

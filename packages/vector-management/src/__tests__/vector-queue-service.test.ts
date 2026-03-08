@@ -135,6 +135,11 @@ describe('vector-queue-service', () => {
             ],
           } as { rows: unknown[] };
         }
+        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 2 }],
+          } as { rows: unknown[] };
+        }
         return { rows: [] } as { rows: unknown[] };
       }) as VectorQueueDatabase['query'],
     };
@@ -184,7 +189,7 @@ describe('vector-queue-service', () => {
       { done: 0, total: 2 },
       { done: 2, total: 2 },
     ]);
-    expect(counts).toEqual({ queued: 2, running: 1, failed: 0, succeeded: 5 });
+    expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
   });
 
   it('backfill splits large enqueue work into cooperative batches', async () => {
@@ -239,6 +244,11 @@ describe('vector-queue-service', () => {
             }),
           } as { rows: unknown[] };
         }
+        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 96 }],
+          } as { rows: unknown[] };
+        }
         return { rows: [] } as { rows: unknown[] };
       }) as VectorQueueDatabase['query'],
     };
@@ -271,6 +281,62 @@ describe('vector-queue-service', () => {
     ]);
   });
 
+  it('backfill throws when the embedding set drains with failed jobs', async () => {
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 1, running: 0, failed: 0, succeeded: 0 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+    };
+
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                dimensions: 384,
+              },
+            ],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 1 }] } as { rows: unknown[] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          return {
+            rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 1, succeeded: 0 }],
+          } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository,
+    });
+
+    await expect(service.backfill('set-1', vi.fn())).rejects.toThrow(
+      "Backfill failed for embedding set 'set-1': 1 job(s) failed."
+    );
+  });
+
   it('reembedSet clears embeddings then triggers backfill', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
       enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
@@ -301,6 +367,11 @@ describe('vector-queue-service', () => {
             ],
           } as { rows: unknown[] };
         }
+        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 3 }],
+          } as { rows: unknown[] };
+        }
         return { rows: [] } as { rows: unknown[] };
       }) as VectorQueueDatabase['query'],
     };
@@ -327,7 +398,7 @@ describe('vector-queue-service', () => {
 
     // Verify result structure
     expect(result.clearedCount).toBe(5);
-    expect(result.queueCounts).toEqual({ queued: 3, running: 0, failed: 0, succeeded: 10 });
+    expect(result.queueCounts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 3 });
 
     // Verify progress callbacks were invoked during backfill
     expect(progressUpdates).toEqual([
@@ -351,6 +422,11 @@ describe('vector-queue-service', () => {
         if (sql.includes('FROM embedding_sets')) {
           return {
             rows: [{ modelKey: 'local::test-model', modelId: 'test-model', dimensions: 384 }],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
           } as { rows: unknown[] };
         }
         // No chunks to backfill

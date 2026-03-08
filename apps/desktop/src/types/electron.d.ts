@@ -121,6 +121,9 @@ declare global {
         ) => void
       ) => () => void;
     };
+    desktopLifecycle?: {
+      noteReloadIntent: (reason: string) => void;
+    };
     electronAPI: {
       storage: {
         getItem: (key: string) => Promise<string | null>;
@@ -189,6 +192,7 @@ declare global {
       selectDestination: () => Promise<string | null>;
       openDestination: (target: string | null) => Promise<boolean>;
       getBufferedLogs: () => Promise<LogRecord[]>;
+      ingestBufferedRecord: (record: LogRecord) => void;
       onPreferencesUpdated: (
         callback: (preferences: LoggingPreferences) => void
       ) => (() => void) | undefined;

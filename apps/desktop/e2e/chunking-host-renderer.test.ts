@@ -43,6 +43,34 @@ async function getChunkingHostStatus(page: Page): Promise<ChunkingHostStatus> {
   });
 }
 
+async function getMainBufferedLogs(page: Page): Promise<
+  Array<{
+    bindings?: Record<string, unknown>;
+    message?: string;
+    scope?: string;
+  }>
+> {
+  return await page.evaluate(async () => {
+    const loggingApi = (
+      window as Window & {
+        logging?: {
+          getBufferedLogs?: () => Promise<
+            Array<{
+              bindings?: Record<string, unknown>;
+              message?: string;
+              scope?: string;
+            }>
+          >;
+        };
+      }
+    ).logging;
+    if (!loggingApi?.getBufferedLogs) {
+      throw new Error('Logging bridge is not available');
+    }
+    return await loggingApi.getBufferedLogs();
+  });
+}
+
 test.describe('Chunking Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -94,5 +122,36 @@ test.describe('Chunking Host Renderer', () => {
     await assertVisibleWindowResponsive(window);
     const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
     expect(finalTimeOrigin).toBe(initialTimeOrigin);
+  });
+
+  test('hidden chunking host logs are forwarded into the exported desktop log stream', async ({
+    window,
+  }) => {
+    await waitForAppReady(window);
+
+    await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            ensureStarted?: () => Promise<ChunkingHostStatus>;
+          };
+        }
+      ).chunkingHost;
+      if (!api?.ensureStarted) {
+        throw new Error('Chunking host bridge is not available');
+      }
+      await api.ensureStarted();
+    });
+
+    await expect
+      .poll(async () => {
+        const logs = await getMainBufferedLogs(window);
+        return logs.some(
+          (record) =>
+            record.message === 'Background renderer log forwarding enabled' &&
+            record.bindings?.['sourceWindowRole'] === 'chunking-host'
+        );
+      })
+      .toBe(true);
   });
 });

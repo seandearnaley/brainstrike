@@ -176,6 +176,15 @@ describe('logger', () => {
 
       expect(record?.args).toEqual(['warn message', { foo: 'bar' }, 42]);
     });
+
+    it('extracts the message from object-first structured log calls', () => {
+      const [record] = collectLogs(() => {
+        info({ cpuPercent: 34, rssKb: 790_480 }, 'main-process-health');
+      });
+
+      expect(record?.message).toBe('main-process-health');
+      expect(record?.args).toEqual([{ cpuPercent: 34, rssKb: 790_480 }, 'main-process-health']);
+    });
   });
 
   describe('legacy aliases', () => {

@@ -23,6 +23,14 @@ describe('embedding-backfill', () => {
             rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
           };
         }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 96 }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 0 }] };
+        }
         if (sql.includes('COUNT(*)::int AS count')) {
           return { rows: [{ count: 96 }] };
         }
@@ -51,7 +59,7 @@ describe('embedding-backfill', () => {
       { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
       { queue: 'embeddings', queued: 24, running: 8, failed: 0, succeeded: 0 },
     ];
-    const finalStats = { queue: 'embeddings', queued: 56, running: 8, failed: 0, succeeded: 0 };
+    const finalStats = { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 96 };
 
     const jobQueue = {
       enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
@@ -90,7 +98,7 @@ describe('embedding-backfill', () => {
       { done: 64, total: 96 },
       { done: 96, total: 96 },
     ]);
-    expect(counts).toEqual({ queued: 56, running: 8, failed: 0, succeeded: 0 });
+    expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 96 });
   });
 
   it('fails fast when backlog pacing options are invalid', async () => {
@@ -122,6 +130,14 @@ describe('embedding-backfill', () => {
           return {
             rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
           };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 64, running: 0, failed: 0, succeeded: 0 }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 64 }] };
         }
         if (sql.includes('COUNT(*)::int AS count')) {
           return { rows: [{ count: 96 }] };
@@ -175,5 +191,128 @@ describe('embedding-backfill', () => {
     ).rejects.toThrow('Embedding host entered an error state during backfill.');
 
     expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the active embedding set queue to drain before reporting completion', async () => {
+    const pendingCounts = [8, 4, 0];
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 4 }],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 4 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: Array.from({ length: 4 }, (_, index) => ({
+              id: String(index + 1),
+              fileRecordId: String(index + 100),
+              contentHash: `hash-${index + 1}`,
+            })),
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: pendingCounts.shift() ?? 0 }] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 4 },
+      ]),
+    };
+
+    await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      backlogPollMs: 1,
+      maxQueueDepth: 64,
+      progressIntervalBatches: 1,
+    });
+
+    expect(
+      vi
+        .mocked(db.query)
+        .mock.calls.filter(
+          ([sql]) =>
+            String(sql).includes("payload->>'embeddingSetId'") &&
+            !String(sql).includes('COUNT(*) FILTER')
+        ).length
+    ).toBe(3);
+  });
+
+  it('fails when the embedding set drain completes with failed jobs', async () => {
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 2, succeeded: 2 }],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 4 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: Array.from({ length: 4 }, (_, index) => ({
+              id: String(index + 1),
+              fileRecordId: String(index + 100),
+              contentHash: `hash-${index + 1}`,
+            })),
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 0 }] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 4 },
+      ]),
+    };
+
+    await expect(
+      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        progressIntervalBatches: 1,
+      })
+    ).rejects.toThrow("Backfill failed for embedding set 'set-123': 2 job(s) failed.");
   });
 });

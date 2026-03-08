@@ -1,4 +1,5 @@
 import Module from 'node:module';
+import type { LogRecord } from '@brainstrike/utils';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   CHUNKING_HOST_CHUNK_BATCH_CHANNEL,
@@ -99,6 +100,26 @@ describe('preload power bridge', () => {
           onStatus: (cb: (status: unknown) => void) => () => void;
           onProgress: (cb: (progress: unknown) => void) => () => void;
           onRequest: (cb: (request: unknown) => void) => () => void;
+        }
+      | undefined;
+  }
+
+  function getLoggingApi() {
+    const call = mockExposeInMainWorld.mock.calls.find(([key]: [string]) => key === 'logging');
+    return call?.[1] as
+      | {
+          ingestBufferedRecord: (record: LogRecord) => void;
+        }
+      | undefined;
+  }
+
+  function getDesktopLifecycleApi() {
+    const call = mockExposeInMainWorld.mock.calls.find(
+      ([key]: [string]) => key === 'desktopLifecycle'
+    );
+    return call?.[1] as
+      | {
+          noteReloadIntent: (reason: string) => void;
         }
       | undefined;
   }
@@ -313,5 +334,39 @@ describe('preload power bridge', () => {
       CHUNKING_HOST_REQUEST_EVENT,
       expect.any(Function)
     );
+  });
+
+  it('exposes logging buffered-record ingestion bridge', () => {
+    mockSend.mockClear();
+    const loggingApi = getLoggingApi();
+    expect(loggingApi).toBeDefined();
+
+    loggingApi?.ingestBufferedRecord({
+      level: 'info',
+      timestamp: 123,
+      args: ['forwarded'],
+      bindings: { runtime: 'electron-renderer' },
+      message: 'forwarded',
+      scope: 'EmbeddingHostRuntime',
+    });
+
+    expect(mockSend).toHaveBeenCalledWith('logging:ingest-buffered-record', {
+      level: 'info',
+      timestamp: 123,
+      args: ['forwarded'],
+      bindings: { runtime: 'electron-renderer' },
+      message: 'forwarded',
+      scope: 'EmbeddingHostRuntime',
+    });
+  });
+
+  it('exposes a renderer reload-intent bridge for desktop lifecycle attribution', () => {
+    mockSend.mockClear();
+    const desktopLifecycleApi = getDesktopLifecycleApi();
+    expect(desktopLifecycleApi).toBeDefined();
+
+    desktopLifecycleApi?.noteReloadIntent('factory-reset');
+
+    expect(mockSend).toHaveBeenCalledWith('app:lifecycle:note-reload-intent', 'factory-reset');
   });
 });

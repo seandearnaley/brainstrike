@@ -613,6 +613,9 @@ export function registerIpcHandlers(
         if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
           throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
         }
+        if (!embeddingHostManager) {
+          throw new Error('Embedding host manager is required for desktop backfill.');
+        }
         if (embeddingBackfillInFlight) {
           throw new Error(
             `Embedding backfill is already running for set ${embeddingBackfillInFlight.embeddingSetId}.`
@@ -625,6 +628,12 @@ export function registerIpcHandlers(
         };
 
         try {
+          const hostStatus = await embeddingHostManager.ensureStarted({ waitForRunning: true });
+          if (hostStatus.state !== 'running') {
+            throw new Error(
+              hostStatus.lastError ?? 'Embedding host failed to reach the running state.'
+            );
+          }
           const { getDatabase } = await import('./db-main');
           const db = await getDatabase();
           const jobQueue = new JobQueue(db);

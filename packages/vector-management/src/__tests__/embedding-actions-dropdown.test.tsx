@@ -84,6 +84,15 @@ describe('EmbeddingActionsDropdown', () => {
       expect(screen.getByRole('button', { name: '25/100' })).toBeInTheDocument();
     });
 
+    it('prioritizes backfill progress over starting state', () => {
+      renderDropdown({
+        startingWorker: true,
+        backfilling: true,
+        backfillProgress: { done: 25, total: 100 },
+      });
+      expect(screen.getByRole('button', { name: '25/100' })).toBeInTheDocument();
+    });
+
     it('shows "Start & Backfill" when willAutoStartWorker is true', () => {
       renderDropdown({ willAutoStartWorker: true });
       expect(screen.getByRole('button', { name: 'Start & Backfill' })).toBeInTheDocument();

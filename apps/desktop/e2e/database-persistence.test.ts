@@ -39,10 +39,11 @@ test.describe('Database Persistence', () => {
   async function expandImportSettings(page: Page): Promise<void> {
     const panelScope = page.locator('[data-testid="database-demo-panel"]');
     const importSettingsButton = panelScope
-      .locator(IMPORT_SETTINGS_SELECTOR)
-      .or(panelScope.locator('button:has-text("Import Settings")'))
-      .or(panelScope.locator('button:has-text("Settings")'));
-    const clearDatabaseButton = panelScope.locator('button:has-text("Clear Database")');
+      .getByRole('button', { name: /import settings|settings/i })
+      .or(panelScope.locator(IMPORT_SETTINGS_SELECTOR))
+      .first();
+    // The settings content is rendered in a portal, so it must be queried from the page root.
+    const clearDatabaseButton = page.getByRole('button', { name: 'Clear Database' });
 
     // Check if settings are already expanded (Clear Database button visible)
     const isAlreadyExpanded = await clearDatabaseButton
@@ -483,7 +484,7 @@ test.describe('Database Persistence', () => {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       // Expand Import Settings first to check button count
       await expandImportSettings(activeWindow);
-      await expect(activeWindow.locator('button:has-text("Clear Database")')).toHaveCount(0);
+      await expect(activeWindow.getByRole('button', { name: 'Clear Database' })).toHaveCount(0);
       return;
     }
 
@@ -492,7 +493,7 @@ test.describe('Database Persistence', () => {
     // Expand Import Settings to access Clear Database button
     await expandImportSettings(activeWindow);
 
-    const clearButton = activeWindow.locator('button:has-text("Clear Database")');
+    const clearButton = activeWindow.getByRole('button', { name: 'Clear Database' });
     await expect(clearButton).toBeVisible();
     await expect(clearButton).toBeDisabled();
   });

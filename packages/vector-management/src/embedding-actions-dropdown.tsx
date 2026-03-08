@@ -56,14 +56,14 @@ function getBackfillButtonText(
   backfillProgress: BackfillProgress,
   willAutoStartWorker: boolean
 ): string {
-  if (startingWorker) {
-    return 'Starting…';
-  }
   if (backfilling && backfillProgress) {
     return `${backfillProgress.done}/${backfillProgress.total}`;
   }
   if (backfilling) {
     return 'Backfilling…';
+  }
+  if (startingWorker) {
+    return 'Starting…';
   }
   if (willAutoStartWorker) {
     return 'Start & Backfill';

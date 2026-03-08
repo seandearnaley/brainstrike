@@ -735,6 +735,59 @@ export function useDatabaseDemoData({
     toast,
   ]);
 
+  const refreshVisibleData = useCallback(async () => {
+    if (!(database && schemaReady && activeCollectionId)) {
+      return;
+    }
+
+    await runManualRefresh(async () => {
+      if (liveQueryEnabled) {
+        await Promise.all([refreshRecordsQuery(), refreshChunksQuery()]);
+        return;
+      }
+      await fetchSnapshot({ includeRecords: true, includeChunks: true });
+    });
+  }, [
+    activeCollectionId,
+    database,
+    fetchSnapshot,
+    liveQueryEnabled,
+    refreshChunksQuery,
+    refreshRecordsQuery,
+    runManualRefresh,
+    schemaReady,
+  ]);
+
+  const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
+
+  useEffect(() => {
+    const wasEnabled = previousLiveQueryEnabledRef.current;
+    previousLiveQueryEnabledRef.current = liveQueryEnabled;
+    if (!(liveQueryEnabled && !wasEnabled)) {
+      return;
+    }
+    void refreshVisibleData();
+  }, [liveQueryEnabled, refreshVisibleData]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !activeCollectionId) {
+      return;
+    }
+
+    const handleQueueDrained = (event: Event) => {
+      const detail = (event as CustomEvent<{ embeddingSetId?: string | null } | undefined>).detail;
+      if (detail?.embeddingSetId && detail.embeddingSetId !== activeCollectionId) {
+        return;
+      }
+      void refreshVisibleData();
+    };
+
+    window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
+    return () => {
+      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
+    };
+  }, [activeCollectionId, refreshVisibleData]);
+
   useEffect(() => {
     if (!recordsError) {
       recordErrorRef.current = null;

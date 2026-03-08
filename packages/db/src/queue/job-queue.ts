@@ -458,7 +458,7 @@ export class JobQueue {
 
     const jobs = result.rows.map(fromRow);
     if (jobs.length > 0) {
-      logger.debug('Jobs claimed', {
+      logger.trace('Jobs claimed', {
         count: jobs.length,
         queue: params.queue,
         leaseToken,
@@ -586,7 +586,7 @@ export class JobQueue {
     const completedJobs = res.rows.map(fromRow);
 
     if (completedJobs.length > 0) {
-      logger.debug('Jobs completed in batch', { count: completedJobs.length });
+      logger.trace('Jobs completed in batch', { count: completedJobs.length });
     }
 
     for (const job of completedJobs) {

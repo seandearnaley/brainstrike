@@ -448,14 +448,22 @@ function getLoggerForScope(scope?: string): PinoLogger {
   return child;
 }
 
+function resolveLogRecordMessage(args: readonly unknown[]): string | undefined {
+  for (const arg of args) {
+    if (typeof arg === 'string' && arg.length > 0) {
+      return arg;
+    }
+  }
+  return undefined;
+}
+
 function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonly unknown[]): void {
   if (logListeners.size === 0) {
     return;
   }
 
   const bindings = resolveBaseBindings(internalConfig, scope);
-  const [first] = args;
-  const message = typeof first === 'string' ? first : undefined;
+  const message = resolveLogRecordMessage(args);
   const argsCopy = [...args];
   const record: LogRecord = {
     level,

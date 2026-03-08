@@ -107,7 +107,6 @@ async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbe
     embedQuery: async (text: string) => {
       logger.info('Generating query embedding with local model...');
       const result = await svc.generateQueryEmbedding(text);
-      logger.info('Query embedding generated', { length: result.embedding.length });
       return { embedding: Array.from(result.embedding) };
     },
     dispose: () => svc.dispose(),

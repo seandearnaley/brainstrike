@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { indexedChunkCountLogger, useIndexedChunkCount } from '../use-document-count';
 
@@ -17,9 +17,20 @@ const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryS
   () => mockLiveQueryState
 );
 
+const mockVectorStatusUiStore = {
+  isImporting: false,
+  isEmbeddingActive: false,
+};
+
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
+}));
+
+vi.mock('@brainstrike/preferences', () => ({
+  useVectorStatusUIStore: vi.fn((selector: (state: typeof mockVectorStatusUiStore) => unknown) =>
+    selector(mockVectorStatusUiStore)
+  ),
 }));
 
 describe('useIndexedChunkCount', () => {
@@ -28,6 +39,8 @@ describe('useIndexedChunkCount', () => {
     mockLiveQueryState.rows = [];
     mockLiveQueryState.error = null;
     mockLiveQueryState.refresh = vi.fn();
+    mockVectorStatusUiStore.isImporting = false;
+    mockVectorStatusUiStore.isEmbeddingActive = false;
     usePGliteLiveQueryMock.mockReturnValue(mockLiveQueryState);
   });
 
@@ -105,5 +118,39 @@ describe('useIndexedChunkCount', () => {
 
     rerender({ id: null });
     expect(result.current).toBe(5);
+  });
+
+  it('refreshes the live query when embedding activity settles', async () => {
+    mockVectorStatusUiStore.isEmbeddingActive = true;
+
+    const { rerender } = renderHook(({ id }) => useIndexedChunkCount(id), {
+      initialProps: { id: 'collection-1' as string | null },
+    });
+
+    expect(mockLiveQueryState.refresh).not.toHaveBeenCalled();
+
+    mockVectorStatusUiStore.isEmbeddingActive = false;
+
+    await act(async () => {
+      rerender({ id: 'collection-1' });
+      await Promise.resolve();
+    });
+
+    expect(mockLiveQueryState.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the active collection count when the embeddings queue drains', async () => {
+    renderHook(() => useIndexedChunkCount('collection-1'));
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('brainstrike:queue-drained', {
+          detail: { queue: 'embeddings', embeddingSetId: 'collection-1' },
+        })
+      );
+      await Promise.resolve();
+    });
+
+    expect(mockLiveQueryState.refresh).toHaveBeenCalledTimes(1);
   });
 });

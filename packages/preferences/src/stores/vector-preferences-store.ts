@@ -6,11 +6,13 @@ type DevicePref = 'webgpu' | 'wasm';
 
 interface VectorPreferencesData {
   devicePref: DevicePref;
+  devicePrefConfigured: boolean;
   reinitEveryN: number;
   verboseOrtLogs: boolean;
 }
 
 interface VectorPreferencesActions {
+  setDetectedDevicePref: (v: DevicePref) => void;
   setDevicePref: (v: DevicePref) => void;
   setReinitEveryN: (n: number) => void;
   setVerboseOrtLogs: (v: boolean) => void;
@@ -29,18 +31,21 @@ const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
   persist(
     (set) => ({
+      devicePrefConfigured: false,
       devicePref: 'webgpu',
       reinitEveryN: 200,
       verboseOrtLogs: false,
-      setDevicePref: (v) => set({ devicePref: v }),
+      setDetectedDevicePref: (v) => set({ devicePref: v, devicePrefConfigured: false }),
+      setDevicePref: (v) => set({ devicePref: v, devicePrefConfigured: true }),
       setReinitEveryN: (n) => set({ reinitEveryN: Math.max(1, Math.floor(n)) }),
       setVerboseOrtLogs: (v) => set({ verboseOrtLogs: !!v }),
     }),
     {
       name: STORE_NAME,
-      version: 2,
+      version: 3,
       storage,
       partialize: (s) => ({
+        devicePrefConfigured: s.devicePrefConfigured,
         devicePref: s.devicePref,
         reinitEveryN: s.reinitEveryN,
         verboseOrtLogs: s.verboseOrtLogs,
@@ -49,14 +54,16 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
         if (!persistedState) {
           return;
         }
-        if (version >= 2) {
+        if (version >= 3) {
           return persistedState as Partial<VectorPreferencesStore>;
         }
         const state = persistedState as Partial<VectorPreferencesStore> & {
+          devicePrefConfigured?: boolean | null;
           devicePref?: string | null;
         };
         const nextDevicePref = state.devicePref === 'wasm' ? 'wasm' : ('webgpu' as DevicePref);
         return {
+          devicePrefConfigured: state.devicePrefConfigured === true,
           devicePref: nextDevicePref,
           reinitEveryN: state.reinitEveryN ?? 200,
           verboseOrtLogs: state.verboseOrtLogs ?? false,

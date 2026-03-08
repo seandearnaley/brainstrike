@@ -165,8 +165,11 @@ export function useEmbeddingControls({
 
   // Determine if we need to auto-start worker (web platform only)
   const isWebPlatform = typeof window !== 'undefined' && !isElectronRenderer();
+  const isDesktopPlatform = typeof window !== 'undefined' && isElectronRenderer();
   const needsWorkerStart =
     isWebPlatform && !workerControls.workerLocalRunning && !workerControls.startingWorker;
+  const dropdownStartingWorker =
+    !(queueState.backfilling || isDesktopPlatform) && workerControls.startingWorker;
 
   // Combined backfill handler that auto-starts worker on web
   const handleBackfillWithWorkerStart = useCallback(async () => {
@@ -200,13 +203,23 @@ export function useEmbeddingControls({
       return;
     }
 
-    // Auto-start worker on web if not running
-    if (isWebPlatform && !workerControls.workerLocalRunning) {
-      await workerControls.startWorker();
-    }
+    try {
+      // Auto-start worker on web if not running
+      if (isWebPlatform && !workerControls.workerLocalRunning) {
+        await workerControls.startWorker();
+      }
 
-    // Run backfill
-    await backfillRef.current();
+      // Run backfill
+      await backfillRef.current();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        title: 'Backfill Failed',
+        description: message,
+        variant: 'destructive',
+      });
+      throw error;
+    }
   }, [toast, isWebPlatform, workerControls, service, activeId]);
 
   // Get disabled state for backfill button
@@ -243,7 +256,7 @@ export function useEmbeddingControls({
     onRetryFailed: queueState.retryFailed,
     onWipeQueue: queueState.wipeQueue,
     queueCounts: queueState.queueCounts,
-    startingWorker: workerControls.startingWorker,
+    startingWorker: dropdownStartingWorker,
     willAutoStartWorker: needsWorkerStart,
   };
 

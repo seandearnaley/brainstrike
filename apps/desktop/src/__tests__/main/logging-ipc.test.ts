@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn(),
+    on: vi.fn(),
   },
   webContents: {
     getAllWebContents: vi.fn(),
@@ -57,6 +58,7 @@ describe('logging-ipc', () => {
       selectDestination: async () => '/tmp',
       openDestination: async () => true,
       getBufferedLogs: () => [],
+      ingestBufferedLog: vi.fn(),
     };
 
     registerLoggingIpcHandlers(handlers);
@@ -66,6 +68,7 @@ describe('logging-ipc', () => {
     expect(ipcMain.handle).toHaveBeenCalledWith('logging:select-destination', expect.any(Function));
     expect(ipcMain.handle).toHaveBeenCalledWith('logging:open-destination', expect.any(Function));
     expect(ipcMain.handle).toHaveBeenCalledWith('logging:get-buffered-logs', expect.any(Function));
+    expect(ipcMain.on).toHaveBeenCalledWith('logging:ingest-buffered-record', expect.any(Function));
   });
 
   it('broadcasts updated preferences to window and webview contents', async () => {
@@ -81,6 +84,7 @@ describe('logging-ipc', () => {
       selectDestination: async () => '/tmp',
       openDestination: async () => true,
       getBufferedLogs: () => [],
+      ingestBufferedLog: vi.fn(),
     };
 
     const windowContents = { getType: () => 'window', send: vi.fn() };
@@ -165,6 +169,7 @@ describe('logging-ipc', () => {
       selectDestination: async () => '/tmp',
       openDestination: async () => true,
       getBufferedLogs: () => [],
+      ingestBufferedLog: vi.fn(),
     });
 
     const setPreferencesHandler = vi
@@ -199,5 +204,52 @@ describe('logging-ipc', () => {
     expect(setPreferences).toHaveBeenCalledTimes(2);
     expect(setPreferences.mock.calls[0]?.[0]).toEqual(firstPreferences);
     expect(setPreferences.mock.calls[1]?.[0]).toEqual(secondPreferences);
+  });
+
+  it('forwards strict buffered log records to the supplied ingest handler', () => {
+    const ingestBufferedLog = vi.fn();
+
+    registerLoggingIpcHandlers({
+      getState: () => ({
+        preferences: basePreferences,
+        capabilities: { canOpenDestination: true },
+      }),
+      setPreferences: (prefs: LoggingPreferences) => ({
+        preferences: prefs,
+        capabilities: { canOpenDestination: true },
+      }),
+      selectDestination: async () => '/tmp',
+      openDestination: async () => true,
+      getBufferedLogs: () => [],
+      ingestBufferedLog,
+    });
+
+    const ingestHandler = vi
+      .mocked(ipcMain.on)
+      .mock.calls.find(([channel]) => channel === 'logging:ingest-buffered-record')?.[1] as (
+      event: { sender: { id: number } },
+      record: unknown
+    ) => void;
+
+    ingestHandler(
+      { sender: { id: 42 } },
+      {
+        level: 'info',
+        timestamp: 123,
+        args: ['forwarded', { ok: true }],
+        bindings: { runtime: 'electron-renderer' },
+        message: 'forwarded',
+        scope: 'ChunkingHostRuntime',
+      }
+    );
+
+    expect(ingestBufferedLog).toHaveBeenCalledWith(42, {
+      level: 'info',
+      timestamp: 123,
+      args: ['forwarded', { ok: true }],
+      bindings: { runtime: 'electron-renderer' },
+      message: 'forwarded',
+      scope: 'ChunkingHostRuntime',
+    });
   });
 });

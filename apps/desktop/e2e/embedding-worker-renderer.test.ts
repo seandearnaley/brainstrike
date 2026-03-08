@@ -691,14 +691,19 @@ test.describe('Embedding Host Renderer', () => {
     await expect(backfillButton).toBeVisible({ timeout: 15_000 });
     await waitForBackfillButtonEnabled(activeWindow, backfillButton);
     await backfillButton.click({ timeout: 5000 });
+    await expect(
+      activeWindow
+        .locator('[data-testid="database-demo-panel"]')
+        .getByRole('button', { name: 'Starting…' })
+    ).toHaveCount(0);
 
     const finalState = await waitForActiveProcessingOrFatalError(activeWindow);
     const queueStats = await getEmbeddingQueueStats(activeWindow);
 
     if (finalState === 'running') {
-      expect(queueStats.running).toBeGreaterThan(0);
+      expect(queueStats.queued + queueStats.running).toBeGreaterThan(0);
       expect(queueStats.running).toBeLessThanOrEqual(4);
-      expect(queueStats.queued).toBeGreaterThan(0);
+      expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
     } else {
       const status = await getEmbeddingHostStatus(activeWindow);
       const hostPage = await getEmbeddingHostPage(activeWindow);

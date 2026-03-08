@@ -1,6 +1,7 @@
+import { addLogListener } from '@brainstrike/utils';
 import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createWindow } from '../create-window';
+import { createWindow, noteNextWindowReload } from '../create-window';
 import type { DesktopWindowState } from '../store-schema';
 
 // Hoist mocks for Vitest 4 compatibility
@@ -36,11 +37,14 @@ vi.mock('electron', () => ({
 describe('createWindow', () => {
   let mockBrowserWindow: any;
   let mockWebContents: any;
+  const baseArgv = process.argv.filter((arg) => arg !== '--test-mode');
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.argv = [...baseArgv];
 
     mockWebContents = {
+      getURL: vi.fn(() => 'http://localhost:8081/'),
       setWindowOpenHandler: vi.fn(),
       on: vi.fn(),
       openDevTools: vi.fn(),
@@ -68,6 +72,7 @@ describe('createWindow', () => {
   });
 
   afterEach(() => {
+    process.argv = [...baseArgv];
     Reflect.deleteProperty(process.env, 'CI');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS');
   });
@@ -227,7 +232,9 @@ describe('createWindow', () => {
 
       await createWindow();
 
-      expect(mockBrowserWindow.once).not.toHaveBeenCalled();
+      expect(
+        mockBrowserWindow.once.mock.calls.some(([event]: [string]) => event === 'ready-to-show')
+      ).toBe(false);
       expect(mockBrowserWindow.show).not.toHaveBeenCalled();
     });
 
@@ -238,7 +245,9 @@ describe('createWindow', () => {
 
       await createWindow();
 
-      expect(mockBrowserWindow.once).not.toHaveBeenCalled();
+      expect(
+        mockBrowserWindow.once.mock.calls.some(([event]: [string]) => event === 'ready-to-show')
+      ).toBe(false);
       expect(mockBrowserWindow.show).not.toHaveBeenCalled();
 
       process.argv = originalArgv;
@@ -304,6 +313,97 @@ describe('createWindow', () => {
       expect(mockWebContents.reload).toHaveBeenCalledTimes(1);
 
       vi.useRealTimers();
+    });
+
+    it('attributes the next renderer navigation when a reload reason is provided', async () => {
+      existsSyncMock.mockReturnValue(true);
+      const captured: Array<{ args: readonly unknown[]; message?: string; scope?: string }> = [];
+      const unsubscribe = addLogListener((record) => {
+        captured.push(record);
+      });
+
+      try {
+        await createWindow();
+
+        const createdWindow = vi.mocked(BrowserWindow).mock.instances.at(-1) as
+          | Electron.BrowserWindow
+          | undefined;
+
+        expect(createdWindow).toBeDefined();
+
+        noteNextWindowReload(createdWindow as Electron.BrowserWindow, {
+          reason: 'factory-reset',
+          source: 'renderer',
+        });
+
+        const didStartLoadingHandler = mockWebContents.on.mock.calls.find(
+          (call: [string, (...args: unknown[]) => void]) => call[0] === 'did-start-loading'
+        )?.[1] as (() => void) | undefined;
+
+        expect(didStartLoadingHandler).toBeDefined();
+        didStartLoadingHandler?.();
+
+        const record = [...captured]
+          .reverse()
+          .find(
+            (entry) =>
+              entry.scope === 'CreateWindow' &&
+              entry.message === 'Window startup: did-start-loading'
+          );
+
+        expect(record?.args).toContainEqual(
+          expect.objectContaining({
+            reloadReason: 'factory-reset',
+            reloadSource: 'renderer',
+          })
+        );
+      } finally {
+        unsubscribe();
+      }
+    });
+
+    it('marks post-startup loads without recorded intent as unattributed', async () => {
+      existsSyncMock.mockReturnValue(true);
+      const captured: Array<{ args: readonly unknown[]; message?: string; scope?: string }> = [];
+      const unsubscribe = addLogListener((record) => {
+        captured.push(record);
+      });
+
+      try {
+        await createWindow();
+
+        const didFinishLoadHandler = mockWebContents.on.mock.calls.find(
+          (call: [string, (...args: unknown[]) => void]) => call[0] === 'did-finish-load'
+        )?.[1] as (() => void) | undefined;
+        const didStartLoadingHandler = mockWebContents.on.mock.calls.find(
+          (call: [string, (...args: unknown[]) => void]) => call[0] === 'did-start-loading'
+        )?.[1] as (() => void) | undefined;
+
+        expect(didFinishLoadHandler).toBeDefined();
+        expect(didStartLoadingHandler).toBeDefined();
+
+        didFinishLoadHandler?.();
+        didStartLoadingHandler?.();
+
+        const record = [...captured]
+          .reverse()
+          .find(
+            (entry) =>
+              entry.scope === 'CreateWindow' &&
+              entry.message === 'Window startup: did-start-loading'
+          );
+
+        expect(record?.args).toContainEqual(
+          expect.objectContaining({
+            reloadReason: 'unattributed-post-startup-load',
+            reloadSource: 'unknown',
+            url: 'http://localhost:8081/',
+            windowRole: 'visible-ui',
+          })
+        );
+      } finally {
+        unsubscribe();
+      }
     });
 
     it('triggers reload on app activate while recovery is pending', async () => {
