@@ -9,6 +9,7 @@ import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 // Helper to create a mock worker port for tests
 function createMockChunkingWorkerPort(overrides?: Partial<ChunkingWorkerPort>): ChunkingWorkerPort {
   return {
+    transportKind: 'local-worker',
     isReady: vi.fn().mockReturnValue(true),
     terminate: vi.fn(),
     chunkFile: vi.fn().mockResolvedValue({
@@ -634,6 +635,21 @@ describe('processChunking', () => {
         { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
       )
     ).rejects.toThrow('Batch prefetch failed');
+  });
+
+  it('skips batch prefetch for host-proxy chunking transport', async () => {
+    const hostProxyWorkerPort = createMockChunkingWorkerPort({
+      transportKind: 'host-proxy',
+    });
+
+    await processChunking(
+      [{ id: 'file-1', imported: true, existed: false }],
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress, chunkingWorkerPort: hostProxyWorkerPort }
+    );
+
+    expect(mockRepository.findByIds).not.toHaveBeenCalled();
+    expect(mockRepository.findById).toHaveBeenCalledWith('file-1');
   });
 
   it('updates final progress correctly via worker', async () => {

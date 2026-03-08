@@ -5,7 +5,10 @@ import { useEnhancedFileImportService } from '../enhanced-file-import-service';
 
 const { ensureStartedMock, runEnhancedImportMock, mockUsePGliteDatabase } = vi.hoisted(() => ({
   ensureStartedMock: vi.fn(async () => ({
+    transportKind: 'local-worker' as const,
     chunkFile: vi.fn(),
+    chunkBatch: vi.fn(),
+    isReady: vi.fn(() => true),
     terminate: vi.fn(),
   })),
   runEnhancedImportMock: vi.fn(),

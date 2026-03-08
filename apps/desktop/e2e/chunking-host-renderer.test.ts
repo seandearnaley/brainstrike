@@ -154,4 +154,66 @@ test.describe('Chunking Host Renderer', () => {
       })
       .toBe(true);
   });
+
+  test('large chunking requests do not reload the visible window', async ({ window }) => {
+    await waitForAppReady(window);
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+
+    const requestOutcome = await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            chunkFile?: (request: {
+              fileRecordId: string;
+              content: string;
+              fileName: string;
+              filePath: string;
+              kind: 'chunk-file';
+              options: {
+                forceStrategy: boolean;
+                strategy: 'sentence';
+              };
+              requestId: string;
+            }) => Promise<{
+              chunks: unknown[];
+            }>;
+          };
+        }
+      ).chunkingHost;
+      if (!api?.chunkFile) {
+        throw new Error('Chunking host bridge is not available');
+      }
+
+      const largeContent = `${'A'.repeat(1024)}\n`.repeat(8192);
+      try {
+        const result = await api.chunkFile({
+          kind: 'chunk-file',
+          requestId: crypto.randomUUID(),
+          fileRecordId: 'chunking-host-large-request',
+          fileName: 'large-import.txt',
+          filePath: '/tmp/large-import.txt',
+          content: largeContent,
+          options: {
+            strategy: 'sentence',
+            forceStrategy: true,
+          },
+        });
+        return { ok: true as const, chunkCount: result.chunks.length };
+      } catch (error) {
+        return {
+          ok: false as const,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    if (requestOutcome.ok) {
+      expect(requestOutcome.chunkCount).toBeGreaterThan(0);
+    } else {
+      expect(requestOutcome.message).toContain('chunking-host:chunk-file');
+    }
+    await assertVisibleWindowResponsive(window);
+    const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+    expect(finalTimeOrigin).toBe(initialTimeOrigin);
+  });
 });

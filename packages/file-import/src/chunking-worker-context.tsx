@@ -304,6 +304,7 @@ function createChunkingHostProxyPort(
   pendingBatchCallbacksRef: MutableRefObject<Map<string, ChunkingBatchCallbacks | undefined>>
 ): ChunkingWorkerPort {
   return {
+    transportKind: 'host-proxy',
     chunkFile: async (
       fileRecordId: string,
       content: string,
@@ -572,6 +573,7 @@ function ChunkingLocalWorkerProvider({
     }
 
     return {
+      transportKind: currentPortState.transportKind,
       chunkFile: async (...args) => {
         setIsProcessing(true);
         try {

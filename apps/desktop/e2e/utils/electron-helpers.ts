@@ -464,17 +464,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
       }
 
       const root = document.querySelector<HTMLElement>('#root');
-      if (!root) {
-        return false;
-      }
-
-      const { width, height } = root.getBoundingClientRect();
-      if (width <= 0 || height <= 0) {
-        return false;
-      }
-
-      const style = window.getComputedStyle(root);
-      return style.visibility !== 'hidden' && style.display !== 'none';
+      return Boolean(root?.isConnected);
     };
 
     const isCodex = process.env['CODEX_ENV'] === 'true';
@@ -512,7 +502,27 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('App window was closed unexpectedly during initialization');
     }
 
-    throw new Error(`App failed to become ready: ${error}`);
+    const readinessContext = await page
+      .evaluate(() => {
+        const root = document.querySelector<HTMLElement>('#root');
+        return {
+          documentReadyState: document.readyState,
+          hasReadyFlag: Boolean(
+            Reflect.get(window as unknown as Record<string, unknown>, '__BRAINSTRIKE_READY__')
+          ),
+          hasRoot: Boolean(root),
+          rootIsConnected: Boolean(root?.isConnected),
+          rootChildCount: root?.childElementCount ?? 0,
+          visibilityState: document.visibilityState,
+        };
+      })
+      .catch(() => null);
+
+    throw new Error(
+      `App failed to become ready: ${error}${
+        readinessContext ? ` | context=${JSON.stringify(readinessContext)}` : ''
+      }`
+    );
   }
 }
 

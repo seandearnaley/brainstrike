@@ -18,7 +18,10 @@ const renderWithProviders = (ui: React.ReactElement) =>
 
 const { ensureStartedMock } = vi.hoisted(() => ({
   ensureStartedMock: vi.fn(async () => ({
+    transportKind: 'local-worker' as const,
     chunkFile: vi.fn(),
+    chunkBatch: vi.fn(),
+    isReady: vi.fn(() => true),
     terminate: vi.fn(),
   })),
 }));

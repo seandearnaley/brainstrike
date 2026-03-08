@@ -79,6 +79,9 @@ interface ChunkingOptions {
   useStreamingForLargeFiles?: boolean;
 }
 
+const MAX_HOST_PROXY_CHUNKING_CONCURRENCY = 1;
+const MAX_LOCAL_WORKER_CHUNKING_CONCURRENCY = 10;
+
 interface ChunkingProgressSnapshot {
   chunksCreated: number;
   filesProcessed: number;
@@ -589,28 +592,35 @@ export async function processChunking(
     await waitForChunkingWorkerReady(chunkingWorkerPort, CHUNKING_WORKER_READY_TIMEOUT_MS);
   }
 
+  const isHostProxyTransport = chunkingWorkerPort.transportKind === 'host-proxy';
+
   // Determine concurrency based on environment and file count
   const ChunkingConcurrency = Math.min(
-    10, // Max 10 files at once to avoid overwhelming the system
-    Math.max(1, Math.floor(importResults.length / 10)) // Scale with file count
+    isHostProxyTransport
+      ? MAX_HOST_PROXY_CHUNKING_CONCURRENCY
+      : MAX_LOCAL_WORKER_CHUNKING_CONCURRENCY,
+    Math.max(1, Math.floor(importResults.length / 10))
   );
 
   logger.info('Starting parallel chunking', {
     totalFiles: importResults.length,
     concurrency: ChunkingConcurrency,
+    transportKind: chunkingWorkerPort.transportKind,
   });
 
   let totalChunksCreated = 0;
   let filesProcessed = 0;
   const progressScheduler = createChunkingProgressScheduler(options.updateProgress);
 
-  // Pre-fetch all file records in a single batch to avoid N+1 queries
+  // Avoid materializing every imported file's content in the visible renderer when
+  // chunking is proxied to the hidden desktop host. In that mode, on-demand lookup
+  // keeps renderer heap bounded even for large import sets.
   let recordsMap: Map<string, FileRecord> | undefined;
   const validResults = importResults.filter(
     (r): r is FileImportResult => Boolean(r) && (r.imported || r.existed) && !r.error
   );
   const ids = validResults.map((r) => r.id);
-  if (ids.length > 0) {
+  if (!isHostProxyTransport && ids.length > 0) {
     const batchFetchStart = Date.now();
     const records = await repository.findByIds(ids);
     const batchFetchDuration = Date.now() - batchFetchStart;
@@ -619,6 +629,11 @@ export async function processChunking(
       count: records.length,
       requested: ids.length,
       durationMs: batchFetchDuration,
+    });
+  } else if (isHostProxyTransport && ids.length > 0) {
+    logger.debug('Skipped batch file-record prefetch for host-proxy chunking transport', {
+      requested: ids.length,
+      transportKind: chunkingWorkerPort.transportKind,
     });
   }
 

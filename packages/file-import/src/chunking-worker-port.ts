@@ -93,6 +93,7 @@ export interface ChunkingWorkerPort {
    * Terminate the worker and clean up resources.
    */
   terminate(): void;
+  readonly transportKind: 'host-proxy' | 'local-worker';
 }
 
 /**
@@ -303,6 +304,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   let requestIdCounter = 0;
 
   return {
+    transportKind: 'local-worker',
     chunkFile(
       fileRecordId: string,
       content: string,
