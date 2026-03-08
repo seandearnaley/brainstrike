@@ -1,4 +1,4 @@
-import { assertBackgroundRuntimeStatus, serializeRuntimeError } from '@brainstrike/worker-runtime';
+import { serializeRuntimeError } from '@brainstrike/worker-runtime';
 import { type IpcMainEvent, type IpcMainInvokeEvent, ipcMain } from 'electron';
 import type { ChunkingHostManager } from './chunking-host-manager';
 import type {
@@ -23,11 +23,12 @@ import {
   CHUNKING_HOST_REPORT_RESPONSE_CHANNEL,
   CHUNKING_HOST_REPORT_STATUS_CHANNEL,
   CHUNKING_HOST_RESET_CHANNEL,
+  CHUNKING_HOST_STATUS_ADAPTER,
   CHUNKING_HOST_STOP_CHANNEL,
 } from './chunking-host-shared';
 
 function assertChunkingHostStatusReport(value: unknown): ChunkingHostStatusReport {
-  return assertBackgroundRuntimeStatus(value, 'chunking-host') as ChunkingHostStatusReport;
+  return CHUNKING_HOST_STATUS_ADAPTER.assertStatus(value);
 }
 
 function assertFilePayload(value: unknown, fieldName: string): ChunkingHostFilePayload {

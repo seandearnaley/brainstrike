@@ -3,7 +3,7 @@ import type {
   BackgroundRuntimeStatus,
   RuntimeRequestEnvelope,
 } from '@brainstrike/worker-runtime';
-import { createStoppedBackgroundRuntimeStatus } from '@brainstrike/worker-runtime';
+import { createBackgroundRuntimeStatusAdapter } from '@brainstrike/worker-runtime';
 
 export const EMBEDDING_HOST_STATUS_EVENT = 'embedding-host:status';
 export const EMBEDDING_HOST_COMMAND_EVENT = 'embedding-host:command';
@@ -21,6 +21,7 @@ export interface EmbeddingHostBackfillProgress extends BackgroundRuntimeProgress
   readonly embeddingSetId: string;
 }
 
+export const EMBEDDING_HOST_STATUS_ADAPTER = createBackgroundRuntimeStatusAdapter('embedding-host');
 export type EmbeddingHostStatus = BackgroundRuntimeStatus<'embedding-host'>;
 export type EmbeddingHostStatusReport = BackgroundRuntimeStatus<'embedding-host'>;
 export type EmbeddingHostCommand = RuntimeRequestEnvelope<'control', EmbeddingHostCommandPayload>;
@@ -30,5 +31,5 @@ export const EMBEDDING_HOST_STOPPED_RUNTIME_ID = 'embedding-host:stopped';
 export function createStoppedEmbeddingHostStatus(
   runtimeId: string = EMBEDDING_HOST_STOPPED_RUNTIME_ID
 ): EmbeddingHostStatus {
-  return createStoppedBackgroundRuntimeStatus('embedding-host', runtimeId);
+  return EMBEDDING_HOST_STATUS_ADAPTER.createStoppedStatus(runtimeId);
 }

@@ -3,6 +3,7 @@ import { BrowserWindow } from 'electron';
 import {
   CHUNKING_HOST_PROGRESS_EVENT,
   CHUNKING_HOST_REQUEST_EVENT,
+  CHUNKING_HOST_STATUS_ADAPTER,
   CHUNKING_HOST_STATUS_EVENT,
   type ChunkingHostChunkBatchRequest,
   type ChunkingHostChunkFileByIdRequest,
@@ -14,19 +15,9 @@ import {
   type ChunkingHostStatusReport,
   createStoppedChunkingHostStatus,
 } from './chunking-host-shared';
-import { RendererHostLifecycle, type RendererHostStatusShape } from './renderer-host-lifecycle';
+import { RendererHostLifecycle } from './renderer-host-lifecycle';
 
 const logger = createLogger('ChunkingHostManager');
-
-function createChunkingHostStatus(status: RendererHostStatusShape): ChunkingHostStatus {
-  return {
-    runtimeKind: 'chunking-host',
-    runtimeId: status.runtimeId,
-    state: status.state,
-    active: status.active,
-    lastError: status.lastError,
-  };
-}
 
 type PendingChunkingRequest =
   | {
@@ -52,7 +43,7 @@ export class ChunkingHostManager {
 
   constructor() {
     this.lifecycle = new RendererHostLifecycle<ChunkingHostStatus>({
-      createStatus: createChunkingHostStatus,
+      createStatus: CHUNKING_HOST_STATUS_ADAPTER.createStatus,
       createStoppedStatus: createStoppedChunkingHostStatus,
       mode: 'chunking-host',
       onDidFailLoad: ({ errorCode, errorDescription, message, url }) => {
@@ -64,7 +55,7 @@ export class ChunkingHostManager {
         });
         this.rejectPendingRequests(message);
         this.lifecycle.setStatus(
-          createChunkingHostStatus({
+          CHUNKING_HOST_STATUS_ADAPTER.createStatus({
             state: 'error',
             active: false,
             lastError: message,
@@ -80,7 +71,7 @@ export class ChunkingHostManager {
         });
         this.rejectPendingRequests(message);
         this.lifecycle.setStatus(
-          createChunkingHostStatus({
+          CHUNKING_HOST_STATUS_ADAPTER.createStatus({
             state: 'error',
             active: false,
             lastError: message,
@@ -113,7 +104,7 @@ export class ChunkingHostManager {
   async stop(): Promise<ChunkingHostStatus> {
     this.rejectPendingRequests('Chunking host stopped while requests were in flight.');
     this.lifecycle.setStatus(
-      createChunkingHostStatus({
+      CHUNKING_HOST_STATUS_ADAPTER.createStatus({
         state: 'stopping',
         active: false,
         lastError: null,
@@ -211,7 +202,7 @@ export class ChunkingHostManager {
       return;
     }
     this.lifecycle.setStatus(
-      createChunkingHostStatus({
+      CHUNKING_HOST_STATUS_ADAPTER.createStatus({
         state: report.state,
         active: report.active,
         lastError: report.lastError,

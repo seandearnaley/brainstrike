@@ -4,6 +4,7 @@ import {
   assertBackgroundRuntimeStatus,
   bindRuntimeLogRecord,
   createBackgroundRuntimeStatus,
+  createBackgroundRuntimeStatusAdapter,
   createRequestTracker,
   createRuntimeId,
   createRuntimeStatusStore,
@@ -81,6 +82,49 @@ describe('@brainstrike/worker-runtime', () => {
         'embedding-host'
       )
     ).toThrow('embedding-host status report must include runtimeKind="embedding-host".');
+  });
+
+  it('builds strict runtime status adapters for host runtimes', () => {
+    const adapter = createBackgroundRuntimeStatusAdapter('chunking-host');
+
+    expect(
+      adapter.createStatus({
+        runtimeId: 'chunking-host:runtime-1',
+        state: 'running',
+        active: true,
+        lastError: null,
+      })
+    ).toEqual({
+      runtimeKind: 'chunking-host',
+      runtimeId: 'chunking-host:runtime-1',
+      state: 'running',
+      active: true,
+      lastError: null,
+    });
+
+    expect(adapter.createStoppedStatus()).toEqual({
+      runtimeKind: 'chunking-host',
+      runtimeId: 'chunking-host:stopped',
+      state: 'stopped',
+      active: false,
+      lastError: null,
+    });
+
+    expect(
+      adapter.assertStatus({
+        runtimeKind: 'chunking-host',
+        runtimeId: 'chunking-host:runtime-2',
+        state: 'error',
+        active: false,
+        lastError: 'boom',
+      })
+    ).toEqual({
+      runtimeKind: 'chunking-host',
+      runtimeId: 'chunking-host:runtime-2',
+      state: 'error',
+      active: false,
+      lastError: 'boom',
+    });
   });
 
   it('tracks pending requests and fails duplicate ids', () => {

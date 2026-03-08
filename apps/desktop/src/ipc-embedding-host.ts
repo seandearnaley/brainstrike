@@ -1,4 +1,3 @@
-import { assertBackgroundRuntimeStatus } from '@brainstrike/worker-runtime';
 import { type IpcMainEvent, ipcMain } from 'electron';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
@@ -6,12 +5,13 @@ import {
   EMBEDDING_HOST_GET_STATUS_CHANNEL,
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
   EMBEDDING_HOST_RESET_CHANNEL,
+  EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STOP_CHANNEL,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
 
 function assertEmbeddingHostStatusReport(value: unknown): EmbeddingHostStatusReport {
-  return assertBackgroundRuntimeStatus(value, 'embedding-host') as EmbeddingHostStatusReport;
+  return EMBEDDING_HOST_STATUS_ADAPTER.assertStatus(value);
 }
 
 export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager): () => void {

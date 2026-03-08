@@ -4,26 +4,17 @@ import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {
   createStoppedEmbeddingHostStatus,
   EMBEDDING_HOST_COMMAND_EVENT,
+  EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STATUS_EVENT,
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
-import { RendererHostLifecycle, type RendererHostStatusShape } from './renderer-host-lifecycle';
+import { RendererHostLifecycle } from './renderer-host-lifecycle';
 
 const logger = createLogger('EmbeddingHostManager');
 
 const HOST_READY_TIMEOUT_MS = 30_000;
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
-
-function createEmbeddingHostStatus(status: RendererHostStatusShape): EmbeddingHostStatus {
-  return {
-    runtimeKind: 'embedding-host',
-    runtimeId: status.runtimeId,
-    state: status.state,
-    active: status.active,
-    lastError: status.lastError,
-  };
-}
 
 export class EmbeddingHostManager {
   private readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
@@ -32,13 +23,13 @@ export class EmbeddingHostManager {
 
   constructor() {
     this.lifecycle = new RendererHostLifecycle<EmbeddingHostStatus>({
-      createStatus: createEmbeddingHostStatus,
+      createStatus: EMBEDDING_HOST_STATUS_ADAPTER.createStatus,
       createStoppedStatus: createStoppedEmbeddingHostStatus,
       mode: 'embedding-host',
       onDidFailLoad: ({ errorCode, errorDescription, message, url }) => {
         logger.error(message, { errorCode, errorDescription, url, windowRole: 'embedding-host' });
         this.lifecycle.setStatus(
-          createEmbeddingHostStatus({
+          EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
             state: 'error',
             active: false,
             lastError: message,
@@ -53,7 +44,7 @@ export class EmbeddingHostManager {
           windowRole: 'embedding-host',
         });
         this.lifecycle.setStatus(
-          createEmbeddingHostStatus({
+          EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
             state: 'error',
             active: false,
             lastError: message,
@@ -94,7 +85,7 @@ export class EmbeddingHostManager {
     }
 
     this.lifecycle.setStatus(
-      createEmbeddingHostStatus({
+      EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
         state: 'stopping',
         active: false,
         lastError: null,
@@ -126,7 +117,7 @@ export class EmbeddingHostManager {
     }
 
     this.lifecycle.setStatus(
-      createEmbeddingHostStatus({
+      EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
         state: 'starting',
         active: false,
         lastError: null,
@@ -149,7 +140,7 @@ export class EmbeddingHostManager {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.lifecycle.setStatus(
-        createEmbeddingHostStatus({
+        EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
           state: 'error',
           active: false,
           lastError: message,
@@ -180,7 +171,7 @@ export class EmbeddingHostManager {
       return;
     }
     this.lifecycle.setStatus(
-      createEmbeddingHostStatus({
+      EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
         state: report.state,
         active: report.active,
         lastError: report.lastError,

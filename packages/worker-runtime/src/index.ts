@@ -18,6 +18,22 @@ export interface BackgroundRuntimeProgress {
   readonly total: number;
 }
 
+export interface BackgroundRuntimeStatusShapeInput {
+  readonly active: boolean;
+  readonly lastError: string | null;
+  readonly runtimeId: string;
+  readonly state: BackgroundRuntimeState;
+}
+
+export interface BackgroundRuntimeStatusAdapter<TRuntimeKind extends string> {
+  assertStatus: (value: unknown) => BackgroundRuntimeStatus<TRuntimeKind>;
+  createStatus: (
+    status: BackgroundRuntimeStatusShapeInput
+  ) => BackgroundRuntimeStatus<TRuntimeKind>;
+  createStoppedStatus: (runtimeId?: string) => BackgroundRuntimeStatus<TRuntimeKind>;
+  readonly runtimeKind: TRuntimeKind;
+}
+
 export interface SerializedRuntimeError {
   readonly cause?: string;
   readonly code?: string;
@@ -169,6 +185,22 @@ export function createStoppedBackgroundRuntimeStatus<TRuntimeKind extends string
   runtimeId = `${runtimeKind}:stopped`
 ): BackgroundRuntimeStatus<TRuntimeKind> {
   return createBackgroundRuntimeStatus(runtimeKind, runtimeId, 'stopped');
+}
+
+export function createBackgroundRuntimeStatusAdapter<TRuntimeKind extends string>(
+  runtimeKind: TRuntimeKind
+): BackgroundRuntimeStatusAdapter<TRuntimeKind> {
+  return {
+    runtimeKind,
+    assertStatus: (value: unknown) => assertBackgroundRuntimeStatus(value, runtimeKind),
+    createStatus: (status: BackgroundRuntimeStatusShapeInput) =>
+      createBackgroundRuntimeStatus(runtimeKind, status.runtimeId, status.state, {
+        active: status.active,
+        lastError: status.lastError,
+      }),
+    createStoppedStatus: (runtimeId?: string) =>
+      createStoppedBackgroundRuntimeStatus(runtimeKind, runtimeId),
+  };
 }
 
 export function createRuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<string>>(
