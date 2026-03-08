@@ -286,6 +286,7 @@ export function ModelSelectionPage() {
               value={modelCacheDir || ''}
             />
             <Button
+              aria-label="Select Directory"
               disabled={isSelectingCacheDir}
               onClick={handleSelectCacheDir}
               size="icon"
@@ -300,6 +301,7 @@ export function ModelSelectionPage() {
           </p>
         </div>
         <Button
+          aria-label="Refresh model registry"
           disabled={isLoading}
           onClick={() => db && fetchRegistry(db)}
           size="icon"
