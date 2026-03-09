@@ -97,11 +97,12 @@ function handleRestoreFolder(
 /** Handle creating a new folder state */
 function handleCreateNewFolder(
   set: SetState<FileExplorerState>,
+  state: FileExplorerState,
   folderId: string,
   folderStates: Record<string, FolderState>,
   order: string[]
 ): void {
-  const updatedFolderStates = { ...folderStates, [folderId]: createNewFolderState() };
+  const updatedFolderStates = { ...folderStates, [folderId]: createNewFolderState(state) };
   let updatedOrder = updateFolderAccessOrder(order, folderId);
   const cleaned = cleanupOldFolderStates(updatedFolderStates, updatedOrder);
   updatedOrder = cleaned.order;
@@ -126,7 +127,7 @@ export const createFolderStateActions = (
     if (folderId && existingFolderState) {
       handleRestoreFolder(set, folderId, existingFolderState, folderStates, order);
     } else if (folderId) {
-      handleCreateNewFolder(set, folderId, folderStates, order);
+      handleCreateNewFolder(set, state, folderId, folderStates, order);
     } else {
       set(buildResetState(folderStates, order));
     }

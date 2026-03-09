@@ -1,16 +1,7 @@
 import { detectPlatform } from '@brainstrike/platform-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ElectronStorageAdapter } from '../adapters/electron-storage-adapter';
 import { WebStorageAdapter } from '../adapters/web-storage-adapter';
-import { createStorageAdapter } from '../factory';
-
-// Mock electron to prevent file creation during factory tests
-vi.mock('electron', () => ({
-  app: {
-    whenReady: () => Promise.resolve(),
-    getPath: () => '/tmp/test-storage',
-  },
-}));
+import { createBrowserStorageAdapter, createStorageAdapter } from '../factory';
 
 describe('Storage Factory', () => {
   describe('createStorageAdapter', () => {
@@ -19,13 +10,21 @@ describe('Storage Factory', () => {
       expect(adapter).toBeInstanceOf(WebStorageAdapter);
     });
 
-    it('should create electron storage adapter for electron platform', () => {
-      const adapter = createStorageAdapter('electron');
-      expect(adapter).toBeInstanceOf(ElectronStorageAdapter);
+    it('should reject electron adapter creation from the browser-safe entrypoint', () => {
+      expect(() => createStorageAdapter('electron')).toThrow(
+        "Electron storage adapter is node-only. Import '@brainstrike/storage/electron' in Electron main."
+      );
     });
 
     it('should throw error for unknown platform', () => {
       expect(() => createStorageAdapter('unknown' as never)).toThrow('Unknown platform: unknown');
+    });
+  });
+
+  describe('createBrowserStorageAdapter', () => {
+    it('should create a browser storage adapter', () => {
+      const adapter = createBrowserStorageAdapter();
+      expect(adapter).toBeInstanceOf(WebStorageAdapter);
     });
   });
 

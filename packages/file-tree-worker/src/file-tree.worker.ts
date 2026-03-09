@@ -56,9 +56,6 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
   if (!shouldLog(level)) {
     return;
   }
-  // biome-ignore lint/suspicious/noConsole: worker diagnostics must surface via console
-  const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
-  fn('[FileTreeWorker]', message, data ?? '');
   postLog(level, message, data);
 }
 

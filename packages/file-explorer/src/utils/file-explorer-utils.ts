@@ -64,17 +64,38 @@ export const cleanupOldFolderStates = (
 };
 
 // Helper function to create a new folder state
-export const createNewFolderState = (now = Date.now()): FolderState => ({
-  selectedFilePaths: new Set<string>(),
-  expandedDirectoryPaths: new Set<string>(),
-  includeFilters: [],
-  excludeFilters: [],
-  useRegex: false,
-  includeProjectTree: true,
-  tokenBudget: DEFAULT_TOKEN_BUDGET,
-  folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
-  maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
-  lastActiveTab: 'files',
-  lastAccessed: now,
-  viewFilterPresetId: null,
-});
+export const createNewFolderState = (
+  stateOrNow?:
+    | Pick<
+        FileExplorerData,
+        | 'excludeFilters'
+        | 'folderSummaryThreshold'
+        | 'includeFilters'
+        | 'includeProjectTree'
+        | 'lastActiveTab'
+        | 'maxSelectionCount'
+        | 'tokenBudget'
+        | 'useRegex'
+        | 'viewFilterPresetId'
+      >
+    | number,
+  maybeNow = Date.now()
+): FolderState => {
+  const state = typeof stateOrNow === 'number' || stateOrNow === undefined ? undefined : stateOrNow;
+  const now = typeof stateOrNow === 'number' ? stateOrNow : maybeNow;
+
+  return {
+    selectedFilePaths: new Set<string>(),
+    expandedDirectoryPaths: new Set<string>(),
+    includeFilters: state ? [...state.includeFilters] : [],
+    excludeFilters: state ? [...state.excludeFilters] : [],
+    useRegex: state?.useRegex ?? false,
+    includeProjectTree: state?.includeProjectTree ?? true,
+    tokenBudget: state?.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
+    folderSummaryThreshold: state?.folderSummaryThreshold ?? DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+    maxSelectionCount: state?.maxSelectionCount ?? DEFAULT_MAX_SELECTION_COUNT,
+    lastActiveTab: state?.lastActiveTab ?? 'files',
+    lastAccessed: now,
+    viewFilterPresetId: state?.viewFilterPresetId ?? null,
+  };
+};

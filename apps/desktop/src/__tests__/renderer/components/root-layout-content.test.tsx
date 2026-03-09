@@ -164,13 +164,6 @@ vi.mock('@brainstrike/preferences', () => ({
   },
 }));
 
-// Mock the EmbeddingWorkerProvider to avoid async initialization
-vi.mock('../../../renderer/components/embedding-worker-provider', () => ({
-  EmbeddingWorkerProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="embedding-worker-provider">{children}</div>
-  ),
-}));
-
 describe('RootLayoutContent', () => {
   beforeAll(async () => {
     RootLayoutContent = (await import('../../../renderer/components/root-layout-content')).default;

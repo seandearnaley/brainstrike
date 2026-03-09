@@ -238,6 +238,7 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
 
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
+  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
   // Use Zustand store for caching - persists across component unmounts during bulk operations
   const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
@@ -245,14 +246,12 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   // Only enable live queries when:
   // 1. Database is available
   // 2. Schema has been verified (migrations completed, tables exist)
-  // 3. Not currently importing files (to avoid perf degradation during bulk inserts)
+  // 3. Not currently importing files
+  // 4. Not currently embedding/backfilling
   //
-  // NOTE: We do NOT disable during embedding generation (isEmbeddingActive) because:
-  // - This query only fires when embedding_sets or file_records change
-  // - Embedding generation updates file_chunks.embedding, not these tables
-  // - Users need to see collections while searching/browsing during embedding
-  // - Only the queue monitoring queries in useVectorQueueState need to be paused
-  const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting;
+  // The collection selector keeps a cached snapshot in Zustand, so we can pause
+  // live query invalidation during heavy background work without blanking the UI.
+  const liveQueryEnabled = Boolean(db) && schemaVerified && !isImporting && !isEmbeddingActive;
   // Track loading/error state for initial fetch
   interface FetchState {
     error: Error | null;
@@ -292,15 +291,36 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     enabled: liveQueryEnabled,
   });
 
+  const refreshCollectionsSnapshot = useCallback(async () => {
+    const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
+    if (!(schemaVerified && canQuery)) {
+      return;
+    }
+    try {
+      const result = await (
+        db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
+      ).query(COLLECTIONS_QUERY);
+      setCachedCollections(normalizeCollectionRows(result.rows));
+      dispatchFetch({ type: 'success' });
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      dispatchFetch({ type: 'error', error: normalized });
+      throw normalized;
+    }
+  }, [db, schemaVerified, setCachedCollections]);
+
   // Listen for embedding set update events (create/delete/rename) and refresh live query
   // This ensures UI updates on Electron where PGlite live query may not auto-detect changes
   useEffect(() => {
-    if (typeof window === 'undefined' || !liveQueryEnabled) {
+    if (typeof window === 'undefined') {
       return;
     }
 
     const handleEmbeddingSetUpdated = () => {
-      void refresh();
+      if (liveQueryEnabled) {
+        void refresh();
+      }
+      void refreshCollectionsSnapshot();
     };
 
     window.addEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
@@ -308,7 +328,36 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       window.removeEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
     };
+  }, [liveQueryEnabled, refresh, refreshCollectionsSnapshot]);
+
+  const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
+
+  useEffect(() => {
+    const wasEnabled = previousLiveQueryEnabledRef.current;
+    previousLiveQueryEnabledRef.current = liveQueryEnabled;
+    if (!(liveQueryEnabled && !wasEnabled)) {
+      return;
+    }
+    void refresh();
   }, [liveQueryEnabled, refresh]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleQueueDrained = () => {
+      if (liveQueryEnabled) {
+        void refresh();
+      }
+      void refreshCollectionsSnapshot();
+    };
+
+    window.addEventListener('brainstrike:queue-drained', handleQueueDrained);
+    return () => {
+      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained);
+    };
+  }, [liveQueryEnabled, refresh, refreshCollectionsSnapshot]);
 
   const collections = useMemo<CollectionWithDocCount[]>(
     () => normalizeCollectionRows(rawCollections),
@@ -349,13 +398,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
         dispatchFetch({ type: 'start' });
       }
       try {
-        const result = await (
-          db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
-        ).query(COLLECTIONS_QUERY);
-        if (!cancelled) {
-          setCachedCollections(normalizeCollectionRows(result.rows));
-          dispatchFetch({ type: 'success' });
-        }
+        await refreshCollectionsSnapshot();
       } catch (err) {
         if (!cancelled) {
           const normalized = err instanceof Error ? err : new Error(String(err));
@@ -371,7 +414,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       cancelled = true;
     };
-  }, [db, schemaVerified, setCachedCollections]);
+  }, [db, refreshCollectionsSnapshot, schemaVerified]);
 
   // Reset initial fetch flag when db changes (e.g., reconnection)
   useEffect(() => {

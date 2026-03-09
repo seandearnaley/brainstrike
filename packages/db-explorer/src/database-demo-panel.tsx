@@ -127,6 +127,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   // Read import state from Zustand store (shared with VectorStatus for query pausing)
   const isImportActive = useVectorStatusUIStore((s) => s.isImporting);
+  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
 
   const data = useDatabaseDemoData({
     repository,
@@ -135,6 +136,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     database: dbContext,
     activeCollectionId,
     isImporting: isImportActive,
+    isEmbeddingActive,
   });
   const { records, chunks, refreshing, loadRecords, loadChunks } = data;
 
@@ -449,7 +451,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                   </Tooltip>
 
                   {/* Embedding Actions (inline with Import) */}
-                  <EmbeddingActionsDropdown {...dropdownProps} />
+                  <EmbeddingActionsDropdown {...dropdownProps} className="shrink-0" />
 
                   <div className="mx-1 h-4 w-px bg-border" />
 
@@ -522,7 +524,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         <CreateEmbeddingSetDialog
           isLoading={isRegistryLoading || isRuntimeCatalogLoading}
           models={availableModels}
-          onOpenChange={(open) => {
+          onOpenChange={(open: boolean) => {
             if (!open) {
               collectionDialogs.closeCreateDialog();
             }
@@ -565,7 +567,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               }),
             } satisfies EmbeddingSet
           }
-          onOpenChange={(open) => {
+          onOpenChange={(open: boolean) => {
             if (!open) {
               collectionDialogs.closeRenameDialog();
             }
@@ -605,12 +607,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               (c) => c.embeddingSetId === collectionDialogs.selectedCollection?.id
             ).length,
           }}
-          onOpenChange={(open) => {
+          onOpenChange={(open: boolean) => {
             if (!open) {
               collectionDialogs.closeDeleteDialog();
             }
           }}
-          onSetDeleted={(deletedId) => {
+          onSetDeleted={(deletedId: string) => {
             collectionDialogs.closeDeleteDialog();
             // Clear selection if deleted collection was active
             if (activeCollectionId === deletedId) {

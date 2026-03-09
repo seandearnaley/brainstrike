@@ -191,6 +191,9 @@ describe('file-tree.worker', () => {
         payload: expect.objectContaining({ message: 'Unknown message type: unknown-type' }),
       })
     );
+    expect(console.log).not.toHaveBeenCalled();
+    expect(console.warn).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it('posts an error payload when handler execution throws', async () => {

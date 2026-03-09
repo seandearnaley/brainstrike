@@ -19,11 +19,20 @@ vi.mock('../worker-storage', () => ({
   }),
 }));
 
+const mockStorageAdapter = {
+  clear: vi.fn(),
+  getAllKeys: vi.fn(),
+  getItem: vi.fn(),
+  removeItem: vi.fn(),
+  setItem: vi.fn(),
+};
+
 describe('worker-init', () => {
   // Store original globals
   const originalWindow = global.window;
   const originalNavigator = global.navigator;
   const originalProcess = global.process;
+  const originalDocument = global.document;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -48,12 +57,22 @@ describe('worker-init', () => {
     } else {
       (global as any).process = undefined;
     }
+
+    if (originalDocument) {
+      global.document = originalDocument;
+    } else {
+      (global as any).document = undefined;
+    }
   });
 
   it('initializes worker in browser environment when not test/headless/electron', () => {
     // Simulate browser environment
     vi.stubGlobal('window', {
       addEventListener: vi.fn(),
+    });
+    vi.stubGlobal('document', {
+      addEventListener: vi.fn(),
+      visibilityState: 'visible',
     });
     vi.stubGlobal('navigator', {
       webdriver: false,
@@ -71,11 +90,16 @@ describe('worker-init', () => {
     }
 
     try {
-      const result = initWorker(false, true);
+      const result = initWorker(mockStorageAdapter, false, true);
 
       expect(result.useWorker).toBe(true);
       expect(WorkerStorage).toHaveBeenCalled();
       expect(window.addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+      expect(window.addEventListener).toHaveBeenCalledWith('unload', expect.any(Function));
+      expect(document.addEventListener).toHaveBeenCalledWith(
+        'visibilitychange',
+        expect.any(Function)
+      );
     } finally {
       // Restore playwright if it was there
       if (originalPlaywright !== undefined) {
@@ -85,41 +109,64 @@ describe('worker-init', () => {
   });
 
   it('does not initialize worker in test environment', () => {
-    const result = initWorker(true, true);
+    const result = initWorker(mockStorageAdapter, true, true);
 
     expect(result.useWorker).toBe(false);
     expect(WorkerStorage).not.toHaveBeenCalled();
     expect(result.workerStorage).toBeNull();
   });
 
-  it('does not initialize worker in Electron renderer', () => {
+  it('initializes worker in Electron renderer when Worker is available', () => {
     vi.stubGlobal('window', {
+      addEventListener: vi.fn(),
       process: { type: 'renderer' },
+    });
+    vi.stubGlobal('document', {
+      addEventListener: vi.fn(),
+      visibilityState: 'visible',
     });
     vi.stubGlobal('navigator', {
       userAgent: 'Mozilla/5.0 ... Electron/...',
     });
 
-    const result = initWorker(false, true);
+    const result = initWorker(mockStorageAdapter, false, true);
 
-    expect(result.useWorker).toBe(false);
-    expect(WorkerStorage).not.toHaveBeenCalled();
+    expect(result.useWorker).toBe(true);
+    expect(WorkerStorage).toHaveBeenCalled();
+    expect(window.addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+    expect(window.addEventListener).toHaveBeenCalledWith('unload', expect.any(Function));
+    expect(document.addEventListener).toHaveBeenCalledWith(
+      'visibilitychange',
+      expect.any(Function)
+    );
   });
 
-  it('does not initialize worker in Headless Chrome', () => {
-    vi.stubGlobal('window', {});
+  it('initializes worker in headless browser environments when Worker is available', () => {
+    vi.stubGlobal('window', {
+      addEventListener: vi.fn(),
+    });
+    vi.stubGlobal('document', {
+      addEventListener: vi.fn(),
+      visibilityState: 'visible',
+    });
     vi.stubGlobal('navigator', {
       userAgent: 'Mozilla/5.0 ... HeadlessChrome/...',
     });
 
-    const result = initWorker(false, true);
+    const result = initWorker(mockStorageAdapter, false, true);
 
-    expect(result.useWorker).toBe(false);
-    expect(WorkerStorage).not.toHaveBeenCalled();
+    expect(result.useWorker).toBe(true);
+    expect(WorkerStorage).toHaveBeenCalled();
   });
 
-  it('does not initialize worker in CI environment', () => {
-    vi.stubGlobal('window', {});
+  it('initializes worker in CI-like browser environments when Worker is available', () => {
+    vi.stubGlobal('window', {
+      addEventListener: vi.fn(),
+    });
+    vi.stubGlobal('document', {
+      addEventListener: vi.fn(),
+      visibilityState: 'visible',
+    });
     vi.stubGlobal('navigator', {
       userAgent: 'Mozilla/5.0 Chrome/100.0',
       webdriver: false,
@@ -128,16 +175,20 @@ describe('worker-init', () => {
       env: { CI: 'true' },
     });
 
-    const result = initWorker(false, true);
+    const result = initWorker(mockStorageAdapter, false, true);
 
-    expect(result.useWorker).toBe(false);
-    expect(WorkerStorage).not.toHaveBeenCalled();
+    expect(result.useWorker).toBe(true);
+    expect(WorkerStorage).toHaveBeenCalled();
   });
 
   it('returns useWorker=false if WorkerStorage initialization fails', () => {
     // Simulate browser environment
     vi.stubGlobal('window', {
       addEventListener: vi.fn(),
+    });
+    vi.stubGlobal('document', {
+      addEventListener: vi.fn(),
+      visibilityState: 'visible',
     });
     vi.stubGlobal('navigator', {
       webdriver: false,
@@ -150,19 +201,14 @@ describe('worker-init', () => {
       throw new Error('Worker init failed');
     });
 
-    const result = initWorker(false, true);
+    const result = initWorker(mockStorageAdapter, false, true);
 
     expect(result.useWorker).toBe(false);
     expect(result.workerStorage).toBeNull();
   });
 
-  it('logs debug message when worker is disabled', () => {
-    vi.stubGlobal('window', {});
-    vi.stubGlobal('navigator', {
-      userAgent: 'Mozilla/5.0 ... HeadlessChrome/...',
-    });
-
-    initWorker(false, true);
+  it('logs debug message when worker is disabled in test mode', () => {
+    initWorker(mockStorageAdapter, true, true);
 
     // We can't easily assert the log content without importing the mocked logger,
     // but we can verify code execution path doesn't crash.

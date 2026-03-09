@@ -10,6 +10,18 @@ export default defineConfig({
   resolve: {
     alias: {
       '@brainstrike/agent/client': resolve(import.meta.dirname, '../agent/src/client.ts'),
+      '@brainstrike/file-import/browser-queue-port': resolve(
+        import.meta.dirname,
+        '../file-import/src/browser-queue-port.ts'
+      ),
+      '@brainstrike/file-import/chunking-worker-context': resolve(
+        import.meta.dirname,
+        '../file-import/src/chunking-worker-context.tsx'
+      ),
+      '@brainstrike/file-import/enhanced-import': resolve(
+        import.meta.dirname,
+        '../file-import/src/enhanced-import.ts'
+      ),
     },
   },
   test: {

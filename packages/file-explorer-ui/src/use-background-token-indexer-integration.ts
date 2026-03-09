@@ -261,6 +261,8 @@ export function useBackgroundTokenIndexerIntegration({
   const preloadedFoldersRef = useRef<Map<string, number>>(new Map());
   // Track previous persistence state to clear preload memo when persistence changes
   const previousPersistedStateRef = useRef<boolean | undefined>(undefined);
+  const selectionSkipReasonRef = useRef<string | null>(null);
+  const warmCacheSkipReasonRef = useRef<string | null>(null);
 
   // Refs for values accessed inside the rebuild callback to avoid stale closures
   // and to prevent callback recreation on selection changes
@@ -487,6 +489,7 @@ export function useBackgroundTokenIndexerIntegration({
 
   // Use the background token indexer when context is available
   const backgroundIndexer = useBackgroundTokenIndexer({
+    autoStart: false,
     store: tokenCache?.store ?? null,
     mode: tokenCache?.countingMode ?? 'heuristic',
     onFileIndexed: handleFileIndexed,
@@ -511,7 +514,7 @@ export function useBackgroundTokenIndexerIntegration({
     async (compositeKeys: string[]) => {
       const cache = tokenCacheRef.current;
       const indexer = backgroundIndexerRef.current;
-      if (!(cache?.isOperational && indexer.isReady)) {
+      if (!cache?.isOperational) {
         // Use debug level - this is expected during startup before everything initializes
         logger.debug('triggerIndexing blocked - not ready', {
           tokenCacheOperational: cache?.isOperational ?? false,
@@ -714,25 +717,18 @@ export function useBackgroundTokenIndexerIntegration({
 
   // Queue newly selected files for indexing when selection changes
   // Uses refs to avoid re-render loops while still accessing latest values
-  const backgroundIndexerIsReady = backgroundIndexer.isReady;
   const tokenCacheIsOperational = tokenCache?.isOperational ?? false;
   const tokenCacheIsPersisted = tokenCache?.isPersisted ?? false;
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
-    const cache = tokenCacheRef.current;
-    logger.debug('Selection effect triggered', {
-      selectedFilesCount: selectedFiles.size,
-      isReady: indexer.isReady,
-      tokenCacheOperational: cache?.isOperational ?? false,
-      alreadyIndexed: indexedFilesRef.current.size,
-      fileHandleMapSize: fileHandleMapRef.current.size,
-      isFileImporting,
-    });
 
     // Skip background indexing during file import to avoid database contention
     // File import writes many records; concurrent token cache reads/writes cause PGlite serialization delays
     if (isFileImporting) {
-      logger.debug('Selection effect skipped - file import in progress');
+      if (selectionSkipReasonRef.current !== 'file-import') {
+        selectionSkipReasonRef.current = 'file-import';
+        logger.debug('Selection effect skipped - file import in progress');
+      }
       return;
     }
 
@@ -754,20 +750,17 @@ export function useBackgroundTokenIndexerIntegration({
     // size changes (e.g., "select all" briefly going to 0 then 90) should NOT
     // invalidate already-indexed files.
 
-    // Exit early if no files selected, indexer not ready, or no file handles available yet.
+    // Exit early if no files selected or no file handles available yet.
     // During startup, selection may be restored from storage before file tree has handles.
     // When FileTreeIndex is available, skip the local map size check since we use index lookups.
     const hasHandleSource = indexGetHandleRef.current || fileHandleMapRef.current.size > 0;
-    if (selectedFiles.size === 0 || !indexer.isReady || !hasHandleSource) {
-      logger.debug('Selection effect exiting early', {
-        noFiles: selectedFiles.size === 0,
-        notReady: !indexer.isReady,
-        noHandles: !hasHandleSource,
-        hasIndex: !!indexGetHandleRef.current,
-        localMapSize: fileHandleMapRef.current.size,
-      });
+    if (selectedFiles.size === 0 || !hasHandleSource) {
+      const skipReason = selectedFiles.size === 0 ? 'no-files' : 'no-handles';
+      selectionSkipReasonRef.current = skipReason;
       return;
     }
+
+    selectionSkipReasonRef.current = null;
 
     // Find files that haven't been indexed yet
     const newFiles = Array.from(selectedFiles).filter(
@@ -797,7 +790,6 @@ export function useBackgroundTokenIndexerIntegration({
   }, [
     selectedFiles,
     triggerIndexing,
-    backgroundIndexerIsReady,
     tokenCacheIsOperational,
     fileHandleMapSize,
     isFileImporting,
@@ -826,9 +818,8 @@ export function useBackgroundTokenIndexerIntegration({
       return;
     }
 
-    const indexer = backgroundIndexerRef.current;
     const cache = tokenCacheRef.current;
-    if (!(cache?.isOperational && indexer.isReady)) {
+    if (!cache?.isOperational) {
       return;
     }
 
@@ -869,17 +860,17 @@ export function useBackgroundTokenIndexerIntegration({
   useEffect(() => {
     const cache = tokenCacheRef.current;
     if (!cache?.isOperational || selectedFiles.size === 0) {
-      logger.debug('Warm cache effect skipped', {
-        cacheOperational: cache?.isOperational ?? false,
-        cachePersisted: cache?.isPersisted ?? false,
-        selectedCount: selectedFiles.size,
-      });
+      const skipReason = cache?.isOperational ? 'no-selection' : 'cache-unavailable';
+      warmCacheSkipReasonRef.current = skipReason;
       return;
     }
 
     // Skip during file import to avoid database contention
     if (isFileImporting) {
-      logger.debug('Warm cache effect skipped - file import in progress');
+      if (warmCacheSkipReasonRef.current !== 'file-import') {
+        warmCacheSkipReasonRef.current = 'file-import';
+        logger.debug('Warm cache effect skipped - file import in progress');
+      }
       return;
     }
 
@@ -918,6 +909,20 @@ export function useBackgroundTokenIndexerIntegration({
         foldersToPreload.push(folderId);
       }
     }
+
+    if (foldersToPreload.length === 0) {
+      if (warmCacheSkipReasonRef.current !== 'already-preloaded') {
+        warmCacheSkipReasonRef.current = 'already-preloaded';
+        logger.debug('Warm cache effect skipped - folders already preloaded', {
+          folderCount: folderIds.size,
+          totalFiles: selectedFiles.size,
+          cacheVersion: currentCacheVersion,
+        });
+      }
+      return;
+    }
+
+    warmCacheSkipReasonRef.current = null;
 
     logger.debug('Warm cache effect: preloading folders', {
       folderCount: folderIds.size,

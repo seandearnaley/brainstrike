@@ -43,6 +43,22 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/agent/src/client.ts'
       ),
+      '@brainstrike/queue/browser': path.resolve(
+        import.meta.dirname,
+        '../../packages/queue/src/browser.ts'
+      ),
+      '@brainstrike/file-import/browser-queue-port': path.resolve(
+        import.meta.dirname,
+        '../../packages/file-import/src/browser-queue-port.ts'
+      ),
+      '@brainstrike/file-import/chunking-worker-context': path.resolve(
+        import.meta.dirname,
+        '../../packages/file-import/src/chunking-worker-context.tsx'
+      ),
+      '@brainstrike/file-import/enhanced-import': path.resolve(
+        import.meta.dirname,
+        '../../packages/file-import/src/enhanced-import.ts'
+      ),
       '@brainstrike/test-utils': path.resolve(import.meta.dirname, '../../packages/test-utils/src'),
     },
   },

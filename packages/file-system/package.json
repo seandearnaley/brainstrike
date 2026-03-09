@@ -26,6 +26,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./electron": {
+      "types": "./dist/electron.d.ts",
+      "import": "./dist/electron.js",
+      "require": "./dist/electron.cjs"
+    },
     "./path-validation": {
       "types": "./dist/path-validation.d.ts",
       "import": "./dist/path-validation.js",

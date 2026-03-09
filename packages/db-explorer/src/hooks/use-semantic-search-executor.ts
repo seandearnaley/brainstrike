@@ -56,6 +56,22 @@ interface UseSemanticSearchExecutorOptions {
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
 }
 
+function parseStrictEmbeddingDimensions(value: unknown): number {
+  if (typeof value === 'number') {
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    throw new Error('Active embedding set dimensions are missing or invalid.');
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  throw new Error('Active embedding set dimensions are missing or invalid.');
+}
+
 /**
  * Create a hosted provider embedder
  */
@@ -107,7 +123,6 @@ async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbe
     embedQuery: async (text: string) => {
       logger.info('Generating query embedding with local model...');
       const result = await svc.generateQueryEmbedding(text);
-      logger.info('Query embedding generated', { length: result.embedding.length });
       return { embedding: Array.from(result.embedding) };
     },
     dispose: () => svc.dispose(),
@@ -356,6 +371,7 @@ export function useSemanticSearchExecutor({
   chunkRepository,
   fileRepository,
 }: UseSemanticSearchExecutorOptions): SearchExecutor | undefined {
+  const previousAvailabilityRef = useRef<boolean | null>(null);
   const db = usePGliteDatabase();
   const { models } = useModelRegistryStore();
   const embedderRef = useRef<SearchEmbedder | null>(null);
@@ -398,7 +414,10 @@ export function useSemanticSearchExecutor({
         throw new Error('Active embedding set is missing a model.');
       }
       return resolveEmbeddingSetModelInfo(
-        { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
+        {
+          modelKey: row.modelKey,
+          dimensions: parseStrictEmbeddingDimensions(row.dimensions),
+        },
         modelConfigMap
       );
     },
@@ -474,36 +493,42 @@ export function useSemanticSearchExecutor({
 
       // Create the initialization promise
       const initPromise = (async (): Promise<SearchEmbedder> => {
-        // Dispose previous embedder if exists
-        if (embedderRef.current?.dispose) {
-          logger.info('Disposing previous embedder');
-          await embedderRef.current.dispose();
-        }
-
-        // Detect provider type
-        const parsed = parseProviderModelKey(modelKey);
-        const isHosted = parsed ? isHostedProvider(parsed.provider) : false;
-        logger.info('Provider detection', { isHosted });
-
-        // Create appropriate embedder
-        let embedder: SearchEmbedder;
-        if (parsed && isHostedProvider(parsed.provider)) {
-          logger.info('Creating hosted provider', { provider: parsed.provider });
-          const providerConfig = createHostedConfig(parsed.provider, parsed.modelId, dimensions);
-          embedder = await createHostedEmbedder(providerConfig, parsed.modelId);
-        } else {
-          if (!modelConfig) {
-            throw new Error(
-              'No local embedding model configured. Enable one in Settings > Models.'
-            );
+        try {
+          // Dispose previous embedder if exists
+          if (embedderRef.current?.dispose) {
+            logger.info('Disposing previous embedder');
+            await embedderRef.current.dispose();
           }
-          embedder = await createLocalEmbedder(modelConfig);
-        }
 
-        // Cache the result
-        embedderRef.current = embedder;
-        currentModelKeyRef.current = modelKey;
-        return embedder;
+          // Detect provider type
+          const parsed = parseProviderModelKey(modelKey);
+          const isHosted = parsed ? isHostedProvider(parsed.provider) : false;
+          logger.info('Provider detection', { isHosted });
+
+          // Create appropriate embedder
+          let embedder: SearchEmbedder;
+          if (parsed && isHostedProvider(parsed.provider)) {
+            logger.info('Creating hosted provider', { provider: parsed.provider });
+            const providerConfig = createHostedConfig(parsed.provider, parsed.modelId, dimensions);
+            embedder = await createHostedEmbedder(providerConfig, parsed.modelId);
+          } else {
+            if (!modelConfig) {
+              throw new Error(
+                'No local embedding model configured. Enable one in Settings > Models.'
+              );
+            }
+            embedder = await createLocalEmbedder(modelConfig);
+          }
+
+          // Cache the result
+          embedderRef.current = embedder;
+          currentModelKeyRef.current = modelKey;
+          return embedder;
+        } catch (error) {
+          embedderRef.current = null;
+          currentModelKeyRef.current = null;
+          throw error;
+        }
       })();
 
       // Store the promise so concurrent calls can wait for it
@@ -600,12 +625,23 @@ export function useSemanticSearchExecutor({
     [chunkRepository, fileRepository, getModelInfo, ensureEmbedderReady]
   );
 
-  // Only return executor if repositories are available
-  if (!(chunkRepository && fileRepository)) {
-    logger.debug('Semantic search executor not available', {
+  const hasExecutor = Boolean(chunkRepository && fileRepository);
+
+  useEffect(() => {
+    if (previousAvailabilityRef.current === hasExecutor) {
+      return;
+    }
+
+    previousAvailabilityRef.current = hasExecutor;
+    logger.debug('Semantic search executor availability changed', {
+      hasExecutor,
       hasChunkRepo: !!chunkRepository,
       hasFileRepo: !!fileRepository,
     });
+  }, [chunkRepository, fileRepository, hasExecutor]);
+
+  // Only return executor if repositories are available
+  if (!hasExecutor) {
     return;
   }
 

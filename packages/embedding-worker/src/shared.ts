@@ -34,6 +34,15 @@ export interface EmbedWorkerProgress {
   readonly type: 'progress';
 }
 
+export interface EmbedWorkerBatch {
+  readonly batchIndex: number;
+  readonly endIndex: number;
+  readonly id: string;
+  readonly startIndex: number;
+  readonly type: 'batch';
+  readonly vectors: readonly Float32Array[];
+}
+
 export interface EmbedWorkerSuccess {
   readonly id: string;
   readonly metadata: {
@@ -56,6 +65,18 @@ export interface EmbedWorkerError {
   readonly message: string;
   readonly type: 'error';
 }
+
+export interface EmbedWorkerComplete {
+  readonly id: string;
+  readonly metadata: EmbedWorkerSuccess['metadata'];
+  readonly type: 'complete';
+}
+
+export type EmbedWorkerStreamEvent =
+  | EmbedWorkerBatch
+  | EmbedWorkerComplete
+  | EmbedWorkerError
+  | EmbedWorkerProgress;
 
 /**
  * Normalizes a vector to unit length (L2 norm).

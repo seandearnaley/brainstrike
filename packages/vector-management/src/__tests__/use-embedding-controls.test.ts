@@ -1,3 +1,4 @@
+import type { ElectronAPI } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type UseEmbeddingControlsOptions, useEmbeddingControls } from '../use-embedding-controls';
@@ -104,6 +105,7 @@ import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
 
 describe('useEmbeddingControls', () => {
   const mockToast = vi.fn();
+  const testWindow = window as Window & { electronAPI?: unknown };
   const mockChunkRepository = {
     getCoverageForSet: vi.fn(async () => ({ totalChunks: 100, chunksWithEmbeddingsForSet: 50 })),
     clearEmbeddingsForSet: vi.fn(async () => 10),
@@ -116,6 +118,7 @@ describe('useEmbeddingControls', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    Reflect.deleteProperty(testWindow, 'electronAPI');
 
     // Reset mocks to defaults
     vi.mocked(usePGliteDatabase).mockReturnValue({} as ReturnType<typeof usePGliteDatabase>);
@@ -272,6 +275,46 @@ describe('useEmbeddingControls', () => {
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 
       expect(result.current.dropdownProps.startingWorker).toBe(true);
+    });
+
+    it('does not expose hidden desktop host startup as dropdown starting state', () => {
+      testWindow.electronAPI = {} as ElectronAPI;
+      vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
+        workerLocalRunning: false,
+        startingWorker: true,
+        startWorkerError: null,
+        startWorker: vi.fn(async () => {}),
+        stopWorker: vi.fn(async () => {}),
+        resetWorker: vi.fn(async () => {}),
+        clearWorkerError: vi.fn(),
+      });
+
+      const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
+
+      expect(result.current.dropdownProps.startingWorker).toBe(false);
+    });
+
+    it('keeps backfill progress visible even if worker controls report starting', () => {
+      vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
+        workerLocalRunning: false,
+        startingWorker: true,
+        startWorkerError: null,
+        startWorker: vi.fn(async () => {}),
+        stopWorker: vi.fn(async () => {}),
+        resetWorker: vi.fn(async () => {}),
+        clearWorkerError: vi.fn(),
+      });
+      vi.mocked(useVectorQueueState).mockReturnValue(
+        createQueueStateMock({
+          backfilling: true,
+          backfillProgress: { done: 5, total: 10 },
+        })
+      );
+
+      const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
+
+      expect(result.current.dropdownProps.startingWorker).toBe(false);
+      expect(result.current.dropdownProps.backfillProgress).toEqual({ done: 5, total: 10 });
     });
   });
 
@@ -553,6 +596,46 @@ describe('useEmbeddingControls', () => {
 
       // On web, should auto-start worker before backfill
       expect(startWorker).toHaveBeenCalled();
+    });
+
+    it('shows toast when backfill fails after worker startup', async () => {
+      const startWorker = vi.fn(async () => {});
+      const backfillActiveSet = vi.fn(async () => {
+        throw new Error('web backfill failed');
+      });
+
+      vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
+        workerLocalRunning: false,
+        startingWorker: false,
+        startWorkerError: null,
+        startWorker,
+        stopWorker: vi.fn(async () => {}),
+        resetWorker: vi.fn(async () => {}),
+        clearWorkerError: vi.fn(),
+      });
+
+      vi.mocked(useVectorQueueState).mockReturnValue(
+        createQueueStateMock({
+          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+          throughput: 0,
+          latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          backfillActiveSet,
+        })
+      );
+
+      const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
+
+      await act(async () => {
+        await expect(result.current.dropdownProps.onBackfill()).rejects.toThrow(
+          'web backfill failed'
+        );
+      });
+
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Backfill Failed',
+        description: 'web backfill failed',
+        variant: 'destructive',
+      });
     });
   });
 

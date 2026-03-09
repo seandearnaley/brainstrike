@@ -340,7 +340,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       if (!testResult.success) {
         throw new Error(`Database test failed: ${testResult.message}`);
       }
-      logger.info('Database test passed:', testResult.message);
+      logger.debug('Database test passed', { message: testResult.message });
     } catch (error) {
       logger.warn('Database test not available or failed:', error);
     }
@@ -352,7 +352,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         return false;
       }
 
-      logger.info('Using Electron IPC database connection');
+      logger.debug('Using Electron IPC database connection');
 
       const electronDB = window.electronAPI.db;
       await testElectronConnection(electronDB);
@@ -427,7 +427,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const initializeDirectPGlite = useCallback(
     async (cancelled: { value: boolean }) => {
-      logger.info('Using direct PGlite connection');
+      logger.debug('Using direct PGlite connection');
 
       const db = await wasmLoader.createPGlite(resolvedPath);
       connectionRef.current = { kind: 'direct', db, dataDir: resolvedPath };
@@ -439,7 +439,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       try {
         const result = await db.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
         hasVector = result.rows.length > 0;
-        logger.info(`pgvector extension ${hasVector ? 'available' : 'not available'}`);
+        logger.debug('pgvector extension detected', { available: hasVector });
       } catch (err) {
         logger.debug('Could not detect pgvector extension:', err);
       }
@@ -487,7 +487,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
     initializingRef.current = true;
     setInitializing(true);
-    logger.info('🚀 Lazy-loading database (triggered by actual usage)');
+    logger.debug('Lazy-loading database (triggered by actual usage)');
 
     initializingPromiseRef.current = (async () => {
       try {

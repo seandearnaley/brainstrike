@@ -8,9 +8,13 @@ declare const process: {
 // Environment variable names
 const ciEnv = 'CI';
 const baseUrlEnv = 'BASE_URL';
+const verboseEnv = 'BRAINSTRIKE_E2E_VERBOSE';
 
 // Helper to log messages during server detection
 function log(message: string, level: 'info' | 'error' = 'info') {
+  if (level === 'info' && process.env[verboseEnv] !== '1') {
+    return;
+  }
   const timestamp = new Date().toISOString();
   const prefix = level === 'error' ? '❌' : '✓';
   console.log(`${prefix} ${timestamp} - ${message}`);

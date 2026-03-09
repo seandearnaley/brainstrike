@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+  EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
+} from '../../embedding-host-shared';
 
 // Hoist Electron and db mocks safely
 const {
@@ -10,6 +14,9 @@ const {
   handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
   getDatabaseDiagnosticsMock,
+  enqueueEmbeddingBackfillMock,
+  embeddingHostEnsureStartedMock,
+  embeddingHostGetStatusMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockDb = {
@@ -26,6 +33,17 @@ const {
   const isCorruptionErrorMock = vi.fn(() => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
+  const enqueueEmbeddingBackfillMock = vi.fn();
+  const embeddingHostEnsureStartedMock = vi.fn(async () => ({
+    state: 'running' as const,
+    active: false,
+    lastError: null,
+  }));
+  const embeddingHostGetStatusMock = vi.fn(() => ({
+    state: 'running' as const,
+    active: false,
+    lastError: null,
+  }));
   const getDatabaseDiagnosticsMock = vi.fn(() => ({
     databaseProfile: 'test',
     dataDir: '/mock/documents/BrainStrike-dev/profiles/test/pgdata',
@@ -52,12 +70,20 @@ const {
     handleRuntimeCorruptionMock,
     resetLocalDatabaseMock,
     getDatabaseDiagnosticsMock,
+    enqueueEmbeddingBackfillMock,
+    embeddingHostEnsureStartedMock,
+    embeddingHostGetStatusMock,
   };
 });
 
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');
   const typedIpcMain = electronUtils.createIpcMainMock();
+  Object.assign(typedIpcMain, {
+    on: vi.fn(),
+    removeAllListeners: vi.fn(),
+    removeHandler: vi.fn(),
+  });
   // Track handlers for direct invocation
   typedIpcMain.handle.mockImplementation(
     (channel: string, listener: (...args: unknown[]) => unknown) => {
@@ -109,6 +135,8 @@ vi.mock('electron', async () => {
     },
     powerSaveBlocker: {
       start: vi.fn(() => 1),
+      isStarted: vi.fn(() => true),
+      stop: vi.fn(),
     },
   };
 });
@@ -119,6 +147,30 @@ vi.mock('../../db-main', () => ({
   handleRuntimeCorruption: handleRuntimeCorruptionMock,
   resetLocalDatabase: resetLocalDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
+}));
+
+vi.mock('../../embedding-backfill', () => ({
+  enqueueEmbeddingBackfill: enqueueEmbeddingBackfillMock,
+}));
+
+vi.mock('../../embedding-host-manager', () => ({
+  EmbeddingHostManager: class MockEmbeddingHostManager {
+    acceptStatusReport = vi.fn();
+    dispose = vi.fn(async () => {});
+    ensureStarted = embeddingHostEnsureStartedMock;
+    getStatus = embeddingHostGetStatusMock;
+    isHostWindow = vi.fn(() => false);
+    reset = vi.fn(async () => ({
+      state: 'running' as const,
+      active: false,
+      lastError: null,
+    }));
+    stop = vi.fn(async () => ({
+      state: 'stopped' as const,
+      active: false,
+      lastError: null,
+    }));
+  },
 }));
 
 vi.mock('@brainstrike/utils', async (importOriginal) => {
@@ -135,18 +187,15 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
 });
 
 // Use function syntax for Vitest 4 constructor mocks
-vi.mock('@brainstrike/file-system', () => {
+vi.mock('@brainstrike/file-system/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});
   });
-  return {
-    ElectronFileSystemAdapter: MockAdapter,
-    createFixtureCapableAdapter: (adapter: unknown) => adapter,
-  };
+  return { ElectronFileSystemAdapter: MockAdapter };
 });
 
-vi.mock('@brainstrike/storage', () => {
+vi.mock('@brainstrike/storage/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});
@@ -168,6 +217,16 @@ import '../../main';
 describe('database IPC handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    embeddingHostEnsureStartedMock.mockResolvedValue({
+      state: 'running',
+      active: false,
+      lastError: null,
+    });
+    embeddingHostGetStatusMock.mockReturnValue({
+      state: 'running',
+      active: false,
+      lastError: null,
+    });
   });
 
   it('db:query calls query and returns result', async () => {
@@ -208,6 +267,127 @@ describe('database IPC handlers', () => {
     mockDb.exec.mockRejectedValue(err);
 
     await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
+  });
+
+  it('embedding-host:enqueue-backfill runs backfill in main and streams progress', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        onProgress: (done: number, total: number) => void
+      ) => {
+        onProgress(0, 450);
+        onProgress(128, 450);
+        onProgress(450, 450);
+        return {
+          queued: 450,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    const result = await handler({ sender } as unknown, 'set-123');
+
+    expect(embeddingHostEnsureStartedMock).toHaveBeenCalledWith({ waitForRunning: true });
+    expect(getDatabaseMock).toHaveBeenCalledTimes(1);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledTimes(1);
+    expect(enqueueEmbeddingBackfillMock).toHaveBeenCalledWith(
+      mockDb,
+      expect.any(Object),
+      'set-123',
+      expect.any(Function),
+      expect.objectContaining({
+        assertCanContinue: expect.any(Function),
+        progressIntervalBatches: 4,
+      })
+    );
+    expect(sender.send).toHaveBeenCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+      embeddingSetId: 'set-123',
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+      stage: 'backfill',
+      current: 0,
+      total: 450,
+    });
+    expect(sender.send).toHaveBeenLastCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+      embeddingSetId: 'set-123',
+      requestId: expect.stringMatching(/^embedding-backfill:/),
+      stage: 'backfill',
+      current: 450,
+      total: 450,
+    });
+    expect(result).toEqual({
+      queued: 450,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    });
+  });
+
+  it('embedding-host:enqueue-backfill fails fast when the embedding host cannot reach running', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    embeddingHostEnsureStartedMock.mockResolvedValueOnce({
+      state: 'error',
+      active: false,
+      lastError: 'host failed to start',
+    });
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow('host failed to start');
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill rejects concurrent submissions', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    let resolveBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async () =>
+        await new Promise((resolve) => {
+          resolveBackfill = () => resolve(undefined);
+        })
+    );
+
+    const sender = {
+      id: 45,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    const first = handler({ sender } as unknown, 'set-a');
+    await expect(handler({ sender } as unknown, 'set-b')).rejects.toThrow(
+      'Embedding backfill is already running for set set-a.'
+    );
+    resolveBackfill?.();
+    await first;
   });
 
   it('db:live-query:start subscribes and forwards updates', async () => {

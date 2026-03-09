@@ -104,7 +104,7 @@ async function loadPgVectorExtension(): Promise<unknown> {
     if (!vector) {
       throw new Error('vector export missing from module');
     }
-    logger.info('pgvector extension loaded successfully (ESM)');
+    logger.debug('pgvector extension loaded successfully (ESM)');
     return vector;
   } catch (error) {
     const details = getErrorDetails(error);
@@ -129,7 +129,7 @@ async function loadPgLiveExtension(): Promise<unknown> {
     if (!live) {
       throw new Error('live export missing from module');
     }
-    logger.info('pglite live query extension loaded successfully (ESM)');
+    logger.debug('pglite live query extension loaded successfully (ESM)');
     return live;
   } catch (error) {
     const details = getErrorDetails(error);
@@ -381,12 +381,16 @@ function getGitProfileContext(): GitProfileContext | null {
   return mutableState.cachedGitProfileContext;
 }
 
+function isIsolatedDesktopTestRun(): boolean {
+  return process.env['NODE_ENV'] === 'test' || process.argv.includes('--test-mode');
+}
+
 function getDatabaseProfile(): string {
   if (mutableState.cachedDatabaseProfile !== null) {
     return mutableState.cachedDatabaseProfile;
   }
 
-  if (process.env['NODE_ENV'] === 'test') {
+  if (isIsolatedDesktopTestRun()) {
     mutableState.cachedDatabaseProfile = 'test';
     return mutableState.cachedDatabaseProfile;
   }
@@ -421,7 +425,7 @@ function getDatabaseProfile(): string {
 }
 
 function getDatabaseRootPath(): string {
-  if (process.env['NODE_ENV'] === 'test') {
+  if (isIsolatedDesktopTestRun()) {
     return app.getPath('userData');
   }
 
@@ -431,21 +435,18 @@ function getDatabaseRootPath(): string {
 }
 
 function getAppDataPath(): string {
-  if (process.env['NODE_ENV'] === 'test') {
-    return path.join(app.getPath('userData'), 'pgdata');
+  if (isIsolatedDesktopTestRun()) {
+    return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
   }
   return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
 }
 
 function getDatabasePath(): string {
-  if (process.env['NODE_ENV'] === 'test') {
-    return path.join(app.getPath('userData'), 'pgdata');
-  }
   return path.join(getAppDataPath(), 'pgdata');
 }
 
 function createResetBackup(appDataDir: string): string | null {
-  if (process.env['NODE_ENV'] === 'test' || !existsSync(appDataDir)) {
+  if (isIsolatedDesktopTestRun() || !existsSync(appDataDir)) {
     return null;
   }
 
@@ -879,7 +880,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
 
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true });
-    logger.info(`Created database directory: ${dataDir}`);
+    logger.debug(`Created database directory: ${dataDir}`);
   }
 
   let loadedPGlite: Awaited<ReturnType<typeof getPGlite>>;
@@ -905,7 +906,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
       loadedPGlite.vector,
       loadedPGlite.live
     );
-    logger.info('Database initialized with pgvector extension at:', dataDir);
+    logger.debug('Database initialized with pgvector extension at:', dataDir);
   } catch (err) {
     recordInitializationFailure('open-database', err);
     const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
@@ -944,7 +945,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
   }
 
   recordInitializationSuccess();
-  logger.info(`Database initialized successfully at: ${dataDir}`);
+  logger.debug(`Database initialized successfully at: ${dataDir}`);
   return db;
 }
 
@@ -978,7 +979,7 @@ export async function initializeMainDatabase(retryAfterCorruption = true): Promi
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
 export async function getDatabase(): Promise<any> {
   if (!db) {
-    logger.info('🚀 Lazy-loading database (triggered by IPC usage)');
+    logger.debug('Lazy-loading database (triggered by IPC usage)');
     await initializeMainDatabase();
   }
   return db;
@@ -997,7 +998,7 @@ export async function closeDatabase(): Promise<void> {
         // trySyncToFs already logs sync failures; still close the handle to avoid leaks.
       }
       await tryCloseDatabaseInstance(currentDatabase, 'closeDatabase');
-      logger.info('Database connection closed');
+      logger.debug('Database connection closed');
     }
   } finally {
     db = null;

@@ -6,43 +6,13 @@ import type {
   IDatabase,
 } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
-import { createLogger, fileExplorer } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils';
+import { getChunkingStrategy } from './chunking-strategy';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
+export { getChunkingStrategy } from './chunking-strategy';
+
 const logger = createLogger('FileImport:Chunking');
-
-export function getChunkingStrategy(
-  filePath: string,
-  defaultStrategy?: ChunkingStrategy
-): ChunkingStrategy {
-  if (defaultStrategy) {
-    return defaultStrategy;
-  }
-
-  const extension = fileExplorer.getFileExtension(filePath);
-  const codeExtensions = [
-    'js',
-    'ts',
-    'jsx',
-    'tsx',
-    'py',
-    'java',
-    'cpp',
-    'c',
-    'h',
-    'cs',
-    'php',
-    'rb',
-    'go',
-    'rs',
-  ];
-
-  if (codeExtensions.includes(extension)) {
-    return 'recursive';
-  }
-
-  return 'sentence';
-}
 
 interface ChunkingDeps {
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
@@ -78,6 +48,12 @@ interface ChunkingOptions {
   // Phase 5: opt-in streaming for large files
   useStreamingForLargeFiles?: boolean;
 }
+
+// Host-proxy chunking still loads file content in the visible renderer per request,
+// so concurrency must stay bounded. Serial execution was too slow for real imports,
+// but we also do not allow unbounded fan-out that would recreate the earlier crash.
+const MAX_HOST_PROXY_CHUNKING_CONCURRENCY = 4;
+const MAX_LOCAL_WORKER_CHUNKING_CONCURRENCY = 10;
 
 interface ChunkingProgressSnapshot {
   chunksCreated: number;
@@ -221,6 +197,12 @@ interface ChunkingSkipResult {
 type ChunkingPreparation =
   | { kind: 'skip'; response: ChunkingSkipResult }
   | {
+      kind: 'host-proxy';
+      repository: NonNullable<ChunkingDeps['repository']>;
+      chunkRepository: NonNullable<ChunkingDeps['chunkRepository']>;
+      fileRecordId: string;
+    }
+  | {
       kind: 'ready';
       repository: NonNullable<ChunkingDeps['repository']>;
       chunkRepository: NonNullable<ChunkingDeps['chunkRepository']>;
@@ -269,6 +251,18 @@ async function prepareChunkingExecution(
       error: result.error,
     });
     return { kind: 'skip', response: createSkipResult(result, fallbackStrategy) };
+  }
+
+  if (
+    options.chunkingWorkerPort?.transportKind === 'host-proxy' &&
+    typeof options.chunkingWorkerPort.chunkFileById === 'function'
+  ) {
+    return {
+      kind: 'host-proxy',
+      repository,
+      chunkRepository,
+      fileRecordId: result.id,
+    };
   }
 
   const fileRecord = preFetchedRecord || (await repository.findById(result.id));
@@ -320,6 +314,16 @@ export async function processFileChunking(
   const preparation = await prepareChunkingExecution(result, deps, options, preFetchedRecord);
   if (preparation.kind === 'skip') {
     return preparation.response;
+  }
+  if (preparation.kind === 'host-proxy') {
+    return await processFileChunkingHostProxyPath(
+      result,
+      index,
+      totalFiles,
+      totalChunksCreated,
+      preparation,
+      options
+    );
   }
 
   const { repository, chunkRepository, fileRecord, strategy, forceStrategy } = preparation;
@@ -423,6 +427,114 @@ export async function processFileChunking(
       `wouldHaveStreamed: ${shouldStream}, ` +
       'chunkingWorkerPort: not provided'
   );
+}
+
+async function processFileChunkingHostProxyPath(
+  result: FileImportResult,
+  index: number,
+  totalFiles: number,
+  totalChunksCreated: number,
+  preparation: Extract<ChunkingPreparation, { kind: 'host-proxy' }>,
+  options: ChunkingOptions
+): Promise<{
+  enhancedResult: EnhancedImportResult;
+  chunksCreated: number;
+  chunks?: FileChunk[];
+  strategyUsed: ChunkingStrategy;
+}> {
+  const workerPort = options.chunkingWorkerPort;
+  if (!(workerPort?.transportKind === 'host-proxy' && workerPort.chunkFileById)) {
+    throw new Error('Host-proxy chunking requires chunkFileById support.');
+  }
+
+  logger.debug('Starting host-proxy file chunking', {
+    fileId: preparation.fileRecordId,
+    fileIndex: index + 1,
+    totalFiles,
+  });
+
+  options.updateProgress((prev) =>
+    prev
+      ? {
+          ...prev,
+          phase: 'chunking',
+          chunkingProgress: {
+            filesProcessed: index,
+            totalFiles,
+            currentFile: preparation.fileRecordId,
+            chunksCreated: totalChunksCreated,
+          },
+        }
+      : null
+  );
+
+  const hasUserOverrides = options.chunkSize !== undefined || options.chunkOverlap !== undefined;
+  const workerResult = await workerPort.chunkFileById(preparation.fileRecordId, {
+    ...(options.chunkingStrategy !== undefined
+      ? { requestedStrategy: options.chunkingStrategy }
+      : {}),
+    ...(options.forceStrategy === true ? { forceStrategy: true } : {}),
+    ...(hasUserOverrides ? { ignoreFileTypeRecommendations: true } : {}),
+    ...(options.chunkSize !== undefined ? { maxTokens: options.chunkSize } : {}),
+    ...(options.chunkOverlap !== undefined ? { overlap: options.chunkOverlap } : {}),
+    ...(options.tokenLimit !== undefined ? { maxTokensCap: options.tokenLimit } : {}),
+    ...(options.tokenTrueSizing !== undefined ? { tokenTrueSizing: options.tokenTrueSizing } : {}),
+  });
+
+  if (workerResult.skipped) {
+    await updateFileRecordWithChunkInfo(
+      preparation.repository,
+      result.id,
+      0,
+      workerResult.strategyUsed
+    );
+    return {
+      enhancedResult: {
+        ...result,
+        chunksCreated: 0,
+        error: `Chunking skipped: ${workerResult.skipReason}`,
+        chunkingStrategy: workerResult.strategyUsed,
+      },
+      chunksCreated: 0,
+      strategyUsed: workerResult.strategyUsed,
+    };
+  }
+
+  const { toFileChunkInserts } = await import('./chunking-worker-port');
+  const chunks = toFileChunkInserts(result.id, workerResult.chunks, options.targetEmbeddingSetId);
+  const shouldUseTransaction =
+    options.embedQueueEnabled && options.runInTransaction && options.enqueueJobsForChunksTx;
+
+  if (shouldUseTransaction && options.runInTransaction) {
+    await options.runInTransaction(async (tx) => {
+      await insertChunksWithTransaction(tx, preparation.chunkRepository, chunks);
+      await options.enqueueJobsForChunksTx?.(tx, chunks, result.id);
+      return undefined as unknown as undefined;
+    });
+  } else {
+    await preparation.chunkRepository.insertMany(chunks);
+    if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
+      await options.enqueueJobsForChunks(chunks, result.id);
+    }
+  }
+
+  await updateFileRecordWithChunkInfo(
+    preparation.repository,
+    result.id,
+    chunks.length,
+    workerResult.strategyUsed
+  );
+
+  return {
+    enhancedResult: {
+      ...result,
+      chunksCreated: chunks.length,
+      chunkingStrategy: workerResult.strategyUsed,
+    },
+    chunksCreated: chunks.length,
+    chunks,
+    strategyUsed: workerResult.strategyUsed,
+  };
 }
 
 /**
@@ -589,28 +701,35 @@ export async function processChunking(
     await waitForChunkingWorkerReady(chunkingWorkerPort, CHUNKING_WORKER_READY_TIMEOUT_MS);
   }
 
+  const isHostProxyTransport = chunkingWorkerPort.transportKind === 'host-proxy';
+
   // Determine concurrency based on environment and file count
   const ChunkingConcurrency = Math.min(
-    10, // Max 10 files at once to avoid overwhelming the system
-    Math.max(1, Math.floor(importResults.length / 10)) // Scale with file count
+    isHostProxyTransport
+      ? MAX_HOST_PROXY_CHUNKING_CONCURRENCY
+      : MAX_LOCAL_WORKER_CHUNKING_CONCURRENCY,
+    Math.max(1, Math.floor(importResults.length / 10))
   );
 
   logger.info('Starting parallel chunking', {
     totalFiles: importResults.length,
     concurrency: ChunkingConcurrency,
+    transportKind: chunkingWorkerPort.transportKind,
   });
 
   let totalChunksCreated = 0;
   let filesProcessed = 0;
   const progressScheduler = createChunkingProgressScheduler(options.updateProgress);
 
-  // Pre-fetch all file records in a single batch to avoid N+1 queries
+  // Avoid materializing every imported file's content in the visible renderer when
+  // chunking is proxied to the hidden desktop host. In that mode, on-demand lookup
+  // keeps renderer heap bounded even for large import sets.
   let recordsMap: Map<string, FileRecord> | undefined;
   const validResults = importResults.filter(
     (r): r is FileImportResult => Boolean(r) && (r.imported || r.existed) && !r.error
   );
   const ids = validResults.map((r) => r.id);
-  if (ids.length > 0) {
+  if (!isHostProxyTransport && ids.length > 0) {
     const batchFetchStart = Date.now();
     const records = await repository.findByIds(ids);
     const batchFetchDuration = Date.now() - batchFetchStart;
@@ -619,6 +738,11 @@ export async function processChunking(
       count: records.length,
       requested: ids.length,
       durationMs: batchFetchDuration,
+    });
+  } else if (isHostProxyTransport && ids.length > 0) {
+    logger.debug('Skipped batch file-record prefetch for host-proxy chunking transport', {
+      requested: ids.length,
+      transportKind: chunkingWorkerPort.transportKind,
     });
   }
 

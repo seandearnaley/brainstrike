@@ -1,12 +1,16 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EmbeddingActionsDropdown,
   type EmbeddingActionsDropdownProps,
 } from '../embedding-actions-dropdown';
 
 describe('EmbeddingActionsDropdown', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   const defaultProps: EmbeddingActionsDropdownProps = {
     onBackfill: vi.fn(),
     onRetryFailed: vi.fn(),
@@ -40,6 +44,29 @@ describe('EmbeddingActionsDropdown', () => {
       await waitFor(() => {
         expect(onBackfill).toHaveBeenCalledTimes(1);
       });
+    });
+
+    it('does not leak rejected backfill clicks as unhandled promise rejections', async () => {
+      const user = userEvent.setup();
+      const onBackfill = vi.fn().mockRejectedValue(new Error('boom'));
+      const onUnhandledRejection = vi.fn((event: PromiseRejectionEvent) => {
+        event.preventDefault();
+      });
+      window.addEventListener('unhandledrejection', onUnhandledRejection);
+      renderDropdown({ onBackfill });
+
+      try {
+        await user.click(screen.getByRole('button', { name: 'Backfill' }));
+
+        await waitFor(() => {
+          expect(onBackfill).toHaveBeenCalledTimes(1);
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(onUnhandledRejection).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener('unhandledrejection', onUnhandledRejection);
+      }
     });
 
     it('is disabled when hasDb is false', () => {
@@ -81,6 +108,15 @@ describe('EmbeddingActionsDropdown', () => {
 
     it('shows progress when backfilling with progress', () => {
       renderDropdown({ backfilling: true, backfillProgress: { done: 25, total: 100 } });
+      expect(screen.getByRole('button', { name: '25/100' })).toBeInTheDocument();
+    });
+
+    it('prioritizes backfill progress over starting state', () => {
+      renderDropdown({
+        startingWorker: true,
+        backfilling: true,
+        backfillProgress: { done: 25, total: 100 },
+      });
       expect(screen.getByRole('button', { name: '25/100' })).toBeInTheDocument();
     });
 
@@ -140,6 +176,29 @@ describe('EmbeddingActionsDropdown', () => {
       await waitFor(() => {
         expect(onRetryFailed).toHaveBeenCalledTimes(1);
       });
+    });
+
+    it('does not leak rejected retry clicks as unhandled promise rejections', async () => {
+      const user = userEvent.setup();
+      const onRetryFailed = vi.fn().mockRejectedValue(new Error('retry failed'));
+      const onUnhandledRejection = vi.fn((event: PromiseRejectionEvent) => {
+        event.preventDefault();
+      });
+      window.addEventListener('unhandledrejection', onUnhandledRejection);
+      renderDropdown({ failedCount: 3, onRetryFailed });
+
+      try {
+        await user.click(screen.getByRole('button', { name: 'More embedding actions' }));
+        await user.click(await screen.findByRole('menuitem', { name: /retry failed/i }));
+        await waitFor(() => {
+          expect(onRetryFailed).toHaveBeenCalledTimes(1);
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(onUnhandledRejection).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener('unhandledrejection', onUnhandledRejection);
+      }
     });
 
     it('is disabled when failedCount is 0', async () => {

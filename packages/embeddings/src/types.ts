@@ -95,6 +95,15 @@ export interface EmbeddingResult {
   };
 }
 
+export interface EmbeddingStreamBatch {
+  /** Exclusive batch end index within the original request order */
+  endIndex: number;
+  /** Embeddings produced for this slice */
+  results: EmbeddingResult[];
+  /** Inclusive batch start index within the original request order */
+  startIndex: number;
+}
+
 /**
  * Result of similarity calculation between two embeddings
  */
@@ -155,6 +164,16 @@ export interface EmbeddingService {
 
   /** Generate embeddings for multiple texts */
   generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]>;
+
+  /**
+   * Stream embeddings for multiple texts in request order.
+   * Local background embedding workers rely on this path so batches can be
+   * persisted incrementally without retaining the full result set in memory.
+   */
+  generateEmbeddingsStream?(
+    texts: string[],
+    onBatch: (batch: EmbeddingStreamBatch) => Promise<void> | void
+  ): Promise<void>;
 
   /** Generate an embedding optimized for search queries */
   generateQueryEmbedding(text: string): Promise<EmbeddingResult>;

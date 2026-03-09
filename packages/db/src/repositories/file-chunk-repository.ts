@@ -630,16 +630,29 @@ export class FileChunkRepository {
     if (!embeddingSetId) {
       throw new Error('embeddingSetId is required');
     }
-    const totalRes = await this.db.query<{ count: string }>(
-      'SELECT COUNT(*)::text as count FROM file_chunks'
-    );
-    const withSetRes = await this.db.query<{ count: string }>(
-      'SELECT COUNT(*)::text as count FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NOT NULL',
+    const result = await this.db.query<{
+      chunksWithEmbeddingsForSet: string | null;
+      totalChunks: string | null;
+    }>(
+      `WITH target AS (SELECT $1::text AS embedding_set_id)
+       SELECT
+         COUNT(*)::text AS "totalChunks",
+         COUNT(*) FILTER (
+           WHERE (
+             c.embedding_set_id = target.embedding_set_id
+             OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id)
+           )
+           AND c.embedding IS NOT NULL
+         )::text AS "chunksWithEmbeddingsForSet"
+       FROM file_chunks c
+       JOIN file_records fr ON fr.id = c.file_record_id
+       JOIN target ON fr.embedding_set_id = target.embedding_set_id`,
       [embeddingSetId]
     );
+    const row = result.rows[0];
     return {
-      totalChunks: Number(totalRes.rows[0]?.count ?? 0),
-      chunksWithEmbeddingsForSet: Number(withSetRes.rows[0]?.count ?? 0),
+      totalChunks: Number(row?.totalChunks ?? 0),
+      chunksWithEmbeddingsForSet: Number(row?.chunksWithEmbeddingsForSet ?? 0),
     };
   }
 

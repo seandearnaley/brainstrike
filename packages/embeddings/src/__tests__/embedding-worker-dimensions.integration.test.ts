@@ -39,6 +39,17 @@ class LargeDimensionService implements EmbeddingService {
       usage: { totalTokens: 10 },
     }));
   }
+  async generateEmbeddingsStream(
+    texts: string[],
+    onBatch: (batch: {
+      startIndex: number;
+      endIndex: number;
+      results: EmbeddingResult[];
+    }) => Promise<void> | void
+  ): Promise<void> {
+    const results = await this.generateEmbeddings(texts);
+    await onBatch({ startIndex: 0, endIndex: results.length, results });
+  }
 
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
@@ -116,14 +127,19 @@ describe('Embedding Worker Dimensions', () => {
     await db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [setId, 'local:large-dim-model', 'large-dim-model', 3072, 'cosine']
+      [setId, 'local::large-dim-model', 'large-dim-model', 3072, 'cosine']
     );
 
     // 4. Enqueue job
     await jq.enqueue({
       queue: 'embeddings',
       jobType: 'embed_chunk',
-      payload: { chunkId, embeddingSetId: setId },
+      payload: {
+        chunkId,
+        embeddingSetId: setId,
+        modelKey: 'local::large-dim-model',
+        expectedDimension: 3072,
+      },
     });
 
     // 5. Start worker with custom service that returns 3072-dim embeddings

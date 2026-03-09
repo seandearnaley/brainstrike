@@ -6,9 +6,10 @@ import {
 } from '@brainstrike/app-shell';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
+import { useVectorPreferencesStore } from '@brainstrike/preferences';
+import type { QueueAdapter } from '@brainstrike/queue';
 import { EmbeddingJobQueueTracker } from '@brainstrike/vector-management';
-import type { ReactElement, ReactNode } from 'react';
-import { embeddingQueue } from '../create-embedding-queue';
+import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
 import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -19,7 +20,24 @@ import SettingsPageContent from './settings/page-content';
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
   const db = usePGliteDatabase();
-  return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
+  return (
+    <TokenCacheProvider db={db} lazyWorkerInit={true}>
+      {children}
+    </TokenCacheProvider>
+  );
+}
+
+function useInitializeWebVectorDevicePreference(): void {
+  const devicePrefConfigured = useVectorPreferencesStore((state) => state.devicePrefConfigured);
+  const devicePref = useVectorPreferencesStore((state) => state.devicePref);
+  const setDetectedDevicePref = useVectorPreferencesStore((state) => state.setDetectedDevicePref);
+
+  useEffect(() => {
+    if (devicePrefConfigured || devicePref === 'wasm') {
+      return;
+    }
+    setDetectedDevicePref('wasm');
+  }, [devicePref, devicePrefConfigured, setDetectedDevicePref]);
 }
 
 /**
@@ -44,10 +62,40 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
+  useInitializeWebVectorDevicePreference();
+
   const navigationConfig = navigationItems as NavigationItem[];
+  const [embeddingQueue, setEmbeddingQueue] = useState<QueueAdapter | null>(null);
+  const [queueLoadError, setQueueLoadError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    import('../create-embedding-queue')
+      .then((module) => {
+        if (!cancelled) {
+          setEmbeddingQueue(module.embeddingQueue);
+          setQueueLoadError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setQueueLoadError(
+            error instanceof Error ? error : new Error('Failed to load the web embedding queue.')
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (queueLoadError) {
+    throw queueLoadError;
+  }
 
   // CRITICAL: embeddingQueue from create-embedding-queue.ts must be passed through
-  // This is the app's embedding queue instance that all components share
+  // once the queue module finishes loading. This remains the app's single queue instance.
   const sharedProps: RootLayoutContentProps = {
     navigationItems: navigationConfig,
     homePageContent: <HomePageContent />,

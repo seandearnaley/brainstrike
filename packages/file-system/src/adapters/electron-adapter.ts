@@ -19,7 +19,8 @@ import type {
   FileSystemChange,
   StreamingDirectoryReadOptions,
 } from '../types';
-import { normalizeDirectoryReadOptions, validateDirectoryPath } from '../utils';
+import { validateDirectoryPath } from '../utils';
+import { normalizeDirectoryReadOptions } from '../utils-browser';
 import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers';
 
 /** Default batch size for streaming directory reads */

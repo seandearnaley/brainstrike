@@ -49,6 +49,9 @@
       "path": "../preferences"
     },
     {
+      "path": "../vector-management"
+    },
+    {
       "path": "../types"
     },
     {

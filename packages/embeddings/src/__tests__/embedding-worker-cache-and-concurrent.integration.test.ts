@@ -55,6 +55,17 @@ class FakeEmbeddingService implements EmbeddingService {
   async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
     return Promise.all(texts.map((t) => this.generateEmbedding(t)));
   }
+  async generateEmbeddingsStream(
+    texts: string[],
+    onBatch: (batch: {
+      startIndex: number;
+      endIndex: number;
+      results: EmbeddingResult[];
+    }) => Promise<void> | void
+  ): Promise<void> {
+    const results = await this.generateEmbeddings(texts);
+    await onBatch({ startIndex: 0, endIndex: results.length, results });
+  }
 
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
@@ -140,7 +151,16 @@ async function setupTestData(
   await db.query(
     `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
      VALUES ($1, 'embeddings', 'embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
-    [jobId, JSON.stringify({ chunkId, embeddingSetId }), now]
+    [
+      jobId,
+      JSON.stringify({
+        chunkId,
+        embeddingSetId,
+        modelKey,
+        expectedDimension: dimensions,
+      }),
+      now,
+    ]
   );
 }
 
@@ -355,6 +375,108 @@ describe('embedding-worker: concurrent access patterns', () => {
       const row = res.rows[0] as { state: string } | undefined;
       expect(row?.state).toBe('succeeded');
     }
+
+    await controller.stop();
+  });
+
+  it('caps the number of running jobs to the configured claim batch size', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'claim-cap-set';
+    const modelId = 'jinaai/jina-embeddings-v2-base-code';
+    const modelKey = `local::${modelId}`;
+
+    class SlowBatchService extends FakeEmbeddingService {
+      override async generateEmbedding(text: string): Promise<EmbeddingResult> {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return await super.generateEmbedding(text);
+      }
+    }
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, modelKey, modelId, 768, 'cosine', now]
+    );
+
+    for (let index = 0; index < 6; index += 1) {
+      const fileId = `file-cap-${index}`;
+      const chunkId = `chunk-cap-${index}`;
+      const jobId = `job-cap-${index}`;
+
+      await db.query(
+        `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+        [
+          fileId,
+          `cap${index}.ts`,
+          `/cap${index}.ts`,
+          100,
+          `content ${index}`,
+          `hash-cap-${index}`,
+          10,
+          now,
+        ]
+      );
+
+      await db.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+         VALUES ($1, $2, 0, $3, $4, 10, 'text', 10, $5, $5)`,
+        [chunkId, fileId, `content ${index}`, `hash-cap-${index}`, now]
+      );
+
+      await db.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+         VALUES ($1, 'embeddings', 'embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+        [
+          jobId,
+          JSON.stringify({
+            chunkId,
+            embeddingSetId,
+            modelKey,
+            expectedDimension: 768,
+          }),
+          now,
+        ]
+      );
+    }
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      claimBatchSize: 2,
+      concurrency: 1,
+      leaseMs: 5000,
+      modelKey,
+      service: new SlowBatchService(),
+      log: () => {},
+    });
+
+    await waitFor(async () => {
+      const res = await db.query(
+        `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'running'`
+      );
+      const row = res.rows[0] as { count: number } | undefined;
+      return Number(row?.count ?? 0) === 2;
+    }, 10_000);
+
+    const runningRes = await db.query(
+      `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'running'`
+    );
+    const queuedRes = await db.query(
+      `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'queued'`
+    );
+    const runningRow = runningRes.rows[0] as { count: number } | undefined;
+    const queuedRow = queuedRes.rows[0] as { count: number } | undefined;
+
+    expect(Number(runningRow?.count ?? 0)).toBe(2);
+    expect(Number(queuedRow?.count ?? 0)).toBeGreaterThan(0);
+
+    await waitFor(async () => {
+      const res = await db.query(
+        `SELECT COUNT(*)::int AS count FROM job_queue WHERE state = 'succeeded'`
+      );
+      const row = res.rows[0] as { count: number } | undefined;
+      return Number(row?.count ?? 0) === 6;
+    }, 15_000);
 
     await controller.stop();
   });

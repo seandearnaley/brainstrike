@@ -242,14 +242,14 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       const url = resolveEmbeddingWorkerUrl();
 
       expect(url).toBeInstanceOf(URL);
-      expect(url.pathname.endsWith('embedding.worker.js')).toBe(true);
+      expect(url.pathname.endsWith('embedding.worker.ts')).toBe(true);
     });
 
-    it('should return URL pointing to embedding.worker.js', async () => {
+    it('should return URL pointing to the source worker in source-import contexts', async () => {
       const { resolveEmbeddingWorkerUrl } = await import('../src');
       const url = resolveEmbeddingWorkerUrl();
 
-      expect(url.toString()).toContain('embedding.worker.js');
+      expect(url.toString()).toContain('embedding.worker.ts');
     });
 
     it('should use file:// protocol', async () => {

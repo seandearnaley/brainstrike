@@ -43,6 +43,7 @@ import { ToolbarPresetSelector } from './toolbar-preset-selector';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
+import { persistFileExplorerStateImmediately } from './utils/persist-file-explorer-state';
 import { computeScanningStatusProps } from './utils/scanning-status-props';
 
 // Quick filter helpers (factored to keep component complexity low)
@@ -125,7 +126,7 @@ const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
  * This component can be used independently in the left panel of an IDE layout
  */
 export const FileExplorerLeftPanel: React.FC = React.memo(() => {
-  const { fileSystemAdapter } = useAdapters();
+  const { fileSystemAdapter, storageAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const [
     includeFilters,
@@ -165,6 +166,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.setFiltersExpanded,
       ] as const,
     shallow
+  );
+
+  const handleMaxSelectionCountChange = useCallback(
+    (count: number) => {
+      setMaxSelectionCount(count);
+      void persistFileExplorerStateImmediately(store, storageAdapter).catch((error: unknown) => {
+        logger.error('Failed to persist max selection count immediately', { error });
+      });
+    },
+    [setMaxSelectionCount, store, storageAdapter]
   );
 
   // Local state for UI
@@ -693,7 +704,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               />
               <SelectionCounter
                 maxSelectionCount={maxSelectionCount}
-                onMaxSelectionCountChange={setMaxSelectionCount}
+                onMaxSelectionCountChange={handleMaxSelectionCountChange}
                 selectedCount={selectedCount}
               />
             </div>

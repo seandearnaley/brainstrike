@@ -3,7 +3,14 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnhancedFileImportService } from '../enhanced-file-import-service';
 
-const { runEnhancedImportMock, mockUsePGliteDatabase } = vi.hoisted(() => ({
+const { ensureStartedMock, runEnhancedImportMock, mockUsePGliteDatabase } = vi.hoisted(() => ({
+  ensureStartedMock: vi.fn(async () => ({
+    transportKind: 'local-worker' as const,
+    chunkFile: vi.fn(),
+    chunkBatch: vi.fn(),
+    isReady: vi.fn(() => true),
+    terminate: vi.fn(),
+  })),
   runEnhancedImportMock: vi.fn(),
   mockUsePGliteDatabase: vi.fn(() => null),
 }));
@@ -61,30 +68,20 @@ vi.mock('@brainstrike/utils', async () => {
   };
 });
 
-vi.mock('@brainstrike/file-import', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/file-import')>(
-    '@brainstrike/file-import'
-  );
-  return {
-    ...actual,
-    runEnhancedImport: runEnhancedImportMock,
-    // Mock chunking worker hooks/contexts to prevent worker initialization in tests
-    useChunkingWorker: vi.fn().mockReturnValue({
-      port: null,
-      isReady: false,
-      isProcessing: false,
-      error: null,
-      reinitialize: vi.fn(),
-    }),
-    useChunkingWorkerContext: vi.fn().mockReturnValue({
-      port: null,
-      isReady: false,
-      isProcessing: false,
-      error: null,
-      reinitialize: vi.fn(),
-    }),
-  };
-});
+vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
+  useChunkingWorkerContext: vi.fn().mockReturnValue({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    ensureStarted: ensureStartedMock,
+    reinitialize: vi.fn(),
+  }),
+}));
+
+vi.mock('@brainstrike/file-import/enhanced-import', () => ({
+  runEnhancedImport: runEnhancedImportMock,
+}));
 
 describe('useEnhancedFileImportService', () => {
   beforeEach(() => {
@@ -92,6 +89,7 @@ describe('useEnhancedFileImportService', () => {
     runEnhancedImportMock.mockReset();
     mockUsePGliteDatabase.mockReset();
     mockUsePGliteDatabase.mockReturnValue(null);
+    ensureStartedMock.mockClear();
     runEnhancedImportMock.mockImplementation(async (params) => {
       const baseResults = await params.baseImportRunner({
         selectedFilePaths: params.request.selectedFilePaths,

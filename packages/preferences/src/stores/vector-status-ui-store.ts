@@ -116,6 +116,25 @@ const STORE_NAME = 'vector-status-ui.v1' as const;
  */
 const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 
+function areQueueStatsSnapshotsEqual(
+  left: QueueStatsSnapshot | null,
+  right: QueueStatsSnapshot | null
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!(left && right)) {
+    return false;
+  }
+  return (
+    left.failed === right.failed &&
+    left.queued === right.queued &&
+    left.running === right.running &&
+    left.succeeded === right.succeeded &&
+    left.nextRunnableAt === right.nextRunnableAt
+  );
+}
+
 export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
   persist(
     (set) => ({
@@ -130,7 +149,12 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
       schemaVerified: false,
       setActiveEmbeddingSetId: (id) => set({ activeEmbeddingSetId: id }),
       setIsImporting: (importing) => set({ isImporting: importing }),
-      setDurableQueueStats: (stats) => set({ durableQueueStats: stats }),
+      setDurableQueueStats: (stats) =>
+        set((state) =>
+          areQueueStatsSnapshotsEqual(state.durableQueueStats, stats)
+            ? state
+            : { durableQueueStats: stats }
+        ),
       setIsEmbeddingQueueActive: (active) =>
         set((state) => ({
           isEmbeddingQueueActive: active,

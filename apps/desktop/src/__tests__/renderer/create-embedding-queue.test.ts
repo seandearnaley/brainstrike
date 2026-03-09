@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const createBrowserEmbeddingQueueMock = vi.fn(() => ({ id: 'queue' }));
 
-vi.mock('@brainstrike/queue', () => ({
+vi.mock('@brainstrike/queue/browser', () => ({
   createBrowserEmbeddingQueue: createBrowserEmbeddingQueueMock,
 }));
 

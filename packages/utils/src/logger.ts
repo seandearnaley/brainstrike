@@ -61,6 +61,24 @@ const METHOD_BY_LEVEL: Partial<Record<LogLevel, LogMethodName>> = {
   [LogLevel.FATAL]: 'fatal',
 };
 
+function isLevelEnabledAtThreshold(level: LogLevel, threshold: LogLevel): boolean {
+  if (level === LogLevel.SILENT || threshold === LogLevel.SILENT) {
+    return false;
+  }
+
+  const thresholdIndex = ACTIVE_LEVELS.indexOf(threshold as ActiveLogLevel);
+  if (thresholdIndex === -1) {
+    return true;
+  }
+
+  const candidateIndex = ACTIVE_LEVELS.indexOf(level as ActiveLogLevel);
+  if (candidateIndex === -1) {
+    return true;
+  }
+
+  return candidateIndex >= thresholdIndex;
+}
+
 export interface ConsoleTransportConfig {
   destination?: number | string;
   enabled?: boolean;
@@ -269,6 +287,168 @@ function resolveBaseBindings(
   return bindings;
 }
 
+type BrowserConsoleMethodName = 'debug' | 'error' | 'info' | 'trace' | 'warn';
+
+const BROWSER_CONSOLE_METHOD_BY_LEVEL: Readonly<
+  Record<LogMethodName | 'fatal', BrowserConsoleMethodName>
+> = {
+  trace: 'trace',
+  debug: 'debug',
+  info: 'info',
+  warn: 'warn',
+  error: 'error',
+  fatal: 'error',
+};
+
+function sanitizeBrowserConsoleValue(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet<object>()
+): unknown {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    };
+  }
+
+  if (value instanceof URL) {
+    return value.toString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeBrowserConsoleValue(entry, seen));
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) {
+      return '[Circular]';
+    }
+    seen.add(value);
+
+    const sanitizedEntries = Object.entries(value).map(([key, entry]) => [
+      key,
+      sanitizeBrowserConsoleValue(entry, seen),
+    ]);
+    return Object.fromEntries(sanitizedEntries);
+  }
+
+  return String(value);
+}
+
+function stringifyBrowserConsoleMetadata(metadata: Record<string, unknown>): string | null {
+  const sanitizedMetadata = sanitizeBrowserConsoleValue(metadata);
+  if (
+    !sanitizedMetadata ||
+    typeof sanitizedMetadata !== 'object' ||
+    Array.isArray(sanitizedMetadata)
+  ) {
+    return null;
+  }
+
+  const entries = Object.entries(sanitizedMetadata).filter(([, value]) => value !== undefined);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return JSON.stringify(Object.fromEntries(entries));
+}
+
+function formatBrowserConsoleMessage(
+  value: unknown,
+  scopeKey: string,
+  baseBindings: Record<string, unknown>
+): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return String(value);
+  }
+
+  const record = value as Record<string, unknown>;
+  const message =
+    typeof record['msg'] === 'string' && record['msg'].length > 0 ? record['msg'] : null;
+  const scopeValue = record[scopeKey];
+  const scope = typeof scopeValue === 'string' && scopeValue.length > 0 ? scopeValue : null;
+
+  const metadata = Object.fromEntries(
+    Object.entries(record).filter(([key]) => {
+      if (key === 'level' || key === 'msg' || key === 'time' || key === scopeKey) {
+        return false;
+      }
+      if (key in baseBindings) {
+        return false;
+      }
+      return true;
+    })
+  );
+
+  const prefix = scope ? `[${scope}] ` : '';
+  const messageText = message ?? '';
+  const metadataText = stringifyBrowserConsoleMetadata(metadata);
+
+  if (messageText && metadataText) {
+    return `${prefix}${messageText} ${metadataText}`;
+  }
+  if (messageText) {
+    return `${prefix}${messageText}`;
+  }
+  if (metadataText) {
+    return `${prefix}${metadataText}`;
+  }
+  return prefix.trim().length > 0 ? prefix.trim() : String(value);
+}
+
+function createBrowserWrite(
+  config: InternalLoggerConfig
+): NonNullable<BrowserLoggerOptions['write']> {
+  const baseBindings = resolveBaseBindings(config);
+  const consoleThreshold = config.console.level ?? resolveEffectiveLevel(config);
+  const writeMethod = (level: LogMethodName | 'fatal') => {
+    return (value: unknown) => {
+      const globalConsole = typeof console !== 'undefined' ? console : null;
+      const logLevel = level === 'fatal' ? LogLevel.FATAL : (level as LogLevel);
+      if (
+        !(
+          globalConsole &&
+          config.console.enabled &&
+          isLevelEnabledAtThreshold(logLevel, consoleThreshold)
+        )
+      ) {
+        return;
+      }
+
+      const consoleMethodName = BROWSER_CONSOLE_METHOD_BY_LEVEL[level];
+      const consoleMethod =
+        typeof globalConsole[consoleMethodName] === 'function'
+          ? globalConsole[consoleMethodName]
+          : globalConsole.log;
+
+      consoleMethod.call(
+        globalConsole,
+        formatBrowserConsoleMessage(value, config.scopeKey, baseBindings)
+      );
+    };
+  };
+
+  return {
+    trace: writeMethod('trace'),
+    debug: writeMethod('debug'),
+    info: writeMethod('info'),
+    warn: writeMethod('warn'),
+    error: writeMethod('error'),
+    fatal: writeMethod('fatal'),
+  };
+}
+
 function rebuildRootLogger(): void {
   if (rootLogger && typeof rootLogger.flush === 'function') {
     // Flush any pending logs before rebuilding
@@ -313,10 +493,18 @@ function createRootLogger(): PinoLogger {
   }
 
   if (isBrowserEnvironment) {
-    baseOptions.browser = {
-      asObject: false,
+    const browserWrite: NonNullable<BrowserLoggerOptions['write']> =
+      internalConfig.browser?.write ?? createBrowserWrite(internalConfig);
+    const defaultBrowserOptions: BrowserLoggerOptions = {
+      asObject: true,
       serialize: true,
-      ...internalConfig.browser,
+      write: browserWrite,
+    };
+    const { write: _ignoredWrite, ...browserOverrides } = internalConfig.browser ?? {};
+    baseOptions.browser = {
+      ...defaultBrowserOptions,
+      ...browserOverrides,
+      write: browserWrite,
     };
   }
 
@@ -409,25 +597,7 @@ function createFileTransportTarget(
 }
 
 function isLevelEnabled(level: LogLevel): boolean {
-  if (level === LogLevel.SILENT) {
-    return false;
-  }
-
-  if (currentLevel === LogLevel.SILENT) {
-    return false;
-  }
-
-  const currentIndex = ACTIVE_LEVELS.indexOf(currentLevel as ActiveLogLevel);
-  if (currentIndex === -1) {
-    return true;
-  }
-
-  const candidateIndex = ACTIVE_LEVELS.indexOf(level as ActiveLogLevel);
-  if (candidateIndex === -1) {
-    return true;
-  }
-
-  return candidateIndex >= currentIndex;
+  return isLevelEnabledAtThreshold(level, currentLevel);
 }
 
 function getLoggerForScope(scope?: string): PinoLogger {
@@ -448,14 +618,22 @@ function getLoggerForScope(scope?: string): PinoLogger {
   return child;
 }
 
+function resolveLogRecordMessage(args: readonly unknown[]): string | undefined {
+  for (const arg of args) {
+    if (typeof arg === 'string' && arg.length > 0) {
+      return arg;
+    }
+  }
+  return undefined;
+}
+
 function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonly unknown[]): void {
   if (logListeners.size === 0) {
     return;
   }
 
   const bindings = resolveBaseBindings(internalConfig, scope);
-  const [first] = args;
-  const message = typeof first === 'string' ? first : undefined;
+  const message = resolveLogRecordMessage(args);
   const argsCopy = [...args];
   const record: LogRecord = {
     level,
@@ -653,6 +831,12 @@ export function addLogListener(listener: LogListener): () => void {
     logListeners.delete(listener);
   };
 }
+
+export const __loggerTesting = {
+  formatBrowserConsoleMessage,
+  sanitizeBrowserConsoleValue,
+  createBrowserWrite,
+};
 
 export const log = debug;
 export const logInfo = info;

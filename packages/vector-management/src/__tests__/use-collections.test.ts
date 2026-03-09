@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock data
@@ -138,16 +138,14 @@ describe('useCollections', () => {
       );
     });
 
-    it('should keep live query enabled during embedding generation (isEmbeddingActive)', () => {
-      // This is intentional - embedding updates file_chunks.embedding,
-      // not embedding_sets or file_records, so live query can stay active
+    it('should disable live query during embedding generation and use cached data', () => {
       mockStoreState.isEmbeddingActive = true;
 
       renderHook(() => useCollections(mockDb as any));
 
       expect(usePGliteLiveQuery).toHaveBeenCalledWith(
         expect.objectContaining({
-          enabled: true,
+          enabled: false,
         })
       );
     });
@@ -234,6 +232,109 @@ describe('useCollections', () => {
       // setCachedCollections might be called from initial fetch, but not from live query sync
       // The key is that it returns cached data, not live data
       expect(mockStoreState.cachedCollections).toEqual([]);
+    });
+
+    it('refreshes the live query when embedding activity settles', async () => {
+      mockStoreState.isEmbeddingActive = true;
+
+      const { rerender } = renderHook(() => useCollections(mockDb as any));
+
+      expect(mockLiveQueryResult.refresh).not.toHaveBeenCalled();
+
+      mockStoreState.isEmbeddingActive = false;
+      rerender();
+
+      await waitFor(() => {
+        expect(mockLiveQueryResult.refresh).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('refreshes cached collections when the embeddings queue drains', async () => {
+      mockStoreState.isEmbeddingActive = true;
+      mockDb.query.mockResolvedValue({
+        rows: [{ ...mockCollectionRows[0], embeddingCount: '100' }],
+      });
+
+      renderHook(() => useCollections(mockDb as any));
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:queue-drained', {
+            detail: { queue: 'embeddings', embeddingSetId: 'set-1' },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'));
+      });
+      expect(mockStoreState.setCachedCollections).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ embeddingCount: 100 })])
+      );
+    });
+
+    it('refreshes cached collections when an embedding set is created while live queries are paused', async () => {
+      mockStoreState.isEmbeddingActive = true;
+      mockDb.query.mockResolvedValue({
+        rows: [{ ...mockCollectionRows[0], id: 'set-2', name: 'Created Collection' }],
+      });
+
+      renderHook(() => useCollections(mockDb as never));
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:embedding-set-updated', {
+            detail: { id: 'set-2' },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'));
+      });
+      expect(mockStoreState.setCachedCollections).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'set-2', name: 'Created Collection' }),
+        ])
+      );
+    });
+
+    it('clears loading when a paused live-query refresh succeeds after an embedding set update', async () => {
+      mockStoreState.isEmbeddingActive = true;
+      let resolveInitialQuery: ((value: { rows: typeof mockCollectionRows }) => void) | undefined;
+      const initialQuery = new Promise<{ rows: typeof mockCollectionRows }>((resolve) => {
+        resolveInitialQuery = resolve;
+      });
+
+      mockDb.query
+        .mockImplementationOnce(() => initialQuery)
+        .mockResolvedValueOnce({ rows: mockCollectionRows });
+
+      const { result } = renderHook(() => useCollections(mockDb as never));
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(true);
+      });
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:embedding-set-updated', {
+            detail: { id: 'set-1' },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false);
+      });
+
+      expect(resolveInitialQuery).toBeDefined();
+      await act(async () => {
+        resolveInitialQuery?.({ rows: mockCollectionRows });
+      });
     });
   });
 

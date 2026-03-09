@@ -1,8 +1,10 @@
+export type { ChunkingRequestOptions, ChunkResult } from '@brainstrike/chunking-worker';
 export {
   createBrowserEmbeddingQueuePort,
   type QueueProgressEventDetail,
 } from './browser-queue-port';
 export * from './chunking';
+export * from './chunking-strategy';
 export * from './chunking-worker-context';
 export * from './chunking-worker-port';
 export * from './embedding';

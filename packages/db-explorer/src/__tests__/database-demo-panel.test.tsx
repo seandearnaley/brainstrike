@@ -2,6 +2,7 @@ import {
   __resetImportSettingsStoreForTests,
   __resetTokenPreferencesStoreForTests,
   __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
 } from '@brainstrike/preferences';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -14,6 +15,16 @@ import { setActiveEmbeddingSetId } from '../vector-preferences';
 // Helper to wrap renders with TooltipProvider
 const renderWithProviders = (ui: React.ReactElement) =>
   render(<TooltipProvider>{ui}</TooltipProvider>);
+
+const { ensureStartedMock } = vi.hoisted(() => ({
+  ensureStartedMock: vi.fn(async () => ({
+    transportKind: 'local-worker' as const,
+    chunkFile: vi.fn(),
+    chunkBatch: vi.fn(),
+    isReady: vi.fn(() => true),
+    terminate: vi.fn(),
+  })),
+}));
 
 // Mock all external dependencies at the top level
 const mockRepository = {
@@ -264,27 +275,16 @@ vi.mock('file-saver', () => ({
   saveAs: vi.fn(),
 }));
 
-// Mock the file-import package to prevent chunking worker initialization
-vi.mock('@brainstrike/file-import', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-import')>();
-  return {
-    ...actual,
-    useChunkingWorker: vi.fn().mockReturnValue({
-      port: null,
-      isReady: false,
-      isProcessing: false,
-      error: null,
-      reinitialize: vi.fn(),
-    }),
-    useChunkingWorkerContext: vi.fn().mockReturnValue({
-      port: null,
-      isReady: false,
-      isProcessing: false,
-      error: null,
-      reinitialize: vi.fn(),
-    }),
-  };
-});
+vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
+  useChunkingWorkerContext: vi.fn().mockReturnValue({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    ensureStarted: ensureStartedMock,
+    reinitialize: vi.fn(),
+  }),
+}));
 
 vi.mock('./enhanced-file-import-service', () => ({
   useEnhancedFileImportService: vi.fn().mockReturnValue({
@@ -364,8 +364,10 @@ describe('DatabaseDemoPanel', () => {
     __resetTokenPreferencesStoreForTests();
     __resetVectorStatusUIStoreForTests();
     vi.clearAllMocks();
+    ensureStartedMock.mockClear();
     mockImportFiles.mockReset();
     setActiveEmbeddingSetId(TEST_COLLECTION_ID);
+    useVectorStatusUIStore.getState().setSchemaVerified(true);
 
     // Setup default mock returns
     mockRepository.findAll.mockResolvedValue([]);
@@ -539,10 +541,18 @@ describe('DatabaseDemoPanel', () => {
       });
 
       const refreshButton = screen.getByRole('button', { name: /Refresh/ });
+      const recordRefreshCallsBeforeClick = mockRecordLiveQueryResult.refresh.mock.calls.length;
+      const chunkRefreshCallsBeforeClick = mockChunkLiveQueryResult.refresh.mock.calls.length;
       await user.click(refreshButton);
 
-      // Now using live queries, so refresh should call the live query refresh
-      expect(mockRecordLiveQueryResult.refresh).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(mockRecordLiveQueryResult.refresh.mock.calls.length).toBeGreaterThan(
+          recordRefreshCallsBeforeClick
+        );
+        expect(mockChunkLiveQueryResult.refresh.mock.calls.length).toBeGreaterThan(
+          chunkRefreshCallsBeforeClick
+        );
+      });
     });
   });
 

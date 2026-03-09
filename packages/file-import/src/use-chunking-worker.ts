@@ -209,6 +209,7 @@ export function useChunkingWorker(): UseChunkingWorkerResult {
   const currentPort = singletonPort;
   const wrappedPort: ChunkingWorkerPort | null = currentPort
     ? {
+        transportKind: currentPort.transportKind,
         chunkFile: async (...args) => {
           setIsProcessing(true);
           try {

@@ -22,6 +22,14 @@ describe('resolveChunkingWorkerUrl', () => {
     expect(url.href).toBe('file:///tmp/chunking/chunking.worker.js');
   });
 
+  it('resolves TypeScript worker path from source import.meta.url overrides', () => {
+    setImportMetaOverride({ url: 'file:///tmp/chunking/index.ts' });
+
+    const url = resolveChunkingWorkerUrl();
+
+    expect(url.href).toBe('file:///tmp/chunking/chunking.worker.ts');
+  });
+
   it('falls back to import.meta.dirname when url is missing', () => {
     setImportMetaOverride({ dirname: '/tmp/chunking' });
 
@@ -35,7 +43,7 @@ describe('resolveChunkingWorkerUrl', () => {
 
     const url = resolveChunkingWorkerUrl();
 
-    expect(url.href).toContain('/chunking.worker.js');
+    expect(url.href).toContain('/chunking.worker.ts');
   });
 
   it('ignores non-object override values and still resolves', () => {
@@ -43,7 +51,7 @@ describe('resolveChunkingWorkerUrl', () => {
 
     const url = resolveChunkingWorkerUrl();
 
-    expect(url.href).toContain('/chunking.worker.js');
+    expect(url.href).toContain('/chunking.worker.ts');
   });
 
   it('throws descriptive errors when import meta is unavailable', () => {

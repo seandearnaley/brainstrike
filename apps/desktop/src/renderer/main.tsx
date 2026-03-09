@@ -1,11 +1,11 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { ChunkingWorkerProvider } from '@brainstrike/file-import';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
 import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import type { LoggingPreferences } from '@brainstrike/utils';
 import {
+  addLogListener,
   applyLoggingPreferences,
   createLogger,
   initializeLogging,
@@ -14,10 +14,15 @@ import {
   installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/utils';
+import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
+import './log-buffer';
 import './styles.css';
+import { ChunkingHostApp } from './components/chunking-host-app';
+import { DesktopChunkingWorkerProvider } from './components/desktop-chunking-worker-provider';
+import { EmbeddingHostApp } from './components/embedding-host-app';
 
 // Import layout component
 import RootLayoutContent from './components/root-layout-content';
@@ -31,8 +36,30 @@ const storageAdapter = new ElectronRendererStorageAdapter();
 
 // Default to INFO - use LOG_LEVEL=DEBUG env var for verbose debugging
 const rendererLevel = LogLevel.INFO;
+const rendererConsoleLevel = LogLevel.WARN;
 const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
+let removeHiddenHostLogForwarder: (() => void) | null = null;
+
+type DesktopRendererRole = 'chunking-host' | 'embedding-host' | 'visible-ui';
+
+function getDesktopRendererRole(): DesktopRendererRole {
+  const mode = new URLSearchParams(window.location.search).get('mode');
+  if (mode === 'embedding-host') {
+    return 'embedding-host';
+  }
+  if (mode === 'chunking-host') {
+    return 'chunking-host';
+  }
+  return 'visible-ui';
+}
+
+const desktopRendererRole = getDesktopRendererRole();
+const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
+const rendererRuntimeKind =
+  desktopRendererRole === 'embedding-host' || desktopRendererRole === 'chunking-host'
+    ? desktopRendererRole
+    : null;
 
 if (typeof window !== 'undefined') {
   installConsoleGuard();
@@ -42,12 +69,20 @@ if (typeof window !== 'undefined') {
 initializeLogging({
   runtime: 'electron-renderer',
   level: rendererLevel,
-  consoleLevel: rendererLevel,
+  consoleLevel: rendererConsoleLevel,
   appName: 'brainstrike-desktop',
   appVersion: import.meta.env['VITE_APP_VERSION'] ?? 'desktop-renderer',
   baseBindings: {
     mode: import.meta.env.MODE,
     userAgent: window.navigator.userAgent,
+    windowRole: desktopRendererRole,
+    ...(rendererRuntimeKind && rendererRuntimeId
+      ? createRuntimeLogBindings({
+          runtimeKind: rendererRuntimeKind,
+          runtimeId: rendererRuntimeId,
+          windowRole: desktopRendererRole,
+        })
+      : {}),
   },
 });
 
@@ -65,7 +100,7 @@ const loggingStore = useLoggingPreferencesStore.getState();
 if (!loggingStore.hasHydrated) {
   loggingStore.updatePreferences({
     level: rendererLevel,
-    consoleLevel: rendererLevel,
+    consoleLevel: rendererConsoleLevel,
   });
 }
 
@@ -85,6 +120,73 @@ void syncLoggingPreferencesFromMain();
 
 applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'electron-renderer');
 
+function sanitizeLogValue(value: unknown): unknown {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    };
+  }
+  if (value instanceof URL) {
+    return value.toString();
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeLogValue(entry));
+  }
+  if (typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      result[key] = sanitizeLogValue(entry);
+    }
+    return result;
+  }
+  return String(value);
+}
+
+if (desktopRendererRole !== 'visible-ui') {
+  removeHiddenHostLogForwarder = addLogListener((record) => {
+    const runtimeAwareRecord =
+      rendererRuntimeKind && rendererRuntimeId
+        ? bindRuntimeLogRecord(record, {
+            runtimeKind: rendererRuntimeKind,
+            runtimeId: rendererRuntimeId,
+            windowRole: desktopRendererRole,
+          })
+        : record;
+
+    window.logging?.ingestBufferedRecord?.({
+      ...runtimeAwareRecord,
+      args: runtimeAwareRecord.args.map((arg) => sanitizeLogValue(arg)),
+      bindings: Object.fromEntries(
+        Object.entries(runtimeAwareRecord.bindings).map(([key, value]) => [
+          key,
+          sanitizeLogValue(value),
+        ])
+      ),
+    });
+  });
+  rendererLogger.info('Background renderer log forwarding enabled', {
+    windowRole: desktopRendererRole,
+    ...(rendererRuntimeKind && rendererRuntimeId
+      ? createRuntimeLogBindings({
+          runtimeKind: rendererRuntimeKind,
+          runtimeId: rendererRuntimeId,
+          windowRole: desktopRendererRole,
+        })
+      : {}),
+  });
+}
+
 const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
   applyLoggingPreferences(state.preferences, 'electron-renderer');
 });
@@ -96,6 +198,8 @@ const unsubscribeLoggingEvents =
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+    removeHiddenHostLogForwarder?.();
+    removeHiddenHostLogForwarder = null;
     unsubscribeLoggingPreferences();
     unsubscribeLoggingEvents?.();
     removeRendererErrorHooks();
@@ -168,14 +272,22 @@ function App() {
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
       <DbSchemaVerifier>
-        <ChunkingWorkerProvider>
+        <DesktopChunkingWorkerProvider autoStart={false} mode="host-proxy">
           <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
             <RootLayoutContent />
           </AdaptersProvider>
-        </ChunkingWorkerProvider>
+        </DesktopChunkingWorkerProvider>
       </DbSchemaVerifier>
     </DbProvider>
   );
+}
+
+function isEmbeddingHostMode(): boolean {
+  return new URLSearchParams(window.location.search).get('mode') === 'embedding-host';
+}
+
+function isChunkingHostMode(): boolean {
+  return new URLSearchParams(window.location.search).get('mode') === 'chunking-host';
 }
 
 const rootElement = document.getElementById('root');
@@ -191,7 +303,13 @@ if (!existingRoot) {
 }
 
 root.render(
-  <StrictMode>
-    <App />
-  </StrictMode>
+  isEmbeddingHostMode() ? (
+    <EmbeddingHostApp />
+  ) : isChunkingHostMode() ? (
+    <ChunkingHostApp />
+  ) : (
+    <StrictMode>
+      <App />
+    </StrictMode>
+  )
 );

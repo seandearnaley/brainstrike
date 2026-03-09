@@ -19,6 +19,7 @@ import type {
 } from '@brainstrike/chunking-worker';
 import type { FileChunkInsert } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils';
+import { createRequestTracker, createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 
 const logger = createLogger('ChunkingWorkerPort');
 
@@ -51,6 +52,18 @@ export interface ChunkingBatchCallbacks {
   ) => void;
 }
 
+export interface ChunkingHostProxyRequestOptions {
+  readonly allowLargeFiles?: boolean;
+  readonly forceStrategy?: boolean;
+  readonly ignoreFileTypeRecommendations?: boolean;
+  readonly maxTokens?: number;
+  readonly maxTokensCap?: number;
+  readonly overlap?: number;
+  readonly requestedStrategy?: ChunkingRequestOptions['strategy'];
+  readonly separators?: readonly string[];
+  readonly tokenTrueSizing?: boolean;
+}
+
 /**
  * Port interface for interacting with the chunking worker.
  */
@@ -78,6 +91,10 @@ export interface ChunkingWorkerPort {
     filePath: string,
     options: ChunkingRequestOptions
   ): Promise<ChunkResult>;
+  chunkFileById?: (
+    fileRecordId: string,
+    options: ChunkingHostProxyRequestOptions
+  ) => Promise<ChunkResult>;
 
   /**
    * Check if the worker is ready to receive requests.
@@ -88,6 +105,7 @@ export interface ChunkingWorkerPort {
    * Terminate the worker and clean up resources.
    */
   terminate(): void;
+  readonly transportKind: 'host-proxy' | 'local-worker';
 }
 
 /**
@@ -130,15 +148,34 @@ export function toFileChunkInserts(
  * @param worker - The Web Worker running chunking.worker.js
  */
 export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
-  let ready = false;
-  let terminalFailure: Error | null = null;
-  const pendingRequests = new Map<
-    string,
-    {
-      resolve: (result: ChunkResult) => void;
-      reject: (error: Error) => void;
-    }
-  >();
+  const pendingRequests = createRequestTracker<{
+    reject: (error: Error) => void;
+    resolve: (result: ChunkResult) => void;
+  }>();
+  let removeMessageListener = () => {};
+  const runtime = createWorkerRuntimeClient(worker, {
+    createErrorFromEvent: (event) => {
+      logger.error('Worker error event', {
+        message: event.message,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+      });
+      const detailSuffix = ` (${event.filename || 'unknown'}:${event.lineno || 0}:${event.colno || 0})`;
+      return new Error(
+        event.message
+          ? `Chunking worker runtime error: ${event.message}${detailSuffix}`
+          : `Chunking worker runtime error (missing ErrorEvent.message)${detailSuffix}`
+      );
+    },
+    onFailure: (failure) => {
+      rejectAllPending(failure);
+      removeMessageListener();
+      runtime.dispose();
+      worker.terminate();
+    },
+  });
+  const transport = runtime.transport;
   let batchCallbacks: ChunkingBatchCallbacks | null = null;
   const batchResults = new Map<string, ChunkResult>();
   let batchResolve: ((results: ChunkResult[]) => void) | null = null;
@@ -154,7 +191,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   }
 
   function rejectAllPending(error: Error): void {
-    for (const pending of pendingRequests.values()) {
+    for (const [, pending] of pendingRequests.entries()) {
       pending.reject(error);
     }
     pendingRequests.clear();
@@ -165,12 +202,10 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   }
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker message dispatch handles multiple variants.
-  function handleMessage(event: MessageEvent<WorkerResponse>) {
-    const message = event.data;
-
+  function handleMessage(message: WorkerResponse) {
     switch (message.type) {
       case 'ready':
-        ready = true;
+        runtime.markReady();
         logger.info('Chunking worker ready');
         break;
 
@@ -227,16 +262,15 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
               ? `Chunking worker entered terminal tokenizer failure state: ${error.error}`
               : `Chunking worker initialization failed: ${error.error}`
           );
-          terminalFailure = failure;
-          ready = false;
+          runtime.markFailed(failure);
 
           // CRITICAL: init/runtime worker errors are terminal. Reject all pending
           // operations immediately so callers don't hang waiting for file-level results.
           // Tokenizer-init failures are terminal too: retrying the same worker only
           // fans out duplicate errors and hides the root cause.
           rejectAllPending(failure);
-          worker.removeEventListener('message', handleMessage);
-          worker.removeEventListener('error', handleErrorEvent);
+          removeMessageListener();
+          runtime.dispose();
           worker.terminate();
           break;
         }
@@ -275,31 +309,14 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
         });
     }
   }
-
-  const handleErrorEvent = (event: ErrorEvent) => {
-    logger.error('Worker error event', {
-      message: event.message,
-      filename: event.filename,
-      lineno: event.lineno,
-    });
-    ready = false;
-    const failure = new Error(
-      event.message
-        ? `Chunking worker runtime error: ${event.message}`
-        : 'Chunking worker runtime error (missing ErrorEvent.message)'
-    );
-    terminalFailure = failure;
-    rejectAllPending(failure);
-    worker.removeEventListener('message', handleMessage);
-    worker.removeEventListener('error', handleErrorEvent);
-    worker.terminate();
-  };
-  worker.addEventListener('message', handleMessage);
-  worker.addEventListener('error', handleErrorEvent);
+  removeMessageListener = transport.onMessage((message) => {
+    handleMessage(message as WorkerResponse);
+  });
 
   let requestIdCounter = 0;
 
   return {
+    transportKind: 'local-worker',
     chunkFile(
       fileRecordId: string,
       content: string,
@@ -307,13 +324,14 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
       filePath: string,
       options: ChunkingRequestOptions
     ): Promise<ChunkResult> {
-      if (terminalFailure) {
-        return Promise.reject(terminalFailure);
+      const failure = runtime.getFailure();
+      if (failure) {
+        return Promise.reject(failure);
       }
       return new Promise((resolve, reject) => {
         const id = `chunk-${++requestIdCounter}`;
 
-        pendingRequests.set(id, { resolve, reject });
+        pendingRequests.register(id, { resolve, reject });
 
         const request: ChunkRequest = {
           type: 'chunk',
@@ -325,7 +343,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
           options,
         };
 
-        worker.postMessage(request);
+        transport.postMessage(request);
       });
     },
 
@@ -339,8 +357,9 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
       options: ChunkingRequestOptions,
       callbacks?: ChunkingBatchCallbacks
     ): Promise<ChunkResult[]> {
-      if (terminalFailure) {
-        return Promise.reject(terminalFailure);
+      const failure = runtime.getFailure();
+      if (failure) {
+        return Promise.reject(failure);
       }
       return new Promise((resolve, reject) => {
         batchResolve = resolve;
@@ -363,21 +382,21 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
           requests,
         };
 
-        worker.postMessage(batchRequest);
+        transport.postMessage(batchRequest);
       });
     },
 
     isReady(): boolean {
-      return ready && terminalFailure === null;
+      return runtime.isReady();
     },
 
     terminate(): void {
-      worker.removeEventListener('message', handleMessage);
-      worker.removeEventListener('error', handleErrorEvent);
+      removeMessageListener();
+      runtime.dispose();
       rejectAllPending(new Error('Chunking worker terminated'));
       worker.terminate();
-      ready = false;
-      terminalFailure = null;
+      runtime.resetReady();
+      runtime.clearFailure();
     },
   };
 }

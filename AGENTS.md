@@ -34,18 +34,28 @@ Reasons:
 - In main/Node, it degrades to synchronous WASM → freezes UI.
 
 Flow:
-1. Renderer
-   - File: apps/desktop/src/renderer/components/embedding-worker-provider.tsx
-   - Uses startEmbeddingWorker() from @brainstrike/embeddings.
-   - Starts when DB is ready.
-   - Pulls jobs from PGlite-backed job_queue.
-   - Uses workerpool + p-queue; supports local (WASM/WebGPU) and hosted (OpenAI, Google).
-2. Main
+1. Hidden host renderer
+   - Files:
+     - apps/desktop/src/embedding-host-manager.ts
+     - apps/desktop/src/renderer/components/embedding-host-app.tsx
+     - apps/desktop/src/renderer/components/embedding-host-runtime.tsx
+   - Main creates a hidden BrowserWindow with `?mode=embedding-host`.
+   - The host renderer mounts `DbProvider` with `useElectronIPC=true`.
+   - The host renderer uses `startEmbeddingWorker()` from `@brainstrike/embeddings`.
+   - It pulls jobs from the PGlite-backed `job_queue`.
+   - Local models still execute in browser/Web Worker context only.
+2. Visible renderer
+   - File: packages/vector-management/src/vector-status/use-embedding-worker-controls.ts
+   - Does NOT start the embedding worker directly in desktop mode.
+   - Talks to the hidden host over the preload bridge (`window.embeddingHost`).
+   - Keeps UI controls/status in sync with host lifecycle.
+3. Main
    - File: apps/desktop/src/main.ts
-   - Does NOT start the embedding worker.
-   - Handles IPC, DB init, lifecycle.
-   - Contains comments explaining renderer-only constraint.
-3. Job Queue
+   - Does NOT run embeddings in-process.
+   - Owns host-window lifecycle, IPC, DB init, and power lifecycle.
+   - Visible window uses default background throttling; only the hidden host disables throttling.
+   - `powerSaveBlocker` is allowed only while the hidden host reports active embedding work.
+4. Job Queue
    - File: packages/db/src/queue/job-queue.ts
    - Backed by job_queue table.
    - Lease-based locking, retries, dedupe, failure tracking.
@@ -55,7 +65,7 @@ Environment variables:
 - VITE_EMBED_LEASE_MS (default 60000)
 - VITE_EMBED_MODEL_KEY (e.g. local:Xenova/bge-m3, openai:text-embedding-3-small)
 
-Do not move or reintroduce workers in main.
+Do not move or reintroduce workers in Electron main. Desktop local embeddings must stay in the hidden renderer host.
 
 ---
 

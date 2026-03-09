@@ -50,7 +50,38 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/agent/src/client.ts'
       ),
+      '@brainstrike/app-shell': resolve(import.meta.dirname, '../../packages/app-shell/src'),
+      '@brainstrike/db': resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
+      '@brainstrike/db-explorer': resolve(import.meta.dirname, '../../packages/db-explorer/src'),
+      '@brainstrike/embeddings': resolve(import.meta.dirname, '../../packages/embeddings/src'),
+      '@brainstrike/queue/browser': resolve(
+        import.meta.dirname,
+        '../../packages/queue/src/browser.ts'
+      ),
+      '@brainstrike/queue': resolve(import.meta.dirname, '../../packages/queue/src'),
+      '@brainstrike/file-import/browser-queue-port': resolve(
+        import.meta.dirname,
+        '../../packages/file-import/src/browser-queue-port.ts'
+      ),
+      '@brainstrike/file-import/chunking-worker-context': resolve(
+        import.meta.dirname,
+        '../../packages/file-import/src/chunking-worker-context.tsx'
+      ),
+      '@brainstrike/file-import/enhanced-import': resolve(
+        import.meta.dirname,
+        '../../packages/file-import/src/enhanced-import.ts'
+      ),
+      '@brainstrike/file-import': resolve(import.meta.dirname, '../../packages/file-import/src'),
+      '@brainstrike/preferences': resolve(import.meta.dirname, '../../packages/preferences/src'),
+      '@brainstrike/platform-utils': resolve(
+        import.meta.dirname,
+        '../../packages/platform-utils/src'
+      ),
       '@brainstrike/types': resolve(import.meta.dirname, '../../packages/types/src'),
+      '@brainstrike/vector-management': resolve(
+        import.meta.dirname,
+        '../../packages/vector-management/src'
+      ),
       '@brainstrike/hooks': resolve(import.meta.dirname, '../../packages/hooks/src'),
       '@brainstrike/ui': resolve(import.meta.dirname, '../../packages/ui/src'),
       '@brainstrike/utils': resolve(import.meta.dirname, '../../packages/utils/src'),

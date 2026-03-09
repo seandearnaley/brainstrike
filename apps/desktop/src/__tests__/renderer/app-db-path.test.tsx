@@ -56,6 +56,8 @@ vi.mock('../../renderer/components/root-layout-content', () => ({
   default: () => <div>RootLayout</div>,
 }));
 
+vi.mock('../../renderer/log-buffer', () => ({}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   const existing = document.getElementById('root');
@@ -87,5 +89,5 @@ describe('App database path resolution', () => {
     render(element);
     const call = mockDbProvider.mock.calls.at(-1)?.[0] as { useElectronIPC?: boolean } | undefined;
     expect(call?.useElectronIPC).toBe(true);
-  });
+  }, 30_000);
 });

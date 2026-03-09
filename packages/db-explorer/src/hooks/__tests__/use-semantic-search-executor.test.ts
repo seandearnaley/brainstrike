@@ -7,6 +7,13 @@ import type {
 } from '@brainstrike/db';
 import { useModelRegistryStore } from '@brainstrike/preferences';
 import type { SearchConfig } from '@brainstrike/ui';
+import {
+  addLogListener,
+  configureLogger,
+  LogLevel,
+  type LogRecord,
+  setLogLevel,
+} from '@brainstrike/utils';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSemanticSearchExecutor } from '../use-semantic-search-executor';
@@ -14,6 +21,10 @@ import { useSemanticSearchExecutor } from '../use-semantic-search-executor';
 const mockDb = {
   query: vi.fn(),
 };
+
+const { MockSimpleEmbeddingService } = vi.hoisted(() => ({
+  MockSimpleEmbeddingService: vi.fn(),
+}));
 
 // Mock @brainstrike/db
 vi.mock('@brainstrike/db', async () => {
@@ -27,8 +38,6 @@ vi.mock('@brainstrike/db', async () => {
 
 // Mock @brainstrike/embeddings
 vi.mock('@brainstrike/embeddings', () => {
-  // Create the mock implementation using function syntax (required for Vitest 4 constructor mocks)
-  const MockSimpleEmbeddingService = vi.fn();
   MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {
       initializeWithModel: vi.fn().mockResolvedValue(undefined),
@@ -129,9 +138,16 @@ const createSearchConfig = (overrides: Partial<SearchConfig> = {}): SearchConfig
   ...overrides,
 });
 
+interface AvailabilityHookProps {
+  chunkRepository: DrizzleFileChunkRepository | null;
+  fileRepository: DrizzleFileRecordRepository | null;
+}
+
 describe('useSemanticSearchExecutor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    configureLogger({ enableInProduction: true });
+    setLogLevel(LogLevel.DEBUG);
     mockDb.query.mockResolvedValue({
       rows: [
         {
@@ -159,6 +175,15 @@ describe('useSemanticSearchExecutor', () => {
       providers: [],
       isLoading: false,
       error: null,
+    });
+    MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
+      Object.assign(this, {
+        initializeWithModel: vi.fn().mockResolvedValue(undefined),
+        generateQueryEmbedding: vi.fn().mockResolvedValue({
+          embedding: new Array(1024).fill(0.1),
+        }),
+        dispose: vi.fn(),
+      });
     });
   });
 
@@ -193,6 +218,59 @@ describe('useSemanticSearchExecutor', () => {
     );
 
     expect(result.current).toBeUndefined();
+  });
+
+  it('logs semantic search executor availability only when availability changes', () => {
+    const captured: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.scope === 'SemanticSearchExecutor') {
+        captured.push(record);
+      }
+    });
+
+    const firstFileRepo = createMockFileRepository();
+    const secondFileRepo = createMockFileRepository();
+    const initialProps: AvailabilityHookProps = {
+      chunkRepository: null,
+      fileRepository: firstFileRepo,
+    };
+
+    const { rerender } = renderHook(
+      ({ chunkRepository, fileRepository }: AvailabilityHookProps) =>
+        useSemanticSearchExecutor({ chunkRepository, fileRepository }),
+      { initialProps }
+    );
+
+    rerender({
+      chunkRepository: null,
+      fileRepository: secondFileRepo,
+    });
+
+    rerender({
+      chunkRepository: createMockChunkRepository(),
+      fileRepository: secondFileRepo,
+    });
+
+    rerender({
+      chunkRepository: createMockChunkRepository(),
+      fileRepository: createMockFileRepository(),
+    });
+
+    const availabilityLogs = captured.filter(
+      (record) =>
+        record.level === LogLevel.DEBUG &&
+        record.message === 'Semantic search executor availability changed'
+    );
+
+    expect(availabilityLogs).toHaveLength(2);
+    expect(availabilityLogs[0]?.args).toContainEqual(
+      expect.objectContaining({ hasExecutor: false, hasChunkRepo: false, hasFileRepo: true })
+    );
+    expect(availabilityLogs[1]?.args).toContainEqual(
+      expect.objectContaining({ hasExecutor: true, hasChunkRepo: true, hasFileRepo: true })
+    );
+
+    unsubscribe();
   });
 
   it('returns a search executor function when repositories are available', () => {
@@ -249,6 +327,56 @@ describe('useSemanticSearchExecutor', () => {
         similarity: expect.any(Number),
       })
     );
+  });
+
+  it('throws when the embedding set dimensions are missing', async () => {
+    mockDb.query.mockResolvedValue({
+      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: null }],
+    });
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({
+        chunkRepository: createMockChunkRepository([createMockChunk('chunk-1', 'file-1')]),
+        fileRepository: createMockFileRepository([createMockFileRecord('file-1')]),
+      })
+    );
+
+    await expect(result.current!('test query', createSearchConfig(), 'set-1')).rejects.toThrow(
+      'Active embedding set dimensions are missing or invalid.'
+    );
+  });
+
+  it('retries local embedder initialization after an earlier failure for the same model', async () => {
+    const initializeWithModel = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('bootstrap failed'))
+      .mockResolvedValue(undefined);
+    const generateQueryEmbedding = vi.fn().mockResolvedValue({
+      embedding: new Array(1024).fill(0.25),
+    });
+    MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
+      Object.assign(this, {
+        initializeWithModel,
+        generateQueryEmbedding,
+        dispose: vi.fn(),
+      });
+    });
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({
+        chunkRepository: createMockChunkRepository([createMockChunk('chunk-1', 'file-1')]),
+        fileRepository: createMockFileRepository([createMockFileRecord('file-1')]),
+      })
+    );
+
+    await expect(result.current!('test query', createSearchConfig(), 'set-1')).rejects.toThrow(
+      'bootstrap failed'
+    );
+
+    const searchResults = await result.current!('test query', createSearchConfig(), 'set-1');
+    expect(searchResults).toHaveLength(1);
+    expect(initializeWithModel).toHaveBeenCalledTimes(2);
+    expect(generateQueryEmbedding).toHaveBeenCalledTimes(1);
   });
 
   it('handles missing file records gracefully', async () => {

@@ -205,4 +205,30 @@ describe('vector-status-ui-store', () => {
       expect(store.getState().isEmbeddingActive).toBe(false);
     });
   });
+
+  describe('setDurableQueueStats', () => {
+    it('preserves store identity when queue stats are unchanged', () => {
+      const store = useVectorStatusUIStore;
+      const initialStats = {
+        queued: 4,
+        running: 1,
+        failed: 0,
+        succeeded: 9,
+        nextRunnableAt: '2026-03-07T00:00:00.000Z',
+      };
+
+      store.getState().setDurableQueueStats(initialStats);
+      const before = store.getState();
+
+      store.getState().setDurableQueueStats({
+        queued: 4,
+        running: 1,
+        failed: 0,
+        succeeded: 9,
+        nextRunnableAt: '2026-03-07T00:00:00.000Z',
+      });
+
+      expect(store.getState()).toBe(before);
+    });
+  });
 });

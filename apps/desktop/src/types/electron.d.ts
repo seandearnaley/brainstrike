@@ -1,11 +1,26 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { AssistantSelectionUpdatePayload, IFileNode } from '@brainstrike/types';
 import type {
+  ChunkingHostChunkBatchRequest,
+  ChunkingHostChunkFileByIdRequest,
+  ChunkingHostChunkFileRequest,
+  ChunkingHostProgressEvent,
+  ChunkingHostRequest,
+  ChunkingHostResponseReport,
+  ChunkingHostStatus,
+} from '../chunking-host-shared';
+import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
   PanelPersistenceState,
 } from '@brainstrike/ui';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import type { ChunkResult } from '@brainstrike/chunking-worker';
+import type {
+  EmbeddingHostBackfillProgress,
+  EmbeddingHostCommand,
+  EmbeddingHostStatus,
+} from '../embedding-host-shared';
 
 import type { LoggingSettingsPayload } from '../logging-shared';
 
@@ -26,6 +41,24 @@ declare global {
   interface Window {
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
+    };
+    chunkingHost: {
+      ensureStarted: () => Promise<ChunkingHostStatus>;
+      stop: () => Promise<ChunkingHostStatus>;
+      reset: () => Promise<ChunkingHostStatus>;
+      getStatus: () => Promise<ChunkingHostStatus>;
+      chunkFile: (
+        request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest
+      ) => Promise<ChunkResult>;
+      chunkBatch: (request: ChunkingHostChunkBatchRequest) => Promise<readonly ChunkResult[]>;
+      reportStatus: (status: ChunkingHostStatus) => void;
+      reportResponse: (response: ChunkingHostResponseReport) => void;
+      onStatus: (callback: (status: ChunkingHostStatus) => void) => () => void;
+      onProgress: (callback: (progress: ChunkingHostProgressEvent) => void) => () => void;
+      onRequest: (callback: (request: ChunkingHostRequest) => void) => () => void;
+    };
+    desktopLifecycle?: {
+      noteReloadIntent: (reason: string) => Promise<void>;
     };
     electronAPI: {
       storage: {
@@ -80,12 +113,26 @@ declare global {
       // Database path method (legacy)
       getUserDataPath: () => Promise<string>;
     };
+    embeddingHost: {
+      ensureStarted: () => Promise<EmbeddingHostStatus>;
+      enqueueBackfill: (embeddingSetId: string) => Promise<unknown>;
+      stop: () => Promise<EmbeddingHostStatus>;
+      reset: () => Promise<EmbeddingHostStatus>;
+      getStatus: () => Promise<EmbeddingHostStatus>;
+      reportStatus: (status: EmbeddingHostStatus) => void;
+      onBackfillProgress: (
+        callback: (progress: EmbeddingHostBackfillProgress) => void
+      ) => () => void;
+      onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
+      onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
+    };
     logging: {
       getPreferences: () => Promise<LoggingSettingsPayload>;
       setPreferences: (preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>;
       selectDestination: () => Promise<string | null>;
       openDestination: (target: string | null) => Promise<boolean>;
       getBufferedLogs: () => Promise<LogRecord[]>;
+      ingestBufferedRecord: (record: LogRecord) => void;
       onPreferencesUpdated: (
         callback: (preferences: LoggingPreferences) => void
       ) => (() => void) | undefined;
@@ -137,6 +184,9 @@ declare global {
         disabled: number;
         servers: number;
       }>;
+    };
+    power: {
+      onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
     };
     secrets: {
       saveKey: (

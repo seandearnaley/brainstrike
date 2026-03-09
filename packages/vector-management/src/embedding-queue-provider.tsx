@@ -2,7 +2,6 @@ import { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } from '@brai
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import {
   addQueueTelemetryListener,
-  createBrowserEmbeddingQueue,
   createQueueTelemetryAggregator,
   type QueueAdapter,
   type QueueErrorEvent,
@@ -179,6 +178,33 @@ interface EmbeddingQueueContextValue {
 
 const EmbeddingQueueContext = createContext<EmbeddingQueueContextValue | null>(null);
 
+let browserEmbeddingQueuePromise: Promise<QueueAdapter> | null = null;
+type BrowserEmbeddingQueueLoader = () => Promise<QueueAdapter>;
+
+async function defaultBrowserEmbeddingQueueLoader(): Promise<QueueAdapter> {
+  const { createBrowserEmbeddingQueue } = await import('@brainstrike/queue/browser');
+  return createBrowserEmbeddingQueue({ requireWorkerpool: true });
+}
+
+let browserEmbeddingQueueLoader: BrowserEmbeddingQueueLoader = defaultBrowserEmbeddingQueueLoader;
+
+async function loadBrowserEmbeddingQueue(): Promise<QueueAdapter> {
+  if (!browserEmbeddingQueuePromise) {
+    browserEmbeddingQueuePromise = browserEmbeddingQueueLoader().catch((error: unknown) => {
+      browserEmbeddingQueuePromise = null;
+      throw error;
+    });
+  }
+  return browserEmbeddingQueuePromise;
+}
+
+export function setBrowserEmbeddingQueueLoaderForTests(
+  loader: null | BrowserEmbeddingQueueLoader
+): void {
+  browserEmbeddingQueueLoader = loader ?? defaultBrowserEmbeddingQueueLoader;
+  browserEmbeddingQueuePromise = null;
+}
+
 export interface EmbeddingQueueProviderProps {
   readonly adapter?: QueueAdapter;
 }
@@ -187,14 +213,41 @@ export function EmbeddingQueueProvider({
   children,
   adapter,
 }: PropsWithChildren<EmbeddingQueueProviderProps>): ReactNode {
-  const [baseAdapter] = useState<QueueAdapter>(
-    () => adapter ?? createBrowserEmbeddingQueue({ requireWorkerpool: true })
-  );
+  const [baseAdapter, setBaseAdapter] = useState<QueueAdapter | null>(adapter ?? null);
+  const [adapterLoadError, setAdapterLoadError] = useState<Error | null>(null);
 
   const [metrics, setMetrics] = useState<QueueMetrics>(INITIAL_METRICS);
   const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
   const canUseTelemetry = typeof window !== 'undefined' && typeof window.Worker !== 'undefined';
   const telemetryAggregatorRef = useRef(canUseTelemetry ? createQueueTelemetryAggregator() : null);
+
+  useEffect(() => {
+    if (adapter) {
+      setBaseAdapter(adapter);
+      setAdapterLoadError(null);
+      return;
+    }
+
+    let cancelled = false;
+    loadBrowserEmbeddingQueue()
+      .then((queue) => {
+        if (!cancelled) {
+          setBaseAdapter(queue);
+          setAdapterLoadError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setAdapterLoadError(
+            error instanceof Error ? error : new Error('Failed to load browser embedding queue.')
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [adapter]);
 
   const updateMetrics = useCallback((updater: (prev: QueueMetrics) => QueueMetrics) => {
     setMetrics((prev) => {
@@ -256,6 +309,9 @@ export function EmbeddingQueueProvider({
   }, [updateMetrics]);
 
   const instrumentedQueue = useMemo(() => {
+    if (!baseAdapter) {
+      return null;
+    }
     const listeners = new Set<(event: QueueProgressEvent | QueueErrorEvent) => void>();
 
     const unsubscribe = baseAdapter.onProgress((event) => {
@@ -313,6 +369,10 @@ export function EmbeddingQueueProvider({
   }, [canUseTelemetry, updateMetrics]);
 
   useEffect(() => {
+    if (!instrumentedQueue) {
+      resetEmbeddingQueueFactory();
+      return () => {};
+    }
     registerEmbeddingQueueFactory(() => instrumentedQueue.queue);
     return () => {
       instrumentedQueue.unsubscribe();
@@ -365,10 +425,18 @@ export function EmbeddingQueueProvider({
     [setIsEmbeddingQueueActive]
   );
 
-  const contextValue = useMemo<EmbeddingQueueContextValue>(
-    () => ({ queue: instrumentedQueue.queue, metrics }),
-    [instrumentedQueue.queue, metrics]
+  const contextValue = useMemo<EmbeddingQueueContextValue | null>(
+    () => (instrumentedQueue ? { queue: instrumentedQueue.queue, metrics } : null),
+    [instrumentedQueue, metrics]
   );
+
+  if (adapterLoadError) {
+    throw adapterLoadError;
+  }
+
+  if (!contextValue) {
+    return children;
+  }
 
   return (
     <EmbeddingQueueContext.Provider value={contextValue}>{children}</EmbeddingQueueContext.Provider>

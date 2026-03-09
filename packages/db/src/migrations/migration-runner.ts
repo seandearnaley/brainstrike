@@ -136,16 +136,29 @@ export class MigrationRunner {
 
     // Batch-fetch all applied migrations upfront (single query instead of N queries)
     const appliedVersions = new Set(await this.getAppliedMigrations());
+    let cachedSkippedCount = 0;
+    let firstCachedSkippedVersion: number | null = null;
+    let lastCachedSkippedVersion: number | null = null;
 
     for (const migration of sortedMigrations) {
       // Skip already-applied migrations without hitting the database
       if (appliedVersions.has(migration.version)) {
-        this.logger.debug('Migration already applied, skipping (cached)', {
-          version: migration.version,
-        });
+        cachedSkippedCount += 1;
+        if (firstCachedSkippedVersion === null) {
+          firstCachedSkippedVersion = migration.version;
+        }
+        lastCachedSkippedVersion = migration.version;
         continue;
       }
       await this.runMigration(migration);
+    }
+
+    if (cachedSkippedCount > 0) {
+      this.logger.debug('Skipped already applied migrations from cache', {
+        count: cachedSkippedCount,
+        firstVersion: firstCachedSkippedVersion,
+        lastVersion: lastCachedSkippedVersion,
+      });
     }
   }
 

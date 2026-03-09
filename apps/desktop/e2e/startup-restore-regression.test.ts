@@ -1,0 +1,388 @@
+import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
+import type { Page } from 'playwright';
+import { expect, test } from './fixtures/electron-fixture';
+import { reloadRenderer } from './utils/electron-helpers';
+
+interface BufferedLogRecord {
+  readonly args: readonly unknown[];
+  readonly bindings: Record<string, unknown>;
+  readonly level: string;
+  readonly message?: string;
+  readonly scope?: string;
+  readonly timestamp: number;
+}
+
+interface PersistedEnvelope<TState> {
+  readonly state: TState;
+  readonly version: 1;
+}
+
+const RESTORED_FOLDER_PATH = '/mock/test/directory';
+const RESTORED_FOLDER_ID = 'directory';
+const RESTORED_FILE_NAME = 'mock-file1.txt';
+const RESTORED_FILE_PATH = `${RESTORED_FOLDER_PATH}/${RESTORED_FILE_NAME}`;
+const RESTORED_COMPOSITE_KEY = `${RESTORED_FOLDER_ID}|@|${RESTORED_FILE_PATH}`;
+const RESTORED_TAB_ID = `${RESTORED_FOLDER_ID}:${RESTORED_COMPOSITE_KEY}`;
+
+function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> {
+  return {
+    version: 1,
+    state: {
+      currentFolderId: RESTORED_FOLDER_ID,
+      folderStates: {
+        [RESTORED_FOLDER_ID]: {
+          selectedFilePaths: [],
+          expandedDirectoryPaths: [],
+          includeFilters: [...DEFAULT_STATE.includeFilters],
+          excludeFilters: [...DEFAULT_STATE.excludeFilters],
+          useRegex: DEFAULT_STATE.useRegex,
+          includeProjectTree: DEFAULT_STATE.includeProjectTree,
+          tokenBudget: DEFAULT_STATE.tokenBudget,
+          folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
+          maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
+          lastActiveTab: DEFAULT_STATE.lastActiveTab,
+          lastAccessed: Date.now(),
+          viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
+        },
+      },
+      folderAccessOrder: [RESTORED_FOLDER_ID],
+      selectedFilePaths: [],
+      expandedDirectoryPaths: [],
+      includeFilters: [...DEFAULT_STATE.includeFilters],
+      excludeFilters: [...DEFAULT_STATE.excludeFilters],
+      useRegex: DEFAULT_STATE.useRegex,
+      includeProjectTree: DEFAULT_STATE.includeProjectTree,
+      tokenBudget: DEFAULT_STATE.tokenBudget,
+      folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
+      maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
+      lastActiveTab: DEFAULT_STATE.lastActiveTab,
+      quickFilter: DEFAULT_STATE.quickFilter,
+      devInlineFixtureEnabled: DEFAULT_STATE.devInlineFixtureEnabled,
+      selectionModel: {
+        mode: DEFAULT_STATE.selectionModel.mode,
+        explicitPaths: [],
+        ruleSetJson: DEFAULT_STATE.selectionModel.ruleSetJson,
+        materializedPaths: null,
+        materializedAt: DEFAULT_STATE.selectionModel.materializedAt,
+      },
+      viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
+      isFiltersExpanded: DEFAULT_STATE.isFiltersExpanded,
+    },
+  };
+}
+
+function createPersistedTabState(): PersistedEnvelope<{
+  activeTabId: string;
+  tabs: Array<{ compositeKey: string; id: string; path: string }>;
+}> {
+  return {
+    version: 1,
+    state: {
+      activeTabId: RESTORED_TAB_ID,
+      tabs: [
+        {
+          id: RESTORED_TAB_ID,
+          path: RESTORED_FILE_PATH,
+          compositeKey: RESTORED_COMPOSITE_KEY,
+        },
+      ],
+    },
+  };
+}
+
+async function seedRestoredStartupState(page: Page): Promise<void> {
+  const fileExplorerState = createPersistedFileExplorerState();
+  const tabState = createPersistedTabState();
+
+  await page.evaluate(
+    async ({ nextFileExplorerState, nextTabState, restoredFolderId, restoredFolderPath }) => {
+      localStorage.setItem('tab-manager.v1', JSON.stringify(nextTabState));
+
+      const fileExplorerStore = (
+        window as Window & {
+          __brainstrike_file_explorer_store__?: {
+            setState?: (state: Record<string, unknown>) => void;
+          };
+        }
+      ).__brainstrike_file_explorer_store__;
+      const api = (
+        window as Window & {
+          electronAPI?: {
+            fileSystem?: { saveLastFolder?: (folderPath: string) => Promise<void> };
+            storage?: { setItem?: (key: string, value: string) => Promise<void> };
+          };
+        }
+      ).electronAPI;
+
+      if (!api?.fileSystem?.saveLastFolder) {
+        throw new Error('Electron fileSystem.saveLastFolder bridge is not available');
+      }
+      if (!api.storage?.setItem) {
+        throw new Error('Electron storage.setItem bridge is not available');
+      }
+      if (!fileExplorerStore?.setState) {
+        throw new Error('File explorer store is not available on window');
+      }
+
+      const runtimeFolderState = {
+        selectedFilePaths: new Set<string>(),
+        expandedDirectoryPaths: new Set<string>(),
+        includeFilters: [...nextFileExplorerState.state.includeFilters],
+        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
+        useRegex: nextFileExplorerState.state.useRegex,
+        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
+        tokenBudget: nextFileExplorerState.state.tokenBudget,
+        folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
+        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
+        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
+        lastAccessed: Date.now(),
+        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
+      };
+
+      fileExplorerStore.setState({
+        currentFolderId: restoredFolderId,
+        folderStates: {
+          [restoredFolderId]: runtimeFolderState,
+        },
+        folderAccessOrder: [restoredFolderId],
+        selectedFilePaths: new Set<string>(),
+        expandedDirectoryPaths: new Set<string>(),
+        includeFilters: [...nextFileExplorerState.state.includeFilters],
+        excludeFilters: [...nextFileExplorerState.state.excludeFilters],
+        useRegex: nextFileExplorerState.state.useRegex,
+        includeProjectTree: nextFileExplorerState.state.includeProjectTree,
+        tokenBudget: nextFileExplorerState.state.tokenBudget,
+        folderSummaryThreshold: nextFileExplorerState.state.folderSummaryThreshold,
+        maxSelectionCount: nextFileExplorerState.state.maxSelectionCount,
+        lastActiveTab: nextFileExplorerState.state.lastActiveTab,
+        quickFilter: nextFileExplorerState.state.quickFilter,
+        devInlineFixtureEnabled: nextFileExplorerState.state.devInlineFixtureEnabled,
+        selectionModel: {
+          mode: nextFileExplorerState.state.selectionModel?.mode ?? 'explicit',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: nextFileExplorerState.state.selectionModel?.ruleSetJson ?? null,
+          materializedPaths: null,
+          materializedAt: nextFileExplorerState.state.selectionModel?.materializedAt ?? null,
+        },
+        viewFilterPresetId: nextFileExplorerState.state.viewFilterPresetId ?? null,
+        isFiltersExpanded: nextFileExplorerState.state.isFiltersExpanded ?? true,
+        rootDirectoryHandle: {
+          path: restoredFolderPath,
+          name: restoredFolderId,
+          kind: 'directory',
+          platform: 'electron',
+        },
+      });
+
+      await api.storage.setItem('file-explorer-storage-v4', JSON.stringify(nextFileExplorerState));
+      await api.fileSystem.saveLastFolder(restoredFolderPath);
+    },
+    {
+      nextFileExplorerState: fileExplorerState,
+      nextTabState: tabState,
+      restoredFolderId: RESTORED_FOLDER_ID,
+      restoredFolderPath: RESTORED_FOLDER_PATH,
+    }
+  );
+}
+
+async function getRendererLogRecords(page: Page): Promise<BufferedLogRecord[]> {
+  return await page.evaluate<BufferedLogRecord[]>(() => {
+    const logBuffer = (
+      window as Window & {
+        __brainstrikeRendererLogBuffer?: {
+          getRecords?: () => readonly BufferedLogRecord[];
+        };
+      }
+    ).__brainstrikeRendererLogBuffer;
+
+    if (!logBuffer?.getRecords) {
+      throw new Error('Renderer log buffer is not available');
+    }
+
+    return [...logBuffer.getRecords()];
+  });
+}
+
+function recordContainsText(record: BufferedLogRecord, text: string): boolean {
+  if (typeof record.message === 'string' && record.message.includes(text)) {
+    return true;
+  }
+
+  return record.args.some((arg) => typeof arg === 'string' && arg.includes(text));
+}
+
+function isObjectWithNumber(
+  value: unknown,
+  key: string
+): value is Record<string, number | string | boolean | null> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate[key] === 'number';
+}
+
+test.describe('Startup Restore Regression', () => {
+  test('restores folder and active tab without startup churn signatures', async ({ window }) => {
+    await seedRestoredStartupState(window);
+
+    await reloadRenderer(window, 'startup-restore-regression');
+    await expect(
+      window.getByRole('tab', { name: new RegExp(RESTORED_FILE_NAME, 'i') })
+    ).toBeVisible({ timeout: 15_000 });
+
+    await window.waitForTimeout(1000);
+
+    const records = await getRendererLogRecords(window);
+    expect(
+      records.some((record) =>
+        recordContainsText(record, 'Deferring file content loading until tree is ready')
+      )
+    ).toBe(true);
+
+    const directPathReadLogs = records.filter((record) =>
+      recordContainsText(record, 'Using direct path read for file not in tree')
+    );
+    const lookupRetryLogs = records.filter((record) =>
+      recordContainsText(record, 'Initial lookup failed, retrying')
+    );
+    const loadRootRestartLogs = records.filter((record) =>
+      recordContainsText(record, 'loadRoot running - will reinitialize worker')
+    );
+    const loadRootCompletedLogs = records.filter((record) =>
+      recordContainsText(record, 'loadRoot completed - handle map built')
+    );
+    const handleMapBuildLogs = records.filter((record) =>
+      recordContainsText(record, 'buildHandleMap complete')
+    );
+    const workerTreeInitializedLogs = records.filter((record) =>
+      recordContainsText(record, 'tree initialized')
+    );
+    const noOpWarmCacheLogs = records.filter((record) => {
+      if (!recordContainsText(record, 'Warm cache effect: preloading folders')) {
+        return false;
+      }
+
+      const details = record.args[0];
+      return isObjectWithNumber(details, 'foldersToPreload') && details['foldersToPreload'] === 0;
+    });
+    const fileTreeMissingLogs = records.filter((record) =>
+      recordContainsText(record, 'File missing from file tree after deferred retries')
+    );
+    const tokenCacheWorkerStartupLogs = records.filter((record) =>
+      recordContainsText(record, 'TokenCacheProvider: creating worker pool')
+    );
+    const chunkingWorkerStartupLogs = records.filter((record) =>
+      recordContainsText(record, 'Initializing chunking worker')
+    );
+    const tokenCacheWorkerFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Token cache worker warmup failed after')
+    );
+    const backgroundIndexerFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Background token indexer entered failed state')
+    );
+    const chunkingWorkerFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Chunking worker entered terminal failure state')
+    );
+    const sharedIndexSkipLogs = records.filter((record) =>
+      recordContainsText(record, 'Skipping cache rebuild - using FileTreeIndex')
+    );
+    const restorationPrereqSkipLogs = records.filter((record) =>
+      recordContainsText(record, '[Restoration Effect] Skipped - prerequisites not met')
+    );
+    const activeTabEffectLogs = records.filter((record) =>
+      recordContainsText(record, 'Active tab effect triggered')
+    );
+    const activeTabBailLogs = records.filter((record) =>
+      recordContainsText(record, 'Bailing: no activeTabId')
+    );
+    const selectionEffectLogs = records.filter((record) =>
+      recordContainsText(record, 'Selection effect triggered')
+    );
+    const selectionEffectEarlyExitLogs = records.filter((record) =>
+      recordContainsText(record, 'Selection effect exiting early')
+    );
+    const warmCacheSkipLogs = records.filter((record) =>
+      recordContainsText(record, 'Warm cache effect skipped')
+    );
+    const tokenCacheRenderLogs = records.filter((record) =>
+      recordContainsText(record, 'TokenCacheProvider render')
+    );
+    const tokenCacheReadinessLogs = records.filter((record) =>
+      recordContainsText(record, 'TokenCacheProvider: readiness check')
+    );
+    const noHandleCacheLogs = records.filter((record) =>
+      recordContainsText(record, 'Skipping restore check - no handle cache methods')
+    );
+    const sharedIndexLookupLogs = records.filter((record) =>
+      recordContainsText(record, 'Shared file content lookups using FileTreeIndex')
+    );
+    const restorationWaitingLogs = records.filter((record) =>
+      recordContainsText(record, '[Restoration Effect] Waiting for prerequisites')
+    );
+    const selectionWaitingLogs = records.filter((record) =>
+      recordContainsText(record, 'Selection effect waiting for index prerequisites')
+    );
+    const warmCacheWaitingLogs = records.filter((record) =>
+      recordContainsText(record, 'Warm cache effect waiting for prerequisites')
+    );
+    const tokenCachePersistenceLogs = records.filter((record) =>
+      recordContainsText(record, 'TokenCacheProvider: persistence mode changed')
+    );
+    const fileContentWorkerNotReadyLogs = records.filter((record) =>
+      recordContainsText(record, 'Worker not initialized, skipping file content loading')
+    );
+    const immediatePersistenceLogs = records.filter((record) =>
+      recordContainsText(record, 'using immediate persistence')
+    );
+    const electronWorkerDisabledLogs = records.filter((record) =>
+      recordContainsText(record, 'Web Worker disabled due to Electron environment')
+    );
+    const persistenceWorkerErrorLogs = records.filter((record) =>
+      recordContainsText(record, 'Worker error occurred')
+    );
+    const persistenceWorkerGetFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Worker getItem failed')
+    );
+    const persistenceWorkerSetFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Worker setItem failed')
+    );
+
+    expect(directPathReadLogs).toHaveLength(0);
+    expect(lookupRetryLogs).toHaveLength(0);
+    expect(loadRootRestartLogs.length).toBeLessThanOrEqual(1);
+    expect(loadRootCompletedLogs.length).toBeLessThanOrEqual(1);
+    expect(handleMapBuildLogs.length).toBeLessThanOrEqual(1);
+    expect(workerTreeInitializedLogs.length).toBeLessThanOrEqual(1);
+    expect(noOpWarmCacheLogs).toHaveLength(0);
+    expect(fileTreeMissingLogs).toHaveLength(0);
+    expect(tokenCacheWorkerStartupLogs).toHaveLength(0);
+    expect(chunkingWorkerStartupLogs).toHaveLength(0);
+    expect(tokenCacheWorkerFailureLogs).toHaveLength(0);
+    expect(backgroundIndexerFailureLogs).toHaveLength(0);
+    expect(chunkingWorkerFailureLogs).toHaveLength(0);
+    expect(sharedIndexSkipLogs).toHaveLength(0);
+    expect(restorationPrereqSkipLogs).toHaveLength(0);
+    expect(activeTabEffectLogs).toHaveLength(0);
+    expect(activeTabBailLogs).toHaveLength(0);
+    expect(selectionEffectLogs).toHaveLength(0);
+    expect(selectionEffectEarlyExitLogs).toHaveLength(0);
+    expect(warmCacheSkipLogs).toHaveLength(0);
+    expect(tokenCacheRenderLogs).toHaveLength(0);
+    expect(tokenCacheReadinessLogs).toHaveLength(0);
+    expect(noHandleCacheLogs).toHaveLength(0);
+    expect(sharedIndexLookupLogs).toHaveLength(0);
+    expect(restorationWaitingLogs).toHaveLength(0);
+    expect(selectionWaitingLogs).toHaveLength(0);
+    expect(warmCacheWaitingLogs).toHaveLength(0);
+    expect(tokenCachePersistenceLogs).toHaveLength(0);
+    expect(fileContentWorkerNotReadyLogs).toHaveLength(0);
+    expect(immediatePersistenceLogs).toHaveLength(0);
+    expect(electronWorkerDisabledLogs).toHaveLength(0);
+    expect(persistenceWorkerErrorLogs).toHaveLength(0);
+    expect(persistenceWorkerGetFailureLogs).toHaveLength(0);
+    expect(persistenceWorkerSetFailureLogs).toHaveLength(0);
+  });
+});

@@ -1,13 +1,14 @@
-import type { EmbeddingWorkerController, EmbeddingWorkerOptions } from '@brainstrike/embeddings';
-import { startEmbeddingWorker } from '@brainstrike/embeddings';
-import { useCallback, useRef, useState } from 'react';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useCallback, useEffect, useState } from 'react';
+import type {
+  EmbeddingRuntimeController,
+  EmbeddingRuntimeStatus,
+} from './embedding-runtime-controller';
 
 export interface UseEmbeddingWorkerControlsParams {
   activeEmbeddingSetId: string | null;
-  db: EmbeddingWorkerOptions['db'] | null;
-  devicePreference: 'webgpu' | 'wasm';
+  controller: EmbeddingRuntimeController;
   onBackfill: () => Promise<void>;
-  reinitEveryN: number;
   toast: (options: { title: string; description?: string; variant?: 'destructive' }) => void;
 }
 
@@ -32,13 +33,40 @@ function dispatchQueueDrainedEvent(): void {
   }
 }
 
+function applyHostStatus(
+  status: EmbeddingRuntimeStatus,
+  setters: {
+    setStartWorkerError: (value: string | null) => void;
+    setStartingWorker: (value: boolean) => void;
+    setWorkerLocalRunning: (value: boolean) => void;
+  }
+): void {
+  setters.setStartingWorker(status.state === 'starting' || status.state === 'stopping');
+  setters.setWorkerLocalRunning(status.state === 'running');
+  setters.setStartWorkerError(
+    status.state === 'error' ? (status.lastError ?? 'Embedding host failed.') : null
+  );
+}
+
+function syncEmbeddingActivityFromHost(
+  status: EmbeddingRuntimeStatus,
+  setIsEmbeddingQueueActive: (active: boolean) => void
+): void {
+  if (status.active) {
+    setIsEmbeddingQueueActive(true);
+    return;
+  }
+
+  if (status.state === 'error' || status.state === 'stopped' || status.state === 'stopping') {
+    setIsEmbeddingQueueActive(false);
+  }
+}
+
 export function useEmbeddingWorkerControls(
   params: UseEmbeddingWorkerControlsParams
 ): UseEmbeddingWorkerControlsResult {
   const {
-    db,
-    devicePreference,
-    reinitEveryN,
+    controller,
     // These parameters are retained for API compatibility but currently unused
     // since auto-backfill on worker start is disabled
     activeEmbeddingSetId: _activeEmbeddingSetId,
@@ -46,38 +74,54 @@ export function useEmbeddingWorkerControls(
     toast,
   } = params;
 
-  const workerControllerRef = useRef<EmbeddingWorkerController | null>(null);
   const [workerLocalRunning, setWorkerLocalRunning] = useState(false);
   const [startingWorker, setStartingWorker] = useState(false);
   const [startWorkerError, setStartWorkerError] = useState<string | null>(null);
+  const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
 
   const clearWorkerError = useCallback(() => setStartWorkerError(null), []);
 
+  useEffect(() => {
+    const syncStatus = (status: EmbeddingRuntimeStatus) => {
+      applyHostStatus(status, {
+        setStartWorkerError,
+        setStartingWorker,
+        setWorkerLocalRunning,
+      });
+      syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
+    };
+
+    void controller
+      .getStatus()
+      .then(syncStatus)
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setStartWorkerError(message);
+      });
+
+    return controller.onStatus(syncStatus);
+  }, [controller, setIsEmbeddingQueueActive]);
+
   const launchWorker = useCallback(
     async (successToast: { title: string; description: string }) => {
-      if (!db) {
-        return;
+      const status = await controller.start();
+      applyHostStatus(status, {
+        setStartWorkerError,
+        setStartingWorker,
+        setWorkerLocalRunning,
+      });
+      syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
+      if (status.state === 'error') {
+        throw new Error(status.lastError ?? 'Embedding runtime failed to start.');
       }
-      const options: EmbeddingWorkerOptions = {
-        db,
-        enable: true,
-        reinitEveryN,
-        device: devicePreference,
-      };
-      const controller = await startEmbeddingWorker(options);
-      workerControllerRef.current = controller;
-      setWorkerLocalRunning(true);
       dispatchQueueDrainedEvent();
-      // Auto-backfill on worker start is disabled - backfill must be triggered manually
-      // via the Backfill button in Vector Status. This gives users explicit control
-      // over when embedding jobs are enqueued.
       toast(successToast);
     },
-    [db, devicePreference, reinitEveryN, toast]
+    [controller, setIsEmbeddingQueueActive, toast]
   );
 
   const startWorker = useCallback(async () => {
-    if (!db || startingWorker) {
+    if (startingWorker) {
       return;
     }
     setStartingWorker(true);
@@ -94,31 +138,41 @@ export function useEmbeddingWorkerControls(
     } finally {
       setStartingWorker(false);
     }
-  }, [db, startingWorker, launchWorker, toast]);
+  }, [startingWorker, launchWorker, toast]);
 
   const stopWorker = useCallback(async () => {
     try {
-      await workerControllerRef.current?.stop();
-    } finally {
-      workerControllerRef.current = null;
-      setWorkerLocalRunning(false);
+      const status = await controller.stop();
+      applyHostStatus(status, {
+        setStartWorkerError,
+        setStartingWorker,
+        setWorkerLocalRunning,
+      });
+      syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
       toast({ title: 'Worker stopped' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStartWorkerError(message);
+      toast({ title: 'Failed to stop worker', description: message, variant: 'destructive' });
     }
-  }, [toast]);
+  }, [controller, setIsEmbeddingQueueActive, toast]);
 
   const resetWorker = useCallback(async () => {
-    if (!db) {
-      return;
-    }
     setStartWorkerError(null);
     setStartingWorker(true);
     try {
-      if (workerLocalRunning) {
-        await workerControllerRef.current?.stop();
+      const status = await controller.reset();
+      applyHostStatus(status, {
+        setStartWorkerError,
+        setStartingWorker,
+        setWorkerLocalRunning,
+      });
+      syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
+      if (status.state === 'error') {
+        throw new Error(status.lastError ?? 'Embedding runtime failed to reset.');
       }
-      workerControllerRef.current = null;
-      setWorkerLocalRunning(false);
-      await launchWorker({
+      dispatchQueueDrainedEvent();
+      toast({
         title: 'Worker reset',
         description: 'Embedding worker restarted successfully.',
       });
@@ -129,7 +183,7 @@ export function useEmbeddingWorkerControls(
     } finally {
       setStartingWorker(false);
     }
-  }, [db, workerLocalRunning, launchWorker, toast]);
+  }, [controller, setIsEmbeddingQueueActive, toast]);
 
   return {
     workerLocalRunning,

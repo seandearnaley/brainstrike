@@ -22,6 +22,14 @@ describe('resolveFileTreeWorkerUrl', () => {
     expect(url.href).toBe('file:///tmp/file-tree/file-tree.worker.js');
   });
 
+  it('resolves TypeScript worker path from source import.meta.url overrides', () => {
+    setImportMetaOverride({ url: 'file:///tmp/file-tree/index.ts' });
+
+    const url = resolveFileTreeWorkerUrl();
+
+    expect(url.href).toBe('file:///tmp/file-tree/file-tree.worker.ts');
+  });
+
   it('falls back to import.meta.dirname when url is missing', () => {
     setImportMetaOverride({ dirname: '/tmp/file-tree' });
 

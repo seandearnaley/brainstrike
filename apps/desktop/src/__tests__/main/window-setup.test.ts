@@ -38,6 +38,9 @@ const mockBrowserWindow = vi.fn();
 mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
   Object.assign(this, mockBrowserWindowInstance);
 });
+Object.assign(mockBrowserWindow, {
+  getAllWindows: vi.fn(() => []),
+});
 
 const whenReadyMock = vi.fn(() => Promise.resolve());
 
@@ -59,7 +62,12 @@ vi.mock('electron', () => ({
   screen: {
     getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1536, height: 800 } }]),
   },
-  ipcMain: { handle: vi.fn() },
+  ipcMain: {
+    handle: vi.fn(),
+    on: vi.fn(),
+    removeHandler: vi.fn(),
+    removeAllListeners: vi.fn(),
+  },
   Menu: {
     setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
@@ -69,6 +77,8 @@ vi.mock('electron', () => ({
   },
   powerSaveBlocker: {
     start: vi.fn(() => 1),
+    isStarted: vi.fn(() => true),
+    stop: vi.fn(),
   },
 }));
 
@@ -178,6 +188,19 @@ describe('window setup', () => {
     );
   });
 
+  it('desktop logging defaults renderer console output to warn', async () => {
+    mockApp.isPackaged = false;
+    isDevEnvMock.mockReturnValue(false);
+
+    await import('../../main');
+
+    expect(createDefaultLoggingPreferencesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        consoleLevel: 'warn',
+      })
+    );
+  });
+
   it('setupSecurity prod mode sets restrictive CSP', async () => {
     mockApp.isPackaged = true;
     isDevEnvMock.mockReturnValue(false);
@@ -209,12 +232,11 @@ describe('window setup', () => {
     const { createWindow } = await import('../../main');
     await createWindow();
 
-    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledTimes(1);
-    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8081');
     const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map(
       (call: [string]) => call[0]
     );
-    for (const url of attemptedUrls) {
+    expect(attemptedUrls).toContain('http://localhost:8081');
+    for (const url of attemptedUrls.filter((value) => !value.includes('?mode=embedding-host'))) {
       expect(url).toBe('http://localhost:8081');
     }
     expect(mockBrowserWindowInstance.webContents.openDevTools).not.toHaveBeenCalled();

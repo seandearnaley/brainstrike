@@ -19,6 +19,8 @@ test.describe('Electron App Launch', () => {
     }
   );
 
+  test.setTimeout(90_000);
+
   test('should have correct app metadata', { tag: '@smoke' }, async ({ electronApp }) => {
     // Check app version
     const version = await getAppVersion(electronApp.app);

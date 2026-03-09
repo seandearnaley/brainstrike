@@ -6,4 +6,4 @@ export {
   type CollectionWithDocCount,
   formatCollectionLabel,
   useCollections,
-} from './collection-select';
+} from './collection-select.js';

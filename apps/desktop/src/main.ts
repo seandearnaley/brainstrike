@@ -1,13 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
-import { ElectronStorageAdapter } from '@brainstrike/storage';
-import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
-
-// Raw debug log to verify main process startup
-// biome-ignore lint/suspicious/noConsole: Critical startup debugging
-console.log('--- RAW CONSOLE LOG: MAIN PROCESS EXECUTING ---');
-
+import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import {
   addLogListener,
   applyLoggingPreferences,
@@ -19,21 +13,17 @@ import {
   type LoggingPreferences,
   LogLevel,
 } from '@brainstrike/utils';
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  Menu,
-  powerMonitor,
-  powerSaveBlocker,
-  shell,
-} from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
-import { createWindow } from './create-window';
+import { ChunkingHostManager } from './chunking-host-manager';
+import { createWindow, noteNextWindowReload } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
+import { EmbeddingHostManager } from './embedding-host-manager';
+import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
+import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
+import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerIpcHandlers, setBackgrounded } from './ipc-handlers';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
@@ -47,6 +37,7 @@ import type { LoggingSettingsPayload } from './logging-shared';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
+import { getWindowRoleByWebContentsId } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
@@ -82,10 +73,26 @@ function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
   return _settingsStore;
 }
 
-// Note: Embedding worker configuration moved to renderer process (see renderer/components/embedding-worker-provider.tsx)
-// Main process cannot run Web Workers - WASM/WebGPU require browser context
+// Note: Embedding worker configuration stays renderer-only via the hidden embedding host window.
+// Main process owns host lifecycle/IPC, but it must not execute local WASM/WebGPU embeddings.
 
 function createDesktopDefaultPreferences(): LoggingPreferences {
+  const logPath = getLogFilePath();
+  return createDefaultLoggingPreferences({
+    level: LogLevel.DEBUG,
+    consoleLevel: LogLevel.WARN,
+    includeTimestamp: true,
+    file: {
+      enabled: !disableFileLogs && Boolean(logPath),
+      destination: logPath ?? null,
+      level: LogLevel.DEBUG,
+      append: true,
+      mkdir: true,
+    },
+  });
+}
+
+function createLegacyDesktopDefaultPreferences(): LoggingPreferences {
   const logPath = getLogFilePath();
   return createDefaultLoggingPreferences({
     level: LogLevel.DEBUG,
@@ -99,6 +106,31 @@ function createDesktopDefaultPreferences(): LoggingPreferences {
       mkdir: true,
     },
   });
+}
+
+function areLoggingPreferencesEqual(left: LoggingPreferences, right: LoggingPreferences): boolean {
+  return (
+    left.level === right.level &&
+    left.consoleEnabled === right.consoleEnabled &&
+    left.consoleLevel === right.consoleLevel &&
+    left.includeTimestamp === right.includeTimestamp &&
+    left.file.enabled === right.file.enabled &&
+    left.file.destination === right.file.destination &&
+    left.file.level === right.file.level &&
+    left.file.append === right.file.append &&
+    left.file.mkdir === right.file.mkdir &&
+    left.redactPaths.length === right.redactPaths.length &&
+    left.redactPaths.every((path, index) => path === right.redactPaths[index])
+  );
+}
+
+function migrateStoredLoggingPreferences(stored: LoggingPreferences): LoggingPreferences {
+  const sanitizedStored = sanitizeDesktopPreferences(stored);
+  const legacyDefaults = sanitizeDesktopPreferences(createLegacyDesktopDefaultPreferences());
+  if (areLoggingPreferencesEqual(sanitizedStored, legacyDefaults)) {
+    return sanitizeDesktopPreferences(createDesktopDefaultPreferences());
+  }
+  return sanitizedStored;
 }
 
 function mergeStoredPreferences(
@@ -159,7 +191,10 @@ function readStoredLoggingPreferences(): LoggingPreferences | undefined {
         get: (key: string) => unknown;
       }
     ).get('loggingPreferences') as DesktopSettingsStoreSchema['loggingPreferences'] | undefined;
-    return record?.v1;
+    if (!record?.v1) {
+      return;
+    }
+    return migrateStoredLoggingPreferences(record.v1);
   } catch {
     return;
   }
@@ -269,8 +304,8 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
-logger.info('Main process started');
-const mainLogBuffer = new LogBuffer({ size: 1000 });
+logger.debug('Main process started');
+const mainLogBuffer = new LogBuffer({ size: 3000 });
 const removeLogBufferListener = addLogListener((record) => {
   mainLogBuffer.push(record);
 });
@@ -378,11 +413,43 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 
 let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
+let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
+let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
+let unregisterLoggingIpcHandlers: null | (() => void) = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
+let gracefulShutdownInFlight = false;
 let forcedProcessExitTimeout: NodeJS.Timeout | null = null;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
+
+function serializeDesktopError(error: unknown): Record<string, string | undefined> {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+  return {
+    message: String(error),
+  };
+}
+
+async function runShutdownStep(
+  step: string,
+  fn: () => Promise<void>
+): Promise<Record<string, string | undefined> | null> {
+  try {
+    await fn();
+    return null;
+  } catch (error) {
+    return {
+      step,
+      ...serializeDesktopError(error),
+    };
+  }
+}
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
   // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
@@ -422,28 +489,56 @@ function clearForcedProcessExitTimer(): void {
 
 async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<void> {
   if (gracefulShutdownPromise) {
-    try {
-      await gracefulShutdownPromise;
-    } catch (error) {
-      logger.error('Failed during graceful shutdown', { trigger, error });
-    }
+    await gracefulShutdownPromise;
     return;
   }
 
   gracefulShutdownPromise = (async () => {
-    if (stopAssistantServer) {
-      await stopAssistantServer();
-      stopAssistantServer = null;
-    }
-    await closeDatabase();
-    clearForcedProcessExitTimer();
-  })();
+    const failures: Record<string, string | undefined>[] = [];
 
-  try {
-    await gracefulShutdownPromise;
-  } catch (error) {
-    logger.error('Failed during graceful shutdown', { trigger, error });
-  }
+    if (stopAssistantServer) {
+      const failure = await runShutdownStep('assistant-server', async () => {
+        if (stopAssistantServer) {
+          await stopAssistantServer();
+          stopAssistantServer = null;
+        }
+      });
+      if (failure) {
+        failures.push(failure);
+      }
+    }
+
+    const chunkingFailure = await runShutdownStep('chunking-host', async () => {
+      await chunkingHostManager.dispose();
+    });
+    if (chunkingFailure) {
+      failures.push(chunkingFailure);
+    }
+
+    const embeddingFailure = await runShutdownStep('embedding-host', async () => {
+      await embeddingHostManager.dispose();
+    });
+    if (embeddingFailure) {
+      failures.push(embeddingFailure);
+    }
+
+    const databaseFailure = await runShutdownStep('database', async () => {
+      await closeDatabase();
+    });
+    if (databaseFailure) {
+      failures.push(databaseFailure);
+    }
+
+    if (failures.length > 0) {
+      logger.warn('Graceful shutdown completed with cleanup failures', {
+        trigger,
+        failures,
+      });
+    }
+  })().finally(() => {
+    clearForcedProcessExitTimer();
+  });
+  await gracefulShutdownPromise;
 }
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
@@ -482,27 +577,66 @@ function registerShutdownSignalHandlers(): void {
 
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
+const chunkingHostManager = new ChunkingHostManager();
+const embeddingHostManager = new EmbeddingHostManager();
 
-registerLoggingIpcHandlers({
+unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
   getState: getLoggingSettingsPayload,
   setPreferences: applyAndPersistLoggingPreferences,
   selectDestination: selectLogDestination,
   openDestination: openLogDestination,
   getBufferedLogs: () => mainLogBuffer.getRecords(),
+  ingestBufferedLog: (senderId, record) => {
+    mainLogBuffer.push({
+      ...record,
+      bindings: {
+        ...record.bindings,
+        forwardedFrom: 'renderer',
+        sourceWebContentsId: senderId,
+        sourceWindowRole: getWindowRoleByWebContentsId(senderId) ?? 'visible-ui',
+      },
+    });
+  },
 });
 
 // Register IPC handlers early to avoid renderer calls racing registration during startup.
 unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
+  embeddingHostManager,
   onResetLocal: handleResetLocal,
 });
+unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
+unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception:', error);
+  const serializedError =
+    error instanceof Error
+      ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        }
+      : { value: String(error) };
+  logger.error({ error: serializedError }, 'Uncaught exception');
+  // biome-ignore lint/suspicious/noConsole: Uncaught exception details must be visible even if structured logging output is truncated.
+  console.error('[DesktopMain] Uncaught exception', serializedError);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled promise rejection', { reason, promise });
+  const serializedReason =
+    reason instanceof Error
+      ? {
+          name: reason.name,
+          message: reason.message,
+          stack: reason.stack,
+        }
+      : { value: String(reason) };
+  logger.error({ promise, reason: serializedReason }, 'Unhandled promise rejection');
+  // biome-ignore lint/suspicious/noConsole: Unhandled rejection details must be visible even if structured logging output is truncated.
+  console.error('[DesktopMain] Unhandled promise rejection', {
+    promise,
+    reason: serializedReason,
+  });
 });
 registerShutdownSignalHandlers();
 
@@ -521,7 +655,11 @@ if (singleInstanceLockAcquired) {
   app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
 
   app.on('second-instance', () => {
-    const existingWindow = BrowserWindow.getAllWindows()[0];
+    const existingWindow =
+      BrowserWindow.getAllWindows().find(
+        (window) =>
+          !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+      ) ?? null;
     if (!existingWindow) {
       return;
     }
@@ -536,7 +674,7 @@ if (singleInstanceLockAcquired) {
 
   app.whenReady().then(async () => {
     try {
-      logger.info('App ready, starting initialization...');
+      logger.debug('App ready, starting initialization...');
 
       // Re-initialize file logging now that app.getPath() is available.
       // At module load time, app.isReady() is false so getLogFilePath()
@@ -561,20 +699,20 @@ if (singleInstanceLockAcquired) {
               node: process.versions.node,
             },
           });
-          logger.info('File logging enabled after app.ready', { logFile: resolvedLogPath });
+          logger.debug('File logging enabled after app.ready', { logFile: resolvedLogPath });
         }
       }
 
-      logger.info('Setting up IPC handlers that require app readiness...');
+      logger.debug('Setting up IPC handlers that require app readiness...');
       registerSecretsIpcHandlers(createSecretsService());
       registerAgentIpcHandlers();
       registerMcpIpcHandlers();
       registerToolsIpcHandlers();
-      logger.info('Ready-dependent IPC handlers registered successfully');
+      logger.debug('Ready-dependent IPC handlers registered successfully');
 
       // Setup security before creating windows
       setupSecurity();
-      logger.info('Security setup complete');
+      logger.debug('Security setup complete');
 
       // NOTE: Embedding worker is started in renderer process, not here in main process.
       // Main process cannot run transformers.js with Web Workers (they don't exist in Node.js).
@@ -601,7 +739,25 @@ if (singleInstanceLockAcquired) {
         {
           label: 'View',
           submenu: [
-            { role: 'reload' },
+            {
+              label: 'Reload',
+              accelerator: process.platform === 'darwin' ? 'Cmd+R' : 'Ctrl+R',
+              click: (_menuItem, browserWindow) => {
+                const targetWindow =
+                  browserWindow instanceof BrowserWindow
+                    ? browserWindow
+                    : BrowserWindow.getFocusedWindow();
+                if (!targetWindow || targetWindow.isDestroyed()) {
+                  logger.warn('Skipped menu reload because no target window was focused');
+                  return;
+                }
+                noteNextWindowReload(targetWindow, {
+                  reason: 'menu-reload',
+                  source: 'main',
+                });
+                targetWindow.webContents.reload();
+              },
+            },
             { role: 'toggleDevTools' },
             { type: 'separator' },
             { role: 'resetZoom' },
@@ -641,6 +797,10 @@ if (singleInstanceLockAcquired) {
                     message: 'Local database has been reset. The app will reload.',
                   });
                   for (const win of BrowserWindow.getAllWindows()) {
+                    noteNextWindowReload(win, {
+                      reason: 'developer-reset-local-database',
+                      source: 'main',
+                    });
                     win.webContents.reloadIgnoringCache();
                   }
                 } catch (error) {
@@ -660,13 +820,26 @@ if (singleInstanceLockAcquired) {
         const { url, stop } = await startAssistantServer();
         assistantUrl = url;
         stopAssistantServer = stop;
-        logger.info(`Assistant server started at ${assistantUrl}`);
+        logger.debug(`Assistant server started at ${assistantUrl}`);
       } catch (err) {
         logger.error('Failed to start assistant server:', err);
       }
 
       // IPC to provide assistant URL to renderer
       ipcMain.handle('assistant:get-url', () => assistantUrl);
+      ipcMain.handle('app:lifecycle:note-reload-intent', async (event, reason: unknown) => {
+        if (typeof reason !== 'string' || reason.trim().length === 0) {
+          throw new Error('Renderer reload intent reason must be a non-empty string.');
+        }
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (!window || window.isDestroyed()) {
+          throw new Error('Renderer reload intent must originate from a live BrowserWindow.');
+        }
+        noteNextWindowReload(window, {
+          reason: reason.trim(),
+          source: 'renderer',
+        });
+      });
 
       const createMainWindow = async () => {
         // Store is guaranteed to exist after app.whenReady()
@@ -680,15 +853,18 @@ if (singleInstanceLockAcquired) {
         return win;
       };
 
-      logger.info('Creating main window...');
-      const mainWindow = await createMainWindow();
-      logger.info('Main window created successfully');
+      const broadcastPowerState = (state: 'resume' | 'suspend') => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (window.isDestroyed()) {
+            continue;
+          }
+          window.webContents.send('app:power-state', state);
+        }
+      };
 
-      // Prevent macOS App Nap from throttling the main process.
-      // App Nap kicks in after ~5 min of being unfocused and modifies timer
-      // coalescing, which can break libuv's event loop and cause 100% CPU spin.
-      const powerSaveId = powerSaveBlocker.start('prevent-app-suspension');
-      logger.info('powerSaveBlocker started', { id: powerSaveId });
+      logger.debug('Creating main window...');
+      const mainWindow = await createMainWindow();
+      logger.debug('Main window created successfully');
 
       // ---------------------------------------------------------------
       // Event loop health diagnostics — logs CPU and loop lag every 30s.
@@ -740,7 +916,7 @@ if (singleInstanceLockAcquired) {
           if (cpuPercent > 0.1 || p99 > 100 || max > 500) {
             logger.warn(payload, 'main-process-health');
           } else {
-            logger.info(payload, 'main-process-health');
+            logger.debug(payload, 'main-process-health');
           }
         }, 30_000).unref();
       }
@@ -795,24 +971,20 @@ if (singleInstanceLockAcquired) {
           watchdog.postMessage({ type: 'heartbeat' });
         }, 5000).unref();
 
-        logger.info('main-thread watchdog started');
+        logger.debug('main-thread watchdog started');
       }
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
         logger.info('power:suspend');
-        if (!mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('app:power-state', 'suspend');
-        }
+        broadcastPowerState('suspend');
       });
 
       powerMonitor.on('resume', () => {
         logger.info('power:resume');
         // Delay to let OS settle (GPU re-init, network reconnect)
         setTimeout(() => {
-          if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('app:power-state', 'resume');
-          }
+          broadcastPowerState('resume');
         }, 2000);
       });
 
@@ -830,14 +1002,16 @@ if (singleInstanceLockAcquired) {
       });
 
       app.on('activate', async () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
+        const hasVisibleWindow = BrowserWindow.getAllWindows().some(
+          (window) =>
+            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+        );
+        if (!hasVisibleWindow) {
           await createMainWindow();
         }
       });
     } catch (error) {
       logger.error('Failed to initialize application:', error);
-      // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-      console.error('❌ FATAL: Failed to initialize application:', error);
       app.quit();
     }
   });
@@ -854,13 +1028,17 @@ app.on('window-all-closed', () => {
 
 // Clean shutdown
 app.on('before-quit', (event) => {
-  // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
-  console.log('--- RAW CONSOLE LOG: BEFORE-QUIT TRIGGERED ---');
+  logger.debug('before-quit triggered');
   if (allowImmediateQuit) {
     return;
   }
 
   event.preventDefault();
+  if (gracefulShutdownInFlight) {
+    logger.debug('before-quit ignored because graceful shutdown is already in flight');
+    return;
+  }
+  gracefulShutdownInFlight = true;
   scheduleForcedProcessExit('before-quit');
   void (async () => {
     try {
@@ -874,12 +1052,23 @@ app.on('before-quit', (event) => {
 });
 
 app.on('will-quit', () => {
-  // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
-  console.log('--- RAW CONSOLE LOG: WILL-QUIT TRIGGERED ---');
+  logger.debug('will-quit triggered');
   clearForcedProcessExitTimer();
+  if (unregisterEmbeddingHostIpcHandlers) {
+    unregisterEmbeddingHostIpcHandlers();
+    unregisterEmbeddingHostIpcHandlers = null;
+  }
+  if (unregisterChunkingHostIpcHandlers) {
+    unregisterChunkingHostIpcHandlers();
+    unregisterChunkingHostIpcHandlers = null;
+  }
   if (unregisterMainIpcHandlers) {
     unregisterMainIpcHandlers();
     unregisterMainIpcHandlers = null;
+  }
+  if (unregisterLoggingIpcHandlers) {
+    unregisterLoggingIpcHandlers();
+    unregisterLoggingIpcHandlers = null;
   }
   removeLogBufferListener();
 });

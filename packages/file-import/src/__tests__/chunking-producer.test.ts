@@ -15,6 +15,7 @@ import type { ChunkingWorkerPort } from '../chunking-worker-port';
 // Helper to create a mock worker port for tests
 function createMockChunkingWorkerPort(): ChunkingWorkerPort {
   return {
+    transportKind: 'local-worker',
     isReady: vi.fn().mockReturnValue(true),
     terminate: vi.fn(),
     chunkFile: vi.fn().mockResolvedValue({

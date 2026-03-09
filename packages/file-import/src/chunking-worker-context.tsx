@@ -1,15 +1,16 @@
 /**
- * ChunkingWorkerContext - React context for the chunking worker.
+ * ChunkingWorkerContext - React context for chunking execution.
  *
- * This provides the chunking worker at the app root level, ensuring:
- * - Worker is initialized once, not on every component render
- * - Progress updates in child components don't re-invoke the worker
- * - Clean separation between worker lifecycle and UI state
+ * The provider can either:
+ * - own a local browser Worker in the current renderer, or
+ * - proxy requests to the hidden desktop chunking host renderer.
  */
 
+import type { ChunkingRequestOptions, ChunkResult } from '@brainstrike/chunking-worker';
 import { createLogger } from '@brainstrike/utils';
 import {
   createContext,
+  type MutableRefObject,
   type ReactNode,
   useCallback,
   useContext,
@@ -18,10 +19,10 @@ import {
   useRef,
   useState,
 } from 'react';
-import {
-  type ChunkingBatchCallbacks,
-  type ChunkingWorkerPort,
-  createChunkingWorkerPort,
+import type {
+  ChunkingBatchCallbacks,
+  ChunkingHostProxyRequestOptions,
+  ChunkingWorkerPort,
 } from './chunking-worker-port';
 import { resolveChunkingWorkerUrl } from './resolve-chunking-worker-url';
 
@@ -70,58 +71,366 @@ function getTerminalTokenizerErrorMessage(data: unknown): WorkerErrorMessage | n
   return isTerminalTokenizerError(data.error) ? data : null;
 }
 
-// ============================================================================
-// Context Types
-// ============================================================================
-
 export interface ChunkingWorkerContextValue {
-  /** Any error that occurred during worker initialization */
+  ensureStarted: () => Promise<ChunkingWorkerPort>;
   error: Error | null;
-  /** Whether the worker is currently processing a request */
   isProcessing: boolean;
-  /** Whether the worker is ready to receive requests */
   isReady: boolean;
-  /** The worker port for sending chunking requests (null if not ready) */
   port: ChunkingWorkerPort | null;
-  /** Reinitialize the worker (e.g., after an error) */
   reinitialize: () => void;
 }
 
 const ChunkingWorkerContext = createContext<ChunkingWorkerContextValue | null>(null);
 
-// ============================================================================
-// Provider Component
-// ============================================================================
+let chunkingWorkerPortFactoryPromise: Promise<typeof import('./chunking-worker-port')> | null =
+  null;
 
-export interface ChunkingWorkerProviderProps {
-  children: ReactNode;
+async function loadChunkingWorkerPortFactory(): Promise<typeof import('./chunking-worker-port')> {
+  if (!chunkingWorkerPortFactoryPromise) {
+    chunkingWorkerPortFactoryPromise = import('./chunking-worker-port');
+  }
+  return chunkingWorkerPortFactoryPromise;
 }
 
-/**
- * Provider component that initializes and manages the chunking worker.
- *
- * Place this at your app root to ensure the worker is initialized once
- * and shared across all components that need it.
- *
- * @example
- * ```tsx
- * // In your app root
- * <ChunkingWorkerProvider>
- *   <App />
- * </ChunkingWorkerProvider>
- *
- * // In any child component
- * const { port, isReady } = useChunkingWorkerContext();
- * ```
- */
-export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps): ReactNode {
+export interface ChunkingWorkerProviderProps {
+  autoStart?: boolean;
+  children: ReactNode;
+  mode?: 'host-proxy' | 'local';
+}
+
+interface ChunkingHostLifecycleState {
+  active: boolean;
+  lastError: string | null;
+  runtimeId: string;
+  runtimeKind: 'chunking-host';
+  state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+}
+
+interface ChunkingHostFilePayload {
+  content: string;
+  fileName: string;
+  filePath: string;
+  fileRecordId: string;
+}
+
+interface ChunkingHostChunkFileRequest extends ChunkingHostFilePayload {
+  kind: 'chunk-file';
+  options: ChunkingHostProxyRequestOptions;
+  requestId: string;
+}
+
+interface ChunkingHostChunkFileByIdRequest {
+  fileRecordId: string;
+  kind: 'chunk-file-by-id';
+  options: ChunkingHostProxyRequestOptions;
+  requestId: string;
+}
+
+interface ChunkingHostChunkBatchRequest {
+  files: readonly ChunkingHostFilePayload[];
+  kind: 'chunk-batch';
+  options: ChunkingHostProxyRequestOptions;
+  requestId: string;
+}
+
+interface ChunkingHostBridge {
+  chunkBatch: (request: ChunkingHostChunkBatchRequest) => Promise<ChunkResult[]>;
+  chunkFile: (
+    request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest
+  ) => Promise<ChunkResult>;
+  ensureStarted: () => Promise<ChunkingHostLifecycleState>;
+  getStatus: () => Promise<ChunkingHostLifecycleState>;
+  onProgress: (
+    callback: (progress: {
+      channel: 'chunk' | 'chunk-file-complete' | 'chunk-file-error';
+      payload:
+        | {
+            chunksCreated: number;
+            currentIndex?: number;
+            fileRecordId: string;
+            totalFiles?: number;
+          }
+        | {
+            fileRecordId: string;
+            result: ChunkResult;
+          }
+        | {
+            errorMessage: string;
+            fileRecordId: string;
+          };
+      requestId: string;
+      runtimeId: string;
+      type: 'progress';
+    }) => void
+  ) => () => void;
+  onStatus: (callback: (status: ChunkingHostLifecycleState) => void) => () => void;
+  reset: () => Promise<ChunkingHostLifecycleState>;
+}
+
+function getChunkingHostBridge(): ChunkingHostBridge | null {
+  const currentWindow = window as Window & {
+    chunkingHost?: ChunkingHostBridge;
+  };
+  return currentWindow.chunkingHost ?? null;
+}
+
+function createChunkingHostError(status: ChunkingHostLifecycleState): Error {
+  return new Error(status.lastError ?? `Chunking host is not running (state: ${status.state}).`);
+}
+
+function createChunkingRequestId(prefix: 'batch' | 'file'): string {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function toChunkingHostRequestOptions(
+  options: ChunkingRequestOptions
+): ChunkingHostProxyRequestOptions {
+  return {
+    requestedStrategy: options.strategy,
+    ...(options.allowLargeFiles !== undefined ? { allowLargeFiles: options.allowLargeFiles } : {}),
+    ...(options.forceStrategy !== undefined ? { forceStrategy: options.forceStrategy } : {}),
+    ...(options.ignoreFileTypeRecommendations !== undefined
+      ? { ignoreFileTypeRecommendations: options.ignoreFileTypeRecommendations }
+      : {}),
+    ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+    ...(options.maxTokensCap !== undefined ? { maxTokensCap: options.maxTokensCap } : {}),
+    ...(options.overlap !== undefined ? { overlap: options.overlap } : {}),
+    ...(options.separators !== undefined ? { separators: options.separators } : {}),
+    ...(options.tokenTrueSizing !== undefined ? { tokenTrueSizing: options.tokenTrueSizing } : {}),
+  };
+}
+
+function ChunkingHostProxyProvider({
+  autoStart = true,
+  children,
+}: Pick<ChunkingWorkerProviderProps, 'autoStart' | 'children'>): ReactNode {
+  const [status, setStatus] = useState<ChunkingHostLifecycleState>({
+    state: 'stopped',
+    active: false,
+    lastError: null,
+    runtimeKind: 'chunking-host',
+    runtimeId: 'chunking-host:stopped',
+  });
+  const [error, setError] = useState<Error | null>(null);
+  const pendingBatchCallbacksRef = useRef(new Map<string, ChunkingBatchCallbacks | undefined>());
+  const bridgeRef = useRef<ChunkingHostBridge | null>(null);
+
+  const updateFromStatus = useCallback((nextStatus: ChunkingHostLifecycleState) => {
+    setStatus(nextStatus);
+    if (nextStatus.state === 'error') {
+      setError(createChunkingHostError(nextStatus));
+      return;
+    }
+    if (nextStatus.state === 'running') {
+      setError(null);
+    }
+  }, []);
+
+  const ensureStarted = useCallback(async (): Promise<ChunkingWorkerPort> => {
+    const bridge = getChunkingHostBridge();
+    if (!bridge) {
+      throw new Error('Chunking host bridge is not available.');
+    }
+
+    bridgeRef.current = bridge;
+    const nextStatus = await bridge.ensureStarted();
+    updateFromStatus(nextStatus);
+    if (nextStatus.state !== 'running') {
+      throw createChunkingHostError(nextStatus);
+    }
+
+    return createChunkingHostProxyPort(bridge, pendingBatchCallbacksRef);
+  }, [updateFromStatus]);
+
+  const reinitialize = useCallback(() => {
+    const bridge = getChunkingHostBridge();
+    if (!bridge) {
+      setError(new Error('Chunking host bridge is not available.'));
+      return;
+    }
+    void bridge
+      .reset()
+      .then((nextStatus) => {
+        bridgeRef.current = bridge;
+        updateFromStatus(nextStatus);
+      })
+      .catch((resetError) => {
+        const message = resetError instanceof Error ? resetError.message : String(resetError);
+        setError(new Error(message));
+      });
+  }, [updateFromStatus]);
+
+  // biome-ignore lint/plugin: Host status is external IPC state that must be mirrored into React.
+  useEffect(() => {
+    const bridge = getChunkingHostBridge();
+    if (!bridge) {
+      setError(new Error('Chunking host bridge is not available.'));
+      return;
+    }
+
+    bridgeRef.current = bridge;
+    let disposed = false;
+
+    void bridge
+      .getStatus()
+      .then((nextStatus) => {
+        if (disposed) {
+          return;
+        }
+        updateFromStatus(nextStatus);
+      })
+      .catch((statusError) => {
+        if (disposed) {
+          return;
+        }
+        const message = statusError instanceof Error ? statusError.message : String(statusError);
+        setError(new Error(message));
+      });
+
+    const cleanupStatus = bridge.onStatus((nextStatus) => {
+      if (disposed) {
+        return;
+      }
+      updateFromStatus(nextStatus);
+    });
+
+    if (autoStart) {
+      void ensureStarted();
+    }
+
+    return () => {
+      disposed = true;
+      cleanupStatus();
+      pendingBatchCallbacksRef.current.clear();
+    };
+  }, [autoStart, ensureStarted, updateFromStatus]);
+
+  const currentPortState = useMemo<ChunkingWorkerPort | null>(() => {
+    const bridge = bridgeRef.current;
+    if (!(bridge && status.state === 'running')) {
+      return null;
+    }
+    return createChunkingHostProxyPort(bridge, pendingBatchCallbacksRef);
+  }, [status.state]);
+
+  const contextValue = useMemo<ChunkingWorkerContextValue>(
+    () => ({
+      ensureStarted,
+      port: currentPortState,
+      isReady: status.state === 'running',
+      isProcessing: status.active,
+      error,
+      reinitialize,
+    }),
+    [currentPortState, ensureStarted, error, reinitialize, status.active, status.state]
+  );
+
+  return (
+    <ChunkingWorkerContext.Provider value={contextValue}>{children}</ChunkingWorkerContext.Provider>
+  );
+}
+
+function createChunkingHostProxyPort(
+  bridge: ChunkingHostBridge,
+  pendingBatchCallbacksRef: MutableRefObject<Map<string, ChunkingBatchCallbacks | undefined>>
+): ChunkingWorkerPort {
+  return {
+    transportKind: 'host-proxy',
+    chunkFileById: async (fileRecordId: string, options: ChunkingHostProxyRequestOptions) =>
+      bridge.chunkFile({
+        kind: 'chunk-file-by-id',
+        requestId: createChunkingRequestId('file'),
+        fileRecordId,
+        options,
+      }),
+    chunkFile: async (
+      fileRecordId: string,
+      content: string,
+      fileName: string,
+      filePath: string,
+      options: ChunkingRequestOptions
+    ) =>
+      bridge.chunkFile({
+        kind: 'chunk-file',
+        requestId: createChunkingRequestId('file'),
+        fileRecordId,
+        content,
+        fileName,
+        filePath,
+        options: toChunkingHostRequestOptions(options),
+      }),
+    chunkBatch: async (
+      files: Array<{
+        fileRecordId: string;
+        content: string;
+        fileName: string;
+        filePath: string;
+      }>,
+      options: ChunkingRequestOptions,
+      callbacks?: ChunkingBatchCallbacks
+    ) => {
+      const requestId = createChunkingRequestId('batch');
+      pendingBatchCallbacksRef.current.set(requestId, callbacks);
+      const cleanupProgress = bridge.onProgress((progress) => {
+        if (progress.requestId !== requestId) {
+          return;
+        }
+        const registeredCallbacks = pendingBatchCallbacksRef.current.get(requestId);
+        if (!registeredCallbacks) {
+          return;
+        }
+        if (progress.channel === 'chunk') {
+          const payload = progress.payload as {
+            chunksCreated: number;
+            currentIndex?: number;
+            fileRecordId: string;
+            totalFiles?: number;
+          };
+          registeredCallbacks.onProgress?.(
+            payload.fileRecordId,
+            payload.chunksCreated,
+            payload.currentIndex ?? 0,
+            payload.totalFiles ?? 0
+          );
+          return;
+        }
+        if (progress.channel === 'chunk-file-complete') {
+          const payload = progress.payload as { fileRecordId: string; result: ChunkResult };
+          registeredCallbacks.onFileComplete?.(payload.fileRecordId, payload.result);
+          return;
+        }
+        if (progress.channel === 'chunk-file-error') {
+          const payload = progress.payload as { errorMessage: string; fileRecordId: string };
+          registeredCallbacks.onFileError?.(payload.fileRecordId, payload.errorMessage);
+        }
+      });
+
+      try {
+        return await bridge.chunkBatch({
+          kind: 'chunk-batch',
+          requestId,
+          files,
+          options: toChunkingHostRequestOptions(options),
+        });
+      } finally {
+        cleanupProgress();
+        pendingBatchCallbacksRef.current.delete(requestId);
+      }
+    },
+    isReady: () => true,
+    // Host-proxy mode does not own the hidden renderer lifecycle.
+    terminate: () => {},
+  };
+}
+
+function ChunkingLocalWorkerProvider({
+  autoStart = true,
+  children,
+}: Pick<ChunkingWorkerProviderProps, 'autoStart' | 'children'>): ReactNode {
   const [isReady, setIsReady] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  // Track the port in state so useMemo doesn't need to read from ref during render
   const [currentPortState, setCurrentPortState] = useState<ChunkingWorkerPort | null>(null);
-
-  // Use refs for worker/port to avoid re-renders when they change
   const workerRef = useRef<Worker | null>(null);
   const portRef = useRef<ChunkingWorkerPort | null>(null);
   const initPromiseRef = useRef<Promise<void> | null>(null);
@@ -136,8 +445,6 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
       context,
       error: failure.message,
     });
-    // CRITICAL: Keep worker lifecycle deterministic. Once terminal failure happens,
-    // tear down worker+port so callers cannot keep dispatching to a broken worker.
     setError(failure);
     setIsReady(false);
     setIsProcessing(false);
@@ -152,10 +459,13 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
     setCurrentPortState(null);
   }, []);
 
-  const initialize = useCallback(async () => {
-    // Prevent double initialization
+  const initialize = useCallback(async (): Promise<ChunkingWorkerPort> => {
     if (initPromiseRef.current) {
-      return initPromiseRef.current;
+      await initPromiseRef.current;
+      if (!portRef.current) {
+        throw new Error('Chunking worker port was not created');
+      }
+      return portRef.current;
     }
 
     initPromiseRef.current = (async () => {
@@ -166,10 +476,7 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
         const workerUrl = await resolveChunkingWorkerUrl();
         const worker = new Worker(workerUrl, { type: 'module' });
         workerRef.current = worker;
-
-        // Create port FIRST, before attaching message handlers.
-        // This prevents a race condition where the "ready" message triggers
-        // a re-render before portRef.current is set.
+        const { createChunkingWorkerPort } = await loadChunkingWorkerPortFactory();
         const port = createChunkingWorkerPort(worker);
         portRef.current = port;
         setCurrentPortState(port);
@@ -182,8 +489,6 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
               return;
             }
             readyReceived = true;
-            // Keep this listener active after ready so runtime tokenizer failures
-            // can still force a deterministic terminal worker state.
             logger.debug('Chunking worker ready');
             setIsReady(true);
             setError(null);
@@ -191,10 +496,10 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
           }
 
           if (isInitWorkerErrorMessage(data)) {
-            const errorMsg = data.error || 'Worker initialization failed';
-            logger.error('Chunking worker init error', { error: errorMsg });
+            const errorMessage = data.error || 'Worker initialization failed';
+            logger.error('Chunking worker init error', { error: errorMessage });
             worker.removeEventListener('message', handleMessage);
-            enterTerminalFailureState(new Error(errorMsg), 'worker.message.__init__');
+            enterTerminalFailureState(new Error(errorMessage), 'worker.message.__init__');
             return;
           }
 
@@ -230,7 +535,6 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
         worker.addEventListener('message', handleMessage);
         worker.addEventListener('error', handleError);
 
-        // Poll for ready state as backup
         const checkReadyInterval = setInterval(() => {
           if (port.isReady()) {
             setIsReady(true);
@@ -238,13 +542,11 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
           }
         }, 100);
 
-        // Clear interval after 10s
         setTimeout(() => {
           clearInterval(checkReadyInterval);
           if (!portRef.current?.isReady()) {
             const timeoutError = new Error('Chunking worker ready timeout after 10 seconds');
             logger.error(timeoutError.message);
-            // CRITICAL: Fail hard on startup timeout; no fallback mode is allowed.
             enterTerminalFailureState(timeoutError, 'worker.ready-timeout');
           }
         }, 10_000);
@@ -255,13 +557,16 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
       }
     })();
 
-    return initPromiseRef.current;
+    await initPromiseRef.current;
+    if (!portRef.current) {
+      throw new Error('Chunking worker port was not created');
+    }
+    return portRef.current;
   }, [enterTerminalFailureState]);
 
   const reinitialize = useCallback(() => {
     logger.info('Reinitializing chunking worker');
 
-    // Cleanup existing
     if (portRef.current) {
       portRef.current.terminate();
     }
@@ -269,7 +574,6 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
       workerRef.current.terminate();
     }
 
-    // Reset state
     workerRef.current = null;
     portRef.current = null;
     initPromiseRef.current = null;
@@ -279,15 +583,14 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
     setIsProcessing(false);
     terminalFailureActiveRef.current = false;
 
-    // Reinitialize
     void initialize();
   }, [initialize]);
 
-  // Initialize on mount
   useEffect(() => {
-    void initialize();
+    if (autoStart) {
+      void initialize();
+    }
 
-    // Cleanup on unmount - reset all state for React StrictMode double-mount
     return () => {
       if (portRef.current) {
         portRef.current.terminate();
@@ -295,24 +598,20 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
       if (workerRef.current) {
         workerRef.current.terminate();
       }
-      // Reset refs so next mount starts fresh (StrictMode compatibility)
       workerRef.current = null;
       portRef.current = null;
       initPromiseRef.current = null;
       terminalFailureActiveRef.current = false;
     };
-  }, [initialize]);
+  }, [autoStart, initialize]);
 
-  // Create wrapped port that tracks processing state
-  // This returns the port even when not ready - consumers should check isReady()
-  // This prevents fallback to main thread when import starts before worker is ready
-  // Note: Using currentPortState (state) instead of portRef.current because refs don't trigger re-renders
   const wrappedPort = useMemo((): ChunkingWorkerPort | null => {
     if (!currentPortState) {
       return null;
     }
 
-    return {
+    const wrappedPort: ChunkingWorkerPort = {
+      transportKind: currentPortState.transportKind,
       chunkFile: async (...args) => {
         setIsProcessing(true);
         try {
@@ -335,6 +634,24 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
           throw err;
         }
       },
+      ...(currentPortState.chunkFileById
+        ? {
+            chunkFileById: async (...args) => {
+              setIsProcessing(true);
+              try {
+                const result = await currentPortState.chunkFileById?.(...args);
+                if (!result) {
+                  throw new Error('Chunking worker port missing chunkFileById implementation.');
+                }
+                setIsProcessing(false);
+                return result;
+              } catch (err) {
+                setIsProcessing(false);
+                throw err;
+              }
+            },
+          }
+        : {}),
       isReady: () => currentPortState.isReady(),
       terminate: () => {
         currentPortState.terminate();
@@ -342,17 +659,20 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
         setIsReady(false);
       },
     };
+
+    return wrappedPort;
   }, [currentPortState]);
 
   const contextValue = useMemo<ChunkingWorkerContextValue>(
     () => ({
+      ensureStarted: initialize,
       port: wrappedPort,
       isReady,
       isProcessing,
       error,
       reinitialize,
     }),
-    [wrappedPort, isReady, isProcessing, error, reinitialize]
+    [error, initialize, isProcessing, isReady, reinitialize, wrappedPort]
   );
 
   return (
@@ -360,27 +680,19 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
   );
 }
 
-// ============================================================================
-// Consumer Hook
-// ============================================================================
+export function ChunkingWorkerProvider({
+  autoStart = true,
+  children,
+  mode = 'local',
+}: ChunkingWorkerProviderProps): ReactNode {
+  if (mode === 'host-proxy') {
+    return <ChunkingHostProxyProvider autoStart={autoStart}>{children}</ChunkingHostProxyProvider>;
+  }
+  return (
+    <ChunkingLocalWorkerProvider autoStart={autoStart}>{children}</ChunkingLocalWorkerProvider>
+  );
+}
 
-/**
- * Hook to access the chunking worker from context.
- *
- * Must be used within a ChunkingWorkerProvider.
- *
- * @example
- * ```tsx
- * function MyComponent() {
- *   const { port, isReady, error } = useChunkingWorkerContext();
- *
- *   if (error) return <div>Worker error: {error.message}</div>;
- *   if (!isReady) return <div>Loading worker...</div>;
- *
- *   // Use port.chunkFile() or port.chunkBatch()
- * }
- * ```
- */
 export function useChunkingWorkerContext(): ChunkingWorkerContextValue {
   const context = useContext(ChunkingWorkerContext);
 
@@ -391,14 +703,6 @@ export function useChunkingWorkerContext(): ChunkingWorkerContextValue {
   return context;
 }
 
-/**
- * Hook to access just the chunking worker port from context.
- *
- * This is a convenience hook when you only need the port and don't
- * care about isReady/isProcessing/error states.
- *
- * Returns null if worker is not ready.
- */
 export function useChunkingWorkerPort(): ChunkingWorkerPort | null {
   const { port } = useChunkingWorkerContext();
   return port;

@@ -30,6 +30,7 @@ const logger = createLogger('VectorStatus');
 
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
+import { useEmbeddingRuntimeController } from './vector-status/embedding-runtime-controller';
 import {
   EmbeddingSetSelector,
   useEmbeddingSetSelection,
@@ -168,13 +169,25 @@ function WorkerControls({
     return null;
   }
 
+  const handleStartClick = (): void => {
+    void onStartWorker().catch(() => {});
+  };
+
+  const handleStopClick = (): void => {
+    void onStopWorker().catch(() => {});
+  };
+
+  const handleResetClick = (): void => {
+    void onResetWorker().catch(() => {});
+  };
+
   return (
     <>
       {workerLocalRunning ? (
         <Button
           aria-label="Stop embedding worker"
           className="h-6 w-full px-1.5 text-[10px]"
-          onClick={onStopWorker}
+          onClick={handleStopClick}
           size="sm"
           variant="outline"
         >
@@ -185,7 +198,7 @@ function WorkerControls({
           aria-label="Start embedding worker"
           className="h-6 w-full px-1.5 text-[10px]"
           disabled={!db || startingWorker}
-          onClick={onStartWorker}
+          onClick={handleStartClick}
           size="sm"
           variant={startingWorker ? 'outline' : 'secondary'}
         >
@@ -196,7 +209,7 @@ function WorkerControls({
         aria-label="Reset embedding worker"
         className="h-6 w-full px-1.5 text-[10px]"
         disabled={!db || startingWorker}
-        onClick={onResetWorker}
+        onClick={handleResetClick}
         size="sm"
         variant="outline"
       >
@@ -241,14 +254,14 @@ export function getBackfillButtonText(
   backfillProgress: { done: number; total: number } | null,
   willAutoStartWorker: boolean
 ): string {
-  if (startingWorker) {
-    return 'Starting…';
-  }
   if (backfilling && backfillProgress) {
     return `${backfillProgress.done}/${backfillProgress.total}`;
   }
   if (backfilling) {
     return 'Backfilling…';
+  }
+  if (startingWorker) {
+    return 'Starting…';
   }
   if (willAutoStartWorker) {
     return `Start & ${baseLabel}`;
@@ -346,15 +359,19 @@ function BackfillButton(props: BackfillButtonProps) {
     startingWorker,
     willAutoStartWorker
   );
+  const handleBackfillClick = (): void => {
+    // The action path already surfaces user-facing failures via toast/status state.
+    // Catch at the click boundary so rejected async handlers do not bubble to the
+    // global renderer unhandledrejection hook.
+    void onBackfill().catch(() => {});
+  };
 
   const button = (
     <Button
       aria-label={ariaLabel}
       className="h-6 w-full px-1.5 text-[10px]"
       disabled={effectivelyDisabled}
-      onClick={() => {
-        void onBackfill();
-      }}
+      onClick={handleBackfillClick}
       size="sm"
       title={resolvedTitle}
       variant="outline"
@@ -392,13 +409,25 @@ function QueueControls({
   onClearQueue: () => Promise<void>;
   onWipeQueue: () => Promise<void>;
 }) {
+  const handleRetryClick = (): void => {
+    void onRetryFailed().catch(() => {});
+  };
+
+  const handleClearClick = (): void => {
+    void onClearQueue().catch(() => {});
+  };
+
+  const handleWipeClick = (): void => {
+    void onWipeQueue().catch(() => {});
+  };
+
   return (
     <>
       <Button
         aria-label="Retry failed jobs"
         className="h-6 w-full px-1.5 text-[10px]"
         disabled={!hasDb || queueCounts.failed === 0}
-        onClick={onRetryFailed}
+        onClick={handleRetryClick}
         size="sm"
         title="Requeue the most recent failed jobs (up to 20)"
         variant="outline"
@@ -409,7 +438,7 @@ function QueueControls({
         aria-label="Clear queue"
         className="h-6 w-full px-1.5 text-[10px]"
         disabled={!hasDb}
-        onClick={onClearQueue}
+        onClick={handleClearClick}
         size="sm"
         title="Clear failed (and queued if present) items in the embeddings queue"
         variant="outline"
@@ -420,7 +449,7 @@ function QueueControls({
         aria-label="Wipe queue"
         className="h-6 w-full px-1.5 text-[10px]"
         disabled={!hasDb}
-        onClick={onWipeQueue}
+        onClick={handleWipeClick}
         size="sm"
         title="Delete all job_queue records for embeddings (all states)"
         variant="destructive"
@@ -628,6 +657,13 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     });
   }, [coverageRepository, db]);
 
+  const runtimeController = useEmbeddingRuntimeController({
+    db,
+    devicePreference: devicePref,
+    reinitEveryN,
+    service,
+  });
+
   const backfillRef = useRef<() => Promise<void>>(async () => {});
   const validateApiKeyRef = useRef<() => Promise<{ valid: boolean; message?: string }>>(
     async () => ({ valid: true })
@@ -648,15 +684,14 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   }, [toast]);
 
   const workerControls = useEmbeddingWorkerControls({
-    db,
-    devicePreference: devicePref,
-    reinitEveryN,
+    controller: runtimeController,
     activeEmbeddingSetId: activeId,
     onBackfill: invokeBackfill,
     toast,
   });
 
   const queueState = useVectorQueueState({
+    controller: runtimeController,
     service,
     activeEmbeddingSetId: activeId,
     shouldAutoBackfill: workerControls.workerLocalRunning,

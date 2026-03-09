@@ -22,6 +22,14 @@ describe('resolveEmbeddingWorkerUrl override paths', () => {
     expect(url.href).toBe('file:///tmp/embedding/embedding.worker.js');
   });
 
+  it('resolves TypeScript worker path from source import.meta.url overrides', () => {
+    setImportMetaOverride({ url: 'file:///tmp/embedding/index.ts' });
+
+    const url = resolveEmbeddingWorkerUrl();
+
+    expect(url.href).toBe('file:///tmp/embedding/embedding.worker.ts');
+  });
+
   it('falls back to import.meta.dirname when url is missing', () => {
     setImportMetaOverride({ dirname: '/tmp/embedding' });
 

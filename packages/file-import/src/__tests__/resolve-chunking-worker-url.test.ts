@@ -29,9 +29,13 @@ describe('resolveChunkingWorkerUrl', () => {
     await expect(resolveChunkingWorkerUrl()).resolves.toBe(expectedUrl);
   }, 15_000);
 
-  it('fails fast with a descriptive error when worker package import fails', async () => {
+  it('fails fast with a descriptive error when worker URL resolution fails', async () => {
     vi.doMock('@brainstrike/chunking-worker', () => {
-      throw new Error('module load failed');
+      return {
+        resolveChunkingWorkerUrl: () => {
+          throw new Error('module load failed');
+        },
+      };
     });
 
     const { resolveChunkingWorkerUrl } = await import('../resolve-chunking-worker-url');
@@ -40,8 +44,11 @@ describe('resolveChunkingWorkerUrl', () => {
       'Failed to resolve chunking worker URL'
     );
     expect(loggerErrorMock).toHaveBeenCalledTimes(1);
-    expect(loggerErrorMock).toHaveBeenCalledWith('Failed to import @brainstrike/chunking-worker', {
-      error: expect.any(String),
-    });
+    expect(loggerErrorMock).toHaveBeenCalledWith(
+      'Failed to resolve @brainstrike/chunking-worker URL',
+      {
+        error: expect.any(String),
+      }
+    );
   });
 });

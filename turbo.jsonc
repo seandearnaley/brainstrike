@@ -1,10 +1,8 @@
 {
   // Turborepo monorepo configuration for brainstrike
   "$schema": "https://turbo.build/schema.json",
-
   // Global configuration
-  "concurrency": "30",
-
+  "concurrency": "31",
   // Files that, when changed, should invalidate caches globally
   // These files affect all tasks and will cause cache misses when modified
   "globalDependencies": [
@@ -15,35 +13,44 @@
     ".nvmrc", // Node version specification
     "scripts/enforce-coverage.mjs" // Coverage thresholds (invalidates test cache when thresholds change)
   ],
-
   // Defines the tasks that can be run via `turbo run <taskName>`
   "tasks": {
     // --- Build Task --- //
     "build": {
       // Ensures that the 'build' task for dependencies runs before this package's build.
       // Crucial for building packages in the correct topological order.
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       // Specifies the output artifacts of the build task.
       // Turborepo caches these directories/files.
-      "outputs": ["dist/**"],
+      "outputs": [
+        "dist/**"
+      ],
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
-
     // --- Test Task --- //
     "test": {
       // Ensures the package is built before tests are run.
-      "dependsOn": ["build"],
+      "dependsOn": [
+        "build"
+      ],
       // Tests can be sensitive to NODE_ENV, but build cache should not be globally invalidated by it.
       // TURBO_TEST_MODE differentiates plain test runs from coverage runs for cache keys.
-      "env": ["NODE_ENV", "TURBO_TEST_MODE"],
+      "env": [
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
       // Tests may emit coverage/test artifacts when invoked with coverage flags.
       // Declaring these outputs lets Turbo restore artifacts on cache hits.
-      "outputs": ["coverage/**", "test-results/**"],
+      "outputs": [
+        "coverage/**",
+        "test-results/**"
+      ],
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
-
     // --- Lint Task --- //
     "lint": {
       // Linting usually doesn't produce cacheable artifacts and should run on current code.
@@ -51,11 +58,12 @@
       // No outputs to cache.
       "outputs": []
     },
-
     // --- Type Check Task --- //
     "type-check": {
       // Ensures the package is built (generating .d.ts files) before type checking.
-      "dependsOn": ["build"],
+      "dependsOn": [
+        "build"
+      ],
       // Type checking doesn't produce persistent artifacts to cache, only console output.
       // Caching might still be useful if inputs haven't changed, but often set to false or relies on inputs.
       // For now, let's keep default cache=true but no outputs.
@@ -63,7 +71,6 @@
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
-
     // --- Development Task --- //
     "dev": {
       // Marks this task as long-running (e.g., a dev server or watch process).
@@ -101,76 +108,99 @@
         "@brainstrike/platform-utils#dev"
       ]
     },
-
     // --- Mutation Testing Task --- //
     "mutation": {
       // Ensures the package is built before mutation testing is run.
-      "dependsOn": ["build"],
+      "dependsOn": [
+        "build"
+      ],
       // Mutation testing reports are output artifacts.
-      "outputs": ["reports/mutation/**"],
+      "outputs": [
+        "reports/mutation/**"
+      ],
       // Mutation testing should not be cached as it should always re-run to ensure fresh analysis.
       "cache": false,
       // Show full logs for mutation testing as they contain important analysis information
       "outputLogs": "full"
     },
-
     // --- Composite Check Task (for CI) --- //
     "check": {
       // Runs lint, type-check, and test tasks within the same package.
       // Note: This assumes these tasks are defined in the respective package.json files.
-      "dependsOn": ["lint", "type-check", "test"],
+      "dependsOn": [
+        "lint",
+        "type-check",
+        "test"
+      ],
       // This composite task itself doesn't need caching.
       "cache": false,
       "outputs": []
     },
-
     // --- Browser Test Task (Vitest 4 Browser Mode) --- //
     "test:browser": {
       // Browser tests require the package to be built
-      "dependsOn": ["build"],
+      "dependsOn": [
+        "build"
+      ],
       // Browser tests produce screenshots and artifacts
-      "outputs": ["__tests__/__screenshots__/**"],
+      "outputs": [
+        "__tests__/__screenshots__/**"
+      ],
       // Browser tests should not be cached due to environment-specific behavior
       "cache": false,
       // Show all logs for browser tests
       "outputLogs": "full"
     },
-
     // --- Test:Coverage Task --- //
     "test:coverage": {
       // Kept for package-level coverage entry points; CI currently invokes `test` with coverage flags.
       // Ensures the package is built before coverage tests are run.
-      "dependsOn": ["build"],
+      "dependsOn": [
+        "build"
+      ],
       // Coverage runs should hash NODE_ENV + explicit test mode without invalidating unrelated tasks globally.
-      "env": ["NODE_ENV", "TURBO_TEST_MODE"],
+      "env": [
+        "NODE_ENV",
+        "TURBO_TEST_MODE"
+      ],
       // Coverage output artifacts (e.g., coverage reports).
-      "outputs": ["coverage/**", "test-results/**"],
+      "outputs": [
+        "coverage/**",
+        "test-results/**"
+      ],
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
-
     // --- Coverage Merge Task --- //
     "coverage:merge": {
       // Merges coverage files from all packages/apps.
       // No outputs to cache, and should always run fresh.
       "cache": false,
-      "outputs": [".nyc_output/coverage.json"]
+      "outputs": [
+        ".nyc_output/coverage.json"
+      ]
     },
-
     // --- Coverage Report Task --- //
     "coverage:report": {
       // Generates a combined coverage report from merged data.
       // No outputs to cache, and should always run fresh.
       "cache": false,
-      "outputs": ["coverage/**"]
+      "outputs": [
+        "coverage/**"
+      ]
     },
-
     // --- E2E Test Task --- //
     "test:e2e": {
       // E2E tests should run after the app is built
-      "dependsOn": ["build"],
+      "dependsOn": [
+        "build"
+      ],
       // E2E tests produce test results and reports
-      "outputs": ["test-results/**", "playwright-report/**", "blob-report/**"],
+      "outputs": [
+        "test-results/**",
+        "playwright-report/**",
+        "blob-report/**"
+      ],
       // E2E tests should not be cached as they test the full application
       "cache": false,
       // Show all logs for E2E tests as they're important for debugging

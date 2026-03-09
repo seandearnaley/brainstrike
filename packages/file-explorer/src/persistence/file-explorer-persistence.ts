@@ -25,17 +25,29 @@ const isTest =
   (typeof globalThis !== 'undefined' &&
     ('vitest' in globalThis || 'jest' in globalThis || '__vitest_worker__' in globalThis));
 const shouldLog = isDev && !isTest;
+export const FILE_EXPLORER_STORAGE_KEY = 'file-explorer-storage-v4' as const;
+export const FILE_EXPLORER_STORAGE_VERSION = 1 as const;
+
+export function createPersistedFileExplorerSnapshot(state: FileExplorerState): {
+  state: SerializedState;
+  version: typeof FILE_EXPLORER_STORAGE_VERSION;
+} {
+  return {
+    state: serializeState(state),
+    version: FILE_EXPLORER_STORAGE_VERSION,
+  };
+}
 
 export const createPersistOptions = (
   storageAdapter: StorageAdapter
 ): PersistOptions<FileExplorerState, SerializedState> => {
-  const { workerStorage, useWorker } = initWorker(isTest, shouldLog);
+  const { workerStorage, useWorker } = initWorker(storageAdapter, isTest, shouldLog);
 
   // Add legacy-key migration from v3 to v4 (only if localStorage exists)
   if (typeof localStorage !== 'undefined') {
     try {
       const legacyKey = 'fileExplorerSettings';
-      const newKey = 'file-explorer-storage-v4';
+      const newKey = FILE_EXPLORER_STORAGE_KEY;
       const legacy = localStorage.getItem(legacyKey);
 
       if (legacy && !localStorage.getItem(newKey)) {
@@ -54,8 +66,8 @@ export const createPersistOptions = (
   }
 
   return {
-    name: 'file-explorer-storage-v4',
-    version: 1,
+    name: FILE_EXPLORER_STORAGE_KEY,
+    version: FILE_EXPLORER_STORAGE_VERSION,
 
     storage: createStorageWrapper(
       storageAdapter,
@@ -64,7 +76,7 @@ export const createPersistOptions = (
       shouldLog
     ) as PersistStorage<SerializedState>,
 
-    partialize: (state) => serializeState(state),
+    partialize: (state) => createPersistedFileExplorerSnapshot(state).state,
 
     migrate: (rawPersistedState, version) => migrateState(rawPersistedState, version, shouldLog),
 

@@ -1,4 +1,4 @@
-import type { FileChunk, FileImportResult, FileRecord } from '@brainstrike/db';
+import type { FileChunk, FileImportResult, FileRecord, IDatabase } from '@brainstrike/db';
 import { ChunkingService } from '@brainstrike/db';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +9,7 @@ import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 // Helper to create a mock worker port for tests
 function createMockChunkingWorkerPort(overrides?: Partial<ChunkingWorkerPort>): ChunkingWorkerPort {
   return {
+    transportKind: 'local-worker',
     isReady: vi.fn().mockReturnValue(true),
     terminate: vi.fn(),
     chunkFile: vi.fn().mockResolvedValue({
@@ -27,6 +28,22 @@ function createMockChunkingWorkerPort(overrides?: Partial<ChunkingWorkerPort>): 
       skipped: false,
     }),
     chunkBatch: vi.fn().mockResolvedValue([]),
+    chunkFileById: vi.fn().mockResolvedValue({
+      fileRecordId: 'file-1',
+      chunks: [
+        {
+          chunkIndex: 0,
+          content: 'Chunk content',
+          contentHash: 'hash-1',
+          tokenCount: 10,
+          chunkType: 'sentence',
+          chunkSize: 100,
+        },
+      ],
+      strategyUsed: 'sentence',
+      totalTokens: 10,
+      skipped: false,
+    }),
     ...overrides,
   };
 }
@@ -40,6 +57,7 @@ interface MockRepository {
 
 interface MockChunkRepository {
   insertMany: Mock<(chunks: unknown[]) => Promise<unknown[]>>;
+  insertManyWithTx?: Mock<(tx: unknown, chunks: unknown[]) => Promise<unknown[]>>;
 }
 
 interface MockChunkingService {
@@ -634,6 +652,139 @@ describe('processChunking', () => {
         { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
       )
     ).rejects.toThrow('Batch prefetch failed');
+  });
+
+  it('skips batch prefetch for host-proxy chunking transport', async () => {
+    const hostProxyWorkerPort = createMockChunkingWorkerPort({
+      transportKind: 'host-proxy',
+    });
+
+    await processChunking(
+      [{ id: 'file-1', imported: true, existed: false }],
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress, chunkingWorkerPort: hostProxyWorkerPort }
+    );
+
+    expect(mockRepository.findByIds).not.toHaveBeenCalled();
+    expect(mockRepository.findById).not.toHaveBeenCalled();
+    expect(hostProxyWorkerPort.chunkFileById).toHaveBeenCalledWith(
+      'file-1',
+      expect.objectContaining({})
+    );
+  });
+
+  it('persists host-proxy chunks onto the target embedding set', async () => {
+    const hostProxyWorkerPort = createMockChunkingWorkerPort({
+      transportKind: 'host-proxy',
+      chunkFileById: vi.fn().mockResolvedValue({
+        fileRecordId: 'file-1',
+        chunks: [
+          {
+            chunkIndex: 0,
+            content: 'Scoped chunk content',
+            contentHash: 'scoped-hash-1',
+            tokenCount: 10,
+            chunkType: 'sentence',
+            chunkSize: 100,
+          },
+        ],
+        strategyUsed: 'sentence',
+        totalTokens: 10,
+        skipped: false,
+      }),
+    });
+
+    await processChunking(
+      [{ id: 'file-1', imported: true, existed: false }],
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      {
+        updateProgress: mockUpdateProgress,
+        chunkingWorkerPort: hostProxyWorkerPort,
+        targetEmbeddingSetId: 'set-123',
+      }
+    );
+
+    expect(mockChunkRepository.insertMany).toHaveBeenCalledWith([
+      expect.objectContaining({
+        fileRecordId: 'file-1',
+        embeddingSetId: 'set-123',
+      }),
+    ]);
+  });
+
+  it('uses transactional chunk inserts and queue enqueue when configured', async () => {
+    const insertManyWithTx = vi.fn(async (_tx: unknown, chunks: unknown[]) => chunks);
+    mockChunkRepository.insertManyWithTx = insertManyWithTx;
+    const enqueueJobsForChunksTx = vi.fn(async () => undefined);
+    const tx = { kind: 'tx', query: vi.fn() } as unknown as IDatabase;
+    const runInTransactionBase = async <T>(fn: (database: IDatabase) => Promise<T>): Promise<T> => {
+      return await fn(tx);
+    };
+    const runInTransaction = vi.fn(runInTransactionBase) as typeof runInTransactionBase;
+
+    await processChunking(
+      [{ id: 'file-1', imported: true, existed: false }],
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      {
+        updateProgress: mockUpdateProgress,
+        chunkingWorkerPort: mockWorkerPort,
+        embedQueueEnabled: true,
+        runInTransaction,
+        enqueueJobsForChunksTx,
+      }
+    );
+
+    expect(runInTransaction).toHaveBeenCalledTimes(1);
+    expect(insertManyWithTx).toHaveBeenCalledTimes(1);
+    expect(mockChunkRepository.insertMany).not.toHaveBeenCalled();
+    expect(enqueueJobsForChunksTx).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses bounded parallelism for host-proxy chunking transport', async () => {
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+
+    const hostProxyWorkerPort = createMockChunkingWorkerPort({
+      transportKind: 'host-proxy',
+      chunkFileById: vi.fn().mockImplementation(async (fileRecordId: string) => {
+        activeRequests += 1;
+        maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        activeRequests -= 1;
+        return {
+          fileRecordId,
+          chunks: [
+            {
+              chunkIndex: 0,
+              content: `Chunk content for ${fileRecordId}`,
+              contentHash: `hash-${fileRecordId}`,
+              tokenCount: 10,
+              chunkType: 'sentence',
+            },
+          ],
+          strategyUsed: 'sentence',
+          totalTokens: 10,
+          skipped: false,
+        };
+      }),
+    });
+
+    const importResults = Array.from({ length: 40 }, (_, index) => ({
+      id: `file-${index + 1}`,
+      imported: true,
+      existed: false,
+    }));
+
+    await processChunking(
+      importResults,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress, chunkingWorkerPort: hostProxyWorkerPort }
+    );
+
+    expect(maxActiveRequests).toBeGreaterThan(1);
+    expect(maxActiveRequests).toBeLessThanOrEqual(4);
+    expect(mockRepository.findByIds).not.toHaveBeenCalled();
+    expect(mockRepository.findById).not.toHaveBeenCalled();
   });
 
   it('updates final progress correctly via worker', async () => {

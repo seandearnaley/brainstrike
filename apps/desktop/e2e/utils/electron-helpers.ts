@@ -12,6 +12,125 @@ export interface ElectronAppContext {
   window: Page;
 }
 
+const intentionallyClosingApps = new WeakSet<ElectronApplication>();
+const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
+const ignoredElectronOutputPatterns = [
+  'Electron Security Warning (Insecure Content-Security-Policy)',
+  'This renderer process has either no Content Security',
+  'Policy set or a policy with "unsafe-eval" enabled.',
+  'For more information and help, consult',
+  'https://electronjs.org/docs/tutorial/security.',
+  'This warning will not show up',
+  'once the app is packaged.',
+  'this app to unnecessary security risks.',
+  "Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
+  '(Use `Electron --trace-warnings ...` to show where the warning was created)',
+  '🔸 Setting up file system API mocks...',
+  '🔸 Mocked requestDirectoryAccess called',
+  '🔸 Mocked exists called with path:',
+  '🔸 Mocked readDirectory called with path:',
+  '🔸 Mocked readFile called with path:',
+  '🔸 Mocked writeFile called with path:',
+  '🔸 Mocked watchDirectory called with path:',
+  '🔸 Mocked unwatch called',
+  '🔸 Mocked showDirectoryPicker called',
+  '🔸 Mocked showOpenDialog called with options:',
+  '🔸 Mocked showSaveDialog called with options:',
+  '🔸 Mocked showMessageBox called with options:',
+  '🔸 Mocked showErrorBox called:',
+  '🔸 Mocked showCertificateTrustDialog called with args:',
+  'Failed to create WebGPU Context Provider',
+  '[EmbeddingWorker] Initializing deferred local embedding model for claimed work',
+  '[EmbeddingWorker] Stopping embedding worker after fatal local model error',
+  '[EmbeddingHostRuntime] Embedding host worker stopped after fatal local model error',
+  '[EmbeddingWorker] handleBatchFailure: Job(s) failed',
+  '"msg":"Lazy-loading database (triggered by IPC usage)"',
+  '"msg":"Created database directory:',
+  '"msg":"pgvector extension loaded successfully (ESM)"',
+  '"msg":"pglite live query extension loaded successfully (ESM)"',
+  '"msg":"Database initialized with pgvector extension at:"',
+  '"msg":"Database initialized successfully at:',
+  '"msg":"Database connection closed"',
+  '"msg":"Window startup: dom-ready"',
+  '"msg":"Window startup: did-finish-load"',
+  '"msg":"Window startup: browser-window-created"',
+  '"msg":"Window startup: loading-renderer"',
+  '"msg":"Window startup: renderer-load-invocation-returned"',
+  '"msg":"Loading renderer"',
+  '"msg":"Loading built renderer file"',
+  '"reloadReason":"playwright-reset-renderer"',
+  '"reloadReason":"assistant-mock-init-script"',
+  '"reloadReason":"embedding-worker-large-backfill-fixture"',
+  '"reloadReason":"embedding-worker-host-processing-fixture"',
+  '"reloadReason":"embedding-worker-import-backfill-flow"',
+  '"reloadReason":"startup-restore-regression"',
+  '"msg":"Registering MCP IPC handlers"',
+  '"msg":"discoverMcpToolsOnStartup called"',
+  '"msg":"MCP config missing, cleared tool registry"',
+  '"msg":"Loaded MCP config for discovery"',
+  '"msg":"Registering tools IPC handlers"',
+  '"msg":"App ready, starting initialization..."',
+  '"msg":"Setting up IPC handlers that require app readiness..."',
+  '"msg":"Ready-dependent IPC handlers registered successfully"',
+  '"msg":"Security setup complete"',
+  '"msg":"CSP configured"',
+  '"msg":"Creating main window..."',
+  '"msg":"Main window created successfully"',
+  '"msg":"main-thread watchdog started"',
+  '"msg":"main-process-health"',
+  '"msg":"powerSaveBlocker started for active embedding host work"',
+  '"msg":"powerSaveBlocker stopped for idle embedding host"',
+  '"msg":"Using environment API key for provider"',
+  '"msg":"mastra runtime initialized"',
+  '"msg":"mastra stream started"',
+  '"msg":"mastra stream finished"',
+  '"msg":"registry cleared"',
+  'Debugger ending on ws://',
+  'For help, see: https://nodejs.org/en/docs/inspector',
+  'SharedImageManager::ProduceMemory: Trying to Produce a Memory representation from a non-existent mailbox.',
+] as const;
+
+function shouldIgnoreElectronOutput(output: string): boolean {
+  if (isVerboseE2eLoggingEnabled) {
+    return false;
+  }
+
+  return ignoredElectronOutputPatterns.some((pattern) => output.includes(pattern));
+}
+
+function printElectronOutput(
+  prefix: string,
+  output: string,
+  printer: (...args: unknown[]) => void
+): void {
+  const lines = output
+    .split(/\r?\n/u)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+
+  for (const line of lines) {
+    if (shouldIgnoreElectronOutput(line)) {
+      continue;
+    }
+
+    printer(`${prefix}${line}`);
+  }
+}
+
+function verboseLog(...args: unknown[]): void {
+  if (!isVerboseE2eLoggingEnabled) {
+    return;
+  }
+  console.log(...args);
+}
+
+function verboseError(...args: unknown[]): void {
+  if (!isVerboseE2eLoggingEnabled) {
+    return;
+  }
+  console.error(...args);
+}
+
 // Single launch attempt - extracted for reduced complexity
 async function attemptElectronLaunch(
   launchOptions: Parameters<typeof electron.launch>[0],
@@ -19,27 +138,27 @@ async function attemptElectronLaunch(
 ): Promise<ElectronAppContext> {
   const app = await startElectron(launchOptions);
 
-  console.log('⏳ Waiting for first window...');
+  verboseLog('⏳ Waiting for first window...');
   const window = await app.firstWindow({ timeout: firstWindowTimeout });
   await window.waitForLoadState('domcontentloaded');
   await setupDialogMocking(app);
-  console.log('✅ Electron app launched successfully');
+  verboseLog('✅ Electron app launched successfully');
   return { app, window };
 }
 
 // Log environment diagnostics for debugging CI issues
 function logEnvironmentDiagnostics(userDataDir?: string): void {
-  console.log('[DEBUG][HYP-A] NODE_OPTIONS:', process.env['NODE_OPTIONS'] ?? '<not set>');
-  console.log('[DEBUG][HYP-A] NODE_DEBUG:', process.env['NODE_DEBUG'] ?? '<not set>');
-  console.log(
+  verboseLog('[DEBUG][HYP-A] NODE_OPTIONS:', process.env['NODE_OPTIONS'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-A] NODE_DEBUG:', process.env['NODE_DEBUG'] ?? '<not set>');
+  verboseLog(
     '[DEBUG][HYP-A] ELECTRON_ENABLE_STACK_DUMPING:',
     process.env['ELECTRON_ENABLE_STACK_DUMPING'] ?? '<not set>'
   );
-  console.log('[DEBUG][HYP-C] DISPLAY:', process.env['DISPLAY'] ?? '<not set>');
-  console.log('[DEBUG][HYP-C] WAYLAND_DISPLAY:', process.env['WAYLAND_DISPLAY'] ?? '<not set>');
-  console.log('[DEBUG][HYP-C] XDG_SESSION_TYPE:', process.env['XDG_SESSION_TYPE'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-C] DISPLAY:', process.env['DISPLAY'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-C] WAYLAND_DISPLAY:', process.env['WAYLAND_DISPLAY'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-C] XDG_SESSION_TYPE:', process.env['XDG_SESSION_TYPE'] ?? '<not set>');
   if (userDataDir) {
-    console.log(`📂 Using custom user data dir: ${userDataDir}`);
+    verboseLog(`📂 Using custom user data dir: ${userDataDir}`);
   }
 }
 
@@ -56,16 +175,16 @@ export async function launchElectronApp(
   const firstWindowTimeout = process.env['CI'] ? 30_000 : 60_000;
   const launchTimeoutMs = process.env['CI'] ? 150_000 : 60_000;
 
-  console.log('🚀 Launching Electron app...');
+  verboseLog('🚀 Launching Electron app...');
   logEnvironmentDiagnostics(userDataDir);
-  console.log('Electron path:', electronPath);
-  console.log('Main path:', mainPath);
-  console.log('Launch timeout (ms):', launchTimeoutMs);
+  verboseLog('Electron path:', electronPath);
+  verboseLog('Main path:', mainPath);
+  verboseLog('Launch timeout (ms):', launchTimeoutMs);
 
   let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
+    verboseLog(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
     await killLingeringElectronProcesses();
 
     const launchOptions = createLaunchOptions(
@@ -84,7 +203,7 @@ export async function launchElectronApp(
 
       if (attempt < maxAttempts) {
         const delay = attempt * 2000;
-        console.log(`⏸️ Waiting ${delay}ms before retry...`);
+        verboseLog(`⏸️ Waiting ${delay}ms before retry...`);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
@@ -108,10 +227,10 @@ async function killLingeringElectronProcesses(): Promise<void> {
     }
     // Give OS time to release resources
     await new Promise((resolve) => setTimeout(resolve, 500));
-    console.log('✅ Cleaned up lingering processes');
+    verboseLog('✅ Cleaned up lingering processes');
   } catch (_error) {
     // Ignore errors - processes might not exist
-    console.log('⚠️ No lingering processes to clean up');
+    verboseLog('⚠️ No lingering processes to clean up');
   }
 }
 
@@ -152,7 +271,7 @@ function createLaunchOptions(
   const currentDisplay = process.env['DISPLAY'];
   const isLinuxCI = process.platform === 'linux' && process.env['CI'];
   const needsDisplayFallback = isLinuxCI && !currentDisplay;
-  console.log('[DEBUG][HYP-C] DISPLAY resolution:', {
+  verboseLog('[DEBUG][HYP-C] DISPLAY resolution:', {
     platform: process.platform,
     isCI: Boolean(process.env['CI']),
     currentDisplay: currentDisplay ?? '<not set>',
@@ -211,39 +330,39 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
   const { execSync } = require('node:child_process');
 
   const effectiveDisplay = displayEnv ?? process.env['DISPLAY'];
-  console.log('[DEBUG][HYP-F] Checking Electron binary...');
-  console.log('[DEBUG][HYP-F] Binary path:', electronBinaryPath);
-  console.log('[DEBUG][HYP-F] Effective DISPLAY:', effectiveDisplay);
+  verboseLog('[DEBUG][HYP-F] Checking Electron binary...');
+  verboseLog('[DEBUG][HYP-F] Binary path:', electronBinaryPath);
+  verboseLog('[DEBUG][HYP-F] Effective DISPLAY:', effectiveDisplay);
 
   // #region agent log - Hypothesis I: Verify X display is accessible
   try {
-    console.log('[DEBUG][HYP-I] Checking if X display is accessible...');
+    verboseLog('[DEBUG][HYP-I] Checking if X display is accessible...');
     const xdpyOutput = execSync(`xdpyinfo -display "${effectiveDisplay}" 2>&1 | head -5`, {
       encoding: 'utf8',
       timeout: 5000,
     });
-    console.log('[DEBUG][HYP-I] X display accessible:', xdpyOutput.trim().split('\n')[0]);
+    verboseLog('[DEBUG][HYP-I] X display accessible:', xdpyOutput.trim().split('\n')[0]);
   } catch (xdpyErr) {
-    console.error('[DEBUG][HYP-I] X DISPLAY NOT ACCESSIBLE:', (xdpyErr as Error).message);
+    verboseError('[DEBUG][HYP-I] X DISPLAY NOT ACCESSIBLE:', (xdpyErr as Error).message);
     // Try to list what Xvfb servers are running
     try {
       const psOutput = execSync('ps aux | grep -i xvfb | grep -v grep', {
         encoding: 'utf8',
         timeout: 5000,
       });
-      console.log('[DEBUG][HYP-I] Running Xvfb processes:', psOutput.trim());
+      verboseLog('[DEBUG][HYP-I] Running Xvfb processes:', psOutput.trim());
     } catch {
-      console.log('[DEBUG][HYP-I] No Xvfb processes found');
+      verboseLog('[DEBUG][HYP-I] No Xvfb processes found');
     }
   }
   // #endregion
 
   try {
     const stats = fs.statSync(electronBinaryPath);
-    console.log('[DEBUG][HYP-F] Binary exists, size:', stats.size);
-    console.log('[DEBUG][HYP-F] Binary mode:', stats.mode.toString(8));
+    verboseLog('[DEBUG][HYP-F] Binary exists, size:', stats.size);
+    verboseLog('[DEBUG][HYP-F] Binary mode:', stats.mode.toString(8));
   } catch (statErr) {
-    console.error('[DEBUG][HYP-F] Cannot stat binary:', statErr);
+    verboseError('[DEBUG][HYP-F] Cannot stat binary:', statErr);
   }
 
   // Check for missing libraries using ldd
@@ -253,15 +372,15 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
       timeout: 5000,
     });
     if (lddOutput.trim()) {
-      console.error('[DEBUG][HYP-F] MISSING LIBRARIES DETECTED:');
-      console.error(lddOutput);
+      verboseError('[DEBUG][HYP-F] MISSING LIBRARIES DETECTED:');
+      verboseError(lddOutput);
     }
   } catch (lddErr) {
     // grep returns exit code 1 when no matches - that's good (no missing libs)
     if ((lddErr as { status?: number }).status === 1) {
-      console.log('[DEBUG][HYP-F] No missing libraries detected');
+      verboseLog('[DEBUG][HYP-F] No missing libraries detected');
     } else {
-      console.log('[DEBUG][HYP-F] ldd check inconclusive:', (lddErr as Error).message);
+      verboseLog('[DEBUG][HYP-F] ldd check inconclusive:', (lddErr as Error).message);
     }
   }
 
@@ -273,22 +392,22 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       env: { ...process.env, DISPLAY: displayEnv ?? process.env['DISPLAY'] },
     });
-    console.log('[DEBUG][HYP-F] Electron version check:', versionOutput.trim());
+    verboseLog('[DEBUG][HYP-F] Electron version check:', versionOutput.trim());
   } catch (versionErr) {
-    console.error('[DEBUG][HYP-F] Electron version check FAILED:', (versionErr as Error).message);
+    verboseError('[DEBUG][HYP-F] Electron version check FAILED:', (versionErr as Error).message);
   }
 }
 // #endregion
 
 async function startElectron(launchOptions: Parameters<typeof electron.launch>[0]) {
   // #region agent log - Hypothesis D: Pre-launch diagnostics
-  console.log('[DEBUG][HYP-D] Pre-launch diagnostics:');
-  console.log('[DEBUG][HYP-D] Platform:', process.platform);
-  console.log('[DEBUG][HYP-D] Arch:', process.arch);
-  console.log('[DEBUG][HYP-D] CI:', process.env['CI'] ?? '<not set>');
-  console.log('[DEBUG][HYP-D] GITHUB_ACTIONS:', process.env['GITHUB_ACTIONS'] ?? '<not set>');
-  console.log('[DEBUG][HYP-D] Launch args:', JSON.stringify(launchOptions?.args ?? []));
-  console.log('[DEBUG][HYP-D] Launch env keys:', Object.keys(launchOptions?.env ?? {}).join(', '));
+  verboseLog('[DEBUG][HYP-D] Pre-launch diagnostics:');
+  verboseLog('[DEBUG][HYP-D] Platform:', process.platform);
+  verboseLog('[DEBUG][HYP-D] Arch:', process.arch);
+  verboseLog('[DEBUG][HYP-D] CI:', process.env['CI'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-D] GITHUB_ACTIONS:', process.env['GITHUB_ACTIONS'] ?? '<not set>');
+  verboseLog('[DEBUG][HYP-D] Launch args:', JSON.stringify(launchOptions?.args ?? []));
+  verboseLog('[DEBUG][HYP-D] Launch env keys:', Object.keys(launchOptions?.env ?? {}).join(', '));
   // #endregion
 
   // Run pre-flight check for Linux CI environments
@@ -296,28 +415,25 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
 
   const launchStartTime = Date.now();
   try {
-    console.log('[DEBUG] Calling electron.launch() at', new Date().toISOString());
+    verboseLog('[DEBUG] Calling electron.launch() at', new Date().toISOString());
     const app = await electron.launch(launchOptions);
-    console.log('[DEBUG] electron.launch() returned after', Date.now() - launchStartTime, 'ms');
+    verboseLog('[DEBUG] electron.launch() returned after', Date.now() - launchStartTime, 'ms');
 
     // Pipe stdout and stderr for debugging CI crashes
     const electronProcess = app.process();
     const pid = electronProcess.pid;
-    console.log(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
+    verboseLog(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
 
     // #region agent log - Hypothesis G: Verify stdio pipe status
-    console.log(
+    verboseLog(
       '[DEBUG][HYP-G] stdout pipe:',
       electronProcess.stdout ? 'available' : 'NOT AVAILABLE'
     );
-    console.log(
+    verboseLog(
       '[DEBUG][HYP-G] stderr pipe:',
       electronProcess.stderr ? 'available' : 'NOT AVAILABLE'
     );
-    console.log(
-      '[DEBUG][HYP-G] stdin pipe:',
-      electronProcess.stdin ? 'available' : 'NOT AVAILABLE'
-    );
+    verboseLog('[DEBUG][HYP-G] stdin pipe:', electronProcess.stdin ? 'available' : 'NOT AVAILABLE');
     // #endregion
 
     let stdoutReceived = false;
@@ -326,7 +442,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     // #region agent log - Hypothesis A: Check for V8 inspector messages
     electronProcess.stdout?.on('data', (data) => {
       if (!stdoutReceived) {
-        console.log(
+        verboseLog(
           '[DEBUG][HYP-G] First stdout data received at',
           Date.now() - launchStartTime,
           'ms'
@@ -334,14 +450,11 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
         stdoutReceived = true;
       }
       const str = data.toString();
-      console.log(`[Electron Stdout]: ${str}`);
-      if (str.includes('debugger') || str.includes('inspector') || str.includes('Debugger')) {
-        console.log('[DEBUG][HYP-A] V8 Inspector activity detected in stdout');
-      }
+      printElectronOutput('[Electron Stdout]: ', str, console.log);
     });
     electronProcess.stderr?.on('data', (data) => {
       if (!stderrReceived) {
-        console.log(
+        verboseLog(
           '[DEBUG][HYP-G] First stderr data received at',
           Date.now() - launchStartTime,
           'ms'
@@ -349,17 +462,17 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
         stderrReceived = true;
       }
       const str = data.toString();
-      console.error(`[Electron Stderr]: ${str}`);
-      if (str.includes('debugger') || str.includes('inspector') || str.includes('Debugger')) {
-        console.log('[DEBUG][HYP-A] V8 Inspector activity detected in stderr');
-      }
+      printElectronOutput('[Electron Stderr]: ', str, console.error);
     });
     // #endregion
 
     // #region agent log - Hypothesis H: Heartbeat to track if we're waiting
     const heartbeatInterval = setInterval(() => {
       const elapsed = Date.now() - launchStartTime;
-      console.log(
+      if (stdoutReceived || stderrReceived || elapsed < 15_000) {
+        return;
+      }
+      verboseLog(
         `[DEBUG][HYP-H] Heartbeat: ${elapsed}ms elapsed, stdout=${stdoutReceived}, stderr=${stderrReceived}`
       );
     }, 5000);
@@ -374,7 +487,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
       );
       // #region agent log - Hypothesis E: Analyze exit timing
       if (elapsed < 2000) {
-        console.log(
+        verboseLog(
           '[DEBUG][HYP-E] RAPID EXIT: Process exited within 2 seconds - likely startup failure'
         );
       }
@@ -382,13 +495,16 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     });
 
     app.on('close', () => {
+      if (intentionallyClosingApps.has(app)) {
+        return;
+      }
       console.log('⚠️ Electron app closed unexpectedly');
     });
     return app;
   } catch (error) {
     console.error('❌ Failed to launch Electron app:', error);
     // #region agent log - Additional error context
-    console.error('[DEBUG] Launch error details:', {
+    verboseError('[DEBUG] Launch error details:', {
       name: error instanceof Error ? error.name : 'unknown',
       message: error instanceof Error ? error.message : String(error),
       elapsed: Date.now() - launchStartTime,
@@ -399,10 +515,10 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
 }
 
 export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
-  console.log('🔒 Closing Electron app...');
+  verboseLog('🔒 Closing Electron app...');
   try {
     const windows = appContext.app.windows();
-    console.log(`📋 Closing ${windows.length} window(s)...`);
+    verboseLog(`📋 Closing ${windows.length} window(s)...`);
     const windowClosePromises: Promise<void>[] = [];
     for (const window of windows) {
       if (window.isClosed()) {
@@ -421,7 +537,7 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
       windowClosePromises.push(closePromise);
       try {
         await window.close();
-        console.log('✅ Requested window close');
+        verboseLog('✅ Requested window close');
       } catch (windowError) {
         console.warn('⚠️ Failed to close window gracefully:', windowError);
       }
@@ -429,23 +545,29 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
 
     const appClosed = appContext.app.waitForEvent('close');
     await Promise.all(windowClosePromises);
+    intentionallyClosingApps.add(appContext.app);
     await appContext.app.close();
     await appClosed;
-    console.log('✅ Electron app closed');
+    verboseLog('✅ Electron app closed');
   } catch (error) {
     console.error('❌ Error closing Electron app:', error);
     throw error;
+  } finally {
+    intentionallyClosingApps.delete(appContext.app);
   }
 }
 
 export async function waitForAppReady(page: Page): Promise<void> {
+  const appReadyTimeoutMs = 90_000;
   try {
     // First check if the page is still open
     if (page.isClosed()) {
       throw new Error('Page was closed before app could become ready');
     }
 
-    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30_000 });
+    await page.waitForFunction(() => document.readyState === 'complete', {
+      timeout: appReadyTimeoutMs,
+    });
 
     const readinessCheck = () => {
       const readyFlag = Boolean(
@@ -456,24 +578,14 @@ export async function waitForAppReady(page: Page): Promise<void> {
       }
 
       const root = document.querySelector<HTMLElement>('#root');
-      if (!root) {
-        return false;
-      }
-
-      const { width, height } = root.getBoundingClientRect();
-      if (width <= 0 || height <= 0) {
-        return false;
-      }
-
-      const style = window.getComputedStyle(root);
-      return style.visibility !== 'hidden' && style.display !== 'none';
+      return Boolean(root?.isConnected);
     };
 
     const isCodex = process.env['CODEX_ENV'] === 'true';
 
     if (isCodex) {
       const pollInterval = 100;
-      const maxAttempts = Math.ceil(30_000 / pollInterval);
+      const maxAttempts = Math.ceil(appReadyTimeoutMs / pollInterval);
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (page.isClosed()) {
           throw new Error('Page was closed while waiting for app to become ready');
@@ -481,7 +593,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
 
         const isReady = await page.evaluate(readinessCheck);
         if (isReady) {
-          console.log('✅ App is ready and responsive (Codex environment)');
+          verboseLog('✅ App is ready and responsive (Codex environment)');
           return;
         }
 
@@ -491,8 +603,8 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('Timed out waiting for app readiness in Codex environment');
     }
 
-    await page.waitForFunction(readinessCheck, { timeout: 30_000, polling: 100 });
-    console.log('✅ App is ready and responsive');
+    await page.waitForFunction(readinessCheck, { timeout: appReadyTimeoutMs, polling: 100 });
+    verboseLog('✅ App is ready and responsive');
   } catch (error) {
     console.error('❌ Error waiting for app to be ready:', error);
 
@@ -504,11 +616,64 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('App window was closed unexpectedly during initialization');
     }
 
-    throw new Error(`App failed to become ready: ${error}`);
+    const readinessContext = await page
+      .evaluate(() => {
+        const root = document.querySelector<HTMLElement>('#root');
+        return {
+          documentReadyState: document.readyState,
+          hasReadyFlag: Boolean(
+            Reflect.get(window as unknown as Record<string, unknown>, '__BRAINSTRIKE_READY__')
+          ),
+          hasRoot: Boolean(root),
+          rootIsConnected: Boolean(root?.isConnected),
+          rootChildCount: root?.childElementCount ?? 0,
+          visibilityState: document.visibilityState,
+        };
+      })
+      .catch(() => null);
+
+    throw new Error(
+      `App failed to become ready: ${error}${
+        readinessContext ? ` | context=${JSON.stringify(readinessContext)}` : ''
+      }`
+    );
   }
 }
 
-export async function resetAppState(window: Page): Promise<void> {
+export async function noteRendererReloadIntent(page: Page, reason: string): Promise<void> {
+  await page.evaluate((reloadReason: string) => {
+    const lifecycle = (
+      window as Window & {
+        desktopLifecycle?: {
+          noteReloadIntent?: (reason: string) => Promise<void>;
+        };
+      }
+    ).desktopLifecycle;
+
+    if (!lifecycle?.noteReloadIntent) {
+      throw new Error('desktopLifecycle.noteReloadIntent is unavailable');
+    }
+
+    return lifecycle.noteReloadIntent(reloadReason);
+  }, reason);
+}
+
+export async function reloadRenderer(page: Page, reason: string): Promise<void> {
+  await noteRendererReloadIntent(page, reason);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForAppReady(page);
+}
+
+export async function resetAppState(window: Page): Promise<boolean> {
+  await noteRendererReloadIntent(window, 'playwright-reset-state-clear');
+  const navigationPromise = window
+    .waitForEvent('framenavigated', {
+      timeout: 1500,
+      predicate: (frame) => frame === window.mainFrame(),
+    })
+    .then(() => true)
+    .catch(() => false);
+
   await window.evaluate(async () => {
     localStorage.clear();
     sessionStorage.clear();
@@ -524,12 +689,19 @@ export async function resetAppState(window: Page): Promise<void> {
     if (electronAPI?.storage?.clear) {
       try {
         await electronAPI.storage.clear();
-        console.log('🔸 Backend storage cleared');
       } catch (error) {
         console.warn('🔸 Failed to clear backend storage:', error);
       }
     }
   });
+
+  const navigated = await navigationPromise;
+  if (navigated) {
+    await window.waitForLoadState('domcontentloaded');
+    await waitForAppReady(window);
+  }
+
+  return navigated;
 }
 
 export async function getAppVersion(app: ElectronApplication): Promise<string> {
@@ -562,32 +734,42 @@ export async function isDevMode(app: ElectronApplication): Promise<boolean> {
 }
 
 export async function setupDialogMocking(app: ElectronApplication): Promise<void> {
-  await app.evaluate(async ({ dialog }) => {
+  await app.evaluate(async ({ dialog }, verboseLogging: boolean) => {
     dialog.showOpenDialog = async (options) => {
-      console.log('🔸 Mocked showOpenDialog called with options:', options);
+      if (verboseLogging) {
+        console.log('🔸 Mocked showOpenDialog called with options:', options);
+      }
       return { canceled: false, filePaths: ['/mock/test/directory'] };
     };
     dialog.showSaveDialog = async (options) => {
-      console.log('🔸 Mocked showSaveDialog called with options:', options);
+      if (verboseLogging) {
+        console.log('🔸 Mocked showSaveDialog called with options:', options);
+      }
       return { canceled: false, filePath: '/mock/test/file.txt' };
     };
     dialog.showMessageBox = async (options) => {
-      console.log('🔸 Mocked showMessageBox called with options:', options);
+      if (verboseLogging) {
+        console.log('🔸 Mocked showMessageBox called with options:', options);
+      }
       return { response: 0, checkboxChecked: false };
     };
     dialog.showErrorBox = (title, content) => {
-      console.log('🔸 Mocked showErrorBox called:', { title, content });
+      if (verboseLogging) {
+        console.log('🔸 Mocked showErrorBox called:', { title, content });
+      }
     };
     if (dialog.showCertificateTrustDialog) {
       dialog.showCertificateTrustDialog = async (...args: unknown[]) => {
-        console.log('🔸 Mocked showCertificateTrustDialog called with args:', args);
+        if (verboseLogging) {
+          console.log('🔸 Mocked showCertificateTrustDialog called with args:', args);
+        }
       };
     }
-  });
+  }, isVerboseE2eLoggingEnabled);
 }
 
 export async function mockFileSystemOperations(window: Page): Promise<void> {
-  await window.evaluate(() => {
+  await window.evaluate((verboseLogging: boolean) => {
     const electronAPI = (
       window as unknown as {
         electronAPI?: { fileSystem?: Record<string, unknown> };
@@ -595,10 +777,14 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
     ).electronAPI;
 
     if (electronAPI?.fileSystem) {
-      console.log('🔸 Setting up file system API mocks...');
+      if (verboseLogging) {
+        console.log('🔸 Setting up file system API mocks...');
+      }
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.requestDirectoryAccess = async () => {
-        console.log('🔸 Mocked requestDirectoryAccess called');
+        if (verboseLogging) {
+          console.log('🔸 Mocked requestDirectoryAccess called');
+        }
         return {
           id: 'mock-directory-handle',
           name: 'mock-test-directory',
@@ -610,40 +796,63 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.exists = async (p: string) => {
-        console.log('🔸 Mocked exists called with path:', p);
+        if (verboseLogging) {
+          console.log('🔸 Mocked exists called with path:', p);
+        }
         return p.includes('/mock/');
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readDirectory = async (_p: string) => {
         const rootPath = '/mock/test/directory';
-        console.log('🔸 Mocked readDirectory called with path:', _p);
+        if (verboseLogging) {
+          console.log('🔸 Mocked readDirectory called with path:', _p);
+        }
         return getTestDirectoryStructure(rootPath);
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readFile = async (_p: string) => {
-        console.log('🔸 Mocked readFile called with path:', _p);
+        if (verboseLogging) {
+          console.log('🔸 Mocked readFile called with path:', _p);
+        }
         return 'Mock file content for testing';
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.writeFile = async (p: string, content: string) => {
-        console.log('🔸 Mocked writeFile called with path:', p, 'content length:', content.length);
+        if (verboseLogging) {
+          console.log(
+            '🔸 Mocked writeFile called with path:',
+            p,
+            'content length:',
+            content.length
+          );
+        }
         return true;
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.watchDirectory = async (p: string) => {
-        console.log('🔸 Mocked watchDirectory called with path:', p);
-        return { unwatch: () => console.log('🔸 Mocked unwatch called') };
+        if (verboseLogging) {
+          console.log('🔸 Mocked watchDirectory called with path:', p);
+        }
+        return {
+          unwatch: () => {
+            if (verboseLogging) {
+              console.log('🔸 Mocked unwatch called');
+            }
+          },
+        };
       };
-    } else {
+    } else if (verboseLogging) {
       console.log('🔸 No electronAPI.fileSystem found to mock');
     }
 
     const w = window as unknown as { showDirectoryPicker?: () => Promise<unknown> };
     if (w.showDirectoryPicker) {
       w.showDirectoryPicker = async () => {
-        console.log('🔸 Mocked showDirectoryPicker called');
+        if (verboseLogging) {
+          console.log('🔸 Mocked showDirectoryPicker called');
+        }
         return { name: 'mock-directory', kind: 'directory' };
       };
     }
-  });
+  }, isVerboseE2eLoggingEnabled);
 }

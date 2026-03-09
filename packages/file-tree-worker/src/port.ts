@@ -5,6 +5,7 @@
  * Handles message correlation, event registration, and promise-based operations.
  */
 
+import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import type {
   BatchLoadResult,
   FlattenedNode,
@@ -170,7 +171,7 @@ export interface FileTreeWorkerPort {
  * Create a port abstraction for the file tree worker.
  */
 export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
-  let ready = false;
+  let removeMessageListener = () => {};
 
   // Handler registrations (mutable state for callbacks)
   let requestLoadHandler: RequestLoadHandler | null = null;
@@ -187,9 +188,34 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   // Pending operation promise (used by expandAll and loadPaths)
   const pending: { operation: PendingOperation | null } = { operation: null };
 
+  const rejectPendingOperation = (error: Error): void => {
+    if (!pending.operation) {
+      return;
+    }
+    pending.operation.reject(error);
+    pending.operation = null;
+  };
+
+  const runtime = createWorkerRuntimeClient(worker, {
+    createErrorFromEvent: (event) =>
+      new Error(
+        event.message
+          ? `File tree worker runtime error: ${event.message}`
+          : 'File tree worker runtime error (missing ErrorEvent.message)'
+      ),
+    onFailure: (failure) => {
+      errorHandler?.(failure.message);
+      rejectPendingOperation(failure);
+      removeMessageListener();
+      runtime.dispose();
+      worker.terminate();
+    },
+  });
+  const transport = runtime.transport;
+
   // Handler functions for each message type (extracted to reduce complexity)
   const handleReady = (): void => {
-    ready = true;
+    runtime.markReady();
   };
 
   const handleProgress = (payload: {
@@ -296,21 +322,25 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
    * Using a sync wrapper ensures removeEventListener works correctly,
    * since async arrow functions create new closure instances.
    */
-  const handleMessage = (event: MessageEvent<WorkerToMainMessage>): void => {
-    void handleMessageAsync(event);
+  const handleMessage = (message: WorkerToMainMessage): void => {
+    void handleMessageAsync({ data: message } as MessageEvent<WorkerToMainMessage>);
   };
 
-  worker.addEventListener('message', handleMessage);
+  removeMessageListener = transport.onMessage((message) => {
+    handleMessage(message as WorkerToMainMessage);
+  });
 
   return {
     init(rootNodes, folderId) {
-      worker.postMessage({
+      runtime.throwIfFailed();
+      transport.postMessage({
         type: 'init',
         payload: { rootNodes, folderId },
       } satisfies MainToWorkerMessage);
     },
 
     expandAll(folderId) {
+      runtime.throwIfFailed();
       return new Promise((resolve, reject) => {
         // Increment operation ID to invalidate any stale responses
         operationIdCounter++;
@@ -323,7 +353,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
         pending.operation = { resolve, reject, operationId: thisOperationId };
 
-        worker.postMessage({
+        transport.postMessage({
           type: 'expandAll',
           payload: { folderId },
         } satisfies MainToWorkerMessage);
@@ -331,6 +361,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     loadPaths(paths) {
+      runtime.throwIfFailed();
       return new Promise((resolve, reject) => {
         // Increment operation ID to invalidate any stale responses
         operationIdCounter++;
@@ -343,7 +374,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
         pending.operation = { resolve, reject, operationId: thisOperationId };
 
-        worker.postMessage({
+        transport.postMessage({
           type: 'loadPaths',
           payload: { paths },
         } satisfies MainToWorkerMessage);
@@ -351,6 +382,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     loadSubtree(startPath) {
+      runtime.throwIfFailed();
       return new Promise((resolve, reject) => {
         // Increment operation ID to invalidate any stale responses
         operationIdCounter++;
@@ -363,7 +395,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
         pending.operation = { resolve, reject, operationId: thisOperationId };
 
-        worker.postMessage({
+        transport.postMessage({
           type: 'loadSubtree',
           payload: { startPath },
         } satisfies MainToWorkerMessage);
@@ -371,7 +403,8 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     collapseAll() {
-      worker.postMessage({
+      runtime.throwIfFailed();
+      transport.postMessage({
         type: 'collapseAll',
       } satisfies MainToWorkerMessage);
     },
@@ -381,27 +414,31 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
         pending.operation.reject(new Error('Operation aborted'));
         pending.operation = null;
       }
-      worker.postMessage({
+      runtime.throwIfFailed();
+      transport.postMessage({
         type: 'abort',
       } satisfies MainToWorkerMessage);
     },
 
     updateTree(path, children) {
-      worker.postMessage({
+      runtime.throwIfFailed();
+      transport.postMessage({
         type: 'updateTree',
         payload: { path, children, loadState: 'loaded' },
       } satisfies MainToWorkerMessage);
     },
 
     sendLoadResult(path, children) {
-      worker.postMessage({
+      runtime.throwIfFailed();
+      transport.postMessage({
         type: 'loadResult',
         payload: { path, children },
       } satisfies MainToWorkerMessage);
     },
 
     sendLoadError(path, error) {
-      worker.postMessage({
+      runtime.throwIfFailed();
+      transport.postMessage({
         type: 'loadError',
         payload: { path, error },
       } satisfies MainToWorkerMessage);
@@ -450,18 +487,21 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     flattenTree(expandedPaths) {
-      worker.postMessage({
+      runtime.throwIfFailed();
+      transport.postMessage({
         type: 'flattenTree',
         payload: { expandedPaths },
       } satisfies MainToWorkerMessage);
     },
 
     isReady() {
-      return ready;
+      return runtime.isReady();
     },
 
     terminate() {
-      worker.removeEventListener('message', handleMessage);
+      removeMessageListener();
+      runtime.dispose();
+      runtime.resetReady();
       worker.terminate();
     },
   };

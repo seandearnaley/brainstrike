@@ -1,5 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, fileNodeCollator } from '@brainstrike/utils';
+import { formatFileSize, getFileSizeConfig } from '../config';
 import { AccessError } from '../errors';
 
 const logger = createLogger('WebFileSystemAdapter');
@@ -16,7 +17,7 @@ import {
   isFileSystemDirectoryHandle,
   isFileSystemFileHandle,
   normalizeDirectoryReadOptions,
-} from '../utils';
+} from '../utils-browser';
 import { type HandleCache, type StoredRootHandle, WebHandleCache } from './web-handle-cache';
 
 // Type declarations for File System Access API
@@ -279,7 +280,6 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
 
   async readFile(handle: FileHandle): Promise<string> {
     // Import config dynamically to avoid circular dependencies
-    const { formatFileSize, getFileSizeConfig } = await import('../config.js');
     const { maxFileSize } = getFileSizeConfig();
 
     const fileHandle = handle._internal;

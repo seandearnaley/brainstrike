@@ -75,6 +75,39 @@ function getAllAncestorDirectories(filePath: string): string[] {
   return ancestors;
 }
 
+function getRestorationSkipReason(
+  currentRootFolderId: string | null,
+  isTreeLoading: boolean,
+  fileTreeLength: number
+): 'empty-tree' | 'no-folder-id' | 'still-loading' | null {
+  if (!currentRootFolderId) {
+    return 'no-folder-id';
+  }
+  if (isTreeLoading) {
+    return 'still-loading';
+  }
+  if (fileTreeLength === 0) {
+    return 'empty-tree';
+  }
+  return null;
+}
+
+function getParentDirectoriesForSelectedFiles(selectedFiles: Set<string>): Set<string> {
+  const parentDirectoriesOfSelectedFiles = new Set<string>();
+  for (const compositeKey of selectedFiles) {
+    try {
+      const { path } = decodeFileSelection(compositeKey);
+      const ancestors = getAllAncestorDirectories(path);
+      for (const ancestor of ancestors) {
+        parentDirectoriesOfSelectedFiles.add(ancestor);
+      }
+    } catch {
+      // Ignore invalid composite keys
+    }
+  }
+  return parentDirectoriesOfSelectedFiles;
+}
+
 type UseFileExplorerProps = Record<string, never>;
 
 /** Progress state for restoring expanded directories on app startup */
@@ -407,6 +440,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   // Initial load is when we have a root but tree is still loading
   const isInitialLoad = !rootDirectoryHandle && isTreeLoading;
+  const currentRootFolderId = rootDirectoryHandle?.name ?? null;
 
   // Track which folder we've already restored expanded paths for
   const restoredForFolderRef = useRef<string | null>(null);
@@ -414,6 +448,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const isRestoringRef = useRef(false);
   // Track the stale clearing timer ID so we can cancel it from outside the effect
   const staleClearingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restorationSkipReasonRef = useRef<string | null>(null);
   // State for restoration progress - exposed to UI for feedback
   const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
   const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
@@ -462,7 +497,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     }
 
     // If we have a root directory handle, no cleanup needed - state is valid
-    if (rootDirectoryHandle) {
+    if (currentRootFolderId) {
       return;
     }
 
@@ -511,7 +546,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
       }
     };
   }, [
-    rootDirectoryHandle,
+    currentRootFolderId,
     isAccessLoading,
     isTreeLoading,
     selectedFilePaths,
@@ -534,22 +569,21 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
    * 4. Load children for each directory in order
    */
   useEffect(() => {
-    // Get current folder ID from root handle
-    const currentFolderId = rootDirectoryHandle?.name ?? null;
-
-    // Skip if no root, still loading, or no tree
-    if (!currentFolderId || isTreeLoading || fileTree.length === 0) {
-      logger.debug('[Restoration Effect] Skipped - prerequisites not met', {
-        noFolderId: !currentFolderId,
-        stillLoading: isTreeLoading,
-        emptyTree: fileTree.length === 0,
-      });
+    const restorationSkipReason = getRestorationSkipReason(
+      currentRootFolderId,
+      isTreeLoading,
+      fileTree.length
+    );
+    if (restorationSkipReason) {
+      restorationSkipReasonRef.current = restorationSkipReason;
       return;
     }
 
+    restorationSkipReasonRef.current = null;
+
     // Use module-level lock to prevent concurrent runs (React refs don't work in concurrent mode)
     // Check if already restored for this folder
-    if (restorationLock.folderId === currentFolderId) {
+    if (restorationLock.folderId === currentRootFolderId) {
       logger.debug('[Restoration Effect] Skipped - already restored for this folder');
       return;
     }
@@ -563,9 +597,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     // IMMEDIATELY acquire module-level lock to prevent concurrent runs
     // This happens synchronously before any async operations
     restorationLock.inProgress = true;
-    restorationLock.folderId = currentFolderId;
+    restorationLock.folderId = currentRootFolderId;
     // Also update refs for backwards compatibility
-    restoredForFolderRef.current = currentFolderId;
+    restoredForFolderRef.current = currentRootFolderId;
     isRestoringRef.current = true;
 
     // Get persisted expanded paths AND selected files from store
@@ -580,25 +614,13 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     // CRITICAL: We need ALL ancestors, not just the immediate parent. For a file at
     // "apps/web/src/App.tsx", we need "apps", "apps/web", and "apps/web/src" to all be
     // loaded and expanded, otherwise the nested file won't be visible in the tree.
-    const parentDirectoriesOfSelectedFiles = new Set<string>();
-    for (const compositeKey of selectedFiles) {
-      try {
-        const { path } = decodeFileSelection(compositeKey);
-        // Get ALL ancestor directories, not just the immediate parent
-        const ancestors = getAllAncestorDirectories(path);
-        for (const ancestor of ancestors) {
-          parentDirectoriesOfSelectedFiles.add(ancestor);
-        }
-      } catch {
-        // Ignore invalid composite keys
-      }
-    }
+    const parentDirectoriesOfSelectedFiles = getParentDirectoriesForSelectedFiles(selectedFiles);
 
     // Merge expanded paths with parent directories of selected files
     const allPathsToRestore = new Set([...expandedPaths, ...parentDirectoriesOfSelectedFiles]);
 
     logger.debug('[Restoration Effect] Paths to restore', {
-      folderId: currentFolderId,
+      folderId: currentRootFolderId,
       expandedPathCount: expandedPaths.size,
       selectedFileCount: selectedFiles.size,
       parentDirsOfSelectedFiles: parentDirectoriesOfSelectedFiles.size,
@@ -619,7 +641,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     setIsRestoringExpandedPaths(true);
 
     logger.info('Restoring expanded directories and file parent directories', {
-      folderId: currentFolderId,
+      folderId: currentRootFolderId,
       expandedPathCount: expandedPaths.size,
       parentDirsOfSelectedFilesCount: parentDirectoriesOfSelectedFiles.size,
       totalPathCount: allPathsToRestore.size,
@@ -673,7 +695,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     };
 
     void restoreExpansions();
-  }, [rootDirectoryHandle, isTreeLoading, fileTree.length, store, loadSpecificPaths]);
+  }, [currentRootFolderId, isTreeLoading, fileTree.length, store, loadSpecificPaths]);
 
   return {
     fileTree: filteredTree,

@@ -11,6 +11,16 @@ interface ImportMetaLike {
   url?: string;
 }
 
+function usesTypeScriptSource(url: string): boolean {
+  return (
+    url.endsWith('.ts') || url.endsWith('.tsx') || url.endsWith('.mts') || url.endsWith('.cts')
+  );
+}
+
+function getSourceWorkerPath(path: string): string {
+  return path.replace(/\.js$/, '.ts');
+}
+
 function readImportMetaOverride(): ImportMetaLike | null {
   const override = (globalThis as { __BRAINSTRIKE_IMPORT_META__?: ImportMetaLike })
     .__BRAINSTRIKE_IMPORT_META__;
@@ -61,6 +71,12 @@ function resolveWorkerUrl(workerPath: string, workerName: string): URL {
 }
 
 export function resolveTokenCacheWorkerUrl(): URL {
+  const meta = getImportMeta();
+  if (meta && typeof meta.url === 'string') {
+    return usesTypeScriptSource(meta.url)
+      ? new URL(getSourceWorkerPath('./token-cache.worker.js'), meta.url)
+      : new URL('./token-cache.worker.js', meta.url);
+  }
   return resolveWorkerUrl('./token-cache.worker.js', 'token cache');
 }
 
@@ -73,5 +89,11 @@ export function resolveTokenCacheWorkerUrl(): URL {
  * The worker TypeScript source is compiled to JavaScript by tsup during the package build.
  */
 export function resolveBackgroundIndexerWorkerUrl(): URL {
+  const meta = getImportMeta();
+  if (meta && typeof meta.url === 'string') {
+    return usesTypeScriptSource(meta.url)
+      ? new URL(getSourceWorkerPath('./background-indexer.worker.js'), meta.url)
+      : new URL('./background-indexer.worker.js', meta.url);
+  }
   return resolveWorkerUrl('./background-indexer.worker.js', 'background indexer');
 }

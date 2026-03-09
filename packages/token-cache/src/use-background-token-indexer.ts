@@ -12,6 +12,7 @@
  */
 
 import { createLogger, generateUUID } from '@brainstrike/utils';
+import { createWorkerRuntimeClient, type WorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   IndexerBatchRequest,
@@ -138,6 +139,8 @@ export interface IndexingProgress {
 }
 
 export interface UseBackgroundTokenIndexerOptions {
+  /** Start the worker immediately on mount instead of on first indexing request */
+  autoStart?: boolean;
   /** Token counting mode */
   mode: TokenCountingMode;
   /** Callback when a file fails to index */
@@ -188,6 +191,7 @@ function createWorkerInstance(): Worker {
 }
 
 export function useBackgroundTokenIndexer({
+  autoStart = true,
   store,
   mode,
   onFileIndexed,
@@ -199,9 +203,11 @@ export function useBackgroundTokenIndexer({
   const [isIndexing, setIsIndexing] = useState(false);
   const [progress, setProgress] = useState<IndexingProgress | null>(null);
   const workerErrorLoggedRef = useRef(false);
+  const workerFailureHandledRef = useRef(false);
+  const workerInitPromiseRef = useRef<Promise<Worker> | null>(null);
+  const workerMessageCleanupRef = useRef<(() => void) | null>(null);
   const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const readyRef = useRef(false);
-  const workerFailureRef = useRef<Error | null>(null);
+  const workerRuntimeRef = useRef<WorkerRuntimeClient | null>(null);
   const pendingBatchTrackersRef = useRef<PendingBatchTracker[]>([]);
 
   // Track pending files to enable cancellation
@@ -213,6 +219,9 @@ export function useBackgroundTokenIndexer({
   const onFileIndexedRef = useRef(onFileIndexed);
   const onProgressRef = useRef(onProgress);
   const onFileErrorRef = useRef(onFileError);
+  const handleResultRef = useRef<((result: IndexerResult) => Promise<void>) | null>(null);
+  const handleProgressRef = useRef<((progress: IndexerProgress) => void) | null>(null);
+  const handleErrorRef = useRef<((error: IndexerError) => void) | null>(null);
   const storeRef = useRef(store);
   const modeRef = useRef(mode);
 
@@ -298,16 +307,18 @@ export function useBackgroundTokenIndexer({
     (error: unknown, context: string) => {
       // CRITICAL: terminal worker failure is latched. Duplicate failure signals
       // can arrive from queued worker events and must not fan out callbacks/logging.
-      if (workerFailureRef.current) {
+      if (workerFailureHandledRef.current) {
         return;
       }
+      workerFailureHandledRef.current = true;
 
-      const failure =
-        error instanceof Error
+      const runtime = workerRuntimeRef.current;
+      const failure = runtime
+        ? runtime.markFailed(error)
+        : error instanceof Error
           ? error
           : new Error(`Background token indexer failure: ${formatErrorMessage(error)}`);
-      workerFailureRef.current = failure;
-      readyRef.current = false;
+      runtime?.resetReady();
       setIsReady(false);
       setIsIndexing(false);
       setProgress(null);
@@ -332,173 +343,245 @@ export function useBackgroundTokenIndexer({
         workerRef.current.terminate();
         workerRef.current = null;
       }
+      workerMessageCleanupRef.current?.();
+      workerMessageCleanupRef.current = null;
+      if (runtime) {
+        runtime.dispose();
+      }
 
       logWorkerErrorOnce(failure, context);
     },
     [emitTerminalIndexingError, logWorkerErrorOnce, rejectAllPendingBatchTrackers]
   );
 
-  // Initialize worker
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Handlers are stable refs
-  useEffect(() => {
-    // Reset mounted flag on each mount (fixes React StrictMode double-mount issue)
-    isMountedRef.current = true;
+  const ensureWorkerReady = useCallback(async (): Promise<Worker> => {
+    const workerFailure = workerRuntimeRef.current?.getFailure() ?? null;
+    if (workerFailure) {
+      throw workerFailure;
+    }
 
-    try {
-      const worker = createWorkerInstance();
+    if (workerRuntimeRef.current?.isReady() && workerRef.current) {
+      return workerRef.current;
+    }
 
-      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker message handler requires multiple conditional branches for different message types
-      worker.onmessage = (event: MessageEvent<WorkerResponse | { type: 'ready' }>) => {
-        if (!isMountedRef.current) {
-          return;
-        }
+    if (workerInitPromiseRef.current) {
+      return workerInitPromiseRef.current;
+    }
 
-        const message = event.data;
+    const initPromise = (async (): Promise<Worker> => {
+      let worker: Worker;
+      try {
+        worker = createWorkerInstance();
+      } catch (error) {
+        const normalizedError = error instanceof Error ? error : new Error(String(error));
+        failWorker(normalizedError, 'createWorkerInstance');
+        throw normalizedError;
+      }
+      workerRef.current = worker;
+      const runtime = createWorkerRuntimeClient(worker, {
+        createErrorFromEvent: (event) =>
+          new Error(`Worker error event: ${event.message || 'unknown worker error event'}`),
+        onFailure: (failure) => {
+          logger.error('Worker error event', {
+            type: 'error',
+            message: failure.message,
+          });
+          failWorker(failure, 'worker.addEventListener(error)');
+        },
+      });
+      workerRuntimeRef.current = runtime;
+      const transport = runtime.transport;
 
-        // Ignore trailing messages from a worker that's already in terminal failure.
-        // This prevents duplicate terminal emissions if the channel had queued events.
-        if (workerFailureRef.current && message.type !== 'ready') {
-          return;
-        }
+      await new Promise<void>((resolve, reject) => {
+        const settleReady = (): void => {
+          worker.removeEventListener('messageerror', handleMessageChannelError);
+          resolve();
+        };
 
-        if (message.type === 'ready') {
-          readyRef.current = true;
-          workerFailureRef.current = null;
-          setIsReady(true);
-          if (readinessTimerRef.current) {
-            clearTimeout(readinessTimerRef.current);
-            readinessTimerRef.current = null;
+        const settleFailure = (error: Error, context: string): void => {
+          failWorker(error, context);
+          reject(error);
+        };
+
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker startup and runtime messages are handled in one exhaustive strict-protocol branch.
+        const handleMessage = (event: MessageEvent<WorkerResponse | { type: 'ready' }>) => {
+          if (!isMountedRef.current) {
+            return;
           }
-          return;
-        }
 
-        if (message.type === 'log') {
-          const logMsg = message as WorkerLog;
-          const terminalTokenizerLogError = extractTerminalTokenizerErrorFromWorkerLog(logMsg);
-          if (terminalTokenizerLogError) {
-            failWorker(
-              new Error(terminalTokenizerLogError),
-              `worker.log.terminal-tokenizer.${logMsg.message}`
+          const message = event.data;
+
+          if (workerRuntimeRef.current?.isFailed() && message.type !== 'ready') {
+            return;
+          }
+
+          if (message.type === 'ready') {
+            runtime.clearFailure();
+            runtime.markReady();
+            workerFailureHandledRef.current = false;
+            setIsReady(true);
+            if (readinessTimerRef.current) {
+              clearTimeout(readinessTimerRef.current);
+              readinessTimerRef.current = null;
+            }
+            settleReady();
+            return;
+          }
+
+          if (message.type === 'log') {
+            const logMsg = message as WorkerLog;
+            const terminalTokenizerLogError = extractTerminalTokenizerErrorFromWorkerLog(logMsg);
+            if (terminalTokenizerLogError) {
+              settleFailure(
+                new Error(terminalTokenizerLogError),
+                `worker.log.terminal-tokenizer.${logMsg.message}`
+              );
+              return;
+            }
+
+            const logPayload = logMsg.data;
+            if (logMsg.level === 'error') {
+              logger.error(`Worker log: ${logMsg.message}`, logPayload);
+            } else if (logMsg.level === 'warn') {
+              logger.warn(`Worker log: ${logMsg.message}`, logPayload);
+            } else if (logMsg.level === 'info') {
+              logger.info(`Worker log: ${logMsg.message}`, logPayload);
+            } else {
+              logger.debug(`Worker log: ${logMsg.message}`, logPayload);
+            }
+            return;
+          }
+
+          if (message.type === 'result') {
+            void handleResultRef.current?.(message as IndexerResult);
+          } else if (message.type === 'progress') {
+            handleProgressRef.current?.(message as IndexerProgress);
+          } else if (message.type === 'error') {
+            const workerError = message as IndexerError;
+            const isTerminalError =
+              workerError.id === '__init__' ||
+              workerError.id === '__batch__' ||
+              workerError.compositeKey === '__init__' ||
+              workerError.compositeKey === '__batch__' ||
+              isTerminalTokenizerError(workerError.error);
+            if (isTerminalError) {
+              const terminalContext = isTerminalTokenizerError(workerError.error)
+                ? `worker.message.terminal-tokenizer.${workerError.compositeKey}`
+                : `worker.message.${workerError.id || workerError.compositeKey}`;
+              settleFailure(new Error(workerError.error), terminalContext);
+              return;
+            }
+            handleErrorRef.current?.(workerError);
+          }
+        };
+
+        const handleWorkerError = (error: ErrorEvent | Event, context: string): void => {
+          if (context === 'worker.addEventListener(error)') {
+            const errEvent = error as ErrorEvent;
+            logger.error('Worker error event', {
+              type: errEvent.type,
+              message: errEvent.message,
+              filename: errEvent.filename,
+              lineno: errEvent.lineno,
+              colno: errEvent.colno,
+              error: errEvent.error,
+            });
+            settleFailure(
+              new Error(`Worker error event: ${errEvent.message || 'unknown worker error event'}`),
+              context
             );
             return;
           }
 
-          // Worker already logs to its own console, so we only forward to our
-          // structured logger for file/remote logging. No duplicate console output.
-          const logPayload = logMsg.data;
-          if (logMsg.level === 'error') {
-            logger.error(`Worker log: ${logMsg.message}`, logPayload);
-          } else if (logMsg.level === 'warn') {
-            logger.warn(`Worker log: ${logMsg.message}`, logPayload);
-          } else if (logMsg.level === 'info') {
-            logger.info(`Worker log: ${logMsg.message}`, logPayload);
-          } else {
-            logger.debug(`Worker log: ${logMsg.message}`, logPayload);
-          }
-          return;
-        }
-
-        if (message.type === 'result') {
-          void handleResult(message as IndexerResult);
-        } else if (message.type === 'progress') {
-          handleProgress(message as IndexerProgress);
-        } else if (message.type === 'error') {
-          const workerError = message as IndexerError;
-          // Treat worker/bootstrap/batch failures as terminal for deterministic behavior.
-          // Continuing after these errors only creates noisy per-file cascades.
-          const isTerminalError =
-            workerError.id === '__init__' ||
-            workerError.id === '__batch__' ||
-            workerError.compositeKey === '__init__' ||
-            workerError.compositeKey === '__batch__' ||
-            isTerminalTokenizerError(workerError.error);
-          if (isTerminalError) {
-            const terminalContext = isTerminalTokenizerError(workerError.error)
-              ? `worker.message.terminal-tokenizer.${workerError.compositeKey}`
-              : `worker.message.${workerError.id || workerError.compositeKey}`;
-            failWorker(new Error(workerError.error), terminalContext);
+          if (context === 'worker.onmessageerror') {
+            const messageError = error as MessageEvent;
+            logger.error('Worker messageerror', {
+              type: messageError.type,
+              data: messageError.data,
+            });
+            settleFailure(new Error('Worker message channel error (onmessageerror)'), context);
             return;
           }
-          handleError(workerError);
-        }
-      };
 
-      // Browser workers can dispatch both `onerror` and `addEventListener('error')`
-      // for the same failure event. We register both for context-rich diagnostics;
-      // failWorker is latched so terminal callbacks/telemetry still emit once.
-      worker.onerror = (error) => {
-        logger.error('Worker error', {
-          error: error?.message,
-          filename: error?.filename,
-          lineno: error?.lineno,
-          colno: (error as ErrorEvent | undefined)?.colno,
-          type: (error as ErrorEvent | undefined)?.type,
+          const errEvent = error as ErrorEvent;
+          logger.error('Worker error', {
+            error: errEvent?.message,
+            filename: errEvent?.filename,
+            lineno: errEvent?.lineno,
+            colno: errEvent?.colno,
+            type: errEvent?.type,
+          });
+          settleFailure(
+            new Error(`Worker runtime error: ${errEvent?.message ?? 'unknown worker error'}`),
+            context
+          );
+        };
+
+        const handleMessageChannelError = (event: Event) =>
+          handleWorkerError(event as MessageEvent, 'worker.onmessageerror');
+
+        workerMessageCleanupRef.current = transport.onMessage((message) => {
+          void handleMessage({ data: message } as MessageEvent<WorkerResponse | { type: 'ready' }>);
         });
-        failWorker(
-          new Error(`Worker runtime error: ${error?.message ?? 'unknown worker error'}`),
-          'worker.onerror'
-        );
-      };
-      worker.addEventListener('error', (event) => {
-        const errEvent = event as ErrorEvent;
-        logger.error('Worker error event', {
-          type: errEvent.type,
-          message: errEvent.message,
-          filename: errEvent.filename,
-          lineno: errEvent.lineno,
-          colno: errEvent.colno,
-          error: errEvent.error,
-        });
-        failWorker(
-          new Error(`Worker error event: ${errEvent.message || 'unknown worker error event'}`),
-          'worker.addEventListener(error)'
-        );
+        worker.onerror = (event) => handleWorkerError(event, 'worker.onerror');
+        worker.onmessageerror = (event) => handleWorkerError(event, 'worker.onmessageerror');
+        worker.addEventListener('messageerror', handleMessageChannelError);
+
+        readinessTimerRef.current = setTimeout(() => {
+          if (!runtime.isReady()) {
+            settleFailure(new Error('Worker did not signal ready within 5s'), 'ready-timeout');
+          }
+        }, 5000);
       });
-      worker.onmessageerror = (event) => {
-        logger.error('Worker messageerror', { type: event.type, data: event.data });
-        failWorker(
-          new Error('Worker message channel error (onmessageerror)'),
-          'worker.onmessageerror'
-        );
-      };
 
-      workerRef.current = worker;
+      return worker;
+    })();
 
-      // If the worker never posts "ready", emit a hard error for visibility.
-      readinessTimerRef.current = setTimeout(() => {
-        if (!readyRef.current) {
-          failWorker(new Error('Worker did not signal ready within 5s'), 'ready-timeout');
-        }
-      }, 5000);
+    workerInitPromiseRef.current = initPromise;
 
-      return () => {
-        logger.debug('Terminating worker');
-        worker.terminate();
-        workerRef.current = null;
-        readyRef.current = false;
-        workerFailureRef.current = null;
-        rejectAllPendingBatchTrackers(
-          new Error('Background token indexer worker terminated during cleanup')
-        );
-        if (readinessTimerRef.current) {
-          clearTimeout(readinessTimerRef.current);
-          readinessTimerRef.current = null;
-        }
-      };
-    } catch (error) {
-      logger.error('Failed to create worker', { error });
-      failWorker(error, 'createWorkerInstance');
-      return;
+    try {
+      return await initPromise;
+    } finally {
+      if (workerInitPromiseRef.current === initPromise) {
+        workerInitPromiseRef.current = null;
+      }
     }
-  }, [failWorker, rejectAllPendingBatchTrackers]);
+  }, [failWorker]);
 
-  // Cleanup on unmount
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    isMountedRef.current = true;
+    if (autoStart) {
+      void ensureWorkerReady().catch(() => {
+        // Worker startup failures are surfaced through state and structured logs.
+      });
+    }
+
+    return () => {
       isMountedRef.current = false;
-    },
-    []
-  );
+      logger.debug('Terminating worker');
+      const worker = workerRef.current;
+      workerRef.current = null;
+      workerInitPromiseRef.current = null;
+      workerMessageCleanupRef.current?.();
+      workerMessageCleanupRef.current = null;
+      const runtime = workerRuntimeRef.current;
+      workerRuntimeRef.current = null;
+      workerFailureHandledRef.current = false;
+      runtime?.resetReady();
+      runtime?.clearFailure();
+      runtime?.dispose();
+      rejectAllPendingBatchTrackers(
+        new Error('Background token indexer worker terminated during cleanup')
+      );
+      if (readinessTimerRef.current) {
+        clearTimeout(readinessTimerRef.current);
+        readinessTimerRef.current = null;
+      }
+      if (worker) {
+        worker.terminate();
+      }
+    };
+  }, [autoStart, ensureWorkerReady, rejectAllPendingBatchTrackers]);
 
   /**
    * Handle result from worker.
@@ -615,6 +698,10 @@ export function useBackgroundTokenIndexer({
     [settleBatchTrackersForCompositeKey]
   );
 
+  handleResultRef.current = handleResult;
+  handleProgressRef.current = handleProgress;
+  handleErrorRef.current = handleError;
+
   /**
    * Queue files for background indexing.
    * Uses refs to get the latest store/mode/callbacks at call time.
@@ -626,14 +713,17 @@ export function useBackgroundTokenIndexer({
         return;
       }
 
+      await ensureWorkerReady();
+
       // CRITICAL: No skip/degraded fallback path. Worker unavailability is a hard failure.
-      if (workerFailureRef.current) {
+      const workerFailure = workerRuntimeRef.current?.getFailure() ?? null;
+      if (workerFailure) {
         const message =
-          `Background token indexer unavailable: ${workerFailureRef.current.message}. ` +
+          `Background token indexer unavailable: ${workerFailure.message}. ` +
           `Requested files dropped: ${files.length}.`;
         logger.error('indexFiles rejected - worker previously failed', {
           fileCount: files.length,
-          error: workerFailureRef.current.message,
+          error: workerFailure.message,
         });
         emitTerminalIndexingError(message);
         pendingFilesRef.current.clear();
@@ -642,11 +732,11 @@ export function useBackgroundTokenIndexer({
         throw new Error(message);
       }
 
-      if (!(workerRef.current && isReady)) {
+      if (!(workerRef.current && workerRuntimeRef.current?.isReady())) {
         const message = `Background token indexer worker is not ready. Requested files dropped: ${files.length}.`;
         logger.error('indexFiles rejected - worker not ready', {
           hasWorker: !!workerRef.current,
-          isReady,
+          isReady: workerRuntimeRef.current?.isReady() ?? false,
           fileCount: files.length,
         });
         emitTerminalIndexingError(message);
@@ -735,7 +825,7 @@ export function useBackgroundTokenIndexer({
         pendingFilesRef.current.clear();
         rejectAllPendingBatchTrackers(normalizedError);
         const droppedCount = Math.max(requestedFiles, pendingBeforeClear);
-        if (!workerFailureRef.current) {
+        if (!workerRuntimeRef.current?.isFailed()) {
           emitTerminalIndexingError(
             `Background token indexer failed before dispatch: ${normalizedError.message}. ` +
               `Requested files dropped: ${droppedCount}.`
@@ -746,7 +836,7 @@ export function useBackgroundTokenIndexer({
         throw normalizedError;
       }
     },
-    [emitTerminalIndexingError, isReady, rejectAllPendingBatchTrackers]
+    [emitTerminalIndexingError, ensureWorkerReady, rejectAllPendingBatchTrackers]
   );
 
   /**

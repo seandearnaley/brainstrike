@@ -10,11 +10,7 @@
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
  */
 import type { StorageAdapter } from '@brainstrike/storage';
-import {
-  createMemoryStorageAdapter,
-  createStorageAdapter,
-  detectPlatform,
-} from '@brainstrike/storage';
+import { createBrowserStorageAdapter, createMemoryStorageAdapter } from '@brainstrike/storage';
 import type { StateCreator } from 'zustand';
 import { type PersistOptions, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -190,8 +186,7 @@ let singleton = g[GLOBAL_KEY] as unknown;
 if (!isValidStore(singleton)) {
   let adapter: StorageAdapter;
   try {
-    const platform = detectPlatform();
-    adapter = createStorageAdapter(platform);
+    adapter = createBrowserStorageAdapter();
   } catch {
     adapter = createMemoryStorageAdapter();
   }

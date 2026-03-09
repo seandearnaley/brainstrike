@@ -135,7 +135,7 @@ type ToolExecutionResult<T = unknown> =
  * Register IPC handlers for tool execution.
  */
 export function registerToolsIpcHandlers(): void {
-  logger.info('Registering tools IPC handlers');
+  logger.debug('Registering tools IPC handlers');
 
   ipcMain.handle(
     'tools:execute',

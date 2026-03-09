@@ -3,7 +3,8 @@
   "description": "Web Worker for off-main-thread file tree operations with BFS expand-all.",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/worker-runtime": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",

@@ -29,6 +29,15 @@
       ],
       "@brainstrike/agent/client": [
         "../../packages/agent/dist/client.d.ts"
+      ],
+      "@brainstrike/storage/electron": [
+        "../../packages/storage/dist/electron.d.ts"
+      ],
+      "@brainstrike/file-system/electron": [
+        "../../packages/file-system/dist/electron.d.ts"
+      ],
+      "@brainstrike/file-system/path-validation": [
+        "../../packages/file-system/dist/path-validation.d.ts"
       ]
     },
     "strictNullChecks": true

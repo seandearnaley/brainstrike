@@ -38,6 +38,17 @@ class SlowEmbeddingService implements EmbeddingService {
     }
     return results;
   }
+  async generateEmbeddingsStream(
+    texts: string[],
+    onBatch: (batch: {
+      startIndex: number;
+      endIndex: number;
+      results: EmbeddingResult[];
+    }) => Promise<void> | void
+  ): Promise<void> {
+    const results = await this.generateEmbeddings(texts);
+    await onBatch({ startIndex: 0, endIndex: results.length, results });
+  }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
   }
@@ -78,7 +89,7 @@ describe('embedding-worker: heartbeat error logging', () => {
       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         embeddingSetId,
-        'local::jina-code',
+        'local::jinaai/jina-embeddings-v2-base-code',
         'jinaai/jina-embeddings-v2-base-code',
         768,
         'cosine',
@@ -99,7 +110,15 @@ describe('embedding-worker: heartbeat error logging', () => {
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
        VALUES ('job-h1','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
-      [JSON.stringify({ chunkId, embeddingSetId }), now]
+      [
+        JSON.stringify({
+          chunkId,
+          embeddingSetId,
+          modelKey: 'local::jinaai/jina-embeddings-v2-base-code',
+          expectedDimension: 768,
+        }),
+        now,
+      ]
     );
 
     // Wrap db to throw on heartbeat updates

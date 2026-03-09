@@ -40,6 +40,9 @@
     },
     {
       "path": "../types"
+    },
+    {
+      "path": "../worker-runtime"
     }
   ]
 }

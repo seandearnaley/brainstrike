@@ -1,366 +1,243 @@
-import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  type UseEmbeddingWorkerControlsParams,
-  useEmbeddingWorkerControls,
-} from '../vector-status/use-embedding-worker-controls';
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  EmbeddingRuntimeController,
+  EmbeddingRuntimeStatus,
+} from '../vector-status/embedding-runtime-controller';
+import { useEmbeddingWorkerControls } from '../vector-status/use-embedding-worker-controls';
 
-vi.mock('@brainstrike/embeddings', () => ({
-  startEmbeddingWorker: vi.fn(),
-}));
+interface MockController {
+  readonly controller: EmbeddingRuntimeController;
+  readonly emitStatus: (status: EmbeddingRuntimeStatus) => void;
+  readonly getStatusMock: ReturnType<typeof vi.fn>;
+  readonly resetMock: ReturnType<typeof vi.fn>;
+  readonly startMock: ReturnType<typeof vi.fn>;
+  readonly stopMock: ReturnType<typeof vi.fn>;
+}
 
-import { startEmbeddingWorker } from '@brainstrike/embeddings';
+function createStatus(
+  state: EmbeddingRuntimeStatus['state'],
+  overrides?: Partial<EmbeddingRuntimeStatus>
+): EmbeddingRuntimeStatus {
+  return {
+    runtimeKind: 'embedding-worker',
+    runtimeId: 'embedding-worker:test',
+    state,
+    active: false,
+    lastError: null,
+    ...overrides,
+  };
+}
+
+function createMockController(
+  initialStatus: EmbeddingRuntimeStatus = createStatus('stopped')
+): MockController {
+  const listeners = new Set<(status: EmbeddingRuntimeStatus) => void>();
+  let currentStatus = initialStatus;
+
+  const getStatusMock = vi.fn(async () => currentStatus);
+  const startMock = vi.fn(async () => {
+    currentStatus = createStatus('running');
+    return currentStatus;
+  });
+  const stopMock = vi.fn(async () => {
+    currentStatus = createStatus('stopped');
+    return currentStatus;
+  });
+  const resetMock = vi.fn(async () => {
+    currentStatus = createStatus('running');
+    return currentStatus;
+  });
+
+  return {
+    controller: {
+      enqueueBackfill: vi.fn(async () => {}),
+      ensureStarted: startMock,
+      getStatus: getStatusMock,
+      onBackfillProgress: () => () => {},
+      onStatus: (callback) => {
+        listeners.add(callback);
+        return () => {
+          listeners.delete(callback);
+        };
+      },
+      reset: resetMock,
+      start: startMock,
+      stop: stopMock,
+    },
+    emitStatus: (status) => {
+      currentStatus = status;
+      for (const listener of listeners) {
+        listener(status);
+      }
+    },
+    getStatusMock,
+    resetMock,
+    startMock,
+    stopMock,
+  };
+}
 
 describe('useEmbeddingWorkerControls', () => {
   const toast = vi.fn();
-  const db = {} as UseEmbeddingWorkerControlsParams['db'];
 
   beforeEach(() => {
     vi.clearAllMocks();
-    toast.mockClear();
+    toast.mockReset();
+    __resetVectorStatusUIStoreForTests();
   });
 
-  describe('auto-backfill disabled behavior', () => {
-    it('does not trigger backfill when worker starts with activeEmbeddingSetId', async () => {
-      const stop = vi.fn(async () => {});
-      vi.mocked(startEmbeddingWorker).mockResolvedValueOnce({ stop } as {
-        stop: () => Promise<void>;
-      });
-      const onBackfill = vi.fn(async () => {});
+  it('hydrates from controller status and mirrors active work into the UI store', async () => {
+    const mockController = createMockController(createStatus('running', { active: true }));
 
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'webgpu',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: 'set-1',
-          onBackfill,
-          toast,
-        })
-      );
+    const { result } = renderHook(() =>
+      useEmbeddingWorkerControls({
+        controller: mockController.controller,
+        activeEmbeddingSetId: 'set-1',
+        onBackfill: vi.fn(async () => {}),
+        toast,
+      })
+    );
 
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      expect(startEmbeddingWorker).toHaveBeenCalledWith(
-        expect.objectContaining({
-          db,
-          enable: true,
-          reinitEveryN: 100,
-        })
-      );
-      // Auto-backfill on worker start is disabled - backfill must be triggered manually
-      expect(onBackfill).not.toHaveBeenCalled();
-      expect(toast).toHaveBeenCalledWith({
-        title: 'Worker started',
-        description: 'Local embedding worker is running.',
-      });
+    await waitFor(() => {
       expect(result.current.workerLocalRunning).toBe(true);
     });
+    expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(true);
 
-    it('does not trigger backfill when worker starts without activeEmbeddingSetId', async () => {
-      const stop = vi.fn(async () => {});
-      vi.mocked(startEmbeddingWorker).mockResolvedValueOnce({ stop } as {
-        stop: () => Promise<void>;
-      });
-      const onBackfill = vi.fn(async () => {});
-
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'webgpu',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: null,
-          onBackfill,
-          toast,
-        })
-      );
-
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      expect(onBackfill).not.toHaveBeenCalled();
-      expect(result.current.workerLocalRunning).toBe(true);
+    act(() => {
+      mockController.emitStatus(createStatus('stopped'));
     });
 
-    it('does not trigger backfill on worker reset even with activeEmbeddingSetId', async () => {
-      const firstStop = vi.fn(async () => {});
-      const secondStop = vi.fn(async () => {});
-      vi.mocked(startEmbeddingWorker)
-        .mockResolvedValueOnce({ stop: firstStop } as { stop: () => Promise<void> })
-        .mockResolvedValueOnce({ stop: secondStop } as { stop: () => Promise<void> });
+    await waitFor(() => {
+      expect(result.current.workerLocalRunning).toBe(false);
+    });
+    expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(false);
+  });
 
-      const onBackfill = vi.fn(async () => {});
+  it('starts the controller runtime and shows success toast', async () => {
+    const mockController = createMockController();
 
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'webgpu',
-          reinitEveryN: 50,
-          activeEmbeddingSetId: 'set-42',
-          onBackfill,
-          toast,
-        })
-      );
+    const { result } = renderHook(() =>
+      useEmbeddingWorkerControls({
+        controller: mockController.controller,
+        activeEmbeddingSetId: null,
+        onBackfill: vi.fn(async () => {}),
+        toast,
+      })
+    );
 
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      await act(async () => {
-        await result.current.resetWorker();
-      });
-
-      expect(firstStop).toHaveBeenCalled();
-      expect(startEmbeddingWorker).toHaveBeenCalledTimes(2);
-      // Auto-backfill on worker start/reset is disabled
-      expect(onBackfill).not.toHaveBeenCalled();
-      expect(result.current.workerLocalRunning).toBe(true);
-      expect(toast).toHaveBeenLastCalledWith({
-        title: 'Worker reset',
-        description: 'Embedding worker restarted successfully.',
-      });
+    await act(async () => {
+      await result.current.startWorker();
     });
 
-    it('never triggers backfill across multiple start/stop cycles', async () => {
-      const onBackfill = vi.fn(async () => {});
-
-      vi.mocked(startEmbeddingWorker)
-        .mockResolvedValueOnce({ stop: vi.fn(async () => {}) } as { stop: () => Promise<void> })
-        .mockResolvedValueOnce({ stop: vi.fn(async () => {}) } as { stop: () => Promise<void> })
-        .mockResolvedValueOnce({ stop: vi.fn(async () => {}) } as { stop: () => Promise<void> });
-
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'webgpu',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: 'set-1',
-          onBackfill,
-          toast,
-        })
-      );
-
-      // First cycle
-      await act(async () => {
-        await result.current.startWorker();
-      });
-      await act(async () => {
-        await result.current.stopWorker();
-      });
-
-      // Second cycle
-      await act(async () => {
-        await result.current.startWorker();
-      });
-      await act(async () => {
-        await result.current.stopWorker();
-      });
-
-      // Third cycle
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      // Should never have triggered backfill across all cycles
-      expect(onBackfill).not.toHaveBeenCalled();
-      expect(startEmbeddingWorker).toHaveBeenCalledTimes(3);
+    expect(mockController.startMock).toHaveBeenCalledTimes(1);
+    expect(result.current.workerLocalRunning).toBe(true);
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Worker started',
+      description: 'Local embedding worker is running.',
     });
   });
 
-  describe('worker lifecycle', () => {
-    it('starts and stops the worker correctly', async () => {
-      const stop = vi.fn(async () => {});
-      vi.mocked(startEmbeddingWorker).mockResolvedValueOnce({ stop } as {
-        stop: () => Promise<void>;
-      });
+  it('surfaces controller start failures without swallowing them', async () => {
+    const mockController = createMockController();
+    mockController.startMock.mockRejectedValueOnce(new Error('runtime start failed'));
 
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'webgpu',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: 'set-1',
-          onBackfill: vi.fn(),
-          toast,
-        })
-      );
+    const { result } = renderHook(() =>
+      useEmbeddingWorkerControls({
+        controller: mockController.controller,
+        activeEmbeddingSetId: null,
+        onBackfill: vi.fn(async () => {}),
+        toast,
+      })
+    );
 
-      expect(result.current.workerLocalRunning).toBe(false);
-
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      expect(result.current.workerLocalRunning).toBe(true);
-
-      await act(async () => {
-        await result.current.stopWorker();
-      });
-
-      expect(stop).toHaveBeenCalled();
-      expect(result.current.workerLocalRunning).toBe(false);
-      expect(toast).toHaveBeenLastCalledWith({ title: 'Worker stopped' });
+    await act(async () => {
+      await result.current.startWorker();
     });
 
-    it('handles worker start failure gracefully', async () => {
-      const error = new Error('WebGPU not supported');
-      vi.mocked(startEmbeddingWorker).mockRejectedValueOnce(error);
-
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'webgpu',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: 'set-1',
-          onBackfill: vi.fn(),
-          toast,
-        })
-      );
-
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      expect(result.current.workerLocalRunning).toBe(false);
-      expect(result.current.startWorkerError).toBe('WebGPU not supported');
-      expect(toast).toHaveBeenCalledWith({
-        title: 'Failed to start worker',
-        description: 'WebGPU not supported',
-        variant: 'destructive',
-      });
-    });
-
-    it('clears error state on clearWorkerError', async () => {
-      const error = new Error('Some error');
-      vi.mocked(startEmbeddingWorker).mockRejectedValueOnce(error);
-
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'webgpu',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: null,
-          onBackfill: vi.fn(),
-          toast,
-        })
-      );
-
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      expect(result.current.startWorkerError).toBe('Some error');
-
-      act(() => {
-        result.current.clearWorkerError();
-      });
-
-      expect(result.current.startWorkerError).toBe(null);
-    });
-
-    it('does not start worker when db is null', async () => {
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db: null,
-          devicePreference: 'webgpu',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: 'set-1',
-          onBackfill: vi.fn(),
-          toast,
-        })
-      );
-
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      expect(startEmbeddingWorker).not.toHaveBeenCalled();
-      expect(result.current.workerLocalRunning).toBe(false);
-    });
-
-    it('does not call startEmbeddingWorker again while startingWorker is true', async () => {
-      // This test verifies the guard condition in startWorker that checks startingWorker state
-      const stop = vi.fn(async () => {});
-      vi.mocked(startEmbeddingWorker).mockResolvedValue({ stop } as {
-        stop: () => Promise<void>;
-      });
-
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'webgpu',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: 'set-1',
-          onBackfill: vi.fn(),
-          toast,
-        })
-      );
-
-      // Start the worker normally
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      expect(startEmbeddingWorker).toHaveBeenCalledTimes(1);
-      expect(result.current.workerLocalRunning).toBe(true);
+    expect(result.current.startWorkerError).toBe('runtime start failed');
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Failed to start worker',
+      description: 'runtime start failed',
+      variant: 'destructive',
     });
   });
 
-  describe('device preference handling', () => {
-    it('passes webgpu device preference to worker', async () => {
-      const stop = vi.fn(async () => {});
-      vi.mocked(startEmbeddingWorker).mockResolvedValue({ stop } as {
-        stop: () => Promise<void>;
-      });
+  it('stops the controller runtime and clears queue-active state', async () => {
+    const mockController = createMockController(createStatus('running', { active: true }));
 
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'webgpu',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: null,
-          onBackfill: vi.fn(),
-          toast,
-        })
-      );
+    const { result } = renderHook(() =>
+      useEmbeddingWorkerControls({
+        controller: mockController.controller,
+        activeEmbeddingSetId: 'set-1',
+        onBackfill: vi.fn(async () => {}),
+        toast,
+      })
+    );
 
-      await act(async () => {
-        await result.current.startWorker();
-      });
-
-      expect(startEmbeddingWorker).toHaveBeenCalledWith(
-        expect.objectContaining({
-          device: 'webgpu',
-        })
-      );
+    await act(async () => {
+      await result.current.stopWorker();
     });
 
-    it('passes wasm device preference to worker', async () => {
-      const stop = vi.fn(async () => {});
-      vi.mocked(startEmbeddingWorker).mockResolvedValue({ stop } as {
-        stop: () => Promise<void>;
-      });
+    expect(mockController.stopMock).toHaveBeenCalledTimes(1);
+    expect(result.current.workerLocalRunning).toBe(false);
+    expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(false);
+    expect(toast).toHaveBeenCalledWith({ title: 'Worker stopped' });
+  });
 
-      const { result } = renderHook(() =>
-        useEmbeddingWorkerControls({
-          db,
-          devicePreference: 'wasm',
-          reinitEveryN: 100,
-          activeEmbeddingSetId: null,
-          onBackfill: vi.fn(),
-          toast,
-        })
-      );
+  it('surfaces controller stop failures consistently', async () => {
+    const mockController = createMockController(createStatus('running', { active: true }));
+    mockController.stopMock.mockRejectedValueOnce(new Error('stop failed'));
 
-      await act(async () => {
-        await result.current.startWorker();
-      });
+    const { result } = renderHook(() =>
+      useEmbeddingWorkerControls({
+        controller: mockController.controller,
+        activeEmbeddingSetId: 'set-1',
+        onBackfill: vi.fn(async () => {}),
+        toast,
+      })
+    );
 
-      const callArg = vi.mocked(startEmbeddingWorker).mock.calls[0]?.[0];
-      expect(callArg).toEqual(expect.objectContaining({ device: 'wasm' }));
+    await act(async () => {
+      await result.current.stopWorker();
+    });
+
+    expect(result.current.startWorkerError).toBe('stop failed');
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Failed to stop worker',
+      description: 'stop failed',
+      variant: 'destructive',
+    });
+  });
+
+  it('resets the controller runtime and reports reset errors strictly', async () => {
+    const mockController = createMockController(createStatus('running'));
+    mockController.resetMock.mockResolvedValueOnce(
+      createStatus('error', { lastError: 'reset failed' })
+    );
+
+    const { result } = renderHook(() =>
+      useEmbeddingWorkerControls({
+        controller: mockController.controller,
+        activeEmbeddingSetId: 'set-1',
+        onBackfill: vi.fn(async () => {}),
+        toast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.resetWorker();
+    });
+
+    expect(result.current.startWorkerError).toBe('reset failed');
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Worker reset failed',
+      description: 'reset failed',
+      variant: 'destructive',
     });
   });
 });

@@ -29,6 +29,11 @@ vi.mock('electron', async () => {
     documentsPath: '/mock/userData',
   });
   const ipcMain = electronUtils.createIpcMainMock();
+  Object.assign(ipcMain, {
+    on: vi.fn(),
+    removeAllListeners: vi.fn(),
+    removeHandler: vi.fn(),
+  });
   const ipcRenderer = electronUtils.createIpcRendererMock();
   const screen = electronUtils.createScreenMock();
   // Wire renderer invokes to main handlers
@@ -90,6 +95,8 @@ vi.mock('electron', async () => {
     },
     powerSaveBlocker: {
       start: vi.fn(() => 1),
+      isStarted: vi.fn(() => true),
+      stop: vi.fn(),
     },
   };
 });
@@ -100,18 +107,15 @@ import { LogLevel } from '@brainstrike/utils';
 import { ipcRenderer } from 'electron';
 
 // Mock other dependencies
-vi.mock('@brainstrike/file-system', () => {
+vi.mock('@brainstrike/file-system/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});
   });
-  return {
-    ElectronFileSystemAdapter: MockAdapter,
-    createFixtureCapableAdapter: (adapter: unknown) => adapter,
-  };
+  return { ElectronFileSystemAdapter: MockAdapter };
 });
 
-vi.mock('@brainstrike/storage', () => {
+vi.mock('@brainstrike/storage/electron', () => {
   const MockAdapter = vi.fn();
   MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {});

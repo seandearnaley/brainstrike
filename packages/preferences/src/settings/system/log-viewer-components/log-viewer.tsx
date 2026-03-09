@@ -54,7 +54,7 @@ const LOG_LEVEL_OPTIONS: LogLevel[] = [
 
 const RETENTION_OPTIONS = [200, 500, 1000, 2000, 5000] as const;
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
-const DEFAULT_RETENTION_LIMIT = 500;
+const DEFAULT_RETENTION_LIMIT = 2000;
 const DEFAULT_PAGE_SIZE = 50;
 const ALL_SCOPES_VALUE = '__all__';
 const NO_SCOPE_VALUE = '__none__';

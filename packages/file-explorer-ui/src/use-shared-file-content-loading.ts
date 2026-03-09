@@ -6,6 +6,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { createLogger, decodeFileSelection } from '@brainstrike/utils';
 
 const logger = createLogger('SharedFileContentLoading');
+const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;
 
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -96,6 +97,7 @@ function processWorkerResults(
 function shouldLoadFile(
   compositeKey: string,
   loadingPathsRef: React.RefObject<Set<string>>,
+  pendingFileLoadsRef: React.RefObject<Set<string>>,
   fileContents: Record<string, string>,
   folderId: string,
   fileTree: IFileNode[],
@@ -104,8 +106,15 @@ function shouldLoadFile(
   // On Electron (canLoadWithoutTree), we can load without the tree
   const hasTreeOrCanSkip = canLoadWithoutTree || fileTree.length > 0;
   const alreadyLoading = loadingPathsRef.current.has(compositeKey);
+  const alreadyPending = pendingFileLoadsRef.current.has(compositeKey);
   const alreadyLoaded = compositeKey in fileContents;
-  const shouldLoad = !!(folderId && hasTreeOrCanSkip && !alreadyLoading && !alreadyLoaded);
+  const shouldLoad = !!(
+    folderId &&
+    hasTreeOrCanSkip &&
+    !alreadyLoading &&
+    !alreadyPending &&
+    !alreadyLoaded
+  );
 
   logger.debug('shouldLoadFile check', {
     compositeKey,
@@ -114,6 +123,7 @@ function shouldLoadFile(
     treeLength: fileTree.length,
     hasTreeOrCanSkip,
     alreadyLoading,
+    alreadyPending,
     alreadyLoaded,
     shouldLoad,
   });
@@ -129,6 +139,8 @@ async function getFileNodeWithRetry(
   path: string,
   indexGetNode?: (folderId: string, path: string) => IFileNode | undefined
 ): Promise<IFileNode | null> {
+  const hasIndexLookup = typeof indexGetNode === 'function';
+
   // Try index first (O(1) lookup) when available
   if (indexGetNode) {
     const indexNode = indexGetNode(folderId, path);
@@ -144,8 +156,12 @@ async function getFileNodeWithRetry(
   const treeNodeCount = countTreeNodes(fileTree);
   let fileNode = getFileNodeFromCache(nodeCacheRef.current, fileTree, folderId, path);
 
-  // If we can't find the node initially, wait and retry once
+  // When the shared index is present, let index/tree updates drive retries instead of polling.
   if (!isFileNodeValid(fileNode, folderId)) {
+    if (hasIndexLookup) {
+      return fileNode;
+    }
+
     logger.debug('Initial lookup failed, retrying', {
       path,
       folderId,
@@ -262,6 +278,71 @@ async function buildCachedFileRequest(args: {
   return { compositeKey, handle: fileHandle, path };
 }
 
+function deferFileLoadsUntilTreeReady(args: {
+  compositeKeys: string[];
+  loadingPathsRef: React.RefObject<Set<string>>;
+  pendingFileLoadsRef: React.RefObject<Set<string>>;
+  store: ReturnType<typeof useFileExplorerStoreContext>;
+}): void {
+  const { compositeKeys, loadingPathsRef, pendingFileLoadsRef, store } = args;
+  const fileContents = store.getState().fileContents;
+  let newlyDeferredCount = 0;
+
+  for (const compositeKey of compositeKeys) {
+    if (
+      !(
+        loadingPathsRef.current.has(compositeKey) ||
+        pendingFileLoadsRef.current.has(compositeKey) ||
+        compositeKey in fileContents
+      )
+    ) {
+      pendingFileLoadsRef.current.add(compositeKey);
+      newlyDeferredCount += 1;
+    }
+  }
+
+  if (newlyDeferredCount > 0) {
+    logger.debug('Deferring file content loading until tree is ready', {
+      pendingCount: pendingFileLoadsRef.current.size,
+      requestedFiles: compositeKeys.length,
+    });
+  }
+}
+
+function clearPendingFileLoadState(
+  compositeKey: string,
+  pendingFileLoadsRef: React.RefObject<Set<string>>,
+  deferredLookupAttemptsRef: React.RefObject<Map<string, number>>
+): void {
+  pendingFileLoadsRef.current.delete(compositeKey);
+  deferredLookupAttemptsRef.current.delete(compositeKey);
+}
+
+function deferFileLoadUntilIndexed(args: {
+  compositeKey: string;
+  path: string;
+  folderId: string;
+  pendingFileLoadsRef: React.RefObject<Set<string>>;
+  deferredLookupAttemptsRef: React.RefObject<Map<string, number>>;
+}): boolean {
+  const { compositeKey, path, folderId, pendingFileLoadsRef, deferredLookupAttemptsRef } = args;
+  const nextAttempt = (deferredLookupAttemptsRef.current.get(compositeKey) ?? 0) + 1;
+  if (nextAttempt > MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS) {
+    return false;
+  }
+
+  deferredLookupAttemptsRef.current.set(compositeKey, nextAttempt);
+  pendingFileLoadsRef.current.add(compositeKey);
+  logger.debug('Deferring file content loading until file is indexed', {
+    compositeKey,
+    path,
+    folderId,
+    attempt: nextAttempt,
+    maxAttempts: MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS,
+  });
+  return true;
+}
+
 async function handleMissingFileNode(args: {
   fileTree: IFileNode[];
   folderId: string;
@@ -271,6 +352,8 @@ async function handleMissingFileNode(args: {
   nodeCacheRef: React.RefObject<Map<string, Map<string, IFileNode>>>;
   setFileContent: (key: string, content: string) => void;
   loadingPathsRef: React.RefObject<Set<string>>;
+  pendingFileLoadsRef: React.RefObject<Set<string>>;
+  deferredLookupAttemptsRef: React.RefObject<Map<string, number>>;
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
   fileSystemAdapter: unknown;
 }): Promise<FileReadRequest | null> {
@@ -283,16 +366,33 @@ async function handleMissingFileNode(args: {
     nodeCacheRef,
     setFileContent,
     loadingPathsRef,
+    pendingFileLoadsRef,
+    deferredLookupAttemptsRef,
     setLoadingFiles,
     fileSystemAdapter,
   } = args;
 
-  // On platforms with direct file access (Electron), we can read by path without a tree handle
   if (supportsDirectPathRead(fileSystemAdapter)) {
-    logger.debug('Using direct path read for file not in tree', { path, folderId });
-    markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
-    // Return request without handle - worker will use readFileByPath
-    return { compositeKey, path };
+    if (
+      deferFileLoadUntilIndexed({
+        compositeKey,
+        path,
+        folderId,
+        pendingFileLoadsRef,
+        deferredLookupAttemptsRef,
+      })
+    ) {
+      return null;
+    }
+
+    clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
+    logger.warn('File missing from file tree after deferred retries', {
+      path,
+      folderId,
+      attempts: MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS,
+    });
+    setFileContent(compositeKey, `File not found in file tree: ${path}`);
+    return null;
   }
 
   const cachedRequest = await buildCachedFileRequest({
@@ -321,6 +421,7 @@ async function handleMissingFileNode(args: {
     treeNodeCount,
     fileTreeLength: fileTree.length,
   });
+  clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
   setFileContent(compositeKey, `File not found: ${path}`);
   return null;
 }
@@ -333,6 +434,8 @@ async function handleInvalidFileNode(args: {
   handleCache: CachedHandleLookup | null;
   setFileContent: (key: string, content: string) => void;
   loadingPathsRef: React.RefObject<Set<string>>;
+  pendingFileLoadsRef: React.RefObject<Set<string>>;
+  deferredLookupAttemptsRef: React.RefObject<Map<string, number>>;
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
 }): Promise<FileReadRequest | null> {
   const {
@@ -343,10 +446,13 @@ async function handleInvalidFileNode(args: {
     handleCache,
     setFileContent,
     loadingPathsRef,
+    pendingFileLoadsRef,
+    deferredLookupAttemptsRef,
     setLoadingFiles,
   } = args;
 
   if (fileNode.rootFolderId !== folderId) {
+    clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
     const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
     logger.warn('Folder mismatch', { path, expected: folderId, found: fileNode.rootFolderId });
     setFileContent(compositeKey, error);
@@ -364,14 +470,17 @@ async function handleInvalidFileNode(args: {
       setLoadingFiles,
     });
     if (cachedRequest) {
+      clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
       return cachedRequest;
     }
+    clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
     logger.warn('File has no handle', { path, folderId, nodeType: fileNode.type });
     setFileContent(compositeKey, `File handle not available: ${path}`);
     return null;
   }
 
   if (fileNode.type !== 'file') {
+    clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
     logger.warn('Node is not a file', { path, type: fileNode.type });
     setFileContent(compositeKey, `Not a file: ${path}`);
   }
@@ -387,6 +496,8 @@ async function prepareFileReadRequest(
   store: ReturnType<typeof useFileExplorerStoreContext>,
   nodeCacheRef: React.RefObject<Map<string, Map<string, IFileNode>>>,
   loadingPathsRef: React.RefObject<Set<string>>,
+  pendingFileLoadsRef: React.RefObject<Set<string>>,
+  deferredLookupAttemptsRef: React.RefObject<Map<string, number>>,
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>,
   canLoadWithoutTree: boolean,
   indexGetNode?: (folderId: string, path: string) => IFileNode | undefined
@@ -398,6 +509,7 @@ async function prepareFileReadRequest(
     !shouldLoadFile(
       compositeKey,
       loadingPathsRef,
+      pendingFileLoadsRef,
       fileContents,
       folderId,
       fileTree,
@@ -420,6 +532,8 @@ async function prepareFileReadRequest(
       nodeCacheRef,
       setFileContent,
       loadingPathsRef,
+      pendingFileLoadsRef,
+      deferredLookupAttemptsRef,
       setLoadingFiles,
       fileSystemAdapter,
     });
@@ -434,6 +548,8 @@ async function prepareFileReadRequest(
       handleCache,
       setFileContent,
       loadingPathsRef,
+      pendingFileLoadsRef,
+      deferredLookupAttemptsRef,
       setLoadingFiles,
     });
   }
@@ -446,11 +562,13 @@ async function prepareFileReadRequest(
       size: fileNode.size,
       max: maxFileSize,
     });
+    clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
     setFileContent(compositeKey, buildTooLargeFileMessage(fileNode.size, maxFileSize));
     return null;
   }
 
   markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
+  clearPendingFileLoadState(compositeKey, pendingFileLoadsRef, deferredLookupAttemptsRef);
 
   const fileHandle = createFileHandle(fileNode, fileSystemAdapter);
   return { compositeKey, handle: fileHandle, path };
@@ -461,6 +579,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [error, setError] = useState<Error | null>(null);
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set());
   const loadingPathsRef = useRef(new Set<string>());
+  const pendingFileLoadsRef = useRef<Set<string>>(new Set());
+  const deferredLookupAttemptsRef = useRef<Map<string, number>>(new Map());
   const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
   const workerRef = useRef<FileContentWorker | null>(null);
 
@@ -475,6 +595,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   // Falls back to cache-based lookups when not within FileTreeProvider
   const fileTreeIndex = useOptionalFileTreeIndexContext();
   const indexGetNode = fileTreeIndex?.getNode;
+  const indexVersion = fileTreeIndex?.version ?? 0;
 
   // Debounce timeout ref for cache rebuild (only used as fallback when index unavailable)
   const cacheRebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -484,7 +605,6 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   useEffect(() => {
     // Skip cache rebuild when using shared FileTreeIndex
     if (indexGetNode) {
-      logger.debug('Skipping cache rebuild - using FileTreeIndex');
       return;
     }
 
@@ -543,6 +663,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         store,
         nodeCacheRef,
         loadingPathsRef,
+        pendingFileLoadsRef,
+        deferredLookupAttemptsRef,
         setLoadingFiles,
         canLoadWithoutTree,
         indexGetNode // Pass index getter for O(1) lookups when available
@@ -553,8 +675,16 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const handleFileContentLoading = useCallback(
     async (compositeKeys: string[]) => {
       if (!workerRef.current) {
-        // Expected during startup before worker is ready
-        logger.debug('Worker not initialized, skipping file content loading');
+        return;
+      }
+
+      if (canLoadWithoutTree && fileTreeRef.current.length === 0 && compositeKeys.length > 0) {
+        deferFileLoadsUntilTreeReady({
+          compositeKeys,
+          loadingPathsRef,
+          pendingFileLoadsRef,
+          store,
+        });
         return;
       }
 
@@ -597,8 +727,31 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         setIsLoading(false);
       }
     },
-    [prepareFileRead, store]
+    [prepareFileRead, store, canLoadWithoutTree]
   );
+
+  useEffect(() => {
+    if (!(canLoadWithoutTree && fileTree.length > 0 && pendingFileLoadsRef.current.size > 0)) {
+      return;
+    }
+
+    const fileContents = store.getState().fileContents;
+    const pendingKeys = [...pendingFileLoadsRef.current].filter(
+      (compositeKey) => !(loadingPathsRef.current.has(compositeKey) || compositeKey in fileContents)
+    );
+
+    pendingFileLoadsRef.current.clear();
+
+    if (pendingKeys.length === 0) {
+      return;
+    }
+
+    logger.debug('Retrying deferred file content loading after tree initialization', {
+      fileCount: pendingKeys.length,
+    });
+
+    void handleFileContentLoading(pendingKeys);
+  }, [canLoadWithoutTree, fileTree.length, handleFileContentLoading, indexVersion, store]);
 
   // NOTE: Eager content loading removed for performance.
   // Content is now loaded on-demand via handleFileContentLoading() when:

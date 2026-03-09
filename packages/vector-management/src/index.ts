@@ -6,8 +6,12 @@ export type {
   CollectionSelectProps,
   CollectionSelectSize,
   CollectionWithDocCount,
-} from './collection-select';
-export { CollectionSelect, formatCollectionLabel, useCollections } from './collection-select';
+} from './collection-select/index.js';
+export {
+  CollectionSelect,
+  formatCollectionLabel,
+  useCollections,
+} from './collection-select/index.js';
 // Embedding actions dropdown (split button for backfill/retry/clear/wipe)
 export type { EmbeddingActionsDropdownProps } from './embedding-actions-dropdown';
 export { EmbeddingActionsDropdown } from './embedding-actions-dropdown';

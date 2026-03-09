@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserEmbeddingQueue } from '../src';
 import { createWorkerpoolAdapter } from '../src/adapters/browser-workerpool';
+import { createBrowserEmbeddingQueue } from '../src/browser';
 import {
   addQueueTelemetryListener,
   createQueueTelemetryAggregator,
