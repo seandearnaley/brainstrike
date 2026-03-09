@@ -1,6 +1,15 @@
 import type { BrowserContext, Locator, Page } from '@playwright/test';
 import { waitForAppReady } from './electron-helpers';
 
+const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
+
+function verboseLog(...args: unknown[]): void {
+  if (!isVerboseE2eLoggingEnabled) {
+    return;
+  }
+  console.log(...args);
+}
+
 /**
  * Layout test utilities for Desktop E2E panel testing
  * Adapted from web E2E helpers for Electron-specific needs
@@ -48,10 +57,10 @@ export async function ensureToolsPanelVisible(page: Page): Promise<Locator> {
 
   if (!rightPanelVisible) {
     if ((await showRightPanelButton.count()) > 0) {
-      console.log('👉 Showing tools panel...');
+      verboseLog('👉 Showing tools panel...');
       await showRightPanelButton.first().click();
     } else if ((await hideRightPanelButton.count()) > 0) {
-      console.log('👉 Re-toggling tools panel to expand...');
+      verboseLog('👉 Re-toggling tools panel to expand...');
       await hideRightPanelButton.first().click();
       await showRightPanelButton.first().click();
     } else {
@@ -74,7 +83,7 @@ export async function showDatabaseDemoPanel(
   options?: { tabTimeoutMs?: number; panelTimeoutMs?: number }
 ): Promise<Page> {
   let activePage = await resolveActivePage(page);
-  console.log('🗄️ Navigating to database demo panel...');
+  verboseLog('🗄️ Navigating to database demo panel...');
   const tabTimeoutMs = options?.tabTimeoutMs ?? 10_000;
   const panelTimeoutMs = options?.panelTimeoutMs ?? 45_000;
 
@@ -95,7 +104,7 @@ export async function showDatabaseDemoPanel(
     }
 
     // Now navigate to the database tab within the tools panel
-    console.log('🗂️ Clicking database tab...');
+    verboseLog('🗂️ Clicking database tab...');
     const tabScope = rightPanel.locator('[role="tablist"]').first();
     const databaseTab = tabScope
       .locator('button[value="database"]')
@@ -128,7 +137,7 @@ export async function showDatabaseDemoPanel(
       });
 
     // Wait for either the database demo panel OR the database error to be visible
-    console.log('⏳ Waiting for database panel or error to be visible...');
+    verboseLog('⏳ Waiting for database panel or error to be visible...');
     const loadingDatabaseCard = activePage.getByText(/Loading PGlite database/i);
     const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
 
@@ -163,15 +172,15 @@ export async function showDatabaseDemoPanel(
       const hasLoadingFallback = await loadingTabFallback.isVisible().catch(() => false);
 
       if (hasSuccessPanel) {
-        console.log('✅ Database demo panel is visible and ready');
+        verboseLog('✅ Database demo panel is visible and ready');
       } else if (hasErrorPanel) {
         const errorText = await activePage.locator('[data-testid="db-init-error"]').textContent();
-        console.log('⚠️ Database initialization failed:', errorText);
-        console.log('✅ Database error panel is visible (this is expected in E2E environment)');
+        verboseLog('⚠️ Database initialization failed:', errorText);
+        verboseLog('✅ Database error panel is visible (this is expected in E2E environment)');
       } else if (hasLoadingCard) {
-        console.log('⏳ Database still initializing (loading card visible)');
+        verboseLog('⏳ Database still initializing (loading card visible)');
       } else if (hasLoadingFallback) {
-        console.log('⏳ Database tab chunk still loading (fallback visible)');
+        verboseLog('⏳ Database tab chunk still loading (fallback visible)');
       }
 
       return activePage;
@@ -181,7 +190,7 @@ export async function showDatabaseDemoPanel(
         .locator('body')
         .textContent()
         .catch(() => 'Could not get body text');
-      console.log('Current page content snippet:', bodyText?.slice(0, 500));
+      verboseLog('Current page content snippet:', bodyText?.slice(0, 500));
 
       if (attempt < 1 && activePage.isClosed()) {
         console.warn('⚠️ Active window closed; retrying database panel lookup.');
@@ -214,7 +223,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   const hasSuccessPanel = await successPanel.isVisible().catch(() => false);
 
   if (hasErrorPanel) {
-    console.log('⚠️ Database is in error state - skipping database readiness checks');
+    verboseLog('⚠️ Database is in error state - skipping database readiness checks');
     return activePage; // Don't wait for database operations if we're in error state
   }
 
@@ -319,7 +328,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   }
 
   if (await errorPanel.isVisible().catch(() => false)) {
-    console.log('⚠️ Database is in error state after loading - skipping readiness checks');
+    verboseLog('⚠️ Database is in error state after loading - skipping readiness checks');
     return activePage;
   }
 
@@ -331,7 +340,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   // Final check: ensure the panel is interactive
   try {
     await refreshButton.waitFor({ state: 'visible', timeout: 5000 });
-    console.log('✅ Database panel is ready and interactive');
+    verboseLog('✅ Database panel is ready and interactive');
   } catch (_error) {
     console.warn('⚠️ Refresh button not found, database panel might not be fully loaded');
   }
@@ -399,15 +408,15 @@ export async function resolveRefreshButton(
 export async function clearDatabaseRecords(page: Page): Promise<Page> {
   let activePage = await resolveActivePage(page);
   try {
-    console.log('🧹 Starting efficient database record cleanup...');
+    verboseLog('🧹 Starting efficient database record cleanup...');
 
     if (await isDatabaseErrorState(activePage)) {
-      console.log('ℹ️ Database in error state; skipping record cleanup.');
+      verboseLog('ℹ️ Database in error state; skipping record cleanup.');
       return activePage;
     }
 
     // Try using the bulk delete API (available in Electron environment)
-    console.log('🚀 Attempting bulk delete via Electron API...');
+    verboseLog('🚀 Attempting bulk delete via Electron API...');
     try {
       const result = await activePage.evaluate(async () => {
         // Check if we're in Electron and have the API available
@@ -418,7 +427,7 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
       });
 
       if (result.success) {
-        console.log(`✅ Bulk delete successful: ${result.message}`);
+        verboseLog(`✅ Bulk delete successful: ${result.message}`);
         const remainingCount = await activePage.evaluate(async () => {
           const api = (
             window as unknown as {
@@ -435,16 +444,16 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
         });
 
         if (typeof remainingCount === 'number') {
-          console.log(`📊 Records remaining after bulk delete (API): ${remainingCount}`);
+          verboseLog(`📊 Records remaining after bulk delete (API): ${remainingCount}`);
           if (remainingCount === 0) {
-            console.log('✅ Database cleanup completed successfully');
+            verboseLog('✅ Database cleanup completed successfully');
             return activePage;
           }
         } else {
           console.warn('⚠️ Could not verify record count via API after bulk delete');
         }
 
-        console.log('⚠️ Records still remain, continuing with UI cleanup...');
+        verboseLog('⚠️ Records still remain, continuing with UI cleanup...');
       } else {
         console.warn(`⚠️ Bulk delete failed: ${result.message}, falling back to UI deletion`);
       }
@@ -453,7 +462,7 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
     }
 
     // Fallback to UI-based deletion (much slower but works in all environments)
-    console.log('🔄 Using UI-based deletion fallback...');
+    verboseLog('🔄 Using UI-based deletion fallback...');
     activePage = await clearDatabaseRecordsViaUI(activePage);
     return activePage;
   } catch (error) {

@@ -292,7 +292,7 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
-logger.info('Main process started');
+logger.debug('Main process started');
 const mainLogBuffer = new LogBuffer({ size: 3000 });
 const removeLogBufferListener = addLogListener((record) => {
   mainLogBuffer.push(record);
@@ -660,7 +660,7 @@ if (singleInstanceLockAcquired) {
 
   app.whenReady().then(async () => {
     try {
-      logger.info('App ready, starting initialization...');
+      logger.debug('App ready, starting initialization...');
 
       // Re-initialize file logging now that app.getPath() is available.
       // At module load time, app.isReady() is false so getLogFilePath()
@@ -685,20 +685,20 @@ if (singleInstanceLockAcquired) {
               node: process.versions.node,
             },
           });
-          logger.info('File logging enabled after app.ready', { logFile: resolvedLogPath });
+          logger.debug('File logging enabled after app.ready', { logFile: resolvedLogPath });
         }
       }
 
-      logger.info('Setting up IPC handlers that require app readiness...');
+      logger.debug('Setting up IPC handlers that require app readiness...');
       registerSecretsIpcHandlers(createSecretsService());
       registerAgentIpcHandlers();
       registerMcpIpcHandlers();
       registerToolsIpcHandlers();
-      logger.info('Ready-dependent IPC handlers registered successfully');
+      logger.debug('Ready-dependent IPC handlers registered successfully');
 
       // Setup security before creating windows
       setupSecurity();
-      logger.info('Security setup complete');
+      logger.debug('Security setup complete');
 
       // NOTE: Embedding worker is started in renderer process, not here in main process.
       // Main process cannot run transformers.js with Web Workers (they don't exist in Node.js).
@@ -806,7 +806,7 @@ if (singleInstanceLockAcquired) {
         const { url, stop } = await startAssistantServer();
         assistantUrl = url;
         stopAssistantServer = stop;
-        logger.info(`Assistant server started at ${assistantUrl}`);
+        logger.debug(`Assistant server started at ${assistantUrl}`);
       } catch (err) {
         logger.error('Failed to start assistant server:', err);
       }
@@ -848,9 +848,9 @@ if (singleInstanceLockAcquired) {
         }
       };
 
-      logger.info('Creating main window...');
+      logger.debug('Creating main window...');
       const mainWindow = await createMainWindow();
-      logger.info('Main window created successfully');
+      logger.debug('Main window created successfully');
 
       // ---------------------------------------------------------------
       // Event loop health diagnostics — logs CPU and loop lag every 30s.
@@ -902,7 +902,7 @@ if (singleInstanceLockAcquired) {
           if (cpuPercent > 0.1 || p99 > 100 || max > 500) {
             logger.warn(payload, 'main-process-health');
           } else {
-            logger.info(payload, 'main-process-health');
+            logger.debug(payload, 'main-process-health');
           }
         }, 30_000).unref();
       }
@@ -957,7 +957,7 @@ if (singleInstanceLockAcquired) {
           watchdog.postMessage({ type: 'heartbeat' });
         }, 5000).unref();
 
-        logger.info('main-thread watchdog started');
+        logger.debug('main-thread watchdog started');
       }
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake

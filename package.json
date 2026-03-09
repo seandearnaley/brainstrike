@@ -102,7 +102,7 @@
     "prepare": "node scripts/postinstall.js",
     "queue": "pnpm -w build --filter @brainstrike/db && node packages/db/dist/cli/queue-cli.js",
     "setup:headless": "bash scripts/setup-headless-display.sh",
-    "test": "TURBO_TEST_MODE=unit turbo run test --summarize --log-order=grouped --cache-dir=.turbo",
+    "test": "TURBO_DAEMON=false TURBO_TEST_MODE=unit turbo run test --summarize --log-order=grouped --cache-dir=.turbo",
     "test:browser": "turbo run test:browser --summarize --log-order=grouped --cache-dir=.turbo",
     "test:coverage": "TURBO_TEST_MODE=coverage turbo run test --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:coverage:base": "pnpm -r --filter '!@brainstrike/embeddings' run test -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",

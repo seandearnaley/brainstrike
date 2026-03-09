@@ -22,6 +22,7 @@ const ignoredElectronOutputPatterns = [
   'https://electronjs.org/docs/tutorial/security.',
   'This warning will not show up',
   'once the app is packaged.',
+  'this app to unnecessary security risks.',
   "Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.",
   '(Use `Electron --trace-warnings ...` to show where the warning was created)',
   '🔸 Setting up file system API mocks...',
@@ -43,13 +44,50 @@ const ignoredElectronOutputPatterns = [
   '[EmbeddingWorker] Stopping embedding worker after fatal local model error',
   '[EmbeddingHostRuntime] Embedding host worker stopped after fatal local model error',
   '[EmbeddingWorker] handleBatchFailure: Job(s) failed',
-  '"scope":"DatabaseMain","msg":"Lazy-loading database (triggered by IPC usage)"',
-  '"scope":"DatabaseMain","msg":"Created database directory:',
-  '"scope":"DatabaseMain","msg":"pgvector extension loaded successfully (ESM)"',
-  '"scope":"DatabaseMain","msg":"pglite live query extension loaded successfully (ESM)"',
-  '"scope":"DatabaseMain","msg":"Database initialized with pgvector extension at:"',
-  '"scope":"DatabaseMain","msg":"Database initialized successfully at:',
-  '"scope":"DatabaseMain","msg":"Database connection closed"',
+  '"msg":"Lazy-loading database (triggered by IPC usage)"',
+  '"msg":"Created database directory:',
+  '"msg":"pgvector extension loaded successfully (ESM)"',
+  '"msg":"pglite live query extension loaded successfully (ESM)"',
+  '"msg":"Database initialized with pgvector extension at:"',
+  '"msg":"Database initialized successfully at:',
+  '"msg":"Database connection closed"',
+  '"msg":"Window startup: dom-ready"',
+  '"msg":"Window startup: did-finish-load"',
+  '"msg":"Window startup: browser-window-created"',
+  '"msg":"Window startup: loading-renderer"',
+  '"msg":"Window startup: renderer-load-invocation-returned"',
+  '"msg":"Loading renderer"',
+  '"msg":"Loading built renderer file"',
+  '"reloadReason":"playwright-reset-renderer"',
+  '"reloadReason":"assistant-mock-init-script"',
+  '"reloadReason":"embedding-worker-large-backfill-fixture"',
+  '"reloadReason":"embedding-worker-host-processing-fixture"',
+  '"reloadReason":"embedding-worker-import-backfill-flow"',
+  '"reloadReason":"startup-restore-regression"',
+  '"msg":"Registering MCP IPC handlers"',
+  '"msg":"discoverMcpToolsOnStartup called"',
+  '"msg":"MCP config missing, cleared tool registry"',
+  '"msg":"Loaded MCP config for discovery"',
+  '"msg":"Registering tools IPC handlers"',
+  '"msg":"App ready, starting initialization..."',
+  '"msg":"Setting up IPC handlers that require app readiness..."',
+  '"msg":"Ready-dependent IPC handlers registered successfully"',
+  '"msg":"Security setup complete"',
+  '"msg":"CSP configured"',
+  '"msg":"Creating main window..."',
+  '"msg":"Main window created successfully"',
+  '"msg":"main-thread watchdog started"',
+  '"msg":"main-process-health"',
+  '"msg":"powerSaveBlocker started for active embedding host work"',
+  '"msg":"powerSaveBlocker stopped for idle embedding host"',
+  '"msg":"Using environment API key for provider"',
+  '"msg":"mastra runtime initialized"',
+  '"msg":"mastra stream started"',
+  '"msg":"mastra stream finished"',
+  '"msg":"registry cleared"',
+  'Debugger ending on ws://',
+  'For help, see: https://nodejs.org/en/docs/inspector',
+  'SharedImageManager::ProduceMemory: Trying to Produce a Memory representation from a non-existent mailbox.',
 ] as const;
 
 function shouldIgnoreElectronOutput(output: string): boolean {
@@ -65,11 +103,18 @@ function printElectronOutput(
   output: string,
   printer: (...args: unknown[]) => void
 ): void {
-  if (shouldIgnoreElectronOutput(output)) {
-    return;
-  }
+  const lines = output
+    .split(/\r?\n/u)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
 
-  printer(`${prefix}${output}`);
+  for (const line of lines) {
+    if (shouldIgnoreElectronOutput(line)) {
+      continue;
+    }
+
+    printer(`${prefix}${line}`);
+  }
 }
 
 function verboseLog(...args: unknown[]): void {
@@ -93,11 +138,11 @@ async function attemptElectronLaunch(
 ): Promise<ElectronAppContext> {
   const app = await startElectron(launchOptions);
 
-  console.log('⏳ Waiting for first window...');
+  verboseLog('⏳ Waiting for first window...');
   const window = await app.firstWindow({ timeout: firstWindowTimeout });
   await window.waitForLoadState('domcontentloaded');
   await setupDialogMocking(app);
-  console.log('✅ Electron app launched successfully');
+  verboseLog('✅ Electron app launched successfully');
   return { app, window };
 }
 
@@ -113,7 +158,7 @@ function logEnvironmentDiagnostics(userDataDir?: string): void {
   verboseLog('[DEBUG][HYP-C] WAYLAND_DISPLAY:', process.env['WAYLAND_DISPLAY'] ?? '<not set>');
   verboseLog('[DEBUG][HYP-C] XDG_SESSION_TYPE:', process.env['XDG_SESSION_TYPE'] ?? '<not set>');
   if (userDataDir) {
-    console.log(`📂 Using custom user data dir: ${userDataDir}`);
+    verboseLog(`📂 Using custom user data dir: ${userDataDir}`);
   }
 }
 
@@ -130,16 +175,16 @@ export async function launchElectronApp(
   const firstWindowTimeout = process.env['CI'] ? 30_000 : 60_000;
   const launchTimeoutMs = process.env['CI'] ? 150_000 : 60_000;
 
-  console.log('🚀 Launching Electron app...');
+  verboseLog('🚀 Launching Electron app...');
   logEnvironmentDiagnostics(userDataDir);
-  console.log('Electron path:', electronPath);
-  console.log('Main path:', mainPath);
-  console.log('Launch timeout (ms):', launchTimeoutMs);
+  verboseLog('Electron path:', electronPath);
+  verboseLog('Main path:', mainPath);
+  verboseLog('Launch timeout (ms):', launchTimeoutMs);
 
   let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
+    verboseLog(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
     await killLingeringElectronProcesses();
 
     const launchOptions = createLaunchOptions(
@@ -158,7 +203,7 @@ export async function launchElectronApp(
 
       if (attempt < maxAttempts) {
         const delay = attempt * 2000;
-        console.log(`⏸️ Waiting ${delay}ms before retry...`);
+        verboseLog(`⏸️ Waiting ${delay}ms before retry...`);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
@@ -182,10 +227,10 @@ async function killLingeringElectronProcesses(): Promise<void> {
     }
     // Give OS time to release resources
     await new Promise((resolve) => setTimeout(resolve, 500));
-    console.log('✅ Cleaned up lingering processes');
+    verboseLog('✅ Cleaned up lingering processes');
   } catch (_error) {
     // Ignore errors - processes might not exist
-    console.log('⚠️ No lingering processes to clean up');
+    verboseLog('⚠️ No lingering processes to clean up');
   }
 }
 
@@ -377,7 +422,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     // Pipe stdout and stderr for debugging CI crashes
     const electronProcess = app.process();
     const pid = electronProcess.pid;
-    console.log(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
+    verboseLog(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
 
     // #region agent log - Hypothesis G: Verify stdio pipe status
     verboseLog(
@@ -470,10 +515,10 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
 }
 
 export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
-  console.log('🔒 Closing Electron app...');
+  verboseLog('🔒 Closing Electron app...');
   try {
     const windows = appContext.app.windows();
-    console.log(`📋 Closing ${windows.length} window(s)...`);
+    verboseLog(`📋 Closing ${windows.length} window(s)...`);
     const windowClosePromises: Promise<void>[] = [];
     for (const window of windows) {
       if (window.isClosed()) {
@@ -492,7 +537,7 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
       windowClosePromises.push(closePromise);
       try {
         await window.close();
-        console.log('✅ Requested window close');
+        verboseLog('✅ Requested window close');
       } catch (windowError) {
         console.warn('⚠️ Failed to close window gracefully:', windowError);
       }
@@ -503,7 +548,7 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
     intentionallyClosingApps.add(appContext.app);
     await appContext.app.close();
     await appClosed;
-    console.log('✅ Electron app closed');
+    verboseLog('✅ Electron app closed');
   } catch (error) {
     console.error('❌ Error closing Electron app:', error);
     throw error;
@@ -548,7 +593,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
 
         const isReady = await page.evaluate(readinessCheck);
         if (isReady) {
-          console.log('✅ App is ready and responsive (Codex environment)');
+          verboseLog('✅ App is ready and responsive (Codex environment)');
           return;
         }
 
@@ -559,7 +604,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
     }
 
     await page.waitForFunction(readinessCheck, { timeout: appReadyTimeoutMs, polling: 100 });
-    console.log('✅ App is ready and responsive');
+    verboseLog('✅ App is ready and responsive');
   } catch (error) {
     console.error('❌ Error waiting for app to be ready:', error);
 

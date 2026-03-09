@@ -85,7 +85,7 @@ async function restartConfigWatcher(): Promise<void> {
 }
 
 export function registerMcpIpcHandlers(): void {
-  logger.info('Registering MCP IPC handlers');
+  logger.debug('Registering MCP IPC handlers');
 
   ipcMain.handle('mcp:config:get', async (): Promise<LoadedMcpConfig> => {
     last = await loadMcpConfig();
@@ -304,7 +304,7 @@ export function registerMcpIpcHandlers(): void {
 }
 
 async function discoverMcpToolsOnStartup(): Promise<void> {
-  logger.info('discoverMcpToolsOnStartup called');
+  logger.debug('discoverMcpToolsOnStartup called');
   try {
     const loaded = await loadMcpConfig();
     logger.debug('Loaded MCP config for discovery', { loaded });
@@ -317,7 +317,7 @@ async function discoverMcpToolsOnStartup(): Promise<void> {
           error: loaded.error,
         });
       } else {
-        logger.info('MCP config missing, cleared tool registry');
+        logger.debug('MCP config missing, cleared tool registry');
       }
       return;
     }
@@ -332,7 +332,7 @@ async function discoverMcpToolsOnStartup(): Promise<void> {
 
 async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promise<void> {
   if (!config || config.servers.length === 0) {
-    logger.info('No MCP servers configured, skipping tool discovery');
+    logger.debug('No MCP servers configured, skipping tool discovery');
     return;
   }
 
@@ -348,7 +348,7 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
   }
 
   if (actionableServers.length === 0) {
-    logger.info('No actionable MCP servers configured after filtering placeholders');
+    logger.debug('No actionable MCP servers configured after filtering placeholders');
     return;
   }
 
