@@ -372,7 +372,7 @@ export class ChunkingHostManager {
       if (!pending) {
         return;
       }
-      this.pendingRequests.delete(requestId);
+      this.clearPendingRequest(requestId);
       pending.reject(
         createRequestFailure(
           `Chunking host request ${requestId} timed out after ${CHUNKING_HOST_REQUEST_TIMEOUT_MS}ms.`

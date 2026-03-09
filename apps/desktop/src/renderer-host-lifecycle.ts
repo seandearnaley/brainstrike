@@ -145,6 +145,8 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       })
     );
 
+    // startupPromise serializes replacement work, so this snapshot remains valid for the lifetime
+    // of the in-flight startup attempt even if later callers arrive while it is pending.
     const shouldReplaceExistingWindow =
       !!existingWindow &&
       !existingWindow.isDestroyed() &&
@@ -312,7 +314,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private async createWindow(runtimeId: string): Promise<BrowserWindow> {
-    const isTestMode = process.argv.includes('--test-mode');
+    const isTestMode = process.argv.includes('--test-mode') && !app.isPackaged;
     // Hidden host renderers only drop sandboxing under the explicit E2E-only --test-mode flag.
     // Packaged production builds do not pass that flag, so the runtime stays sandboxed there.
     const enableSandbox = !isTestMode;

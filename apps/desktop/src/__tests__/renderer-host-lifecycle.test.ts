@@ -249,6 +249,45 @@ describe('RendererHostLifecycle', () => {
     );
   });
 
+  it('keeps sandbox enabled in packaged builds even if --test-mode is present', async () => {
+    const hostWindow = createFakeWindow(45);
+    hostWindow.loadFile.mockResolvedValue(undefined);
+    process.argv = [...baseArgv, '--test-mode'];
+    vi.mocked(app).isPackaged = true;
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+
+    expect(MockBrowserWindow).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({
+          sandbox: true,
+        }),
+      })
+    );
+  });
+
   it('broadcasts status updates to non-host windows only', async () => {
     const hostWindow = createFakeWindow(51);
     const visibleWindow = createFakeWindow(52);
