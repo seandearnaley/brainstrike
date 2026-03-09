@@ -8,6 +8,7 @@ import { assignWindowRole, type DesktopWindowRole, getWindowRole } from './windo
 
 const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
 const logger = createLogger('RendererHostLifecycle');
+const RENDERER_HOST_LIFECYCLE_DISPOSED_CODE = 'RENDERER_HOST_LIFECYCLE_DISPOSED';
 
 export type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 
@@ -51,9 +52,32 @@ function resolveDistRoot(): string {
   return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
 }
 
+function createLifecycleDisposedError(role: Exclude<DesktopWindowRole, 'visible-ui'>): Error {
+  const error = new Error(`${role} lifecycle was disposed while waiting for status.`);
+  (
+    error as Error & {
+      code?: string;
+    }
+  ).code = RENDERER_HOST_LIFECYCLE_DISPOSED_CODE;
+  return error;
+}
+
+function isLifecycleDisposedError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (
+      error as Error & {
+        code?: string;
+      }
+    ).code === RENDERER_HOST_LIFECYCLE_DISPOSED_CODE
+  );
+}
+
 export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   private readonly events = new EventEmitter();
   private hostWindow: BrowserWindow | null = null;
+  private readonly pendingWaiterRejectors = new Set<(error: Error) => void>();
+  private disposed = false;
   private startupPromise: Promise<TStatus> | null = null;
   private status: TStatus;
 
@@ -74,6 +98,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   async ensureStarted(options?: { waitForRunning?: boolean }): Promise<TStatus> {
+    if (this.disposed) {
+      throw new Error(`${this.options.role} lifecycle has been disposed.`);
+    }
+
     const waitForRunning = options?.waitForRunning ?? true;
     const existingWindow = this.hostWindow;
 
@@ -99,10 +127,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       }
 
       // An existing hidden host window in stopped/stopping/error is not usable for new work.
-      // Destroy it and create a fresh runtime instead of waiting on a state transition that
-      // will never happen on its own.
-      this.destroyHostWindow();
-      this.setStatus(this.options.createStoppedStatus());
+      // Replace it inside the startup promise so concurrent callers share one restart path.
     }
 
     const runtimeId = createRuntimeId(this.options.role);
@@ -115,7 +140,16 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       })
     );
 
-    this.startupPromise = (async (): Promise<TStatus> => {
+    const shouldReplaceExistingWindow =
+      !!existingWindow &&
+      !existingWindow.isDestroyed() &&
+      existingWindow.id === this.hostWindow?.id;
+
+    this.startupPromise = Promise.resolve().then(async (): Promise<TStatus> => {
+      if (shouldReplaceExistingWindow) {
+        this.destroyHostWindow();
+      }
+
       try {
         const window = await this.createWindow(runtimeId);
         this.hostWindow = window;
@@ -139,6 +173,9 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           DEFAULT_HOST_READY_TIMEOUT_MS
         );
       } catch (error) {
+        if (isLifecycleDisposedError(error)) {
+          return this.getStatus();
+        }
         const message = error instanceof Error ? error.message : String(error);
         this.destroyHostWindow();
         this.setStatus(
@@ -151,7 +188,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         );
         return this.getStatus();
       }
-    })();
+    });
     const startupPromise = this.startupPromise;
     void startupPromise.finally(() => {
       if (this.startupPromise === startupPromise) {
@@ -176,11 +213,24 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     }
 
     return new Promise<TStatus>((resolve, reject) => {
+      let settled = false;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const rejectPendingWaiter = (error: Error) => {
+        if (settled) {
+          return;
+        }
+        cleanup();
+        reject(error);
+      };
       const cleanup = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
+        this.pendingWaiterRejectors.delete(rejectPendingWaiter);
         this.events.removeListener(this.options.statusEventName, listener);
       };
       const listener = (status: TStatus) => {
@@ -188,8 +238,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         try {
           matches = predicate(status);
         } catch (error) {
-          cleanup();
-          reject(error);
+          rejectPendingWaiter(error instanceof Error ? error : new Error(String(error)));
           return;
         }
         if (!matches) {
@@ -200,10 +249,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       };
 
       timeoutId = setTimeout(() => {
-        cleanup();
-        reject(new Error(this.options.timeoutMessage));
+        rejectPendingWaiter(new Error(this.options.timeoutMessage));
       }, timeoutMs);
 
+      this.pendingWaiterRejectors.add(rejectPendingWaiter);
       this.events.on(this.options.statusEventName, listener);
     });
   }
@@ -232,8 +281,17 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     this.destroyHostWindow();
     this.startupPromise = null;
+    const disposalError = createLifecycleDisposedError(this.options.role);
+    for (const rejectPendingWaiter of [...this.pendingWaiterRejectors]) {
+      rejectPendingWaiter(disposalError);
+    }
+    this.pendingWaiterRejectors.clear();
     this.events.removeAllListeners();
     this.status = this.options.createStoppedStatus();
   }

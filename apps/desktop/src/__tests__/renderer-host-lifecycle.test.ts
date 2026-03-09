@@ -326,6 +326,7 @@ describe('RendererHostLifecycle', () => {
 
     await lifecycle.ensureStarted({ waitForRunning: false });
     await Promise.resolve();
+    await Promise.resolve();
     lifecycle.dispose();
 
     expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
@@ -393,6 +394,89 @@ describe('RendererHostLifecycle', () => {
     expect(restartedStatus.runtimeId).not.toBe('embedding-host:old-runtime');
   });
 
+  it('serializes concurrent restart calls when replacing a stopped host window', async () => {
+    const stoppedWindow = createFakeWindow(63);
+    const restartedWindow = createFakeWindow(64);
+    let resolveLoad: (() => void) | null = null;
+    stoppedWindow.loadURL.mockResolvedValue(undefined);
+    restartedWindow.loadURL.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve;
+        })
+    );
+
+    const createdWindows = [stoppedWindow, restartedWindow];
+    MockBrowserWindow.mockImplementation(function () {
+      const nextWindow = createdWindows.shift();
+      if (!nextWindow) {
+        throw new Error('No fake BrowserWindow left to create');
+      }
+      Object.assign(this, nextWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [stoppedWindow, restartedWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
+    await Promise.resolve();
+    lifecycle.setStatus(
+      createStatus({
+        state: 'running',
+        active: true,
+        lastError: null,
+        runtimeId: lifecycle.getStatus().runtimeId,
+      })
+    );
+    await initialStart;
+    lifecycle.setStatus(
+      createStatus({
+        state: 'stopped',
+        active: false,
+        lastError: null,
+        runtimeId: 'embedding-host:old-runtime',
+      })
+    );
+
+    const firstRestart = lifecycle.ensureStarted({ waitForRunning: true });
+    const secondRestart = lifecycle.ensureStarted({ waitForRunning: true });
+    await Promise.resolve();
+
+    expect(stoppedWindow.destroy).toHaveBeenCalledTimes(1);
+    expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1);
+
+    resolveLoad?.();
+    await Promise.resolve();
+    lifecycle.setStatus(
+      createStatus({
+        state: 'running',
+        active: true,
+        lastError: null,
+        runtimeId: lifecycle.getStatus().runtimeId,
+      })
+    );
+
+    const [firstStatus, secondStatus] = await Promise.all([firstRestart, secondRestart]);
+    expect(firstStatus.state).toBe('running');
+    expect(secondStatus.state).toBe('running');
+    expect(firstStatus.runtimeId).toBe(secondStatus.runtimeId);
+  });
+
   it('serializes concurrent startup calls before the host window exists', async () => {
     const hostWindow = createFakeWindow(71);
     let resolveLoad: (() => void) | null = null;
@@ -427,6 +511,7 @@ describe('RendererHostLifecycle', () => {
 
     const firstStart = lifecycle.ensureStarted({ waitForRunning: true });
     const secondStart = lifecycle.ensureStarted({ waitForRunning: true });
+    await Promise.resolve();
 
     expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
     expect(hostWindow.loadURL).toHaveBeenCalledTimes(1);
@@ -486,6 +571,53 @@ describe('RendererHostLifecycle', () => {
         }
       ).events.listenerCount('chunking-host:status')
     ).toBe(0);
+  });
+
+  it('resolves in-flight startup waits promptly when dispose is called', async () => {
+    const hostWindow = createFakeWindow(72);
+    let resolveLoad: (() => void) | null = null;
+    hostWindow.loadURL.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve;
+        })
+    );
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'chunking-host:stopped',
+        }),
+      mode: 'chunking-host',
+      role: 'chunking-host',
+      statusEventName: 'chunking-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
+    await Promise.resolve();
+    resolveLoad?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    lifecycle.dispose();
+
+    await expect(startupPromise).resolves.toEqual(
+      expect.objectContaining({
+        state: 'stopped',
+        runtimeId: 'chunking-host:stopped',
+      })
+    );
   });
 
   it('ignores windows destroyed between enumeration and status broadcast', async () => {
