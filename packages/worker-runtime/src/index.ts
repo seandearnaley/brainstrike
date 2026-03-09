@@ -39,6 +39,16 @@ export type BackgroundRuntimeScopedChannel<
   TSuffix extends string,
 > = `${TRuntimeKind}:${TSuffix}`;
 
+export type BackgroundRuntimeScopedChannels<
+  TRuntimeKind extends string,
+  TChannels extends Record<string, string>,
+> = {
+  readonly [TKey in keyof TChannels]: BackgroundRuntimeScopedChannel<
+    TRuntimeKind,
+    TChannels[TKey] & string
+  >;
+};
+
 export interface BackgroundRuntimeLifecycleChannels<TRuntimeKind extends string> {
   readonly ensureStarted: BackgroundRuntimeScopedChannel<TRuntimeKind, 'ensure-started'>;
   readonly getStatus: BackgroundRuntimeScopedChannel<TRuntimeKind, 'get-status'>;
@@ -52,6 +62,9 @@ export interface BackgroundRuntimeDescriptor<TRuntimeKind extends string> {
   createScopedChannel: <TSuffix extends string>(
     suffix: TSuffix
   ) => BackgroundRuntimeScopedChannel<TRuntimeKind, TSuffix>;
+  createScopedChannels: <TChannels extends Record<string, string>>(
+    channels: TChannels
+  ) => BackgroundRuntimeScopedChannels<TRuntimeKind, TChannels>;
   createStoppedStatus: (runtimeId?: string) => BackgroundRuntimeStatus<TRuntimeKind>;
   readonly lifecycleChannels: BackgroundRuntimeLifecycleChannels<TRuntimeKind>;
   readonly runtimeKind: TRuntimeKind;
@@ -292,8 +305,24 @@ export function createBackgroundRuntimeDescriptor<TRuntimeKind extends string>(
     stoppedRuntimeId,
     createScopedChannel: <TSuffix extends string>(suffix: TSuffix) =>
       createBackgroundRuntimeScopedChannel(runtimeKind, suffix),
+    createScopedChannels: <TChannels extends Record<string, string>>(channels: TChannels) =>
+      createBackgroundRuntimeScopedChannels(runtimeKind, channels),
     createStoppedStatus: (runtimeId?: string) => statusAdapter.createStoppedStatus(runtimeId),
   };
+}
+
+export function createBackgroundRuntimeScopedChannels<
+  TRuntimeKind extends string,
+  TChannels extends Record<string, string>,
+>(
+  runtimeKind: TRuntimeKind,
+  channels: TChannels
+): BackgroundRuntimeScopedChannels<TRuntimeKind, TChannels> {
+  const scopedChannels = {} as Record<string, string>;
+  for (const [key, suffix] of Object.entries(channels)) {
+    scopedChannels[key] = createBackgroundRuntimeScopedChannel(runtimeKind, suffix);
+  }
+  return scopedChannels as BackgroundRuntimeScopedChannels<TRuntimeKind, TChannels>;
 }
 
 export function assertRuntimeObjectPayloadEnvelope(

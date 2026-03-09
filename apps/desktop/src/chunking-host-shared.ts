@@ -9,20 +9,24 @@ import { createBackgroundRuntimeDescriptor } from '@brainstrike/worker-runtime';
 
 export const CHUNKING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('chunking-host');
 export const CHUNKING_HOST_LIFECYCLE_CHANNELS = CHUNKING_HOST_RUNTIME.lifecycleChannels;
+const CHUNKING_HOST_CHANNELS = CHUNKING_HOST_RUNTIME.createScopedChannels({
+  request: 'request',
+  progress: 'progress',
+  reportResponse: 'report-response',
+  chunkFile: 'chunk-file',
+  chunkBatch: 'chunk-batch',
+});
 export const CHUNKING_HOST_STATUS_EVENT = CHUNKING_HOST_LIFECYCLE_CHANNELS.statusEvent;
-export const CHUNKING_HOST_REQUEST_EVENT = CHUNKING_HOST_RUNTIME.createScopedChannel('request');
-export const CHUNKING_HOST_PROGRESS_EVENT = CHUNKING_HOST_RUNTIME.createScopedChannel('progress');
+export const CHUNKING_HOST_REQUEST_EVENT = CHUNKING_HOST_CHANNELS.request;
+export const CHUNKING_HOST_PROGRESS_EVENT = CHUNKING_HOST_CHANNELS.progress;
 export const CHUNKING_HOST_REPORT_STATUS_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.reportStatus;
-export const CHUNKING_HOST_REPORT_RESPONSE_CHANNEL =
-  CHUNKING_HOST_RUNTIME.createScopedChannel('report-response');
+export const CHUNKING_HOST_REPORT_RESPONSE_CHANNEL = CHUNKING_HOST_CHANNELS.reportResponse;
 export const CHUNKING_HOST_ENSURE_STARTED_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.ensureStarted;
 export const CHUNKING_HOST_STOP_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.stop;
 export const CHUNKING_HOST_RESET_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.reset;
 export const CHUNKING_HOST_GET_STATUS_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS.getStatus;
-export const CHUNKING_HOST_CHUNK_FILE_CHANNEL =
-  CHUNKING_HOST_RUNTIME.createScopedChannel('chunk-file');
-export const CHUNKING_HOST_CHUNK_BATCH_CHANNEL =
-  CHUNKING_HOST_RUNTIME.createScopedChannel('chunk-batch');
+export const CHUNKING_HOST_CHUNK_FILE_CHANNEL = CHUNKING_HOST_CHANNELS.chunkFile;
+export const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = CHUNKING_HOST_CHANNELS.chunkBatch;
 
 export type ChunkingHostChunkingStrategy = 'sentence' | 'token' | 'recursive';
 

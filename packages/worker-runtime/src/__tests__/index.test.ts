@@ -8,6 +8,7 @@ import {
   createBackgroundRuntimeDescriptor,
   createBackgroundRuntimeLifecycleChannels,
   createBackgroundRuntimeScopedChannel,
+  createBackgroundRuntimeScopedChannels,
   createBackgroundRuntimeStatus,
   createBackgroundRuntimeStatusAdapter,
   createRequestTracker,
@@ -136,6 +137,15 @@ describe('@brainstrike/worker-runtime', () => {
     expect(createBackgroundRuntimeScopedChannel('embedding-host', 'command')).toBe(
       'embedding-host:command'
     );
+    expect(
+      createBackgroundRuntimeScopedChannels('chunking-host', {
+        progress: 'progress',
+        reportResponse: 'report-response',
+      })
+    ).toEqual({
+      progress: 'chunking-host:progress',
+      reportResponse: 'chunking-host:report-response',
+    });
     expect(createBackgroundRuntimeLifecycleChannels('chunking-host')).toEqual({
       statusEvent: 'chunking-host:status',
       reportStatus: 'chunking-host:report-status',
@@ -155,6 +165,15 @@ describe('@brainstrike/worker-runtime', () => {
     expect(descriptor.createScopedChannel('backfill-progress')).toBe(
       'embedding-host:backfill-progress'
     );
+    expect(
+      descriptor.createScopedChannels({
+        command: 'command',
+        enqueueBackfill: 'enqueue-backfill',
+      })
+    ).toEqual({
+      command: 'embedding-host:command',
+      enqueueBackfill: 'embedding-host:enqueue-backfill',
+    });
     expect(descriptor.createStoppedStatus()).toEqual({
       runtimeKind: 'embedding-host',
       runtimeId: 'embedding-host:stopped',
