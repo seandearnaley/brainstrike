@@ -170,6 +170,9 @@ export function EmbeddingHostRuntime(): null {
       if (controller) {
         await controller.stop();
       }
+      if (disposed) {
+        return;
+      }
       reportStatus({
         runtimeKind: 'embedding-host',
         runtimeId: runtimeIdRef.current,

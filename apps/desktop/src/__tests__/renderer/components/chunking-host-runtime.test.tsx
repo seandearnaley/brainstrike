@@ -1,6 +1,7 @@
+import { addLogListener, type LogRecord } from '@brainstrike/utils';
 import { render, waitFor } from '@testing-library/react';
 import { act } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChunkingHostRuntime } from '../../../renderer/components/chunking-host-runtime';
 
 const { ensureStartedMock, getChunkingStrategyMock } = vi.hoisted(() => ({
@@ -37,10 +38,16 @@ describe('ChunkingHostRuntime', () => {
   const reportStatusMock = vi.fn();
   const dbQueryMock = vi.fn();
   const chunkFileMock = vi.fn();
+  let logRecords: LogRecord[] = [];
+  let removeLogListener: (() => void) | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
     onRequestCallback = null;
+    logRecords = [];
+    removeLogListener = addLogListener((record: LogRecord) => {
+      logRecords.push(record);
+    });
 
     ensureStartedMock.mockResolvedValue({
       chunkFile: chunkFileMock,
@@ -75,6 +82,13 @@ describe('ChunkingHostRuntime', () => {
     };
 
     window.history.replaceState({}, '', '/?mode=chunking-host&runtimeId=test-runtime');
+  });
+
+  afterEach(() => {
+    if (removeLogListener) {
+      removeLogListener();
+      removeLogListener = null;
+    }
   });
 
   it('loads file content by id inside the hidden host before chunking', async () => {
@@ -187,6 +201,60 @@ describe('ChunkingHostRuntime', () => {
           }),
         })
       );
+    });
+  });
+
+  it('warns if request accounting would underflow during cleanup', async () => {
+    let releaseChunking: (() => void) | null = null;
+    chunkFileMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseChunking = () =>
+            resolve({
+              chunks: [],
+              fileRecordId: 'file-1',
+              id: 'req-3',
+              skipped: false,
+              strategyUsed: 'sentence',
+              totalTokens: 0,
+              type: 'result',
+            });
+        })
+    );
+    dbQueryMock.mockResolvedValue({
+      rows: [
+        { name: 'mock-file1.txt', path: '/mock/mock-file1.txt', content: 'mock file content' },
+      ],
+    });
+
+    const view = render(<ChunkingHostRuntime />);
+
+    await act(async () => {
+      onRequestCallback?.({
+        type: 'request',
+        channel: 'chunk',
+        requestId: 'req-3',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'chunk-file-by-id',
+          requestId: 'req-3',
+          fileRecordId: 'file-1',
+          options: {},
+        },
+      });
+    });
+
+    view.unmount();
+    releaseChunking?.();
+
+    await waitFor(() => {
+      expect(
+        logRecords.some(
+          (record) =>
+            record.level === 'warn' &&
+            String(record.message ?? '').includes('active request count underflow')
+        )
+      ).toBe(true);
     });
   });
 });

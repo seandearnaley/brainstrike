@@ -201,6 +201,55 @@ describe('logging-ipc', () => {
     expect(liveContents.send).toHaveBeenCalledWith('logging:preferences-updated', basePreferences);
   });
 
+  it('skips unsupported WebContents types when broadcasting updated preferences', async () => {
+    const handlers = {
+      getState: () => ({
+        preferences: basePreferences,
+        capabilities: { canOpenDestination: true },
+      }),
+      setPreferences: (prefs: LoggingPreferences) => ({
+        preferences: prefs,
+        capabilities: { canOpenDestination: true },
+      }),
+      selectDestination: async () => '/tmp',
+      openDestination: async () => true,
+      getBufferedLogs: () => [],
+      ingestBufferedLog: vi.fn(),
+    };
+
+    const workerContents = {
+      id: 42,
+      getType: () => 'service-worker',
+      isDestroyed: () => false,
+      send: vi.fn(),
+    };
+    const liveContents = {
+      id: 43,
+      getType: () => 'window',
+      isDestroyed: () => false,
+      send: vi.fn(),
+    };
+
+    vi.mocked(webContents.getAllWebContents).mockReturnValue([
+      workerContents,
+      liveContents,
+    ] as unknown as Electron.WebContents[]);
+
+    registerLoggingIpcHandlers(handlers);
+
+    const setPreferencesHandler = vi
+      .mocked(ipcMain.handle)
+      .mock.calls.find(([channel]) => channel === 'logging:set-preferences')?.[1] as (
+      event: IpcMainInvokeEvent,
+      preferences: LoggingPreferences
+    ) => Promise<unknown>;
+
+    await setPreferencesHandler({} as IpcMainInvokeEvent, basePreferences);
+
+    expect(workerContents.send).not.toHaveBeenCalled();
+    expect(liveContents.send).toHaveBeenCalledWith('logging:preferences-updated', basePreferences);
+  });
+
   it('clones logging settings payloads deeply', () => {
     const payload = {
       preferences: basePreferences,

@@ -1,7 +1,9 @@
-import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import { createLogger, type LoggingPreferences, type LogRecord } from '@brainstrike/utils';
 import type { IpcMainEvent } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
+
+const logger = createLogger('LoggingIPC');
 
 export interface LoggingIpcHandlers {
   getBufferedLogs: () => readonly LogRecord[];
@@ -112,16 +114,21 @@ function broadcastLoggingPreferences(preferences: LoggingPreferences): void {
   const cloned = cloneLoggingPreferences(preferences);
   for (const contents of webContents.getAllWebContents()) {
     const targetType = contents.getType?.();
-    if (
-      (targetType === 'window' || targetType === 'webview' || !targetType) &&
-      !contents.isDestroyed()
-    ) {
+    if (contents.isDestroyed()) {
+      continue;
+    }
+    if (targetType === 'window' || targetType === 'webview') {
       try {
         contents.send('logging:preferences-updated', cloned);
       } catch {
         // A WebContents can disappear between enumeration and send during shutdown churn.
       }
+      continue;
     }
+    logger.debug('Skipping logging preference broadcast for unsupported WebContents type', {
+      targetType: typeof targetType === 'string' ? targetType : 'unknown',
+      webContentsId: contents.id,
+    });
   }
 }
 

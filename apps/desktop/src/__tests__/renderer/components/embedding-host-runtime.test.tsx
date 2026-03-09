@@ -134,4 +134,30 @@ describe('EmbeddingHostRuntime', () => {
       expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
     });
   });
+
+  it('does not report stopped status again after unmount cleanup finishes', async () => {
+    storeState.hasHydrated = true;
+    let resolveStop: (() => void) | null = null;
+    stopMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveStop = resolve;
+        })
+    );
+
+    const view = render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    });
+
+    view.unmount();
+    resolveStop?.();
+    await Promise.resolve();
+
+    const stoppedReports = reportStatusMock.mock.calls.filter(
+      ([status]) => (status as { state?: string }).state === 'stopped'
+    );
+    expect(stoppedReports).toHaveLength(0);
+  });
 });

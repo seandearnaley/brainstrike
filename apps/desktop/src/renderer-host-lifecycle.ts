@@ -115,7 +115,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       })
     );
 
-    const startupPromise = (async (): Promise<TStatus> => {
+    this.startupPromise = (async (): Promise<TStatus> => {
       try {
         const window = await this.createWindow(runtimeId);
         this.hostWindow = window;
@@ -152,8 +152,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         return this.getStatus();
       }
     })();
-
-    this.startupPromise = startupPromise;
+    const startupPromise = this.startupPromise;
     void startupPromise.finally(() => {
       if (this.startupPromise === startupPromise) {
         this.startupPromise = null;

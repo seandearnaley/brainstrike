@@ -346,6 +346,11 @@ export function ChunkingHostRuntime(): null {
       } finally {
         if (activeRequestCountRef.current > 0) {
           activeRequestCountRef.current -= 1;
+        } else {
+          logger.warn('Chunking host active request count underflow detected', {
+            runtimeId: runtimeIdRef.current,
+            requestId: request.requestId,
+          });
         }
         if (!disposed) {
           syncActiveStatus();
