@@ -29,6 +29,8 @@ vi.mock('electron', async () => {
 });
 
 import {
+  CHUNKING_HOST_CHUNK_BATCH_CHANNEL,
+  CHUNKING_HOST_CHUNK_FILE_CHANNEL,
   CHUNKING_HOST_REPORT_RESPONSE_CHANNEL,
   CHUNKING_HOST_REPORT_STATUS_CHANNEL,
 } from '../../chunking-host-shared';
@@ -136,5 +138,81 @@ describe('chunking host IPC handlers', () => {
 
     expect(listeners.has(CHUNKING_HOST_REPORT_STATUS_CHANNEL)).toBe(true);
     expect(listeners.has(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL)).toBe(true);
+  });
+
+  it('accepts valid chunk-file requests', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      acceptStatusReport: vi.fn(),
+      ensureStarted: vi.fn(),
+      getStatus: vi.fn(),
+      reset: vi.fn(),
+      stop: vi.fn(),
+      chunkFile: vi.fn(),
+      chunkBatch: vi.fn(),
+    };
+
+    registerChunkingHostIpcHandlers(manager as never);
+
+    const chunkFileHandler = handlers.get(CHUNKING_HOST_CHUNK_FILE_CHANNEL);
+    if (!chunkFileHandler) {
+      throw new Error('Chunking host chunk-file handler not registered.');
+    }
+
+    await chunkFileHandler(
+      { sender: { id: 42 } },
+      {
+        kind: 'chunk-file',
+        requestId: 'request-1',
+        fileRecordId: 'file-1',
+        fileName: 'demo.ts',
+        filePath: '/demo.ts',
+        content: 'const demo = true;',
+        options: {},
+      }
+    );
+
+    expect(manager.chunkFile).toHaveBeenCalledWith(42, {
+      kind: 'chunk-file',
+      requestId: 'request-1',
+      fileRecordId: 'file-1',
+      fileName: 'demo.ts',
+      filePath: '/demo.ts',
+      content: 'const demo = true;',
+      options: {},
+    });
+  });
+
+  it('fails fast on malformed chunk-batch requests', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      acceptStatusReport: vi.fn(),
+      ensureStarted: vi.fn(),
+      getStatus: vi.fn(),
+      reset: vi.fn(),
+      stop: vi.fn(),
+      chunkFile: vi.fn(),
+      chunkBatch: vi.fn(),
+    };
+
+    registerChunkingHostIpcHandlers(manager as never);
+
+    const chunkBatchHandler = handlers.get(CHUNKING_HOST_CHUNK_BATCH_CHANNEL);
+    if (!chunkBatchHandler) {
+      throw new Error('Chunking host chunk-batch handler not registered.');
+    }
+
+    await expect(() =>
+      chunkBatchHandler(
+        { sender: { id: 42 } },
+        {
+          kind: 'chunk-file',
+          requestId: 'request-1',
+          files: [],
+          options: {},
+        }
+      )
+    ).rejects.toThrow('Chunking host chunk-batch request must declare kind="chunk-batch".');
+    expect(manager.chunkBatch).not.toHaveBeenCalled();
   });
 });

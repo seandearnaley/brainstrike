@@ -78,6 +78,11 @@ export interface RuntimeEnvelopeObjectPayloadBase<
   readonly type: TType;
 }
 
+export interface RuntimeRequestPayloadBase<TKind extends string = string> {
+  readonly kind: TKind;
+  readonly requestId: string;
+}
+
 export interface RuntimeEnvelope<
   TType extends 'cancel' | 'error' | 'progress' | 'request' | 'result' | 'status',
   TChannel extends string = string,
@@ -332,6 +337,33 @@ export function assertRuntimeObjectPayloadEnvelope(
       runtimeId,
     },
     payload: payload as Record<string, unknown>,
+  };
+}
+
+export function assertRuntimeRequestPayloadBase<TKind extends string>(
+  value: unknown,
+  context: string,
+  expectedKind: TKind
+): {
+  readonly candidate: Record<string, unknown>;
+  readonly requestBase: RuntimeRequestPayloadBase<TKind>;
+} {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${context} must be an object.`);
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate['kind'] !== expectedKind) {
+    throw new Error(`${context} must declare kind="${expectedKind}".`);
+  }
+  if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
+    throw new Error(`${context} must include a non-empty requestId.`);
+  }
+  return {
+    candidate,
+    requestBase: {
+      kind: expectedKind,
+      requestId: candidate['requestId'],
+    },
   };
 }
 

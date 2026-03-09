@@ -1,6 +1,8 @@
 import {
   assertRuntimeObjectPayloadEnvelope,
+  assertRuntimeRequestPayloadBase,
   type RuntimeEnvelopeObjectPayloadBase,
+  type RuntimeRequestPayloadBase,
   serializeRuntimeError,
 } from '@brainstrike/worker-runtime';
 import { type IpcMainEvent, type IpcMainInvokeEvent, ipcMain } from 'electron';
@@ -148,35 +150,24 @@ function assertChunkingRequestOptions(value: unknown): ChunkingHostChunkFileRequ
 }
 
 function assertChunkFileRequest(value: unknown): ChunkingHostChunkFileRequest {
-  if (!value || typeof value !== 'object') {
-    throw new Error('Chunking host chunk-file request must be an object.');
-  }
-  const candidate = value as Record<string, unknown>;
-  if (candidate['kind'] !== 'chunk-file') {
-    throw new Error('Chunking host chunk-file request must declare kind="chunk-file".');
-  }
-  if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
-    throw new Error('Chunking host chunk-file request must include a non-empty requestId.');
-  }
+  const { requestBase } = assertRuntimeRequestPayloadBase(
+    value,
+    'Chunking host chunk-file request',
+    'chunk-file'
+  );
   return {
-    kind: 'chunk-file',
-    requestId: candidate['requestId'],
+    ...requestBase,
     ...assertFilePayload(value, 'chunkFileRequest'),
-    options: assertChunkingRequestOptions(candidate['options']),
+    options: assertChunkingRequestOptions((value as Record<string, unknown>)['options']),
   };
 }
 
 function assertChunkFileByIdRequest(value: unknown): ChunkingHostChunkFileByIdRequest {
-  if (!value || typeof value !== 'object') {
-    throw new Error('Chunking host chunk-file-by-id request must be an object.');
-  }
-  const candidate = value as Record<string, unknown>;
-  if (candidate['kind'] !== 'chunk-file-by-id') {
-    throw new Error('Chunking host chunk-file-by-id request must declare kind="chunk-file-by-id".');
-  }
-  if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
-    throw new Error('Chunking host chunk-file-by-id request must include a non-empty requestId.');
-  }
+  const { candidate, requestBase } = assertRuntimeRequestPayloadBase(
+    value,
+    'Chunking host chunk-file-by-id request',
+    'chunk-file-by-id'
+  );
   if (
     typeof candidate['fileRecordId'] !== 'string' ||
     candidate['fileRecordId'].trim().length === 0
@@ -186,31 +177,26 @@ function assertChunkFileByIdRequest(value: unknown): ChunkingHostChunkFileByIdRe
     );
   }
   return {
-    kind: 'chunk-file-by-id',
-    requestId: candidate['requestId'],
+    ...requestBase,
     fileRecordId: candidate['fileRecordId'],
     options: assertChunkingRequestOptions(candidate['options']),
   };
 }
 
 function assertChunkBatchRequest(value: unknown): ChunkingHostChunkBatchRequest {
-  if (!value || typeof value !== 'object') {
-    throw new Error('Chunking host chunk-batch request must be an object.');
-  }
-  const candidate = value as Record<string, unknown>;
-  if (candidate['kind'] !== 'chunk-batch') {
-    throw new Error('Chunking host chunk-batch request must declare kind="chunk-batch".');
-  }
-  if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
-    throw new Error('Chunking host chunk-batch request must include a non-empty requestId.');
-  }
+  const { candidate, requestBase } = assertRuntimeRequestPayloadBase(
+    value,
+    'Chunking host chunk-batch request',
+    'chunk-batch'
+  );
   if (!Array.isArray(candidate['files']) || candidate['files'].length === 0) {
     throw new Error('Chunking host chunk-batch request must include at least one file.');
   }
   return {
-    kind: 'chunk-batch',
-    requestId: candidate['requestId'],
-    files: candidate['files'].map((entry, index) => assertFilePayload(entry, `files[${index}]`)),
+    ...requestBase,
+    files: candidate['files'].map((entry: unknown, index: number) =>
+      assertFilePayload(entry, `files[${index}]`)
+    ),
     options: assertChunkingRequestOptions(candidate['options']),
   };
 }
@@ -370,6 +356,16 @@ function assertChunkingHostResponseReport(value: unknown): ChunkingHostResponseR
   }
 }
 
+function isChunkingHostRequestPayloadBase(
+  payload: unknown
+): payload is RuntimeRequestPayloadBase<'chunk-file' | 'chunk-file-by-id' | 'chunk-batch'> {
+  return (
+    !!payload &&
+    typeof payload === 'object' &&
+    typeof (payload as Record<string, unknown>)['kind'] === 'string'
+  );
+}
+
 export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): () => void {
   ipcMain.handle(CHUNKING_HOST_ENSURE_STARTED_CHANNEL, async () =>
     manager.ensureStarted({ waitForRunning: true })
@@ -383,11 +379,7 @@ export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): (
       manager.chunkFile(
         event.sender.id,
         (() => {
-          if (
-            payload &&
-            typeof payload === 'object' &&
-            (payload as Record<string, unknown>)['kind'] === 'chunk-file-by-id'
-          ) {
+          if (isChunkingHostRequestPayloadBase(payload) && payload.kind === 'chunk-file-by-id') {
             return assertChunkFileByIdRequest(payload);
           }
           return assertChunkFileRequest(payload);

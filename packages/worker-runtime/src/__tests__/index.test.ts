@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   assertBackgroundRuntimeStatus,
   assertRuntimeObjectPayloadEnvelope,
+  assertRuntimeRequestPayloadBase,
   bindRuntimeLogRecord,
   createBackgroundRuntimeDescriptor,
   createBackgroundRuntimeLifecycleChannels,
@@ -210,6 +211,41 @@ describe('@brainstrike/worker-runtime', () => {
         'Chunking host response report'
       )
     ).toThrow('Chunking host response report must include a valid runtime envelope type.');
+  });
+
+  it('strictly asserts request payload bases', () => {
+    expect(
+      assertRuntimeRequestPayloadBase(
+        {
+          kind: 'chunk-file',
+          requestId: 'request-1',
+          content: 'hello',
+        },
+        'Chunking host chunk-file request',
+        'chunk-file'
+      )
+    ).toEqual({
+      candidate: {
+        kind: 'chunk-file',
+        requestId: 'request-1',
+        content: 'hello',
+      },
+      requestBase: {
+        kind: 'chunk-file',
+        requestId: 'request-1',
+      },
+    });
+
+    expect(() =>
+      assertRuntimeRequestPayloadBase(
+        {
+          kind: 'chunk-batch',
+          requestId: 'request-1',
+        },
+        'Chunking host chunk-file request',
+        'chunk-file'
+      )
+    ).toThrow('Chunking host chunk-file request must declare kind="chunk-file".');
   });
 
   it('tracks pending requests and fails duplicate ids', () => {
