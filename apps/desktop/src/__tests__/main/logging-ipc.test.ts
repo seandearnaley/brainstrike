@@ -6,6 +6,8 @@ vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn(),
     on: vi.fn(),
+    removeHandler: vi.fn(),
+    removeListener: vi.fn(),
   },
   webContents: {
     getAllWebContents: vi.fn(),
@@ -71,6 +73,35 @@ describe('logging-ipc', () => {
     expect(ipcMain.on).toHaveBeenCalledWith('logging:ingest-buffered-record', expect.any(Function));
   });
 
+  it('returns a cleanup function that unregisters logging handlers', () => {
+    const cleanup = registerLoggingIpcHandlers({
+      getState: () => ({
+        preferences: basePreferences,
+        capabilities: { canOpenDestination: true },
+      }),
+      setPreferences: (prefs: LoggingPreferences) => ({
+        preferences: prefs,
+        capabilities: { canOpenDestination: true },
+      }),
+      selectDestination: async () => '/tmp',
+      openDestination: async () => true,
+      getBufferedLogs: () => [],
+      ingestBufferedLog: vi.fn(),
+    });
+
+    cleanup();
+
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('logging:get-preferences');
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('logging:set-preferences');
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('logging:select-destination');
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('logging:open-destination');
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('logging:get-buffered-logs');
+    expect(ipcMain.removeListener).toHaveBeenCalledWith(
+      'logging:ingest-buffered-record',
+      expect.any(Function)
+    );
+  });
+
   it('broadcasts updated preferences to window and webview contents', async () => {
     const handlers = {
       getState: () => ({
@@ -87,9 +118,13 @@ describe('logging-ipc', () => {
       ingestBufferedLog: vi.fn(),
     };
 
-    const windowContents = { getType: () => 'window', send: vi.fn() };
-    const webviewContents = { getType: () => 'webview', send: vi.fn() };
-    const backgroundContents = { getType: () => 'backgroundPage', send: vi.fn() };
+    const windowContents = { getType: () => 'window', isDestroyed: () => false, send: vi.fn() };
+    const webviewContents = { getType: () => 'webview', isDestroyed: () => false, send: vi.fn() };
+    const backgroundContents = {
+      getType: () => 'backgroundPage',
+      isDestroyed: () => false,
+      send: vi.fn(),
+    };
 
     vi.mocked(webContents.getAllWebContents).mockReturnValue([
       windowContents,
@@ -117,6 +152,53 @@ describe('logging-ipc', () => {
     expect(windowContents.send).toHaveBeenCalledWith('logging:preferences-updated', updated);
     expect(webviewContents.send).toHaveBeenCalledWith('logging:preferences-updated', updated);
     expect(backgroundContents.send).not.toHaveBeenCalled();
+  });
+
+  it('skips destroyed contents when broadcasting updated preferences', async () => {
+    const handlers = {
+      getState: () => ({
+        preferences: basePreferences,
+        capabilities: { canOpenDestination: true },
+      }),
+      setPreferences: (prefs: LoggingPreferences) => ({
+        preferences: prefs,
+        capabilities: { canOpenDestination: true },
+      }),
+      selectDestination: async () => '/tmp',
+      openDestination: async () => true,
+      getBufferedLogs: () => [],
+      ingestBufferedLog: vi.fn(),
+    };
+
+    const destroyedContents = {
+      getType: () => 'window',
+      isDestroyed: () => true,
+      send: vi.fn(),
+    };
+    const liveContents = {
+      getType: () => 'window',
+      isDestroyed: () => false,
+      send: vi.fn(),
+    };
+
+    vi.mocked(webContents.getAllWebContents).mockReturnValue([
+      destroyedContents,
+      liveContents,
+    ] as unknown as Electron.WebContents[]);
+
+    registerLoggingIpcHandlers(handlers);
+
+    const setPreferencesHandler = vi
+      .mocked(ipcMain.handle)
+      .mock.calls.find(([channel]) => channel === 'logging:set-preferences')?.[1] as (
+      event: IpcMainInvokeEvent,
+      preferences: LoggingPreferences
+    ) => Promise<unknown>;
+
+    await setPreferencesHandler({} as IpcMainInvokeEvent, basePreferences);
+
+    expect(destroyedContents.send).not.toHaveBeenCalled();
+    expect(liveContents.send).toHaveBeenCalledWith('logging:preferences-updated', basePreferences);
   });
 
   it('clones logging settings payloads deeply', () => {

@@ -141,14 +141,20 @@ export function useEmbeddingWorkerControls(
   }, [startingWorker, launchWorker, toast]);
 
   const stopWorker = useCallback(async () => {
-    const status = await controller.stop();
-    applyHostStatus(status, {
-      setStartWorkerError,
-      setStartingWorker,
-      setWorkerLocalRunning,
-    });
-    syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
-    toast({ title: 'Worker stopped' });
+    try {
+      const status = await controller.stop();
+      applyHostStatus(status, {
+        setStartWorkerError,
+        setStartingWorker,
+        setWorkerLocalRunning,
+      });
+      syncEmbeddingActivityFromHost(status, setIsEmbeddingQueueActive);
+      toast({ title: 'Worker stopped' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStartWorkerError(message);
+      toast({ title: 'Failed to stop worker', description: message, variant: 'destructive' });
+    }
   }, [controller, setIsEmbeddingQueueActive, toast]);
 
   const resetWorker = useCallback(async () => {

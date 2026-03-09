@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { app, BrowserWindow } from 'electron';
+import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import { assignWindowRole, type DesktopWindowRole, getWindowRole } from './window-role';
 
 const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
@@ -44,9 +45,6 @@ interface RendererHostLifecycleOptions<TStatus extends RendererHostStatusShape> 
   readonly statusEventName: string;
   readonly timeoutMessage: string;
 }
-
-const DEV_RENDERER_URL =
-  process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim() || 'http://localhost:8081';
 
 function resolveDistRoot(): string {
   const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
@@ -274,7 +272,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     }
 
     await window.loadURL(
-      `${DEV_RENDERER_URL}?mode=${encodeURIComponent(this.options.mode)}&runtimeId=${encodeURIComponent(runtimeId)}`
+      `${DESKTOP_DEV_RENDERER_URL}?mode=${encodeURIComponent(this.options.mode)}&runtimeId=${encodeURIComponent(runtimeId)}`
     );
     return window;
   }

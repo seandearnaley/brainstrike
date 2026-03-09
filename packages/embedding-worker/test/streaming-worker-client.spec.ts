@@ -142,4 +142,17 @@ describe('StreamingEmbeddingWorkerClient', () => {
     );
     expect(worker.terminate).toHaveBeenCalled();
   });
+
+  it('rejects the active stream when terminate is called mid-flight', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+
+    const pending = client.stream(createRequest());
+    await flushMicrotasks();
+
+    client.terminate();
+
+    await expect(pending).rejects.toThrow('Embedding worker terminated during an active stream.');
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
 });

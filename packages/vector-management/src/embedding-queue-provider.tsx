@@ -179,14 +179,30 @@ interface EmbeddingQueueContextValue {
 const EmbeddingQueueContext = createContext<EmbeddingQueueContextValue | null>(null);
 
 let browserEmbeddingQueuePromise: Promise<QueueAdapter> | null = null;
+type BrowserEmbeddingQueueLoader = () => Promise<QueueAdapter>;
+
+async function defaultBrowserEmbeddingQueueLoader(): Promise<QueueAdapter> {
+  const { createBrowserEmbeddingQueue } = await import('@brainstrike/queue/browser');
+  return createBrowserEmbeddingQueue({ requireWorkerpool: true });
+}
+
+let browserEmbeddingQueueLoader: BrowserEmbeddingQueueLoader = defaultBrowserEmbeddingQueueLoader;
 
 async function loadBrowserEmbeddingQueue(): Promise<QueueAdapter> {
   if (!browserEmbeddingQueuePromise) {
-    browserEmbeddingQueuePromise = import('@brainstrike/queue/browser').then(
-      ({ createBrowserEmbeddingQueue }) => createBrowserEmbeddingQueue({ requireWorkerpool: true })
-    );
+    browserEmbeddingQueuePromise = browserEmbeddingQueueLoader().catch((error: unknown) => {
+      browserEmbeddingQueuePromise = null;
+      throw error;
+    });
   }
   return browserEmbeddingQueuePromise;
+}
+
+export function setBrowserEmbeddingQueueLoaderForTests(
+  loader: null | BrowserEmbeddingQueueLoader
+): void {
+  browserEmbeddingQueueLoader = loader ?? defaultBrowserEmbeddingQueueLoader;
+  browserEmbeddingQueuePromise = null;
 }
 
 export interface EmbeddingQueueProviderProps {

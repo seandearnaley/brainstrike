@@ -174,6 +174,12 @@ export class StreamingEmbeddingWorkerClient {
   }
 
   terminate(): void {
+    const activeStream = this.activeStream;
+    if (activeStream) {
+      this.activeStream = null;
+      activeStream.cleanup();
+      activeStream.reject(new Error('Embedding worker terminated during an active stream.'));
+    }
     this.runtime.clearFailure();
     this.runtime.dispose();
     this.worker.terminate();

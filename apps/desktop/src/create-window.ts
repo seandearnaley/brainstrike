@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
 import { app, BrowserWindow } from 'electron';
+import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import type { DesktopWindowState } from './store-schema';
 import { assignWindowRole, getWindowRole } from './window-role';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
@@ -50,8 +51,6 @@ function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
 const isTestRuntime = process.env['VITEST'] === 'true';
 const DEV_SERVER_RETRY_ATTEMPTS = isTestRuntime ? 1 : 30;
 const DEV_SERVER_RETRY_DELAY_MS = isTestRuntime ? 0 : 200;
-const DEV_RENDERER_URL =
-  process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim() || 'http://localhost:8081';
 const MAX_RENDERER_CRASHES_IN_WINDOW = 3;
 const RENDERER_CRASH_WINDOW_MS = 30_000;
 const pendingWindowReloadMetadata = new WeakMap<BrowserWindow, WindowReloadMetadata>();
@@ -88,19 +87,19 @@ async function connectToDevServer(win: BrowserWindow) {
       // Probing multiple ports caused hidden startup slowdowns and non-deterministic
       // behavior when another process occupied 8081 and Vite auto-shifted ports.
       startupLogger.info(
-        { attempt, url: DEV_RENDERER_URL },
+        { attempt, url: DESKTOP_DEV_RENDERER_URL },
         'Attempting to connect desktop renderer'
       );
-      await win.loadURL(DEV_RENDERER_URL);
+      await win.loadURL(DESKTOP_DEV_RENDERER_URL);
       startupLogger.info(
-        { attempt, url: DEV_RENDERER_URL, elapsedMs: Date.now() - attemptStart },
+        { attempt, url: DESKTOP_DEV_RENDERER_URL, elapsedMs: Date.now() - attemptStart },
         'Desktop renderer connection established'
       );
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       startupLogger.warn(
-        { attempt, url: DEV_RENDERER_URL, message },
+        { attempt, url: DESKTOP_DEV_RENDERER_URL, message },
         'Desktop renderer connection attempt failed'
       );
       lastError = error;
@@ -112,7 +111,7 @@ async function connectToDevServer(win: BrowserWindow) {
   }
 
   throw new Error(
-    `Unable to connect to dev renderer at ${DEV_RENDERER_URL} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
+    `Unable to connect to dev renderer at ${DESKTOP_DEV_RENDERER_URL} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
     {
       cause: lastError instanceof Error ? lastError : undefined,
     }

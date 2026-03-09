@@ -415,6 +415,7 @@ let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
+let unregisterLoggingIpcHandlers: null | (() => void) = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
@@ -578,7 +579,7 @@ const storage = new ElectronStorageAdapter();
 const chunkingHostManager = new ChunkingHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
 
-registerLoggingIpcHandlers({
+unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
   getState: getLoggingSettingsPayload,
   setPreferences: applyAndPersistLoggingPreferences,
   selectDestination: selectLogDestination,
@@ -1058,6 +1059,10 @@ app.on('will-quit', () => {
   if (unregisterMainIpcHandlers) {
     unregisterMainIpcHandlers();
     unregisterMainIpcHandlers = null;
+  }
+  if (unregisterLoggingIpcHandlers) {
+    unregisterLoggingIpcHandlers();
+    unregisterLoggingIpcHandlers = null;
   }
   removeLogBufferListener();
 });

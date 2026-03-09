@@ -1,4 +1,5 @@
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import type { IpcMainEvent } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
 
@@ -13,7 +14,7 @@ export interface LoggingIpcHandlers {
   ) => LoggingSettingsPayload | Promise<LoggingSettingsPayload>;
 }
 
-export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {
+export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): () => void {
   ipcMain.handle('logging:get-preferences', () => handlers.getState());
 
   let preferencesUpdateQueue: Promise<void> = Promise.resolve();
@@ -45,9 +46,19 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {
   );
 
   ipcMain.handle('logging:get-buffered-logs', async () => handlers.getBufferedLogs());
-  ipcMain.on('logging:ingest-buffered-record', (event, payload: unknown) => {
+  const ingestBufferedRecord = (event: IpcMainEvent, payload: unknown) => {
     handlers.ingestBufferedLog(event.sender.id, assertLogRecord(payload));
-  });
+  };
+  ipcMain.on('logging:ingest-buffered-record', ingestBufferedRecord);
+
+  return () => {
+    ipcMain.removeHandler('logging:get-preferences');
+    ipcMain.removeHandler('logging:set-preferences');
+    ipcMain.removeHandler('logging:select-destination');
+    ipcMain.removeHandler('logging:open-destination');
+    ipcMain.removeHandler('logging:get-buffered-logs');
+    ipcMain.removeListener('logging:ingest-buffered-record', ingestBufferedRecord);
+  };
 }
 
 function assertLogRecord(payload: unknown): LogRecord {
@@ -101,8 +112,15 @@ function broadcastLoggingPreferences(preferences: LoggingPreferences): void {
   const cloned = cloneLoggingPreferences(preferences);
   for (const contents of webContents.getAllWebContents()) {
     const targetType = contents.getType?.();
-    if (targetType === 'window' || targetType === 'webview' || !targetType) {
-      contents.send('logging:preferences-updated', cloned);
+    if (
+      (targetType === 'window' || targetType === 'webview' || !targetType) &&
+      !contents.isDestroyed()
+    ) {
+      try {
+        contents.send('logging:preferences-updated', cloned);
+      } catch {
+        // A WebContents can disappear between enumeration and send during shutdown churn.
+      }
     }
   }
 }

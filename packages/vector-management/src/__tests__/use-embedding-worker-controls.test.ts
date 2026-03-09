@@ -189,6 +189,31 @@ describe('useEmbeddingWorkerControls', () => {
     expect(toast).toHaveBeenCalledWith({ title: 'Worker stopped' });
   });
 
+  it('surfaces controller stop failures consistently', async () => {
+    const mockController = createMockController(createStatus('running', { active: true }));
+    mockController.stopMock.mockRejectedValueOnce(new Error('stop failed'));
+
+    const { result } = renderHook(() =>
+      useEmbeddingWorkerControls({
+        controller: mockController.controller,
+        activeEmbeddingSetId: 'set-1',
+        onBackfill: vi.fn(async () => {}),
+        toast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.stopWorker();
+    });
+
+    expect(result.current.startWorkerError).toBe('stop failed');
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Failed to stop worker',
+      description: 'stop failed',
+      variant: 'destructive',
+    });
+  });
+
   it('resets the controller runtime and reports reset errors strictly', async () => {
     const mockController = createMockController(createStatus('running'));
     mockController.resetMock.mockResolvedValueOnce(
