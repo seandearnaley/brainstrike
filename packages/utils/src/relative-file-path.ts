@@ -9,8 +9,11 @@ interface RelativeFilePathValidationOptions {
 }
 
 function hasControlCharacters(value: string): boolean {
-  for (const character of value) {
-    const charCode = character.charCodeAt(0);
+  // Using a traditional for loop with charCodeAt avoids string iterator instantiation
+  // and intermediate string allocations for each character, significantly improving
+  // performance in this hot validation path.
+  for (let i = 0; i < value.length; i++) {
+    const charCode = value.charCodeAt(i);
     if (charCode <= LAST_ASCII_CONTROL_CHARACTER_CODE || charCode === DELETE_CHARACTER_CODE) {
       return true;
     }
