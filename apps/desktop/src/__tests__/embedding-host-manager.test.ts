@@ -1,5 +1,44 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { lifecycleState, mockHostWindow } = vi.hoisted(() => {
+  const hostWindow = {
+    isDestroyed: vi.fn(() => false),
+    webContents: {
+      send: vi.fn(),
+    },
+  };
+
+  return {
+    lifecycleState: {
+      clearHostWindow: vi.fn(),
+      destroyHostWindow: vi.fn(),
+      dispose: vi.fn(),
+      ensureStarted: vi.fn(async () => ({
+        active: false,
+        lastError: null,
+        runtimeId: 'embedding-host-runtime',
+        state: 'running' as const,
+      })),
+      getHostWindow: vi.fn(() => hostWindow),
+      getStatus: vi.fn(() => ({
+        active: false,
+        lastError: null,
+        runtimeId: 'embedding-host-runtime',
+        state: 'running' as const,
+      })),
+      isHostWindow: vi.fn(() => false),
+      setStatus: vi.fn(),
+      waitForStatus: vi.fn(async () => ({
+        active: false,
+        lastError: 'boom',
+        runtimeId: 'embedding-host-runtime',
+        state: 'error' as const,
+      })),
+    },
+    mockHostWindow: hostWindow,
+  };
+});
+
 const { powerSaveBlockerIsStartedMock, powerSaveBlockerStartMock, powerSaveBlockerStopMock } =
   vi.hoisted(() => ({
     powerSaveBlockerStartMock: vi.fn(() => 101),
@@ -20,6 +59,12 @@ vi.mock('electron', () => ({
   },
 }));
 
+vi.mock('../renderer-host-lifecycle', () => ({
+  RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle() {
+    return lifecycleState;
+  }),
+}));
+
 import { EmbeddingHostManager } from '../embedding-host-manager';
 
 type TestableEmbeddingHostManager = EmbeddingHostManager & {
@@ -34,6 +79,21 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    lifecycleState.getHostWindow.mockReturnValue(mockHostWindow);
+    lifecycleState.getStatus.mockReturnValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host-runtime',
+      state: 'running',
+    });
+    lifecycleState.waitForStatus.mockResolvedValue({
+      active: false,
+      lastError: 'boom',
+      runtimeId: 'embedding-host-runtime',
+      state: 'error',
+    });
+    mockHostWindow.isDestroyed.mockReturnValue(false);
+    mockHostWindow.webContents.send.mockReset();
   });
 
   it('keeps the blocker active across short idle gaps while the host remains running', () => {
@@ -86,5 +146,32 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     vi.advanceTimersByTime(5001);
 
     expect(powerSaveBlockerStopMock).not.toHaveBeenCalled();
+  });
+
+  it('fails fast if ensureStarted is called after dispose', async () => {
+    const manager = new EmbeddingHostManager();
+
+    await manager.dispose();
+
+    await expect(manager.ensureStarted()).rejects.toThrow(
+      'EmbeddingHostManager.ensureStarted cannot be called after dispose().'
+    );
+  });
+
+  it('captures the runtime id once and tears down on error status during stop', async () => {
+    const manager = new EmbeddingHostManager();
+
+    await manager.stop();
+
+    expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({
+        runtimeId: 'embedding-host-runtime',
+      })
+    );
+    expect(lifecycleState.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 10_000);
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalledTimes(1);
+    expect(lifecycleState.clearHostWindow).toHaveBeenCalledTimes(1);
+    expect(lifecycleState.setStatus).toHaveBeenCalled();
   });
 });

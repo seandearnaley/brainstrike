@@ -90,6 +90,54 @@ describe('chunking host IPC handlers', () => {
     });
   });
 
+  it('fails fast on malformed chunk-batch response payloads', () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      acceptStatusReport: vi.fn(),
+      ensureStarted: vi.fn(),
+      getStatus: vi.fn(),
+      reset: vi.fn(),
+      stop: vi.fn(),
+      chunkFile: vi.fn(),
+      chunkBatch: vi.fn(),
+    };
+
+    registerChunkingHostIpcHandlers(manager as never);
+
+    const reportListener = listeners.get(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL);
+    if (!reportListener) {
+      throw new Error('Chunking host response listener not registered.');
+    }
+
+    expect(() =>
+      reportListener(
+        { sender: { id: 42 } },
+        {
+          type: 'result',
+          channel: 'chunk-batch-complete',
+          requestId: 'request-1',
+          runtimeId: 'chunking-host:runtime-1',
+          payload: {
+            results: [
+              {
+                type: 'result',
+                id: 'chunk-1',
+                fileRecordId: '',
+                chunks: [],
+                skipped: false,
+                strategyUsed: 'sentence',
+                totalTokens: 1,
+              },
+            ],
+          },
+        }
+      )
+    ).toThrow(
+      'Chunking host batch-complete payload results[0] must include a non-empty fileRecordId.'
+    );
+    expect(manager.acceptResponseReport).not.toHaveBeenCalled();
+  });
+
   it('fails fast on malformed chunking response reports', () => {
     const manager = {
       acceptResponseReport: vi.fn(),
@@ -216,6 +264,47 @@ describe('chunking host IPC handlers', () => {
       )
     ).rejects.toThrow('Chunking host chunk-batch request must declare kind="chunk-batch".');
     expect(manager.chunkBatch).not.toHaveBeenCalled();
+  });
+
+  it('fails fast on invalid numeric chunking options', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      acceptStatusReport: vi.fn(),
+      ensureStarted: vi.fn(),
+      getStatus: vi.fn(),
+      reset: vi.fn(),
+      stop: vi.fn(),
+      chunkFile: vi.fn(),
+      chunkBatch: vi.fn(),
+    };
+
+    registerChunkingHostIpcHandlers(manager as never);
+
+    const chunkFileHandler = handlers.get(CHUNKING_HOST_CHUNK_FILE_CHANNEL);
+    if (!chunkFileHandler) {
+      throw new Error('Chunking host chunk-file handler not registered.');
+    }
+
+    await expect(() =>
+      chunkFileHandler(
+        { sender: { id: 42 } },
+        {
+          kind: 'chunk-file',
+          requestId: 'request-2',
+          fileRecordId: 'file-1',
+          fileName: 'demo.ts',
+          filePath: '/demo.ts',
+          content: 'const demo = true;',
+          options: {
+            maxTokens: 0,
+            overlap: Number.POSITIVE_INFINITY,
+          },
+        }
+      )
+    ).rejects.toThrow(
+      'Chunking host request options maxTokens must be greater than zero when set.'
+    );
+    expect(manager.chunkFile).not.toHaveBeenCalled();
   });
 
   it('removes only the registered response listener on cleanup', () => {

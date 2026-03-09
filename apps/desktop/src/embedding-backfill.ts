@@ -180,7 +180,8 @@ async function getEmbeddingSetQueueCounts(
   // job_queue timestamps are stored as ISO strings in the current local schema, so
   // lexicographic comparison preserves chronological ordering for run-scoped counts.
   // Cast the optional parameter to text explicitly; PGlite cannot infer $3 from
-  // the null-check branch alone.
+  // the null-check branch alone. If updated_at stops being ISO text in this schema,
+  // this query and its tests must be updated explicitly rather than silently coerced.
   const result = await db.query<{
     failed: number | string | null;
     queued: number | string | null;
@@ -447,6 +448,7 @@ export async function enqueueEmbeddingBackfill(
 
   let done = 0;
   let cursor: string | null = null;
+  let exhaustedCursor = false;
   let batchesSinceProgress = 0;
   let lastReportedDone = -1;
 
@@ -460,7 +462,7 @@ export async function enqueueEmbeddingBackfill(
 
   reportProgress(done, total);
 
-  while (done < total) {
+  while (done < total && !exhaustedCursor) {
     // Capacity is checked before selecting the next batch so we never read more new work than the
     // queue can durably accept in the current pass. Cursor exhaustion remains the loop terminator
     // when dedupe makes inserted < selected.
@@ -478,6 +480,7 @@ export async function enqueueEmbeddingBackfill(
     );
     const batch = await loadBackfillCandidateBatch(db, embeddingSetId, cursor, batchLimit);
     if (batch.length === 0) {
+      exhaustedCursor = true;
       break;
     }
     cursor = batch.at(-1)?.id ?? cursor;
@@ -506,7 +509,6 @@ export async function enqueueEmbeddingBackfill(
     }
   }
 
-  reportProgress(total, total);
   const drainedCounts = await waitForEmbeddingSetDrain(
     db,
     embeddingSetId,
@@ -520,5 +522,6 @@ export async function enqueueEmbeddingBackfill(
       `Backfill failed for embedding set '${embeddingSetId}': ${drainedCounts.failed} job(s) failed.`
     );
   }
+  reportProgress(total, total);
   return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
 }

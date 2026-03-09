@@ -5,6 +5,7 @@ import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-hos
 
 const {
   commandListenerRef,
+  currentDbRef,
   dbHandle,
   ensureVectorPreferencesHydratedMock,
   reportStatusMock,
@@ -14,6 +15,9 @@ const {
 } = vi.hoisted(() => ({
   commandListenerRef: {
     current: null as null | ((command: unknown) => void),
+  },
+  currentDbRef: {
+    current: null as null | { query: ReturnType<typeof vi.fn> },
   },
   dbHandle: { query: vi.fn() },
   ensureVectorPreferencesHydratedMock: vi.fn(),
@@ -27,7 +31,7 @@ const {
 }));
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: () => dbHandle,
+  usePGliteDatabase: () => currentDbRef.current,
 }));
 
 vi.mock('@brainstrike/preferences', () => ({
@@ -50,6 +54,7 @@ vi.mock('../../../renderer/components/embedding-worker-config', () => ({
 describe('EmbeddingHostRuntime', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentDbRef.current = dbHandle;
     storeState.hasHydrated = false;
     storeState.devicePref = 'webgpu';
     ensureVectorPreferencesHydratedMock.mockImplementation(async () => {
@@ -159,5 +164,35 @@ describe('EmbeddingHostRuntime', () => {
       ([status]) => (status as { state?: string }).state === 'stopped'
     );
     expect(stoppedReports).toHaveLength(0);
+  });
+
+  it('waits for an in-flight stop before restarting on db changes', async () => {
+    storeState.hasHydrated = true;
+    const nextDbHandle = { query: vi.fn() };
+    let resolveStop: (() => void) | null = null;
+    stopMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveStop = resolve;
+        })
+    );
+
+    const view = render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    });
+
+    currentDbRef.current = nextDbHandle;
+    view.rerender(<EmbeddingHostRuntime />);
+
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+
+    resolveStop?.();
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+    });
+    expect(stopMock).toHaveBeenCalledTimes(1);
   });
 });

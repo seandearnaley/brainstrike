@@ -193,6 +193,68 @@ describe('embedding-backfill', () => {
     ).rejects.toThrow('drainTimeoutMs must be a positive integer when configured.');
   });
 
+  it('does not report 100% progress before deduplicated work has drained', async () => {
+    let pendingCountCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 4 }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          pendingCountCalls += 1;
+          return { rows: [{ count: pendingCountCalls === 1 ? 4 : 0 }] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 4 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: Array.from({ length: 4 }, (_, index) => ({
+              id: String(index + 1),
+              fileRecordId: String(index + 101),
+              contentHash: `hash-${index + 1}`,
+            })),
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async () => []),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+
+    const progressUpdates: Array<{ done: number; total: number }> = [];
+    await enqueueEmbeddingBackfill(
+      db,
+      jobQueue,
+      'set-123',
+      (done, total) => {
+        progressUpdates.push({ done, total });
+      },
+      { backlogPollMs: 1, maxQueueDepth: 64, progressIntervalBatches: 1 }
+    );
+
+    expect(progressUpdates).toEqual([
+      { done: 0, total: 4 },
+      { done: 4, total: 4 },
+    ]);
+  });
+
   it('aborts backfill when the embedding host can no longer accept queued work', async () => {
     const db = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {

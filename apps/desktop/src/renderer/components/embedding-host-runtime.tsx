@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/embeddings';
 import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
-import { useEffect, useRef } from 'react';
+import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
   assertEmbeddingHostCommand,
   type EmbeddingHostCommand,
@@ -44,12 +44,149 @@ function reportStatus(status: EmbeddingHostStatus): void {
   getEmbeddingHostBridge()?.reportStatus?.(status);
 }
 
+function createEmbeddingHostStatus(
+  runtimeId: string,
+  state: EmbeddingHostStatus['state'],
+  options?: {
+    active?: boolean;
+    lastError?: string | null;
+  }
+): EmbeddingHostStatus {
+  return {
+    runtimeKind: 'embedding-host',
+    runtimeId,
+    state,
+    active: options?.active ?? false,
+    lastError: options?.lastError ?? null,
+  };
+}
+
+function reportEmbeddingHostRuntimeStatus(
+  runtimeIdRef: MutableRefObject<string>,
+  state: EmbeddingHostStatus['state'],
+  options?: {
+    active?: boolean;
+    lastError?: string | null;
+  }
+): void {
+  reportStatus(createEmbeddingHostStatus(runtimeIdRef.current, state, options));
+}
+
+function createFatalErrorHandler(
+  runtimeIdRef: MutableRefObject<string>,
+  fatalErrorRef: MutableRefObject<string | null>,
+  activeRef: MutableRefObject<boolean>
+): (error: Error) => void {
+  return (error: Error) => {
+    const message = error.message;
+    fatalErrorRef.current = message;
+    activeRef.current = false;
+    logger.error('Embedding host worker stopped after fatal local model error', {
+      error: message,
+      runtimeId: runtimeIdRef.current,
+    });
+    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+      lastError: message,
+    });
+  };
+}
+
+function createActivityChangeHandler(
+  runtimeIdRef: MutableRefObject<string>,
+  fatalErrorRef: MutableRefObject<string | null>,
+  activeRef: MutableRefObject<boolean>
+): (active: boolean) => void {
+  return (active: boolean) => {
+    if (fatalErrorRef.current) {
+      return;
+    }
+    activeRef.current = active;
+    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+      active,
+    });
+  };
+}
+
 function resolveEmbeddingHostRuntimeId(): string {
   const runtimeId = new URLSearchParams(window.location.search).get('runtimeId');
   if (!(runtimeId && runtimeId.trim().length > 0)) {
     throw new Error('Embedding host renderer requires a runtimeId query parameter.');
   }
   return runtimeId;
+}
+
+interface StartEmbeddingHostWorkerOptions {
+  readonly activeRef: MutableRefObject<boolean>;
+  readonly controllerRef: MutableRefObject<EmbeddingWorkerController | null>;
+  readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  readonly fatalErrorRef: MutableRefObject<string | null>;
+  readonly isDisposed: () => boolean;
+  readonly onFatalError: (error: Error) => void;
+  readonly onWorkerActivityChange: (active: boolean) => void;
+  readonly runtimeIdRef: MutableRefObject<string>;
+  readonly startingRef: MutableRefObject<boolean>;
+  readonly stopPromiseRef: MutableRefObject<Promise<void> | null>;
+}
+
+async function startEmbeddingHostWorkerRuntime({
+  activeRef,
+  controllerRef,
+  db,
+  fatalErrorRef,
+  isDisposed,
+  onFatalError,
+  onWorkerActivityChange,
+  runtimeIdRef,
+  startingRef,
+  stopPromiseRef,
+}: StartEmbeddingHostWorkerOptions): Promise<void> {
+  const pendingStop = stopPromiseRef.current;
+  if (pendingStop) {
+    await pendingStop;
+  }
+  if (isDisposed() || startingRef.current || controllerRef.current) {
+    return;
+  }
+
+  startingRef.current = true;
+  fatalErrorRef.current = null;
+  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'starting');
+
+  try {
+    const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
+      forceReload: true,
+    });
+    const controller = await startEmbeddingWorker({
+      ...createEmbeddingWorkerConfig(db),
+      device: hydratedDevicePref,
+      initializeLocalModelOnStart: false,
+      onFatalError,
+      onWorkerActivityChange,
+      stopOnFatalLocalError: true,
+    });
+    if (isDisposed()) {
+      await controller.stop();
+      return;
+    }
+    controllerRef.current = controller;
+    const fatalError = fatalErrorRef.current;
+    reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
+      active: fatalError ? false : activeRef.current,
+      lastError: fatalError,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to start embedding host worker', {
+      error: message,
+      runtimeId: runtimeIdRef.current,
+    });
+    fatalErrorRef.current = message;
+    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+      lastError: message,
+    });
+  } finally {
+    startingRef.current = false;
+  }
 }
 
 export function EmbeddingHostRuntime(): null {
@@ -59,6 +196,7 @@ export function EmbeddingHostRuntime(): null {
   const startingRef = useRef(false);
   const activeRef = useRef(false);
   const runtimeIdRef = useRef<string>(resolveEmbeddingHostRuntimeId());
+  const stopPromiseRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     if (!db) {
@@ -66,120 +204,53 @@ export function EmbeddingHostRuntime(): null {
     }
 
     let disposed = false;
+    const onFatalError = createFatalErrorHandler(runtimeIdRef, fatalErrorRef, activeRef);
+    const onWorkerActivityChange = createActivityChangeHandler(
+      runtimeIdRef,
+      fatalErrorRef,
+      activeRef
+    );
 
-    const startWorker = async (): Promise<void> => {
-      if (disposed || startingRef.current || controllerRef.current) {
-        return;
-      }
-
-      startingRef.current = true;
-      fatalErrorRef.current = null;
-      reportStatus({
-        runtimeKind: 'embedding-host',
-        runtimeId: runtimeIdRef.current,
-        state: 'starting',
-        active: false,
-        lastError: null,
+    const startWorker = async (): Promise<void> =>
+      startEmbeddingHostWorkerRuntime({
+        activeRef,
+        controllerRef,
+        db,
+        fatalErrorRef,
+        isDisposed: () => disposed,
+        onFatalError,
+        onWorkerActivityChange,
+        runtimeIdRef,
+        startingRef,
+        stopPromiseRef,
       });
 
-      try {
-        const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
-          forceReload: true,
-        });
-        const controller = await startEmbeddingWorker({
-          ...createEmbeddingWorkerConfig(db),
-          device: hydratedDevicePref,
-          initializeLocalModelOnStart: false,
-          onFatalError: (error: Error) => {
-            const message = error.message;
-            fatalErrorRef.current = message;
-            activeRef.current = false;
-            logger.error('Embedding host worker stopped after fatal local model error', {
-              error: message,
-              runtimeId: runtimeIdRef.current,
-            });
-            reportStatus({
-              runtimeKind: 'embedding-host',
-              runtimeId: runtimeIdRef.current,
-              state: 'error',
-              active: false,
-              lastError: message,
-            });
-          },
-          onWorkerActivityChange: (active: boolean) => {
-            if (fatalErrorRef.current) {
-              return;
-            }
-            activeRef.current = active;
-            reportStatus({
-              runtimeKind: 'embedding-host',
-              runtimeId: runtimeIdRef.current,
-              state: 'running',
-              active,
-              lastError: null,
-            });
-          },
-          stopOnFatalLocalError: true,
-        });
-        if (disposed) {
+    const stopWorker = (): Promise<void> => {
+      if (stopPromiseRef.current) {
+        return stopPromiseRef.current;
+      }
+
+      const stopPromise = (async () => {
+        const controller = controllerRef.current;
+        controllerRef.current = null;
+        fatalErrorRef.current = null;
+        activeRef.current = false;
+        if (controller) {
           await controller.stop();
+        }
+        if (disposed) {
           return;
         }
-        controllerRef.current = controller;
-        if (fatalErrorRef.current) {
-          reportStatus({
-            runtimeKind: 'embedding-host',
-            runtimeId: runtimeIdRef.current,
-            state: 'error',
-            active: false,
-            lastError: fatalErrorRef.current,
-          });
-          return;
-        }
-        reportStatus({
-          runtimeKind: 'embedding-host',
-          runtimeId: runtimeIdRef.current,
-          state: 'running',
-          active: activeRef.current,
-          lastError: null,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.error('Failed to start embedding host worker', {
-          error: message,
-          runtimeId: runtimeIdRef.current,
-        });
-        fatalErrorRef.current = message;
-        reportStatus({
-          runtimeKind: 'embedding-host',
-          runtimeId: runtimeIdRef.current,
-          state: 'error',
-          active: false,
-          lastError: message,
-        });
-      } finally {
-        startingRef.current = false;
-      }
-    };
+        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'stopped');
+      })();
 
-    const stopWorker = async (): Promise<void> => {
-      const controller = controllerRef.current;
-      controllerRef.current = null;
-      fatalErrorRef.current = null;
-      activeRef.current = false;
-      if (controller) {
-        await controller.stop();
-      }
-      if (disposed) {
-        return;
-      }
-      reportStatus({
-        runtimeKind: 'embedding-host',
-        runtimeId: runtimeIdRef.current,
-        state: 'stopped',
-        active: false,
-        lastError: null,
+      const trackedStopPromise = stopPromise.finally(() => {
+        if (stopPromiseRef.current === trackedStopPromise) {
+          stopPromiseRef.current = null;
+        }
       });
+      stopPromiseRef.current = trackedStopPromise;
+      return trackedStopPromise;
     };
 
     const resetWorker = async (): Promise<void> => {

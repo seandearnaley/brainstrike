@@ -179,6 +179,57 @@ describe('ChunkingHostManager', () => {
     await expect(requestPromise).rejects.toThrow('chunking failed');
   });
 
+  it('creates a fresh error for each rejected pending request during shutdown', async () => {
+    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+
+    const firstPromise = manager.chunkFile(11, {
+      content: 'hello',
+      fileName: 'a.txt',
+      filePath: '/tmp/a.txt',
+      fileRecordId: 'file-1',
+      kind: 'chunk-file',
+      options: {},
+      requestId: 'req-first',
+    });
+    const secondPromise = manager.chunkFile(11, {
+      content: 'hello',
+      fileName: 'b.txt',
+      filePath: '/tmp/b.txt',
+      fileRecordId: 'file-2',
+      kind: 'chunk-file',
+      options: {},
+      requestId: 'req-second',
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await manager.stop();
+
+    const [firstError, secondError] = await Promise.all([
+      firstPromise.catch((error: Error) => error),
+      secondPromise.catch((error: Error) => error),
+    ]);
+
+    expect(firstError).toBeInstanceOf(Error);
+    expect(secondError).toBeInstanceOf(Error);
+    expect(firstError).not.toBe(secondError);
+    expect(firstError.message).toBe('Chunking host stopped while requests were in flight.');
+    expect(secondError.message).toBe('Chunking host stopped while requests were in flight.');
+  });
+
+  it('explains when the host window disappears after startup', async () => {
+    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    lifecycleState.getHostWindow.mockReturnValueOnce(null);
+
+    await expect(
+      manager.chunkBatch(11, {
+        files: [],
+        kind: 'chunk-batch',
+        options: {},
+        requestId: 'req-lost-window',
+      })
+    ).rejects.toThrow('Chunking host window became unavailable after startup completed.');
+  });
+
   it('ignores requester windows destroyed during progress forwarding', async () => {
     const requesterWindow = {
       id: 88,

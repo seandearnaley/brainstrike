@@ -139,51 +139,26 @@ export class ChunkingHostManager {
     requesterWebContentsId: number,
     request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest
   ): Promise<unknown> {
-    const hostWindow = await this.assertReadyForRequests();
-    return new Promise<unknown>((resolve, reject) => {
-      if (this.pendingRequests.has(request.requestId)) {
-        reject(
-          createRequestFailure(`Chunking host request ${request.requestId} is already in flight.`)
-        );
-        return;
-      }
-
-      const timeoutId = this.createRequestTimeout(request.requestId);
-      this.pendingRequests.set(request.requestId, {
-        kind: 'file',
-        requesterWebContentsId,
-        resolve,
-        reject,
-        timeoutId,
-      });
-      const message: ChunkingHostRequest = {
-        type: 'request',
-        channel: 'chunk',
-        requestId: request.requestId,
-        runtimeId: this.getStatus().runtimeId,
-        payload: request,
-      };
-      try {
-        hostWindow.webContents.send(CHUNKING_HOST_REQUEST_EVENT, message);
-      } catch (error) {
-        this.clearPendingRequest(request.requestId);
-        reject(
-          createRequestFailure(
-            error instanceof Error
-              ? `Chunking host request ${request.requestId} could not be sent: ${error.message}`
-              : `Chunking host request ${request.requestId} could not be sent.`
-          )
-        );
-      }
-    });
+    return this.sendRequest('file', requesterWebContentsId, request);
   }
 
   async chunkBatch(
     requesterWebContentsId: number,
     request: ChunkingHostChunkBatchRequest
   ): Promise<unknown[]> {
+    return this.sendRequest('batch', requesterWebContentsId, request);
+  }
+
+  private async sendRequest<TResponse>(
+    kind: PendingChunkingRequest['kind'],
+    requesterWebContentsId: number,
+    request:
+      | ChunkingHostChunkBatchRequest
+      | ChunkingHostChunkFileByIdRequest
+      | ChunkingHostChunkFileRequest
+  ): Promise<TResponse> {
     const hostWindow = await this.assertReadyForRequests();
-    return new Promise<unknown[]>((resolve, reject) => {
+    return new Promise<TResponse>((resolve, reject) => {
       if (this.pendingRequests.has(request.requestId)) {
         reject(
           createRequestFailure(`Chunking host request ${request.requestId} is already in flight.`)
@@ -192,13 +167,23 @@ export class ChunkingHostManager {
       }
 
       const timeoutId = this.createRequestTimeout(request.requestId);
-      this.pendingRequests.set(request.requestId, {
-        kind: 'batch',
-        requesterWebContentsId,
-        resolve,
-        reject,
-        timeoutId,
-      });
+      const pendingRequest: PendingChunkingRequest =
+        kind === 'batch'
+          ? {
+              kind: 'batch',
+              requesterWebContentsId,
+              resolve: resolve as (results: unknown[]) => void,
+              reject,
+              timeoutId,
+            }
+          : {
+              kind: 'file',
+              requesterWebContentsId,
+              resolve: resolve as (result: unknown) => void,
+              reject,
+              timeoutId,
+            };
+      this.pendingRequests.set(request.requestId, pendingRequest);
       const message: ChunkingHostRequest = {
         type: 'request',
         channel: 'chunk',
@@ -316,7 +301,7 @@ export class ChunkingHostManager {
     }
     const window = this.lifecycle.getHostWindow();
     if (!(window && !window.isDestroyed())) {
-      throw new Error('Chunking host window is not available.');
+      throw new Error('Chunking host window became unavailable after startup completed.');
     }
     return window;
   }
@@ -352,10 +337,9 @@ export class ChunkingHostManager {
     if (this.pendingRequests.size === 0) {
       return;
     }
-    const failure = createRequestFailure(message);
     for (const pending of this.pendingRequests.values()) {
       clearTimeout(pending.timeoutId);
-      pending.reject(failure);
+      pending.reject(createRequestFailure(message));
     }
     this.pendingRequests.clear();
   }

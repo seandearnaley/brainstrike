@@ -4,7 +4,12 @@ import { createLogger } from '@brainstrike/utils';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { app, BrowserWindow } from 'electron';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
-import { assignWindowRole, type DesktopWindowRole, getWindowRole } from './window-role';
+import {
+  assignWindowRole,
+  clearWindowRoleByWebContentsId,
+  type DesktopWindowRole,
+  getWindowRole,
+} from './window-role';
 
 const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
 const logger = createLogger('RendererHostLifecycle');
@@ -276,6 +281,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     const window = this.hostWindow;
     this.hostWindow = null;
     if (window && !window.isDestroyed()) {
+      clearWindowRoleByWebContentsId(window.webContents.id);
       window.destroy();
     }
   }
@@ -298,6 +304,8 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
 
   private async createWindow(runtimeId: string): Promise<BrowserWindow> {
     const isTestMode = process.argv.includes('--test-mode');
+    // Hidden host renderers only drop sandboxing under the explicit E2E-only --test-mode flag.
+    // Packaged production builds do not pass that flag, so the runtime stays sandboxed there.
     const enableSandbox = !isTestMode;
     const preloadPath = path.join(resolveDistRoot(), 'preload.js');
     const window = new BrowserWindow({

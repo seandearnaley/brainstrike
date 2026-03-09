@@ -24,3 +24,7 @@ export function getWindowRoleByWebContentsId(webContentsId: number): DesktopWind
 export function getWindowRole(window: BrowserWindow): DesktopWindowRole | undefined {
   return getWindowRoleByWebContentsId(window.webContents.id);
 }
+
+export function clearWindowRoleByWebContentsId(webContentsId: number): void {
+  roleByWebContentsId.delete(webContentsId);
+}

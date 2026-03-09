@@ -169,6 +169,8 @@ async function executeChunkRequest(
   }
 
   const results: ChunkResult[] = [];
+  // The hidden host keeps batch file chunking serial on purpose so import bursts do not
+  // rematerialize multiple large file contents in parallel and destabilize the visible renderer.
   for (const file of payload.files) {
     const result = await chunkFile(
       file.fileRecordId,

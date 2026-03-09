@@ -207,8 +207,14 @@ function readOptionalNumberOption(
   if (value === undefined) {
     return;
   }
-  if (typeof value !== 'number') {
-    throw new Error(`Chunking host request options ${key} must be numeric when set.`);
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Chunking host request options ${key} must be a finite number when set.`);
+  }
+  if ((key === 'maxTokens' || key === 'maxTokensCap') && value <= 0) {
+    throw new Error(`Chunking host request options ${key} must be greater than zero when set.`);
+  }
+  if (key === 'overlap' && value < 0) {
+    throw new Error('Chunking host request options overlap must be non-negative when set.');
   }
   options[key] = value;
 }
@@ -385,8 +391,45 @@ function assertChunkBatchCompletePayload(
     throw new Error('Chunking host batch-complete payload must include results array.');
   }
   return {
-    results: payload['results'],
+    results: payload['results'].map((result: unknown, index: number) =>
+      assertChunkResultValue(result, `Chunking host batch-complete payload results[${index}]`)
+    ),
   };
+}
+
+function assertChunkResultValue(value: unknown, context: string): unknown {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${context} must be an object.`);
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate['type'] !== 'result') {
+    throw new Error(`${context} must declare type="result".`);
+  }
+  if (typeof candidate['id'] !== 'string' || candidate['id'].trim().length === 0) {
+    throw new Error(`${context} must include a non-empty id.`);
+  }
+  if (
+    typeof candidate['fileRecordId'] !== 'string' ||
+    candidate['fileRecordId'].trim().length === 0
+  ) {
+    throw new Error(`${context} must include a non-empty fileRecordId.`);
+  }
+  if (!Array.isArray(candidate['chunks'])) {
+    throw new Error(`${context} must include a chunks array.`);
+  }
+  if (typeof candidate['skipped'] !== 'boolean') {
+    throw new Error(`${context} must include a boolean skipped flag.`);
+  }
+  if (
+    typeof candidate['strategyUsed'] !== 'string' ||
+    candidate['strategyUsed'].trim().length === 0
+  ) {
+    throw new Error(`${context} must include a non-empty strategyUsed.`);
+  }
+  if (typeof candidate['totalTokens'] !== 'number' || !Number.isFinite(candidate['totalTokens'])) {
+    throw new Error(`${context} must include a finite totalTokens number.`);
+  }
+  return candidate;
 }
 
 function assertChunkResultPayload(
@@ -396,7 +439,7 @@ function assertChunkResultPayload(
     throw new Error('Chunking host result payload must include result.');
   }
   return {
-    result: payload['result'],
+    result: assertChunkResultValue(payload['result'], 'Chunking host result payload result'),
   };
 }
 

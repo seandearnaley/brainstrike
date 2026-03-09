@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { assignWindowRole, getWindowRole, getWindowRoleByWebContentsId } from '../window-role';
+import {
+  assignWindowRole,
+  clearWindowRoleByWebContentsId,
+  getWindowRole,
+  getWindowRoleByWebContentsId,
+} from '../window-role';
 
 interface FakeWindow {
   once: (event: 'closed', listener: () => void) => void;
@@ -58,5 +63,14 @@ describe('window-role', () => {
 
     expect(window.onceCallCount).toBe(1);
     expect(getWindowRoleByWebContentsId(23)).toBe('embedding-host');
+  });
+
+  it('supports explicit role cleanup by webContents id', () => {
+    const { window } = createFakeWindow(29);
+
+    assignWindowRole(window as never, 'visible-ui');
+    clearWindowRoleByWebContentsId(29);
+
+    expect(getWindowRoleByWebContentsId(29)).toBeUndefined();
   });
 });

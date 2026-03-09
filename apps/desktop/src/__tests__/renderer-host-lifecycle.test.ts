@@ -331,6 +331,7 @@ describe('RendererHostLifecycle', () => {
 
     expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
     expect(lifecycle.getHostWindow()).toBeNull();
+    expect(getWindowRoleByWebContentsId(53)).toBeUndefined();
   });
 
   it('recreates an existing stopped host window instead of waiting forever', async () => {

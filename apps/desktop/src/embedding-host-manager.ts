@@ -74,10 +74,12 @@ export class EmbeddingHostManager {
   }
 
   async ensureStarted(options?: { waitForRunning?: boolean }): Promise<EmbeddingHostStatus> {
+    this.assertNotDisposed('ensureStarted');
     return this.lifecycle.ensureStarted(options);
   }
 
   async stop(): Promise<EmbeddingHostStatus> {
+    this.assertNotDisposed('stop');
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       this.lifecycle.clearHostWindow();
@@ -93,22 +95,35 @@ export class EmbeddingHostManager {
         runtimeId: this.getStatus().runtimeId,
       })
     );
+    const { runtimeId } = this.getStatus();
 
     window.webContents.send(
       EMBEDDING_HOST_COMMAND_EVENT,
-      createEmbeddingHostCommand('stop', this.getStatus().runtimeId)
+      createEmbeddingHostCommand('stop', runtimeId)
     );
 
     try {
-      return await this.lifecycle.waitForStatus((status) => status.state === 'stopped', 10_000);
+      const status = await this.lifecycle.waitForStatus(
+        (nextStatus) => nextStatus.state === 'stopped' || nextStatus.state === 'error',
+        10_000
+      );
+      if (status.state === 'error') {
+        this.lifecycle.destroyHostWindow();
+        this.lifecycle.clearHostWindow();
+        this.lifecycle.setStatus(createStoppedEmbeddingHostStatus(runtimeId));
+        return this.getStatus();
+      }
+      return status;
     } catch {
       this.lifecycle.destroyHostWindow();
+      this.lifecycle.clearHostWindow();
       this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
       return this.getStatus();
     }
   }
 
   async reset(): Promise<EmbeddingHostStatus> {
+    this.assertNotDisposed('reset');
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       return this.ensureStarted();
@@ -147,10 +162,10 @@ export class EmbeddingHostManager {
   }
 
   async dispose(): Promise<void> {
-    this.disposed = true;
     try {
       await this.stop();
     } finally {
+      this.disposed = true;
       this.lifecycle.destroyHostWindow();
       this.stopPowerSaveBlocker();
       this.lifecycle.dispose();
@@ -234,5 +249,11 @@ export class EmbeddingHostManager {
       });
     }
     this.powerSaveBlockerId = null;
+  }
+
+  private assertNotDisposed(methodName: 'ensureStarted' | 'reset' | 'stop'): void {
+    if (this.disposed) {
+      throw new Error(`EmbeddingHostManager.${methodName} cannot be called after dispose().`);
+    }
   }
 }
