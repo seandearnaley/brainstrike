@@ -7,6 +7,7 @@ const roleByWebContentsId = new Map<number, DesktopWindowRole>();
 export function assignWindowRole(window: BrowserWindow, role: DesktopWindowRole): void {
   const webContentsId = window.webContents.id;
   if (roleByWebContentsId.has(webContentsId)) {
+    // Preserve the original closed-listener registration; only the mapped role changes.
     roleByWebContentsId.set(webContentsId, role);
     return;
   }

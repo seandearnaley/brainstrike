@@ -205,6 +205,7 @@ export class EmbeddingHostManager {
 
     this.pendingIdleStopTimer = setTimeout(() => {
       this.pendingIdleStopTimer = null;
+      // Re-check disposal here because dispose() can race after the timer is scheduled.
       if (this.disposed) {
         return;
       }

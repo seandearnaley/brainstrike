@@ -140,6 +140,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        this.destroyHostWindow();
         this.setStatus(
           this.options.createStatus({
             state: 'error',

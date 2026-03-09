@@ -336,7 +336,16 @@ export class ChunkingHostManager {
       });
       return;
     }
-    targetWindow.webContents.send(CHUNKING_HOST_PROGRESS_EVENT, progress);
+    try {
+      targetWindow.webContents.send(CHUNKING_HOST_PROGRESS_EVENT, progress);
+    } catch (error) {
+      logger.trace('Dropped chunking progress for unavailable requester window', {
+        requesterWebContentsId,
+        requestId: progress.requestId,
+        channel: progress.channel,
+        error,
+      });
+    }
   }
 
   private rejectPendingRequests(message: string): void {

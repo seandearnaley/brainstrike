@@ -454,4 +454,43 @@ describe('RendererHostLifecycle', () => {
       )
     ).not.toThrow();
   });
+
+  it('destroys the host window when startup readiness fails after the window is created', async () => {
+    vi.useFakeTimers();
+    const hostWindow = createFakeWindow(91);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(30_001);
+    const status = await startupPromise;
+
+    expect(status.state).toBe('error');
+    expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
+    expect(lifecycle.getHostWindow()).toBeNull();
+    vi.useRealTimers();
+  });
 });

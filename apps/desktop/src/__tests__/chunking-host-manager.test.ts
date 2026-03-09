@@ -152,4 +152,33 @@ describe('ChunkingHostManager', () => {
       'Unexpected chunking host response (type=result, channel=unexpected-channel).'
     );
   });
+
+  it('ignores requester windows destroyed during progress forwarding', async () => {
+    const requesterWindow = {
+      id: 88,
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        id: 11,
+        send: vi.fn(() => {
+          throw new Error('window destroyed during send');
+        }),
+      },
+    };
+    getAllWindowsMock.mockReturnValue([requesterWindow]);
+
+    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+
+    expect(() =>
+      manager.acceptResponseReport(71, {
+        channel: 'chunking-host:progress:chunked',
+        payload: {
+          completedFiles: 1,
+          totalFiles: 3,
+        },
+        requestId: 'req-progress',
+        runtimeId: 'chunking-host-runtime',
+        type: 'progress',
+      })
+    ).not.toThrow();
+  });
 });
