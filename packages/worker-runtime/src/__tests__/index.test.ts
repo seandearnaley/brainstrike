@@ -11,12 +11,16 @@ import {
   createBackgroundRuntimeScopedChannels,
   createBackgroundRuntimeStatus,
   createBackgroundRuntimeStatusAdapter,
+  createRequestId,
   createRequestTracker,
   createRuntimeId,
+  createRuntimeLogBindings,
   createRuntimeStatusStore,
   createStoppedBackgroundRuntimeStatus,
+  createSubscriptionTransport,
   createTerminalRuntimeFailureLatch,
   createWorkerRuntimeClient,
+  createWorkerTransport,
   deserializeRuntimeError,
   serializeRuntimeError,
 } from '../index';
@@ -25,6 +29,21 @@ describe('@brainstrike/worker-runtime', () => {
   it('creates runtime ids with the runtime kind prefix', () => {
     const runtimeId = createRuntimeId('chunking-host');
     expect(runtimeId.startsWith('chunking-host:')).toBe(true);
+  });
+
+  it('creates request ids with the provided prefix', () => {
+    const requestId = createRequestId('embed');
+    expect(requestId.startsWith('embed:')).toBe(true);
+  });
+
+  it('fails fast when runtime ids cannot be created', () => {
+    const originalCrypto = globalThis.crypto;
+    vi.stubGlobal('crypto', undefined);
+
+    expect(() => createRuntimeId('chunking-host')).toThrow('crypto.randomUUID');
+    expect(() => createRequestId('embed')).toThrow('crypto.randomUUID');
+
+    vi.stubGlobal('crypto', originalCrypto);
   });
 
   it('stores and broadcasts status transitions', () => {
@@ -232,6 +251,60 @@ describe('@brainstrike/worker-runtime', () => {
     ).toThrow('Chunking host response report must include a valid runtime envelope type.');
   });
 
+  it('rejects malformed runtime envelopes', () => {
+    expect(() => assertRuntimeObjectPayloadEnvelope(null, 'Runtime envelope')).toThrow(
+      'Runtime envelope must be an object.'
+    );
+    expect(() =>
+      assertRuntimeObjectPayloadEnvelope(
+        {
+          type: 'progress',
+          channel: 'chunking-host:progress',
+          requestId: '',
+          runtimeId: 'chunking-host:runtime-1',
+          payload: {},
+        },
+        'Runtime envelope'
+      )
+    ).toThrow('Runtime envelope must include a non-empty requestId.');
+    expect(() =>
+      assertRuntimeObjectPayloadEnvelope(
+        {
+          type: 'progress',
+          channel: '',
+          requestId: 'request-1',
+          runtimeId: 'chunking-host:runtime-1',
+          payload: {},
+        },
+        'Runtime envelope'
+      )
+    ).toThrow('Runtime envelope must include a non-empty channel.');
+    expect(() =>
+      assertRuntimeObjectPayloadEnvelope(
+        {
+          type: 'progress',
+          channel: 'chunking-host:progress',
+          requestId: 'request-1',
+          runtimeId: '',
+          payload: {},
+        },
+        'Runtime envelope'
+      )
+    ).toThrow('Runtime envelope must include a non-empty runtimeId.');
+    expect(() =>
+      assertRuntimeObjectPayloadEnvelope(
+        {
+          type: 'progress',
+          channel: 'chunking-host:progress',
+          requestId: 'request-1',
+          runtimeId: 'chunking-host:runtime-1',
+          payload: [],
+        },
+        'Runtime envelope'
+      )
+    ).toThrow('Runtime envelope must include a payload object.');
+  });
+
   it('strictly asserts request payload bases', () => {
     expect(
       assertRuntimeRequestPayloadBase(
@@ -267,6 +340,22 @@ describe('@brainstrike/worker-runtime', () => {
     ).toThrow('Chunking host chunk-file request must declare kind="chunk-file".');
   });
 
+  it('rejects malformed request payload bases', () => {
+    expect(() => assertRuntimeRequestPayloadBase(null, 'Chunk request', 'chunk-file')).toThrow(
+      'Chunk request must be an object.'
+    );
+    expect(() =>
+      assertRuntimeRequestPayloadBase(
+        {
+          kind: 'chunk-file',
+          requestId: '   ',
+        },
+        'Chunk request',
+        'chunk-file'
+      )
+    ).toThrow('Chunk request must include a non-empty requestId.');
+  });
+
   it('tracks pending requests and fails duplicate ids', () => {
     const tracker = createRequestTracker<number>();
     tracker.register('request-1', 42);
@@ -275,6 +364,27 @@ describe('@brainstrike/worker-runtime', () => {
     expect(() => tracker.register('request-1', 7)).toThrow(/Duplicate runtime request ID/);
     expect(tracker.take('request-1')).toBe(42);
     expect(tracker.get('request-1')).toBeUndefined();
+  });
+
+  it('supports clearing, deleting, draining, and enumerating tracked requests', () => {
+    const tracker = createRequestTracker<number>();
+    tracker.register('request-1', 1);
+    tracker.register('request-2', 2);
+
+    expect(tracker.has('request-1')).toBe(true);
+    expect(tracker.size()).toBe(2);
+    expect(tracker.entries()).toEqual([
+      ['request-1', 1],
+      ['request-2', 2],
+    ]);
+    expect(tracker.delete('request-1')).toBe(true);
+    expect(tracker.delete('missing')).toBe(false);
+    expect(tracker.drain()).toEqual([['request-2', 2]]);
+    expect(tracker.size()).toBe(0);
+
+    tracker.register('request-3', 3);
+    tracker.clear();
+    expect(tracker.size()).toBe(0);
   });
 
   it('latches terminal failures until cleared', () => {
@@ -287,6 +397,15 @@ describe('@brainstrike/worker-runtime', () => {
 
     latch.clear();
     expect(latch.isFailed()).toBe(false);
+  });
+
+  it('keeps the first terminal failure until cleared', () => {
+    const latch = createTerminalRuntimeFailureLatch();
+    const first = latch.markFailed('first failure');
+    const second = latch.markFailed(new Error('second failure'));
+
+    expect(second).toBe(first);
+    expect(latch.getFailure()?.message).toBe('first failure');
   });
 
   it('serializes and restores runtime errors', () => {
@@ -309,6 +428,81 @@ describe('@brainstrike/worker-runtime', () => {
     expect(restored.message).toBe('boom');
     expect(restored.code).toBe('E_RUNTIME');
     expect(restored.cause).toBe('root-cause');
+  });
+
+  it('normalizes non-Error runtime errors', () => {
+    expect(serializeRuntimeError('boom')).toMatchObject({
+      name: 'Error',
+      message: 'boom',
+    });
+    expect(deserializeRuntimeError('boom').message).toBe('boom');
+    expect(deserializeRuntimeError({ name: 'X', message: 'y' }).message).toBe('y');
+  });
+
+  it('rejects invalid background runtime status payloads', () => {
+    expect(() => assertBackgroundRuntimeStatus(null, 'embedding-host')).toThrow(
+      'embedding-host status report must be an object.'
+    );
+    expect(() =>
+      assertBackgroundRuntimeStatus(
+        {
+          runtimeKind: 'embedding-host',
+          runtimeId: 'embedding-host:1',
+          state: 'wat',
+          active: true,
+          lastError: null,
+        },
+        'embedding-host'
+      )
+    ).toThrow('embedding-host status report has invalid state.');
+    expect(() =>
+      assertBackgroundRuntimeStatus(
+        {
+          runtimeKind: 'embedding-host',
+          runtimeId: 'embedding-host:1',
+          state: 'running',
+          active: 'yes',
+          lastError: null,
+        },
+        'embedding-host'
+      )
+    ).toThrow('embedding-host status report must include active boolean.');
+    expect(() =>
+      assertBackgroundRuntimeStatus(
+        {
+          runtimeKind: 'embedding-host',
+          runtimeId: 'embedding-host:1',
+          state: 'running',
+          active: true,
+          lastError: 42,
+        },
+        'embedding-host'
+      )
+    ).toThrow('embedding-host status report must include string or null lastError.');
+    expect(() =>
+      assertBackgroundRuntimeStatus(
+        {
+          runtimeKind: 'embedding-host',
+          runtimeId: '',
+          state: 'running',
+          active: true,
+          lastError: null,
+        },
+        'embedding-host'
+      )
+    ).toThrow('embedding-host status report must include a non-empty runtimeId.');
+  });
+
+  it('creates runtime log bindings without optional fields', () => {
+    expect(
+      createRuntimeLogBindings({
+        runtimeKind: 'embedding-host',
+        runtimeId: 'embedding-host:1',
+      })
+    ).toEqual({
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host:1',
+    });
   });
 
   it('binds runtime metadata into log records', () => {
@@ -375,5 +569,104 @@ describe('@brainstrike/worker-runtime', () => {
 
     client.dispose();
     expect(worker.removeEventListener).toHaveBeenCalled();
+  });
+
+  it('handles worker transport subscriptions and transfer lists', () => {
+    const messageHandlers = new Set<(event: MessageEvent<unknown>) => void>();
+    const worker = {
+      addEventListener: vi.fn((type: string, handler: (event: MessageEvent<unknown>) => void) => {
+        if (type === 'message') {
+          messageHandlers.add(handler);
+        }
+      }),
+      removeEventListener: vi.fn(
+        (type: string, handler: (event: MessageEvent<unknown>) => void) => {
+          if (type === 'message') {
+            messageHandlers.delete(handler);
+          }
+        }
+      ),
+      postMessage: vi.fn(),
+    } as unknown as Worker;
+
+    const transport = createWorkerTransport(worker);
+    const listener = vi.fn();
+    const unsubscribe = transport.onMessage(listener);
+
+    for (const handler of messageHandlers) {
+      handler({ data: { ok: true } } as MessageEvent<unknown>);
+    }
+
+    const transfer = new ArrayBuffer(8);
+    transport.postMessage({ hello: 'world' }, [transfer]);
+    unsubscribe();
+    transport.postMessage({ again: true });
+
+    expect(listener).toHaveBeenCalledWith({ ok: true });
+    expect(worker.postMessage).toHaveBeenNthCalledWith(1, { hello: 'world' }, [transfer]);
+    expect(worker.postMessage).toHaveBeenNthCalledWith(2, { again: true });
+    expect(worker.removeEventListener).toHaveBeenCalled();
+  });
+
+  it('supports custom worker runtime failure handling and subscription transports', () => {
+    const errorHandlers = new Set<(event: ErrorEvent) => void>();
+    const worker = {
+      addEventListener: vi.fn((type: string, handler: (event: ErrorEvent) => void) => {
+        if (type === 'error') {
+          errorHandlers.add(handler);
+        }
+      }),
+      removeEventListener: vi.fn((type: string, handler: (event: ErrorEvent) => void) => {
+        if (type === 'error') {
+          errorHandlers.delete(handler);
+        }
+      }),
+      postMessage: vi.fn(),
+    } as unknown as Worker;
+
+    const failures: string[] = [];
+    const client = createWorkerRuntimeClient(worker, {
+      createErrorFromEvent: () => new Error('custom failure'),
+      onFailure: (error) => {
+        failures.push(error.message);
+      },
+    });
+
+    client.markReady();
+    for (const handler of errorHandlers) {
+      handler({
+        message: '',
+        preventDefault: vi.fn(),
+      } as unknown as ErrorEvent);
+    }
+
+    expect(client.isReady()).toBe(false);
+    expect(client.getFailure()?.message).toBe('custom failure');
+    expect(() => client.throwIfFailed()).toThrow('custom failure');
+
+    client.clearFailure();
+    client.resetReady();
+    expect(client.isFailed()).toBe(false);
+
+    const subscriptionListener = vi.fn();
+    const subscribe = vi.fn((listener: (message: unknown) => void) => {
+      listener({ subscribed: true });
+      return () => {
+        subscriptionListener('unsubscribed');
+      };
+    });
+    const postMessage = vi.fn();
+    const transport = createSubscriptionTransport({
+      subscribe,
+      postMessage,
+    });
+
+    const cleanup = transport.onMessage(subscriptionListener);
+    transport.postMessage({ ping: true });
+    cleanup();
+
+    expect(subscriptionListener).toHaveBeenCalledWith({ subscribed: true });
+    expect(subscriptionListener).toHaveBeenCalledWith('unsubscribed');
+    expect(postMessage).toHaveBeenCalledWith({ ping: true });
   });
 });

@@ -40,6 +40,14 @@ vi.mock('../../renderer/components/root-layout-content', () => ({
   default: () => <div>RootLayout</div>,
 }));
 
+vi.mock('../../renderer/components/embedding-host-app', () => ({
+  EmbeddingHostApp: () => <div>EmbeddingHostApp</div>,
+}));
+
+vi.mock('../../renderer/components/chunking-host-app', () => ({
+  ChunkingHostApp: () => <div>ChunkingHostApp</div>,
+}));
+
 vi.mock('../../renderer/log-buffer', () => ({}));
 
 // Utility type guard for React elements
@@ -49,8 +57,12 @@ function isReactElement(element: unknown): element is ReactElement {
 
 describe('renderer main entry', () => {
   beforeEach(() => {
+    vi.resetModules();
     mockCreateRoot.mockClear();
     mockRender.mockClear();
+    window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = undefined;
+    window.__BRAINSTRIKE_READY__ = undefined;
+    window.history.replaceState({}, '', '/');
     // Ensure root element exists for each test
     const existing = document.getElementById('root');
     if (existing) {
@@ -72,4 +84,40 @@ describe('renderer main entry', () => {
     expect(renderArg).toBeDefined();
     expect(isReactElement(renderArg)).toBe(true);
   }, 30_000); // Increased timeout for CI - dynamic import of main.tsx loads entire app
+
+  it('renders the embedding host app in embedding-host mode', async () => {
+    window.history.replaceState({}, '', '/?mode=embedding-host&runtimeId=embedding-host:test');
+
+    await import('../../renderer/main.tsx');
+
+    const renderArg = mockRender.mock.calls[0]?.[0];
+    expect(isReactElement(renderArg)).toBe(true);
+    if (!isReactElement(renderArg)) {
+      throw new Error('Expected embedding host render element');
+    }
+    expect(renderArg.type).toBeDefined();
+  });
+
+  it('renders the chunking host app in chunking-host mode', async () => {
+    window.history.replaceState({}, '', '/?mode=chunking-host&runtimeId=chunking-host:test');
+
+    await import('../../renderer/main.tsx');
+
+    const renderArg = mockRender.mock.calls[0]?.[0];
+    expect(isReactElement(renderArg)).toBe(true);
+    if (!isReactElement(renderArg)) {
+      throw new Error('Expected chunking host render element');
+    }
+    expect(renderArg.type).toBeDefined();
+  });
+
+  it('reuses an existing desktop react root when present', async () => {
+    const existingRoot = { render: vi.fn() };
+    window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = existingRoot as never;
+
+    await import('../../renderer/main.tsx');
+
+    expect(mockCreateRoot).not.toHaveBeenCalled();
+    expect(existingRoot.render).toHaveBeenCalledTimes(1);
+  });
 });

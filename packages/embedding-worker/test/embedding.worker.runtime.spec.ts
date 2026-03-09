@@ -98,6 +98,20 @@ describe('embedding worker runtime', () => {
     await Promise.resolve();
   };
 
+  const waitForAssertion = async (assertion: () => void, timeoutMs = 2000): Promise<void> => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      try {
+        assertion();
+        return;
+      } catch {
+        await flushMicrotasks();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+    assertion();
+  };
+
   describe('global error handlers', () => {
     it('sets up onerror handler in worker context', async () => {
       // Use null (not undefined) to simulate browser Worker where the property exists
@@ -189,6 +203,123 @@ describe('embedding worker runtime', () => {
         id: 'global',
       });
     });
+  });
+
+  it('streams embedding batches through the worker message channel', async () => {
+    const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
+    const postMessage = vi.fn();
+    vi.stubGlobal('self', {
+      addEventListener: vi.fn((type: string, listener: (event: MessageEvent<unknown>) => void) => {
+        if (type === 'message') {
+          messageListeners.add(listener);
+        }
+      }),
+      postMessage,
+      onerror: undefined,
+      onunhandledrejection: undefined,
+    });
+    pipelineMock.mockResolvedValue(async () => Float32Array.from([0.2, 0.8]));
+    await import('../src/embedding.worker');
+
+    const [handleMessage] = [...messageListeners];
+    if (!handleMessage) {
+      throw new Error('Expected worker message handler to be registered');
+    }
+
+    handleMessage({
+      data: {
+        type: 'stream-embed',
+        request: {
+          type: 'embed',
+          id: 'stream-1',
+          model: 'bge-m3',
+          texts: ['hello'],
+          targetDimension: 2,
+          deviceHint: 'wasm',
+        },
+      },
+    } as MessageEvent<unknown>);
+    await flushMicrotasks();
+
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: 'progress',
+        id: 'stream-1',
+        phase: 'initializing',
+        progress: 0,
+      },
+      []
+    );
+    await waitForAssertion(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'batch',
+          id: 'stream-1',
+          batchIndex: 0,
+          startIndex: 0,
+          endIndex: 1,
+        }),
+        expect.any(Array)
+      )
+    );
+
+    handleMessage({
+      data: {
+        type: 'stream-ack',
+        id: 'stream-1',
+        batchIndex: 0,
+      },
+    } as MessageEvent<unknown>);
+    await flushMicrotasks();
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'complete',
+        id: 'stream-1',
+        metadata: expect.objectContaining({
+          batchSize: 1,
+          dimensions: 2,
+        }),
+      }),
+      []
+    );
+  });
+
+  it('fails fast when streaming requests are malformed', async () => {
+    const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
+    const postMessage = vi.fn();
+    vi.stubGlobal('self', {
+      addEventListener: vi.fn((type: string, listener: (event: MessageEvent<unknown>) => void) => {
+        if (type === 'message') {
+          messageListeners.add(listener);
+        }
+      }),
+      postMessage,
+      onerror: undefined,
+      onunhandledrejection: undefined,
+    });
+    await import('../src/embedding.worker');
+
+    const [handleMessage] = [...messageListeners];
+    if (!handleMessage) {
+      throw new Error('Expected worker message handler to be registered');
+    }
+
+    handleMessage({
+      data: {
+        type: 'stream-embed',
+        request: null,
+      },
+    } as MessageEvent<unknown>);
+
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: 'error',
+        id: 'unknown',
+        message: 'Streaming request payload must be an object.',
+      },
+      []
+    );
   });
 
   async function loadWorker() {

@@ -53,5 +53,9 @@ describe('renderer log-buffer', () => {
     expect(pauseSpy).toHaveBeenCalledTimes(1);
     expect(resumeSpy).toHaveBeenCalledTimes(1);
     expect(pushSpy).toHaveBeenCalled();
+    expect(
+      (window as typeof window & { __brainstrikeRendererLogBuffer?: unknown })
+        .__brainstrikeRendererLogBuffer
+    ).toBe(first);
   });
 });

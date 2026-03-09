@@ -64,6 +64,45 @@ const flushMicrotasks = async (): Promise<void> => {
 };
 
 describe('StreamingEmbeddingWorkerClient', () => {
+  it('aggregates streamed vectors through embed()', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+
+    const embedPromise = client.embed(createRequest());
+    await flushMicrotasks();
+
+    worker.emitMessage({
+      type: 'batch',
+      id: 'embed-1',
+      batchIndex: 0,
+      startIndex: 0,
+      endIndex: 1,
+      vectors: [new Float32Array([1, 2])],
+    } satisfies EmbedWorkerBatch);
+    worker.emitMessage({
+      type: 'complete',
+      id: 'embed-1',
+      metadata: {
+        model: 'local:test-model',
+        device: 'wasm',
+        dtype: 'fp32',
+        batchSize: 1,
+        elapsedMs: 5,
+        fallbackApplied: false,
+        dimensions: 2,
+      },
+    });
+
+    await expect(embedPromise).resolves.toMatchObject({
+      type: 'result',
+      id: 'embed-1',
+      metadata: expect.objectContaining({ dimensions: 2 }),
+    });
+    await expect(embedPromise).resolves.toMatchObject({
+      vectors: [new Float32Array([1, 2])],
+    });
+  });
+
   it('streams progress, batches, and completes successfully', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
@@ -119,6 +158,66 @@ describe('StreamingEmbeddingWorkerClient', () => {
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onBatch).toHaveBeenCalledTimes(1);
     expect(worker.postMessage).toHaveBeenCalledWith({
+      type: 'stream-ack',
+      id: 'embed-1',
+      batchIndex: 0,
+    });
+  });
+
+  it('ignores unrelated messages and rejects on worker error payloads', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const onError = vi.fn();
+
+    const streamPromise = client.stream(createRequest(), {
+      onError,
+    });
+    await flushMicrotasks();
+
+    worker.emitMessage('not-an-event');
+    worker.emitMessage({
+      type: 'progress',
+      id: 'other-request',
+      phase: 'embedding',
+      progress: 0.2,
+    });
+    worker.emitMessage({
+      type: 'error',
+      id: 'embed-1',
+      message: 'model exploded',
+    });
+
+    await expect(streamPromise).rejects.toThrow('model exploded');
+    expect(onError).toHaveBeenCalledWith({
+      type: 'error',
+      id: 'embed-1',
+      message: 'model exploded',
+    });
+    expect(worker.terminate).toHaveBeenCalled();
+  });
+
+  it('rejects when the batch handler fails', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+
+    const streamPromise = client.stream(createRequest(), {
+      onBatch: async () => {
+        throw new Error('batch ack failed');
+      },
+    });
+    await flushMicrotasks();
+
+    worker.emitMessage({
+      type: 'batch',
+      id: 'embed-1',
+      batchIndex: 0,
+      startIndex: 0,
+      endIndex: 1,
+      vectors: [new Float32Array([1, 2, 3])],
+    } satisfies EmbedWorkerBatch);
+
+    await expect(streamPromise).rejects.toThrow('batch ack failed');
+    expect(worker.postMessage).not.toHaveBeenCalledWith({
       type: 'stream-ack',
       id: 'embed-1',
       batchIndex: 0,

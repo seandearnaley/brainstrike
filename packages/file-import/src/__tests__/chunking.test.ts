@@ -1,4 +1,4 @@
-import type { FileChunk, FileImportResult, FileRecord } from '@brainstrike/db';
+import type { FileChunk, FileImportResult, FileRecord, IDatabase } from '@brainstrike/db';
 import { ChunkingService } from '@brainstrike/db';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -57,6 +57,7 @@ interface MockRepository {
 
 interface MockChunkRepository {
   insertMany: Mock<(chunks: unknown[]) => Promise<unknown[]>>;
+  insertManyWithTx?: Mock<(tx: unknown, chunks: unknown[]) => Promise<unknown[]>>;
 }
 
 interface MockChunkingService {
@@ -709,6 +710,34 @@ describe('processChunking', () => {
         embeddingSetId: 'set-123',
       }),
     ]);
+  });
+
+  it('uses transactional chunk inserts and queue enqueue when configured', async () => {
+    const insertManyWithTx = vi.fn(async (_tx: unknown, chunks: unknown[]) => chunks);
+    mockChunkRepository.insertManyWithTx = insertManyWithTx;
+    const enqueueJobsForChunksTx = vi.fn(async () => undefined);
+    const tx = { kind: 'tx', query: vi.fn() } as unknown as IDatabase;
+    const runInTransactionBase = async <T>(fn: (database: IDatabase) => Promise<T>): Promise<T> => {
+      return await fn(tx);
+    };
+    const runInTransaction = vi.fn(runInTransactionBase) as typeof runInTransactionBase;
+
+    await processChunking(
+      [{ id: 'file-1', imported: true, existed: false }],
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      {
+        updateProgress: mockUpdateProgress,
+        chunkingWorkerPort: mockWorkerPort,
+        embedQueueEnabled: true,
+        runInTransaction,
+        enqueueJobsForChunksTx,
+      }
+    );
+
+    expect(runInTransaction).toHaveBeenCalledTimes(1);
+    expect(insertManyWithTx).toHaveBeenCalledTimes(1);
+    expect(mockChunkRepository.insertMany).not.toHaveBeenCalled();
+    expect(enqueueJobsForChunksTx).toHaveBeenCalledTimes(1);
   });
 
   it('uses bounded parallelism for host-proxy chunking transport', async () => {
