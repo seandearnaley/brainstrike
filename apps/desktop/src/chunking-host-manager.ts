@@ -18,6 +18,7 @@ import {
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
 
 const logger = createLogger('ChunkingHostManager');
+const CHUNKING_HOST_REQUEST_TIMEOUT_MS = 30_000;
 
 type PendingChunkingRequest =
   | {
@@ -25,12 +26,14 @@ type PendingChunkingRequest =
       readonly requesterWebContentsId: number;
       readonly reject: (error: Error) => void;
       readonly resolve: (results: unknown[]) => void;
+      readonly timeoutId: ReturnType<typeof setTimeout>;
     }
   | {
       readonly kind: 'file';
       readonly requesterWebContentsId: number;
       readonly reject: (error: Error) => void;
       readonly resolve: (result: unknown) => void;
+      readonly timeoutId: ReturnType<typeof setTimeout>;
     };
 
 function createRequestFailure(message: string): Error {
@@ -136,7 +139,7 @@ export class ChunkingHostManager {
     requesterWebContentsId: number,
     request: ChunkingHostChunkFileByIdRequest | ChunkingHostChunkFileRequest
   ): Promise<unknown> {
-    await this.assertReadyForRequests();
+    const hostWindow = await this.assertReadyForRequests();
     return new Promise<unknown>((resolve, reject) => {
       if (this.pendingRequests.has(request.requestId)) {
         reject(
@@ -145,11 +148,13 @@ export class ChunkingHostManager {
         return;
       }
 
+      const timeoutId = this.createRequestTimeout(request.requestId);
       this.pendingRequests.set(request.requestId, {
         kind: 'file',
         requesterWebContentsId,
         resolve,
         reject,
+        timeoutId,
       });
       const message: ChunkingHostRequest = {
         type: 'request',
@@ -158,7 +163,18 @@ export class ChunkingHostManager {
         runtimeId: this.getStatus().runtimeId,
         payload: request,
       };
-      this.lifecycle.getHostWindow()?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, message);
+      try {
+        hostWindow.webContents.send(CHUNKING_HOST_REQUEST_EVENT, message);
+      } catch (error) {
+        this.clearPendingRequest(request.requestId);
+        reject(
+          createRequestFailure(
+            error instanceof Error
+              ? `Chunking host request ${request.requestId} could not be sent: ${error.message}`
+              : `Chunking host request ${request.requestId} could not be sent.`
+          )
+        );
+      }
     });
   }
 
@@ -166,7 +182,7 @@ export class ChunkingHostManager {
     requesterWebContentsId: number,
     request: ChunkingHostChunkBatchRequest
   ): Promise<unknown[]> {
-    await this.assertReadyForRequests();
+    const hostWindow = await this.assertReadyForRequests();
     return new Promise<unknown[]>((resolve, reject) => {
       if (this.pendingRequests.has(request.requestId)) {
         reject(
@@ -175,11 +191,13 @@ export class ChunkingHostManager {
         return;
       }
 
+      const timeoutId = this.createRequestTimeout(request.requestId);
       this.pendingRequests.set(request.requestId, {
         kind: 'batch',
         requesterWebContentsId,
         resolve,
         reject,
+        timeoutId,
       });
       const message: ChunkingHostRequest = {
         type: 'request',
@@ -188,7 +206,18 @@ export class ChunkingHostManager {
         runtimeId: this.getStatus().runtimeId,
         payload: request,
       };
-      this.lifecycle.getHostWindow()?.webContents.send(CHUNKING_HOST_REQUEST_EVENT, message);
+      try {
+        hostWindow.webContents.send(CHUNKING_HOST_REQUEST_EVENT, message);
+      } catch (error) {
+        this.clearPendingRequest(request.requestId);
+        reject(
+          createRequestFailure(
+            error instanceof Error
+              ? `Chunking host request ${request.requestId} could not be sent: ${error.message}`
+              : `Chunking host request ${request.requestId} could not be sent.`
+          )
+        );
+      }
     });
   }
 
@@ -250,10 +279,10 @@ export class ChunkingHostManager {
                 `Chunking host returned a single-file result for batch request ${report.requestId}.`
               )
             );
-            this.pendingRequests.delete(report.requestId);
+            this.clearPendingRequest(report.requestId);
             return;
           }
-          this.pendingRequests.delete(report.requestId);
+          this.clearPendingRequest(report.requestId);
           pending.resolve(report.payload.result);
           return;
 
@@ -264,20 +293,20 @@ export class ChunkingHostManager {
                 `Chunking host returned a batch result for single-file request ${report.requestId}.`
               )
             );
-            this.pendingRequests.delete(report.requestId);
+            this.clearPendingRequest(report.requestId);
             return;
           }
-          this.pendingRequests.delete(report.requestId);
+          this.clearPendingRequest(report.requestId);
           pending.resolve(Array.from(report.payload.results));
           return;
       }
     }
 
-    this.pendingRequests.delete(report.requestId);
-    pending.reject(createRequestFailure(report.payload.message));
+    this.clearPendingRequest(report.requestId);
+    pending.reject(createRequestFailure(this.describeUnexpectedResponse(report)));
   }
 
-  private async assertReadyForRequests(): Promise<void> {
+  private async assertReadyForRequests(): Promise<BrowserWindow> {
     const status = await this.ensureStarted({ waitForRunning: true });
     if (status.state === 'error') {
       throw new Error(status.lastError ?? 'Chunking host failed to start.');
@@ -289,6 +318,7 @@ export class ChunkingHostManager {
     if (!(window && !window.isDestroyed())) {
       throw new Error('Chunking host window is not available.');
     }
+    return window;
   }
 
   private forwardProgressEvent(
@@ -315,8 +345,40 @@ export class ChunkingHostManager {
     }
     const failure = createRequestFailure(message);
     for (const pending of this.pendingRequests.values()) {
+      clearTimeout(pending.timeoutId);
       pending.reject(failure);
     }
     this.pendingRequests.clear();
+  }
+
+  private clearPendingRequest(requestId: string): void {
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeoutId);
+    this.pendingRequests.delete(requestId);
+  }
+
+  private createRequestTimeout(requestId: string): ReturnType<typeof setTimeout> {
+    return setTimeout(() => {
+      const pending = this.pendingRequests.get(requestId);
+      if (!pending) {
+        return;
+      }
+      this.pendingRequests.delete(requestId);
+      pending.reject(
+        createRequestFailure(
+          `Chunking host request ${requestId} timed out after ${CHUNKING_HOST_REQUEST_TIMEOUT_MS}ms.`
+        )
+      );
+    }, CHUNKING_HOST_REQUEST_TIMEOUT_MS);
+  }
+
+  private describeUnexpectedResponse(report: ChunkingHostResponseReport): string {
+    if (report.type === 'error') {
+      return report.payload.message;
+    }
+    return `Unexpected chunking host response (type=${report.type}, channel=${report.channel}).`;
   }
 }

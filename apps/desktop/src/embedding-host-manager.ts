@@ -17,6 +17,7 @@ const HOST_READY_TIMEOUT_MS = 30_000;
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
 
 export class EmbeddingHostManager {
+  private disposed = false;
   private readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
   private powerSaveBlockerId: number | null = null;
   private pendingIdleStopTimer: ReturnType<typeof setTimeout> | null = null;
@@ -146,6 +147,7 @@ export class EmbeddingHostManager {
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true;
     try {
       await this.stop();
     } finally {
@@ -197,12 +199,15 @@ export class EmbeddingHostManager {
   }
 
   private scheduleIdleStop(): void {
-    if (this.powerSaveBlockerId === null || this.pendingIdleStopTimer !== null) {
+    if (this.disposed || this.powerSaveBlockerId === null || this.pendingIdleStopTimer !== null) {
       return;
     }
 
     this.pendingIdleStopTimer = setTimeout(() => {
       this.pendingIdleStopTimer = null;
+      if (this.disposed) {
+        return;
+      }
       this.stopPowerSaveBlocker();
     }, POWER_SAVE_BLOCKER_IDLE_GRACE_MS);
   }

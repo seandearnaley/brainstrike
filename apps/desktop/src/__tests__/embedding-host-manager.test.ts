@@ -73,4 +73,18 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(powerSaveBlockerStopMock).toHaveBeenCalledTimes(1);
     expect(powerSaveBlockerStopMock).toHaveBeenCalledWith(101);
   });
+
+  it('does not stop the blocker from an idle timer after the manager is disposed', () => {
+    const manager = new EmbeddingHostManager() as TestableEmbeddingHostManager & {
+      disposed: boolean;
+    };
+
+    manager.syncPowerSaveBlocker({ state: 'running', active: true, lastError: null });
+    manager.syncPowerSaveBlocker({ state: 'running', active: false, lastError: null });
+    manager.disposed = true;
+
+    vi.advanceTimersByTime(5001);
+
+    expect(powerSaveBlockerStopMock).not.toHaveBeenCalled();
+  });
 });

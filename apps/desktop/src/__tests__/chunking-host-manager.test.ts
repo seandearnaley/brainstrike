@@ -1,0 +1,155 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { getAllWindowsMock, lifecycleState, mockHostWindow } = vi.hoisted(() => {
+  const hostWindow = {
+    id: 71,
+    isDestroyed: vi.fn(() => false),
+    webContents: {
+      id: 71,
+      send: vi.fn(),
+    },
+  };
+
+  return {
+    getAllWindowsMock: vi.fn(() => []),
+    lifecycleState: {
+      clearHostWindow: vi.fn(),
+      destroyHostWindow: vi.fn(),
+      dispose: vi.fn(),
+      ensureStarted: vi.fn(async () => ({
+        active: false,
+        lastError: null,
+        runtimeId: 'chunking-host-runtime',
+        state: 'running' as const,
+      })),
+      getHostWindow: vi.fn(() => hostWindow),
+      getStatus: vi.fn(() => ({
+        active: false,
+        lastError: null,
+        runtimeId: 'chunking-host-runtime',
+        state: 'running' as const,
+      })),
+      isHostWindow: vi.fn(() => false),
+      setStatus: vi.fn(),
+      waitForStatus: vi.fn(),
+    },
+    mockHostWindow: hostWindow,
+  };
+});
+
+vi.mock('electron', () => ({
+  BrowserWindow: {
+    getAllWindows: getAllWindowsMock,
+  },
+}));
+
+vi.mock('../renderer-host-lifecycle', () => ({
+  RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle() {
+    return lifecycleState;
+  }),
+}));
+
+import { ChunkingHostManager } from '../chunking-host-manager';
+
+type TestableChunkingHostManager = ChunkingHostManager & {
+  acceptResponseReport(
+    senderId: number,
+    report: {
+      channel: string;
+      payload: Record<string, unknown>;
+      requestId: string;
+      runtimeId: string;
+      type: string;
+    }
+  ): void;
+  pendingRequests: Map<string, unknown>;
+};
+
+describe('ChunkingHostManager', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    getAllWindowsMock.mockReturnValue([]);
+    lifecycleState.ensureStarted.mockResolvedValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'chunking-host-runtime',
+      state: 'running',
+    });
+    lifecycleState.getHostWindow.mockReturnValue(mockHostWindow);
+    lifecycleState.getStatus.mockReturnValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'chunking-host-runtime',
+      state: 'running',
+    });
+    mockHostWindow.isDestroyed.mockReturnValue(false);
+    mockHostWindow.webContents.send.mockReset();
+  });
+
+  it('rejects immediately if the host request cannot be sent', async () => {
+    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    mockHostWindow.webContents.send.mockImplementation(() => {
+      throw new Error('webContents unavailable');
+    });
+
+    await expect(
+      manager.chunkFile(11, {
+        content: 'hello',
+        fileName: 'a.txt',
+        filePath: '/tmp/a.txt',
+        fileRecordId: 'file-1',
+        kind: 'chunk-file',
+        options: {},
+        requestId: 'req-1',
+      })
+    ).rejects.toThrow('Chunking host request req-1 could not be sent: webContents unavailable');
+
+    expect(manager.pendingRequests.size).toBe(0);
+  });
+
+  it('times out stale chunking requests instead of hanging forever', async () => {
+    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const requestPromise = manager.chunkBatch(11, {
+      files: [],
+      kind: 'chunk-batch',
+      options: {},
+      requestId: 'req-timeout',
+    });
+    const rejection = expect(requestPromise).rejects.toThrow(
+      'Chunking host request req-timeout timed out after 30000ms.'
+    );
+
+    await vi.advanceTimersByTimeAsync(30_001);
+
+    await rejection;
+    expect(manager.pendingRequests.size).toBe(0);
+  });
+
+  it('returns a defined error for unexpected response envelopes', async () => {
+    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const requestPromise = manager.chunkFile(11, {
+      content: 'hello',
+      fileName: 'a.txt',
+      filePath: '/tmp/a.txt',
+      fileRecordId: 'file-1',
+      kind: 'chunk-file',
+      options: {},
+      requestId: 'req-unexpected',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(manager.pendingRequests.has('req-unexpected')).toBe(true);
+
+    manager.acceptResponseReport(71, {
+      channel: 'unexpected-channel',
+      payload: {},
+      requestId: 'req-unexpected',
+      runtimeId: 'chunking-host-runtime',
+      type: 'result',
+    });
+
+    await expect(requestPromise).rejects.toThrow(
+      'Unexpected chunking host response (type=result, channel=unexpected-channel).'
+    );
+  });
+});

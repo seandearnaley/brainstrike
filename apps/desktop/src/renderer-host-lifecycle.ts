@@ -1,10 +1,12 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import { createLogger } from '@brainstrike/utils';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { app, BrowserWindow } from 'electron';
 import { assignWindowRole, type DesktopWindowRole, getWindowRole } from './window-role';
 
 const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
+const logger = createLogger('RendererHostLifecycle');
 
 export type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 
@@ -327,8 +329,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       }
       try {
         window.webContents.send(this.options.statusEventName, snapshot);
-      } catch {
+      } catch (error) {
         // A window can disappear between enumeration and send during shutdown churn.
+        logger.debug('Host status broadcast skipped for unavailable window', {
+          error,
+          targetWindowId: window.id,
+          windowRole: getWindowRole(window),
+        });
       }
     }
   }
