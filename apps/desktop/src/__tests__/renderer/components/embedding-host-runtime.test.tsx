@@ -1,8 +1,10 @@
 import { render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createEmbeddingHostCommand } from '../../../embedding-host-shared';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
 
 const {
+  commandListenerRef,
   dbHandle,
   ensureVectorPreferencesHydratedMock,
   reportStatusMock,
@@ -10,6 +12,9 @@ const {
   stopMock,
   storeState,
 } = vi.hoisted(() => ({
+  commandListenerRef: {
+    current: null as null | ((command: unknown) => void),
+  },
   dbHandle: { query: vi.fn() },
   ensureVectorPreferencesHydratedMock: vi.fn(),
   reportStatusMock: vi.fn(),
@@ -60,7 +65,12 @@ describe('EmbeddingHostRuntime', () => {
     Object.defineProperty(window, 'embeddingHost', {
       configurable: true,
       value: {
-        onCommand: () => () => {},
+        onCommand: (callback: (command: unknown) => void) => {
+          commandListenerRef.current = callback;
+          return () => {
+            commandListenerRef.current = null;
+          };
+        },
         reportStatus: reportStatusMock,
       },
     });
@@ -100,6 +110,28 @@ describe('EmbeddingHostRuntime', () => {
           initializeLocalModelOnStart: false,
         })
       );
+    });
+  });
+
+  it('resets the worker when it receives a strict reset command envelope', async () => {
+    storeState.hasHydrated = true;
+
+    render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    });
+
+    const commandListener = commandListenerRef.current;
+    if (!commandListener) {
+      throw new Error('Expected embedding host command listener to be registered.');
+    }
+
+    commandListener(createEmbeddingHostCommand('reset', 'test-runtime'));
+
+    await waitFor(() => {
+      expect(stopMock).toHaveBeenCalledTimes(1);
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
     });
   });
 });

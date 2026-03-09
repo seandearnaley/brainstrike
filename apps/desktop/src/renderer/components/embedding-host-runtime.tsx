@@ -7,7 +7,11 @@ import {
 import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 import { useEffect, useRef } from 'react';
-import type { EmbeddingHostCommand, EmbeddingHostStatus } from '../../embedding-host-shared';
+import {
+  assertEmbeddingHostCommand,
+  type EmbeddingHostCommand,
+  type EmbeddingHostStatus,
+} from '../../embedding-host-shared';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
@@ -181,11 +185,12 @@ export function EmbeddingHostRuntime(): null {
     };
 
     const unsubscribeCommand = getEmbeddingHostBridge()?.onCommand?.((command) => {
-      if (command.payload.action === 'stop') {
+      const nextCommand = assertEmbeddingHostCommand(command);
+      if (nextCommand.payload.action === 'stop') {
         void stopWorker();
         return;
       }
-      if (command.payload.action === 'reset') {
+      if (nextCommand.payload.action === 'reset') {
         void resetWorker();
       }
     });

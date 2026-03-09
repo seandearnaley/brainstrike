@@ -1,7 +1,7 @@
 import { createLogger } from '@brainstrike/utils';
-import { createRequestId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {
+  createEmbeddingHostCommand,
   createStoppedEmbeddingHostStatus,
   EMBEDDING_HOST_COMMAND_EVENT,
   EMBEDDING_HOST_STATUS_ADAPTER,
@@ -93,13 +93,10 @@ export class EmbeddingHostManager {
       })
     );
 
-    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, {
-      type: 'request',
-      channel: 'control',
-      requestId: createRequestId('embedding-host-command'),
-      runtimeId: this.getStatus().runtimeId,
-      payload: { action: 'stop' },
-    });
+    window.webContents.send(
+      EMBEDDING_HOST_COMMAND_EVENT,
+      createEmbeddingHostCommand('stop', this.getStatus().runtimeId)
+    );
 
     try {
       return await this.lifecycle.waitForStatus((status) => status.state === 'stopped', 10_000);
@@ -125,13 +122,10 @@ export class EmbeddingHostManager {
       })
     );
 
-    window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, {
-      type: 'request',
-      channel: 'control',
-      requestId: createRequestId('embedding-host-command'),
-      runtimeId: this.getStatus().runtimeId,
-      payload: { action: 'reset' },
-    });
+    window.webContents.send(
+      EMBEDDING_HOST_COMMAND_EVENT,
+      createEmbeddingHostCommand('reset', this.getStatus().runtimeId)
+    );
     try {
       return await this.lifecycle.waitForStatus(
         (status) => status.state === 'running' || status.state === 'error',
