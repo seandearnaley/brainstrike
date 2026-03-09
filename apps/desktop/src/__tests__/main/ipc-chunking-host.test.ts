@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { handlers, listeners } = vi.hoisted(() => {
+const { handlers, listeners, removeListener, removeHandler } = vi.hoisted(() => {
   return {
     handlers: new Map<string, (...args: unknown[]) => unknown>(),
     listeners: new Map<string, (...args: unknown[]) => unknown>(),
+    removeHandler: vi.fn(),
+    removeListener: vi.fn(),
   };
 });
 
@@ -22,8 +24,8 @@ vi.mock('electron', async () => {
   return {
     ipcMain: Object.assign(typedIpcMain, {
       on,
-      removeAllListeners: vi.fn(),
-      removeHandler: vi.fn(),
+      removeHandler,
+      removeListener,
     }),
   };
 });
@@ -214,5 +216,33 @@ describe('chunking host IPC handlers', () => {
       )
     ).rejects.toThrow('Chunking host chunk-batch request must declare kind="chunk-batch".');
     expect(manager.chunkBatch).not.toHaveBeenCalled();
+  });
+
+  it('removes only the registered response listener on cleanup', () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      acceptStatusReport: vi.fn(),
+      ensureStarted: vi.fn(),
+      getStatus: vi.fn(),
+      reset: vi.fn(),
+      stop: vi.fn(),
+      chunkFile: vi.fn(),
+      chunkBatch: vi.fn(),
+    };
+
+    const unregister = registerChunkingHostIpcHandlers(manager as never);
+    const registeredListener = listeners.get(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL);
+    if (!registeredListener) {
+      throw new Error('Chunking host response listener not registered.');
+    }
+
+    unregister();
+
+    expect(removeHandler).toHaveBeenCalledWith(CHUNKING_HOST_CHUNK_FILE_CHANNEL);
+    expect(removeHandler).toHaveBeenCalledWith(CHUNKING_HOST_CHUNK_BATCH_CHANNEL);
+    expect(removeListener).toHaveBeenCalledWith(
+      CHUNKING_HOST_REPORT_RESPONSE_CHANNEL,
+      registeredListener
+    );
   });
 });

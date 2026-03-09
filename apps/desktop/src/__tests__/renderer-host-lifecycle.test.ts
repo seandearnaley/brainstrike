@@ -172,6 +172,83 @@ describe('RendererHostLifecycle', () => {
     );
   });
 
+  it('keeps sandbox enabled when only CI=true is present without --test-mode', async () => {
+    const hostWindow = createFakeWindow(43);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+    process.env['CI'] = 'true';
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+
+    expect(MockBrowserWindow).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({
+          sandbox: true,
+        }),
+      })
+    );
+  });
+
+  it('disables sandbox only when --test-mode is explicitly present', async () => {
+    const hostWindow = createFakeWindow(44);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+    process.env['CI'] = 'true';
+    process.argv = [...baseArgv, '--test-mode'];
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+
+    expect(MockBrowserWindow).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({
+          sandbox: false,
+        }),
+      })
+    );
+  });
+
   it('broadcasts status updates to non-host windows only', async () => {
     const hostWindow = createFakeWindow(51);
     const visibleWindow = createFakeWindow(52);

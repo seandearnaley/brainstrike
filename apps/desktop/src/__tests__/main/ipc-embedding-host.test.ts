@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { handlers, listeners, removeAllListeners, removeHandler } = vi.hoisted(() => {
+const { handlers, listeners, removeListener, removeHandler } = vi.hoisted(() => {
   return {
     handlers: new Map<string, (...args: unknown[]) => unknown>(),
     listeners: new Map<string, (...args: unknown[]) => unknown>(),
-    removeAllListeners: vi.fn(),
+    removeListener: vi.fn(),
     removeHandler: vi.fn(),
   };
 });
@@ -24,7 +24,7 @@ vi.mock('electron', async () => {
   return {
     ipcMain: Object.assign(typedIpcMain, {
       on,
-      removeAllListeners,
+      removeListener,
       removeHandler,
     }),
   };
@@ -145,6 +145,9 @@ describe('embedding host IPC handlers', () => {
     expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_STOP_CHANNEL);
     expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_RESET_CHANNEL);
     expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_GET_STATUS_CHANNEL);
-    expect(removeAllListeners).toHaveBeenCalledWith(EMBEDDING_HOST_REPORT_STATUS_CHANNEL);
+    expect(removeListener).toHaveBeenCalledWith(
+      EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
+      listeners.get(EMBEDDING_HOST_REPORT_STATUS_CHANNEL)
+    );
   });
 });

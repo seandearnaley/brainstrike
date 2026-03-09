@@ -240,7 +240,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private async createWindow(runtimeId: string): Promise<BrowserWindow> {
-    const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
+    const isTestMode = process.argv.includes('--test-mode');
     const enableSandbox = !isTestMode;
     const preloadPath = path.join(resolveDistRoot(), 'preload.js');
     const window = new BrowserWindow({

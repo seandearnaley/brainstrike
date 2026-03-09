@@ -33,15 +33,16 @@ export function registerBackgroundRuntimeLifecycleIpcHandlers<TStatus>(
   ipcMain.handle(channels.stop, async () => manager.stop());
   ipcMain.handle(channels.reset, async () => manager.reset());
   ipcMain.handle(channels.getStatus, async () => manager.getStatus());
-  ipcMain.on(channels.reportStatus, (event: IpcMainEvent, payload: unknown) => {
+  const statusReportListener = (event: IpcMainEvent, payload: unknown) => {
     manager.acceptStatusReport(event.sender.id, assertStatus(payload));
-  });
+  };
+  ipcMain.on(channels.reportStatus, statusReportListener);
 
   return () => {
     ipcMain.removeHandler(channels.ensureStarted);
     ipcMain.removeHandler(channels.stop);
     ipcMain.removeHandler(channels.reset);
     ipcMain.removeHandler(channels.getStatus);
-    ipcMain.removeAllListeners(channels.reportStatus);
+    ipcMain.removeListener(channels.reportStatus, statusReportListener);
   };
 }

@@ -386,7 +386,9 @@ export class ChunkingHostManager {
 
   private describeUnexpectedResponse(report: ChunkingHostResponseReport): string {
     if (report.type === 'error') {
-      return report.payload.message;
+      return (
+        report.payload.errorMessage ?? report.payload.message ?? 'Unknown chunking host error.'
+      );
     }
     return `Unexpected chunking host response (type=${report.type}, channel=${report.channel}).`;
   }

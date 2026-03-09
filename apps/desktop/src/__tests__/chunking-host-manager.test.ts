@@ -153,6 +153,32 @@ describe('ChunkingHostManager', () => {
     );
   });
 
+  it('falls back to errorMessage for chunking host error reports', async () => {
+    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const requestPromise = manager.chunkFile(11, {
+      content: 'hello',
+      fileName: 'a.txt',
+      filePath: '/tmp/a.txt',
+      fileRecordId: 'file-1',
+      kind: 'chunk-file',
+      options: {},
+      requestId: 'req-error',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    manager.acceptResponseReport(71, {
+      channel: 'chunk',
+      payload: {
+        errorMessage: 'chunking failed',
+      },
+      requestId: 'req-error',
+      runtimeId: 'chunking-host-runtime',
+      type: 'error',
+    });
+
+    await expect(requestPromise).rejects.toThrow('chunking failed');
+  });
+
   it('ignores requester windows destroyed during progress forwarding', async () => {
     const requesterWindow = {
       id: 88,

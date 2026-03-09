@@ -461,6 +461,9 @@ export async function enqueueEmbeddingBackfill(
   reportProgress(done, total);
 
   while (done < total) {
+    // Capacity is checked before selecting the next batch so we never read more new work than the
+    // queue can durably accept in the current pass. Cursor exhaustion remains the loop terminator
+    // when dedupe makes inserted < selected.
     const availableCapacity = await waitForQueueCapacity(
       jobQueue,
       maxQueueDepth,

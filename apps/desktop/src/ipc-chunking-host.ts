@@ -38,14 +38,15 @@ export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): (
     async (event: IpcMainInvokeEvent, payload: unknown) =>
       manager.chunkBatch(event.sender.id, assertChunkingHostChunkBatchRequestPayload(payload))
   );
-  ipcMain.on(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL, (event: IpcMainEvent, payload: unknown) => {
+  const responseReportListener = (event: IpcMainEvent, payload: unknown) => {
     manager.acceptResponseReport(event.sender.id, assertChunkingHostResponseReport(payload));
-  });
+  };
+  ipcMain.on(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL, responseReportListener);
 
   return () => {
     unregisterLifecycle();
     ipcMain.removeHandler(CHUNKING_HOST_CHUNK_FILE_CHANNEL);
     ipcMain.removeHandler(CHUNKING_HOST_CHUNK_BATCH_CHANNEL);
-    ipcMain.removeAllListeners(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL);
+    ipcMain.removeListener(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL, responseReportListener);
   };
 }
