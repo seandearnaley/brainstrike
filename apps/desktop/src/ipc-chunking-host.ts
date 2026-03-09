@@ -32,6 +32,7 @@ import {
   CHUNKING_HOST_STATUS_ADAPTER,
   CHUNKING_HOST_STOP_CHANNEL,
 } from './chunking-host-shared';
+import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-background-runtime-lifecycle-ipc';
 
 function assertChunkingHostStatusReport(value: unknown): ChunkingHostStatusReport {
   return CHUNKING_HOST_STATUS_ADAPTER.assertStatus(value);
@@ -367,12 +368,17 @@ function isChunkingHostRequestPayloadBase(
 }
 
 export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): () => void {
-  ipcMain.handle(CHUNKING_HOST_ENSURE_STARTED_CHANNEL, async () =>
-    manager.ensureStarted({ waitForRunning: true })
-  );
-  ipcMain.handle(CHUNKING_HOST_STOP_CHANNEL, async () => manager.stop());
-  ipcMain.handle(CHUNKING_HOST_RESET_CHANNEL, async () => manager.reset());
-  ipcMain.handle(CHUNKING_HOST_GET_STATUS_CHANNEL, async () => manager.getStatus());
+  const unregisterLifecycle = registerBackgroundRuntimeLifecycleIpcHandlers({
+    manager,
+    assertStatus: assertChunkingHostStatusReport,
+    channels: {
+      ensureStarted: CHUNKING_HOST_ENSURE_STARTED_CHANNEL,
+      stop: CHUNKING_HOST_STOP_CHANNEL,
+      reset: CHUNKING_HOST_RESET_CHANNEL,
+      getStatus: CHUNKING_HOST_GET_STATUS_CHANNEL,
+      reportStatus: CHUNKING_HOST_REPORT_STATUS_CHANNEL,
+    },
+  });
   ipcMain.handle(
     CHUNKING_HOST_CHUNK_FILE_CHANNEL,
     async (event: IpcMainInvokeEvent, payload: unknown) =>
@@ -391,21 +397,14 @@ export function registerChunkingHostIpcHandlers(manager: ChunkingHostManager): (
     async (event: IpcMainInvokeEvent, payload: unknown) =>
       manager.chunkBatch(event.sender.id, assertChunkBatchRequest(payload))
   );
-  ipcMain.on(CHUNKING_HOST_REPORT_STATUS_CHANNEL, (event: IpcMainEvent, payload: unknown) => {
-    manager.acceptStatusReport(event.sender.id, assertChunkingHostStatusReport(payload));
-  });
   ipcMain.on(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL, (event: IpcMainEvent, payload: unknown) => {
     manager.acceptResponseReport(event.sender.id, assertChunkingHostResponseReport(payload));
   });
 
   return () => {
-    ipcMain.removeHandler(CHUNKING_HOST_ENSURE_STARTED_CHANNEL);
-    ipcMain.removeHandler(CHUNKING_HOST_STOP_CHANNEL);
-    ipcMain.removeHandler(CHUNKING_HOST_RESET_CHANNEL);
-    ipcMain.removeHandler(CHUNKING_HOST_GET_STATUS_CHANNEL);
+    unregisterLifecycle();
     ipcMain.removeHandler(CHUNKING_HOST_CHUNK_FILE_CHANNEL);
     ipcMain.removeHandler(CHUNKING_HOST_CHUNK_BATCH_CHANNEL);
-    ipcMain.removeAllListeners(CHUNKING_HOST_REPORT_STATUS_CHANNEL);
     ipcMain.removeAllListeners(CHUNKING_HOST_REPORT_RESPONSE_CHANNEL);
   };
 }
