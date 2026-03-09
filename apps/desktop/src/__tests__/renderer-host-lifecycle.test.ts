@@ -1,3 +1,4 @@
+import type { EventEmitter } from 'node:events';
 import { app, BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RendererHostLifecycle, type RendererHostStatusShape } from '../renderer-host-lifecycle';
@@ -217,7 +218,17 @@ describe('RendererHostLifecycle', () => {
       timeoutMessage: 'timeout',
     });
 
-    await lifecycle.ensureStarted({ waitForRunning: false });
+    const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
+    await Promise.resolve();
+    lifecycle.setStatus(
+      createStatus({
+        state: 'running',
+        active: true,
+        lastError: null,
+        runtimeId: lifecycle.getStatus().runtimeId,
+      })
+    );
+    await initialStart;
     lifecycle.setStatus(
       createStatus({
         state: 'stopped',
@@ -233,5 +244,144 @@ describe('RendererHostLifecycle', () => {
     expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1);
     expect(restartedStatus.state).toBe('starting');
     expect(restartedStatus.runtimeId).not.toBe('embedding-host:old-runtime');
+  });
+
+  it('serializes concurrent startup calls before the host window exists', async () => {
+    const hostWindow = createFakeWindow(71);
+    let resolveLoad: (() => void) | null = null;
+    hostWindow.loadURL.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve;
+        })
+    );
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'chunking-host:stopped',
+        }),
+      mode: 'chunking-host',
+      role: 'chunking-host',
+      statusEventName: 'chunking-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    const firstStart = lifecycle.ensureStarted({ waitForRunning: true });
+    const secondStart = lifecycle.ensureStarted({ waitForRunning: true });
+
+    expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
+    expect(hostWindow.loadURL).toHaveBeenCalledTimes(1);
+
+    resolveLoad?.();
+    await Promise.resolve();
+    lifecycle.setStatus(
+      createStatus({
+        state: 'running',
+        active: true,
+        lastError: null,
+        runtimeId: lifecycle.getStatus().runtimeId,
+      })
+    );
+
+    const [firstStatus, secondStatus] = await Promise.all([firstStart, secondStart]);
+    expect(firstStatus.state).toBe('running');
+    expect(secondStatus.state).toBe('running');
+    expect(firstStatus.runtimeId).toBe(secondStatus.runtimeId);
+  });
+
+  it('cleans up waitForStatus listeners when the predicate throws', async () => {
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'chunking-host:stopped',
+        }),
+      mode: 'chunking-host',
+      role: 'chunking-host',
+      statusEventName: 'chunking-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    const error = new Error('predicate exploded');
+    const waitPromise = lifecycle.waitForStatus(() => {
+      throw error;
+    }, 10_000);
+
+    lifecycle.setStatus(
+      createStatus({
+        state: 'running',
+        active: true,
+        lastError: null,
+        runtimeId: 'chunking-host:runtime',
+      })
+    );
+
+    await expect(waitPromise).rejects.toThrow(error);
+    expect(
+      (
+        lifecycle as RendererHostLifecycle<RendererHostStatusShape> & {
+          events: EventEmitter;
+        }
+      ).events.listenerCount('chunking-host:status')
+    ).toBe(0);
+  });
+
+  it('ignores windows destroyed between enumeration and status broadcast', async () => {
+    const hostWindow = createFakeWindow(81);
+    const visibleWindow = createFakeWindow(82);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+    visibleWindow.webContents.send.mockImplementation(() => {
+      throw new Error('window destroyed during send');
+    });
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow, visibleWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+
+    expect(() =>
+      lifecycle.setStatus(
+        createStatus({
+          state: 'running',
+          active: true,
+          lastError: null,
+          runtimeId: lifecycle.getStatus().runtimeId,
+        })
+      )
+    ).not.toThrow();
   });
 });

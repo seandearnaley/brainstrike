@@ -54,6 +54,7 @@ function resolveDistRoot(): string {
 export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   private readonly events = new EventEmitter();
   private hostWindow: BrowserWindow | null = null;
+  private startupPromise: Promise<TStatus> | null = null;
   private status: TStatus;
 
   constructor(private readonly options: RendererHostLifecycleOptions<TStatus>) {
@@ -75,6 +76,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   async ensureStarted(options?: { waitForRunning?: boolean }): Promise<TStatus> {
     const waitForRunning = options?.waitForRunning ?? true;
     const existingWindow = this.hostWindow;
+
+    if (this.startupPromise) {
+      if (!waitForRunning) {
+        return this.getStatus();
+      }
+      return this.startupPromise;
+    }
 
     if (existingWindow && !existingWindow.isDestroyed()) {
       if (this.status.state === 'running') {
@@ -107,63 +115,92 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       })
     );
 
-    try {
-      const window = await this.createWindow(runtimeId);
-      this.hostWindow = window;
-      this.attachWindow(window);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.setStatus(
-        this.options.createStatus({
-          state: 'error',
-          active: false,
-          lastError: message,
-          runtimeId,
-        })
-      );
-      return this.getStatus();
-    }
+    const startupPromise = (async (): Promise<TStatus> => {
+      try {
+        const window = await this.createWindow(runtimeId);
+        this.hostWindow = window;
+        this.attachWindow(window);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.setStatus(
+          this.options.createStatus({
+            state: 'error',
+            active: false,
+            lastError: message,
+            runtimeId,
+          })
+        );
+        return this.getStatus();
+      }
+
+      try {
+        return await this.waitForStatus(
+          (status) => status.state === 'running' || status.state === 'error',
+          DEFAULT_HOST_READY_TIMEOUT_MS
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.setStatus(
+          this.options.createStatus({
+            state: 'error',
+            active: false,
+            lastError: message,
+            runtimeId: this.status.runtimeId,
+          })
+        );
+        return this.getStatus();
+      }
+    })();
+
+    this.startupPromise = startupPromise;
+    void startupPromise.finally(() => {
+      if (this.startupPromise === startupPromise) {
+        this.startupPromise = null;
+      }
+    });
 
     if (!waitForRunning) {
       return this.getStatus();
     }
 
-    try {
-      return await this.waitForStatus(
-        (status) => status.state === 'running' || status.state === 'error',
-        DEFAULT_HOST_READY_TIMEOUT_MS
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.setStatus(
-        this.options.createStatus({
-          state: 'error',
-          active: false,
-          lastError: message,
-          runtimeId: this.status.runtimeId,
-        })
-      );
-      return this.getStatus();
-    }
+    return startupPromise;
   }
 
   waitForStatus(predicate: (status: TStatus) => boolean, timeoutMs: number): Promise<TStatus> {
-    if (predicate(this.status)) {
-      return Promise.resolve(this.getStatus());
+    try {
+      if (predicate(this.status)) {
+        return Promise.resolve(this.getStatus());
+      }
+    } catch (error) {
+      return Promise.reject(error);
     }
 
     return new Promise<TStatus>((resolve, reject) => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const cleanup = () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        this.events.removeListener(this.options.statusEventName, listener);
+      };
       const listener = (status: TStatus) => {
-        if (!predicate(status)) {
+        let matches = false;
+        try {
+          matches = predicate(status);
+        } catch (error) {
+          cleanup();
+          reject(error);
           return;
         }
-        clearTimeout(timeoutId);
-        this.events.removeListener(this.options.statusEventName, listener);
+        if (!matches) {
+          return;
+        }
+        cleanup();
         resolve(this.options.createStatus(status));
       };
 
-      const timeoutId = setTimeout(() => {
-        this.events.removeListener(this.options.statusEventName, listener);
+      timeoutId = setTimeout(() => {
+        cleanup();
         reject(new Error(this.options.timeoutMessage));
       }, timeoutMs);
 
@@ -196,6 +233,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
 
   dispose(): void {
     this.hostWindow = null;
+    this.startupPromise = null;
     this.events.removeAllListeners();
     this.status = this.options.createStoppedStatus();
   }
@@ -287,7 +325,11 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       ) {
         continue;
       }
-      window.webContents.send(this.options.statusEventName, snapshot);
+      try {
+        window.webContents.send(this.options.statusEventName, snapshot);
+      } catch {
+        // A window can disappear between enumeration and send during shutdown churn.
+      }
     }
   }
 }

@@ -6,6 +6,10 @@ const roleByWebContentsId = new Map<number, DesktopWindowRole>();
 
 export function assignWindowRole(window: BrowserWindow, role: DesktopWindowRole): void {
   const webContentsId = window.webContents.id;
+  if (roleByWebContentsId.has(webContentsId)) {
+    roleByWebContentsId.set(webContentsId, role);
+    return;
+  }
   roleByWebContentsId.set(webContentsId, role);
   window.once('closed', () => {
     roleByWebContentsId.delete(webContentsId);

@@ -299,6 +299,11 @@ export class ChunkingHostManager {
       (window) => window.webContents.id === requesterWebContentsId && !window.isDestroyed()
     );
     if (!targetWindow) {
+      logger.trace('Dropped chunking progress for missing requester window', {
+        requesterWebContentsId,
+        requestId: progress.requestId,
+        channel: progress.channel,
+      });
       return;
     }
     targetWindow.webContents.send(CHUNKING_HOST_PROGRESS_EVENT, progress);
@@ -309,9 +314,9 @@ export class ChunkingHostManager {
       return;
     }
     const failure = createRequestFailure(message);
-    for (const [requestId, pending] of this.pendingRequests) {
+    for (const pending of this.pendingRequests.values()) {
       pending.reject(failure);
-      this.pendingRequests.delete(requestId);
     }
+    this.pendingRequests.clear();
   }
 }

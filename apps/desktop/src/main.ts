@@ -109,7 +109,19 @@ function createLegacyDesktopDefaultPreferences(): LoggingPreferences {
 }
 
 function areLoggingPreferencesEqual(left: LoggingPreferences, right: LoggingPreferences): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return (
+    left.level === right.level &&
+    left.consoleEnabled === right.consoleEnabled &&
+    left.consoleLevel === right.consoleLevel &&
+    left.includeTimestamp === right.includeTimestamp &&
+    left.file.enabled === right.file.enabled &&
+    left.file.destination === right.file.destination &&
+    left.file.level === right.file.level &&
+    left.file.append === right.file.append &&
+    left.file.mkdir === right.file.mkdir &&
+    left.redactPaths.length === right.redactPaths.length &&
+    left.redactPaths.every((path, index) => path === right.redactPaths[index])
+  );
 }
 
 function migrateStoredLoggingPreferences(stored: LoggingPreferences): LoggingPreferences {

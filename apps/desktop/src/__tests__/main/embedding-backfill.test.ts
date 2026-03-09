@@ -328,6 +328,64 @@ describe('embedding-backfill', () => {
     ).rejects.toThrow("Backfill failed for embedding set 'set-123': 2 job(s) failed.");
   });
 
+  it('ignores historical failed jobs from earlier runs when the current backfill drains cleanly', async () => {
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 4 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: Array.from({ length: 4 }, (_, index) => ({
+              id: String(index + 1),
+              fileRecordId: String(index + 100),
+              contentHash: `hash-${index + 1}`,
+            })),
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'") && !sql.includes('COUNT(*) FILTER')) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          expect(params?.[2]).toEqual(expect.any(String));
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 4 }],
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 3, succeeded: 40 },
+      ]),
+    };
+
+    await expect(
+      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        progressIntervalBatches: 1,
+      })
+    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 4 });
+  });
+
   it('fails fast when queue capacity never becomes available', async () => {
     vi.useFakeTimers();
     const db = {

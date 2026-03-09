@@ -172,8 +172,13 @@ function resolveEnqueueEmbeddingBackfillOptions(
 
 async function getEmbeddingSetQueueCounts(
   db: Pick<IDatabase, 'query'>,
-  embeddingSetId: string
+  embeddingSetId: string,
+  updatedAfter?: string
 ): Promise<EmbeddingBackfillQueueCounts> {
+  // job_queue timestamps are stored as ISO strings in the current local schema, so
+  // lexicographic comparison preserves chronological ordering for run-scoped counts.
+  // Cast the optional parameter to text explicitly; PGlite cannot infer $3 from
+  // the null-check branch alone.
   const result = await db.query<{
     failed: number | string | null;
     queued: number | string | null;
@@ -188,8 +193,9 @@ async function getEmbeddingSetQueueCounts(
      FROM job_queue
      WHERE queue = $1
        AND job_type = 'embed_chunk'
-       AND payload->>'embeddingSetId' = $2`,
-    [EMBEDDINGS_QUEUE, embeddingSetId]
+       AND payload->>'embeddingSetId' = $2
+       AND ($3::text IS NULL OR updated_at >= $3::text)`,
+    [EMBEDDINGS_QUEUE, embeddingSetId, updatedAfter ?? null]
   );
 
   const row = result.rows[0];
@@ -245,14 +251,15 @@ async function waitForEmbeddingSetDrain(
   embeddingSetId: string,
   backlogPollMs: number,
   timeoutMs: number,
-  assertCanContinue?: () => void | Promise<void>
+  assertCanContinue?: () => void | Promise<void>,
+  updatedAfter?: string
 ): Promise<EmbeddingBackfillQueueCounts> {
   const startedAt = Date.now();
   while (true) {
     await assertCanContinue?.();
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
     if (pending === 0) {
-      return await getEmbeddingSetQueueCounts(db, embeddingSetId);
+      return await getEmbeddingSetQueueCounts(db, embeddingSetId, updatedAfter);
     }
     if (Date.now() - startedAt >= timeoutMs) {
       throw new Error(
@@ -428,6 +435,7 @@ export async function enqueueEmbeddingBackfill(
   logger.info('Backfill requested', { embeddingSetId });
   const metadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
   const total = await countBackfillCandidates(db, embeddingSetId);
+  const runStartedAt = new Date().toISOString();
   logger.info('Embedding set metadata resolved for backfill', {
     embeddingSetId,
     modelKey: metadata.modelKey,
@@ -479,6 +487,8 @@ export async function enqueueEmbeddingBackfill(
       batchSize: batch.length,
       inserted,
     });
+    // Progress tracks jobs durably accepted into job_queue, not just selected candidates.
+    // Dedupe can make inserted < selected and that is the value users can rely on.
     done = Math.min(total, done + inserted);
     batchesSinceProgress += 1;
     if (done >= total || batchesSinceProgress >= progressIntervalBatches) {
@@ -496,7 +506,8 @@ export async function enqueueEmbeddingBackfill(
     embeddingSetId,
     backlogPollMs,
     drainTimeoutMs,
-    assertCanContinue
+    assertCanContinue,
+    runStartedAt
   );
   if (drainedCounts.failed > 0) {
     throw new Error(

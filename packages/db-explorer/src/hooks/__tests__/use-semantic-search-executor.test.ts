@@ -22,6 +22,10 @@ const mockDb = {
   query: vi.fn(),
 };
 
+const { MockSimpleEmbeddingService } = vi.hoisted(() => ({
+  MockSimpleEmbeddingService: vi.fn(),
+}));
+
 // Mock @brainstrike/db
 vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
@@ -34,8 +38,6 @@ vi.mock('@brainstrike/db', async () => {
 
 // Mock @brainstrike/embeddings
 vi.mock('@brainstrike/embeddings', () => {
-  // Create the mock implementation using function syntax (required for Vitest 4 constructor mocks)
-  const MockSimpleEmbeddingService = vi.fn();
   MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {
       initializeWithModel: vi.fn().mockResolvedValue(undefined),
@@ -173,6 +175,15 @@ describe('useSemanticSearchExecutor', () => {
       providers: [],
       isLoading: false,
       error: null,
+    });
+    MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
+      Object.assign(this, {
+        initializeWithModel: vi.fn().mockResolvedValue(undefined),
+        generateQueryEmbedding: vi.fn().mockResolvedValue({
+          embedding: new Array(1024).fill(0.1),
+        }),
+        dispose: vi.fn(),
+      });
     });
   });
 
@@ -316,6 +327,56 @@ describe('useSemanticSearchExecutor', () => {
         similarity: expect.any(Number),
       })
     );
+  });
+
+  it('throws when the embedding set dimensions are missing', async () => {
+    mockDb.query.mockResolvedValue({
+      rows: [{ modelKey: 'jinaai/jina-embeddings-v3', dimensions: null }],
+    });
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({
+        chunkRepository: createMockChunkRepository([createMockChunk('chunk-1', 'file-1')]),
+        fileRepository: createMockFileRepository([createMockFileRecord('file-1')]),
+      })
+    );
+
+    await expect(result.current!('test query', createSearchConfig(), 'set-1')).rejects.toThrow(
+      'Active embedding set dimensions are missing or invalid.'
+    );
+  });
+
+  it('retries local embedder initialization after an earlier failure for the same model', async () => {
+    const initializeWithModel = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('bootstrap failed'))
+      .mockResolvedValue(undefined);
+    const generateQueryEmbedding = vi.fn().mockResolvedValue({
+      embedding: new Array(1024).fill(0.25),
+    });
+    MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
+      Object.assign(this, {
+        initializeWithModel,
+        generateQueryEmbedding,
+        dispose: vi.fn(),
+      });
+    });
+
+    const { result } = renderHook(() =>
+      useSemanticSearchExecutor({
+        chunkRepository: createMockChunkRepository([createMockChunk('chunk-1', 'file-1')]),
+        fileRepository: createMockFileRepository([createMockFileRecord('file-1')]),
+      })
+    );
+
+    await expect(result.current!('test query', createSearchConfig(), 'set-1')).rejects.toThrow(
+      'bootstrap failed'
+    );
+
+    const searchResults = await result.current!('test query', createSearchConfig(), 'set-1');
+    expect(searchResults).toHaveLength(1);
+    expect(initializeWithModel).toHaveBeenCalledTimes(2);
+    expect(generateQueryEmbedding).toHaveBeenCalledTimes(1);
   });
 
   it('handles missing file records gracefully', async () => {

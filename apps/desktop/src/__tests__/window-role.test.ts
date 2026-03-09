@@ -3,6 +3,7 @@ import { assignWindowRole, getWindowRole, getWindowRoleByWebContentsId } from '.
 
 interface FakeWindow {
   once: (event: 'closed', listener: () => void) => void;
+  onceCallCount: number;
   webContents: {
     id: number;
   };
@@ -13,6 +14,16 @@ function createFakeWindow(webContentsId: number): {
   window: FakeWindow;
 } {
   let closedListener: (() => void) | null = null;
+  const window: FakeWindow = {
+    onceCallCount: 0,
+    once: (_event: 'closed', listener: () => void) => {
+      window.onceCallCount += 1;
+      closedListener = listener;
+    },
+    webContents: {
+      id: webContentsId,
+    },
+  };
   return {
     emitClosed: () => {
       if (!closedListener) {
@@ -20,14 +31,7 @@ function createFakeWindow(webContentsId: number): {
       }
       closedListener();
     },
-    window: {
-      once: (_event: 'closed', listener: () => void) => {
-        closedListener = listener;
-      },
-      webContents: {
-        id: webContentsId,
-      },
-    },
+    window,
   };
 }
 
@@ -44,5 +48,15 @@ describe('window-role', () => {
 
     expect(() => emitClosed()).not.toThrow();
     expect(getWindowRoleByWebContentsId(17)).toBeUndefined();
+  });
+
+  it('does not register duplicate closed listeners when assigning the same window twice', () => {
+    const { window } = createFakeWindow(23);
+
+    assignWindowRole(window as never, 'chunking-host');
+    assignWindowRole(window as never, 'embedding-host');
+
+    expect(window.onceCallCount).toBe(1);
+    expect(getWindowRoleByWebContentsId(23)).toBe('embedding-host');
   });
 });
