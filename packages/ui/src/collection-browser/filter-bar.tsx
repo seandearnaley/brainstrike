@@ -119,6 +119,7 @@ export const FilterBar = React.memo(function FilterBar({
                 className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 hover:bg-transparent"
                 onClick={handleClearSearch}
                 size="icon"
+                title="Clear search"
                 variant="ghost"
               >
                 <X className="h-4 w-4" />
