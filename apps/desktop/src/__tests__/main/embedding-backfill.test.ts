@@ -101,6 +101,64 @@ describe('embedding-backfill', () => {
     expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 96 });
   });
 
+  it('preserves the full provider model suffix when model keys contain additional separators', async () => {
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::model::variant', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 1 }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: [{ id: '1', fileRecordId: '101', contentHash: 'hash-1' }],
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 1 },
+      ]),
+    };
+
+    await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      backlogPollMs: 1,
+      maxQueueDepth: 64,
+    });
+
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          modelKey: 'local::model::variant',
+        }),
+      }),
+    ]);
+  });
+
   it('fails fast when backlog pacing options are invalid', async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),

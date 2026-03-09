@@ -234,7 +234,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   dispose(): void {
-    this.hostWindow = null;
+    this.destroyHostWindow();
     this.startupPromise = null;
     this.events.removeAllListeners();
     this.status = this.options.createStoppedStatus();
@@ -273,7 +273,9 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       return window;
     }
 
-    await window.loadURL(`${DEV_RENDERER_URL}?mode=${this.options.mode}&runtimeId=${runtimeId}`);
+    await window.loadURL(
+      `${DEV_RENDERER_URL}?mode=${encodeURIComponent(this.options.mode)}&runtimeId=${encodeURIComponent(runtimeId)}`
+    );
     return window;
   }
 

@@ -132,7 +132,43 @@ describe('RendererHostLifecycle', () => {
 
     expect(status.state).toBe('starting');
     expect(hostWindow.loadURL).toHaveBeenCalledWith(
-      expect.stringMatching(/^http:\/\/localhost:8081\?mode=chunking-host&runtimeId=chunking-host:/)
+      expect.stringMatching(
+        /^http:\/\/localhost:8081\?mode=chunking-host&runtimeId=chunking-host%3A/
+      )
+    );
+  });
+
+  it('encodes dev host query parameters before loading the renderer url', async () => {
+    const hostWindow = createFakeWindow(42);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+
+    expect(hostWindow.loadURL).toHaveBeenCalledWith(expect.stringContaining('mode=embedding-host'));
+    expect(hostWindow.loadURL).toHaveBeenCalledWith(
+      expect.stringMatching(/runtimeId=embedding-host%3A/)
     );
   });
 
@@ -183,6 +219,40 @@ describe('RendererHostLifecycle', () => {
       lastError: null,
       runtimeId: lifecycle.getStatus().runtimeId,
     });
+  });
+
+  it('destroys an active host window when dispose is called directly', async () => {
+    const hostWindow = createFakeWindow(53);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+    await Promise.resolve();
+    lifecycle.dispose();
+
+    expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
+    expect(lifecycle.getHostWindow()).toBeNull();
   });
 
   it('recreates an existing stopped host window instead of waiting forever', async () => {

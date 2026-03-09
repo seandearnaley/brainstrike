@@ -65,11 +65,13 @@ function canonicalizeProviderModelKey(
   }
 
   if (trimmed.includes(PROVIDER_SEPARATOR)) {
-    const [provider, modelId] = trimmed.split(PROVIDER_SEPARATOR);
+    const separatorIndex = trimmed.indexOf(PROVIDER_SEPARATOR);
+    const provider = trimmed.slice(0, separatorIndex);
+    const modelId = trimmed.slice(separatorIndex + PROVIDER_SEPARATOR.length).trim();
     if (!(provider && modelId)) {
       return null;
     }
-    return { composite: `${provider}${PROVIDER_SEPARATOR}${modelId.trim()}` };
+    return { composite: `${provider}${PROVIDER_SEPARATOR}${modelId}` };
   }
 
   const legacyIndex = trimmed.indexOf(LEGACY_SEPARATOR);
@@ -489,6 +491,7 @@ export async function enqueueEmbeddingBackfill(
     });
     // Progress tracks jobs durably accepted into job_queue, not just selected candidates.
     // Dedupe can make inserted < selected and that is the value users can rely on.
+    // Cursor exhaustion is still the authoritative loop terminator for that case.
     done = Math.min(total, done + inserted);
     batchesSinceProgress += 1;
     if (done >= total || batchesSinceProgress >= progressIntervalBatches) {
