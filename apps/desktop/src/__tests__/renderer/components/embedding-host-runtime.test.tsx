@@ -195,4 +195,46 @@ describe('EmbeddingHostRuntime', () => {
     });
     expect(stopMock).toHaveBeenCalledTimes(1);
   });
+
+  it('continues cleanup if bridge teardown callbacks throw', async () => {
+    storeState.hasHydrated = true;
+    stopMock.mockResolvedValue(undefined);
+
+    Object.defineProperty(window, 'embeddingHost', {
+      configurable: true,
+      value: {
+        onCommand: () => () => {
+          throw new Error('command cleanup failed');
+        },
+        reportStatus: reportStatusMock,
+      },
+    });
+
+    Object.defineProperty(window, 'power', {
+      configurable: true,
+      value: {
+        onPowerState: () => () => {
+          throw new Error('power cleanup failed');
+        },
+      },
+    });
+
+    const closeSpy = vi.spyOn(BroadcastChannel.prototype, 'close').mockImplementation(() => {
+      throw new Error('channel close failed');
+    });
+
+    const view = render(<EmbeddingHostRuntime />);
+
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(() => view.unmount()).not.toThrow();
+
+    await waitFor(() => {
+      expect(stopMock).toHaveBeenCalledTimes(1);
+    });
+
+    closeSpy.mockRestore();
+  });
 });

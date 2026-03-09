@@ -703,4 +703,50 @@ describe('RendererHostLifecycle', () => {
     expect(lifecycle.getHostWindow()).toBeNull();
     vi.useRealTimers();
   });
+
+  it('destroys a newly created window if dispose races with in-flight startup', async () => {
+    const hostWindow = createFakeWindow(92);
+    let resolveLoad: (() => void) | null = null;
+    hostWindow.loadURL.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve;
+        })
+    );
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
+    await Promise.resolve();
+    lifecycle.dispose();
+    resolveLoad?.();
+
+    await expect(startupPromise).resolves.toEqual(
+      expect.objectContaining({
+        state: 'stopped',
+      })
+    );
+    expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
+    expect(getWindowRoleByWebContentsId(92)).toBeUndefined();
+  });
 });

@@ -91,6 +91,24 @@ function createFatalErrorHandler(
   };
 }
 
+function runEmbeddingHostCleanupStep(
+  runtimeIdRef: MutableRefObject<string>,
+  label:
+    | 'Embedding host command cleanup failed'
+    | 'Embedding host power channel cleanup failed'
+    | 'Embedding host power cleanup failed',
+  cleanup: () => void
+): void {
+  try {
+    cleanup();
+  } catch (error) {
+    logger.error(label, {
+      error: error instanceof Error ? error.message : String(error),
+      runtimeId: runtimeIdRef.current,
+    });
+  }
+}
+
 function createActivityChangeHandler(
   runtimeIdRef: MutableRefObject<string>,
   fatalErrorRef: MutableRefObject<string | null>,
@@ -282,9 +300,19 @@ export function EmbeddingHostRuntime(): null {
 
     return () => {
       disposed = true;
-      cleanupPower?.();
-      unsubscribeCommand?.();
-      channel?.close();
+      runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host power cleanup failed', () => {
+        cleanupPower?.();
+      });
+      runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host command cleanup failed', () => {
+        unsubscribeCommand?.();
+      });
+      runEmbeddingHostCleanupStep(
+        runtimeIdRef,
+        'Embedding host power channel cleanup failed',
+        () => {
+          channel?.close();
+        }
+      );
       void stopWorker();
     };
   }, [db]);

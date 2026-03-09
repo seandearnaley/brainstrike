@@ -258,4 +258,61 @@ describe('ChunkingHostManager', () => {
       })
     ).not.toThrow();
   });
+
+  it('reuses the captured requester window for progress forwarding', async () => {
+    const requesterWindow = {
+      id: 88,
+      isDestroyed: vi.fn(() => false),
+      webContents: {
+        id: 11,
+        send: vi.fn(),
+      },
+    };
+    getAllWindowsMock.mockReturnValue([requesterWindow]);
+
+    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const requestPromise = manager.chunkFile(11, {
+      content: 'hello',
+      fileName: 'a.txt',
+      filePath: '/tmp/a.txt',
+      fileRecordId: 'file-1',
+      kind: 'chunk-file',
+      options: {},
+      requestId: 'req-progress-cached',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    getAllWindowsMock.mockReturnValue([]);
+
+    manager.acceptResponseReport(71, {
+      channel: 'chunking-host:progress:chunked',
+      payload: {
+        completedFiles: 1,
+        totalFiles: 1,
+      },
+      requestId: 'req-progress-cached',
+      runtimeId: 'chunking-host-runtime',
+      type: 'progress',
+    });
+
+    expect(requesterWindow.webContents.send).toHaveBeenCalledWith(
+      'chunking-host:progress',
+      expect.objectContaining({
+        requestId: 'req-progress-cached',
+        type: 'progress',
+      })
+    );
+
+    manager.acceptResponseReport(71, {
+      channel: 'chunk-result',
+      payload: {
+        result: { chunks: [] },
+      },
+      requestId: 'req-progress-cached',
+      runtimeId: 'chunking-host-runtime',
+      type: 'result',
+    });
+
+    await expect(requestPromise).resolves.toEqual({ chunks: [] });
+  });
 });

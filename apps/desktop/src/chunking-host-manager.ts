@@ -23,6 +23,7 @@ const CHUNKING_HOST_REQUEST_TIMEOUT_MS = 30_000;
 type PendingChunkingRequest =
   | {
       readonly kind: 'batch';
+      readonly requesterWindow: BrowserWindow | null;
       readonly requesterWebContentsId: number;
       readonly reject: (error: Error) => void;
       readonly resolve: (results: unknown[]) => void;
@@ -30,6 +31,7 @@ type PendingChunkingRequest =
     }
   | {
       readonly kind: 'file';
+      readonly requesterWindow: BrowserWindow | null;
       readonly requesterWebContentsId: number;
       readonly reject: (error: Error) => void;
       readonly resolve: (result: unknown) => void;
@@ -171,6 +173,7 @@ export class ChunkingHostManager {
         kind === 'batch'
           ? {
               kind: 'batch',
+              requesterWindow: this.resolveRequesterWindow(requesterWebContentsId),
               requesterWebContentsId,
               resolve: resolve as (results: unknown[]) => void,
               reject,
@@ -178,6 +181,7 @@ export class ChunkingHostManager {
             }
           : {
               kind: 'file',
+              requesterWindow: this.resolveRequesterWindow(requesterWebContentsId),
               requesterWebContentsId,
               resolve: resolve as (result: unknown) => void,
               reject,
@@ -251,7 +255,7 @@ export class ChunkingHostManager {
     }
 
     if (report.type === 'progress') {
-      this.forwardProgressEvent(pending.requesterWebContentsId, report);
+      this.forwardProgressEvent(pending, report);
       return;
     }
 
@@ -307,15 +311,16 @@ export class ChunkingHostManager {
   }
 
   private forwardProgressEvent(
-    requesterWebContentsId: number,
+    pending: PendingChunkingRequest,
     progress: ChunkingHostProgressEvent
   ): void {
-    const targetWindow = BrowserWindow.getAllWindows().find(
-      (window) => window.webContents.id === requesterWebContentsId && !window.isDestroyed()
-    );
+    const targetWindow =
+      pending.requesterWindow && !pending.requesterWindow.isDestroyed()
+        ? pending.requesterWindow
+        : this.resolveRequesterWindow(pending.requesterWebContentsId);
     if (!targetWindow) {
       logger.trace('Dropped chunking progress for missing requester window', {
-        requesterWebContentsId,
+        requesterWebContentsId: pending.requesterWebContentsId,
         requestId: progress.requestId,
         channel: progress.channel,
       });
@@ -325,12 +330,20 @@ export class ChunkingHostManager {
       targetWindow.webContents.send(CHUNKING_HOST_PROGRESS_EVENT, progress);
     } catch (error) {
       logger.trace('Dropped chunking progress for unavailable requester window', {
-        requesterWebContentsId,
+        requesterWebContentsId: pending.requesterWebContentsId,
         requestId: progress.requestId,
         channel: progress.channel,
         error,
       });
     }
+  }
+
+  private resolveRequesterWindow(requesterWebContentsId: number): BrowserWindow | null {
+    return (
+      BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.id === requesterWebContentsId && !window.isDestroyed()
+      ) ?? null
+    );
   }
 
   private rejectPendingRequests(message: string): void {

@@ -204,6 +204,42 @@ describe('ChunkingHostRuntime', () => {
     });
   });
 
+  it('fails fast when the db bridge returns a malformed rows payload', async () => {
+    dbQueryMock.mockResolvedValue({
+      rows: null,
+    });
+
+    render(<ChunkingHostRuntime />);
+
+    await act(async () => {
+      onRequestCallback?.({
+        type: 'request',
+        channel: 'chunk',
+        requestId: 'req-bad-rows',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'chunk-file-by-id',
+          requestId: 'req-bad-rows',
+          fileRecordId: 'file-1',
+          options: {},
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          channel: 'chunk-error',
+          requestId: 'req-bad-rows',
+          payload: expect.objectContaining({
+            errorMessage: 'Chunking host could not find file record file-1.',
+          }),
+        })
+      );
+    });
+  });
+
   it('warns if request accounting would underflow during cleanup', async () => {
     let releaseChunking: (() => void) | null = null;
     chunkFileMock.mockImplementation(

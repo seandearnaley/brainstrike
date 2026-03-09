@@ -78,6 +78,9 @@ async function loadFileRecordById(fileRecordId: string): Promise<FileRecordRow> 
       LIMIT 1`,
     [fileRecordId]
   );
+  if (!Array.isArray(result.rows) || result.rows.length === 0) {
+    throw new Error(`Chunking host could not find file record ${fileRecordId}.`);
+  }
   const row = result.rows[0] as Record<string, unknown> | undefined;
   if (!row) {
     throw new Error(`Chunking host could not find file record ${fileRecordId}.`);
@@ -257,6 +260,29 @@ function getRequestErrorPayload(request: ChunkingHostRequest, message: string) {
   };
 }
 
+function getChunkingRequestLogBindings(request: ChunkingHostRequest): {
+  readonly kind?: string;
+  readonly requestId?: string;
+} {
+  const bindings: {
+    kind?: string;
+    requestId?: string;
+  } = {};
+  const payload = request.payload as unknown;
+  if (payload && typeof payload === 'object') {
+    const payloadWithKind = payload as {
+      readonly kind?: unknown;
+    };
+    if (typeof payloadWithKind.kind === 'string') {
+      bindings.kind = payloadWithKind.kind;
+    }
+  }
+  if (typeof request.requestId === 'string' && request.requestId.trim().length > 0) {
+    bindings.requestId = request.requestId;
+  }
+  return bindings;
+}
+
 export function ChunkingHostRuntime(): null {
   const { ensureStarted, error } = useChunkingWorkerContext();
   const activeRequestCountRef = useRef(0);
@@ -332,9 +358,9 @@ export function ChunkingHostRuntime(): null {
         reportChunkRequestSuccess(request, result, runtimeIdRef.current);
       } catch (requestError) {
         const message = requestError instanceof Error ? requestError.message : String(requestError);
+        const requestBindings = getChunkingRequestLogBindings(request);
         logger.error('Chunking host request failed', {
-          kind: request.payload.kind,
-          requestId: request.requestId,
+          ...requestBindings,
           error: message,
           runtimeId: runtimeIdRef.current,
         });
@@ -361,10 +387,21 @@ export function ChunkingHostRuntime(): null {
     };
 
     const unsubscribeRequest = getChunkingHostBridge()?.onRequest?.((request) => {
-      void onRequest(request);
+      onRequest(request).catch((requestError: unknown) => {
+        logger.error('Uncaught error in chunking request handler', {
+          requestId: request.requestId,
+          error: requestError instanceof Error ? requestError.message : String(requestError),
+          runtimeId: runtimeIdRef.current,
+        });
+      });
     });
 
-    void startHost();
+    startHost().catch((startError: unknown) => {
+      logger.error('Chunking host startup failed', {
+        error: startError instanceof Error ? startError.message : String(startError),
+        runtimeId: runtimeIdRef.current,
+      });
+    });
 
     return () => {
       disposed = true;

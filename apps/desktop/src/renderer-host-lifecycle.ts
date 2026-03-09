@@ -157,6 +157,13 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
 
       try {
         const window = await this.createWindow(runtimeId);
+        if (this.disposed) {
+          if (!window.isDestroyed()) {
+            clearWindowRoleByWebContentsId(window.webContents.id);
+            window.destroy();
+          }
+          return this.getStatus();
+        }
         this.hostWindow = window;
         this.attachWindow(window);
       } catch (error) {
@@ -292,6 +299,8 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     }
     this.disposed = true;
     this.destroyHostWindow();
+    // Any caller already awaiting the previously captured startup promise still needs a concrete
+    // disposal signal here; otherwise it would sit until the status wait timeout fires.
     this.startupPromise = null;
     const disposalError = createLifecycleDisposedError(this.options.role);
     for (const rejectPendingWaiter of [...this.pendingWaiterRejectors]) {

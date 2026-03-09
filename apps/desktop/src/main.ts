@@ -419,6 +419,7 @@ let unregisterLoggingIpcHandlers: null | (() => void) = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
 let gracefulShutdownPromise: Promise<void> | null = null;
+let gracefulShutdownInFlight = false;
 let forcedProcessExitTimeout: NodeJS.Timeout | null = null;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 
@@ -1033,6 +1034,11 @@ app.on('before-quit', (event) => {
   }
 
   event.preventDefault();
+  if (gracefulShutdownInFlight) {
+    logger.debug('before-quit ignored because graceful shutdown is already in flight');
+    return;
+  }
+  gracefulShutdownInFlight = true;
   scheduleForcedProcessExit('before-quit');
   void (async () => {
     try {
