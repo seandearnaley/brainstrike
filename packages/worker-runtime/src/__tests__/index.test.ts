@@ -2,6 +2,7 @@ import type { LogRecord } from '@brainstrike/utils';
 import { describe, expect, it, vi } from 'vitest';
 import {
   assertBackgroundRuntimeStatus,
+  assertRuntimeObjectPayloadEnvelope,
   bindRuntimeLogRecord,
   createBackgroundRuntimeDescriptor,
   createBackgroundRuntimeLifecycleChannels,
@@ -160,6 +161,55 @@ describe('@brainstrike/worker-runtime', () => {
       active: false,
       lastError: null,
     });
+  });
+
+  it('strictly asserts runtime envelopes with object payloads', () => {
+    expect(
+      assertRuntimeObjectPayloadEnvelope(
+        {
+          type: 'progress',
+          channel: 'chunking-host:progress',
+          requestId: 'request-1',
+          runtimeId: 'chunking-host:runtime-1',
+          payload: {
+            currentIndex: 1,
+          },
+        },
+        'Chunking host response report'
+      )
+    ).toEqual({
+      candidate: {
+        type: 'progress',
+        channel: 'chunking-host:progress',
+        requestId: 'request-1',
+        runtimeId: 'chunking-host:runtime-1',
+        payload: {
+          currentIndex: 1,
+        },
+      },
+      envelopeBase: {
+        type: 'progress',
+        channel: 'chunking-host:progress',
+        requestId: 'request-1',
+        runtimeId: 'chunking-host:runtime-1',
+      },
+      payload: {
+        currentIndex: 1,
+      },
+    });
+
+    expect(() =>
+      assertRuntimeObjectPayloadEnvelope(
+        {
+          type: 'wat',
+          channel: 'chunking-host:progress',
+          requestId: 'request-1',
+          runtimeId: 'chunking-host:runtime-1',
+          payload: {},
+        },
+        'Chunking host response report'
+      )
+    ).toThrow('Chunking host response report must include a valid runtime envelope type.');
   });
 
   it('tracks pending requests and fails duplicate ids', () => {

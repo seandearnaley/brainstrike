@@ -1,4 +1,8 @@
-import { serializeRuntimeError } from '@brainstrike/worker-runtime';
+import {
+  assertRuntimeObjectPayloadEnvelope,
+  type RuntimeEnvelopeObjectPayloadBase,
+  serializeRuntimeError,
+} from '@brainstrike/worker-runtime';
 import { type IpcMainEvent, type IpcMainInvokeEvent, ipcMain } from 'electron';
 import type { ChunkingHostManager } from './chunking-host-manager';
 import type {
@@ -211,45 +215,6 @@ function assertChunkBatchRequest(value: unknown): ChunkingHostChunkBatchRequest 
   };
 }
 
-interface ChunkingHostEnvelopeBase {
-  readonly channel: string;
-  readonly requestId: string;
-  readonly runtimeId: string;
-}
-
-function assertChunkingHostEnvelopeBase(value: unknown): {
-  readonly candidate: Record<string, unknown>;
-  readonly envelopeBase: ChunkingHostEnvelopeBase;
-  readonly payload: Record<string, unknown>;
-} {
-  if (!value || typeof value !== 'object') {
-    throw new Error('Chunking host response report must be an object.');
-  }
-  const candidate = value as Record<string, unknown>;
-  if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
-    throw new Error('Chunking host response report must include a non-empty requestId.');
-  }
-  if (typeof candidate['runtimeId'] !== 'string' || candidate['runtimeId'].trim().length === 0) {
-    throw new Error('Chunking host response report must include a non-empty runtimeId.');
-  }
-  if (typeof candidate['channel'] !== 'string' || candidate['channel'].trim().length === 0) {
-    throw new Error('Chunking host response report must include a non-empty channel.');
-  }
-  const payload = candidate['payload'];
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('Chunking host response report must include a payload object.');
-  }
-  return {
-    candidate,
-    envelopeBase: {
-      channel: candidate['channel'],
-      requestId: candidate['requestId'],
-      runtimeId: candidate['runtimeId'],
-    },
-    payload: payload as Record<string, unknown>,
-  };
-}
-
 function assertChunkProgressPayload(
   payload: Record<string, unknown>
 ): ChunkingHostProgressReportPayload {
@@ -327,7 +292,7 @@ function createChunkingHostErrorPayload(
 }
 
 function assertChunkingHostProgressReport(
-  envelopeBase: ChunkingHostEnvelopeBase,
+  envelopeBase: RuntimeEnvelopeObjectPayloadBase,
   channel: string,
   payload: Record<string, unknown>
 ): ChunkingHostResponseReport {
@@ -359,7 +324,7 @@ function assertChunkingHostProgressReport(
 }
 
 function assertChunkingHostResultReport(
-  envelopeBase: ChunkingHostEnvelopeBase,
+  envelopeBase: RuntimeEnvelopeObjectPayloadBase,
   channel: string,
   payload: Record<string, unknown>
 ): ChunkingHostResponseReport {
@@ -384,8 +349,11 @@ function assertChunkingHostResultReport(
 }
 
 function assertChunkingHostResponseReport(value: unknown): ChunkingHostResponseReport {
-  const { candidate, envelopeBase, payload } = assertChunkingHostEnvelopeBase(value);
-  switch (candidate['type']) {
+  const { envelopeBase, payload } = assertRuntimeObjectPayloadEnvelope(
+    value,
+    'Chunking host response report'
+  );
+  switch (envelopeBase.type) {
     case 'progress':
       return assertChunkingHostProgressReport(envelopeBase, envelopeBase.channel, payload);
     case 'result':

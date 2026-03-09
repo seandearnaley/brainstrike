@@ -67,6 +67,17 @@ export interface SerializedRuntimeError {
   readonly stack?: string;
 }
 
+export type RuntimeEnvelopeType = 'cancel' | 'error' | 'progress' | 'request' | 'result' | 'status';
+
+export interface RuntimeEnvelopeObjectPayloadBase<
+  TType extends RuntimeEnvelopeType = RuntimeEnvelopeType,
+> {
+  readonly channel: string;
+  readonly requestId: string;
+  readonly runtimeId: string;
+  readonly type: TType;
+}
+
 export interface RuntimeEnvelope<
   TType extends 'cancel' | 'error' | 'progress' | 'request' | 'result' | 'status',
   TChannel extends string = string,
@@ -116,6 +127,19 @@ export interface RuntimeLogBindings {
   readonly runtimeId: string;
   readonly runtimeKind: string;
   readonly windowRole?: string;
+}
+
+const RUNTIME_ENVELOPE_TYPES = new Set<RuntimeEnvelopeType>([
+  'cancel',
+  'error',
+  'progress',
+  'request',
+  'result',
+  'status',
+]);
+
+function isRuntimeEnvelopeType(value: unknown): value is RuntimeEnvelopeType {
+  return typeof value === 'string' && RUNTIME_ENVELOPE_TYPES.has(value as RuntimeEnvelopeType);
 }
 
 export interface RuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<string>> {
@@ -264,6 +288,50 @@ export function createBackgroundRuntimeDescriptor<TRuntimeKind extends string>(
     createScopedChannel: <TSuffix extends string>(suffix: TSuffix) =>
       createBackgroundRuntimeScopedChannel(runtimeKind, suffix),
     createStoppedStatus: (runtimeId?: string) => statusAdapter.createStoppedStatus(runtimeId),
+  };
+}
+
+export function assertRuntimeObjectPayloadEnvelope(
+  value: unknown,
+  context: string
+): {
+  readonly candidate: Record<string, unknown>;
+  readonly envelopeBase: RuntimeEnvelopeObjectPayloadBase;
+  readonly payload: Record<string, unknown>;
+} {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${context} must be an object.`);
+  }
+  const candidate = value as Record<string, unknown>;
+  if (!isRuntimeEnvelopeType(candidate['type'])) {
+    throw new Error(`${context} must include a valid runtime envelope type.`);
+  }
+  if (typeof candidate['requestId'] !== 'string' || candidate['requestId'].trim().length === 0) {
+    throw new Error(`${context} must include a non-empty requestId.`);
+  }
+  if (typeof candidate['runtimeId'] !== 'string' || candidate['runtimeId'].trim().length === 0) {
+    throw new Error(`${context} must include a non-empty runtimeId.`);
+  }
+  if (typeof candidate['channel'] !== 'string' || candidate['channel'].trim().length === 0) {
+    throw new Error(`${context} must include a non-empty channel.`);
+  }
+  const payload = candidate['payload'];
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error(`${context} must include a payload object.`);
+  }
+  const type = candidate['type'];
+  const channel = candidate['channel'];
+  const requestId = candidate['requestId'];
+  const runtimeId = candidate['runtimeId'];
+  return {
+    candidate,
+    envelopeBase: {
+      type,
+      channel,
+      requestId,
+      runtimeId,
+    },
+    payload: payload as Record<string, unknown>,
   };
 }
 
