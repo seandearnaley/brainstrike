@@ -85,19 +85,21 @@ describe('embedding-backfill', () => {
       (done, total) => {
         progressUpdates.push({ done, total });
       },
-      { backlogPollMs: 1, maxQueueDepth: 64, progressIntervalBatches: 1 }
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        progressIntervalBatches: 1,
+        progressIntervalMs: 1,
+      }
     );
 
     expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(3);
     expect(vi.mocked(jobQueue.enqueueBatch).mock.calls.map(([jobs]) => jobs.length)).toEqual([
       32, 32, 32,
     ]);
-    expect(progressUpdates).toEqual([
-      { done: 0, total: 96 },
-      { done: 32, total: 96 },
-      { done: 64, total: 96 },
-      { done: 96, total: 96 },
-    ]);
+    expect(progressUpdates[0]).toEqual({ done: 0, total: 96 });
+    expect(progressUpdates.at(-1)).toEqual({ done: 96, total: 96 });
+    expect(progressUpdates.length).toBeLessThanOrEqual(4);
     expect(counts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 96 });
   });
 
@@ -191,6 +193,12 @@ describe('embedding-backfill', () => {
         drainTimeoutMs: 0,
       })
     ).rejects.toThrow('drainTimeoutMs must be a positive integer when configured.');
+
+    await expect(
+      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        progressIntervalMs: 0,
+      })
+    ).rejects.toThrow('progressIntervalMs must be a positive integer when configured.');
   });
 
   it('does not report 100% progress before deduplicated work has drained', async () => {
@@ -246,12 +254,95 @@ describe('embedding-backfill', () => {
       (done, total) => {
         progressUpdates.push({ done, total });
       },
-      { backlogPollMs: 1, maxQueueDepth: 64, progressIntervalBatches: 1 }
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        progressIntervalBatches: 1,
+        progressIntervalMs: 1,
+      }
     );
 
     expect(progressUpdates).toEqual([
       { done: 0, total: 4 },
       { done: 4, total: 4 },
+    ]);
+  });
+
+  it('throttles intermediate progress updates while still flushing completion', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-10T00:00:00.000Z'));
+
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 96 }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 96 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          const start = afterChunkId ? Number(afterChunkId) : 0;
+          const limit = Number(params?.[3] ?? 32);
+          return {
+            rows: Array.from({ length: Math.max(0, Math.min(limit, 96 - start)) }, (_, index) => {
+              const id = start + index + 1;
+              return {
+                id: String(id),
+                fileRecordId: String(id + 1000),
+                contentHash: `hash-${id}`,
+              };
+            }),
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+
+    const progressUpdates: Array<{ done: number; total: number }> = [];
+    const backfillPromise = enqueueEmbeddingBackfill(
+      db,
+      jobQueue,
+      'set-123',
+      (done, total) => {
+        progressUpdates.push({ done, total });
+      },
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        progressIntervalBatches: 1,
+        progressIntervalMs: 250,
+      }
+    );
+
+    await vi.runAllTimersAsync();
+    await backfillPromise;
+
+    expect(progressUpdates).toEqual([
+      { done: 0, total: 96 },
+      { done: 96, total: 96 },
     ]);
   });
 

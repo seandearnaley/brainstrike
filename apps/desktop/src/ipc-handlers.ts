@@ -62,6 +62,7 @@ const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_INTERVAL_MS = 2000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
+const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
 let embeddingBackfillInFlight: { embeddingSetId: string } | null = null;
 
 function isDisposedRenderFrameSendError(error: unknown): boolean {
@@ -781,6 +782,7 @@ export function registerIpcHandlers(
                 }
               },
               progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
+              progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
             }
           );
         } finally {

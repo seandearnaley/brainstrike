@@ -315,6 +315,7 @@ describe('database IPC handlers', () => {
       expect.objectContaining({
         assertCanContinue: expect.any(Function),
         progressIntervalBatches: 4,
+        progressIntervalMs: 250,
       })
     );
     expect(sender.send).toHaveBeenCalledWith(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
