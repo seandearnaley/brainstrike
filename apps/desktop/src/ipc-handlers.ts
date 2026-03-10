@@ -10,7 +10,7 @@ import { createLogger } from '@brainstrike/utils';
 import { createRequestId } from '@brainstrike/worker-runtime';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
 import { enqueueEmbeddingBackfill } from './embedding-backfill';
@@ -64,6 +64,87 @@ const LIVE_FLUSH_INTERVAL_MS = 2000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 let embeddingBackfillInFlight: { embeddingSetId: string } | null = null;
 
+function isDisposedRenderFrameSendError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  // Electron does not currently expose a stable error code for this path, so
+  // we have to match the message text and update this check if Electron changes it.
+  return error.message.toLowerCase().includes('frame was disposed');
+}
+
+async function cleanupLiveSubscriptionsForOwner(
+  webContentsId: number,
+  options?: { releaseOwnerRegistration?: boolean }
+): Promise<void> {
+  if (options?.releaseOwnerRegistration) {
+    liveSubscriptionOwnerListeners.delete(webContentsId);
+  }
+  const ownedSubscriptionIds = Array.from(liveSubscriptions.values())
+    .filter((subscription) => subscription.webContentsId === webContentsId)
+    .map((subscription) => subscription.id);
+
+  await Promise.allSettled(ownedSubscriptionIds.map((id) => cleanupLiveSubscription(id)));
+}
+
+async function cleanupDisposedLiveSubscriptionOwner(
+  webContentsId: number,
+  reason: 'missing-owner' | 'disposed-frame-send'
+): Promise<void> {
+  logger.debug('Cleaning up live subscriptions for unavailable renderer owner', {
+    webContentsId,
+    reason,
+  });
+  pendingLiveUpdates.forEach((_payload, subId) => {
+    const record = liveSubscriptions.get(subId);
+    // Safe: deleting Map entries during forEach skips not-yet-visited keys per ES spec.
+    if (record?.webContentsId === webContentsId) {
+      pendingLiveUpdates.delete(subId);
+    }
+  });
+  await cleanupLiveSubscriptionsForOwner(webContentsId);
+}
+
+function scheduleDisposedLiveSubscriptionOwnerCleanup(
+  webContentsId: number,
+  reason: 'missing-owner' | 'disposed-frame-send'
+): void {
+  void cleanupDisposedLiveSubscriptionOwner(webContentsId, reason).catch((error) => {
+    logger.error('Failed to clean up live subscriptions for unavailable renderer owner', {
+      webContentsId,
+      reason,
+      error,
+    });
+  });
+}
+
+function sendLiveQueryUpdateToSender(
+  sender: Pick<Electron.WebContents, 'id' | 'isDestroyed' | 'send'>,
+  subscriptionId: number,
+  results: LiveQueryResults<unknown>
+): void {
+  if (sender.isDestroyed()) {
+    void cleanupLiveSubscription(subscriptionId);
+    return;
+  }
+  if (isBackgrounded) {
+    pendingLiveUpdates.set(subscriptionId, { id: subscriptionId, results });
+    if (!liveFlushTimer) {
+      liveFlushTimer = setTimeout(flushPendingLiveUpdates, LIVE_FLUSH_INTERVAL_MS);
+    }
+    return;
+  }
+  try {
+    sender.send('db:live-query:update', { id: subscriptionId, results });
+  } catch (error) {
+    if (isDisposedRenderFrameSendError(error)) {
+      scheduleDisposedLiveSubscriptionOwnerCleanup(sender.id, 'disposed-frame-send');
+      return;
+    }
+    throw error;
+  }
+}
+
 function flushPendingLiveUpdates(): void {
   if (liveFlushTimer) {
     clearTimeout(liveFlushTimer);
@@ -72,19 +153,36 @@ function flushPendingLiveUpdates(): void {
   if (pendingLiveUpdates.size === 0) {
     return;
   }
-  const { BrowserWindow } = require('electron') as typeof import('electron');
   const allWindows = BrowserWindow.getAllWindows();
-  for (const [subId, payload] of pendingLiveUpdates) {
-    const record = liveSubscriptions.get(subId);
-    if (!record) {
-      continue;
+  try {
+    for (const [subId, payload] of pendingLiveUpdates) {
+      const record = liveSubscriptions.get(subId);
+      if (!record) {
+        continue;
+      }
+      const owner = allWindows.find((w) => w.webContents.id === record.webContentsId);
+      if (!owner || owner.webContents.isDestroyed()) {
+        // cleanupDisposedLiveSubscriptionOwner synchronously deletes other pending
+        // entries for the same owner; Map iteration skips those deleted keys.
+        scheduleDisposedLiveSubscriptionOwnerCleanup(record.webContentsId, 'missing-owner');
+        continue;
+      }
+      try {
+        owner.webContents.send('db:live-query:update', payload);
+      } catch (error) {
+        if (isDisposedRenderFrameSendError(error)) {
+          scheduleDisposedLiveSubscriptionOwnerCleanup(record.webContentsId, 'disposed-frame-send');
+          continue;
+        }
+        throw error;
+      }
     }
-    const owner = allWindows.find((w) => w.webContents.id === record.webContentsId);
-    if (owner && !owner.webContents.isDestroyed()) {
-      owner.webContents.send('db:live-query:update', payload);
-    }
+  } finally {
+    // Intentional: if this flush hits an unexpected send failure, we surface that
+    // error and drop the queued updates rather than retrying stale payloads against
+    // a renderer/window state that may already be invalid.
+    pendingLiveUpdates.clear();
   }
-  pendingLiveUpdates.clear();
 }
 
 export function setBackgrounded(value: boolean): void {
@@ -309,14 +407,7 @@ function registerLiveSubscriptionOwner(sender: Pick<Electron.WebContents, 'id' |
 
   liveSubscriptionOwnerListeners.add(sender.id);
   sender.once('destroyed', () => {
-    liveSubscriptionOwnerListeners.delete(sender.id);
-    const ownedSubscriptionIds = Array.from(liveSubscriptions.values())
-      .filter((subscription) => subscription.webContentsId === sender.id)
-      .map((subscription) => subscription.id);
-
-    for (const id of ownedSubscriptionIds) {
-      void cleanupLiveSubscription(id);
-    }
+    void cleanupLiveSubscriptionsForOwner(sender.id, { releaseOwnerRegistration: true });
   });
 }
 
@@ -697,20 +788,8 @@ export function registerIpcHandlers(
 
         const id = nextLiveSubscriptionId++;
         const sender = event.sender;
-        const listener = (results: LiveQueryResults<unknown>) => {
-          if (sender.isDestroyed()) {
-            void cleanupLiveSubscription(id);
-            return;
-          }
-          if (isBackgrounded) {
-            pendingLiveUpdates.set(id, { id, results });
-            if (!liveFlushTimer) {
-              liveFlushTimer = setTimeout(flushPendingLiveUpdates, LIVE_FLUSH_INTERVAL_MS);
-            }
-            return;
-          }
-          sender.send('db:live-query:update', { id, results });
-        };
+        const listener = (results: LiveQueryResults<unknown>) =>
+          sendLiveQueryUpdateToSender(sender, id, results);
 
         handle.subscribe(listener);
         liveSubscriptions.set(id, { id, mode, handle, listener, webContentsId: sender.id });
