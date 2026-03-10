@@ -1,7 +1,12 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/preferences';
+import {
+  DbSchemaVerifier,
+  useAssistantPreferencesStore,
+  useLoggingPreferencesStore,
+  useSecretsStore,
+} from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import type { LoggingPreferences } from '@brainstrike/utils';
 import {
@@ -253,6 +258,10 @@ declare global {
     __BRAINSTRIKE_DESKTOP_REACT_ROOT__?: ReactRoot;
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_READY__?: boolean;
+    __brainstrikeTestHooks__?: {
+      notifySecretsChanged: () => void;
+      setAssistantModel: (compositeKey: string) => void;
+    };
   }
 }
 
@@ -267,6 +276,25 @@ function App() {
     }
 
     window.dispatchEvent(new Event('brainstrike:ready'));
+  }, []);
+
+  useEffect(() => {
+    if (!window.navigator.webdriver) {
+      return;
+    }
+
+    window.__brainstrikeTestHooks__ = {
+      notifySecretsChanged: () => {
+        useSecretsStore.getState().notifySecretsChanged();
+      },
+      setAssistantModel: (compositeKey: string) => {
+        useAssistantPreferencesStore.getState().setModel(compositeKey);
+      },
+    };
+
+    return () => {
+      window.__brainstrikeTestHooks__ = undefined;
+    };
   }, []);
 
   return (

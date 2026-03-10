@@ -159,13 +159,12 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
       await expect(page.locator('#main-content-panel')).toBeAttached();
       await expect(page.locator('#console-panel')).toBeAttached();
 
-      // Verify panel group structure using correct data attributes
-      // Note: react-resizable-panels v4 uses data-group instead of data-panel-group
-      // Expecting three panel groups:
-      // - Outer horizontal (left/middle/right)
-      // - Inner vertical (main/console)
-      // - Right panel's prompt manager (when right panel is visible)
-      await expect(page.locator('[data-group]')).toHaveCount(3);
+      // Verify panel group structure using correct data attributes.
+      // The app layout contract is two resizable groups:
+      // - Outer horizontal (left / middle / right)
+      // - Inner vertical (main / console)
+      // The tools panel content is not itself a resizable panel group.
+      await expect(page.locator('[data-group]')).toHaveCount(2);
     });
 
     test('should handle rapid panel visibility changes', async ({ page }) => {

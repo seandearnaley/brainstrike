@@ -1,6 +1,6 @@
 import type { NavigationItem, RootLayoutContentProps } from '@brainstrike/app-shell';
 import {
-  ConnectedPromptManager,
+  ConnectedPromptManagerLazy,
   navigationItems,
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell';
@@ -9,9 +9,20 @@ import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
 import { useVectorPreferencesStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { EmbeddingJobQueueTracker } from '@brainstrike/vector-management';
-import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
+import { type ReactElement, type ReactNode, Suspense, useEffect, useState } from 'react';
 import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
+
+function LazyTabFallback({ testId, text }: { testId: string; text: string }) {
+  return (
+    <div
+      className="flex h-full items-center justify-center text-muted-foreground text-sm"
+      data-testid={testId}
+    >
+      {text}
+    </div>
+  );
+}
 
 /**
  * Wrapper component that provides TokenCacheProvider.
@@ -100,8 +111,15 @@ export default function RootLayoutContent() {
     navigationItems: navigationConfig,
     homePageContent: <HomePageContent />,
     settingsPageContent: <SettingsPageContent />,
-    promptsPageContent: <ConnectedPromptManager />,
+    promptsPageContent: (
+      <Suspense
+        fallback={<LazyTabFallback testId="web-prompts-page-loading" text="Loading prompts…" />}
+      >
+        <ConnectedPromptManagerLazy />
+      </Suspense>
+    ),
     embeddingQueue, // DO NOT REMOVE - See function docstring
+    preloadDatabaseTabOnMount: true,
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
 

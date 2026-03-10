@@ -7,7 +7,15 @@ import {
 import { type PanelTab, usePanelLayoutStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { shallow } from 'zustand/shallow';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
@@ -56,6 +64,7 @@ export interface RootLayoutContentProps {
    */
   readonly leftPanelContent?: ReactNode;
   readonly navigationItems: NavigationItem[];
+  readonly preloadDatabaseTabOnMount?: boolean;
   readonly promptsPageContent?: ReactNode;
   readonly settingsPageContent: ReactNode;
 }
@@ -76,10 +85,25 @@ export function RootLayoutContent({
   navigationItems,
   leftPanelContent,
   embeddingQueue = null,
+  preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
   const activeTab = usePanelLayoutStore((s) => s.activeTab);
   const setState = usePanelLayoutStore((s) => s.setState);
   const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
+  const [mountedTabs, setMountedTabs] = useState<{
+    prompts: boolean;
+    settings: boolean;
+  }>({
+    prompts: activeTab === 'prompts',
+    settings: activeTab === 'settings',
+  });
+
+  useEffect(() => {
+    if (activeTab === 'explorer' || mountedTabs[activeTab]) {
+      return;
+    }
+    setMountedTabs((current) => ({ ...current, [activeTab]: true }));
+  }, [activeTab, mountedTabs]);
 
   const handleNavigationClick = useCallback(
     (path: string) => {
@@ -92,8 +116,13 @@ export function RootLayoutContent({
   // The queue flows:
   // - RootLayoutContent → ToolsPanel → DatabaseTab → DatabaseDemoPanel (embedding controls and import operations)
   const rightPanelContent = useMemo(
-    () => <ToolsPanel embeddingQueue={embeddingQueue ?? null} />,
-    [embeddingQueue]
+    () => (
+      <ToolsPanel
+        embeddingQueue={embeddingQueue ?? null}
+        preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+      />
+    ),
+    [embeddingQueue, preloadDatabaseTabOnMount]
   );
 
   // Memoize panel content elements so resize drags don't bust IdeLayout's React.memo.
@@ -215,14 +244,14 @@ export function RootLayoutContent({
         className={cn('h-full', activeTab !== 'prompts' && 'hidden')}
         data-testid="prompts-section"
       >
-        {promptsPageContent}
+        {mountedTabs.prompts ? promptsPageContent : null}
       </div>
       <div
         aria-hidden={activeTab !== 'settings'}
         className={cn('h-full', activeTab !== 'settings' && 'hidden')}
         data-testid="settings-section"
       >
-        {settingsPageContent}
+        {mountedTabs.settings ? settingsPageContent : null}
       </div>
     </AppLayout>
   );

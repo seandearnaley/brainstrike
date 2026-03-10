@@ -137,6 +137,7 @@ vi.mock('@brainstrike/app-shell', () => ({
   ],
   // Mock ConnectedPromptManager
   ConnectedPromptManager: () => null,
+  ConnectedPromptManagerLazy: () => null,
   // Mock AppLayout
   AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
     capturedOnNavigationClick = onNavigationClick;

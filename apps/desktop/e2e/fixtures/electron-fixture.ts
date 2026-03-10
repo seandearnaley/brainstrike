@@ -169,6 +169,7 @@ class ElectronHarness {
 
 interface ElectronTestFixtures {
   electronApp: ElectronAppContext;
+  electronHarness: ElectronHarness;
   /** Failure artifact collector - automatically captures diagnostics on test failure */
   failureCollector: FailureArtifactCollector;
   homePage: HomePage;
@@ -203,6 +204,10 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
   electronApp: async ({ electron }, use) => {
     const context = await electron.ensureContext();
     await use(context);
+  },
+
+  electronHarness: async ({ electron }, use) => {
+    await use(electron);
   },
 
   window: async ({ electron }, use, testInfo: TestInfo) => {

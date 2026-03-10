@@ -1,7 +1,6 @@
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
-import { reloadRenderer } from './utils/electron-helpers';
 
 interface BufferedLogRecord {
   readonly args: readonly unknown[];
@@ -225,17 +224,20 @@ function isObjectWithNumber(
 }
 
 test.describe('Startup Restore Regression', () => {
-  test('restores folder and active tab without startup churn signatures', async ({ window }) => {
+  test('restores folder and active tab without startup churn signatures', async ({
+    electronHarness,
+    window,
+  }) => {
     await seedRestoredStartupState(window);
-
-    await reloadRenderer(window, 'startup-restore-regression');
+    const restartedContext = await electronHarness.restart();
+    const restartedWindow = restartedContext.window;
     await expect(
-      window.getByRole('tab', { name: new RegExp(RESTORED_FILE_NAME, 'i') })
+      restartedWindow.getByRole('tab', { name: new RegExp(RESTORED_FILE_NAME, 'i') })
     ).toBeVisible({ timeout: 15_000 });
 
-    await window.waitForTimeout(1000);
+    await restartedWindow.waitForTimeout(1000);
 
-    const records = await getRendererLogRecords(window);
+    const records = await getRendererLogRecords(restartedWindow);
     expect(
       records.some((record) =>
         recordContainsText(record, 'Deferring file content loading until tree is ready')

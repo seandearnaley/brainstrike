@@ -1,9 +1,9 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Database, MessageCircle } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { type ReactElement, useEffect } from 'react';
 import { AssistantTab } from './assistant-tab';
-import { DatabaseTab } from './database-tab';
+import { DatabaseTab, preloadDatabaseTab } from './database-tab';
 import {
   sanitizeToolsPanelTab,
   toolsPanelSelectors,
@@ -20,6 +20,7 @@ interface ToolsPanelProps {
    * management and import operations will fail.
    */
   embeddingQueue?: QueueAdapter | null;
+  readonly preloadDatabaseTabOnMount?: boolean;
 }
 
 /**
@@ -28,9 +29,19 @@ interface ToolsPanelProps {
  * IMPORTANT: The embeddingQueue prop must be forwarded to DatabaseTab to ensure
  * embedding operations and import work correctly.
  */
-export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactElement {
+export function ToolsPanel({
+  embeddingQueue = null,
+  preloadDatabaseTabOnMount = false,
+}: ToolsPanelProps): ReactElement {
   const activeTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
   const setActiveTab = useToolsPanelStore((state) => state.setActiveTab);
+
+  useEffect(() => {
+    if (!preloadDatabaseTabOnMount) {
+      return;
+    }
+    void preloadDatabaseTab();
+  }, [preloadDatabaseTabOnMount]);
 
   return (
     <div className="flex h-full flex-col">

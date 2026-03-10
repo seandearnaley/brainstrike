@@ -7,10 +7,9 @@ vi.mock('../database-tab-chunk', () => ({
 }));
 
 describe('DatabaseTab', () => {
-  it('renders the database content', () => {
+  it('renders the loading fallback before the chunk resolves and then shows content', async () => {
     render(<DatabaseTab />);
-    // Using getByText (sync) instead of findByText (async) because React.lazy()
-    // was removed from DatabaseTab - the component now renders synchronously
-    expect(screen.getByText('Database overview chunk')).toBeInTheDocument();
+    expect(screen.getByTestId('database-tab-loading')).toBeInTheDocument();
+    expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
   });
 });

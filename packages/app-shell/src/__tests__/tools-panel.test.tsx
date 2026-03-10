@@ -1,10 +1,13 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { ToolsPanel } from '../tools-panel';
 
 const originalFetch = global.fetch;
 const mockFetch = vi.fn();
+const { mockPreloadDatabaseTab } = vi.hoisted(() => ({
+  mockPreloadDatabaseTab: vi.fn(() => Promise.resolve()),
+}));
 
 beforeEach(() => {
   mockFetch.mockResolvedValue({
@@ -16,6 +19,7 @@ beforeEach(() => {
 
 afterEach(() => {
   mockFetch.mockReset();
+  mockPreloadDatabaseTab.mockClear();
   global.fetch = originalFetch;
 });
 
@@ -83,6 +87,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 // since tools-panel.tsx imports from the wrapper which uses React.lazy internally.
 vi.mock('../database-tab', () => ({
   DatabaseTab: () => <div data-testid="mock-database-panel">Database mock</div>,
+  preloadDatabaseTab: mockPreloadDatabaseTab,
 }));
 
 describe('ToolsPanel', () => {
@@ -104,6 +109,16 @@ describe('ToolsPanel', () => {
     const assistantCard = await screen.findByTestId('assistant-chat-card');
     expect(assistantCard).toBeInTheDocument();
     expect(screen.getByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
+  });
+
+  test('preloads the database tab chunk on idle after mount', async () => {
+    render(<ToolsPanel preloadDatabaseTabOnMount />);
+
+    await screen.findByTestId('assistant-chat-card');
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
   });
 
   test('allows switching between tabs', async () => {
