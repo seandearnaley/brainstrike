@@ -52,15 +52,17 @@ export function getTrackedWindowsByRole(role: DesktopWindowRole): BrowserWindow[
     return [];
   }
   const windows: BrowserWindow[] = [];
+  const staleIds: number[] = [];
   for (const webContentsId of trackedIds) {
-    // This loop intentionally prunes stale ids in place. Deleting the current Set entry during
-    // iteration is well-defined and does not skip the next tracked window.
     const window = windowByWebContentsId.get(webContentsId);
     if (!window || window.isDestroyed()) {
-      removeWindowTracking(webContentsId);
+      staleIds.push(webContentsId);
       continue;
     }
     windows.push(window);
+  }
+  for (const staleId of staleIds) {
+    removeWindowTracking(staleId);
   }
   return windows;
 }

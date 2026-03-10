@@ -182,6 +182,26 @@ function areRuntimeStatusesEqual<TStatus extends BackgroundRuntimeStatus<string>
   );
 }
 
+const canonicalRuntimeStatusKeys = new Set<keyof BackgroundRuntimeStatus<string>>([
+  'active',
+  'lastError',
+  'runtimeId',
+  'runtimeKind',
+  'state',
+]);
+
+function assertCanonicalRuntimeStatusShape<TStatus extends BackgroundRuntimeStatus<string>>(
+  status: TStatus,
+  context: string
+): TStatus {
+  for (const key of Object.keys(status)) {
+    if (!canonicalRuntimeStatusKeys.has(key as keyof BackgroundRuntimeStatus<string>)) {
+      throw new Error(`${context} must not include non-canonical status field "${key}".`);
+    }
+  }
+  return status;
+}
+
 export interface RuntimeFailureLatch {
   clear: () => void;
   getFailure: () => Error | null;
@@ -415,13 +435,17 @@ export function assertRuntimeRequestPayloadBase<TKind extends string>(
 export function createRuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<string>>(
   initialStatus: TStatus
 ): RuntimeStatusStore<TStatus> {
-  let currentStatus = cloneRuntimeStatus(initialStatus);
+  let currentStatus = cloneRuntimeStatus(
+    assertCanonicalRuntimeStatusShape(initialStatus, 'Runtime status')
+  );
   const listeners = new Set<(status: TStatus) => void>();
 
   return {
     getStatus: () => cloneRuntimeStatus(currentStatus),
     setStatus: (status: TStatus) => {
-      const nextStatus = cloneRuntimeStatus(status);
+      const nextStatus = cloneRuntimeStatus(
+        assertCanonicalRuntimeStatusShape(status, 'Runtime status')
+      );
       if (areRuntimeStatusesEqual(currentStatus, nextStatus)) {
         return cloneRuntimeStatus(currentStatus);
       }

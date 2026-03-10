@@ -83,6 +83,21 @@ describe('@brainstrike/worker-runtime', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('rejects runtime statuses with non-canonical fields', () => {
+    const initial = {
+      ...createBackgroundRuntimeStatus('embedding-host', 'runtime-1', 'running', {
+        active: true,
+      }),
+      phase: 'warming',
+    };
+
+    expect(() =>
+      createRuntimeStatusStore(
+        initial as BackgroundRuntimeStatus<'embedding-host'> & { readonly phase: string }
+      )
+    ).toThrow('Runtime status must not include non-canonical status field "phase".');
+  });
+
   it('creates stopped statuses with canonical runtime ids', () => {
     expect(createStoppedBackgroundRuntimeStatus('chunking-host')).toEqual({
       runtimeKind: 'chunking-host',
