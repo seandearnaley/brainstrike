@@ -4,7 +4,7 @@
  */
 
 import { type ParserPlugin, parse } from '@babel/parser';
-import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { RecursiveTextSplitter } from '@brainstrike/text-splitter';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
 import type { ChunkingRequestOptions, ChunkingStrategy, ChunkType, PortableChunk } from './shared';
 import { countTokensAccurate, countTokensHeuristic } from './token-utils-lite';
@@ -492,7 +492,7 @@ async function splitCodeByFunctions(
   const pieces: string[] = [];
   let cursor = 0;
 
-  const recursiveChunker = new RecursiveCharacterTextSplitter({
+  const recursiveChunker = new RecursiveTextSplitter({
     chunkSize: maxChars,
     chunkOverlap: overlapChars,
     separators,
@@ -710,7 +710,7 @@ export async function chunkContent(
   }
 
   const chunkTokens = async (): Promise<ChunkGroup[]> => {
-    const tokenChunker = new RecursiveCharacterTextSplitter({
+    const tokenChunker = new RecursiveTextSplitter({
       chunkSize: maxChars,
       chunkOverlap: overlapChars,
       separators: ['\n\n', '\n', '. ', ' ', ''],
@@ -719,7 +719,7 @@ export async function chunkContent(
   };
 
   const chunkSentenceAwareText = async (text: string): Promise<string[]> => {
-    const sentenceAwareChunker = new RecursiveCharacterTextSplitter({
+    const sentenceAwareChunker = new RecursiveTextSplitter({
       chunkSize: maxChars,
       chunkOverlap: overlapChars,
       separators: ['\n\n', '\n', '. ', ' ', ''],
@@ -749,7 +749,7 @@ export async function chunkContent(
 
     const chunkWithCodeSeparators = async (): Promise<ChunkGroup[]> => {
       const codeSeparators = getCodeSeparators(options.separators);
-      const recursiveChunker = new RecursiveCharacterTextSplitter({
+      const recursiveChunker = new RecursiveTextSplitter({
         chunkSize: maxChars,
         chunkOverlap: overlapChars,
         separators: codeSeparators,
@@ -785,7 +785,7 @@ export async function chunkContent(
 
   const chunkStructuredData = async (): Promise<ChunkGroup[]> => {
     const structuredSeparators = ['\n\n', '\n', '},', '],', '",', ',', '}', ']', ' ', ''];
-    const structuredChunker = new RecursiveCharacterTextSplitter({
+    const structuredChunker = new RecursiveTextSplitter({
       chunkSize: maxChars,
       chunkOverlap: overlapChars,
       separators: structuredSeparators,
@@ -823,7 +823,7 @@ export async function chunkContent(
   const pendingChunks: PendingChunk[] = [];
 
   // PERF: Reuse splitter instance for all oversized chunks
-  const reSplitChunker = new RecursiveCharacterTextSplitter({
+  const reSplitChunker = new RecursiveTextSplitter({
     chunkSize: Math.floor(Math.min(effectiveMaxTokens, maxSafeTokens) * charsPerToken),
     chunkOverlap: Math.min(overlapChars, Math.floor(maxChars / 10)),
     separators: ['\n\n', '\n', '. ', ' ', ''],

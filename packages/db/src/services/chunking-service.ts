@@ -1,6 +1,6 @@
 import { type ParserPlugin, parse } from '@babel/parser';
+import { RecursiveTextSplitter } from '@brainstrike/text-splitter';
 import { countTokensAccurate, createLogger } from '@brainstrike/utils';
-import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { CHUNKING_CONFIG } from '../config/chunking-config.js';
 import type { FileChunkInsert } from '../models/file-chunk';
 
@@ -366,10 +366,9 @@ export class ChunkingService {
   }
 
   /**
-   * Re-split an oversized chunk into smaller pieces using RecursiveCharacterTextSplitter.
+   * Re-split an oversized chunk into smaller pieces using the shared recursive splitter.
    * This is a fallback for when character-based splitters produce chunks that exceed token limits.
-   * Note: We use character-based splitting (not TokenTextSplitter) because tiktoken requires
-   * fetching external resources which is blocked by Electron's Content Security Policy.
+   * The shared implementation keeps browser and desktop workers aligned without LangChain.
    */
   private async reSplitOversizedChunk(
     content: string,
@@ -381,7 +380,7 @@ export class ChunkingService {
     const maxChars = Math.floor(maxTokens * charsPerToken);
     const overlapChars = Math.min(Math.floor(overlap * charsPerToken), Math.floor(maxChars / 10));
 
-    const recursiveChunker = new RecursiveCharacterTextSplitter({
+    const recursiveChunker = new RecursiveTextSplitter({
       chunkSize: maxChars,
       chunkOverlap: overlapChars,
       separators: ['\n\n', '\n', '. ', ' ', ''],
@@ -750,9 +749,7 @@ export class ChunkingService {
     }
 
     const chunkTokens = async (): Promise<ChunkGroup[]> => {
-      // Note: We use RecursiveCharacterTextSplitter instead of TokenTextSplitter because
-      // tiktoken requires fetching external resources which is blocked by Electron's CSP.
-      const tokenChunker = new RecursiveCharacterTextSplitter({
+      const tokenChunker = new RecursiveTextSplitter({
         chunkSize: maxChars,
         chunkOverlap: overlapChars,
         separators: ['\n\n', '\n', '. ', ' ', ''],
@@ -761,7 +758,7 @@ export class ChunkingService {
     };
 
     const chunkSentenceAwareText = async (text: string): Promise<string[]> => {
-      const sentenceAwareChunker = new RecursiveCharacterTextSplitter({
+      const sentenceAwareChunker = new RecursiveTextSplitter({
         chunkSize: maxChars,
         chunkOverlap: overlapChars,
         separators: ['\n\n', '\n', '. ', ' ', ''],
@@ -791,7 +788,7 @@ export class ChunkingService {
 
       const chunkWithCodeSeparators = async (): Promise<ChunkGroup[]> => {
         const codeSeparators = getCodeSeparators(options.separators);
-        const recursiveChunker = new RecursiveCharacterTextSplitter({
+        const recursiveChunker = new RecursiveTextSplitter({
           chunkSize: maxChars,
           chunkOverlap: overlapChars,
           separators: codeSeparators,
@@ -831,8 +828,8 @@ export class ChunkingService {
       return [{ pieces: await chunkSentenceAwareText(content), type: 'sentence' }];
     };
 
-    // Use RecursiveCharacterTextSplitter for structured data (JSON, XML, etc.)
-    // These files have no sentence boundaries, so we split on structural elements
+    // Use the shared recursive splitter for structured data (JSON, XML, etc.)
+    // These files have no sentence boundaries, so we split on structural elements.
     const chunkStructuredData = async (): Promise<ChunkGroup[]> => {
       const structuredSeparators = [
         '\n\n', // Double newlines (between blocks)
@@ -846,7 +843,7 @@ export class ChunkingService {
         ' ', // Spaces as last resort
         '', // Character-by-character fallback
       ];
-      const structuredChunker = new RecursiveCharacterTextSplitter({
+      const structuredChunker = new RecursiveTextSplitter({
         chunkSize: maxChars,
         chunkOverlap: overlapChars,
         separators: structuredSeparators,
@@ -1053,7 +1050,7 @@ async function splitCodeByFunctions(
   const pieces: string[] = [];
   let cursor = 0;
 
-  const recursiveChunker = new RecursiveCharacterTextSplitter({
+  const recursiveChunker = new RecursiveTextSplitter({
     chunkSize: maxChars,
     chunkOverlap: overlapChars,
     separators,
