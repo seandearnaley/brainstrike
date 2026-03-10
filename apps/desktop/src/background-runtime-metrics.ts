@@ -22,7 +22,7 @@ function formatMetricValue(value: number | undefined): string | null {
 }
 
 function formatKilobytes(value: number | undefined): string | null {
-  return typeof value === 'number' && Number.isFinite(value) ? (value / 1024).toFixed(0) : null;
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(0) : null;
 }
 
 function createUnavailableMetric(
