@@ -1,3 +1,4 @@
+import { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
@@ -923,6 +924,36 @@ describe('database IPC handlers', () => {
 
       // Clean up without triggering flush (no pending updates)
       setBackgrounded(false);
+    });
+
+    it('cleans up subscriptions when a backgrounded owner window is no longer available', async () => {
+      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { listener, liveHandle, sender } = await setupLiveQuery();
+      const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
+
+      setBackgrounded(true);
+      listener({ rows: [{ id: 99 }] });
+
+      getAllWindowsMock.mockReturnValue([]);
+
+      setBackgrounded(false);
+      await Promise.resolve();
+
+      expect(liveHandle.unsubscribe).toHaveBeenCalled();
+      expect(sender.send).not.toHaveBeenCalled();
+    });
+
+    it('cleans up subscriptions when foreground sends fail because the render frame was disposed', async () => {
+      const { listener, liveHandle, sender } = await setupLiveQuery();
+
+      sender.send.mockImplementation(() => {
+        throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+      });
+
+      listener({ rows: [{ id: 123 }] });
+      await Promise.resolve();
+
+      expect(liveHandle.unsubscribe).toHaveBeenCalled();
     });
   });
 });
