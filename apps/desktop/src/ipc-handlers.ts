@@ -97,6 +97,7 @@ async function cleanupDisposedLiveSubscriptionOwner(
   });
   pendingLiveUpdates.forEach((_payload, subId) => {
     const record = liveSubscriptions.get(subId);
+    // Safe: deleting Map entries during forEach skips not-yet-visited keys per ES spec.
     if (record?.webContentsId === webContentsId) {
       pendingLiveUpdates.delete(subId);
     }
@@ -164,6 +165,9 @@ function flushPendingLiveUpdates(): void {
       }
     }
   } finally {
+    // Intentional: if this flush hits an unexpected send failure, we surface that
+    // error and drop the queued updates rather than retrying stale payloads against
+    // a renderer/window state that may already be invalid.
     pendingLiveUpdates.clear();
   }
 }
