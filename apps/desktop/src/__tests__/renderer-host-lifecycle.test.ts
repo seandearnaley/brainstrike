@@ -2,7 +2,7 @@ import type { EventEmitter } from 'node:events';
 import { app, BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RendererHostLifecycle, type RendererHostStatusShape } from '../renderer-host-lifecycle';
-import { getWindowRoleByWebContentsId } from '../window-role';
+import { assignWindowRole, getWindowRoleByWebContentsId } from '../window-role';
 
 const { MockBrowserWindow } = vi.hoisted(() => ({
   MockBrowserWindow: vi.fn(),
@@ -300,6 +300,7 @@ describe('RendererHostLifecycle', () => {
       getAllWindows: vi.fn(() => [hostWindow, visibleWindow]),
     });
     Object.defineProperty(app, 'isPackaged', { value: false, configurable: true });
+    assignWindowRole(visibleWindow as never, 'visible-ui');
 
     const lifecycle = new RendererHostLifecycle({
       createStatus,
@@ -674,6 +675,7 @@ describe('RendererHostLifecycle', () => {
     Object.assign(BrowserWindow, {
       getAllWindows: vi.fn(() => [hostWindow, visibleWindow]),
     });
+    assignWindowRole(visibleWindow as never, 'visible-ui');
 
     const lifecycle = new RendererHostLifecycle({
       createStatus,
@@ -715,6 +717,7 @@ describe('RendererHostLifecycle', () => {
     Object.assign(BrowserWindow, {
       getAllWindows: vi.fn(() => [hostWindow, visibleWindow]),
     });
+    assignWindowRole(visibleWindow as never, 'visible-ui');
 
     const lifecycle = new RendererHostLifecycle({
       createStatus,
@@ -732,6 +735,7 @@ describe('RendererHostLifecycle', () => {
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
+    visibleWindow.webContents.send.mockClear();
 
     lifecycle.setStatus(
       createStatus({
@@ -750,7 +754,7 @@ describe('RendererHostLifecycle', () => {
       })
     );
 
-    expect(visibleWindow.webContents.send).toHaveBeenCalledTimes(2);
+    expect(visibleWindow.webContents.send).toHaveBeenCalledTimes(1);
   });
 
   it('destroys the host window when startup readiness fails after the window is created', async () => {

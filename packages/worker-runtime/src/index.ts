@@ -166,6 +166,42 @@ export interface RuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<stri
   subscribe: (listener: (status: TStatus) => void) => () => void;
 }
 
+function areRuntimeStatusesEqual<TStatus extends BackgroundRuntimeStatus<string>>(
+  left: TStatus,
+  right: TStatus
+): boolean {
+  // BackgroundRuntimeStatus intentionally treats these five fields as the canonical runtime
+  // contract. If a runtime status adds another UI-significant field, update this comparison at
+  // the same time so the shared status store does not suppress meaningful transitions.
+  return (
+    left.runtimeKind === right.runtimeKind &&
+    left.runtimeId === right.runtimeId &&
+    left.state === right.state &&
+    left.active === right.active &&
+    left.lastError === right.lastError
+  );
+}
+
+const canonicalRuntimeStatusKeys = new Set<keyof BackgroundRuntimeStatus<string>>([
+  'active',
+  'lastError',
+  'runtimeId',
+  'runtimeKind',
+  'state',
+]);
+
+function assertCanonicalRuntimeStatusShape<TStatus extends BackgroundRuntimeStatus<string>>(
+  status: TStatus,
+  context: string
+): TStatus {
+  for (const key of Object.keys(status)) {
+    if (!canonicalRuntimeStatusKeys.has(key as keyof BackgroundRuntimeStatus<string>)) {
+      throw new Error(`${context} must not include non-canonical status field "${key}".`);
+    }
+  }
+  return status;
+}
+
 export interface RuntimeFailureLatch {
   clear: () => void;
   getFailure: () => Error | null;
@@ -399,14 +435,22 @@ export function assertRuntimeRequestPayloadBase<TKind extends string>(
 export function createRuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<string>>(
   initialStatus: TStatus
 ): RuntimeStatusStore<TStatus> {
-  let currentStatus = cloneRuntimeStatus(initialStatus);
+  let currentStatus = cloneRuntimeStatus(
+    assertCanonicalRuntimeStatusShape(initialStatus, 'Runtime status')
+  );
   const listeners = new Set<(status: TStatus) => void>();
 
   return {
     getStatus: () => cloneRuntimeStatus(currentStatus),
     setStatus: (status: TStatus) => {
-      currentStatus = cloneRuntimeStatus(status);
-      const snapshot = cloneRuntimeStatus(currentStatus);
+      const nextStatus = cloneRuntimeStatus(
+        assertCanonicalRuntimeStatusShape(status, 'Runtime status')
+      );
+      if (areRuntimeStatusesEqual(currentStatus, nextStatus)) {
+        return cloneRuntimeStatus(currentStatus);
+      }
+      currentStatus = nextStatus;
+      const snapshot = cloneRuntimeStatus(nextStatus);
       for (const listener of listeners) {
         listener(snapshot);
       }

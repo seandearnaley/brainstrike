@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
+  getTrackedWindowsByRole,
   getWindowRole,
   getWindowRoleByWebContentsId,
 } from '../window-role';
 
 interface FakeWindow {
+  isDestroyed: () => boolean;
   once: (event: 'closed', listener: () => void) => void;
   onceCallCount: number;
   webContents: {
@@ -20,6 +22,7 @@ function createFakeWindow(webContentsId: number): {
 } {
   let closedListener: (() => void) | null = null;
   const window: FakeWindow = {
+    isDestroyed: () => false,
     onceCallCount: 0,
     once: (_event: 'closed', listener: () => void) => {
       window.onceCallCount += 1;
@@ -72,5 +75,22 @@ describe('window-role', () => {
     clearWindowRoleByWebContentsId(29);
 
     expect(getWindowRoleByWebContentsId(29)).toBeUndefined();
+  });
+
+  it('tracks live windows by role and removes them when explicitly cleared', () => {
+    const first = createFakeWindow(31);
+    const second = createFakeWindow(32);
+
+    assignWindowRole(first.window as never, 'visible-ui');
+    assignWindowRole(second.window as never, 'visible-ui');
+
+    expect(getTrackedWindowsByRole('visible-ui')).toEqual([
+      first.window as never,
+      second.window as never,
+    ]);
+
+    clearWindowRoleByWebContentsId(31);
+
+    expect(getTrackedWindowsByRole('visible-ui')).toEqual([second.window as never]);
   });
 });
