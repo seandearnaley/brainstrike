@@ -1,10 +1,12 @@
-import type { ChunkingStrategy } from '@brainstrike/db';
+import type { ChunkingPresetSelection, ChunkingStrategy } from '@brainstrike/text-splitter';
+import { getChunkingPreset } from '@brainstrike/text-splitter';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { useTokenPreferencesStore } from './token-preferences-store';
 
 interface ImportSettingsData {
+  chunkingPreset: ChunkingPresetSelection;
   chunkingStrategy: ChunkingStrategy;
   chunkingStrategyExplicit: boolean;
   chunkOverlap: number;
@@ -15,6 +17,7 @@ interface ImportSettingsData {
 }
 
 interface ImportSettingsActions {
+  setChunkingPreset: (value: ChunkingPresetSelection) => void;
   setChunkingStrategy: (v: ChunkingStrategy) => void;
   setChunkOverlap: (n: number) => void;
   setChunkSize: (n: number) => void;
@@ -26,7 +29,7 @@ interface ImportSettingsActions {
 export type ImportSettingsStore = ImportSettingsData & ImportSettingsActions;
 
 const STORE_NAME = 'import-settings.v1' as const;
-const STORE_VERSION = 5 as const;
+const STORE_VERSION = 6 as const;
 
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
@@ -35,29 +38,55 @@ const STORE_VERSION = 5 as const;
 const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 
 const getAccurateCountingPreference = () => useTokenPreferencesStore.getState().accurateCounting;
+const DEFAULT_CHUNKING_PRESET = getChunkingPreset('balanced');
 
 export const useImportSettingsStore = create<ImportSettingsStore>()(
   persist(
     (set) => ({
       enableChunking: true,
-      chunkingStrategy: 'sentence',
-      chunkingStrategyExplicit: false,
-      chunkSize: 256,
-      chunkOverlap: 50,
+      chunkingPreset: DEFAULT_CHUNKING_PRESET.id,
+      chunkingStrategy: DEFAULT_CHUNKING_PRESET.strategy,
+      chunkingStrategyExplicit: DEFAULT_CHUNKING_PRESET.strategy !== 'auto',
+      chunkSize: DEFAULT_CHUNKING_PRESET.chunkSize,
+      chunkOverlap: DEFAULT_CHUNKING_PRESET.chunkOverlap,
       tokenTrueSizing: getAccurateCountingPreference(),
-      chunkTokenLimit: 4096,
+      chunkTokenLimit: DEFAULT_CHUNKING_PRESET.tokenLimit,
 
       setEnableChunking: (v) => set({ enableChunking: !!v }),
-      setChunkingStrategy: (v) => set({ chunkingStrategy: v, chunkingStrategyExplicit: true }),
-      setChunkSize: (n) => set({ chunkSize: Math.max(1, Math.floor(n)) }),
-      setChunkOverlap: (n) => set({ chunkOverlap: Math.max(0, Math.floor(n)) }),
+      setChunkingPreset: (value) => {
+        if (value === 'custom') {
+          set({ chunkingPreset: 'custom' });
+          return;
+        }
+        const preset = getChunkingPreset(value);
+        set({
+          chunkingPreset: preset.id,
+          chunkingStrategy: preset.strategy,
+          chunkingStrategyExplicit: preset.strategy !== 'auto',
+          chunkSize: preset.chunkSize,
+          chunkOverlap: preset.chunkOverlap,
+          chunkTokenLimit: preset.tokenLimit,
+        });
+      },
+      setChunkingStrategy: (v) =>
+        set({
+          chunkingPreset: 'custom',
+          chunkingStrategy: v,
+          chunkingStrategyExplicit: v !== 'auto',
+        }),
+      setChunkSize: (n) => set({ chunkingPreset: 'custom', chunkSize: Math.max(1, Math.floor(n)) }),
+      setChunkOverlap: (n) =>
+        set({ chunkingPreset: 'custom', chunkOverlap: Math.max(0, Math.floor(n)) }),
       setTokenTrueSizing: (v) => {
         const next = !!v;
         useTokenPreferencesStore.getState().setAccurateCounting(next);
         set({ tokenTrueSizing: next });
       },
       setChunkTokenLimit: (n) =>
-        set({ chunkTokenLimit: Math.max(512, Math.min(16_384, Math.floor(n) || 512)) }),
+        set({
+          chunkingPreset: 'custom',
+          chunkTokenLimit: Math.max(512, Math.min(16_384, Math.floor(n) || 512)),
+        }),
     }),
     {
       name: STORE_NAME,
@@ -72,12 +101,20 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
         if (version < 2) {
           next = {
             ...next,
+            chunkingPreset:
+              typeof next.chunkingPreset === 'string'
+                ? next.chunkingPreset
+                : DEFAULT_CHUNKING_PRESET.id,
             tokenTrueSizing: true,
             chunkTokenLimit: 4096,
           };
         } else {
           next = {
             ...next,
+            chunkingPreset:
+              typeof next.chunkingPreset === 'string'
+                ? next.chunkingPreset
+                : DEFAULT_CHUNKING_PRESET.id,
             tokenTrueSizing:
               typeof next.tokenTrueSizing === 'boolean' ? next.tokenTrueSizing : true,
             chunkTokenLimit:
@@ -90,6 +127,7 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       },
       partialize: (s) => ({
         enableChunking: s.enableChunking,
+        chunkingPreset: s.chunkingPreset,
         chunkingStrategy: s.chunkingStrategy,
         chunkingStrategyExplicit: s.chunkingStrategyExplicit,
         chunkSize: s.chunkSize,
@@ -135,11 +173,12 @@ export function __resetImportSettingsStoreForTests() {
   useTokenPreferencesStore.getState().setAccurateCounting(true);
   useImportSettingsStore.setState({
     enableChunking: true,
-    chunkingStrategy: 'sentence',
+    chunkingPreset: DEFAULT_CHUNKING_PRESET.id,
+    chunkingStrategy: DEFAULT_CHUNKING_PRESET.strategy,
     chunkingStrategyExplicit: false,
-    chunkSize: 256,
-    chunkOverlap: 50,
+    chunkSize: DEFAULT_CHUNKING_PRESET.chunkSize,
+    chunkOverlap: DEFAULT_CHUNKING_PRESET.chunkOverlap,
     tokenTrueSizing: true,
-    chunkTokenLimit: 4096,
+    chunkTokenLimit: DEFAULT_CHUNKING_PRESET.tokenLimit,
   });
 }

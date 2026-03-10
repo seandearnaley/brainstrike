@@ -5,6 +5,7 @@
  * Provides type-safe database operations for file records.
  */
 
+import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
 import { count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
@@ -30,6 +31,9 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'processedAt',
   'embedding',
   'embeddingSetId',
+  'chunksProcessedAt',
+  'chunksCount',
+  'chunkingStrategy',
 ] as const;
 
 // Field validators - extract validation logic to reduce complexity
@@ -73,6 +77,28 @@ function validateNullableDateString(value: unknown, fieldName: string): Date | n
     throw new Error(`Invalid ${fieldName}: expected ISO string or null, got ${typeof value}`);
   }
   return value ? new Date(value as string) : null;
+}
+
+function validateResolvedChunkingStrategy(value: unknown): ResolvedChunkingStrategy | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (
+    value !== 'character' &&
+    value !== 'recursive' &&
+    value !== 'token' &&
+    value !== 'markdown' &&
+    value !== 'semantic-markdown' &&
+    value !== 'html' &&
+    value !== 'json' &&
+    value !== 'latex' &&
+    value !== 'sentence'
+  ) {
+    throw new Error(
+      `Invalid chunkingStrategy: expected canonical resolved strategy, got ${String(value)}`
+    );
+  }
+  return value;
 }
 
 export class DrizzleFileRecordRepository {
@@ -228,6 +254,15 @@ export class DrizzleFileRecordRepository {
         break;
       case 'embeddingSetId':
         updateData.embeddingSetId = validateNullableString(value, 'embeddingSetId');
+        break;
+      case 'chunksProcessedAt':
+        updateData.chunksProcessedAt = validateNullableDateString(value, 'chunksProcessedAt');
+        break;
+      case 'chunksCount':
+        updateData.chunksCount = validateNullableNumber(value, 'chunksCount');
+        break;
+      case 'chunkingStrategy':
+        updateData.chunkingStrategy = validateResolvedChunkingStrategy(value);
         break;
     }
   }
@@ -489,20 +524,29 @@ export class DrizzleFileRecordRepository {
     };
 
     // Add optional fields if they exist
-    if (row.content !== null) {
+    if (row.content !== null && row.content !== undefined) {
       record.content = row.content;
     }
-    if (row.contentHash !== null) {
+    if (row.contentHash !== null && row.contentHash !== undefined) {
       record.contentHash = row.contentHash;
     }
-    if (row.tokenCount !== null) {
+    if (row.tokenCount !== null && row.tokenCount !== undefined) {
       record.tokenCount = row.tokenCount;
     }
-    if (row.processedAt !== null) {
+    if (row.processedAt !== null && row.processedAt !== undefined) {
       record.processedAt = row.processedAt.toISOString();
     }
-    if (row.embeddingSetId !== null) {
+    if (row.embeddingSetId !== null && row.embeddingSetId !== undefined) {
       record.embeddingSetId = row.embeddingSetId;
+    }
+    if (row.chunksProcessedAt !== null && row.chunksProcessedAt !== undefined) {
+      record.chunksProcessedAt = row.chunksProcessedAt.toISOString();
+    }
+    if (row.chunksCount !== null && row.chunksCount !== undefined) {
+      record.chunksCount = row.chunksCount;
+    }
+    if (row.chunkingStrategy !== null && row.chunkingStrategy !== undefined) {
+      record.chunkingStrategy = row.chunkingStrategy;
     }
 
     return record;

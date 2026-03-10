@@ -199,12 +199,12 @@ function baz() {
       it('should apply default recommendations for structured files', async () => {
         const json = JSON.stringify({ rows: Array.from({ length: 500 }, (_, i) => ({ i })) });
         const result = await chunkContent(json, {
-          strategy: 'sentence',
+          strategy: 'auto',
           fileName: 'dataset.json',
         });
 
         expect(result.skipped).toBe(false);
-        expect(result.strategyUsed).toBe('recursive');
+        expect(result.strategyUsed).toBe('json');
         expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.largeStructuredMaxTokens);
       });
 

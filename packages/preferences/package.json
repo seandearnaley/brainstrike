@@ -6,6 +6,7 @@
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/storage": "workspace:*",
+    "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@tanstack/react-table": "^8.21.3",

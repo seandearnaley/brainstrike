@@ -1,3 +1,10 @@
+import type {
+  ResolvedChunkingStrategy,
+  ChunkingStrategy as SharedChunkingStrategy,
+} from '@brainstrike/text-splitter';
+
+export type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
+
 /**
  * @module pipeline/types
  *
@@ -90,7 +97,7 @@ export interface FileImportOutput {
 /**
  * Chunking strategy determines how content is split.
  */
-export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
+export type ChunkingStrategy = SharedChunkingStrategy;
 
 /**
  * Input to the chunking stage.
@@ -143,7 +150,7 @@ export interface ChunkingOutput {
   /** Reason for skipping, if applicable */
   skipReason?: string;
   /** Strategy actually used (may differ from requested) */
-  strategyUsed: ChunkingStrategy;
+  strategyUsed: ResolvedChunkingStrategy;
   /** Total tokens across all chunks */
   totalTokens: number;
 }

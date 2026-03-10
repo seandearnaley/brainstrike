@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { RecursiveTextSplitter, splitTextRecursively } from '../index.js';
+import {
+  getChunkingPreset,
+  getChunkingPresetDefinitions,
+  RecursiveTextSplitter,
+  resolveChunkingStrategyForFile,
+  splitTextByStrategy,
+  splitTextRecursively,
+} from '../index.js';
 
 describe('@brainstrike/text-splitter', () => {
   it('splits long text recursively with literal separators', async () => {
@@ -50,6 +57,99 @@ describe('@brainstrike/text-splitter', () => {
 
     expect(chunks.length).toBeGreaterThan(1);
     expect(chunks.every((chunk) => chunk.length <= 4)).toBe(true);
+  });
+
+  it('supports character strategy with overlap', () => {
+    const chunks = splitTextByStrategy('abcdefghij', {
+      strategy: 'character',
+      chunkSize: 4,
+      chunkOverlap: 1,
+    });
+
+    expect(chunks).toEqual(['abcd', 'defg', 'ghij']);
+  });
+
+  it('supports markdown-aware splitting', () => {
+    const chunks = splitTextByStrategy(
+      '# Title\n\n## Section\n\nBody text\n\n### Detail\n\nMore text',
+      {
+        strategy: 'markdown',
+        chunkSize: 18,
+        chunkOverlap: 2,
+      }
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.some((chunk) => chunk.includes('## Section'))).toBe(true);
+  });
+
+  it('supports semantic markdown grouping', () => {
+    const chunks = splitTextByStrategy(
+      '# Title\n\nIntro\n\n## A\n\nAlpha paragraph.\n\n## B\n\nBeta paragraph.',
+      {
+        strategy: 'semantic-markdown',
+        chunkSize: 28,
+        chunkOverlap: 4,
+      }
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks[0]).toContain('# Title');
+  });
+
+  it('supports html-aware splitting', () => {
+    const chunks = splitTextByStrategy(
+      '<article><section><p>Alpha beta gamma</p></section><section><p>Delta epsilon zeta</p></section></article>',
+      {
+        strategy: 'html',
+        chunkSize: 40,
+        chunkOverlap: 4,
+      }
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it('supports json-aware splitting', () => {
+    const chunks = splitTextByStrategy(
+      '{"rows":[{"id":1,"name":"alpha"},{"id":2,"name":"beta"},{"id":3,"name":"gamma"}]}',
+      {
+        strategy: 'json',
+        chunkSize: 36,
+        chunkOverlap: 4,
+      }
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it('supports latex-aware splitting', () => {
+    const chunks = splitTextByStrategy(
+      '\\section{Intro}\nAlpha beta gamma\n\\subsection{Detail}\nDelta epsilon zeta',
+      {
+        strategy: 'latex',
+        chunkSize: 28,
+        chunkOverlap: 2,
+      }
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+  });
+
+  it('returns documented preset definitions', () => {
+    const presets = getChunkingPresetDefinitions();
+
+    expect(presets).toHaveLength(6);
+    expect(presets.find((preset) => preset.isDefault)?.id).toBe('balanced');
+    expect(getChunkingPreset('docs').strategy).toBe('semantic-markdown');
+  });
+
+  it('resolves auto strategy from file extension', () => {
+    expect(resolveChunkingStrategyForFile('/tmp/readme.md')).toBe('semantic-markdown');
+    expect(resolveChunkingStrategyForFile('/tmp/component.tsx')).toBe('recursive');
+    expect(resolveChunkingStrategyForFile('/tmp/schema.json')).toBe('json');
+    expect(resolveChunkingStrategyForFile('/tmp/paper.tex')).toBe('latex');
+    expect(resolveChunkingStrategyForFile('/tmp/notes.txt')).toBe('sentence');
   });
 
   it('throws on invalid chunk overlap', () => {

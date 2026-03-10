@@ -1,4 +1,5 @@
-import type { ChunkingStrategy, FileChunk, FileRecord, ImportProgress } from '@brainstrike/db';
+import type { FileChunk, FileRecord, ImportProgress } from '@brainstrike/db';
+import type { ChunkingPresetSelection, ChunkingStrategy } from '@brainstrike/text-splitter';
 
 export interface ChunkSearchResult {
   chunk: FileChunk;
@@ -65,12 +66,14 @@ export interface ExportButtonsProps {
 }
 
 export interface ImportSettings {
+  chunkingPreset: ChunkingPresetSelection;
   chunkingStrategy: ChunkingStrategy;
   chunkingStrategyExplicit: boolean;
   chunkOverlap: number;
   chunkSize: number;
   chunkTokenLimit: number;
   enableChunking: boolean;
+  setChunkingPreset: (value: ChunkingPresetSelection) => void;
   setChunkingStrategy: (value: ChunkingStrategy) => void;
   setChunkOverlap: (value: number) => void;
   setChunkSize: (value: number) => void;

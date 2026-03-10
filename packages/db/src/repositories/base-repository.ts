@@ -19,6 +19,9 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'processedAt',
   'embedding',
   'embeddingSetId',
+  'chunksProcessedAt',
+  'chunksCount',
+  'chunkingStrategy',
 ] as const;
 
 /**
@@ -534,6 +537,20 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       record.embeddingSetId = String(row['embedding_set_id']);
     }
 
+    if (row['chunks_processed_at'] !== null && row['chunks_processed_at'] !== undefined) {
+      record.chunksProcessedAt = String(row['chunks_processed_at']);
+    }
+
+    if (row['chunks_count'] !== null && row['chunks_count'] !== undefined) {
+      record.chunksCount = Number(row['chunks_count']);
+    }
+
+    if (row['chunking_strategy'] !== null && row['chunking_strategy'] !== undefined) {
+      record.chunkingStrategy = String(row['chunking_strategy']) as NonNullable<
+        FileRecord['chunkingStrategy']
+      >;
+    }
+
     return record;
   }
 
@@ -554,6 +571,12 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         return 'processed_at';
       case 'embeddingSetId':
         return 'embedding_set_id';
+      case 'chunksProcessedAt':
+        return 'chunks_processed_at';
+      case 'chunksCount':
+        return 'chunks_count';
+      case 'chunkingStrategy':
+        return 'chunking_strategy';
       default:
         return field;
     }

@@ -107,10 +107,12 @@ function toWorkerRequestOptions(
 ): ChunkingRequestOptions {
   const autoStrategy = getChunkingStrategy(filePath);
   const requestedStrategy = options.requestedStrategy;
-  const resolvedStrategy = requestedStrategy ?? autoStrategy;
+  const hasExplicitRequestedStrategy =
+    requestedStrategy !== undefined && requestedStrategy !== 'auto';
+  const resolvedStrategy = hasExplicitRequestedStrategy ? requestedStrategy : autoStrategy;
   const forceStrategy =
     options.forceStrategy === true ||
-    (requestedStrategy !== undefined && requestedStrategy !== autoStrategy);
+    (hasExplicitRequestedStrategy && requestedStrategy !== autoStrategy);
 
   return {
     strategy: resolvedStrategy,

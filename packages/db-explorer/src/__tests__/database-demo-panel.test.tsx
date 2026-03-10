@@ -425,7 +425,7 @@ describe('DatabaseDemoPanel', () => {
       await user.click(settingsButton);
 
       await waitFor(() => {
-        expect(screen.getByText('Chunking')).toBeInTheDocument();
+        expect(screen.getByText('Chunking Studio')).toBeInTheDocument();
         // Factory Reset was moved to global Preferences; it should not appear in Import Settings
         expect(screen.queryByText('Factory Reset')).not.toBeInTheDocument();
       });
@@ -446,10 +446,10 @@ describe('DatabaseDemoPanel', () => {
 
       // Wait for settings panel to be visible
       await waitFor(() => {
-        expect(screen.getByText('Chunking')).toBeInTheDocument();
+        expect(screen.getByText('Chunking Studio')).toBeInTheDocument();
       });
 
-      const chunkingCheckbox = screen.getByLabelText('Chunking');
+      const chunkingCheckbox = screen.getByLabelText('Enable chunking');
       expect(chunkingCheckbox).toBeChecked();
       await user.click(chunkingCheckbox);
       await waitFor(() => {

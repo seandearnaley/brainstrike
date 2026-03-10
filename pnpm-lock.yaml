@@ -144,6 +144,9 @@ importers:
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      '@brainstrike/text-splitter':
+        specifier: workspace:*
+        version: link:../../packages/text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -799,6 +802,9 @@ importers:
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
+      '@brainstrike/text-splitter':
+        specifier: workspace:*
+        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1171,6 +1177,9 @@ importers:
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
+      '@brainstrike/text-splitter':
+        specifier: workspace:*
+        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1368,6 +1377,9 @@ importers:
 
   packages/pipeline:
     dependencies:
+      '@brainstrike/text-splitter':
+        specifier: workspace:*
+        version: link:../text-splitter
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -1411,6 +1423,9 @@ importers:
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
+      '@brainstrike/text-splitter':
+        specifier: workspace:*
+        version: link:../text-splitter
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui

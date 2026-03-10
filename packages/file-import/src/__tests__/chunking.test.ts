@@ -118,11 +118,11 @@ describe('getChunkingStrategy', () => {
     });
   });
 
-  it('returns sentence for non-code files', () => {
-    expect(getChunkingStrategy('readme.md')).toBe('sentence');
+  it('returns structure-aware strategies for non-code files', () => {
+    expect(getChunkingStrategy('readme.md')).toBe('semantic-markdown');
     expect(getChunkingStrategy('document.txt')).toBe('sentence');
     expect(getChunkingStrategy('notes.doc')).toBe('sentence');
-    expect(getChunkingStrategy('data.json')).toBe('sentence');
+    expect(getChunkingStrategy('data.json')).toBe('json');
   });
 });
 

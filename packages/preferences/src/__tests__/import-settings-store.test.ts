@@ -35,7 +35,8 @@ describe('import-settings-store', () => {
   it('initializes with default configuration', () => {
     const store = useImportSettingsStore.getState();
     expect(store.enableChunking).toBe(true);
-    expect(store.chunkingStrategy).toBe('sentence');
+    expect(store.chunkingPreset).toBe('balanced');
+    expect(store.chunkingStrategy).toBe('auto');
     expect(store.chunkingStrategyExplicit).toBe(false);
     expect(store.chunkSize).toBe(256);
     expect(store.chunkOverlap).toBe(50);
@@ -81,6 +82,24 @@ describe('import-settings-store', () => {
     expect(limit).toBe(2048);
   });
 
+  it('hydrates preset values and promotes to custom when manually tuned', () => {
+    const snapshot = useImportSettingsStore.getState();
+
+    snapshot.setChunkingPreset('docs');
+    let next = useImportSettingsStore.getState();
+    expect(next.chunkingPreset).toBe('docs');
+    expect(next.chunkingStrategy).toBe('semantic-markdown');
+    expect(next.chunkingStrategyExplicit).toBe(true);
+    expect(next.chunkSize).toBe(320);
+    expect(next.chunkOverlap).toBe(56);
+    expect(next.chunkTokenLimit).toBe(4096);
+
+    next.setChunkSize(640);
+    next = useImportSettingsStore.getState();
+    expect(next.chunkingPreset).toBe('custom');
+    expect(next.chunkSize).toBe(640);
+  });
+
   it('persists via in-memory storage if localStorage throws', () => {
     const persistApi = storeWithPersist.persist;
     expect(persistApi).toBeDefined();
@@ -120,14 +139,18 @@ describe('import-settings-store', () => {
     const snapshot = persistedValue as {
       state?: {
         enableChunking: boolean;
+        chunkingPreset: string;
         chunkSize: number;
         chunkingStrategyExplicit: boolean;
+        chunkingStrategy: string;
         tokenTrueSizing?: boolean;
         chunkTokenLimit?: number;
       };
     };
 
     expect(snapshot.state?.enableChunking).toBe(false);
+    expect(snapshot.state?.chunkingPreset).toBe('custom');
+    expect(snapshot.state?.chunkingStrategy).toBe('auto');
     expect(snapshot.state?.chunkSize).toBe(128);
     expect(snapshot.state?.chunkingStrategyExplicit).toBe(false);
     expect(snapshot.state?.tokenTrueSizing).toBe(true);

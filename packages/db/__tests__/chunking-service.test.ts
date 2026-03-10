@@ -457,7 +457,7 @@ class TestClass {
       const result = await chunkingService.chunkContent(
         content,
         'file1'
-        // No options provided, should use default { strategy: 'sentence' }
+        // No options provided, should use default { strategy: 'auto' }
       );
 
       expect(result.skipped).toBeUndefined();
@@ -498,7 +498,7 @@ class TestClass {
       expect(betaChunk).toBeTruthy();
     });
 
-    it('falls back to token strategy for unsupported code languages', async () => {
+    it('honors explicit recursive strategy for unsupported code extensions', async () => {
       const codeContent = 'module Main exposing (.. )\nmain =\n    Debug.log "hi" 42';
 
       const result = await chunkingService.chunkContent(codeContent, 'elm-file', {
@@ -506,8 +506,8 @@ class TestClass {
         fileName: 'Main.elm',
       });
 
-      expect(result.strategyUsed).toBe('token');
-      expect(result.chunks[0]?.chunkType).toBe('text');
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
     });
 
     it('recovers when AST parsing fails and still chunks content', async () => {

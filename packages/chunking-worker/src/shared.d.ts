@@ -3,10 +3,15 @@
  * This module defines the message protocol between main thread and worker.
  */
 
+import type {
+  ChunkingStrategy as SharedChunkingStrategy,
+  ResolvedChunkingStrategy,
+} from '@brainstrike/text-splitter';
+
 /**
  * Chunking strategy determines how content is split into chunks.
  */
-export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
+export type ChunkingStrategy = SharedChunkingStrategy;
 
 /**
  * Type of chunk created (used for metadata).
@@ -108,7 +113,7 @@ export interface ChunkResult {
   /** Reason for skipping, if applicable */
   skipReason?: string;
   /** Strategy that was actually used after file-type heuristics */
-  strategyUsed: ChunkingStrategy;
+  strategyUsed: ResolvedChunkingStrategy;
   /** Total tokens across all chunks */
   totalTokens: number;
   type: 'result';

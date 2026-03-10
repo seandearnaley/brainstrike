@@ -4,9 +4,15 @@
  */
 
 import { type ParserPlugin, parse } from '@babel/parser';
-import { RecursiveTextSplitter } from '@brainstrike/text-splitter';
+import {
+  type ChunkingStrategy,
+  RecursiveTextSplitter,
+  type ResolvedChunkingStrategy,
+  resolveChunkingStrategyForFile,
+  splitTextByStrategy,
+} from '@brainstrike/text-splitter';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
-import type { ChunkingRequestOptions, ChunkingStrategy, ChunkType, PortableChunk } from './shared';
+import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 import { countTokensAccurate, countTokensHeuristic } from './token-utils-lite';
 
 export interface PortableChunkingResult {
@@ -14,7 +20,7 @@ export interface PortableChunkingResult {
   chunks: PortableChunk[];
   skipped: boolean;
   skipReason?: string;
-  strategyUsed: ChunkingStrategy;
+  strategyUsed: ResolvedChunkingStrategy;
   totalTokens: number;
 }
 
@@ -296,25 +302,35 @@ async function computeCharsPerToken(content: string, useAccurate: boolean): Prom
 
 function resolveEffectiveStrategy({
   requested,
-  forceStrategy,
+  isHtml,
+  isJson,
+  isLatex,
   isMarkdown,
   isCode,
 }: {
   requested: ChunkingStrategy;
-  forceStrategy: boolean;
+  isHtml: boolean;
+  isJson: boolean;
+  isLatex: boolean;
   isMarkdown: boolean;
   isCode: boolean;
-}): ChunkingStrategy {
-  if (requested === 'token') {
-    return 'token';
-  }
-  if (forceStrategy) {
+}): ResolvedChunkingStrategy {
+  if (requested !== 'auto') {
     return requested;
   }
-  if (isMarkdown) {
-    return 'sentence';
+  if (isHtml) {
+    return 'html';
   }
-  if (requested === 'recursive' || isCode) {
+  if (isJson) {
+    return 'json';
+  }
+  if (isLatex) {
+    return 'latex';
+  }
+  if (isMarkdown) {
+    return 'semantic-markdown';
+  }
+  if (isCode) {
     return 'recursive';
   }
   return 'sentence';
@@ -667,6 +683,10 @@ export async function chunkContent(
   content: string,
   options: ChunkingRequestOptions & { fileName?: string; filePath?: string }
 ): Promise<PortableChunkingResult> {
+  const initialStrategy = resolveChunkingStrategyForFile(
+    options.filePath ?? options.fileName ?? '',
+    options.strategy
+  );
   // Check if we should skip this file
   const skipResult = shouldSkipChunking(content, options);
   if (skipResult.skip) {
@@ -674,7 +694,7 @@ export async function chunkContent(
       chunks: [],
       totalTokens: 0,
       avgTokensPerChunk: 0,
-      strategyUsed: options.strategy,
+      strategyUsed: initialStrategy,
       skipped: true,
     };
     // Only include skipReason if defined (exactOptionalPropertyTypes compliance)
@@ -702,30 +722,14 @@ export async function chunkContent(
   const codeLanguage = detectCodeLanguage(name);
   const isMarkdown = /\.(md|mdx|markdown)$/.test(name);
   const isCode = Boolean(codeLanguage);
-  const isStructuredData = /\.(json|xml|yaml|yml|csv|tsv)$/.test(name);
+  const isJson = /\.(json)$/.test(name);
+  const isHtml = /\.(html|htm|xhtml|xml)$/.test(name);
+  const isLatex = /\.(tex|latex)$/.test(name);
 
   interface ChunkGroup {
     pieces: string[];
     type: ChunkType;
   }
-
-  const chunkTokens = async (): Promise<ChunkGroup[]> => {
-    const tokenChunker = new RecursiveTextSplitter({
-      chunkSize: maxChars,
-      chunkOverlap: overlapChars,
-      separators: ['\n\n', '\n', '. ', ' ', ''],
-    });
-    return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
-  };
-
-  const chunkSentenceAwareText = async (text: string): Promise<string[]> => {
-    const sentenceAwareChunker = new RecursiveTextSplitter({
-      chunkSize: maxChars,
-      chunkOverlap: overlapChars,
-      separators: ['\n\n', '\n', '. ', ' ', ''],
-    });
-    return sentenceAwareChunker.splitText(text);
-  };
 
   const splitMarkdownBlocks = async (): Promise<ChunkGroup[]> => {
     const blocks = splitMarkdownIntoBlocks(content);
@@ -736,13 +740,18 @@ export async function chunkContent(
           block.text.length > maxChars * 2 ? splitByBlankLines(block.text) : [block.text];
         groups.push({ pieces: parts, type: 'recursive' });
       } else {
-        groups.push({ pieces: await chunkSentenceAwareText(block.text), type: 'sentence' });
+        groups.push({
+          pieces: splitTextByStrategy(block.text, {
+            strategy: 'markdown',
+            chunkSize: maxChars,
+            chunkOverlap: overlapChars,
+          }),
+          type: 'sentence',
+        });
       }
     }
     return groups;
   };
-
-  const chunkMarkdown = async (): Promise<ChunkGroup[]> => splitMarkdownBlocks();
 
   const chunkCode = async (): Promise<ChunkGroup[]> => {
     const supportsAst = codeLanguage === 'typescript' || codeLanguage === 'javascript';
@@ -775,42 +784,52 @@ export async function chunkContent(
       return chunkWithCodeSeparators();
     }
 
-    // Unsupported languages fall back to token-based chunking
-    return chunkTokens();
+    return [
+      {
+        pieces: splitTextByStrategy(content, {
+          strategy: 'token',
+          chunkSize: maxChars,
+          chunkOverlap: overlapChars,
+        }),
+        type: 'text',
+      },
+    ];
   };
 
-  const chunkText = async (): Promise<ChunkGroup[]> => {
-    return [{ pieces: await chunkSentenceAwareText(content), type: 'sentence' }];
-  };
-
-  const chunkStructuredData = async (): Promise<ChunkGroup[]> => {
-    const structuredSeparators = ['\n\n', '\n', '},', '],', '",', ',', '}', ']', ' ', ''];
-    const structuredChunker = new RecursiveTextSplitter({
-      chunkSize: maxChars,
-      chunkOverlap: overlapChars,
-      separators: structuredSeparators,
-    });
-    return [{ pieces: await structuredChunker.splitText(content), type: 'recursive' }];
-  };
-
-  let effectiveStrategy = resolveEffectiveStrategy({
+  const effectiveStrategy = resolveEffectiveStrategy({
     requested: options.strategy,
-    forceStrategy: options.forceStrategy ?? false,
+    isHtml,
+    isJson,
+    isLatex,
     isMarkdown,
     isCode,
   });
 
   let groups: ChunkGroup[] = [];
 
-  if (effectiveStrategy === 'token') {
-    groups = await chunkTokens();
-  } else if (effectiveStrategy === 'recursive') {
+  if (effectiveStrategy === 'recursive' && isCode) {
     groups = await chunkCode();
-  } else if (isStructuredData) {
-    groups = await chunkStructuredData();
-    effectiveStrategy = 'recursive';
+  } else if (effectiveStrategy === 'markdown') {
+    groups = await splitMarkdownBlocks();
   } else {
-    groups = isMarkdown ? await chunkMarkdown() : await chunkText();
+    const chunkType: ChunkType =
+      effectiveStrategy === 'recursive' || effectiveStrategy === 'json' ? 'recursive' : 'sentence';
+    const normalizedChunkType: ChunkType =
+      effectiveStrategy === 'character' || effectiveStrategy === 'token' ? 'text' : chunkType;
+
+    groups = [
+      {
+        pieces: splitTextByStrategy(content, {
+          strategy: effectiveStrategy,
+          chunkSize: maxChars,
+          chunkOverlap: overlapChars,
+          ...(effectiveStrategy === 'recursive' && options.separators
+            ? { separators: getCodeSeparators(options.separators) }
+            : {}),
+        }),
+        type: normalizedChunkType,
+      },
+    ];
   }
 
   // Process groups into portable chunks

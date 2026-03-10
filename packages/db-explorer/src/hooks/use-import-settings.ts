@@ -4,6 +4,8 @@ import type { ImportSettings } from '../types';
 export function useImportSettings(): ImportSettings {
   const enableChunking = useImportSettingsStore((s) => s.enableChunking);
   const setEnableChunking = useImportSettingsStore((s) => s.setEnableChunking);
+  const chunkingPreset = useImportSettingsStore((s) => s.chunkingPreset);
+  const setChunkingPreset = useImportSettingsStore((s) => s.setChunkingPreset);
   const chunkingStrategy = useImportSettingsStore((s) => s.chunkingStrategy);
   const setChunkingStrategy = useImportSettingsStore((s) => s.setChunkingStrategy);
   const chunkingStrategyExplicit = useImportSettingsStore((s) => s.chunkingStrategyExplicit);
@@ -19,6 +21,8 @@ export function useImportSettings(): ImportSettings {
   return {
     enableChunking,
     setEnableChunking,
+    chunkingPreset,
+    setChunkingPreset,
     chunkingStrategy,
     setChunkingStrategy,
     chunkingStrategyExplicit,

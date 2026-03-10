@@ -27,6 +27,16 @@ vi.mock('../base-file-import-service', () => ({
 // Mock dependencies
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
+  getChunkingPreset: vi.fn(() => ({
+    id: 'balanced',
+    strategy: 'auto',
+    chunkSize: 256,
+    chunkOverlap: 50,
+    tokenLimit: 4096,
+    label: 'Balanced',
+    description: 'General-purpose defaults that auto-detect the best splitter for most files.',
+    isDefault: true,
+  })),
   useFileRecordRepository: () => ({
     findById: vi.fn(),
     update: vi.fn(),

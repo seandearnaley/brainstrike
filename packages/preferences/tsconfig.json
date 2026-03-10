@@ -37,6 +37,9 @@
       "path": "../storage"
     },
     {
+      "path": "../text-splitter"
+    },
+    {
       "path": "../ui"
     },
     {

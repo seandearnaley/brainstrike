@@ -33,6 +33,9 @@
       "path": "../embeddings"
     },
     {
+      "path": "../text-splitter"
+    },
+    {
       "path": "../agent"
     },
     {
