@@ -166,6 +166,22 @@ export interface RuntimeStatusStore<TStatus extends BackgroundRuntimeStatus<stri
   subscribe: (listener: (status: TStatus) => void) => () => void;
 }
 
+function areRuntimeStatusesEqual<TStatus extends BackgroundRuntimeStatus<string>>(
+  left: TStatus,
+  right: TStatus
+): boolean {
+  // BackgroundRuntimeStatus intentionally treats these five fields as the canonical runtime
+  // contract. If a runtime status adds another UI-significant field, update this comparison at
+  // the same time so the shared status store does not suppress meaningful transitions.
+  return (
+    left.runtimeKind === right.runtimeKind &&
+    left.runtimeId === right.runtimeId &&
+    left.state === right.state &&
+    left.active === right.active &&
+    left.lastError === right.lastError
+  );
+}
+
 export interface RuntimeFailureLatch {
   clear: () => void;
   getFailure: () => Error | null;
@@ -405,8 +421,12 @@ export function createRuntimeStatusStore<TStatus extends BackgroundRuntimeStatus
   return {
     getStatus: () => cloneRuntimeStatus(currentStatus),
     setStatus: (status: TStatus) => {
-      currentStatus = cloneRuntimeStatus(status);
-      const snapshot = cloneRuntimeStatus(currentStatus);
+      const nextStatus = cloneRuntimeStatus(status);
+      if (areRuntimeStatusesEqual(currentStatus, nextStatus)) {
+        return cloneRuntimeStatus(currentStatus);
+      }
+      currentStatus = nextStatus;
+      const snapshot = cloneRuntimeStatus(nextStatus);
       for (const listener of listeners) {
         listener(snapshot);
       }

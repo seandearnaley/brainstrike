@@ -65,6 +65,24 @@ describe('@brainstrike/worker-runtime', () => {
     expect(statuses).toEqual(['starting', 'running']);
   });
 
+  it('does not rebroadcast identical runtime status snapshots', () => {
+    const initial = createBackgroundRuntimeStatus('embedding-host', 'runtime-1', 'running', {
+      active: true,
+    });
+    const store = createRuntimeStatusStore(initial);
+    const listener = vi.fn();
+
+    const cleanup = store.subscribe(listener);
+
+    const repeated = createBackgroundRuntimeStatus('embedding-host', 'runtime-1', 'running', {
+      active: true,
+    });
+    expect(store.setStatus(repeated)).toEqual(repeated);
+    cleanup();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('creates stopped statuses with canonical runtime ids', () => {
     expect(createStoppedBackgroundRuntimeStatus('chunking-host')).toEqual({
       runtimeKind: 'chunking-host',
