@@ -543,17 +543,61 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
       }
     }
 
-    const appClosed = appContext.app.waitForEvent('close');
+    const appClosed = appContext.app.waitForEvent('close', { timeout: 10_000 });
     await Promise.all(windowClosePromises);
     intentionallyClosingApps.add(appContext.app);
     await appContext.app.close();
     await appClosed;
     verboseLog('✅ Electron app closed');
   } catch (error) {
+    if (isPlaywrightTimeoutError(error)) {
+      console.warn('⚠️ Electron app did not close gracefully; forcing process termination');
+      await forceTerminateElectronApp(appContext);
+      return;
+    }
     console.error('❌ Error closing Electron app:', error);
     throw error;
   } finally {
     intentionallyClosingApps.delete(appContext.app);
+  }
+}
+
+function isPlaywrightTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TimeoutError';
+}
+
+async function forceTerminateElectronApp(appContext: ElectronAppContext): Promise<void> {
+  const electronProcess = getElectronProcessSafe(appContext);
+  if (!electronProcess) {
+    return;
+  }
+
+  if (electronProcess.exitCode !== null || electronProcess.killed) {
+    return;
+  }
+
+  try {
+    electronProcess.kill('SIGKILL');
+  } catch (error) {
+    console.warn('⚠️ Failed to SIGKILL Electron process during forced teardown:', error);
+  }
+
+  try {
+    await appContext.app.waitForEvent('close', { timeout: 5000 });
+  } catch (error) {
+    if (!isPlaywrightTimeoutError(error)) {
+      throw error;
+    }
+  }
+}
+
+function getElectronProcessSafe(
+  appContext: ElectronAppContext
+): ReturnType<ElectronAppContext['app']['process']> | null {
+  try {
+    return appContext.app.process();
+  } catch {
+    return null;
   }
 }
 
