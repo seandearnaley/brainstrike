@@ -70,7 +70,7 @@ function isDisposedRenderFrameSendError(error: unknown): boolean {
   }
   // Electron does not currently expose a stable error code for this path, so
   // we have to match the message text and update this check if Electron changes it.
-  return error.message.toLowerCase().includes('render frame was disposed');
+  return error.message.toLowerCase().includes('frame was disposed');
 }
 
 async function cleanupLiveSubscriptionsForOwner(
@@ -105,6 +105,19 @@ async function cleanupDisposedLiveSubscriptionOwner(
   await cleanupLiveSubscriptionsForOwner(webContentsId);
 }
 
+function scheduleDisposedLiveSubscriptionOwnerCleanup(
+  webContentsId: number,
+  reason: 'missing-owner' | 'disposed-frame-send'
+): void {
+  void cleanupDisposedLiveSubscriptionOwner(webContentsId, reason).catch((error) => {
+    logger.error('Failed to clean up live subscriptions for unavailable renderer owner', {
+      webContentsId,
+      reason,
+      error,
+    });
+  });
+}
+
 function sendLiveQueryUpdateToSender(
   sender: Pick<Electron.WebContents, 'id' | 'isDestroyed' | 'send'>,
   subscriptionId: number,
@@ -125,7 +138,7 @@ function sendLiveQueryUpdateToSender(
     sender.send('db:live-query:update', { id: subscriptionId, results });
   } catch (error) {
     if (isDisposedRenderFrameSendError(error)) {
-      void cleanupDisposedLiveSubscriptionOwner(sender.id, 'disposed-frame-send');
+      scheduleDisposedLiveSubscriptionOwnerCleanup(sender.id, 'disposed-frame-send');
       return;
     }
     throw error;
@@ -151,14 +164,14 @@ function flushPendingLiveUpdates(): void {
       if (!owner || owner.webContents.isDestroyed()) {
         // cleanupDisposedLiveSubscriptionOwner synchronously deletes other pending
         // entries for the same owner; Map iteration skips those deleted keys.
-        void cleanupDisposedLiveSubscriptionOwner(record.webContentsId, 'missing-owner');
+        scheduleDisposedLiveSubscriptionOwnerCleanup(record.webContentsId, 'missing-owner');
         continue;
       }
       try {
         owner.webContents.send('db:live-query:update', payload);
       } catch (error) {
         if (isDisposedRenderFrameSendError(error)) {
-          void cleanupDisposedLiveSubscriptionOwner(record.webContentsId, 'disposed-frame-send');
+          scheduleDisposedLiveSubscriptionOwnerCleanup(record.webContentsId, 'disposed-frame-send');
           continue;
         }
         throw error;
