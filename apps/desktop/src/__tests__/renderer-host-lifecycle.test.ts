@@ -706,6 +706,57 @@ describe('RendererHostLifecycle', () => {
     ).not.toThrow();
   });
 
+  it('does not rebroadcast identical status snapshots', async () => {
+    const hostWindow = createFakeWindow(83);
+    const visibleWindow = createFakeWindow(84);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow, visibleWindow]),
+    });
+    assignWindowRole(visibleWindow as never, 'visible-ui');
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+    visibleWindow.webContents.send.mockClear();
+
+    lifecycle.setStatus(
+      createStatus({
+        state: 'running',
+        active: true,
+        lastError: null,
+        runtimeId: lifecycle.getStatus().runtimeId,
+      })
+    );
+    lifecycle.setStatus(
+      createStatus({
+        state: 'running',
+        active: true,
+        lastError: null,
+        runtimeId: lifecycle.getStatus().runtimeId,
+      })
+    );
+
+    expect(visibleWindow.webContents.send).toHaveBeenCalledTimes(1);
+  });
+
   it('destroys the host window when startup readiness fails after the window is created', async () => {
     vi.useFakeTimers();
     const hostWindow = createFakeWindow(91);

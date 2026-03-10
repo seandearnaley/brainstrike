@@ -272,7 +272,11 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   setStatus(status: TStatus): void {
-    this.status = this.options.createStatus(status);
+    const nextStatus = this.options.createStatus(status);
+    if (this.areStatusesEqual(this.status, nextStatus)) {
+      return;
+    }
+    this.status = nextStatus;
     const snapshot = this.getStatus();
     this.options.onStatusChanged?.(snapshot);
     this.broadcastStatus(snapshot);
@@ -408,5 +412,17 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         });
       }
     }
+  }
+
+  private areStatusesEqual(left: TStatus, right: TStatus): boolean {
+    // RendererHostStatusShape intentionally treats these four fields as the canonical broadcast
+    // contract. If a host status grows additional UI-significant fields, this comparison must be
+    // updated at the same time so we do not silently suppress meaningful broadcasts.
+    return (
+      left.state === right.state &&
+      left.active === right.active &&
+      left.lastError === right.lastError &&
+      left.runtimeId === right.runtimeId
+    );
   }
 }

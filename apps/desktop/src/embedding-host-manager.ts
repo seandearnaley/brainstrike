@@ -15,10 +15,13 @@ const logger = createLogger('EmbeddingHostManager');
 
 const HOST_READY_TIMEOUT_MS = 30_000;
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
+const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 
 export class EmbeddingHostManager {
   private disposed = false;
   private readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
+  private pendingInactiveStatusTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingInactiveStatusReport: EmbeddingHostStatusReport | null = null;
   private powerSaveBlockerId: number | null = null;
   private pendingIdleStopTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -28,6 +31,7 @@ export class EmbeddingHostManager {
       createStoppedStatus: createStoppedEmbeddingHostStatus,
       mode: 'embedding-host',
       onDidFailLoad: ({ errorCode, errorDescription, message, url }) => {
+        this.clearPendingInactiveStatus();
         logger.error(message, { errorCode, errorDescription, url, windowRole: 'embedding-host' });
         this.lifecycle.setStatus(
           EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
@@ -39,6 +43,7 @@ export class EmbeddingHostManager {
         );
       },
       onRenderProcessGone: ({ exitCode, message, reason }) => {
+        this.clearPendingInactiveStatus();
         logger.error(message, {
           reason,
           exitCode,
@@ -57,6 +62,7 @@ export class EmbeddingHostManager {
         this.syncPowerSaveBlocker(status);
       },
       onWindowClosed: () => {
+        this.clearPendingInactiveStatus();
         this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
       },
       role: 'embedding-host',
@@ -95,6 +101,7 @@ export class EmbeddingHostManager {
         runtimeId: this.getStatus().runtimeId,
       })
     );
+    this.clearPendingInactiveStatus();
     const { runtimeId } = this.getStatus();
 
     window.webContents.send(
@@ -137,6 +144,7 @@ export class EmbeddingHostManager {
         runtimeId: this.getStatus().runtimeId,
       })
     );
+    this.clearPendingInactiveStatus();
 
     window.webContents.send(
       EMBEDDING_HOST_COMMAND_EVENT,
@@ -166,6 +174,7 @@ export class EmbeddingHostManager {
       await this.stop();
     } finally {
       this.disposed = true;
+      this.clearPendingInactiveStatus();
       this.lifecycle.destroyHostWindow();
       this.stopPowerSaveBlocker();
       this.lifecycle.dispose();
@@ -181,14 +190,32 @@ export class EmbeddingHostManager {
       logger.warn('Rejected embedding host status report from unknown renderer', { senderId });
       return;
     }
-    this.lifecycle.setStatus(
-      EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
-        state: report.state,
-        active: report.active,
-        lastError: report.lastError,
-        runtimeId: report.runtimeId,
-      })
-    );
+
+    const currentStatus = this.lifecycle.getStatus();
+    const nextStatus = EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
+      state: report.state,
+      active: report.active,
+      lastError: report.lastError,
+      runtimeId: report.runtimeId,
+    });
+
+    if (nextStatus.state !== 'running' || nextStatus.active) {
+      this.clearPendingInactiveStatus();
+      this.lifecycle.setStatus(nextStatus);
+      return;
+    }
+
+    if (
+      currentStatus.state === 'running' &&
+      currentStatus.active &&
+      currentStatus.runtimeId === nextStatus.runtimeId
+    ) {
+      this.scheduleInactiveStatus(nextStatus);
+      return;
+    }
+
+    this.clearPendingInactiveStatus();
+    this.lifecycle.setStatus(nextStatus);
   }
 
   private syncPowerSaveBlocker(status: EmbeddingHostStatus): void {
@@ -234,6 +261,33 @@ export class EmbeddingHostManager {
     }
     clearTimeout(this.pendingIdleStopTimer);
     this.pendingIdleStopTimer = null;
+  }
+
+  private scheduleInactiveStatus(status: EmbeddingHostStatus): void {
+    // This is intentionally last-write-wins on the pending status payload while the original
+    // timer keeps running. Embedding micro-batch idle reports are semantically equivalent here,
+    // so we preserve one grace window instead of extending it on every inactive edge.
+    this.pendingInactiveStatusReport = status;
+    if (this.pendingInactiveStatusTimer !== null) {
+      return;
+    }
+    this.pendingInactiveStatusTimer = setTimeout(() => {
+      this.pendingInactiveStatusTimer = null;
+      const pendingStatus = this.pendingInactiveStatusReport;
+      this.pendingInactiveStatusReport = null;
+      if (!pendingStatus || this.disposed) {
+        return;
+      }
+      this.lifecycle.setStatus(pendingStatus);
+    }, EMBEDDING_HOST_STATUS_IDLE_GRACE_MS);
+  }
+
+  private clearPendingInactiveStatus(): void {
+    if (this.pendingInactiveStatusTimer !== null) {
+      clearTimeout(this.pendingInactiveStatusTimer);
+      this.pendingInactiveStatusTimer = null;
+    }
+    this.pendingInactiveStatusReport = null;
   }
 
   private stopPowerSaveBlocker(): void {

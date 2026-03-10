@@ -14,6 +14,7 @@ export interface EnqueueEmbeddingBackfillOptions {
   drainTimeoutMs?: number;
   maxQueueDepth?: number;
   progressIntervalBatches?: number;
+  progressIntervalMs?: number;
   queueCapacityTimeoutMs?: number;
 }
 
@@ -23,6 +24,7 @@ interface ResolvedEnqueueEmbeddingBackfillOptions {
   drainTimeoutMs: number;
   maxQueueDepth: number;
   progressIntervalBatches: number;
+  progressIntervalMs: number;
   queueCapacityTimeoutMs: number;
 }
 
@@ -49,6 +51,7 @@ const EMBEDDING_BACKFILL_MAX_QUEUE_DEPTH = 64;
 const EMBEDDING_BACKFILL_BACKLOG_POLL_MS = 100;
 const EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 30_000;
 const EMBEDDING_BACKFILL_DRAIN_TIMEOUT_MS = 300_000;
+const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
 const PROVIDER_SEPARATOR = '::';
 const LEGACY_SEPARATOR = ':';
 
@@ -162,11 +165,17 @@ function resolveEnqueueEmbeddingBackfillOptions(
     throw new Error('progressIntervalBatches must be a positive integer when configured.');
   }
 
+  const progressIntervalMs = options?.progressIntervalMs ?? EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS;
+  if (!Number.isInteger(progressIntervalMs) || progressIntervalMs <= 0) {
+    throw new Error('progressIntervalMs must be a positive integer when configured.');
+  }
+
   return {
     backlogPollMs,
     drainTimeoutMs,
     maxQueueDepth,
     progressIntervalBatches,
+    progressIntervalMs,
     queueCapacityTimeoutMs,
     ...(options?.assertCanContinue ? { assertCanContinue: options.assertCanContinue } : {}),
   };
@@ -432,6 +441,7 @@ export async function enqueueEmbeddingBackfill(
     drainTimeoutMs,
     maxQueueDepth,
     progressIntervalBatches,
+    progressIntervalMs,
     queueCapacityTimeoutMs,
   } = resolveEnqueueEmbeddingBackfillOptions(options);
 
@@ -452,16 +462,26 @@ export async function enqueueEmbeddingBackfill(
   let batchesSinceProgress = 0;
   let lastReportedDone = -1;
   let availableCapacity = 0;
+  let lastReportedAt = Number.NEGATIVE_INFINITY;
 
-  const reportProgress = (nextDone: number, nextTotal: number): void => {
+  const reportProgress = (
+    nextDone: number,
+    nextTotal: number,
+    reportOptions?: { force?: boolean }
+  ): void => {
     if (lastReportedDone === nextDone) {
       return;
     }
+    const now = Date.now();
+    if (!(reportOptions?.force ?? false) && now - lastReportedAt < progressIntervalMs) {
+      return;
+    }
     lastReportedDone = nextDone;
+    lastReportedAt = now;
     onProgress(nextDone, nextTotal);
   };
 
-  reportProgress(done, total);
+  reportProgress(done, total, { force: true });
 
   while (done < total && !exhaustedCursor) {
     // Capacity is only refreshed when the prior pass actually inserted new work. A fully
@@ -504,8 +524,12 @@ export async function enqueueEmbeddingBackfill(
     done = Math.min(total, done + inserted);
     availableCapacity = Math.max(0, availableCapacity - inserted);
     batchesSinceProgress += 1;
-    if (done >= total || batchesSinceProgress >= progressIntervalBatches) {
-      reportProgress(done, total);
+    if (
+      done >= total ||
+      batchesSinceProgress >= progressIntervalBatches ||
+      Date.now() - lastReportedAt >= progressIntervalMs
+    ) {
+      reportProgress(done, total, { force: done >= total });
       batchesSinceProgress = 0;
     }
     if (selected === batchLimit && done < total) {
@@ -526,6 +550,6 @@ export async function enqueueEmbeddingBackfill(
       `Backfill failed for embedding set '${embeddingSetId}': ${drainedCounts.failed} job(s) failed.`
     );
   }
-  reportProgress(total, total);
+  reportProgress(total, total, { force: true });
   return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
 }

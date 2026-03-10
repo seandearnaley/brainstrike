@@ -62,6 +62,7 @@ const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_INTERVAL_MS = 2000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
+const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
 let embeddingBackfillInFlight: { embeddingSetId: string } | null = null;
 
 function isDisposedRenderFrameSendError(error: unknown): boolean {
@@ -718,6 +719,7 @@ export function registerIpcHandlers(
 
         const normalizedEmbeddingSetId = embeddingSetId.trim();
         const backfillRequestId = createRequestId('embedding-backfill');
+        let backfillProgressTargetUnavailable = false;
         embeddingBackfillInFlight = {
           embeddingSetId: normalizedEmbeddingSetId,
         };
@@ -737,16 +739,32 @@ export function registerIpcHandlers(
             jobQueue,
             normalizedEmbeddingSetId,
             (done: number, total: number) => {
-              if (event.sender.isDestroyed()) {
+              if (backfillProgressTargetUnavailable || event.sender.isDestroyed()) {
+                backfillProgressTargetUnavailable = true;
                 return;
               }
-              event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
-                embeddingSetId: normalizedEmbeddingSetId,
-                requestId: backfillRequestId,
-                stage: 'backfill',
-                current: done,
-                total,
-              });
+              try {
+                event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+                  embeddingSetId: normalizedEmbeddingSetId,
+                  requestId: backfillRequestId,
+                  stage: 'backfill',
+                  current: done,
+                  total,
+                });
+              } catch (error) {
+                if (isDisposedRenderFrameSendError(error)) {
+                  backfillProgressTargetUnavailable = true;
+                  logger.debug(
+                    'Stopped desktop backfill progress sends after renderer frame disposal',
+                    {
+                      embeddingSetId: normalizedEmbeddingSetId,
+                      requestId: backfillRequestId,
+                    }
+                  );
+                  return;
+                }
+                throw error;
+              }
             },
             {
               assertCanContinue: () => {
@@ -764,6 +782,7 @@ export function registerIpcHandlers(
                 }
               },
               progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
+              progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
             }
           );
         } finally {
