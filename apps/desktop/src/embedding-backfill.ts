@@ -451,6 +451,7 @@ export async function enqueueEmbeddingBackfill(
   let exhaustedCursor = false;
   let batchesSinceProgress = 0;
   let lastReportedDone = -1;
+  let availableCapacity = 0;
 
   const reportProgress = (nextDone: number, nextTotal: number): void => {
     if (lastReportedDone === nextDone) {
@@ -463,16 +464,18 @@ export async function enqueueEmbeddingBackfill(
   reportProgress(done, total);
 
   while (done < total && !exhaustedCursor) {
-    // Capacity is checked before selecting the next batch so we never read more new work than the
-    // queue can durably accept in the current pass. Cursor exhaustion remains the loop terminator
-    // when dedupe makes inserted < selected.
-    const availableCapacity = await waitForQueueCapacity(
-      jobQueue,
-      maxQueueDepth,
-      backlogPollMs,
-      queueCapacityTimeoutMs,
-      assertCanContinue
-    );
+    // Capacity is only refreshed when the prior pass actually inserted new work. A fully
+    // deduplicated batch leaves queue depth unchanged, so reusing the prior capacity snapshot
+    // avoids unnecessary queue-stat polling while preserving the same backlog bound.
+    if (availableCapacity <= 0) {
+      availableCapacity = await waitForQueueCapacity(
+        jobQueue,
+        maxQueueDepth,
+        backlogPollMs,
+        queueCapacityTimeoutMs,
+        assertCanContinue
+      );
+    }
     const batchLimit = Math.min(
       EMBEDDING_BACKFILL_ENQUEUE_BATCH_SIZE,
       total - done,
@@ -499,6 +502,7 @@ export async function enqueueEmbeddingBackfill(
     // Dedupe can make inserted < selected and that is the value users can rely on.
     // Cursor exhaustion is still the authoritative loop terminator for that case.
     done = Math.min(total, done + inserted);
+    availableCapacity = Math.max(0, availableCapacity - inserted);
     batchesSinceProgress += 1;
     if (done >= total || batchesSinceProgress >= progressIntervalBatches) {
       reportProgress(done, total);

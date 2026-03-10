@@ -51,6 +51,7 @@ const mockApp = {
   isReady: vi.fn(() => true),
   on: vi.fn(),
   getPath: vi.fn(),
+  getAppMetrics: vi.fn(() => []),
   getVersion: vi.fn(() => '0.0.0-test'),
   quit: vi.fn(),
 };

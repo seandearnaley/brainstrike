@@ -8,7 +8,7 @@ import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
   type DesktopWindowRole,
-  getWindowRole,
+  getTrackedWindowsByRole,
 } from './window-role';
 
 const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
@@ -396,22 +396,15 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private broadcastStatus(snapshot: TStatus): void {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (
-        this.hostWindow?.id === window.id ||
-        window.isDestroyed() ||
-        getWindowRole(window) === this.options.role
-      ) {
-        continue;
-      }
+    for (const window of getTrackedWindowsByRole('visible-ui')) {
       try {
         window.webContents.send(this.options.statusEventName, snapshot);
       } catch (error) {
-        // A window can disappear between enumeration and send during shutdown churn.
+        // Visible renderers can still disappear between registry lookup and send during shutdown.
         logger.debug('Host status broadcast skipped for unavailable window', {
           error,
           targetWindowId: window.id,
-          windowRole: getWindowRole(window),
+          windowRole: 'visible-ui',
         });
       }
     }

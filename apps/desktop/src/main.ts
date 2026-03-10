@@ -16,6 +16,7 @@ import {
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
+import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import { closeDatabase, resetLocalDatabase } from './db-main';
@@ -909,6 +910,7 @@ if (singleInstanceLockAcquired) {
             heapUsedKb: (mem.heapUsed / 1024).toFixed(0),
             handles,
             requests,
+            backgroundRuntimeMetrics: collectBackgroundRuntimeMetrics(),
           };
 
           // Always log — if entries stop appearing, the event loop is stuck.

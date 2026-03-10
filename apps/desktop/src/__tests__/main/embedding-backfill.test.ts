@@ -255,6 +255,61 @@ describe('embedding-backfill', () => {
     ]);
   });
 
+  it('reuses known queue capacity across fully deduplicated batches', async () => {
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 2 }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 64 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          const limit = Number(params?.[3] ?? 32);
+          const start = afterChunkId ? Number(afterChunkId) : 0;
+          return {
+            rows: Array.from({ length: Math.max(0, Math.min(limit, 64 - start)) }, (_, index) => {
+              const id = start + index + 1;
+              return {
+                id: String(id),
+                fileRecordId: String(id + 100),
+                contentHash: `hash-${id}`,
+              };
+            }),
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async () => []),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+
+    await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      backlogPollMs: 1,
+      maxQueueDepth: 64,
+      progressIntervalBatches: 1,
+    });
+
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(2);
+    expect(jobQueue.getQueueStats).toHaveBeenCalledTimes(1);
+  });
+
   it('aborts backfill when the embedding host can no longer accept queued work', async () => {
     const db = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
@@ -322,7 +377,7 @@ describe('embedding-backfill', () => {
       })
     ).rejects.toThrow('Embedding host entered an error state during backfill.');
 
-    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(2);
   });
 
   it('waits for the active embedding set queue to drain before reporting completion', async () => {
