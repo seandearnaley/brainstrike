@@ -422,6 +422,9 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private areStatusesEqual(left: TStatus, right: TStatus): boolean {
+    // RendererHostStatusShape intentionally treats these four fields as the canonical broadcast
+    // contract. If a host status grows additional UI-significant fields, this comparison must be
+    // updated at the same time so we do not silently suppress meaningful broadcasts.
     return (
       left.state === right.state &&
       left.active === right.active &&

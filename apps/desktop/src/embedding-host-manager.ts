@@ -264,6 +264,9 @@ export class EmbeddingHostManager {
   }
 
   private scheduleInactiveStatus(status: EmbeddingHostStatus): void {
+    // This is intentionally last-write-wins on the pending status payload while the original
+    // timer keeps running. Embedding micro-batch idle reports are semantically equivalent here,
+    // so we preserve one grace window instead of extending it on every inactive edge.
     this.pendingInactiveStatusReport = status;
     if (this.pendingInactiveStatusTimer !== null) {
       return;

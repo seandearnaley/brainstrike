@@ -466,13 +466,13 @@ export async function enqueueEmbeddingBackfill(
   const reportProgress = (
     nextDone: number,
     nextTotal: number,
-    options?: { force?: boolean }
+    reportOptions?: { force?: boolean }
   ): void => {
     if (lastReportedDone === nextDone) {
       return;
     }
     const now = Date.now();
-    if (!(options?.force ?? false) && now - lastReportedAt < progressIntervalMs) {
+    if (!(reportOptions?.force ?? false) && now - lastReportedAt < progressIntervalMs) {
       return;
     }
     lastReportedDone = nextDone;
