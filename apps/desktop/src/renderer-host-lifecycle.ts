@@ -272,7 +272,11 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   setStatus(status: TStatus): void {
-    this.status = this.options.createStatus(status);
+    const nextStatus = this.options.createStatus(status);
+    if (this.areStatusesEqual(this.status, nextStatus)) {
+      return;
+    }
+    this.status = nextStatus;
     const snapshot = this.getStatus();
     this.options.onStatusChanged?.(snapshot);
     this.broadcastStatus(snapshot);
@@ -415,5 +419,14 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         });
       }
     }
+  }
+
+  private areStatusesEqual(left: TStatus, right: TStatus): boolean {
+    return (
+      left.state === right.state &&
+      left.active === right.active &&
+      left.lastError === right.lastError &&
+      left.runtimeId === right.runtimeId
+    );
   }
 }

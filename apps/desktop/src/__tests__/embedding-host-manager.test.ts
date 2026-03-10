@@ -1,14 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { lifecycleState, mockHostWindow } = vi.hoisted(() => {
+const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(() => {
   const hostWindow = {
     isDestroyed: vi.fn(() => false),
     webContents: {
+      id: 91,
       send: vi.fn(),
     },
   };
+  const currentStatus = {
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host-runtime',
+    state: 'running' as const,
+  };
 
   return {
+    currentLifecycleStatus: currentStatus,
     lifecycleState: {
       clearHostWindow: vi.fn(),
       destroyHostWindow: vi.fn(),
@@ -20,14 +28,14 @@ const { lifecycleState, mockHostWindow } = vi.hoisted(() => {
         state: 'running' as const,
       })),
       getHostWindow: vi.fn(() => hostWindow),
-      getStatus: vi.fn(() => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host-runtime',
-        state: 'running' as const,
-      })),
+      getStatus: vi.fn(() => ({ ...currentStatus })),
       isHostWindow: vi.fn(() => false),
-      setStatus: vi.fn(),
+      setStatus: vi.fn((status) => {
+        currentStatus.active = status.active;
+        currentStatus.lastError = status.lastError;
+        currentStatus.runtimeId = status.runtimeId;
+        currentStatus.state = status.state;
+      }),
       waitForStatus: vi.fn(async () => ({
         active: false,
         lastError: 'boom',
@@ -80,12 +88,10 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     lifecycleState.getHostWindow.mockReturnValue(mockHostWindow);
-    lifecycleState.getStatus.mockReturnValue({
-      active: false,
-      lastError: null,
-      runtimeId: 'embedding-host-runtime',
-      state: 'running',
-    });
+    currentLifecycleStatus.active = false;
+    currentLifecycleStatus.lastError = null;
+    currentLifecycleStatus.runtimeId = 'embedding-host-runtime';
+    currentLifecycleStatus.state = 'running';
     lifecycleState.waitForStatus.mockResolvedValue({
       active: false,
       lastError: 'boom',
@@ -173,5 +179,65 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalledTimes(1);
     expect(lifecycleState.clearHostWindow).toHaveBeenCalledTimes(1);
     expect(lifecycleState.setStatus).toHaveBeenCalled();
+  });
+
+  it('debounces inactive status reports across short embedding idle gaps', () => {
+    const manager = new EmbeddingHostManager();
+
+    currentLifecycleStatus.active = true;
+    currentLifecycleStatus.state = 'running';
+
+    manager.acceptStatusReport(91, {
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host-runtime',
+      state: 'running',
+      active: false,
+      lastError: null,
+    });
+
+    vi.advanceTimersByTime(4000);
+
+    manager.acceptStatusReport(91, {
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host-runtime',
+      state: 'running',
+      active: true,
+      lastError: null,
+    });
+
+    vi.advanceTimersByTime(1500);
+
+    expect(lifecycleState.setStatus).toHaveBeenCalledTimes(1);
+    expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        active: true,
+        state: 'running',
+      })
+    );
+  });
+
+  it('applies inactive status after sustained embedding idle', () => {
+    const manager = new EmbeddingHostManager();
+
+    currentLifecycleStatus.active = true;
+    currentLifecycleStatus.state = 'running';
+
+    manager.acceptStatusReport(91, {
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host-runtime',
+      state: 'running',
+      active: false,
+      lastError: null,
+    });
+
+    vi.advanceTimersByTime(5001);
+
+    expect(lifecycleState.setStatus).toHaveBeenCalledTimes(1);
+    expect(lifecycleState.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        active: false,
+        state: 'running',
+      })
+    );
   });
 });

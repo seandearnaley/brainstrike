@@ -339,6 +339,54 @@ describe('database IPC handlers', () => {
     });
   });
 
+  it('embedding-host:enqueue-backfill stops progress sends after the renderer frame is disposed', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+        })
+        .mockImplementation(() => undefined),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        onProgress: (done: number, total: number) => void
+      ) => {
+        onProgress(0, 450);
+        onProgress(128, 450);
+        onProgress(450, 450);
+        return {
+          queued: 450,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    const result = await handler({ sender } as unknown, 'set-123');
+
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      queued: 450,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    });
+  });
+
   it('embedding-host:enqueue-backfill fails fast when the embedding host cannot reach running', async () => {
     const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {
