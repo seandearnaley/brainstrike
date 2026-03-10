@@ -56,6 +56,7 @@ export const FileRow = memo<FileRowProps>(function FileRow({
           {item.tokens ? item.tokens.toLocaleString() : 'N/A'}
         </span>
         <Button
+          aria-label="Remove from selection"
           className="h-7 w-7"
           onClick={onRemove}
           size="icon"
