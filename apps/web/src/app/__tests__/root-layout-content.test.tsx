@@ -3,6 +3,16 @@ import React from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let RootLayoutContent: React.ComponentType;
+const mockEmbeddingQueue = {
+  add: vi.fn(),
+  addBulk: vi.fn(),
+  onProgress: vi.fn(() => () => {}),
+  pause: vi.fn(),
+  resume: vi.fn(),
+  drain: vi.fn(),
+  isPaused: false,
+  isProcessing: false,
+};
 
 // Mock the chunking worker context to prevent worker initialization during tests
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
@@ -59,32 +69,21 @@ vi.mock('@brainstrike/vector-management', () => ({
   EmbeddingJobQueueTracker: () => null,
 }));
 
+vi.mock('@brainstrike/queue/browser', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/queue/browser')>(
+    '@brainstrike/queue/browser'
+  );
+  return {
+    ...actual,
+    createBrowserEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
+  };
+});
+
 // Mock create-embedding-queue to prevent module-level worker pool creation
 vi.mock('../../create-embedding-queue', () => ({
-  embeddingQueue: {
-    add: vi.fn(),
-    addBulk: vi.fn(),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
-    drain: vi.fn(),
-  },
-  getEmbeddingQueue: vi.fn(() => ({
-    add: vi.fn(),
-    addBulk: vi.fn(),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
-    drain: vi.fn(),
-  })),
-  createBrowserEmbeddingQueue: vi.fn(() => ({
-    add: vi.fn(),
-    addBulk: vi.fn(),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
-    drain: vi.fn(),
-  })),
+  embeddingQueue: mockEmbeddingQueue,
+  getEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
+  createBrowserEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
 }));
 
 // Mock the file-explorer-ui
@@ -266,13 +265,13 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('3');
   });
 
-  it('shows settings page when navigation callback is triggered', () => {
+  it('shows settings page when navigation callback is triggered', async () => {
     render(<RootLayoutContent />);
     act(() => {
       capturedOnNavigationClick?.('/settings');
     });
 
-    expect(screen.getByTestId('settings-page-content')).toBeInTheDocument();
+    expect(await screen.findByTestId('settings-page-content')).toBeInTheDocument();
     expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/settings');
   });
 
