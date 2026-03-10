@@ -68,11 +68,18 @@ function isDisposedRenderFrameSendError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
+  // Electron does not currently expose a stable error code for this path, so
+  // we have to match the message text and update this check if Electron changes it.
   return error.message.toLowerCase().includes('render frame was disposed');
 }
 
-async function cleanupLiveSubscriptionsForOwner(webContentsId: number): Promise<void> {
-  liveSubscriptionOwnerListeners.delete(webContentsId);
+async function cleanupLiveSubscriptionsForOwner(
+  webContentsId: number,
+  options?: { releaseOwnerRegistration?: boolean }
+): Promise<void> {
+  if (options?.releaseOwnerRegistration) {
+    liveSubscriptionOwnerListeners.delete(webContentsId);
+  }
   const ownedSubscriptionIds = Array.from(liveSubscriptions.values())
     .filter((subscription) => subscription.webContentsId === webContentsId)
     .map((subscription) => subscription.id);
@@ -133,27 +140,32 @@ function flushPendingLiveUpdates(): void {
     return;
   }
   const allWindows = BrowserWindow.getAllWindows();
-  for (const [subId, payload] of pendingLiveUpdates) {
-    const record = liveSubscriptions.get(subId);
-    if (!record) {
-      continue;
-    }
-    const owner = allWindows.find((w) => w.webContents.id === record.webContentsId);
-    if (!owner || owner.webContents.isDestroyed()) {
-      void cleanupDisposedLiveSubscriptionOwner(record.webContentsId, 'missing-owner');
-      continue;
-    }
-    try {
-      owner.webContents.send('db:live-query:update', payload);
-    } catch (error) {
-      if (isDisposedRenderFrameSendError(error)) {
-        void cleanupDisposedLiveSubscriptionOwner(record.webContentsId, 'disposed-frame-send');
+  try {
+    for (const [subId, payload] of pendingLiveUpdates) {
+      const record = liveSubscriptions.get(subId);
+      if (!record) {
         continue;
       }
-      throw error;
+      const owner = allWindows.find((w) => w.webContents.id === record.webContentsId);
+      if (!owner || owner.webContents.isDestroyed()) {
+        // cleanupDisposedLiveSubscriptionOwner synchronously deletes other pending
+        // entries for the same owner; Map iteration skips those deleted keys.
+        void cleanupDisposedLiveSubscriptionOwner(record.webContentsId, 'missing-owner');
+        continue;
+      }
+      try {
+        owner.webContents.send('db:live-query:update', payload);
+      } catch (error) {
+        if (isDisposedRenderFrameSendError(error)) {
+          void cleanupDisposedLiveSubscriptionOwner(record.webContentsId, 'disposed-frame-send');
+          continue;
+        }
+        throw error;
+      }
     }
+  } finally {
+    pendingLiveUpdates.clear();
   }
-  pendingLiveUpdates.clear();
 }
 
 export function setBackgrounded(value: boolean): void {
@@ -378,7 +390,7 @@ function registerLiveSubscriptionOwner(sender: Pick<Electron.WebContents, 'id' |
 
   liveSubscriptionOwnerListeners.add(sender.id);
   sender.once('destroyed', () => {
-    void cleanupLiveSubscriptionsForOwner(sender.id);
+    void cleanupLiveSubscriptionsForOwner(sender.id, { releaseOwnerRegistration: true });
   });
 }
 

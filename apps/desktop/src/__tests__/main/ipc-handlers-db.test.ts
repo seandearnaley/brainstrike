@@ -955,5 +955,88 @@ describe('database IPC handlers', () => {
 
       expect(liveHandle.unsubscribe).toHaveBeenCalled();
     });
+
+    it('clears pending updates when flush fails with an unexpected send error', async () => {
+      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { listener, sender } = await setupLiveQuery();
+      const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
+
+      setBackgrounded(true);
+      listener({ rows: [{ id: 456 }] });
+
+      sender.send.mockImplementation(() => {
+        throw new Error('boom');
+      });
+      getAllWindowsMock.mockReturnValue([
+        {
+          webContents: sender,
+        } as unknown as BrowserWindow,
+      ]);
+
+      expect(() => setBackgrounded(false)).toThrow('boom');
+      expect(sender.send).toHaveBeenCalledTimes(1);
+
+      expect(() => setBackgrounded(false)).not.toThrow();
+      expect(sender.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps owner destroy-listener registration when disposed-frame cleanup runs before webContents destruction', async () => {
+      const handler = handlers.get('db:live-query:start');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const firstLiveHandle = {
+        initialResults: { rows: [] },
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        refresh: vi.fn(),
+      };
+      const secondLiveHandle = {
+        initialResults: { rows: [] },
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        refresh: vi.fn(),
+      };
+      mockDb.live.query
+        .mockResolvedValueOnce(firstLiveHandle)
+        .mockResolvedValueOnce(secondLiveHandle);
+
+      const sender = {
+        id: 51,
+        isDestroyed: vi.fn(() => false),
+        send: vi
+          .fn()
+          .mockImplementationOnce(() => {
+            throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+          })
+          .mockImplementation(() => undefined),
+        once: vi.fn(),
+      };
+
+      const firstResult = (await handler({ sender } as unknown, {
+        query: 'SELECT 1',
+      })) as { id: number };
+      const firstListener = firstLiveHandle.subscribe.mock.calls[0]?.[0] as
+        | ((results: unknown) => void)
+        | undefined;
+      if (!firstListener) {
+        throw new Error('expected first live-query listener');
+      }
+
+      firstListener({ rows: [{ id: 1 }] });
+      await Promise.resolve();
+
+      expect(firstLiveHandle.unsubscribe).toHaveBeenCalled();
+      expect(sender.once).toHaveBeenCalledTimes(1);
+
+      const secondResult = (await handler({ sender } as unknown, {
+        query: 'SELECT 2',
+      })) as { id: number };
+
+      expect(secondResult.id).not.toBe(firstResult.id);
+      expect(secondLiveHandle.subscribe).toHaveBeenCalledTimes(1);
+      expect(sender.once).toHaveBeenCalledTimes(1);
+    });
   });
 });
