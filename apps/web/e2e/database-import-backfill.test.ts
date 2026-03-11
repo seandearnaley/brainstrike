@@ -54,6 +54,39 @@ async function ensureDatabasePanelVisible(page: Page): Promise<void> {
   await expect(page.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
 }
 
+async function openImportSettings(page: Page): Promise<void> {
+  const settingsButton = page
+    .getByTestId('database-demo-panel')
+    .getByRole('button', { name: 'Import Settings', exact: true });
+  await expect(settingsButton).toBeVisible({ timeout: 15_000 });
+  await settingsButton.click();
+  await expect(page.getByText('Chunking Studio')).toBeVisible({ timeout: 15_000 });
+}
+
+async function readImportSettingsState(page: Page): Promise<{
+  chunkingPreset: string;
+  chunkingStrategy: string;
+}> {
+  return await page.evaluate(() => {
+    const stored = window.localStorage.getItem('import-settings.v1');
+    if (!stored) {
+      throw new Error('import-settings.v1 is missing');
+    }
+    const parsed = JSON.parse(stored) as {
+      state?: {
+        chunkingPreset?: string;
+        chunkingStrategy?: string;
+      };
+    };
+    const chunkingPreset = parsed.state?.chunkingPreset;
+    const chunkingStrategy = parsed.state?.chunkingStrategy;
+    if (typeof chunkingPreset !== 'string' || typeof chunkingStrategy !== 'string') {
+      throw new Error('Import settings state is missing canonical chunking fields');
+    }
+    return { chunkingPreset, chunkingStrategy };
+  });
+}
+
 async function createCollection(page: Page, collectionName: string): Promise<void> {
   const databasePanel = page.getByTestId('database-demo-panel');
   await databasePanel.getByRole('button', { name: 'New' }).click();
@@ -160,5 +193,63 @@ test.describe('Database import and backfill (web)', () => {
 
     const timeOriginAfterBackfill = await page.evaluate(() => window.performance.timeOrigin);
     expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
+  });
+
+  test('imports markdown successfully after choosing the docs preset in Chunking Studio', async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+
+    await mockBrowserApis(page, `${ROOT_NAME}-docs-preset`, FILE_TREE);
+    await page.goto('/');
+    await waitForAppLoad(page);
+
+    await resetAppState(page);
+    await page.reload();
+    await waitForAppLoad(page);
+
+    const collectionName = `Web Docs Preset ${Date.now()}`;
+    await ensureDatabasePanelVisible(page);
+    await createCollection(page, collectionName);
+    await selectFilesForImport(page);
+    await ensureDatabasePanelVisible(page);
+    await openImportSettings(page);
+
+    await page.getByRole('button', { name: /^Docs/ }).click();
+    await expect(page.getByText('Preset linked')).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByText('Keeps related heading families together for guides and docs.')
+    ).toBeVisible({ timeout: 15_000 });
+
+    await expect
+      .poll(async () => await readImportSettingsState(page), {
+        timeout: 15_000,
+      })
+      .toEqual({
+        chunkingPreset: 'docs',
+        chunkingStrategy: 'semantic-markdown',
+      });
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
+
+    const databasePanel = page.getByTestId('database-demo-panel');
+    const importButton = databasePanel.getByRole('button', { name: /^Import \(\d+\)$/ });
+    await expect(importButton).toContainText('(2)', { timeout: 15_000 });
+
+    const timeOriginBeforeImport = await page.evaluate(() => window.performance.timeOrigin);
+    await importButton.click();
+
+    const importedCounts = await waitForCollectionSummary(
+      page,
+      collectionName,
+      (counts) => counts.fileCount === 2 && counts.totalChunks > 0
+    );
+
+    expect(importedCounts.fileCount).toBe(2);
+    expect(importedCounts.totalChunks).toBeGreaterThan(0);
+
+    const timeOriginAfterImport = await page.evaluate(() => window.performance.timeOrigin);
+    expect(timeOriginAfterImport).toBe(timeOriginBeforeImport);
   });
 });

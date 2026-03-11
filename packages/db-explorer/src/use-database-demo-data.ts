@@ -10,6 +10,7 @@ import {
   usePGliteLiveQuery,
 } from '@brainstrike/db';
 import { useDatabaseStatusStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { isResolvedChunkingStrategy } from '@brainstrike/text-splitter';
 import type { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -235,11 +236,7 @@ function mapRecordRow(row: FileRecordRow): FileRecord {
   if (row.chunksCount !== null) {
     record.chunksCount = Number(row.chunksCount);
   }
-  if (
-    row.chunkingStrategy === 'sentence' ||
-    row.chunkingStrategy === 'token' ||
-    row.chunkingStrategy === 'recursive'
-  ) {
+  if (isResolvedChunkingStrategy(row.chunkingStrategy)) {
     record.chunkingStrategy = row.chunkingStrategy;
   }
 

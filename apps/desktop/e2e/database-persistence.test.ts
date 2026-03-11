@@ -63,6 +63,30 @@ test.describe('Database Persistence', () => {
     }
   }
 
+  async function readImportSettingsState(page: Page): Promise<{
+    chunkingPreset: string;
+    chunkingStrategy: string;
+  }> {
+    return await page.evaluate(() => {
+      const stored = window.localStorage.getItem('import-settings.v1');
+      if (!stored) {
+        throw new Error('import-settings.v1 is missing');
+      }
+      const parsed = JSON.parse(stored) as {
+        state?: {
+          chunkingPreset?: string;
+          chunkingStrategy?: string;
+        };
+      };
+      const chunkingPreset = parsed.state?.chunkingPreset;
+      const chunkingStrategy = parsed.state?.chunkingStrategy;
+      if (typeof chunkingPreset !== 'string' || typeof chunkingStrategy !== 'string') {
+        throw new Error('Import settings state is missing canonical chunking fields');
+      }
+      return { chunkingPreset, chunkingStrategy };
+    });
+  }
+
   async function verifyDatabaseConnection(page: Page): Promise<void> {
     if (await isDatabaseError(page)) {
       const errorText = await page.locator('[data-testid="db-init-error"]').textContent();
@@ -253,6 +277,42 @@ test.describe('Database Persistence', () => {
     }
 
     throw new Error('Neither success panel, connected status, nor error panel is visible');
+  });
+
+  test('should persist non-legacy chunking preset selection across renderer reload', async ({
+    window,
+  }) => {
+    let activeWindow = await ensureDatabasePanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator('[data-testid="db-init-error"]').first()).toBeVisible();
+      return;
+    }
+
+    await expandImportSettings(activeWindow);
+    await activeWindow.getByRole('button', { name: /^Docs/ }).click();
+    await expect(activeWindow.getByText('Preset linked')).toBeVisible({ timeout: 10_000 });
+
+    await expect
+      .poll(async () => await readImportSettingsState(activeWindow), {
+        timeout: 10_000,
+      })
+      .toEqual({
+        chunkingPreset: 'docs',
+        chunkingStrategy: 'semantic-markdown',
+      });
+
+    await activeWindow.reload();
+    activeWindow = await ensureDatabasePanel(activeWindow);
+
+    await expect
+      .poll(async () => await readImportSettingsState(activeWindow), {
+        timeout: 10_000,
+      })
+      .toEqual({
+        chunkingPreset: 'docs',
+        chunkingStrategy: 'semantic-markdown',
+      });
   });
 
   async function createTestDataForClearTest(page: Page): Promise<boolean> {

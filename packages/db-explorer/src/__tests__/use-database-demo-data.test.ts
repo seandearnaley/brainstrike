@@ -293,6 +293,48 @@ describe('useDatabaseDemoData', () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
+  it('preserves canonical resolved chunking strategies beyond the legacy subset', async () => {
+    const now = new Date().toISOString();
+    setupLiveQueries({
+      records: [
+        {
+          id: 'markdown-record',
+          name: 'guide.md',
+          path: '/guide.md',
+          size: 512,
+          createdAt: now,
+          updatedAt: now,
+          content: '# Guide',
+          contentHash: 'guide-hash',
+          tokenCount: 42,
+          processedAt: now,
+          chunksProcessedAt: now,
+          chunksCount: 3,
+          chunkingStrategy: 'semantic-markdown',
+          hasEmbedding: false,
+          embeddingSetId: 'set-markdown',
+        },
+      ],
+      chunks: [],
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-markdown',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.records).toHaveLength(1);
+    });
+
+    expect(result.current.records[0]?.chunkingStrategy).toBe('semantic-markdown');
+  });
+
   it('refreshes live queries when manual reload is requested', async () => {
     // Suppress React act() warnings - these calls trigger async state updates
     // that complete after the promise resolves, which is expected behavior
