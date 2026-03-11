@@ -51,7 +51,11 @@ export const createDirectoryExpansionActions = (
         newExpandedPaths.delete(path);
         // Optimization: Remove child paths when parent is collapsed
         for (const childPath of Array.from(newExpandedPaths)) {
-          if (childPath.startsWith(`${path}/`)) {
+          if (
+            childPath.length > path.length &&
+            childPath.charCodeAt(path.length) === 47 &&
+            childPath.startsWith(path)
+          ) {
             newExpandedPaths.delete(childPath);
           }
         }

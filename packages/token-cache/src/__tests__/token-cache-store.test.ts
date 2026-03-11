@@ -86,7 +86,12 @@ function createMockDb() {
           const folderId = params?.[0] as string;
           const rows: T[] = [];
           for (const [key, row] of mockRows) {
-            if (key.startsWith(`${folderId}::`)) {
+            if (
+              key.length > folderId.length &&
+              key.charCodeAt(folderId.length) === 58 &&
+              key.charCodeAt(folderId.length + 1) === 58 &&
+              key.startsWith(folderId)
+            ) {
               rows.push(row as T);
             }
           }
@@ -104,7 +109,13 @@ function createMockDb() {
             if (count >= limit) {
               break;
             }
-            if (key.startsWith(`${folderId}::`) && row.counting_mode === mode) {
+            if (
+              key.length > folderId.length &&
+              key.charCodeAt(folderId.length) === 58 &&
+              key.charCodeAt(folderId.length + 1) === 58 &&
+              key.startsWith(folderId) &&
+              row.counting_mode === mode
+            ) {
               rows.push(row as T);
               count++;
             }
@@ -122,7 +133,15 @@ function createMockDb() {
           const folderId = params?.[0] as string | undefined;
 
           for (const [key, row] of mockRows) {
-            if (folderId && !key.startsWith(`${folderId}::`)) {
+            if (
+              folderId &&
+              !(
+                key.length > folderId.length &&
+                key.charCodeAt(folderId.length) === 58 &&
+                key.charCodeAt(folderId.length + 1) === 58 &&
+                key.startsWith(folderId)
+              )
+            ) {
               continue;
             }
             entryCount++;
@@ -180,7 +199,12 @@ function createMockDb() {
           const folderId = params?.[0] as string;
           let deleted = 0;
           for (const key of mockRows.keys()) {
-            if (key.startsWith(`${folderId}::`)) {
+            if (
+              key.length > folderId.length &&
+              key.charCodeAt(folderId.length) === 58 &&
+              key.charCodeAt(folderId.length + 1) === 58 &&
+              key.startsWith(folderId)
+            ) {
               mockRows.delete(key);
               deleted++;
             }

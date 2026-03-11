@@ -173,7 +173,12 @@ class InMemoryTokenCacheStore {
   async clearFolder(folderId: string): Promise<number> {
     let removed = 0;
     for (const key of this.entries.keys()) {
-      if (key.startsWith(`${folderId}::`)) {
+      if (
+        key.length > folderId.length &&
+        key.charCodeAt(folderId.length) === 58 && // ':'
+        key.charCodeAt(folderId.length + 1) === 58 && // ':'
+        key.startsWith(folderId)
+      ) {
         this.entries.delete(key);
         removed += 1;
       }
