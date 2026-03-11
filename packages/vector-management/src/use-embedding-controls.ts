@@ -214,6 +214,13 @@ export function useEmbeddingControls({
       // Auto-start worker on web if not running
       if (isWebPlatform && !workerControls.workerLocalRunning) {
         await workerControls.startWorker();
+        const runtimeStatus = await runtimeController.getStatus();
+        if (runtimeStatus.state !== 'running') {
+          throw new Error(
+            runtimeStatus.lastError ??
+              'Embedding worker did not enter the running state before backfill.'
+          );
+        }
       }
 
       // Run backfill

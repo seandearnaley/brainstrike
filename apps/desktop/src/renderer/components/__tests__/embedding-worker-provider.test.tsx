@@ -44,6 +44,23 @@ vi.mock('@brainstrike/utils', async () => {
 // Import component after mocks are set up
 import { EmbeddingWorkerProvider } from '../embedding-worker-provider';
 
+function expectWorkerConfig(
+  mockDb: MockDb,
+  concurrency: number,
+  leaseMs: number,
+  modelKey: string | undefined
+): void {
+  expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
+    db: mockDb,
+    concurrency,
+    leaseMs,
+    modelKey,
+    streamingWorkerUrl: expect.any(String),
+    log: expect.any(Function),
+    onDownloadProgress: expect.any(Function),
+  });
+}
+
 describe('EmbeddingWorkerProvider', () => {
   let mockStop: ReturnType<typeof vi.fn>;
 
@@ -105,14 +122,7 @@ describe('EmbeddingWorkerProvider', () => {
       );
 
       expect(mockStartEmbeddingWorker).toHaveBeenCalledTimes(1);
-      expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
-        db: mockDb,
-        concurrency: 2,
-        leaseMs: 30_000,
-        modelKey: 'bge-m3',
-        log: expect.any(Function),
-        onDownloadProgress: expect.any(Function),
-      });
+      expectWorkerConfig(mockDb, 2, 30_000, 'bge-m3');
 
       await waitFor(
         () => {
@@ -141,14 +151,7 @@ describe('EmbeddingWorkerProvider', () => {
 
       await waitFor(
         () => {
-          expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
-            db: mockDb,
-            concurrency: 4,
-            leaseMs: 90_000,
-            modelKey: 'custom-model',
-            log: expect.any(Function),
-            onDownloadProgress: expect.any(Function),
-          });
+          expectWorkerConfig(mockDb, 4, 90_000, 'custom-model');
         },
         { timeout: 3000 }
       );
@@ -175,14 +178,7 @@ describe('EmbeddingWorkerProvider', () => {
 
       await waitFor(
         () => {
-          expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
-            db: mockDb,
-            concurrency: 1,
-            leaseMs: 60_000,
-            modelKey: 'undefined',
-            log: expect.any(Function),
-            onDownloadProgress: expect.any(Function),
-          });
+          expectWorkerConfig(mockDb, 1, 60_000, 'undefined');
         },
         { timeout: 3000 }
       );
@@ -206,14 +202,12 @@ describe('EmbeddingWorkerProvider', () => {
 
       await waitFor(
         () => {
-          expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
-            db: mockDb,
-            concurrency: 1, // Falls back when 0 or NaN
-            leaseMs: 60_000, // Falls back when empty or NaN
-            modelKey: 'bge-m3',
-            log: expect.any(Function),
-            onDownloadProgress: expect.any(Function),
-          });
+          expectWorkerConfig(
+            mockDb,
+            1, // Falls back when 0 or NaN
+            60_000, // Falls back when empty or NaN
+            'bge-m3'
+          );
         },
         { timeout: 3000 }
       );
@@ -510,14 +504,7 @@ describe('EmbeddingWorkerProvider', () => {
 
       await waitFor(
         () => {
-          expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
-            db: mockDb,
-            concurrency: 2,
-            leaseMs: 30_000,
-            modelKey: 'bge-m3',
-            log: expect.any(Function),
-            onDownloadProgress: expect.any(Function),
-          });
+          expectWorkerConfig(mockDb, 2, 30_000, 'bge-m3');
         },
         { timeout: 3000 }
       );

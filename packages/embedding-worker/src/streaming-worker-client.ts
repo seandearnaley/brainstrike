@@ -8,7 +8,6 @@ import type {
   EmbedWorkerStreamEvent,
   EmbedWorkerSuccess,
 } from './shared';
-import { resolveEmbeddingWorkerUrl } from './worker-url';
 
 interface StartStreamMessage {
   readonly request: EmbedWorkerRequest;
@@ -27,6 +26,11 @@ export interface StreamingEmbedOptions {
   readonly onBatch?: (event: EmbedWorkerBatch) => Promise<void> | void;
   readonly onError?: (event: EmbedWorkerError) => void;
   readonly onProgress?: (event: EmbedWorkerProgress) => void;
+}
+
+export interface StreamingEmbeddingWorkerClientOptions {
+  readonly worker?: Worker;
+  readonly workerUrl?: string;
 }
 
 function isStreamEvent(value: unknown): value is EmbedWorkerStreamEvent {
@@ -53,12 +57,17 @@ export class StreamingEmbeddingWorkerClient {
   private readonly transport: ReturnType<typeof createWorkerRuntimeClient>['transport'];
   private executionChain: Promise<void> = Promise.resolve();
 
-  constructor(worker?: Worker) {
-    this.worker =
-      worker ??
-      new Worker(resolveEmbeddingWorkerUrl(), {
+  constructor(workerOrOptions?: StreamingEmbeddingWorkerClientOptions | Worker) {
+    const options = isWorkerLike(workerOrOptions) ? { worker: workerOrOptions } : workerOrOptions;
+    if (options?.worker) {
+      this.worker = options.worker;
+    } else if (options?.workerUrl) {
+      this.worker = new Worker(options.workerUrl, {
         type: 'module',
       });
+    } else {
+      throw new Error('StreamingEmbeddingWorkerClient requires an explicit worker or workerUrl.');
+    }
     this.runtime = createWorkerRuntimeClient(this.worker, {
       createErrorFromEvent: (event) =>
         new Error(
@@ -188,4 +197,17 @@ export class StreamingEmbeddingWorkerClient {
   private postMessage(message: StreamWorkerMessage): void {
     this.transport.postMessage(message);
   }
+}
+
+function isWorkerLike(value: unknown): value is Worker {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'addEventListener' in value &&
+    typeof value.addEventListener === 'function' &&
+    'postMessage' in value &&
+    typeof value.postMessage === 'function' &&
+    'terminate' in value &&
+    typeof value.terminate === 'function'
+  );
 }

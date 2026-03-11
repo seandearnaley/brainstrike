@@ -48,6 +48,42 @@ function describeImportMeta(meta: ImportMetaLike | null): string {
   return `${urlDescription}; ${dirnameDescription}`;
 }
 
+export function resolveEmbeddingWorkerUrlHref(): string {
+  const override = readImportMetaOverride();
+  if (override) {
+    if (typeof override.url === 'string') {
+      return usesTypeScriptSource(override.url)
+        ? new URL(getSourceWorkerPath('./embedding.worker.js'), override.url).href
+        : new URL('./embedding.worker.js', override.url).href;
+    }
+    if (typeof override.dirname === 'string') {
+      return new URL('./embedding.worker.js', `file://${override.dirname}/`).href;
+    }
+    const context = describeImportMeta(override);
+    throw new Error(
+      `Unable to resolve embedding worker URL in this runtime. Context: ${context}. ` +
+        'This package must be imported as ESM, not CommonJS.'
+    );
+  }
+
+  if (typeof import.meta.url === 'string') {
+    return usesTypeScriptSource(import.meta.url)
+      ? new URL(getSourceWorkerPath('./embedding.worker.js'), import.meta.url).href
+      : new URL('./embedding.worker.js', import.meta.url).href;
+  }
+
+  const meta = getImportMeta();
+  if (meta && typeof meta.dirname === 'string') {
+    return new URL('./embedding.worker.js', `file://${meta.dirname}/`).href;
+  }
+
+  const context = describeImportMeta(meta);
+  throw new Error(
+    `Unable to resolve embedding worker URL in this runtime. Context: ${context}. ` +
+      'This package must be imported as ESM, not CommonJS.'
+  );
+}
+
 export function resolveEmbeddingWorkerUrl(): URL {
   const override = readImportMetaOverride();
   if (override) {

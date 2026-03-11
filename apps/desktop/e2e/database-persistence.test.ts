@@ -87,6 +87,18 @@ test.describe('Database Persistence', () => {
     });
   }
 
+  async function selectChunkingPreset(page: Page, presetName: RegExp): Promise<void> {
+    const presetButton = page.getByRole('button', { name: presetName });
+    await expect(presetButton).toBeVisible({ timeout: 10_000 });
+    await presetButton.scrollIntoViewIfNeeded();
+    await presetButton.evaluate((element) => {
+      if (!(element instanceof HTMLElement)) {
+        throw new Error('Chunking preset button is not an HTMLElement');
+      }
+      element.click();
+    });
+  }
+
   async function verifyDatabaseConnection(page: Page): Promise<void> {
     if (await isDatabaseError(page)) {
       const errorText = await page.locator('[data-testid="db-init-error"]').textContent();
@@ -290,7 +302,7 @@ test.describe('Database Persistence', () => {
     }
 
     await expandImportSettings(activeWindow);
-    await activeWindow.getByRole('button', { name: /^Docs/ }).click();
+    await selectChunkingPreset(activeWindow, /^Docs/);
     await expect(activeWindow.getByText('Preset linked')).toBeVisible({ timeout: 10_000 });
 
     await expect
@@ -312,6 +324,54 @@ test.describe('Database Persistence', () => {
       .toEqual({
         chunkingPreset: 'docs',
         chunkingStrategy: 'semantic-markdown',
+      });
+  });
+
+  test('should persist adaptive codebase preset routing across renderer reload', async ({
+    window,
+  }) => {
+    let activeWindow = await ensureDatabasePanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator('[data-testid="db-init-error"]').first()).toBeVisible();
+      return;
+    }
+
+    await expandImportSettings(activeWindow);
+    await selectChunkingPreset(activeWindow, /^Codebase/);
+    await expect(activeWindow.getByText('Adaptive presets still route each file type')).toBeVisible(
+      { timeout: 10_000 }
+    );
+    await expect(activeWindow.getByText('docs/getting-started.md')).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(activeWindow.getByText('src/assistant/retrieval.ts')).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect
+      .poll(async () => await readImportSettingsState(activeWindow), {
+        timeout: 10_000,
+      })
+      .toEqual({
+        chunkingPreset: 'codebase',
+        chunkingStrategy: 'auto',
+      });
+
+    await activeWindow.reload();
+    activeWindow = await ensureDatabasePanel(activeWindow);
+    await expandImportSettings(activeWindow);
+    await expect(activeWindow.getByText('Adaptive presets still route each file type')).toBeVisible(
+      { timeout: 10_000 }
+    );
+
+    await expect
+      .poll(async () => await readImportSettingsState(activeWindow), {
+        timeout: 10_000,
+      })
+      .toEqual({
+        chunkingPreset: 'codebase',
+        chunkingStrategy: 'auto',
       });
   });
 

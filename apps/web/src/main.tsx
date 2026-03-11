@@ -153,7 +153,7 @@ root.render(
     <HelmetProvider>
       <DbProvider dbPath="idb://web">
         <DbSchemaVerifier>
-          <ChunkingWorkerProvider>
+          <ChunkingWorkerProvider autoStart={false}>
             <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
               <RootLayoutContent />
             </AdaptersProvider>

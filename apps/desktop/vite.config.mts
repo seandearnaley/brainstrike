@@ -138,8 +138,16 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/db-explorer/src'),
       },
       {
+        find: '@brainstrike/embedding-worker',
+        replacement: path.resolve(__dirname, '../../packages/embedding-worker/src'),
+      },
+      {
         find: '@brainstrike/embeddings',
         replacement: path.resolve(__dirname, '../../packages/embeddings/src'),
+      },
+      {
+        find: '@brainstrike/worker-runtime',
+        replacement: path.resolve(__dirname, '../../packages/worker-runtime/src'),
       },
       {
         find: '@brainstrike/queue/browser',
@@ -172,8 +180,16 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/file-import/src'),
       },
       {
+        find: '@brainstrike/chunking-worker',
+        replacement: path.resolve(__dirname, '../../packages/chunking-worker/src'),
+      },
+      {
         find: '@brainstrike/preferences',
         replacement: path.resolve(__dirname, '../../packages/preferences/src'),
+      },
+      {
+        find: '@brainstrike/text-splitter',
+        replacement: path.resolve(__dirname, '../../packages/text-splitter/src'),
       },
       {
         find: '@brainstrike/storage/electron',

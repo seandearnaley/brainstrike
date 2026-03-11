@@ -1,5 +1,5 @@
 import type { EmbeddingWorkerController, EmbeddingWorkerOptions } from '@brainstrike/embeddings';
-import { startEmbeddingWorker } from '@brainstrike/embeddings';
+import { getRegisteredEmbeddingRuntimeConfig, startEmbeddingWorker } from '@brainstrike/embeddings';
 import {
   type BackgroundRuntimeProgress,
   type BackgroundRuntimeStatus,
@@ -73,6 +73,16 @@ function getEmbeddingHostApi(): EmbeddingHostApi | null {
 
 function createStoppedLocalStatus(runtimeId: string): EmbeddingRuntimeStatus {
   return createBackgroundRuntimeStatus('embedding-worker', runtimeId, 'stopped');
+}
+
+function getRequiredEmbeddingRuntimeConfig(): { readonly streamingWorkerUrl: string } {
+  const config = getRegisteredEmbeddingRuntimeConfig();
+  if (!config) {
+    throw new Error(
+      'Embedding runtime config is not registered. Register an explicit streamingWorkerUrl before starting the local embedding worker.'
+    );
+  }
+  return config;
 }
 
 export function useEmbeddingRuntimeController(
@@ -173,6 +183,7 @@ export function useEmbeddingRuntimeController(
       if (!db) {
         throw new Error('Database is required to start the local embedding worker.');
       }
+      const runtimeConfig = getRequiredEmbeddingRuntimeConfig();
 
       updateLocalStatus(
         createBackgroundRuntimeStatus('embedding-worker', localRuntimeIdRef.current, 'starting')
@@ -184,6 +195,7 @@ export function useEmbeddingRuntimeController(
           enable: true,
           reinitEveryN,
           device: devicePreference,
+          streamingWorkerUrl: runtimeConfig.streamingWorkerUrl,
           onFatalError: (error: Error) => {
             updateLocalStatus(
               createBackgroundRuntimeStatus(

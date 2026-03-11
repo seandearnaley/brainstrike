@@ -12,6 +12,7 @@ import {
   type EmbeddingHostCommand,
   type EmbeddingHostStatus,
 } from '../../embedding-host-shared';
+import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
@@ -181,6 +182,7 @@ async function startEmbeddingHostWorkerRuntime({
       onFatalError,
       onWorkerActivityChange,
       stopOnFatalLocalError: true,
+      streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
     });
     if (isDisposed()) {
       await controller.stop();

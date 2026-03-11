@@ -91,8 +91,11 @@ export {
 export { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
 // Export backend and utilities
 export {
+  getRegisteredEmbeddingRuntimeConfig,
   registerEmbeddingQueueFactory,
+  registerEmbeddingRuntimeConfig,
   resetEmbeddingQueueFactory,
+  resetEmbeddingRuntimeConfig,
   TransformersBackend,
 } from './transformers-backend';
 export type {

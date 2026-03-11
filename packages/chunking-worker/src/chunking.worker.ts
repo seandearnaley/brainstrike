@@ -539,6 +539,11 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       return;
     }
 
+    if (messageType === 'init') {
+      self.postMessage({ type: 'ready' });
+      return;
+    }
+
     if (isChunkRequest(message)) {
       await handleChunkRequestMessage(message);
       return;
@@ -560,25 +565,3 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     postChunkError('__init__', '__init__', formatted.message);
   }
 };
-
-// Bootstrap - signal ready
-const bootstrap = async (): Promise<void> => {
-  try {
-    // Pre-warm the chunking modules by doing a tiny chunk
-    await chunkContent('// test', { strategy: 'sentence' });
-  } catch (error) {
-    const formatted = formatError(error);
-    log('error', 'worker bootstrap failed', formatted);
-    self.postMessage({
-      type: 'error',
-      id: '__init__',
-      fileRecordId: '__init__',
-      error: `bootstrap failed: ${formatted.message}`,
-    } satisfies ChunkError);
-    return;
-  }
-
-  self.postMessage({ type: 'ready' });
-};
-
-void bootstrap();

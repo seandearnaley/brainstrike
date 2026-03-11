@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resolveChunkingWorkerUrlMock = vi.hoisted(() => vi.fn());
-const WORKER_READY_TIMEOUT_MS = 10_000;
+const WORKER_READY_TIMEOUT_MS = 30_000;
 
 vi.mock('../resolve-chunking-worker-url', () => ({
   resolveChunkingWorkerUrl: resolveChunkingWorkerUrlMock,
@@ -129,10 +129,14 @@ function createMockWorker() {
         handler(event);
       }
     },
+    clearPostedMessages: () => {
+      postedMessages.length = 0;
+    },
     getPostedMessages: () => postedMessages,
   };
 
   return mockWorker as unknown as Worker & {
+    clearPostedMessages: () => void;
     getPostedMessages: () => unknown[];
     simulateError: (message: string) => void;
     simulateMessage: (data: WorkerResponse) => void;
@@ -170,8 +174,10 @@ describe('useChunkingWorker', () => {
       throw new Error('Expected worker instance');
     }
 
+    expect(worker.getPostedMessages()).toEqual([{ type: 'init' }]);
     await emitWorkerMessage(worker, { type: 'ready' });
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
+    worker.clearPostedMessages();
 
     const port = result.current.port;
     if (!port) {
@@ -225,6 +231,7 @@ describe('useChunkingWorker', () => {
     if (!worker) {
       throw new Error('Expected worker instance');
     }
+    expect(worker.getPostedMessages()).toEqual([{ type: 'init' }]);
 
     const readyPromise = standalone.waitForReady();
     await emitWorkerMessage(worker, { type: 'ready' });
@@ -314,6 +321,7 @@ describe('useChunkingWorker', () => {
     if (!worker) {
       throw new Error('Expected worker instance');
     }
+    expect(worker.getPostedMessages()).toEqual([{ type: 'init' }]);
 
     await emitWorkerMessage(worker, { type: 'ready' });
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
@@ -349,6 +357,7 @@ describe('useChunkingWorker', () => {
     if (!worker) {
       throw new Error('Expected worker instance');
     }
+    expect(worker.getPostedMessages()).toEqual([{ type: 'init' }]);
 
     const readyErrorPromise = standalone.waitForReady().catch((error: unknown) => error);
     await emitWorkerMessage(worker, {

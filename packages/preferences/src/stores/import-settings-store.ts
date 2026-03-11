@@ -29,7 +29,7 @@ interface ImportSettingsActions {
 export type ImportSettingsStore = ImportSettingsData & ImportSettingsActions;
 
 const STORE_NAME = 'import-settings.v1' as const;
-const STORE_VERSION = 6 as const;
+const STORE_VERSION = 7 as const;
 
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
@@ -121,6 +121,17 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
               typeof next.chunkTokenLimit === 'number'
                 ? Math.max(512, Math.min(16_384, Math.floor(next.chunkTokenLimit)))
                 : 4096,
+          };
+        }
+        if (version < 7 && next.chunkingPreset && next.chunkingPreset !== 'custom') {
+          const preset = getChunkingPreset(next.chunkingPreset);
+          next = {
+            ...next,
+            chunkingStrategy: preset.strategy,
+            chunkingStrategyExplicit: preset.strategy !== 'auto',
+            chunkSize: preset.chunkSize,
+            chunkOverlap: preset.chunkOverlap,
+            chunkTokenLimit: preset.tokenLimit,
           };
         }
         return next satisfies Partial<ImportSettingsStore>;

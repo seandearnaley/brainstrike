@@ -4,6 +4,7 @@ import {
   type ChunkingPresetSelection,
   type ChunkingStrategy,
   getChunkingPresetDefinitions,
+  getChunkingRoutePreview,
 } from '@brainstrike/text-splitter';
 import {
   Badge,
@@ -110,6 +111,7 @@ export function SettingsPanel({
   const currentPreset = importSettings.chunkingPreset;
   const currentPresetDefinition =
     currentPreset === 'custom' ? null : presets.find((preset) => preset.id === currentPreset);
+  const routePreview = getChunkingRoutePreview(importSettings.chunkingStrategy);
   const choosePreset = (value: ChunkingPresetSelection) => {
     importSettings.setChunkingPreset(value);
   };
@@ -118,6 +120,8 @@ export function SettingsPanel({
       case 'balanced':
         return <Gauge className="h-4 w-4" />;
       case 'codebase':
+        return <FileCode2 className="h-4 w-4" />;
+      case 'strict-code':
         return <FileCode2 className="h-4 w-4" />;
       case 'docs':
         return <ScrollText className="h-4 w-4" />;
@@ -175,6 +179,7 @@ export function SettingsPanel({
                   ? 'border-foreground/20 bg-foreground/5 shadow-sm'
                   : 'border-border/70 bg-background/70 hover:border-foreground/15 hover:bg-muted/70'
               )}
+              data-testid={`chunking-preset-${preset.id}`}
               key={preset.id}
               onClick={() => choosePreset(preset.id)}
               type="button"
@@ -191,15 +196,28 @@ export function SettingsPanel({
                   </span>
                   <span>{preset.label}</span>
                 </div>
-                {preset.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+                <div className="flex items-center gap-2">
+                  <Badge variant={preset.adaptiveRouting ? 'secondary' : 'outline'}>
+                    {preset.adaptiveRouting ? 'Adaptive' : 'Fixed'}
+                  </Badge>
+                  {preset.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+                </div>
               </div>
               <p className="mt-3 text-muted-foreground text-xs leading-5">{preset.description}</p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {preset.bestFor.map((item) => (
+                  <Badge className="text-[10px]" key={`${preset.id}-${item}`} variant="outline">
+                    {item}
+                  </Badge>
+                ))}
+              </div>
               <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
                 <span>{preset.strategy}</span>
                 <span>{preset.chunkSize} size</span>
                 <span>{preset.chunkOverlap} overlap</span>
                 <span>{preset.tokenLimit} cap</span>
               </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">{preset.tradeoff}</p>
             </button>
           );
         })}
@@ -244,7 +262,46 @@ export function SettingsPanel({
               Editing size, overlap, strategy, or token cap promotes this profile to custom so you
               can push precision further without losing the curated starting points.
             </p>
+            {currentPresetDefinition ? (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                {currentPresetDefinition.adaptiveRouting
+                  ? 'Adaptive presets still route each file type to its best canonical splitter.'
+                  : 'Fixed presets force one primary splitter across every imported file.'}
+              </p>
+            ) : null}
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <Label className="text-xs">Routing plan</Label>
+            <p className="mt-1 text-muted-foreground text-xs">
+              Preview how this setup routes common file types before you import anything.
+            </p>
+          </div>
+          <Badge variant="outline">
+            {importSettings.chunkingStrategy === 'auto' ? 'Auto routing' : 'Forced strategy'}
+          </Badge>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {routePreview.map((route) => (
+            <div
+              className="rounded-xl border border-border/70 bg-muted/30 p-3"
+              data-testid={`chunking-route-${route.fileName.replaceAll(/[/.]/g, '-')}`}
+              key={route.fileName}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm">{route.label}</p>
+                  <p className="text-[11px] text-muted-foreground">{route.fileName}</p>
+                </div>
+                <Badge variant="secondary">{route.resolvedStrategy}</Badge>
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground leading-5">{route.reason}</p>
+            </div>
+          ))}
         </div>
       </div>
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getChunkingPreset,
   getChunkingPresetDefinitions,
+  getChunkingRoutePreview,
   isChunkingStrategy,
   isResolvedChunkingStrategy,
   RecursiveTextSplitter,
@@ -141,9 +142,11 @@ describe('@brainstrike/text-splitter', () => {
   it('returns documented preset definitions', () => {
     const presets = getChunkingPresetDefinitions();
 
-    expect(presets).toHaveLength(6);
+    expect(presets).toHaveLength(7);
     expect(presets.find((preset) => preset.isDefault)?.id).toBe('balanced');
     expect(getChunkingPreset('docs').strategy).toBe('semantic-markdown');
+    expect(getChunkingPreset('codebase').strategy).toBe('auto');
+    expect(getChunkingPreset('strict-code').strategy).toBe('recursive');
   });
 
   it('recognizes canonical chunking strategies', () => {
@@ -156,10 +159,31 @@ describe('@brainstrike/text-splitter', () => {
 
   it('resolves auto strategy from file extension', () => {
     expect(resolveChunkingStrategyForFile('/tmp/readme.md')).toBe('semantic-markdown');
+    expect(resolveChunkingStrategyForFile('/tmp/guide.adoc')).toBe('semantic-markdown');
     expect(resolveChunkingStrategyForFile('/tmp/component.tsx')).toBe('recursive');
     expect(resolveChunkingStrategyForFile('/tmp/schema.json')).toBe('json');
+    expect(resolveChunkingStrategyForFile('/tmp/records.ndjson')).toBe('json');
+    expect(resolveChunkingStrategyForFile('/tmp/notebook.ipynb')).toBe('json');
+    expect(resolveChunkingStrategyForFile('/tmp/diagram.svg')).toBe('html');
     expect(resolveChunkingStrategyForFile('/tmp/paper.tex')).toBe('latex');
+    expect(resolveChunkingStrategyForFile('/tmp/references.bib')).toBe('latex');
     expect(resolveChunkingStrategyForFile('/tmp/notes.txt')).toBe('sentence');
+  });
+
+  it('builds a routing preview for adaptive and fixed strategies', () => {
+    const adaptivePreview = getChunkingRoutePreview('auto');
+    expect(adaptivePreview.find((entry) => entry.fileName.endsWith('.ts'))?.resolvedStrategy).toBe(
+      'recursive'
+    );
+    expect(adaptivePreview.find((entry) => entry.fileName.endsWith('.md'))?.resolvedStrategy).toBe(
+      'semantic-markdown'
+    );
+    expect(
+      adaptivePreview.find((entry) => entry.fileName.endsWith('.json'))?.resolvedStrategy
+    ).toBe('json');
+
+    const fixedPreview = getChunkingRoutePreview('recursive');
+    expect(fixedPreview.every((entry) => entry.resolvedStrategy === 'recursive')).toBe(true);
   });
 
   it('throws on invalid chunk overlap', () => {

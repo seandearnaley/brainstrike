@@ -27,6 +27,7 @@ import type {
 import { resolveChunkingWorkerUrl } from './resolve-chunking-worker-url';
 
 const logger = createLogger('ChunkingWorkerContext');
+const CHUNKING_WORKER_READY_TIMEOUT_MS = 30_000;
 
 const TERMINAL_TOKENIZER_ERROR_PATTERNS: RegExp[] = [
   /^accurate token counting unavailable:/i,
@@ -545,11 +546,13 @@ function ChunkingLocalWorkerProvider({
         setTimeout(() => {
           clearInterval(checkReadyInterval);
           if (!portRef.current?.isReady()) {
-            const timeoutError = new Error('Chunking worker ready timeout after 10 seconds');
+            const timeoutError = new Error(
+              `Chunking worker ready timeout after ${CHUNKING_WORKER_READY_TIMEOUT_MS / 1000} seconds`
+            );
             logger.error(timeoutError.message);
             enterTerminalFailureState(timeoutError, 'worker.ready-timeout');
           }
-        }, 10_000);
+        }, CHUNKING_WORKER_READY_TIMEOUT_MS);
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Failed to initialize worker';
         logger.error('Failed to initialize chunking worker', { error: errorMsg });

@@ -4,8 +4,13 @@
 
 import type { IDatabase } from '@brainstrike/db';
 import { type EmbeddingWorkerController, startEmbeddingWorker } from '@brainstrike/embeddings';
+import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 
 export async function startEmbeddingWorkerWeb(db: IDatabase): Promise<EmbeddingWorkerController> {
   // On web, the env default may be false; allow explicit runtime start from UI.
-  return startEmbeddingWorker({ db, enable: true });
+  return startEmbeddingWorker({
+    db,
+    enable: true,
+    streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
+  });
 }

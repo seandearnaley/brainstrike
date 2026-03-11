@@ -312,6 +312,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   removeMessageListener = transport.onMessage((message) => {
     handleMessage(message as WorkerResponse);
   });
+  transport.postMessage({ type: 'init' });
 
   let requestIdCounter = 0;
 

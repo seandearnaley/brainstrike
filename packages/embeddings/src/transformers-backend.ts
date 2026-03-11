@@ -66,19 +66,38 @@ interface DownloadOptions {
 // Cache the imported module to avoid duplicate imports across instances
 let transformersModule: TransformersModule | null = null;
 let transformersModulePromise: Promise<TransformersModule> | null = null;
-let browserQueuePromise: Promise<QueueAdapter> | null = null;
 let customQueueFactory: null | (() => QueueAdapter | Promise<QueueAdapter>) = null;
+interface RegisteredEmbeddingRuntimeConfig {
+  readonly streamingWorkerUrl: string;
+}
+
+let registeredEmbeddingRuntimeConfig: RegisteredEmbeddingRuntimeConfig | null = null;
 
 export function registerEmbeddingQueueFactory(
   factory: () => QueueAdapter | Promise<QueueAdapter>
 ): void {
   customQueueFactory = factory;
-  browserQueuePromise = null;
 }
 
 export function resetEmbeddingQueueFactory(): void {
   customQueueFactory = null;
-  browserQueuePromise = null;
+}
+
+export function registerEmbeddingRuntimeConfig(config: RegisteredEmbeddingRuntimeConfig): void {
+  if (!(typeof config.streamingWorkerUrl === 'string' && config.streamingWorkerUrl.length > 0)) {
+    throw new Error('registerEmbeddingRuntimeConfig requires a non-empty streamingWorkerUrl.');
+  }
+  registeredEmbeddingRuntimeConfig = {
+    streamingWorkerUrl: config.streamingWorkerUrl,
+  };
+}
+
+export function resetEmbeddingRuntimeConfig(): void {
+  registeredEmbeddingRuntimeConfig = null;
+}
+
+export function getRegisteredEmbeddingRuntimeConfig(): RegisteredEmbeddingRuntimeConfig | null {
+  return registeredEmbeddingRuntimeConfig;
 }
 
 function supportsWorkerQueue(): boolean {
@@ -89,12 +108,9 @@ async function getBrowserQueue(): Promise<QueueAdapter> {
   if (customQueueFactory) {
     return Promise.resolve(customQueueFactory());
   }
-  if (!browserQueuePromise) {
-    browserQueuePromise = import('@brainstrike/queue/browser').then(
-      ({ createBrowserEmbeddingQueue }) => createBrowserEmbeddingQueue({ requireWorkerpool: true })
-    );
-  }
-  return browserQueuePromise;
+  throw new Error(
+    'Embedding queue factory is not registered. Register an explicit queue with a workerUrl before initializing the transformers backend.'
+  );
 }
 
 async function getTransformersModule(): Promise<TransformersModule> {
@@ -233,6 +249,7 @@ export class TransformersBackend {
   private _useWorkerQueue = false;
   private _queue: QueueAdapter | null = null;
   private _streamingClient: StreamingEmbeddingWorkerClient | null = null;
+  private _streamingWorkerUrl: string | null = null;
   private _targetDimensions: number | null = null;
   private _selectedDType: EmbeddingDType | null = null;
 
@@ -260,6 +277,7 @@ export class TransformersBackend {
     this._selectedDevice = determineDevice(config.device);
     this._quantized = config.quantized;
     this._selectedDType = this.resolveDTypeForDevice(this._selectedDevice, this._quantized);
+    this._streamingWorkerUrl = config.streamingWorkerUrl ?? null;
 
     if (TransformersBackend._verboseOrtLogs) {
       logger.debug(
@@ -274,47 +292,16 @@ export class TransformersBackend {
     onProgress?.({
       stage: 'processing',
       progress: 10,
-      message: 'Preparing embedding worker queue...',
+      message: 'Preparing embedding runtime...',
     });
     this._queue = await getBrowserQueue();
     this._useWorkerQueue = true;
-    await this.warmupQueue(config);
     this._isInitialized = true;
     onProgress?.({
       stage: 'ready',
       progress: 100,
       message: 'Model ready!',
     });
-  }
-
-  private async warmupQueue(
-    config: EmbeddingConfig & { modelConfig?: ModelConfig }
-  ): Promise<void> {
-    const queue = this._queue;
-    if (!queue) {
-      return;
-    }
-    const warmupId = `warmup-${generateUUID()}`;
-    try {
-      const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
-      await queue.add({
-        kind: 'embed',
-        id: warmupId,
-        model: config.modelId,
-        texts: ['.'],
-        ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
-        targetDimension,
-        deviceHint: this.resolveDeviceHint(),
-        dtype: this._selectedDType ?? 'fp16',
-        maxBatchSize: 1,
-      });
-    } catch (error) {
-      logger.debug('Warmup job submission failed', {
-        embeddingId: warmupId,
-        modelId: config.modelId,
-        error,
-      });
-    }
   }
 
   /**
@@ -441,7 +428,14 @@ export class TransformersBackend {
     if (this._streamingClient) {
       return this._streamingClient;
     }
-    this._streamingClient = new StreamingEmbeddingWorkerClient();
+    if (!this._streamingWorkerUrl) {
+      throw new Error(
+        'TransformersBackend requires an explicit streamingWorkerUrl for streamed local embeddings.'
+      );
+    }
+    this._streamingClient = new StreamingEmbeddingWorkerClient({
+      workerUrl: this._streamingWorkerUrl,
+    });
     return this._streamingClient;
   }
 

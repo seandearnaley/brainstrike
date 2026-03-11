@@ -168,8 +168,13 @@ export default defineConfig({
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
       '@brainstrike/db-explorer': path.resolve(__dirname, '../../packages/db-explorer/src'),
       '@brainstrike/embeddings': path.resolve(__dirname, '../../packages/embeddings/src'),
+      '@brainstrike/embedding-worker': path.resolve(
+        __dirname,
+        '../../packages/embedding-worker/src'
+      ),
       '@brainstrike/queue/browser': path.resolve(__dirname, '../../packages/queue/src/browser.ts'),
       '@brainstrike/queue': path.resolve(__dirname, '../../packages/queue/src'),
+      '@brainstrike/worker-runtime': path.resolve(__dirname, '../../packages/worker-runtime/src'),
       '@brainstrike/file-import/browser-queue-port': path.resolve(
         __dirname,
         '../../packages/file-import/src/browser-queue-port.ts'
@@ -183,8 +188,10 @@ export default defineConfig({
         '../../packages/file-import/src/enhanced-import.ts'
       ),
       '@brainstrike/file-import': path.resolve(__dirname, '../../packages/file-import/src'),
+      '@brainstrike/chunking-worker': path.resolve(__dirname, '../../packages/chunking-worker/src'),
       '@brainstrike/preferences': path.resolve(__dirname, '../../packages/preferences/src'),
       '@brainstrike/platform-utils': path.resolve(__dirname, '../../packages/platform-utils/src'),
+      '@brainstrike/text-splitter': path.resolve(__dirname, '../../packages/text-splitter/src'),
       '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
       '@brainstrike/ui': path.resolve(__dirname, '../../packages/ui/src'),
       '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
@@ -227,7 +234,6 @@ export default defineConfig({
       '@brainstrike/db-explorer', // Uses file-import which has worker
       '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
       '@brainstrike/token-cache',
-      '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
     ],
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues

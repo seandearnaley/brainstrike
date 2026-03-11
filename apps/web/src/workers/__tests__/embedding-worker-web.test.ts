@@ -17,5 +17,6 @@ describe('startEmbeddingWorkerWeb', () => {
     const args = (startEmbeddingWorker as Mock).mock.calls[0]?.[0];
     expect(args.enable).toBe(true);
     expect(args.db).toBe(db);
+    expect(args.streamingWorkerUrl).toEqual(expect.any(String));
   });
 });

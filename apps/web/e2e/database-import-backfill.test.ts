@@ -12,10 +12,15 @@ interface CollectionSummaryCounts {
 }
 
 const ROOT_NAME = 'database-import-backfill-root';
-const FILE_TREE: FileTree = {
+const CODE_FILE_TREE: FileTree = {
   'alpha.ts': 'export const alpha = "database import backfill";\nexport const beta = "web flow";',
   'notes.ts':
     'export const notes = ["Database Import Flow", "This fixture ensures the browser import flow creates chunks and embeddings."];',
+};
+const DOCS_FILE_TREE: FileTree = {
+  'README.md':
+    '# Database import backfill\n\n## Workflow\n\nUse this fixture to validate semantic markdown chunking.',
+  'runbook.md': '# Runbook\n\n## Recovery\n\nDocument chunking should preserve heading families.',
 };
 
 function parseCollectionSummaryCounts(summaryText: string): CollectionSummaryCounts {
@@ -63,7 +68,25 @@ async function openImportSettings(page: Page): Promise<void> {
   await expect(page.getByText('Chunking Studio')).toBeVisible({ timeout: 15_000 });
 }
 
+async function chooseChunkingPreset(
+  page: Page,
+  presetName: RegExp,
+  presetId?: string
+): Promise<void> {
+  const presetButton = presetId
+    ? page.getByTestId(`chunking-preset-${presetId}`)
+    : page.getByRole('button', { name: presetName });
+  await expect(presetButton).toBeVisible({ timeout: 15_000 });
+  await presetButton.evaluate((element) => {
+    if (!(element instanceof HTMLButtonElement)) {
+      throw new Error('Chunking preset control must be a button');
+    }
+    element.click();
+  });
+}
+
 async function readImportSettingsState(page: Page): Promise<{
+  enableChunking: boolean;
   chunkingPreset: string;
   chunkingStrategy: string;
 }> {
@@ -74,16 +97,89 @@ async function readImportSettingsState(page: Page): Promise<{
     }
     const parsed = JSON.parse(stored) as {
       state?: {
+        enableChunking?: boolean;
         chunkingPreset?: string;
         chunkingStrategy?: string;
       };
     };
+    const enableChunking = parsed.state?.enableChunking;
     const chunkingPreset = parsed.state?.chunkingPreset;
     const chunkingStrategy = parsed.state?.chunkingStrategy;
-    if (typeof chunkingPreset !== 'string' || typeof chunkingStrategy !== 'string') {
+    if (
+      typeof enableChunking !== 'boolean' ||
+      typeof chunkingPreset !== 'string' ||
+      typeof chunkingStrategy !== 'string'
+    ) {
       throw new Error('Import settings state is missing canonical chunking fields');
     }
-    return { chunkingPreset, chunkingStrategy };
+    return { enableChunking, chunkingPreset, chunkingStrategy };
+  });
+}
+
+async function readStoredImportSettingsSnapshot(page: Page): Promise<string | null> {
+  return await page.evaluate(() => window.localStorage.getItem('import-settings.v1'));
+}
+
+async function clearPersistedExplorerIncludeFilters(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const storageKey = 'file-explorer-storage-v4';
+    const stored = window.localStorage.getItem(storageKey);
+    if (!stored) {
+      throw new Error('file-explorer-storage-v4 is missing');
+    }
+
+    const parsed = JSON.parse(stored) as {
+      state?: {
+        folderStates?: Record<
+          string,
+          {
+            includeFilters?: unknown;
+            viewFilterPresetId?: unknown;
+          }
+        >;
+        includeFilters?: unknown;
+        viewFilterPresetId?: unknown;
+      };
+      version?: unknown;
+    };
+
+    if (!parsed.state || typeof parsed.state !== 'object') {
+      throw new Error('file-explorer-storage-v4 is missing state');
+    }
+
+    const folderStates = parsed.state.folderStates;
+    if (!folderStates || typeof folderStates !== 'object') {
+      throw new Error('file-explorer-storage-v4 is missing folderStates');
+    }
+
+    const normalizedFolderStates = Object.fromEntries(
+      Object.entries(folderStates).map(([folderId, folderState]) => {
+        if (!folderState || typeof folderState !== 'object') {
+          throw new Error(`Invalid folder state for ${folderId}`);
+        }
+
+        return [
+          folderId,
+          {
+            ...folderState,
+            includeFilters: [],
+            viewFilterPresetId: null,
+          },
+        ];
+      })
+    );
+
+    const next = {
+      ...parsed,
+      state: {
+        ...parsed.state,
+        includeFilters: [],
+        viewFilterPresetId: null,
+        folderStates: normalizedFolderStates,
+      },
+    };
+
+    window.localStorage.setItem(storageKey, JSON.stringify(next));
   });
 }
 
@@ -110,7 +206,50 @@ async function createCollection(page: Page, collectionName: string): Promise<voi
 
 async function selectFilesForImport(page: Page): Promise<void> {
   const explorer = new FileExplorerPage(page);
-  await explorer.selectRoot();
+  const showExplorerButton = page
+    .locator('button[aria-label="Show explorer panel"]')
+    .or(page.getByRole('button', { name: 'Show explorer panel' }))
+    .first();
+  if (await showExplorerButton.isVisible().catch(() => false)) {
+    await showExplorerButton.click();
+  }
+  await explorer.selectRootButton.click();
+  const noMatchingFiles = page.getByText('No matching files found');
+  await expect
+    .poll(
+      async () =>
+        (await noMatchingFiles.isVisible().catch(() => false)) ||
+        (await explorer.fileTree.isVisible().catch(() => false)),
+      {
+        timeout: 30_000,
+      }
+    )
+    .toBe(true);
+
+  if (await noMatchingFiles.isVisible().catch(() => false)) {
+    const filterChipNames = [
+      '*.tsx',
+      '*.ts',
+      '*.js',
+      '*.jsx',
+      '*.json',
+      '.aider*',
+      'node_modules',
+      '.next',
+      'coverage',
+      'test-results',
+      'playwright-report',
+    ] as const;
+
+    for (const filterChipName of filterChipNames) {
+      const filterChip = page.getByRole('button', { name: filterChipName }).first();
+      if (await filterChip.isVisible().catch(() => false)) {
+        await filterChip.click();
+      }
+    }
+  }
+
+  await expect(explorer.fileTree).toBeVisible({ timeout: 30_000 });
   await expect(explorer.selectAllButton).toBeEnabled({ timeout: 15_000 });
   await explorer.selectAllButton.click();
   await expect(page.getByText('2/10')).toBeVisible({ timeout: 15_000 });
@@ -136,18 +275,25 @@ async function waitForCollectionSummary(
 }
 
 test.describe('Database import and backfill (web)', () => {
+  test.describe.configure({ mode: 'serial' });
+
   test('imports files, chunks them, backfills, and updates collection coverage without reload', async ({
     page,
   }) => {
     test.setTimeout(180_000);
 
-    await mockBrowserApis(page, ROOT_NAME, FILE_TREE);
+    await mockBrowserApis(page, ROOT_NAME, CODE_FILE_TREE);
     await page.goto('/');
     await waitForAppLoad(page);
 
     await resetAppState(page);
     await page.reload();
     await waitForAppLoad(page);
+    await expect
+      .poll(async () => await readStoredImportSettingsSnapshot(page), {
+        timeout: 15_000,
+      })
+      .toBeNull();
 
     const collectionName = `Web Import Backfill ${Date.now()}`;
     await ensureDatabasePanelVisible(page);
@@ -156,6 +302,21 @@ test.describe('Database import and backfill (web)', () => {
     await selectFilesForImport(page);
 
     await ensureDatabasePanelVisible(page);
+    await openImportSettings(page);
+    await page.getByRole('button', { name: /Balanced.*Adaptive.*Default/ }).click();
+    await expect(page.getByText('Preset linked')).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => await readImportSettingsState(page), {
+        timeout: 15_000,
+      })
+      .toEqual({
+        enableChunking: true,
+        chunkingPreset: 'balanced',
+        chunkingStrategy: 'auto',
+      });
+    await page.keyboard.press('Escape');
+    await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
+
     const databasePanel = page.getByTestId('database-demo-panel');
     const importButton = databasePanel.getByRole('button', { name: /^Import \(\d+\)$/ });
     await expect(importButton).toContainText('(2)', { timeout: 15_000 });
@@ -195,16 +356,63 @@ test.describe('Database import and backfill (web)', () => {
     expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
   });
 
+  test('shows adaptive codebase routing and persists the auto strategy', async ({ page }) => {
+    test.setTimeout(180_000);
+
+    await mockBrowserApis(page, `${ROOT_NAME}-codebase-preset`, CODE_FILE_TREE);
+    await page.goto('/');
+    await waitForAppLoad(page);
+
+    await resetAppState(page);
+    await page.reload();
+    await waitForAppLoad(page);
+
+    await ensureDatabasePanelVisible(page);
+    await openImportSettings(page);
+
+    await chooseChunkingPreset(page, /^Codebase/, 'codebase');
+    await expect(page.getByText('Adaptive presets still route each file type')).toBeVisible({
+      timeout: 15_000,
+    });
+    const docsRoute = page.getByTestId('chunking-route-docs-getting-started-md');
+    await expect(docsRoute).toBeVisible({ timeout: 15_000 });
+    await expect(docsRoute.getByText('semantic-markdown')).toBeVisible({ timeout: 15_000 });
+    const codeRoute = page.getByTestId('chunking-route-src-assistant-retrieval-ts');
+    await expect(codeRoute).toBeVisible({ timeout: 15_000 });
+    await expect(codeRoute.getByText('recursive')).toBeVisible({ timeout: 15_000 });
+
+    await expect
+      .poll(async () => await readImportSettingsState(page), {
+        timeout: 15_000,
+      })
+      .toEqual({
+        enableChunking: true,
+        chunkingPreset: 'codebase',
+        chunkingStrategy: 'auto',
+      });
+
+    await page.reload();
+    await waitForAppLoad(page);
+    await ensureDatabasePanelVisible(page);
+    await openImportSettings(page);
+    await expect(page.getByText('Adaptive presets still route each file type')).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
   test('imports markdown successfully after choosing the docs preset in Chunking Studio', async ({
     page,
   }) => {
     test.setTimeout(180_000);
 
-    await mockBrowserApis(page, `${ROOT_NAME}-docs-preset`, FILE_TREE);
+    await mockBrowserApis(page, `${ROOT_NAME}-docs-preset`, DOCS_FILE_TREE);
     await page.goto('/');
     await waitForAppLoad(page);
 
     await resetAppState(page);
+    await page.reload();
+    await waitForAppLoad(page);
+    await clearPersistedExplorerIncludeFilters(page);
     await page.reload();
     await waitForAppLoad(page);
 
@@ -215,7 +423,7 @@ test.describe('Database import and backfill (web)', () => {
     await ensureDatabasePanelVisible(page);
     await openImportSettings(page);
 
-    await page.getByRole('button', { name: /^Docs/ }).click();
+    await chooseChunkingPreset(page, /^Docs/, 'docs');
     await expect(page.getByText('Preset linked')).toBeVisible({ timeout: 15_000 });
     await expect(
       page.getByText('Keeps related heading families together for guides and docs.')
@@ -226,6 +434,7 @@ test.describe('Database import and backfill (web)', () => {
         timeout: 15_000,
       })
       .toEqual({
+        enableChunking: true,
         chunkingPreset: 'docs',
         chunkingStrategy: 'semantic-markdown',
       });

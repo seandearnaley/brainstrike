@@ -28,6 +28,9 @@ export function createBrowserEmbeddingQueue(
       'Embedding queue requires Web Workers; this environment does not support them.'
     );
   }
+  if (!(typeof options.worker?.workerUrl === 'string' && options.worker.workerUrl.length > 0)) {
+    throw new Error('createBrowserEmbeddingQueue requires an explicit worker.workerUrl.');
+  }
   return createWorkerpoolAdapter(options.worker);
 }
 

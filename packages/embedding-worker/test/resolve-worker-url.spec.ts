@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveEmbeddingWorkerUrl } from '../src';
+import { resolveEmbeddingWorkerUrl, resolveEmbeddingWorkerUrlHref } from '../src/worker-url';
 
 const setImportMetaOverride = (value: unknown) => {
   (globalThis as { __BRAINSTRIKE_IMPORT_META__?: unknown }).__BRAINSTRIKE_IMPORT_META__ = value;
@@ -44,5 +44,11 @@ describe('resolveEmbeddingWorkerUrl override paths', () => {
     expect(() => resolveEmbeddingWorkerUrl()).toThrow('embedding worker URL');
     expect(() => resolveEmbeddingWorkerUrl()).toThrow('import.meta');
     expect(() => resolveEmbeddingWorkerUrl()).toThrow('ESM');
+  });
+
+  it('resolves href strings consistently from import.meta overrides', () => {
+    setImportMetaOverride({ url: 'file:///tmp/embedding/index.ts' });
+
+    expect(resolveEmbeddingWorkerUrlHref()).toBe('file:///tmp/embedding/embedding.worker.ts');
   });
 });

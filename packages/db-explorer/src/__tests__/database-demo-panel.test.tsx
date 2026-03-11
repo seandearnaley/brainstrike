@@ -426,6 +426,8 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Chunking Studio')).toBeInTheDocument();
+        expect(screen.getByText('Routing plan')).toBeInTheDocument();
+        expect(screen.getByText('Code module')).toBeInTheDocument();
         // Factory Reset was moved to global Preferences; it should not appear in Import Settings
         expect(screen.queryByText('Factory Reset')).not.toBeInTheDocument();
       });

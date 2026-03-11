@@ -90,9 +90,16 @@ export interface ChunkBatchRequest {
 }
 
 /**
+ * Request the worker to confirm it finished bootstrapping and can accept work.
+ */
+export interface InitRequest {
+  type: 'init';
+}
+
+/**
  * All possible messages from main thread to worker.
  */
-export type WorkerRequest = ChunkRequest | ChunkBatchRequest;
+export type WorkerRequest = ChunkRequest | ChunkBatchRequest | InitRequest;
 
 // ============================================================================
 // Worker Response Types (Worker → Main Thread)

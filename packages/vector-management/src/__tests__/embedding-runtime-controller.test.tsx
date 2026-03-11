@@ -2,6 +2,11 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEmbeddingRuntimeController } from '../vector-status/embedding-runtime-controller';
 
+const { getRegisteredEmbeddingRuntimeConfigMock, startEmbeddingWorkerMock } = vi.hoisted(() => ({
+  getRegisteredEmbeddingRuntimeConfigMock: vi.fn(),
+  startEmbeddingWorkerMock: vi.fn(),
+}));
+
 const { enqueueBackfillMock, ensureStartedMock, getStatusMock, onStatusMock, stopMock } =
   vi.hoisted(() => ({
     enqueueBackfillMock: vi.fn(),
@@ -12,12 +17,17 @@ const { enqueueBackfillMock, ensureStartedMock, getStatusMock, onStatusMock, sto
   }));
 
 vi.mock('@brainstrike/embeddings', () => ({
-  startEmbeddingWorker: vi.fn(),
+  getRegisteredEmbeddingRuntimeConfig: getRegisteredEmbeddingRuntimeConfigMock,
+  startEmbeddingWorker: startEmbeddingWorkerMock,
 }));
 
 describe('useEmbeddingRuntimeController', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    startEmbeddingWorkerMock.mockResolvedValue({ stop: vi.fn(async () => {}) });
+    getRegisteredEmbeddingRuntimeConfigMock.mockReturnValue({
+      streamingWorkerUrl: '/worker/embedding.worker.js',
+    });
 
     const runningStatus = {
       runtimeKind: 'embedding-host' as const,
@@ -51,6 +61,11 @@ describe('useEmbeddingRuntimeController', () => {
       },
     });
   });
+
+  function clearDesktopHostBridge(): void {
+    Reflect.deleteProperty(window, 'electronAPI');
+    Reflect.deleteProperty(window, 'embeddingHost');
+  }
 
   it('resets the desktop host before backfill when runtime settings have not been synced', async () => {
     const { result } = renderHook(() =>
@@ -123,5 +138,53 @@ describe('useEmbeddingRuntimeController', () => {
     expect(stopMock).toHaveBeenCalledTimes(2);
     expect(ensureStartedMock).toHaveBeenCalledTimes(2);
     expect(enqueueBackfillMock).toHaveBeenNthCalledWith(2, 'set-2');
+  });
+
+  it('passes the registered streaming worker URL when starting the local web worker', async () => {
+    clearDesktopHostBridge();
+
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        db,
+        device: 'wasm',
+        enable: true,
+        reinitEveryN: 200,
+        streamingWorkerUrl: '/worker/embedding.worker.js',
+      })
+    );
+  });
+
+  it('fails fast when local web worker runtime config is not registered', async () => {
+    clearDesktopHostBridge();
+    getRegisteredEmbeddingRuntimeConfigMock.mockReturnValue(null);
+
+    const db = { query: vi.fn(async () => ({ rows: [] })) };
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await expect(act(async () => await result.current.start())).rejects.toThrow(
+      'Embedding runtime config is not registered'
+    );
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
   });
 });

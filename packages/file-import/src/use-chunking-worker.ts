@@ -17,6 +17,7 @@ import {
 import { resolveChunkingWorkerUrl } from './resolve-chunking-worker-url';
 
 const logger = createLogger('useChunkingWorker');
+const CHUNKING_WORKER_READY_TIMEOUT_MS = 30_000;
 
 // ============================================================================
 // MODULE-LEVEL SINGLETON - Initializes when module loads, not in React
@@ -104,11 +105,13 @@ async function initializeSingleton(): Promise<void> {
       const port = createChunkingWorkerPort(worker);
       singletonPort = port;
 
-      // CRITICAL: Set error after 10s if worker is not ready - no silent failures
+      // Cold-starting the chunking worker can legitimately take longer than a normal
+      // UI interaction because the worker bundle is large and parsed off-thread.
+      // Use a deterministic but generous timeout so we fail only on a real hang.
       setTimeout(() => {
         if (!(singletonReady || singletonError)) {
           const errorDetails = {
-            message: 'Chunking worker failed to become ready within 10 seconds',
+            message: `Chunking worker failed to become ready within ${CHUNKING_WORKER_READY_TIMEOUT_MS / 1000} seconds`,
             workerUrl,
             workerExists: !!singletonWorker,
             portExists: !!singletonPort,
@@ -133,7 +136,7 @@ async function initializeSingleton(): Promise<void> {
           (singletonError as Error & { details?: typeof errorDetails }).details = errorDetails;
           notifyListeners();
         }
-      }, 10_000);
+      }, CHUNKING_WORKER_READY_TIMEOUT_MS);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to initialize worker';
       logger.error('Failed to initialize chunking worker singleton', { error: errorMsg });
@@ -293,7 +296,7 @@ export async function createStandaloneChunkingWorker(): Promise<{
       const timeout = setTimeout(() => {
         cleanup();
         reject(new Error('Worker ready timeout'));
-      }, 10_000);
+      }, CHUNKING_WORKER_READY_TIMEOUT_MS);
 
       worker.addEventListener('message', onMessage);
     });
