@@ -8,7 +8,7 @@ import {
   Label,
   Switch,
 } from '@brainstrike/ui';
-import { supportsAccurateTokenCounting } from '@brainstrike/utils';
+import { supportsAccurateTokenCountingLazy } from '@brainstrike/utils';
 import { AlertTriangle, CheckCircle2, Loader2, MinusCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
@@ -69,7 +69,7 @@ export function TokenCountingSettingsSection() {
     }
 
     let cancelled = false;
-    supportsAccurateTokenCounting()
+    supportsAccurateTokenCountingLazy()
       .then((supported) => {
         if (!cancelled) {
           setResolvedStatus({ for: accurateCounting, status: supported ? 'accurate' : 'fallback' });

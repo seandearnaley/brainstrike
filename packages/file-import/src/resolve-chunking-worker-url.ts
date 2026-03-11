@@ -1,36 +1,40 @@
-/**
- * Resolve the chunking worker URL.
- *
- * This follows the same pattern as token-cache's resolve-worker-url.ts.
- * The worker is built by @brainstrike/chunking-worker and we reference it directly.
- *
- * IMPORTANT: This file must be in the same package that uses the worker
- * to ensure import.meta.url resolves correctly when bundled.
- */
-
-import { resolveChunkingWorkerUrl as resolveChunkingWorkerUrlFromPackage } from '@brainstrike/chunking-worker';
 import { createLogger } from '@brainstrike/utils';
+import chunkingWorkerUrlHref from '../../chunking-worker/src/chunking.worker.ts?worker&url';
 
 const logger = createLogger('resolveChunkingWorkerUrl');
+
+type ChunkingWorkerUrlFactory = () => string;
+
+function resolveBaseUrl(): string {
+  if (typeof window !== 'undefined' && typeof window.location?.href === 'string') {
+    return window.location.href;
+  }
+  return import.meta.url;
+}
+
+function createWorkspaceChunkingWorkerUrl(urlFactory: ChunkingWorkerUrlFactory): URL {
+  return new URL(urlFactory(), resolveBaseUrl());
+}
 
 /**
  * Resolve the chunking worker URL that Vite/bundlers can turn into a Worker reference at runtime.
  * The `new URL(..., import.meta.url)` pattern is the MDN-recommended approach for bundlers.
  *
- * We keep a static import to preserve bundler worker-asset rewriting in built Electron/web
- * environments. Dynamic import here caused built desktop chunking-host worker startup failures.
- *
- * CRITICAL: Do not add a direct-path fallback here.
- * A production `file://.../dist/...` fallback in non-packaged dev has repeatedly
- * broken module worker loading and caused chunking regressions.
+ * This intentionally resolves the source worker entry from the workspace instead of
+ * delegating to the built package helper. The app bundlers must own the entire worker graph
+ * so split worker chunks are emitted alongside the worker entry. Resolving the already-built
+ * package asset only emitted the worker entry and dropped its sibling chunks, which broke
+ * desktop worker startup after chunk splitting.
  */
-export async function resolveChunkingWorkerUrl(): Promise<URL> {
+export async function resolveChunkingWorkerUrl(
+  urlFactory: ChunkingWorkerUrlFactory = () => chunkingWorkerUrlHref
+): Promise<URL> {
   try {
-    const url = resolveChunkingWorkerUrlFromPackage();
-    logger.debug('Resolved chunking worker URL from package', { url: url.href });
+    const url = createWorkspaceChunkingWorkerUrl(urlFactory);
+    logger.debug('Resolved chunking worker URL from workspace source', { url: url.href });
     return url;
   } catch (error) {
-    logger.error('Failed to resolve @brainstrike/chunking-worker URL', {
+    logger.error('Failed to resolve chunking worker URL from workspace source', {
       error: error instanceof Error ? error.message : String(error),
     });
     throw new Error(

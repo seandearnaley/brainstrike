@@ -1,8 +1,8 @@
 import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
 import {
-  countTokensAccurate,
-  countTokensHeuristic,
-  supportsAccurateTokenCounting,
+  countTokensAccurateLazy,
+  countTokensHeuristicLazy,
+  supportsAccurateTokenCountingLazy,
 } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -20,7 +20,7 @@ let runtimeSupportPromise: Promise<boolean> | null = null;
 
 async function resolveRuntimeSupport(): Promise<boolean> {
   if (!runtimeSupportPromise) {
-    runtimeSupportPromise = supportsAccurateTokenCounting();
+    runtimeSupportPromise = supportsAccurateTokenCountingLazy();
   }
   return runtimeSupportPromise;
 }
@@ -77,9 +77,9 @@ export function useTokenCounting(): TokenCountingState {
   const countTokens = useCallback(
     async (content: string) => {
       if (!accuratePreference) {
-        return countTokensHeuristic(content);
+        return countTokensHeuristicLazy(content);
       }
-      return countTokensAccurate(content);
+      return countTokensAccurateLazy(content);
     },
     [accuratePreference]
   );

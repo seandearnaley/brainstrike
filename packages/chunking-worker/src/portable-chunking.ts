@@ -3,7 +3,6 @@
  * Extracted from @brainstrike/db ChunkingService, removing all database dependencies.
  */
 
-import { type ParserPlugin, parse } from '@babel/parser';
 import {
   type ChunkingStrategy,
   RecursiveTextSplitter,
@@ -13,7 +12,6 @@ import {
 } from '@brainstrike/text-splitter';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
-import { countTokensAccurate, countTokensHeuristic } from './token-utils-lite';
 
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
@@ -79,6 +77,37 @@ type AstNode = {
   start?: number;
   end?: number;
 } & Record<string, unknown>;
+
+type ParserPlugin =
+  | 'classProperties'
+  | 'classPrivateProperties'
+  | 'classPrivateMethods'
+  | 'decorators-legacy'
+  | 'dynamicImport'
+  | 'importAttributes'
+  | 'topLevelAwait'
+  | 'jsx'
+  | 'typescript';
+
+type BabelParserModule = typeof import('@babel/parser');
+type TokenUtilsLiteModule = typeof import('./token-utils-lite');
+
+let babelParserModulePromise: Promise<BabelParserModule> | null = null;
+let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
+
+async function loadBabelParserModule(): Promise<BabelParserModule> {
+  if (!babelParserModulePromise) {
+    babelParserModulePromise = import('@babel/parser');
+  }
+  return babelParserModulePromise;
+}
+
+async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
+  if (!tokenUtilsLiteModulePromise) {
+    tokenUtilsLiteModulePromise = import('./token-utils-lite');
+  }
+  return tokenUtilsLiteModulePromise;
+}
 
 function detectCodeLanguage(fileName: string): CodeLanguage | null {
   const name = fileName.toLowerCase();
@@ -289,7 +318,9 @@ function estimateTokenCount(text: string): number {
 
 async function computeCharsPerToken(content: string, useAccurate: boolean): Promise<number> {
   const sample = content.slice(0, Math.min(10_000, content.length));
-  const tokens = useAccurate ? await countTokensAccurate(sample) : countTokensHeuristic(sample);
+  const tokens = useAccurate
+    ? await (await loadTokenUtilsLiteModule()).countTokensAccurate(sample)
+    : estimateTokenCount(sample);
   if (Number.isFinite(tokens) && tokens > 0) {
     const measured = sample.length / tokens;
     return Math.max(1, Math.min(8, measured));
@@ -462,6 +493,7 @@ async function splitCodeByFunctions(
     separators,
   }: { maxChars: number; overlapChars: number; language: CodeLanguage | null; separators: string[] }
 ): Promise<string[] | null> {
+  const { parse } = await loadBabelParserModule();
   const plugins: ParserPlugin[] = [
     'classProperties',
     'classPrivateProperties',
@@ -855,7 +887,9 @@ export async function chunkContent(
         continue;
       }
 
-      const tokenCount = useTokenTrueSizing ? await countTokensAccurate(c) : estimateTokenCount(c);
+      const tokenCount = useTokenTrueSizing
+        ? await (await loadTokenUtilsLiteModule()).countTokensAccurate(c)
+        : estimateTokenCount(c);
 
       // Handle oversized chunks - reuse splitter, use estimates for sub-chunks
       if (tokenCount > maxSafeTokens) {

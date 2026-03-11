@@ -39,6 +39,7 @@ let nodeEncoderPromise: Promise<EncodeFn | null> | null = null;
 let browserEncoderPromise: Promise<EncodeFn | null> | null = null;
 let loadFailureLogged = false;
 let lastEncoderFailureReason: string | null = null;
+const NODE_TIKTOKEN_SPECIFIER = 'tiktoken';
 
 /**
  * IMPORTANT:
@@ -298,7 +299,10 @@ async function loadNodeEncoder(): Promise<EncodeFn | null> {
   if (!nodeEncoderPromise) {
     nodeEncoderPromise = (async () => {
       try {
-        const mod = (await import('tiktoken')) as Record<string, unknown>;
+        const mod = (await import(/* @vite-ignore */ NODE_TIKTOKEN_SPECIFIER)) as Record<
+          string,
+          unknown
+        >;
         return createNodeEncoder(mod);
       } catch (error) {
         logOnce('Failed to load tiktoken (node)', error);

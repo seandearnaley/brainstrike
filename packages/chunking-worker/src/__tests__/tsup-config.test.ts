@@ -7,4 +7,8 @@ describe('chunking worker tsup config', () => {
     expect(noExternal).toContain('@brainstrike/text-splitter');
     expect(noExternal).toContain('tiktoken');
   });
+
+  it('allows the worker bundle to split lazy-loaded heavy dependencies', () => {
+    expect(config.splitting).toBe(true);
+  });
 });

@@ -3,7 +3,7 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: ['src/index.ts', 'src/chunking.worker.ts'],
   format: ['esm'],
-  splitting: false,
+  splitting: true,
   sourcemap: false,
   dts: true,
   outDir: 'dist',

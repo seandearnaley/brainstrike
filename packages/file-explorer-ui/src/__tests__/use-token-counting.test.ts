@@ -4,9 +4,10 @@ import {
   useTokenPreferencesStore,
 } from '@brainstrike/preferences';
 import {
-  countTokensAccurate,
-  countTokensHeuristic,
-  supportsAccurateTokenCounting,
+  __resetTokenCountingRuntimeModuleForTests,
+  countTokensAccurateLazy,
+  countTokensHeuristicLazy,
+  supportsAccurateTokenCountingLazy,
 } from '@brainstrike/utils';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,20 +17,21 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();
   return {
     ...actual,
-    supportsAccurateTokenCounting: vi.fn(),
-    countTokensAccurate: vi.fn(),
-    countTokensHeuristic: vi.fn(),
+    supportsAccurateTokenCountingLazy: vi.fn(),
+    countTokensAccurateLazy: vi.fn(),
+    countTokensHeuristicLazy: vi.fn(),
   };
 });
 
-const mockedSupports = vi.mocked(supportsAccurateTokenCounting);
-const mockedAccurate = vi.mocked(countTokensAccurate);
-const mockedHeuristic = vi.mocked(countTokensHeuristic);
+const mockedSupports = vi.mocked(supportsAccurateTokenCountingLazy);
+const mockedAccurate = vi.mocked(countTokensAccurateLazy);
+const mockedHeuristic = vi.mocked(countTokensHeuristicLazy);
 
 describe('useTokenCounting', () => {
   beforeEach(() => {
     __resetTokenPreferencesStoreForTests();
     __resetTokenCountingRuntimeCacheForTests();
+    __resetTokenCountingRuntimeModuleForTests();
     vi.clearAllMocks();
     mockedHeuristic.mockImplementation((text: string) => text.length);
     mockedAccurate.mockResolvedValue(0);

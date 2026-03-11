@@ -13,7 +13,7 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();
   return {
     ...actual,
-    supportsAccurateTokenCounting: vi.fn(() => Promise.resolve(true)),
+    supportsAccurateTokenCountingLazy: vi.fn(() => Promise.resolve(true)),
   };
 });
 
@@ -35,7 +35,7 @@ describe('TokenCountingSettingsSection', () => {
 
   it('renders fallback status when runtime does not support WASM tokenizer', async () => {
     const utilsModule = vi.mocked(await import('@brainstrike/utils'));
-    utilsModule.supportsAccurateTokenCounting.mockResolvedValue(false);
+    utilsModule.supportsAccurateTokenCountingLazy.mockResolvedValue(false);
 
     render(<TokenCountingSettingsSection />);
 
@@ -45,7 +45,7 @@ describe('TokenCountingSettingsSection', () => {
 
   it('disables accurate counting via toggle', async () => {
     const utilsModule = vi.mocked(await import('@brainstrike/utils'));
-    utilsModule.supportsAccurateTokenCounting.mockResolvedValue(true);
+    utilsModule.supportsAccurateTokenCountingLazy.mockResolvedValue(true);
 
     render(<TokenCountingSettingsSection />);
 

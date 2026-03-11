@@ -25,10 +25,17 @@ import type {
   WorkerLog,
   WorkerRequest,
 } from './shared';
-import {
-  getAccurateTokenCountingFailureReason,
-  supportsAccurateTokenCounting,
-} from './token-utils-lite';
+
+type TokenUtilsLiteModule = typeof import('./token-utils-lite');
+
+let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
+
+async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
+  if (!tokenUtilsLiteModulePromise) {
+    tokenUtilsLiteModulePromise = import('./token-utils-lite');
+  }
+  return tokenUtilsLiteModulePromise;
+}
 
 // ============================================================================
 // Constants
@@ -367,9 +374,10 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
     (request) => request.options.tokenTrueSizing === true
   );
   if (requiresAccurateTokenSizing) {
-    const accurateSupported = await supportsAccurateTokenCounting();
+    const tokenUtilsLiteModule = await loadTokenUtilsLiteModule();
+    const accurateSupported = await tokenUtilsLiteModule.supportsAccurateTokenCounting();
     if (!accurateSupported) {
-      const failureReason = getAccurateTokenCountingFailureReason();
+      const failureReason = tokenUtilsLiteModule.getAccurateTokenCountingFailureReason();
       const failureSuffix = failureReason ? ` (${failureReason})` : '';
       const firstRequest = requests[0];
       self.postMessage({
@@ -476,9 +484,10 @@ async function handleChunkRequestMessage(message: ChunkRequest): Promise<void> {
   }
 
   if (message.options.tokenTrueSizing === true) {
-    const accurateSupported = await supportsAccurateTokenCounting();
+    const tokenUtilsLiteModule = await loadTokenUtilsLiteModule();
+    const accurateSupported = await tokenUtilsLiteModule.supportsAccurateTokenCounting();
     if (!accurateSupported) {
-      const failureReason = getAccurateTokenCountingFailureReason();
+      const failureReason = tokenUtilsLiteModule.getAccurateTokenCountingFailureReason();
       const failureSuffix = failureReason ? ` (${failureReason})` : '';
       postChunkError(
         message.id,
