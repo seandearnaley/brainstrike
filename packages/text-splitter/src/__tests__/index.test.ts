@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   getChunkingPreset,
   getChunkingPresetDefinitions,
+  isChunkingStrategy,
+  isResolvedChunkingStrategy,
   RecursiveTextSplitter,
   resolveChunkingStrategyForFile,
   splitTextByStrategy,
@@ -142,6 +144,14 @@ describe('@brainstrike/text-splitter', () => {
     expect(presets).toHaveLength(6);
     expect(presets.find((preset) => preset.isDefault)?.id).toBe('balanced');
     expect(getChunkingPreset('docs').strategy).toBe('semantic-markdown');
+  });
+
+  it('recognizes canonical chunking strategies', () => {
+    expect(isResolvedChunkingStrategy('markdown')).toBe(true);
+    expect(isResolvedChunkingStrategy('auto')).toBe(false);
+    expect(isChunkingStrategy('auto')).toBe(true);
+    expect(isChunkingStrategy('semantic-markdown')).toBe(true);
+    expect(isChunkingStrategy('bogus')).toBe(false);
   });
 
   it('resolves auto strategy from file extension', () => {

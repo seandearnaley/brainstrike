@@ -71,7 +71,29 @@ const CODE_EXTENSIONS = new Set([
   'svelte',
 ]);
 
+const RESOLVED_CHUNKING_STRATEGIES = new Set<ResolvedChunkingStrategy>([
+  'character',
+  'recursive',
+  'token',
+  'markdown',
+  'semantic-markdown',
+  'html',
+  'json',
+  'latex',
+  'sentence',
+]);
+
 const DEFAULT_SEPARATORS = ['\n\n', '\n', ' ', ''];
+
+export function isResolvedChunkingStrategy(value: unknown): value is ResolvedChunkingStrategy {
+  return (
+    typeof value === 'string' && RESOLVED_CHUNKING_STRATEGIES.has(value as ResolvedChunkingStrategy)
+  );
+}
+
+export function isChunkingStrategy(value: unknown): value is ChunkingStrategy {
+  return value === 'auto' || isResolvedChunkingStrategy(value);
+}
 
 const CHUNKING_PRESETS: readonly ChunkingPresetDefinition[] = [
   {

@@ -14,11 +14,11 @@
 
 /// <reference lib="webworker" />
 
+import { isChunkBatchRequest, isChunkRequest } from './message-validation';
 import { chunkContent, type PortableChunkingResult } from './portable-chunking';
 import type {
   ChunkBatchRequest,
   ChunkError,
-  ChunkingRequestOptions,
   ChunkProgress,
   ChunkRequest,
   ChunkResult,
@@ -54,39 +54,6 @@ const MAX_CONTENT_SIZE = 100_000_000;
 // ============================================================================
 
 /**
- * Validate that options object has the required structure for chunking.
- */
-function isChunkingRequestOptions(value: unknown): value is ChunkingRequestOptions {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const obj = value as Record<string, unknown>;
-  const strategy = obj['strategy'];
-  // strategy is required
-  return strategy === 'sentence' || strategy === 'token' || strategy === 'recursive';
-}
-
-/**
- * Validate incoming chunk request structure before processing.
- * Prevents crashes from malformed or corrupted messages.
- */
-function isChunkRequest(value: unknown): value is ChunkRequest {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const msg = value as Record<string, unknown>;
-  return (
-    msg['type'] === 'chunk' &&
-    typeof msg['id'] === 'string' &&
-    typeof msg['fileRecordId'] === 'string' &&
-    typeof msg['content'] === 'string' &&
-    typeof msg['fileName'] === 'string' &&
-    typeof msg['filePath'] === 'string' &&
-    isChunkingRequestOptions(msg['options'])
-  );
-}
-
-/**
  * Validate content size to prevent OOM from oversized files.
  * Returns an error message if content exceeds the limit, null otherwise.
  */
@@ -95,37 +62,6 @@ function validateContentSize(content: string, fileRecordId: string): string | nu
     return `Content exceeds maximum size (${content.length} bytes > ${MAX_CONTENT_SIZE} bytes) for file ${fileRecordId}`;
   }
   return null;
-}
-
-/**
- * Validate incoming batch request structure.
- */
-function isChunkBatchRequest(value: unknown): value is ChunkBatchRequest {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const msg = value as Record<string, unknown>;
-  if (msg['type'] !== 'chunk-batch' || !Array.isArray(msg['requests'])) {
-    return false;
-  }
-  // Validate each request in the batch (except 'type' field which isn't required)
-  for (const req of msg['requests']) {
-    if (typeof req !== 'object' || req === null) {
-      return false;
-    }
-    const r = req as Record<string, unknown>;
-    if (
-      typeof r['id'] !== 'string' ||
-      typeof r['fileRecordId'] !== 'string' ||
-      typeof r['content'] !== 'string' ||
-      typeof r['fileName'] !== 'string' ||
-      typeof r['filePath'] !== 'string' ||
-      !isChunkingRequestOptions(r['options'])
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
