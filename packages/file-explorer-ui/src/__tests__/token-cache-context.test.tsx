@@ -21,7 +21,6 @@ vi.mock('@brainstrike/token-cache', () => ({
       terminate: vi.fn().mockResolvedValue(undefined),
     })
   ),
-  resolveTokenCacheWorkerUrl: vi.fn(() => new URL('file:///mock-worker.js')),
   FileHasher: class {
     init = vi.fn().mockResolvedValue(undefined);
   },
@@ -43,6 +42,10 @@ vi.mock('@brainstrike/token-cache', () => ({
     updateFileSizeCache: vi.fn(),
     cacheVersion: 1,
   })),
+}));
+
+vi.mock('../resolve-token-cache-worker-url', () => ({
+  resolveTokenCacheWorkerUrlHref: vi.fn(() => 'file:///mock-worker.js'),
 }));
 
 describe('TokenCacheContext', () => {

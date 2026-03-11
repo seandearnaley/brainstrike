@@ -23,6 +23,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
 import { useOptionalFileTreeIndexContext } from './file-tree-provider';
+import { resolveBackgroundIndexerWorkerUrlHref } from './resolve-token-cache-worker-url';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
@@ -494,6 +495,7 @@ export function useBackgroundTokenIndexerIntegration({
     mode: tokenCache?.countingMode ?? 'heuristic',
     onFileIndexed: handleFileIndexed,
     onFileError: handleFileError,
+    workerUrl: resolveBackgroundIndexerWorkerUrlHref(),
   });
 
   // Stable ref for backgroundIndexer to avoid callback instability

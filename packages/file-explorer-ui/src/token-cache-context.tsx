@@ -22,7 +22,6 @@ import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrik
 import {
   createTokenCacheWorkerPool,
   FileHasher,
-  resolveTokenCacheWorkerUrl,
   type TokenCacheEntry,
   TokenCacheStore,
   type TokenCountingMode,
@@ -42,6 +41,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { resolveTokenCacheWorkerUrlHref } from './resolve-token-cache-worker-url';
 
 const logger = createLogger('TokenCacheContext');
 
@@ -112,7 +112,7 @@ export function __resetTokenCacheWorkerInitErrorsForTests(): void {
 }
 
 function getResolvedTokenCacheWorkerUrl(workerUrl: string | undefined): string {
-  return workerUrl ?? resolveTokenCacheWorkerUrl().href;
+  return workerUrl ?? resolveTokenCacheWorkerUrlHref();
 }
 
 function buildTokenCacheWarmupError(attempts: number, lastError: Error | null): Error {
