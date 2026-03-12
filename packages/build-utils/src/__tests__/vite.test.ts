@@ -8,6 +8,7 @@ const {
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
+  getDatabaseOptimizeDepsInclude,
   resolveAssistantVendorChunk,
 } = await import('../vite');
 
@@ -37,18 +38,30 @@ describe('findPGliteWasm', () => {
 });
 
 describe('assistant vite helpers', () => {
-  test('returns the complete assistant optimize-deps include list', () => {
-    expect(getAssistantOptimizeDepsInclude()).toEqual(
+  test('returns resolved assistant optimize-deps entries', () => {
+    const entries = getAssistantOptimizeDepsInclude();
+
+    expect(entries).toEqual(
       expect.arrayContaining([
-        '@assistant-ui/react',
-        '@assistant-ui/react-data-stream',
-        '@assistant-ui/react-markdown',
-        '@assistant-ui/styles',
-        'react-shiki/core',
-        'remark-gfm',
-        'shiki/wasm',
-        '@shikijs/themes/github-light',
-        '@shikijs/langs/typescript',
+        expect.stringContaining('/@assistant-ui/react/'),
+        expect.stringContaining('/@assistant-ui/react-data-stream/'),
+        expect.stringContaining('/@assistant-ui/react-markdown/'),
+        expect.stringContaining('/react-shiki/'),
+        expect.stringContaining('/remark-gfm/'),
+        expect.stringContaining('/shiki/'),
+        expect.stringContaining('/@shikijs/themes/'),
+        expect.stringContaining('/@shikijs/langs/'),
+      ])
+    );
+    expect(entries.some((entry) => entry.includes('@assistant-ui/styles'))).toBe(false);
+  });
+
+  test('returns resolved database lazy-panel optimize-deps entries', () => {
+    expect(getDatabaseOptimizeDepsInclude()).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('/jszip/'),
+        expect.stringContaining('/file-saver/'),
+        expect.stringContaining('/react-resizable-panels/'),
       ])
     );
   });

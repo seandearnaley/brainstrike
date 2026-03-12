@@ -29,6 +29,7 @@ const {
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
+  getDatabaseOptimizeDepsInclude,
   resolveAssistantVendorChunk,
 } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
@@ -251,6 +252,7 @@ export default defineConfig({
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues
       ...getAssistantOptimizeDepsInclude(),
+      ...getDatabaseOptimizeDepsInclude(),
     ],
     esbuildOptions: {
       define: {

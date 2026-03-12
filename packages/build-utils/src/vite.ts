@@ -1,5 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createLogger, isCompilerHotspot } from '@brainstrike/utils';
 import type { HmrContext, Plugin } from 'vite';
 
@@ -25,7 +27,6 @@ const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
   '@assistant-ui/react',
   '@assistant-ui/react-data-stream',
   '@assistant-ui/react-markdown',
-  '@assistant-ui/styles',
   'react-shiki/core',
   'remark-gfm',
   'shiki/wasm',
@@ -49,6 +50,24 @@ const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
   '@shikijs/langs/yaml',
 ] as const;
 
+const DATABASE_OPTIMIZE_DEPS_INCLUDE = ['jszip', 'file-saver', 'react-resizable-panels'] as const;
+
+const moduleDir =
+  typeof import.meta.dirname === 'string'
+    ? import.meta.dirname
+    : path.dirname(fileURLToPath(import.meta.url));
+const uiPackageRequire = createRequire(path.resolve(moduleDir, '..', '..', 'ui', 'package.json'));
+const dbExplorerPackageRequire = createRequire(
+  path.resolve(moduleDir, '..', '..', 'db-explorer', 'package.json')
+);
+
+function resolveOptimizeDepEntries(
+  packageRequire: NodeJS.Require,
+  specifiers: readonly string[]
+): readonly string[] {
+  return specifiers.map((specifier) => packageRequire.resolve(specifier));
+}
+
 export function resolveAssistantVendorChunk(
   id: string
 ): 'assistant-markdown-vendor' | 'assistant-vendor' | undefined {
@@ -64,7 +83,11 @@ export function resolveAssistantVendorChunk(
 }
 
 export function getAssistantOptimizeDepsInclude(): readonly string[] {
-  return ASSISTANT_OPTIMIZE_DEPS_INCLUDE;
+  return resolveOptimizeDepEntries(uiPackageRequire, ASSISTANT_OPTIMIZE_DEPS_INCLUDE);
+}
+
+export function getDatabaseOptimizeDepsInclude(): readonly string[] {
+  return resolveOptimizeDepEntries(dbExplorerPackageRequire, DATABASE_OPTIMIZE_DEPS_INCLUDE);
 }
 
 export function findPGliteWasm(baseDir: string): string | null {

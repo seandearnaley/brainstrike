@@ -244,6 +244,25 @@ test.describe('Database Persistence', () => {
     throw new Error('Neither success panel nor error panel is visible');
   });
 
+  test('opening database panel does not reload the visible renderer', async ({ window }) => {
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+    const activeWindow = await showDatabaseDemoPanel(window);
+
+    await expect
+      .poll(async () => activeWindow.evaluate(() => performance.timeOrigin), {
+        timeout: 10_000,
+        message: 'Opening the database panel should not reload the visible renderer',
+      })
+      .toBe(initialTimeOrigin);
+
+    await expect(
+      activeWindow
+        .locator('[data-testid="database-demo-panel"]')
+        .or(activeWindow.locator('[data-testid="db-init-error"]'))
+        .first()
+    ).toBeVisible({ timeout: 15_000 });
+  });
+
   test('should show correct database location info', async ({ window }) => {
     const activeWindow = await ensureDatabasePanel(window);
 
