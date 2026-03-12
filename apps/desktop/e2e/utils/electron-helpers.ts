@@ -185,7 +185,7 @@ export async function launchElectronApp(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     verboseLog(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
-    await killLingeringElectronProcesses();
+    await killLingeringElectronProcesses(userDataDir);
 
     const launchOptions = createLaunchOptions(
       electronPath,
@@ -213,17 +213,40 @@ export async function launchElectronApp(
 }
 
 // a Helper to kill lingering Electron processes that might be holding ports
-async function killLingeringElectronProcesses(): Promise<void> {
+async function killLingeringElectronProcesses(userDataDir?: string): Promise<void> {
   try {
+    const escapedUserDataDir = userDataDir?.replace(/'/gu, `'\\''`);
     if (process.platform === 'darwin') {
-      // macOS: Kill Electron processes that might be lingering
-      execSync("pkill -9 -f 'Electron.*--test-mode' || true", { stdio: 'ignore' });
+      if (escapedUserDataDir) {
+        execSync(
+          `pkill -9 -f "Electron.*--test-mode.*--user-data-dir=${escapedUserDataDir}" || true`,
+          {
+            stdio: 'ignore',
+          }
+        );
+      } else {
+        execSync("pkill -9 -f 'Electron.*--test-mode' || true", { stdio: 'ignore' });
+      }
     } else if (process.platform === 'linux') {
-      // Linux: Similar approach
-      execSync("pkill -9 -f 'electron.*--test-mode' || true", { stdio: 'ignore' });
+      if (escapedUserDataDir) {
+        execSync(
+          `pkill -9 -f "electron.*--test-mode.*--user-data-dir=${escapedUserDataDir}" || true`,
+          {
+            stdio: 'ignore',
+          }
+        );
+      } else {
+        execSync("pkill -9 -f 'electron.*--test-mode' || true", { stdio: 'ignore' });
+      }
     } else if (process.platform === 'win32') {
-      // Windows: Use taskkill
-      execSync('taskkill /F /IM electron.exe /T 2>nul || exit 0', { stdio: 'ignore' });
+      if (userDataDir) {
+        execSync(
+          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.CommandLine -like '*--test-mode*' -and $_.CommandLine -like '*--user-data-dir=${userDataDir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`,
+          { stdio: 'ignore' }
+        );
+      } else {
+        execSync('taskkill /F /IM electron.exe /T 2>nul || exit 0', { stdio: 'ignore' });
+      }
     }
     // Give OS time to release resources
     await new Promise((resolve) => setTimeout(resolve, 500));

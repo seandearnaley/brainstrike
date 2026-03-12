@@ -184,12 +184,13 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
   electron: [
     async ({}, use, workerInfo) => {
       const shardIndex = workerInfo.config.shard?.current ?? 0;
+      const workerIndex = workerInfo.workerIndex;
       const runSalt = getRunSalt();
 
       // NOTE: We no longer use explicit debug ports - Playwright manages CDP automatically.
       // This prevents "Waiting for debugger to disconnect" hangs in CI.
       // We still isolate user data directories per shard to prevent state collisions.
-      const userDataDir = deriveUserDataDir(runSalt, shardIndex);
+      const userDataDir = deriveUserDataDir(runSalt, shardIndex, workerIndex);
 
       const harness = new ElectronHarness(undefined, userDataDir);
       try {
@@ -262,7 +263,15 @@ function getRunSalt(): number {
 // NOTE: deriveDebugPort was removed - Playwright now manages CDP ports automatically
 // to prevent "Waiting for debugger to disconnect" hangs in CI.
 
-function deriveUserDataDir(runSalt: number, shardIndex: number): string | undefined {
+function deriveUserDataDir(
+  runSalt: number,
+  shardIndex: number,
+  workerIndex: number
+): string | undefined {
   const shardSuffix = Number.isInteger(shardIndex) ? shardIndex : 0;
-  return path.join(os.tmpdir(), `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}`);
+  const workerSuffix = Number.isInteger(workerIndex) ? workerIndex : 0;
+  return path.join(
+    os.tmpdir(),
+    `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}-worker-${workerSuffix}`
+  );
 }
