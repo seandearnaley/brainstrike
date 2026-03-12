@@ -3,17 +3,23 @@ import { describe, expect, it, vi } from 'vitest';
 import { useEventCallback } from '../use-event-callback';
 
 describe('useEventCallback', () => {
-  it('returns a function after rerenders', () => {
-    const callback = vi.fn();
+  it('returns a stable function that invokes the initial callback', () => {
+    const callback = vi.fn(() => 42);
     const { result, rerender } = renderHook(() => useEventCallback(callback));
 
-    rerender();
+    const first = result.current;
 
-    // React's native useEffectEvent doesn't guarantee reference equality.
-    // We only care that it successfully captures the latest variables
-    // without triggering dependency arrays (which is implicitly tested
-    // by usage and the next test).
-    expect(typeof result.current).toBe('function');
+    let returnValue: number | undefined;
+    act(() => {
+      returnValue = result.current();
+    });
+
+    expect(returnValue).toBe(42);
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    // Reference identity must be stable across rerenders
+    rerender();
+    expect(result.current).toBe(first);
   });
 
   it('invokes the latest callback after rerender', () => {
