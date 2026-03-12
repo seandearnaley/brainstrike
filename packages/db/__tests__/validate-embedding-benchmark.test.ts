@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrations } from '../src/migrations/index.js';
 import { MigrationRunner } from '../src/migrations/migration-runner.js';
 import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repository.js';
@@ -60,5 +60,12 @@ describe('validateEmbeddingDimensions performance', () => {
 
     console.log(`insertMany took ${end - start}ms`);
     console.log(`Made ${selectQueries} SELECT queries for dimensions`);
+
+    // Batch approach should use at most 1 SELECT query for dimensions (not N per chunk)
+    expect(selectQueries).toBeLessThanOrEqual(1);
+
+    // Verify all chunks were actually inserted
+    const { rows } = await db.query('SELECT count(*)::int AS cnt FROM file_chunks');
+    expect(rows[0].cnt).toBe(50);
   });
 });

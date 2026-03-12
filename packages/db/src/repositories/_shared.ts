@@ -71,51 +71,81 @@ class EmbeddingDimensionCache {
 // Process-local LRU cache with bounded size to prevent memory leaks.
 const embeddingDimensionCache = new EmbeddingDimensionCache(MAX_CACHE_SIZE);
 
+/**
+ * Partition embedding set IDs into cached results and uncached IDs.
+ */
+function partitionCachedIds(ids: string[]): {
+  cached: Map<string, number>;
+  uncachedIds: string[];
+} {
+  const cached = new Map<string, number>();
+  const uncachedIds: string[] = [];
+  for (const id of ids) {
+    const value = embeddingDimensionCache.get(id);
+    if (typeof value === 'number') {
+      cached.set(id, value);
+    } else {
+      uncachedIds.push(id);
+    }
+  }
+  return { cached, uncachedIds };
+}
+
+/**
+ * Parse and validate a raw dimension value from a database row.
+ * Returns the validated dimension or throws on invalid/out-of-range values.
+ */
+function parseAndValidateRowDimension(rowId: string, dimensionsRaw: number | undefined): number {
+  const dimensions = typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw ?? 0);
+  if (!Number.isFinite(dimensions) || dimensions <= 0) {
+    throw new Error(
+      `Embedding set ${rowId} is missing or has invalid dimensions (${dimensionsRaw}).`
+    );
+  }
+  if (dimensions > MAX_EMBEDDING_DIMENSION) {
+    throw new Error(
+      `Embedding set ${rowId} defines ${dimensions} dimensions, exceeding the supported maximum (${MAX_EMBEDDING_DIMENSION}).`
+    );
+  }
+  return dimensions;
+}
+
+/**
+ * Fetch missing embedding set dimensions from the database, validate them,
+ * populate the cache, and merge into the result map.
+ */
+async function fetchAndCacheMissingDimensions(
+  db: Queryable,
+  missingIds: string[],
+  result: Map<string, number>
+): Promise<void> {
+  const queryResult = await db.query<{ id: string; dimensions?: number }>(
+    'SELECT id, dimensions FROM embedding_sets WHERE id = ANY($1)',
+    [missingIds]
+  );
+
+  for (const row of queryResult.rows) {
+    const dimensions = parseAndValidateRowDimension(row.id, row.dimensions);
+    embeddingDimensionCache.set(row.id, dimensions);
+    result.set(row.id, dimensions);
+  }
+
+  for (const id of missingIds) {
+    if (!result.has(id)) {
+      throw new Error(`Embedding set ${id} not found or missing dimensions.`);
+    }
+  }
+}
+
 export async function resolveEmbeddingSetDimensions(
   db: Queryable,
   embeddingSetIds: string[]
 ): Promise<Map<string, number>> {
-  const result = new Map<string, number>();
-  const missingIds: string[] = [];
+  const uniqueIds = [...new Set(embeddingSetIds)];
+  const { cached: result, uncachedIds } = partitionCachedIds(uniqueIds);
 
-  for (const id of embeddingSetIds) {
-    const cached = embeddingDimensionCache.get(id);
-    if (typeof cached === 'number') {
-      result.set(id, cached);
-    } else {
-      missingIds.push(id);
-    }
-  }
-
-  if (missingIds.length > 0) {
-    const queryResult = await db.query<{ id: string; dimensions?: number }>(
-      'SELECT id, dimensions FROM embedding_sets WHERE id = ANY($1)',
-      [missingIds]
-    );
-
-    for (const row of queryResult.rows) {
-      const dimensionsRaw = row.dimensions;
-      const dimensions =
-        typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw ?? 0);
-      if (!Number.isFinite(dimensions) || dimensions <= 0) {
-        throw new Error(
-          `Embedding set ${row.id} is missing or has invalid dimensions (${dimensionsRaw}).`
-        );
-      }
-      if (dimensions > MAX_EMBEDDING_DIMENSION) {
-        throw new Error(
-          `Embedding set ${row.id} defines ${dimensions} dimensions, exceeding the supported maximum (${MAX_EMBEDDING_DIMENSION}).`
-        );
-      }
-      embeddingDimensionCache.set(row.id, dimensions);
-      result.set(row.id, dimensions);
-    }
-
-    for (const id of missingIds) {
-      if (!result.has(id)) {
-        throw new Error(`Embedding set ${id} not found or missing dimensions.`);
-      }
-    }
+  if (uncachedIds.length > 0) {
+    await fetchAndCacheMissingDimensions(db, uncachedIds, result);
   }
 
   return result;
