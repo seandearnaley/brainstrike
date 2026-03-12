@@ -71,6 +71,56 @@ class EmbeddingDimensionCache {
 // Process-local LRU cache with bounded size to prevent memory leaks.
 const embeddingDimensionCache = new EmbeddingDimensionCache(MAX_CACHE_SIZE);
 
+export async function resolveEmbeddingSetDimensions(
+  db: Queryable,
+  embeddingSetIds: string[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const missingIds: string[] = [];
+
+  for (const id of embeddingSetIds) {
+    const cached = embeddingDimensionCache.get(id);
+    if (typeof cached === 'number') {
+      result.set(id, cached);
+    } else {
+      missingIds.push(id);
+    }
+  }
+
+  if (missingIds.length > 0) {
+    const queryResult = await db.query<{ id: string; dimensions?: number }>(
+      'SELECT id, dimensions FROM embedding_sets WHERE id = ANY($1)',
+      [missingIds]
+    );
+
+    for (const row of queryResult.rows) {
+      const dimensionsRaw = row.dimensions;
+      const dimensions =
+        typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw ?? 0);
+      if (!Number.isFinite(dimensions) || dimensions <= 0) {
+        throw new Error(
+          `Embedding set ${row.id} is missing or has invalid dimensions (${dimensionsRaw}).`
+        );
+      }
+      if (dimensions > MAX_EMBEDDING_DIMENSION) {
+        throw new Error(
+          `Embedding set ${row.id} defines ${dimensions} dimensions, exceeding the supported maximum (${MAX_EMBEDDING_DIMENSION}).`
+        );
+      }
+      embeddingDimensionCache.set(row.id, dimensions);
+      result.set(row.id, dimensions);
+    }
+
+    for (const id of missingIds) {
+      if (!result.has(id)) {
+        throw new Error(`Embedding set ${id} not found or missing dimensions.`);
+      }
+    }
+  }
+
+  return result;
+}
+
 async function resolveEmbeddingSetDimension(
   db: Queryable,
   embeddingSetId: string
@@ -378,4 +428,30 @@ export function appendRawClause(builder: UpdateBuilder, clause: string, value: u
   builder.setParts.push(`${clause} = $${builder.index}`);
   builder.values.push(value);
   builder.index += 1;
+}
+
+export async function validateEmbeddingDimensions(
+  db: Queryable,
+  embeddingsData: {
+    embedding?: number[] | undefined;
+    embeddingSetId?: string | null;
+    expectedDimension?: number;
+  }[]
+): Promise<void> {
+  // Extract all unique embeddingSetIds to pre-fetch them in one batch
+  const uniqueEmbeddingSetIds = new Set<string>();
+  for (const data of embeddingsData) {
+    if (data.embedding && data.embeddingSetId) {
+      uniqueEmbeddingSetIds.add(data.embeddingSetId);
+    }
+  }
+
+  if (uniqueEmbeddingSetIds.size > 0) {
+    await resolveEmbeddingSetDimensions(db, Array.from(uniqueEmbeddingSetIds));
+  }
+
+  // Now validate each sequentially (but the dimensions will be instantly returned from cache without queries)
+  for (const data of embeddingsData) {
+    await validateEmbeddingDimension(db, data.embedding, data);
+  }
 }
