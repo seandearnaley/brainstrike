@@ -73,7 +73,7 @@
     "dev": "vite --port 8080 --host",
     "format": "biome format --write .",
     "lint": "pnpm run --filter brainstrike lint",
-    "predev": "[ -d ../../packages/file-explorer/dist ] || pnpm turbo build --filter=@brainstrike/file-explorer",
+    "predev": "[ -d ../../packages/file-explorer/dist ] && [ -f ../../packages/build-utils/dist/index.mjs ] || pnpm turbo build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils",
     "serve-static": "serve dist -p 8080",
     "start": "vite preview --port 8080 --host",
     "test": "vitest run",

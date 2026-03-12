@@ -4,7 +4,12 @@ import path from 'node:path';
 import type { HmrContext } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { findPGliteWasm, fullReloadOnCompilerHotspots } = await import('../vite');
+const {
+  findPGliteWasm,
+  fullReloadOnCompilerHotspots,
+  getAssistantOptimizeDepsInclude,
+  resolveAssistantVendorChunk,
+} = await import('../vite');
 
 afterEach(() => {
   vi.resetAllMocks();
@@ -28,6 +33,34 @@ describe('findPGliteWasm', () => {
     mkdirSync(appDir, { recursive: true });
 
     expect(findPGliteWasm(appDir)).toBeNull();
+  });
+});
+
+describe('assistant vite helpers', () => {
+  test('returns the complete assistant optimize-deps include list', () => {
+    expect(getAssistantOptimizeDepsInclude()).toEqual(
+      expect.arrayContaining([
+        '@assistant-ui/react',
+        '@assistant-ui/react-data-stream',
+        '@assistant-ui/react-markdown',
+        '@assistant-ui/styles',
+        'react-shiki/core',
+        'remark-gfm',
+        'shiki/wasm',
+        '@shikijs/themes/github-light',
+        '@shikijs/langs/typescript',
+      ])
+    );
+  });
+
+  test('classifies assistant vendor chunks consistently', () => {
+    expect(
+      resolveAssistantVendorChunk('/workspace/node_modules/@assistant-ui/react/index.js')
+    ).toBe('assistant-vendor');
+    expect(
+      resolveAssistantVendorChunk('/workspace/node_modules/@shikijs/langs/typescript.mjs')
+    ).toBe('assistant-markdown-vendor');
+    expect(resolveAssistantVendorChunk('/workspace/node_modules/react/index.js')).toBeUndefined();
   });
 });
 

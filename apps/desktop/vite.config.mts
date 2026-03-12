@@ -1,7 +1,12 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findPGliteWasm, fullReloadOnCompilerHotspots } from '@brainstrike/build-utils';
+import {
+  findPGliteWasm,
+  fullReloadOnCompilerHotspots,
+  getAssistantOptimizeDepsInclude,
+  resolveAssistantVendorChunk,
+} from '@brainstrike/build-utils';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -21,22 +26,9 @@ function resolveVendorChunk(id: string): string | undefined {
     return;
   }
 
-  if (
-    id.includes('/@assistant-ui/react-markdown/') ||
-    id.includes('/react-shiki/') ||
-    id.includes('/@shikijs/') ||
-    id.includes('/shiki/') ||
-    id.includes('/remark-gfm/')
-  ) {
-    return 'assistant-markdown-vendor';
-  }
-
-  if (
-    id.includes('/@assistant-ui/react-data-stream/') ||
-    id.includes('/@assistant-ui/react/') ||
-    id.includes('/@assistant-ui/styles/')
-  ) {
-    return 'assistant-vendor';
+  const assistantChunk = resolveAssistantVendorChunk(id);
+  if (assistantChunk) {
+    return assistantChunk;
   }
 
   return 'vendor';
@@ -291,6 +283,7 @@ export default defineConfig({
       '@brainstrike/token-cache', // Worker must resolve via package exports (dist)
       '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
     ],
+    include: [...getAssistantOptimizeDepsInclude()],
   },
   define: {
     'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'true'),

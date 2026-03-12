@@ -25,7 +25,12 @@ const ReactCompilerConfig = { compilationMode: 'infer' };
 // The Tailwind CSS content paths are now managed by `tailwind.config.js`.
 // The @tailwindcss/vite plugin will automatically pick it up.
 
-const { findPGliteWasm, fullReloadOnCompilerHotspots } = await import('@brainstrike/build-utils');
+const {
+  findPGliteWasm,
+  fullReloadOnCompilerHotspots,
+  getAssistantOptimizeDepsInclude,
+  resolveAssistantVendorChunk,
+} = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
 
 function resolveVendorChunk(id: string): string | undefined {
@@ -33,22 +38,9 @@ function resolveVendorChunk(id: string): string | undefined {
     return;
   }
 
-  if (
-    id.includes('/@assistant-ui/react-markdown/') ||
-    id.includes('/react-shiki/') ||
-    id.includes('/@shikijs/') ||
-    id.includes('/shiki/') ||
-    id.includes('/remark-gfm/')
-  ) {
-    return 'assistant-markdown-vendor';
-  }
-
-  if (
-    id.includes('/@assistant-ui/react-data-stream/') ||
-    id.includes('/@assistant-ui/react/') ||
-    id.includes('/@assistant-ui/styles/')
-  ) {
-    return 'assistant-vendor';
+  const assistantChunk = resolveAssistantVendorChunk(id);
+  if (assistantChunk) {
+    return assistantChunk;
   }
 
   return 'vendor';
@@ -258,6 +250,7 @@ export default defineConfig({
     ],
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues
+      ...getAssistantOptimizeDepsInclude(),
     ],
     esbuildOptions: {
       define: {

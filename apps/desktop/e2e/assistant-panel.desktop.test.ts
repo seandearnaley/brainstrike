@@ -10,6 +10,7 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
   test('send message and see streamed response in tools panel', async ({ window }) => {
     const rightPanel = await ensureToolsPanelVisible(window);
     await expect(rightPanel).toBeVisible();
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     const assistantTab = window.getByRole('tab', { name: /assistant/i }).first();
     await expect(assistantTab).toBeVisible({ timeout: 5000 });
@@ -27,6 +28,12 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
 
     const chatPanel = window.getByTestId('chat-panel');
     await expect(chatPanel).toBeVisible({ timeout: 25_000 });
+    await expect
+      .poll(async () => window.evaluate(() => performance.timeOrigin), {
+        timeout: 5000,
+        message: 'Opening the assistant should not reload the visible renderer',
+      })
+      .toBe(initialTimeOrigin);
 
     const input = window.locator('#assistant-input');
     await expect(input).toBeVisible({ timeout: 5000 });

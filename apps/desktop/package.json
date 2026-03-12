@@ -93,6 +93,7 @@
     "build:main": "tsc --project tsconfig.main.json",
     "build:renderer": "vite build",
     "clean:db": "rm -rf \"$HOME/Library/Application Support/@brainstrike/desktop/IndexedDB\" || true",
+    "predev": "[ -f ../../packages/build-utils/dist/index.mjs ] || pnpm turbo build --filter=@brainstrike/build-utils",
     "dev": "concurrently --kill-others \"pnpm dev:renderer\" \"pnpm dev:electron\"",
     "dev:electron": "pnpm build:main && wait-on http://localhost:8081 && electron . --no-sandbox",
     "dev:main": "tsc --project tsconfig.main.json",

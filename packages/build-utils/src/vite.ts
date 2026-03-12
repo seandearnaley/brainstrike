@@ -7,6 +7,66 @@ import type { HmrContext, Plugin } from 'vite';
 const isDev = process.env.NODE_ENV === 'development';
 const logger = createLogger('PGliteLocator');
 
+const ASSISTANT_MARKDOWN_VENDOR_MATCHERS = [
+  '/@assistant-ui/react-markdown/',
+  '/react-shiki/',
+  '/@shikijs/',
+  '/shiki/',
+  '/remark-gfm/',
+] as const;
+
+const ASSISTANT_VENDOR_MATCHERS = [
+  '/@assistant-ui/react-data-stream/',
+  '/@assistant-ui/react/',
+  '/@assistant-ui/styles/',
+] as const;
+
+const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
+  '@assistant-ui/react',
+  '@assistant-ui/react-data-stream',
+  '@assistant-ui/react-markdown',
+  '@assistant-ui/styles',
+  'react-shiki/core',
+  'remark-gfm',
+  'shiki/wasm',
+  '@shikijs/themes/github-light',
+  '@shikijs/themes/github-dark',
+  '@shikijs/langs/bash',
+  '@shikijs/langs/css',
+  '@shikijs/langs/diff',
+  '@shikijs/langs/go',
+  '@shikijs/langs/html',
+  '@shikijs/langs/javascript',
+  '@shikijs/langs/json',
+  '@shikijs/langs/jsx',
+  '@shikijs/langs/markdown',
+  '@shikijs/langs/python',
+  '@shikijs/langs/rust',
+  '@shikijs/langs/sql',
+  '@shikijs/langs/toml',
+  '@shikijs/langs/tsx',
+  '@shikijs/langs/typescript',
+  '@shikijs/langs/yaml',
+] as const;
+
+export function resolveAssistantVendorChunk(
+  id: string
+): 'assistant-markdown-vendor' | 'assistant-vendor' | undefined {
+  if (ASSISTANT_MARKDOWN_VENDOR_MATCHERS.some((matcher) => id.includes(matcher))) {
+    return 'assistant-markdown-vendor';
+  }
+
+  if (ASSISTANT_VENDOR_MATCHERS.some((matcher) => id.includes(matcher))) {
+    return 'assistant-vendor';
+  }
+
+  return;
+}
+
+export function getAssistantOptimizeDepsInclude(): readonly string[] {
+  return ASSISTANT_OPTIMIZE_DEPS_INCLUDE;
+}
+
 export function findPGliteWasm(baseDir: string): string | null {
   const possiblePaths = [
     path.resolve(baseDir, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
