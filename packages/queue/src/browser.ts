@@ -1,7 +1,4 @@
-import {
-  createWorkerpoolAdapter,
-  type WorkerpoolAdapterOptions,
-} from './adapters/browser-workerpool';
+import type { WorkerpoolAdapterOptions } from './adapters/browser-workerpool';
 import type { QueueAdapter } from './types';
 import { supportsWorkers } from './util';
 
@@ -31,7 +28,92 @@ export function createBrowserEmbeddingQueue(
   if (!(typeof options.worker?.workerUrl === 'string' && options.worker.workerUrl.length > 0)) {
     throw new Error('createBrowserEmbeddingQueue requires an explicit worker.workerUrl.');
   }
-  return createWorkerpoolAdapter(options.worker);
+  return createLazyWorkerpoolAdapter(options.worker);
 }
 
-export { createWorkerpoolAdapter };
+function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAdapter {
+  type ProgressListener = Parameters<QueueAdapter['onProgress']>[0];
+
+  let loadedAdapter: QueueAdapter | null = null;
+  let adapterPromise: Promise<QueueAdapter> | null = null;
+  let paused = false;
+  const listeners = new Map<ProgressListener, (() => void) | null>();
+
+  const attachListeners = (adapter: QueueAdapter): void => {
+    for (const [listener, unsubscribe] of listeners.entries()) {
+      unsubscribe?.();
+      listeners.set(listener, adapter.onProgress(listener));
+    }
+  };
+
+  const ensureAdapter = async (): Promise<QueueAdapter> => {
+    if (loadedAdapter) {
+      return loadedAdapter;
+    }
+    if (!adapterPromise) {
+      adapterPromise = import('./adapters/browser-workerpool')
+        .then(({ createWorkerpoolAdapter }) => {
+          const adapter = createWorkerpoolAdapter(options);
+          loadedAdapter = adapter;
+          if (paused) {
+            adapter.pause();
+          }
+          attachListeners(adapter);
+          return adapter;
+        })
+        .catch((error: unknown) => {
+          adapterPromise = null;
+          throw error;
+        });
+    }
+    return adapterPromise;
+  };
+
+  return {
+    async add(task, addOptions) {
+      const adapter = await ensureAdapter();
+      return adapter.add(task, addOptions);
+    },
+    async addBulk(tasks, addOptions) {
+      const adapter = await ensureAdapter();
+      return adapter.addBulk(tasks, addOptions);
+    },
+    async cancel() {
+      if (!loadedAdapter) {
+        return;
+      }
+      await loadedAdapter.cancel();
+    },
+    async drain() {
+      if (!loadedAdapter) {
+        return;
+      }
+      await loadedAdapter.drain();
+    },
+    get isPaused() {
+      return loadedAdapter?.isPaused ?? paused;
+    },
+    get isProcessing() {
+      return loadedAdapter?.isProcessing ?? false;
+    },
+    onProgress(listener) {
+      listeners.set(listener, null);
+      if (loadedAdapter) {
+        listeners.set(listener, loadedAdapter.onProgress(listener));
+      }
+      return () => {
+        const unsubscribe = listeners.get(listener);
+        unsubscribe?.();
+        listeners.delete(listener);
+      };
+    },
+    pause() {
+      paused = true;
+      loadedAdapter?.pause();
+    },
+    resume() {
+      paused = false;
+      loadedAdapter?.resume();
+    },
+  };
+}
