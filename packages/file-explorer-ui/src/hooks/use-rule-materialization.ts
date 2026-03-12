@@ -16,7 +16,7 @@ import {
   type TreeAdapter,
 } from '@brainstrike/selection-rules';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, startsWithPrefix } from '@brainstrike/utils';
 import { useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 
@@ -86,9 +86,7 @@ function createTreeAdapterFromNodes(nodes: IFileNode[]): TreeAdapter {
       for (const path of allFilePaths) {
         if (
           path === normalizedRoot ||
-          (path.length > normalizedRoot.length &&
-            path.charCodeAt(normalizedRoot.length) === 47 &&
-            path.startsWith(normalizedRoot))
+          startsWithPrefix(path, normalizedRoot, 47) // '/'
         ) {
           if (maxDepth !== undefined) {
             const relativePath = path.slice(normalizedRoot.length + 1);

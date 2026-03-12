@@ -33,6 +33,7 @@ export * from './relative-file-path';
 export * from './report-generator';
 export * from './safe-storage';
 export * from './selection-utils';
+export * from './string-prefix';
 export * from './throttled-state';
 export * from './token-utils';
 export * from './tree-generator';

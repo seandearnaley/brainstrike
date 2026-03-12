@@ -1519,6 +1519,9 @@ importers:
 
   packages/selection-rules:
     dependencies:
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       minimatch:
         specifier: ^10.2.3
         version: 10.2.4

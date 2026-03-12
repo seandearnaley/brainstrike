@@ -10,6 +10,7 @@
  * @see apps/docs/docs/reference/adr/selection-rules-v1.md for evaluation semantics
  */
 
+import { startsWithPrefix } from '@brainstrike/utils';
 import { minimatch } from 'minimatch';
 import type {
   CapRule,
@@ -475,9 +476,7 @@ export class SelectionRuleEngine {
       for (const root of rule.roots) {
         if (
           path === root ||
-          (path.length > root.length &&
-            path.charCodeAt(root.length) === 47 &&
-            path.startsWith(root))
+          startsWithPrefix(path, root, 47) // '/'
         ) {
           excluded = true;
           break;
@@ -655,9 +654,7 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     for (const path of this.files.keys()) {
       if (
         path === normalizedRoot ||
-        (path.length > normalizedRoot.length &&
-          path.charCodeAt(normalizedRoot.length) === 47 &&
-          path.startsWith(normalizedRoot))
+        startsWithPrefix(path, normalizedRoot, 47) // '/'
       ) {
         if (maxDepth !== undefined) {
           const relativePath = path.slice(normalizedRoot.length + 1);

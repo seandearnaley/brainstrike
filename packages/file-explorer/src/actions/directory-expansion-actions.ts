@@ -1,4 +1,5 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { startsWithPrefix } from '@brainstrike/utils';
 import type { GetState, SetState } from '../types/store-types';
 
 export interface DirectoryExpansionActions {
@@ -51,11 +52,8 @@ export const createDirectoryExpansionActions = (
         newExpandedPaths.delete(path);
         // Optimization: Remove child paths when parent is collapsed
         for (const childPath of Array.from(newExpandedPaths)) {
-          if (
-            childPath.length > path.length &&
-            childPath.charCodeAt(path.length) === 47 &&
-            childPath.startsWith(path)
-          ) {
+          if (startsWithPrefix(childPath, path, 47)) {
+            // '/'
             newExpandedPaths.delete(childPath);
           }
         }
