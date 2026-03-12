@@ -1,7 +1,7 @@
 import {
   registerEmbeddingQueueFactory,
   registerEmbeddingRuntimeConfig,
-} from '@brainstrike/embeddings';
+} from '@brainstrike/embeddings/runtime-config';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { createBrowserEmbeddingQueue } from '@brainstrike/queue/browser';
 import { resolveEmbeddingWorkerUrlHref } from './resolve-embedding-worker-url';

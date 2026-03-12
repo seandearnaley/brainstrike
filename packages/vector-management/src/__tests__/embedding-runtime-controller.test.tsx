@@ -16,8 +16,11 @@ const { enqueueBackfillMock, ensureStartedMock, getStatusMock, onStatusMock, sto
     stopMock: vi.fn(),
   }));
 
-vi.mock('@brainstrike/embeddings', () => ({
+vi.mock('@brainstrike/embeddings/runtime-config', () => ({
   getRegisteredEmbeddingRuntimeConfig: getRegisteredEmbeddingRuntimeConfigMock,
+}));
+
+vi.mock('@brainstrike/embeddings/worker', () => ({
   startEmbeddingWorker: startEmbeddingWorkerMock,
 }));
 

@@ -7,13 +7,12 @@ import type {
   FileRecordRepository,
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db';
-import type { EmbeddingProviderConfig, ModelConfig } from '@brainstrike/embeddings';
 import {
-  EmbeddingProviderFactory,
+  type EmbeddingProviderConfig,
   isHostedProvider,
+  type ModelConfig,
   parseProviderModelKey,
-  SimpleEmbeddingService,
-} from '@brainstrike/embeddings';
+} from '@brainstrike/embeddings/provider-core';
 import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -91,6 +90,7 @@ export function useSearchFunctionality(
     dimensions: number
   ): Promise<SearchEmbedder> {
     const providerConfig = createHostedConfig(provider, modelId, dimensions);
+    const { EmbeddingProviderFactory } = await import('@brainstrike/embeddings/factory');
     const providerResult = await EmbeddingProviderFactory.createProvider(providerConfig);
 
     if (!providerResult.ok) {
@@ -124,6 +124,7 @@ export function useSearchFunctionality(
 
   async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbedder> {
     // We rely on SimpleEmbeddingService because it handles retrieval prompts for models like BGE-M3
+    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
     const svc = new SimpleEmbeddingService();
     await svc.initializeWithModel(modelConfig);
 

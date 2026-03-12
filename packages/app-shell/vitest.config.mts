@@ -20,17 +20,56 @@ export default defineConfig({
     // Coverage consolidated at root vitest.config.mts
   },
   resolve: {
-    alias: {
-      electron: path.resolve(import.meta.dirname, '../storage/__mocks__/electron.ts'),
-      '@brainstrike/storage': path.resolve(import.meta.dirname, '../storage/dist'),
-      '@brainstrike/embeddings': path.resolve(import.meta.dirname, '__mocks__/embeddings.ts'),
-      '@brainstrike/agent/client': path.resolve(import.meta.dirname, '../agent/src/client.ts'),
-      '@brainstrike/preferences': path.resolve(import.meta.dirname, '../preferences/src/index.ts'),
-      '/worker-storage.worker.js': path.resolve(
-        import.meta.dirname,
-        '__mocks__/worker-storage.worker.js'
-      ),
-    },
+    alias: [
+      {
+        find: '@brainstrike/embeddings/runtime-config',
+        replacement: path.resolve(import.meta.dirname, '../embeddings/src/runtime-config.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/provider-core',
+        replacement: path.resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/backend',
+        replacement: path.resolve(import.meta.dirname, '../embeddings/src/backend-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/factory',
+        replacement: path.resolve(import.meta.dirname, '../embeddings/src/factory-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/service',
+        replacement: path.resolve(import.meta.dirname, '../embeddings/src/service-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/worker',
+        replacement: path.resolve(import.meta.dirname, '../embeddings/src/worker-entry.ts'),
+      },
+      {
+        find: 'electron',
+        replacement: path.resolve(import.meta.dirname, '../storage/__mocks__/electron.ts'),
+      },
+      {
+        find: '@brainstrike/storage',
+        replacement: path.resolve(import.meta.dirname, '../storage/dist'),
+      },
+      {
+        find: '@brainstrike/embeddings',
+        replacement: path.resolve(import.meta.dirname, '__mocks__/embeddings.ts'),
+      },
+      {
+        find: '@brainstrike/agent/client',
+        replacement: path.resolve(import.meta.dirname, '../agent/src/client.ts'),
+      },
+      {
+        find: '@brainstrike/preferences',
+        replacement: path.resolve(import.meta.dirname, '../preferences/src/index.ts'),
+      },
+      {
+        find: '/worker-storage.worker.js',
+        replacement: path.resolve(import.meta.dirname, '__mocks__/worker-storage.worker.js'),
+      },
+    ],
   },
   define: {
     'import.meta.url': JSON.stringify('file:///mock/url'),

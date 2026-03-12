@@ -36,8 +36,34 @@ vi.mock('@brainstrike/db', async () => {
   };
 });
 
-// Mock @brainstrike/embeddings
-vi.mock('@brainstrike/embeddings', () => {
+vi.mock('@brainstrike/embeddings/provider-core', () => ({
+  isHostedProvider: vi.fn((provider: string) =>
+    ['openai', 'google', 'cohere', 'voyage'].includes(provider)
+  ),
+  parseProviderModelKey: vi.fn((key: string) => {
+    if (key.includes(':')) {
+      const [provider, modelId] = key.split(':');
+      return { provider, modelId };
+    }
+    return null;
+  }),
+}));
+
+vi.mock('@brainstrike/embeddings/factory', () => ({
+  EmbeddingProviderFactory: {
+    createProvider: vi.fn().mockResolvedValue({
+      ok: true,
+      value: {
+        embed: vi.fn().mockResolvedValue({
+          ok: true,
+          value: { embedding: new Array(1024).fill(0.1) },
+        }),
+      },
+    }),
+  },
+}));
+
+vi.mock('@brainstrike/embeddings/service', () => {
   MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
     Object.assign(this, {
       initializeWithModel: vi.fn().mockResolvedValue(undefined),
@@ -49,27 +75,6 @@ vi.mock('@brainstrike/embeddings', () => {
   });
 
   return {
-    EmbeddingProviderFactory: {
-      createProvider: vi.fn().mockResolvedValue({
-        ok: true,
-        value: {
-          embed: vi.fn().mockResolvedValue({
-            ok: true,
-            value: { embedding: new Array(1024).fill(0.1) },
-          }),
-        },
-      }),
-    },
-    isHostedProvider: vi.fn((provider: string) =>
-      ['openai', 'google', 'cohere', 'voyage'].includes(provider)
-    ),
-    parseProviderModelKey: vi.fn((key: string) => {
-      if (key.includes(':')) {
-        const [provider, modelId] = key.split(':');
-        return { provider, modelId };
-      }
-      return null;
-    }),
     SimpleEmbeddingService: MockSimpleEmbeddingService,
   };
 });

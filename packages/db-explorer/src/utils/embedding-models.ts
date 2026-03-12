@@ -1,4 +1,5 @@
-import { isHostedProvider, type ModelConfig, parseProviderModelKey } from '@brainstrike/embeddings';
+import type { ModelConfig } from '@brainstrike/embeddings';
+import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import type { DbModel } from '@brainstrike/preferences';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 

@@ -2,6 +2,7 @@ import { type EmbeddingDType, StreamingEmbeddingWorkerClient } from '@brainstrik
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
+import { getRegisteredEmbeddingQueueFactory } from './runtime-config';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -66,45 +67,13 @@ interface DownloadOptions {
 // Cache the imported module to avoid duplicate imports across instances
 let transformersModule: TransformersModule | null = null;
 let transformersModulePromise: Promise<TransformersModule> | null = null;
-let customQueueFactory: null | (() => QueueAdapter | Promise<QueueAdapter>) = null;
-interface RegisteredEmbeddingRuntimeConfig {
-  readonly streamingWorkerUrl: string;
-}
-
-let registeredEmbeddingRuntimeConfig: RegisteredEmbeddingRuntimeConfig | null = null;
-
-export function registerEmbeddingQueueFactory(
-  factory: () => QueueAdapter | Promise<QueueAdapter>
-): void {
-  customQueueFactory = factory;
-}
-
-export function resetEmbeddingQueueFactory(): void {
-  customQueueFactory = null;
-}
-
-export function registerEmbeddingRuntimeConfig(config: RegisteredEmbeddingRuntimeConfig): void {
-  if (!(typeof config.streamingWorkerUrl === 'string' && config.streamingWorkerUrl.length > 0)) {
-    throw new Error('registerEmbeddingRuntimeConfig requires a non-empty streamingWorkerUrl.');
-  }
-  registeredEmbeddingRuntimeConfig = {
-    streamingWorkerUrl: config.streamingWorkerUrl,
-  };
-}
-
-export function resetEmbeddingRuntimeConfig(): void {
-  registeredEmbeddingRuntimeConfig = null;
-}
-
-export function getRegisteredEmbeddingRuntimeConfig(): RegisteredEmbeddingRuntimeConfig | null {
-  return registeredEmbeddingRuntimeConfig;
-}
 
 function supportsWorkerQueue(): boolean {
   return typeof window !== 'undefined' && typeof Worker !== 'undefined';
 }
 
 async function getBrowserQueue(): Promise<QueueAdapter> {
+  const customQueueFactory = getRegisteredEmbeddingQueueFactory();
   if (customQueueFactory) {
     return Promise.resolve(customQueueFactory());
   }

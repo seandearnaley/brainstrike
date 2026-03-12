@@ -5,21 +5,60 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@brainstrike/agent/client': resolve(import.meta.dirname, '../agent/src/client.ts'),
-      '@brainstrike/ui': resolve(import.meta.dirname, '../ui/src/index.ts'),
-      '@brainstrike/hooks': resolve(import.meta.dirname, '../hooks/src/index.ts'),
-      '@brainstrike/utils': resolve(import.meta.dirname, '../utils/src/index.ts'),
-      '@brainstrike/db': resolve(import.meta.dirname, '../db/src/index.ts'),
-      '@brainstrike/embeddings': resolve(import.meta.dirname, '../embeddings/src/index.ts'),
-      '@brainstrike/storage': resolve(import.meta.dirname, '../storage/src/index.ts'),
-      '@brainstrike/types': resolve(import.meta.dirname, '../types/src/index.ts'),
-      '@brainstrike/workers/report-generation-worker': resolve(
-        import.meta.dirname,
-        '../workers/report-generation-worker.ts'
-      ),
-      '@brainstrike/file-system': resolve(import.meta.dirname, '../file-system/src/index.ts'),
-    },
+    alias: [
+      {
+        find: '@brainstrike/embeddings/provider-core',
+        replacement: resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/service',
+        replacement: resolve(import.meta.dirname, '../embeddings/src/service-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/factory',
+        replacement: resolve(import.meta.dirname, '../embeddings/src/factory-entry.ts'),
+      },
+      {
+        find: '@brainstrike/agent/client',
+        replacement: resolve(import.meta.dirname, '../agent/src/client.ts'),
+      },
+      {
+        find: '@brainstrike/ui',
+        replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/hooks',
+        replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/utils',
+        replacement: resolve(import.meta.dirname, '../utils/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/db',
+        replacement: resolve(import.meta.dirname, '../db/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings',
+        replacement: resolve(import.meta.dirname, '../embeddings/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/storage',
+        replacement: resolve(import.meta.dirname, '../storage/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/types',
+        replacement: resolve(import.meta.dirname, '../types/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/workers/report-generation-worker',
+        replacement: resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
+      },
+      {
+        find: '@brainstrike/file-system',
+        replacement: resolve(import.meta.dirname, '../file-system/src/index.ts'),
+      },
+    ],
   },
   test: {
     globals: true,

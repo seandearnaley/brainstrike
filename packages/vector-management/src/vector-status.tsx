@@ -4,7 +4,7 @@ import {
   usePGliteDatabase,
   useVectorEnabled,
 } from '@brainstrike/db';
-import { TransformersBackend } from '@brainstrike/embeddings';
+import { TransformersBackend } from '@brainstrike/embeddings/backend';
 import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 // Import types to ensure global Window augmentation is available

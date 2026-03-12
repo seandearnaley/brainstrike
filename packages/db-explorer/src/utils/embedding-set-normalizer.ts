@@ -1,5 +1,8 @@
-import type { EmbeddingProviderType } from '@brainstrike/embeddings';
-import { canonicalizeProviderModelKey, formatProviderModelKey } from '@brainstrike/embeddings';
+import type { EmbeddingProviderType } from '@brainstrike/embeddings/provider-core';
+import {
+  canonicalizeProviderModelKey,
+  formatProviderModelKey,
+} from '@brainstrike/embeddings/provider-core';
 import { createLogger } from '@brainstrike/utils';
 
 interface SqlClient {

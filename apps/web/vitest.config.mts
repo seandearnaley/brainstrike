@@ -53,6 +53,30 @@ export default defineConfig({
       '@brainstrike/app-shell': resolve(import.meta.dirname, '../../packages/app-shell/src'),
       '@brainstrike/db': resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
       '@brainstrike/db-explorer': resolve(import.meta.dirname, '../../packages/db-explorer/src'),
+      '@brainstrike/embeddings/runtime-config': resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/runtime-config.ts'
+      ),
+      '@brainstrike/embeddings/provider-core': resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/provider-core.ts'
+      ),
+      '@brainstrike/embeddings/backend': resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/backend-entry.ts'
+      ),
+      '@brainstrike/embeddings/factory': resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/factory-entry.ts'
+      ),
+      '@brainstrike/embeddings/service': resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/service-entry.ts'
+      ),
+      '@brainstrike/embeddings/worker': resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/worker-entry.ts'
+      ),
       '@brainstrike/embeddings': resolve(import.meta.dirname, '../../packages/embeddings/src'),
       '@brainstrike/queue/browser': resolve(
         import.meta.dirname,

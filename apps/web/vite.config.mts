@@ -189,6 +189,30 @@ export default defineConfig({
       '@brainstrike/app-shell': path.resolve(__dirname, '../../packages/app-shell/src'),
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
       '@brainstrike/db-explorer': path.resolve(__dirname, '../../packages/db-explorer/src'),
+      '@brainstrike/embeddings/runtime-config': path.resolve(
+        __dirname,
+        '../../packages/embeddings/src/runtime-config.ts'
+      ),
+      '@brainstrike/embeddings/provider-core': path.resolve(
+        __dirname,
+        '../../packages/embeddings/src/provider-core.ts'
+      ),
+      '@brainstrike/embeddings/backend': path.resolve(
+        __dirname,
+        '../../packages/embeddings/src/backend-entry.ts'
+      ),
+      '@brainstrike/embeddings/factory': path.resolve(
+        __dirname,
+        '../../packages/embeddings/src/factory-entry.ts'
+      ),
+      '@brainstrike/embeddings/service': path.resolve(
+        __dirname,
+        '../../packages/embeddings/src/service-entry.ts'
+      ),
+      '@brainstrike/embeddings/worker': path.resolve(
+        __dirname,
+        '../../packages/embeddings/src/worker-entry.ts'
+      ),
       '@brainstrike/embeddings': path.resolve(__dirname, '../../packages/embeddings/src'),
       '@brainstrike/embedding-worker': path.resolve(
         __dirname,

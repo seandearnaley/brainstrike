@@ -8,7 +8,7 @@ vi.mock('@brainstrike/queue/browser', () => ({
   createBrowserEmbeddingQueue: createBrowserEmbeddingQueueMock,
 }));
 
-vi.mock('@brainstrike/embeddings', () => ({
+vi.mock('@brainstrike/embeddings/runtime-config', () => ({
   registerEmbeddingQueueFactory: registerEmbeddingQueueFactoryMock,
   registerEmbeddingRuntimeConfig: registerEmbeddingRuntimeConfigMock,
 }));

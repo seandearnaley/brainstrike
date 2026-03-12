@@ -51,6 +51,18 @@ export default defineConfig({
   resolve: {
     alias: {
       '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
+      '@brainstrike/embeddings/runtime-config': resolve(
+        __dirname,
+        '../embeddings/src/runtime-config.ts'
+      ),
+      '@brainstrike/embeddings/provider-core': resolve(
+        __dirname,
+        '../embeddings/src/provider-core.ts'
+      ),
+      '@brainstrike/embeddings/backend': resolve(__dirname, '../embeddings/src/backend-entry.ts'),
+      '@brainstrike/embeddings/factory': resolve(__dirname, '../embeddings/src/factory-entry.ts'),
+      '@brainstrike/embeddings/service': resolve(__dirname, '../embeddings/src/service-entry.ts'),
+      '@brainstrike/embeddings/worker': resolve(__dirname, '../embeddings/src/worker-entry.ts'),
       '@brainstrike/queue/browser': resolve(__dirname, '../queue/src/browser.ts'),
       '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
       '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),

@@ -26,9 +26,18 @@ const initializeWithModel = vi.fn<(modelConfig: unknown) => Promise<void>>();
 const dispose = vi.fn<() => void>();
 const generateQueryEmbedding = vi.fn<(text: string) => Promise<{ embedding: Float32Array }>>();
 
-vi.mock('@brainstrike/embeddings', async (importOriginal) => {
-  const mod = (await importOriginal()) as Record<string, unknown>;
+vi.mock('@brainstrike/embeddings/provider-core', () => ({
+  parseProviderModelKey: () => null,
+  isHostedProvider: () => false,
+}));
 
+vi.mock('@brainstrike/embeddings/factory', () => ({
+  EmbeddingProviderFactory: {
+    createProvider: vi.fn(),
+  },
+}));
+
+vi.mock('@brainstrike/embeddings/service', () => {
   class MockSimpleEmbeddingService {
     initializeWithModel(modelConfig: unknown): Promise<void> {
       return initializeWithModel(modelConfig);
@@ -44,13 +53,7 @@ vi.mock('@brainstrike/embeddings', async (importOriginal) => {
   }
 
   return {
-    ...mod,
     SimpleEmbeddingService: MockSimpleEmbeddingService,
-    parseProviderModelKey: () => null,
-    isHostedProvider: () => false,
-    EmbeddingProviderFactory: {
-      createProvider: vi.fn(),
-    },
   };
 });
 

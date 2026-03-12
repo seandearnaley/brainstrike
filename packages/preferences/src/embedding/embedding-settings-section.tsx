@@ -13,7 +13,7 @@ import {
   type HostedProviderType,
   isLocalProviderType,
   STANDARD_EMBEDDING_DIMENSION,
-} from '@brainstrike/embeddings';
+} from '@brainstrike/embeddings/provider-core';
 import {
   Badge,
   Button,

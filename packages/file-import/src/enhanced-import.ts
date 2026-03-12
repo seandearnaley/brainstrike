@@ -17,7 +17,7 @@ import {
   isLocalProviderType,
   parseProviderModelKey,
   resolveHostedProviderApiKey,
-} from '@brainstrike/embeddings';
+} from '@brainstrike/embeddings/provider-core';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import {

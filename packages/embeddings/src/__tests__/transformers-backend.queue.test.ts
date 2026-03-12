@@ -65,8 +65,10 @@ describe('TransformersBackend queue integration', () => {
     const { queue, add } = createQueueStub();
     add.mockResolvedValueOnce(createQueueResult('task', [0.4, 0.6]));
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 
@@ -102,8 +104,10 @@ describe('TransformersBackend queue integration', () => {
     const { queue, add } = createQueueStub();
     add.mockRejectedValueOnce(new Error('queue offline'));
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 
@@ -149,8 +153,10 @@ describe('TransformersBackend queue integration', () => {
     add.mockResolvedValueOnce(createQueueResult('first', [0.3, 0.7]));
     add.mockResolvedValueOnce(createQueueResult('second', [0.6, 0.4]));
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 
@@ -181,8 +187,10 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('Worker', class {});
 
     const { queue, add } = createQueueStub();
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 
@@ -203,8 +211,10 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('Worker', class {});
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => {
       throw new Error('creation failed');
@@ -230,8 +240,10 @@ describe('TransformersBackend queue integration', () => {
     const { queue, add } = createQueueStub();
     add.mockRejectedValueOnce(new Error('runtime explode'));
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 

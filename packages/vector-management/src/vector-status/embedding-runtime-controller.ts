@@ -1,5 +1,8 @@
-import type { EmbeddingWorkerController, EmbeddingWorkerOptions } from '@brainstrike/embeddings';
-import { getRegisteredEmbeddingRuntimeConfig, startEmbeddingWorker } from '@brainstrike/embeddings';
+import { getRegisteredEmbeddingRuntimeConfig } from '@brainstrike/embeddings/runtime-config';
+import type {
+  EmbeddingWorkerController,
+  EmbeddingWorkerOptions,
+} from '@brainstrike/embeddings/worker';
 import {
   type BackgroundRuntimeProgress,
   type BackgroundRuntimeStatus,
@@ -83,6 +86,13 @@ function getRequiredEmbeddingRuntimeConfig(): { readonly streamingWorkerUrl: str
     );
   }
   return config;
+}
+
+async function loadStartEmbeddingWorker(): Promise<
+  typeof import('@brainstrike/embeddings/worker').startEmbeddingWorker
+> {
+  const module = await import('@brainstrike/embeddings/worker');
+  return module.startEmbeddingWorker;
 }
 
 export function useEmbeddingRuntimeController(
@@ -190,6 +200,7 @@ export function useEmbeddingRuntimeController(
       );
 
       try {
+        const startEmbeddingWorker = await loadStartEmbeddingWorker();
         const controller = await startEmbeddingWorker({
           db,
           enable: true,

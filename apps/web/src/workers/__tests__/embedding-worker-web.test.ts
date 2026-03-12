@@ -1,13 +1,13 @@
 import type { Mock } from 'vitest';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@brainstrike/embeddings', () => ({
+vi.mock('@brainstrike/embeddings/worker', () => ({
   startEmbeddingWorker: vi.fn(async (_opts) => ({ stop: async () => {} })),
 }));
 
 describe('startEmbeddingWorkerWeb', () => {
   it('delegates to startEmbeddingWorker with enable=true', async () => {
-    const { startEmbeddingWorker } = await import('@brainstrike/embeddings');
+    const { startEmbeddingWorker } = await import('@brainstrike/embeddings/worker');
     const { startEmbeddingWorkerWeb } = await import('../embedding-worker-web');
 
     const db = { query: vi.fn(async () => ({ rows: [] })) };

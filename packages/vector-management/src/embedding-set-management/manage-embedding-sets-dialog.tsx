@@ -1,5 +1,8 @@
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
-import { type EmbeddingProviderType, parseProviderModelKey } from '@brainstrike/embeddings';
+import {
+  type EmbeddingProviderType,
+  parseProviderModelKey,
+} from '@brainstrike/embeddings/provider-core';
 import { type DbModel, useModelRegistryStore } from '@brainstrike/preferences';
 import {
   Badge,

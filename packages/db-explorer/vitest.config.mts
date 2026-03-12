@@ -10,6 +10,18 @@ export default defineConfig({
   resolve: {
     alias: {
       '@brainstrike/agent/client': resolve(import.meta.dirname, '../agent/src/client.ts'),
+      '@brainstrike/embeddings/provider-core': resolve(
+        import.meta.dirname,
+        '../embeddings/src/provider-core.ts'
+      ),
+      '@brainstrike/embeddings/factory': resolve(
+        import.meta.dirname,
+        '../embeddings/src/factory-entry.ts'
+      ),
+      '@brainstrike/embeddings/service': resolve(
+        import.meta.dirname,
+        '../embeddings/src/service-entry.ts'
+      ),
       '@brainstrike/file-import/browser-queue-port': resolve(
         import.meta.dirname,
         '../file-import/src/browser-queue-port.ts'

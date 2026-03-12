@@ -164,6 +164,30 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/embedding-worker/src'),
       },
       {
+        find: '@brainstrike/embeddings/runtime-config',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/runtime-config.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/provider-core',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/provider-core.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/backend',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/backend-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/factory',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/factory-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/service',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/service-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/worker',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/worker-entry.ts'),
+      },
+      {
         find: '@brainstrike/embeddings',
         replacement: path.resolve(__dirname, '../../packages/embeddings/src'),
       },

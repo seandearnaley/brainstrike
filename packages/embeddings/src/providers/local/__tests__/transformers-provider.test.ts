@@ -2,10 +2,7 @@ import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EmbeddingInput } from '../../../interfaces/provider';
-import {
-  registerEmbeddingQueueFactory,
-  resetEmbeddingQueueFactory,
-} from '../../../transformers-backend';
+import { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } from '../../../runtime-config';
 import { TransformersEmbeddingProvider } from '../transformers-provider';
 
 // Skip these tests in CI - they require downloading large ML models which times out

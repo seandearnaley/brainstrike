@@ -1,6 +1,5 @@
 import { DEFAULT_EMBEDDING_DIMENSION, usePGliteDatabase } from '@brainstrike/db';
 import type { ModelConfig } from '@brainstrike/embeddings';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { Folder, RefreshCw } from 'lucide-react';
@@ -104,6 +103,7 @@ async function downloadEmbeddingModel(
   model: DbModel,
   { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
 ): Promise<void> {
+  const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
   const service = new SimpleEmbeddingService();
   const modelConfig = buildModelConfig(model);
 

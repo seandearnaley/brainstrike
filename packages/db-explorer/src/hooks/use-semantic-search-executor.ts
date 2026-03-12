@@ -17,12 +17,10 @@ import type {
 import { createHybridSearchService, normalizeRRFScores, usePGliteDatabase } from '@brainstrike/db';
 import {
   type EmbeddingProviderConfig,
-  EmbeddingProviderFactory,
   isHostedProvider,
   type ModelConfig,
   parseProviderModelKey,
-  SimpleEmbeddingService,
-} from '@brainstrike/embeddings';
+} from '@brainstrike/embeddings/provider-core';
 import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
@@ -79,6 +77,7 @@ async function createHostedEmbedder(
   providerConfig: EmbeddingProviderConfig,
   modelId: string
 ): Promise<SearchEmbedder> {
+  const { EmbeddingProviderFactory } = await import('@brainstrike/embeddings/factory');
   const providerResult = await EmbeddingProviderFactory.createProvider(providerConfig);
   logger.info('Hosted provider creation result', { ok: providerResult.ok });
 
@@ -114,6 +113,7 @@ async function createHostedEmbedder(
  */
 async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbedder> {
   logger.info('Creating local embedder (SimpleEmbeddingService)', { modelKey: modelConfig.id });
+  const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
   const svc = new SimpleEmbeddingService();
   logger.info('Initializing local model...');
   await svc.initializeWithModel(modelConfig);
