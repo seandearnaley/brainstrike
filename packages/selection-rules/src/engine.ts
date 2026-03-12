@@ -474,10 +474,7 @@ export class SelectionRuleEngine {
     for (const path of selection) {
       let excluded = false;
       for (const root of rule.roots) {
-        if (
-          path === root ||
-          startsWithPrefix(path, root, 47) // '/'
-        ) {
+        if (path === root || startsWithPrefix(path, root, '/')) {
           excluded = true;
           break;
         }
@@ -652,10 +649,7 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     const normalizedRoot = root.replace(/\/$/, '');
 
     for (const path of this.files.keys()) {
-      if (
-        path === normalizedRoot ||
-        startsWithPrefix(path, normalizedRoot, 47) // '/'
-      ) {
+      if (path === normalizedRoot || startsWithPrefix(path, normalizedRoot, '/')) {
         if (maxDepth !== undefined) {
           const relativePath = path.slice(normalizedRoot.length + 1);
           const depth = relativePath.split('/').length - 1;

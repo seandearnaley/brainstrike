@@ -84,10 +84,7 @@ function createTreeAdapterFromNodes(nodes: IFileNode[]): TreeAdapter {
       const normalizedRoot = root.replace(/\/$/, '');
 
       for (const path of allFilePaths) {
-        if (
-          path === normalizedRoot ||
-          startsWithPrefix(path, normalizedRoot, 47) // '/'
-        ) {
+        if (path === normalizedRoot || startsWithPrefix(path, normalizedRoot, '/')) {
           if (maxDepth !== undefined) {
             const relativePath = path.slice(normalizedRoot.length + 1);
             const depth = relativePath.split('/').length - 1;

@@ -173,6 +173,9 @@ class InMemoryTokenCacheStore {
   async clearFolder(folderId: string): Promise<number> {
     let removed = 0;
     for (const key of this.entries.keys()) {
+      // Uses inline charCodeAt instead of startsWithPrefix because the
+      // separator here is a two-character `::` sequence, which doesn't
+      // fit the single-separator API of startsWithPrefix.
       if (
         key.length > folderId.length &&
         key.charCodeAt(folderId.length) === 58 && // ':'

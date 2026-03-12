@@ -9,13 +9,13 @@
 /**
  * Fast check: does `path` start with `prefix` followed by `separator`?
  *
- * Equivalent to `path.startsWith(prefix + String.fromCharCode(separator))`
- * but avoids the intermediate string allocation.
+ * Equivalent to `path.startsWith(prefix + separator)` but avoids the
+ * intermediate string allocation.
  */
-export function startsWithPrefix(path: string, prefix: string, separator: number): boolean {
+export function startsWithPrefix(path: string, prefix: string, separator: string): boolean {
   return (
     path.length > prefix.length &&
-    path.charCodeAt(prefix.length) === separator &&
+    path.charCodeAt(prefix.length) === separator.charCodeAt(0) &&
     path.startsWith(prefix)
   );
 }
