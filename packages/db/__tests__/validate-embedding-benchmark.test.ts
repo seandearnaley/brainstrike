@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrations } from '../src/migrations/index.js';
 import { MigrationRunner } from '../src/migrations/migration-runner.js';
 import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repository.js';
@@ -10,6 +10,10 @@ describe('validateEmbeddingDimensions performance', () => {
   let repo: FileChunkRepository;
   let set1Id: string;
   let set2Id: string;
+
+  afterEach(async () => {
+    await db?.close();
+  });
 
   beforeEach(async () => {
     db = await wasmLoader.createPGlite('memory://benchmark-n1');
