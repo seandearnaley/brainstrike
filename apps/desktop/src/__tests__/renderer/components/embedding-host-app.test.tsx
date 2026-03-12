@@ -2,13 +2,6 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { EmbeddingHostApp } from '../../../renderer/components/embedding-host-app';
 
-const embeddingQueueBootstrapMock = vi.hoisted(() => vi.fn());
-
-vi.mock('../../../renderer/create-embedding-queue', () => {
-  embeddingQueueBootstrapMock();
-  return {};
-});
-
 vi.mock('@brainstrike/db', () => ({
   DbProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="db-provider">{children}</div>
@@ -37,7 +30,6 @@ describe('EmbeddingHostApp', () => {
   it('renders the embedding host runtime inside the strict desktop host providers', () => {
     render(<EmbeddingHostApp />);
 
-    expect(embeddingQueueBootstrapMock).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('host-boundary')).toHaveAttribute('data-host', 'embedding-host');
     expect(screen.getByTestId('db-provider')).toBeInTheDocument();
     expect(screen.getByText('Embedding host runtime')).toBeInTheDocument();

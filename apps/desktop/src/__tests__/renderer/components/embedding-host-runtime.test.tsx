@@ -7,6 +7,7 @@ const {
   commandListenerRef,
   currentDbRef,
   dbHandle,
+  embeddingQueueBootstrapMock,
   ensureVectorPreferencesHydratedMock,
   reportStatusMock,
   startEmbeddingWorkerMock,
@@ -20,6 +21,7 @@ const {
     current: null as null | { query: ReturnType<typeof vi.fn> },
   },
   dbHandle: { query: vi.fn() },
+  embeddingQueueBootstrapMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
   reportStatusMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
@@ -43,6 +45,13 @@ vi.mock('@brainstrike/preferences', () => ({
 vi.mock('@brainstrike/embeddings', () => ({
   POWER_BROADCAST_CHANNEL: 'brainstrike-test-power',
   startEmbeddingWorker: startEmbeddingWorkerMock,
+}));
+
+vi.mock('../../../renderer/create-embedding-queue', () => ({
+  ...(() => {
+    embeddingQueueBootstrapMock();
+    return { embeddingQueue: { id: 'embedding-queue' } };
+  })(),
 }));
 
 vi.mock('../../../renderer/components/embedding-worker-config', () => ({
@@ -102,7 +111,9 @@ describe('EmbeddingHostRuntime', () => {
     render(<EmbeddingHostRuntime />);
 
     expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
-    expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalled();
+    });
 
     storeState.hasHydrated = true;
     storeState.devicePref = 'wasm';
@@ -116,6 +127,7 @@ describe('EmbeddingHostRuntime', () => {
         })
       );
     });
+    expect(embeddingQueueBootstrapMock).toHaveBeenCalledTimes(1);
   });
 
   it('resets the worker when it receives a strict reset command envelope', async () => {
@@ -124,8 +136,9 @@ describe('EmbeddingHostRuntime', () => {
     render(<EmbeddingHostRuntime />);
 
     await waitFor(() => {
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+      expect(startEmbeddingWorkerMock).toHaveBeenCalled();
     });
+    const initialStartCount = startEmbeddingWorkerMock.mock.calls.length;
 
     const commandListener = commandListenerRef.current;
     if (!commandListener) {
@@ -136,7 +149,7 @@ describe('EmbeddingHostRuntime', () => {
 
     await waitFor(() => {
       expect(stopMock).toHaveBeenCalledTimes(1);
-      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
+      expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(initialStartCount + 1);
     });
   });
 

@@ -16,6 +16,19 @@ import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
+let embeddingQueueBootstrapPromise: Promise<void> | null = null;
+
+async function ensureEmbeddingQueueBootstrapLoaded(): Promise<void> {
+  if (!embeddingQueueBootstrapPromise) {
+    embeddingQueueBootstrapPromise = import('../create-embedding-queue')
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        embeddingQueueBootstrapPromise = null;
+        throw error;
+      });
+  }
+  await embeddingQueueBootstrapPromise;
+}
 
 function getEmbeddingHostBridge(): {
   onCommand?: (callback: (command: EmbeddingHostCommand) => void) => () => void;
@@ -172,6 +185,7 @@ async function startEmbeddingHostWorkerRuntime({
   reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'starting');
 
   try {
+    await ensureEmbeddingQueueBootstrapLoaded();
     const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
       forceReload: true,
     });
