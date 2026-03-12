@@ -186,13 +186,10 @@ export async function validateEmbeddingDimensions(
     }
   }
 
-  let resolvedDimensions = new Map<string, number>();
-  if (embeddingSetIdsToResolve.size > 0) {
-    resolvedDimensions = await resolveEmbeddingSetDimensions(
-      db,
-      Array.from(embeddingSetIdsToResolve)
-    );
-  }
+  const resolvedDimensions =
+    embeddingSetIdsToResolve.size > 0
+      ? await resolveEmbeddingSetDimensions(db, Array.from(embeddingSetIdsToResolve))
+      : new Map<string, number>();
 
   for (const payload of payloads) {
     const { embedding, embeddingSetId, expectedDimension } = payload;
