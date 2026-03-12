@@ -19,6 +19,7 @@ import {
   type Queryable,
   type UpdateBuilder,
   validateEmbeddingDimension,
+  validateEmbeddingDimensions,
 } from './_shared.js';
 
 // Type definition for database row returned by PGlite
@@ -120,12 +121,14 @@ export class FileChunkRepository {
       return [];
     }
 
-    // Validate all embeddings before processing
-    for (const chunk of chunks) {
-      await validateEmbeddingDimension(this.db as unknown as Queryable, chunk.embedding, {
+    // Validate all embeddings efficiently before processing
+    await validateEmbeddingDimensions(
+      this.db as unknown as Queryable,
+      chunks.map((chunk) => ({
+        embedding: chunk.embedding,
         embeddingSetId: chunk.embeddingSetId ?? null,
-      });
-    }
+      }))
+    );
 
     // Batch inserts to avoid parameter limit issues (250 rows per batch)
     const BatchSize = 250;
@@ -199,12 +202,14 @@ export class FileChunkRepository {
       return [];
     }
 
-    // Validate all embeddings before processing
-    for (const chunk of chunks) {
-      await validateEmbeddingDimension(tx as unknown as Queryable, chunk.embedding, {
+    // Validate all embeddings efficiently before processing
+    await validateEmbeddingDimensions(
+      tx as unknown as Queryable,
+      chunks.map((chunk) => ({
+        embedding: chunk.embedding,
         embeddingSetId: chunk.embeddingSetId ?? null,
-      });
-    }
+      }))
+    );
 
     const BatchSize = 250;
     const batches = batchArray(chunks, BatchSize);

@@ -102,6 +102,130 @@ async function resolveEmbeddingSetDimension(
   return dimensions;
 }
 
+async function resolveEmbeddingSetDimensions(
+  db: Queryable,
+  embeddingSetIds: string[]
+): Promise<Map<string, number>> {
+  const resultCache = new Map<string, number>();
+  const missingIds = new Set<string>();
+
+  for (const id of embeddingSetIds) {
+    const cached = embeddingDimensionCache.get(id);
+    if (typeof cached === 'number') {
+      resultCache.set(id, cached);
+    } else {
+      missingIds.add(id);
+    }
+  }
+
+  if (missingIds.size > 0) {
+    await fetchMissingDimensions(db, Array.from(missingIds), resultCache);
+  }
+
+  return resultCache;
+}
+
+async function fetchMissingDimensions(
+  db: Queryable,
+  missingIds: string[],
+  resultCache: Map<string, number>
+): Promise<void> {
+  const result = await db.query<{ id: string; dimensions?: number }>(
+    'SELECT id, dimensions FROM embedding_sets WHERE id = ANY($1)',
+    [missingIds]
+  );
+
+  const foundIds = new Set<string>();
+
+  for (const row of result.rows) {
+    foundIds.add(row.id);
+    const dimensionsRaw = row.dimensions;
+    const dimensions =
+      typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw ?? 0);
+
+    if (!Number.isFinite(dimensions) || dimensions <= 0) {
+      throw new Error(
+        `Embedding set ${row.id} is missing or has invalid dimensions (${dimensionsRaw}).`
+      );
+    }
+
+    if (dimensions > MAX_EMBEDDING_DIMENSION) {
+      throw new Error(
+        `Embedding set ${row.id} defines ${dimensions} dimensions, exceeding the supported maximum (${MAX_EMBEDDING_DIMENSION}).`
+      );
+    }
+
+    embeddingDimensionCache.set(row.id, dimensions);
+    resultCache.set(row.id, dimensions);
+  }
+
+  for (const id of missingIds) {
+    if (!foundIds.has(id)) {
+      throw new Error(`Embedding set ${id} is missing or has invalid dimensions (undefined).`);
+    }
+  }
+}
+
+/**
+ * Validate multiple embedding payloads against their optional target dimensions.
+ * Efficiently resolves embedding set dimensions using batch lookup.
+ */
+export async function validateEmbeddingDimensions(
+  db: Queryable,
+  payloads: Array<{
+    embedding?: number[] | undefined;
+    embeddingSetId?: string | null;
+    expectedDimension?: number;
+  }>
+): Promise<void> {
+  const embeddingSetIdsToResolve = new Set<string>();
+
+  for (const payload of payloads) {
+    if (payload.embedding && payload.embeddingSetId) {
+      embeddingSetIdsToResolve.add(payload.embeddingSetId);
+    }
+  }
+
+  let resolvedDimensions = new Map<string, number>();
+  if (embeddingSetIdsToResolve.size > 0) {
+    resolvedDimensions = await resolveEmbeddingSetDimensions(
+      db,
+      Array.from(embeddingSetIdsToResolve)
+    );
+  }
+
+  for (const payload of payloads) {
+    const { embedding, embeddingSetId, expectedDimension } = payload;
+    if (!embedding) {
+      continue;
+    }
+
+    ensureArrayInput(embedding);
+    ensureNumericValues(embedding);
+    const embeddingDimension = embedding.length;
+    assertEmbeddingDimensionBounds(embeddingDimension);
+
+    let targetDimension: number | undefined;
+
+    if (embeddingSetId) {
+      targetDimension = resolvedDimensions.get(embeddingSetId);
+    } else if (typeof expectedDimension === 'number') {
+      targetDimension = expectedDimension;
+    }
+
+    if (targetDimension === undefined) {
+      continue;
+    }
+
+    assertTargetDimensionBounds(targetDimension);
+    if (embeddingDimension !== targetDimension) {
+      throw new Error(
+        `Embedding dimension mismatch: received ${embeddingDimension}, expected ${targetDimension}.`
+      );
+    }
+  }
+}
+
 /**
  * Validate embedding payloads against optional target dimensions.
  * Ensures embeddings are numeric arrays and match the provided embedding_set dimensions.

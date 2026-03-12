@@ -15,6 +15,7 @@ import {
   type Queryable,
   type UpdateBuilder,
   validateEmbeddingDimension,
+  validateEmbeddingDimensions,
 } from './_shared.js';
 import type { ElectronDbAPI } from './electron-file-record-repository';
 
@@ -117,11 +118,13 @@ export class ElectronFileChunkRepository {
       return [];
     }
 
-    for (const chunk of chunks) {
-      await validateEmbeddingDimension(this.db as unknown as Queryable, chunk.embedding, {
+    await validateEmbeddingDimensions(
+      this.db as unknown as Queryable,
+      chunks.map((chunk) => ({
+        embedding: chunk.embedding,
         embeddingSetId: chunk.embeddingSetId ?? null,
-      });
-    }
+      }))
+    );
 
     // Batch inserts to avoid parameter limit issues (250 rows per batch)
     const BatchSize = 250;
@@ -195,11 +198,13 @@ export class ElectronFileChunkRepository {
       return [];
     }
 
-    for (const chunk of chunks) {
-      await validateEmbeddingDimension(tx as unknown as Queryable, chunk.embedding, {
+    await validateEmbeddingDimensions(
+      tx as unknown as Queryable,
+      chunks.map((chunk) => ({
+        embedding: chunk.embedding,
         embeddingSetId: chunk.embeddingSetId ?? null,
-      });
-    }
+      }))
+    );
 
     const BatchSize = 250;
     const batches = batchArray(chunks, BatchSize);
