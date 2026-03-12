@@ -60,9 +60,10 @@
     },
     // --- Type Check Task --- //
     "type-check": {
-      // Ensures the package is built (generating .d.ts files) before type checking.
+      // Type-check runs after the repo-level build step in our required verification flow.
+      // Re-running ^build here causes dependency dist clean/build churn to race with packages
+      // that resolve workspace declarations from built outputs during type-check.
       "dependsOn": [
-        "^build",
         "build"
       ],
       // Type checking doesn't produce persistent artifacts to cache, only console output.

@@ -7,6 +7,7 @@ import {
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
   getDatabaseOptimizeDepsInclude,
+  getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
 } from '@brainstrike/build-utils';
@@ -293,6 +294,7 @@ export default defineConfig({
   optimizeDeps: {
     entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],
     exclude: [
+      ...getHeavyRuntimeOptimizeDepsExclude(),
       '@electric-sql/pglite',
       '@electric-sql/pglite/vector',
       '@brainstrike/types',

@@ -31,6 +31,7 @@ const {
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
   getDatabaseOptimizeDepsInclude,
+  getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
 } = await import('@brainstrike/build-utils');
@@ -260,6 +261,7 @@ export default defineConfig({
   optimizeDeps: {
     entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],
     exclude: [
+      ...getHeavyRuntimeOptimizeDepsExclude(),
       '@electric-sql/pglite', // Official PGlite requirement
       '@brainstrike/types',
       '@brainstrike/hooks',

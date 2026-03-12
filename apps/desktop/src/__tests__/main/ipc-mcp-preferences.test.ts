@@ -253,4 +253,27 @@ describe('ipc-mcp tool preference loading', () => {
     expect(callOrder).toContain('disable-tools');
     expect(callOrder).toContain('enable-tools');
   });
+
+  it('skips Mastra discovery for the desktop filesystem bridge server', async () => {
+    loadMcpConfigMock.mockResolvedValueOnce({
+      path: '/mock/config.json',
+      exists: true,
+      config: {
+        servers: [
+          {
+            name: 'filesystem',
+            transport: 'stdio',
+            command: 'npx',
+          },
+        ],
+      },
+    });
+
+    registerMcpIpcHandlers();
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(createMastraAgentRuntimeMock).not.toHaveBeenCalled();
+    expect(loadToolPreferencesMock).not.toHaveBeenCalled();
+  });
 });

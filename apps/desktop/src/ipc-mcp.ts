@@ -11,6 +11,7 @@ import { createLogger } from '@brainstrike/utils';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, dialog, ipcMain } from 'electron';
 import { disposeClients, initClients } from './mcp';
+import { filterDesktopMastraMcpConfig, isDesktopFilesystemBridgeServer } from './mcp/mastra-config';
 import {
   getDefaultMcpConfigTemplate,
   getMcpConfigPath,
@@ -340,6 +341,9 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
   const skippedPlaceholderServers = config.servers
     .filter((server) => isPlaceholderServer(server))
     .map((server) => server.name);
+  const skippedFilesystemBridgeServers = config.servers
+    .filter((server) => isDesktopFilesystemBridgeServer(server))
+    .map((server) => server.name);
 
   if (skippedPlaceholderServers.length > 0) {
     logger.warn('Skipping placeholder MCP servers from discovery', {
@@ -347,14 +351,21 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
     });
   }
 
-  if (actionableServers.length === 0) {
+  if (skippedFilesystemBridgeServers.length > 0) {
+    logger.debug('Skipping desktop filesystem bridge servers from Mastra MCP discovery', {
+      skippedServers: skippedFilesystemBridgeServers,
+    });
+  }
+
+  const discoveryConfig = filterDesktopMastraMcpConfig({ servers: actionableServers });
+  if (!discoveryConfig || discoveryConfig.servers.length === 0) {
     logger.debug('No actionable MCP servers configured after filtering placeholders');
     return;
   }
 
   logger.info('Starting tool discovery', {
-    serverCount: actionableServers.length,
-    servers: actionableServers.map((s) => s.name),
+    serverCount: discoveryConfig.servers.length,
+    servers: discoveryConfig.servers.map((s) => s.name),
   });
 
   const credentials = await resolveDiscoveryCredentials();
@@ -367,7 +378,7 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
   // Import it dynamically to avoid circular dependencies
   const { createMastraAgentRuntime } = await import('@brainstrike/agent');
 
-  const baseDiscoveryConfig = { servers: actionableServers };
+  const baseDiscoveryConfig = discoveryConfig;
   try {
     await runDiscoveryForConfig(createMastraAgentRuntime, baseDiscoveryConfig, credentials);
   } catch (error) {
@@ -377,7 +388,7 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
 
     // Keep retries sequential to avoid spawning many MCP transports at once
     // when startup is already in a degraded state.
-    for (const server of actionableServers) {
+    for (const server of discoveryConfig.servers) {
       try {
         await runDiscoveryForConfig(createMastraAgentRuntime, { servers: [server] }, credentials);
       } catch (serverError) {

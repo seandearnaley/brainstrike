@@ -10,6 +10,7 @@ const {
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
   getDatabaseOptimizeDepsInclude,
+  getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
 } = await import('../vite');
@@ -83,6 +84,12 @@ describe('assistant vite helpers', () => {
   test('returns database lazy-panel optimize-deps package ids', () => {
     expect(getDatabaseOptimizeDepsInclude()).toEqual(
       expect.arrayContaining(['jszip', 'file-saver', 'react-resizable-panels'])
+    );
+  });
+
+  test('returns heavy runtime optimize-deps exclusions', () => {
+    expect(getHeavyRuntimeOptimizeDepsExclude()).toEqual(
+      expect.arrayContaining(['@huggingface/transformers'])
     );
   });
 
