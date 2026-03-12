@@ -66,6 +66,17 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
       {
+        find: '@brainstrike/file-import/chunking-worker-context',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../file-import/src/chunking-worker-context.tsx'
+        ),
+      },
+      {
+        find: '@brainstrike/file-import',
+        replacement: path.resolve(import.meta.dirname, '../file-import/src/index.ts'),
+      },
+      {
         find: '/worker-storage.worker.js',
         replacement: path.resolve(import.meta.dirname, '__mocks__/worker-storage.worker.js'),
       },

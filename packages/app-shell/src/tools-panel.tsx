@@ -11,6 +11,7 @@ import {
 } from './stores/tools-panel-store';
 
 interface ToolsPanelProps {
+  readonly chunkingMode?: 'host-proxy' | 'local';
   /**
    * CRITICAL: The app-specific embedding queue from RootLayoutContent.
    *
@@ -30,6 +31,7 @@ interface ToolsPanelProps {
  * embedding operations and import work correctly.
  */
 export function ToolsPanel({
+  chunkingMode = 'local',
   embeddingQueue = null,
   preloadDatabaseTabOnMount = false,
 }: ToolsPanelProps): ReactElement {
@@ -98,7 +100,7 @@ export function ToolsPanel({
           >
             {/* CRITICAL: Pass embeddingQueue to DatabaseTab
                 This ensures import operations use the app's embedding queue */}
-            <DatabaseTab embeddingQueue={embeddingQueue} />
+            <DatabaseTab chunkingMode={chunkingMode} embeddingQueue={embeddingQueue} />
           </TabsContent>
         </div>
       </Tabs>

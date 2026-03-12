@@ -712,6 +712,9 @@ importers:
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../file-explorer-ui
+      '@brainstrike/file-import':
+        specifier: workspace:*
+        version: link:../file-import
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences

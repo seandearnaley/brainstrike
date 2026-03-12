@@ -38,6 +38,7 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 }
 
 export interface RootLayoutContentProps {
+  readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
   /**
    * CRITICAL: The app-specific embedding queue adapter.
    *
@@ -85,6 +86,7 @@ export function RootLayoutContent({
   navigationItems,
   leftPanelContent,
   embeddingQueue = null,
+  databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
   const activeTab = usePanelLayoutStore((s) => s.activeTab);
@@ -118,11 +120,12 @@ export function RootLayoutContent({
   const rightPanelContent = useMemo(
     () => (
       <ToolsPanel
+        chunkingMode={databaseTabChunkingMode}
         embeddingQueue={embeddingQueue ?? null}
         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
       />
     ),
-    [embeddingQueue, preloadDatabaseTabOnMount]
+    [databaseTabChunkingMode, embeddingQueue, preloadDatabaseTabOnMount]
   );
 
   // Memoize panel content elements so resize drags don't bust IdeLayout's React.memo.

@@ -26,7 +26,6 @@ import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } fro
 import './log-buffer';
 import './styles.css';
 import { ChunkingHostApp } from './components/chunking-host-app';
-import { DesktopChunkingWorkerProvider } from './components/desktop-chunking-worker-provider';
 import { EmbeddingHostApp } from './components/embedding-host-app';
 
 // Import layout component
@@ -300,11 +299,9 @@ function App() {
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
       <DbSchemaVerifier>
-        <DesktopChunkingWorkerProvider autoStart={false} mode="host-proxy">
-          <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-            <RootLayoutContent />
-          </AdaptersProvider>
-        </DesktopChunkingWorkerProvider>
+        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+          <RootLayoutContent />
+        </AdaptersProvider>
       </DbSchemaVerifier>
     </DbProvider>
   );

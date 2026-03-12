@@ -108,6 +108,7 @@ export default function RootLayoutContent() {
   // CRITICAL: embeddingQueue from create-embedding-queue.ts must be passed through
   // once the queue module finishes loading. This remains the app's single queue instance.
   const sharedProps: RootLayoutContentProps = {
+    databaseTabChunkingMode: 'local',
     navigationItems: navigationConfig,
     homePageContent: <HomePageContent />,
     settingsPageContent: <SettingsPageContent />,

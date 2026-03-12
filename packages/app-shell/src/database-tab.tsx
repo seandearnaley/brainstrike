@@ -21,10 +21,14 @@ export function preloadDatabaseTab(): Promise<void> {
 }
 
 interface DatabaseTabProps {
+  readonly chunkingMode?: 'host-proxy' | 'local';
   readonly embeddingQueue?: QueueAdapter | null;
 }
 
-export function DatabaseTab({ embeddingQueue = null }: DatabaseTabProps): ReactElement {
+export function DatabaseTab({
+  chunkingMode = 'local',
+  embeddingQueue = null,
+}: DatabaseTabProps): ReactElement {
   const [resolvedComponent, setResolvedComponent] =
     useState<ComponentType<DatabaseTabProps> | null>(() => databaseTabChunkComponent);
   const [loadError, setLoadError] = useState<Error | null>(null);
@@ -71,5 +75,5 @@ export function DatabaseTab({ embeddingQueue = null }: DatabaseTabProps): ReactE
   }
 
   const ResolvedComponent = resolvedComponent;
-  return <ResolvedComponent embeddingQueue={embeddingQueue} />;
+  return <ResolvedComponent chunkingMode={chunkingMode} embeddingQueue={embeddingQueue} />;
 }

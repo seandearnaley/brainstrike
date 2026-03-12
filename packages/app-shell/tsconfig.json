@@ -23,6 +23,9 @@
       ],
       "@brainstrike/file-import": [
         "../file-import/src"
+      ],
+      "@brainstrike/file-import/chunking-worker-context": [
+        "../file-import/src/chunking-worker-context.tsx"
       ]
     },
     "strictNullChecks": true

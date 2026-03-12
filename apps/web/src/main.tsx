@@ -1,6 +1,5 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
 import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
@@ -153,11 +152,9 @@ root.render(
     <HelmetProvider>
       <DbProvider dbPath="idb://web">
         <DbSchemaVerifier>
-          <ChunkingWorkerProvider autoStart={false}>
-            <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-              <RootLayoutContent />
-            </AdaptersProvider>
-          </ChunkingWorkerProvider>
+          <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+            <RootLayoutContent />
+          </AdaptersProvider>
         </DbSchemaVerifier>
       </DbProvider>
     </HelmetProvider>
