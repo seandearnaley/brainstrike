@@ -177,7 +177,7 @@ class InMemoryTokenCacheStore {
       // separator here is a two-character `::` sequence, which doesn't
       // fit the single-separator API of startsWithPrefix.
       if (
-        key.length > folderId.length &&
+        key.length > folderId.length + 1 &&
         key.charCodeAt(folderId.length) === 58 && // ':'
         key.charCodeAt(folderId.length + 1) === 58 && // ':'
         key.startsWith(folderId)
