@@ -462,6 +462,26 @@ describe('DatabaseDemoPanel', () => {
         expect(chunkingCheckbox).toBeChecked();
       });
     }, 10_000);
+
+    it('renders chunking preset badges in dedicated status rows', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Import Settings/ })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /Import Settings/ }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('chunking-preset-status-balanced')).toBeInTheDocument();
+        expect(screen.getByTestId('chunking-preset-status-codebase')).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId('chunking-preset-status-balanced')).toHaveTextContent('Adaptive');
+      expect(screen.getByTestId('chunking-preset-status-balanced')).toHaveTextContent('Default');
+      expect(screen.getByTestId('chunking-preset-status-codebase')).toHaveTextContent('Adaptive');
+    }, 10_000);
   });
 
   describe('File Import', () => {

@@ -138,23 +138,23 @@ export function SettingsPanel({
   return (
     <div
       className={cn(
-        'mt-2 space-y-4 rounded-xl border border-border/70 bg-[linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--muted)/0.6)_100%)] p-4 shadow-sm',
+        'mt-2 max-h-[min(78vh,720px)] space-y-4 overflow-y-auto rounded-xl border border-border/70 bg-[linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--muted)/0.6)_100%)] p-4 pr-3 shadow-sm',
         className
       )}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <Label className="text-xs uppercase tracking-[0.18em]" htmlFor={chunkingId}>
             Chunking Studio
           </Label>
-          <p className="max-w-xl text-muted-foreground text-xs">
+          <p className="max-w-2xl text-muted-foreground text-xs leading-5">
             Tune how imported files become retrieval-ready chunks. Start with a preset, then
             override the advanced controls only when you need to bias for precision, code locality,
             or larger retrieval windows.
           </p>
         </div>
         <label
-          className="flex items-center gap-2 rounded-full border border-border/80 bg-background px-3 py-1.5 font-medium text-xs"
+          className="flex w-fit items-center gap-2 rounded-full border border-border/80 bg-background px-3 py-1.5 font-medium text-xs"
           htmlFor={chunkingId}
         >
           <input
@@ -168,13 +168,14 @@ export function SettingsPanel({
         </label>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid max-h-[min(42vh,420px)] gap-3 overflow-y-auto pr-1 xl:grid-cols-2 2xl:grid-cols-3">
         {presets.map((preset) => {
           const isActive = currentPreset === preset.id;
+          const visibleBestFor = isActive ? preset.bestFor : preset.bestFor.slice(0, 2);
           return (
             <button
               className={cn(
-                'group rounded-2xl border px-4 py-3 text-left transition-colors',
+                'group h-full rounded-2xl border px-4 py-3 text-left transition-colors',
                 isActive
                   ? 'border-foreground/20 bg-foreground/5 shadow-sm'
                   : 'border-border/70 bg-background/70 hover:border-foreground/15 hover:bg-muted/70'
@@ -184,40 +185,63 @@ export function SettingsPanel({
               onClick={() => choosePreset(preset.id)}
               type="button"
             >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 font-medium text-sm">
-                  <span
-                    className={cn(
-                      'rounded-xl border p-2',
-                      isActive ? 'border-foreground/15 bg-background' : 'border-border/60'
-                    )}
-                  >
-                    {renderPresetIcon(preset.id)}
-                  </span>
-                  <span>{preset.label}</span>
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    'rounded-xl border p-2',
+                    isActive ? 'border-foreground/15 bg-background' : 'border-border/60'
+                  )}
+                >
+                  {renderPresetIcon(preset.id)}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={preset.adaptiveRouting ? 'secondary' : 'outline'}>
-                    {preset.adaptiveRouting ? 'Adaptive' : 'Fixed'}
-                  </Badge>
-                  {preset.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+                <div className="min-w-0 space-y-1">
+                  <div className="font-medium text-base leading-none">{preset.label}</div>
+                  <div
+                    className="flex flex-wrap gap-1.5"
+                    data-testid={`chunking-preset-status-${preset.id}`}
+                  >
+                    <Badge variant={preset.adaptiveRouting ? 'secondary' : 'outline'}>
+                      {preset.adaptiveRouting ? 'Adaptive' : 'Fixed'}
+                    </Badge>
+                    {preset.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+                  </div>
                 </div>
               </div>
-              <p className="mt-3 text-muted-foreground text-xs leading-5">{preset.description}</p>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {preset.bestFor.map((item) => (
-                  <Badge className="text-[10px]" key={`${preset.id}-${item}`} variant="outline">
+              <p
+                className={cn(
+                  'mt-3 text-muted-foreground text-sm',
+                  isActive ? 'leading-6' : 'line-clamp-2 leading-5'
+                )}
+              >
+                {preset.description}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {visibleBestFor.map((item) => (
+                  <Badge
+                    className="max-w-full whitespace-normal text-[11px]"
+                    key={`${preset.id}-${item}`}
+                    variant="outline"
+                  >
                     {item}
                   </Badge>
                 ))}
+                {!isActive && preset.bestFor.length > visibleBestFor.length ? (
+                  <Badge variant="outline">
+                    +{preset.bestFor.length - visibleBestFor.length} more
+                  </Badge>
+                ) : null}
               </div>
-              <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
                 <span>{preset.strategy}</span>
                 <span>{preset.chunkSize} size</span>
                 <span>{preset.chunkOverlap} overlap</span>
                 <span>{preset.tokenLimit} cap</span>
               </div>
-              <p className="mt-2 text-[11px] text-muted-foreground">{preset.tradeoff}</p>
+              {isActive ? (
+                <p className="mt-3 text-[12px] text-muted-foreground leading-6">
+                  {preset.tradeoff}
+                </p>
+              ) : null}
             </button>
           );
         })}
