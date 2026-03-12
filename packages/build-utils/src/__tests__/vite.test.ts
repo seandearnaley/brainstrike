@@ -73,7 +73,10 @@ describe('assistant vite helpers', () => {
     expect(entries).toEqual([
       '/tmp/brainstrike-app/index.html',
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),
+      expect.stringContaining('/packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx'),
+      expect.stringContaining('/packages/ui/src/assistant-ui-panel/markdown-text.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),
+      expect.stringContaining('/packages/db-explorer/src/database-demo-panel.tsx'),
     ]);
   });
 

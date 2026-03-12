@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import {
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
+  getAssistantOptimizeDepsInclude,
+  getDatabaseOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
 } from '@brainstrike/build-utils';
@@ -284,7 +286,11 @@ export default defineConfig({
       '@brainstrike/token-cache', // Worker must resolve via package exports (dist)
       '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
     ],
-    include: ['react-helmet-async'],
+    include: [
+      'react-helmet-async',
+      ...getAssistantOptimizeDepsInclude(),
+      ...getDatabaseOptimizeDepsInclude(),
+    ],
   },
   define: {
     'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'true'),

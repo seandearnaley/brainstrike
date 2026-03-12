@@ -1,9 +1,8 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Database, MessageCircle } from 'lucide-react';
-import { type ReactElement, useEffect, useState } from 'react';
+import { type ReactElement, useEffect } from 'react';
 import { AssistantTab } from './assistant-tab';
-import { preloadAssistantUiPanelWrapper } from './assistant-ui-panel-wrapper-lazy';
 import { DatabaseTab, preloadDatabaseTab } from './database-tab';
 import {
   sanitizeToolsPanelTab,
@@ -36,7 +35,6 @@ export function ToolsPanel({
 }: ToolsPanelProps): ReactElement {
   const activeTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
   const setActiveTab = useToolsPanelStore((state) => state.setActiveTab);
-  const [assistantSurfaceReady, setAssistantSurfaceReady] = useState(false);
 
   useEffect(() => {
     if (!preloadDatabaseTabOnMount) {
@@ -44,30 +42,6 @@ export function ToolsPanel({
     }
     void preloadDatabaseTab();
   }, [preloadDatabaseTabOnMount]);
-
-  useEffect(() => {
-    if (activeTab !== 'assistant') {
-      return;
-    }
-
-    // Defer the heavy assistant surface until after the shell has committed once.
-    // In the built desktop renderer, loading it during the initial mount can stall
-    // the lazy boundary indefinitely even though the emitted chunk is present.
-    const timeoutId = window.setTimeout(() => {
-      setAssistantSurfaceReady(true);
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (!(assistantSurfaceReady && activeTab === 'assistant')) {
-      return;
-    }
-    void preloadAssistantUiPanelWrapper();
-  }, [activeTab, assistantSurfaceReady]);
 
   return (
     <div className="flex h-full flex-col">
@@ -101,11 +75,7 @@ export function ToolsPanel({
             forceMount
             value="assistant"
           >
-            {assistantSurfaceReady ? (
-              <AssistantTab />
-            ) : (
-              <div className="p-4 text-xs opacity-70">Preparing assistant…</div>
-            )}
+            <AssistantTab />
           </TabsContent>
 
           <TabsContent

@@ -28,6 +28,8 @@ const ReactCompilerConfig = { compilationMode: 'infer' };
 const {
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
+  getAssistantOptimizeDepsInclude,
+  getDatabaseOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
 } = await import('@brainstrike/build-utils');
@@ -250,7 +252,9 @@ export default defineConfig({
       '@brainstrike/token-cache',
     ],
     include: [
-      'react-helmet-async', // Explicitly include to prevent cache issues
+      'react-helmet-async',
+      ...getAssistantOptimizeDepsInclude(),
+      ...getDatabaseOptimizeDepsInclude(),
     ],
     esbuildOptions: {
       define: {

@@ -116,9 +116,7 @@ describe('ToolsPanel', () => {
     const assistantCard = await screen.findByTestId('assistant-chat-card');
     expect(assistantCard).toBeInTheDocument();
     expect(screen.getByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
-    await waitFor(() => {
-      expect(mockPreloadAssistantUiPanelWrapper).toHaveBeenCalledTimes(1);
-    });
+    expect(mockPreloadAssistantUiPanelWrapper).not.toHaveBeenCalled();
   });
 
   test('preloads the database tab chunk on idle after mount', async () => {

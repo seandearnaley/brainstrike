@@ -61,6 +61,8 @@ const dbExplorerPackageRequire = createRequire(
   path.resolve(moduleDir, '..', '..', 'db-explorer', 'package.json')
 );
 const appShellDir = path.resolve(moduleDir, '..', '..', 'app-shell', 'src');
+const uiDir = path.resolve(moduleDir, '..', '..', 'ui', 'src');
+const dbExplorerDir = path.resolve(moduleDir, '..', '..', 'db-explorer', 'src');
 
 function resolveOptimizeDepEntries(
   packageRequire: NodeJS.Require,
@@ -95,7 +97,10 @@ export function getLazySurfaceOptimizeDepsEntries(appRoot: string): readonly str
   return [
     path.resolve(appRoot, 'index.html'),
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper.tsx'),
+    path.resolve(uiDir, 'assistant-ui-panel', 'assistant-ui-panel.tsx'),
+    path.resolve(uiDir, 'assistant-ui-panel', 'markdown-text.tsx'),
     path.resolve(appShellDir, 'database-tab-chunk.tsx'),
+    path.resolve(dbExplorerDir, 'database-demo-panel.tsx'),
   ];
 }
 
