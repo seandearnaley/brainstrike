@@ -1,11 +1,14 @@
 import { isNativeTool, NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/client';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
-import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
+import {
+  useFileExplorerStoreContext,
+  useOptionalTokenCacheContext,
+} from '@brainstrike/file-explorer-ui';
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
-  createTokenCountingSettingsCategory,
+  createTokenCountingSettingsCategoryWithRuntimeSupport,
   createToolsSettingsCategory,
   LoggingSettingsSection,
   type LogSourceAdapter,
@@ -59,6 +62,7 @@ function ModelSelectionCategory() {
 
 export default function SettingsPageContent() {
   const { storedFolders, clearStoredHandles } = useRestoreAccess();
+  const tokenCache = useOptionalTokenCacheContext();
 
   // Inline fixture state from file explorer store context
   const store = useFileExplorerStoreContext();
@@ -72,6 +76,13 @@ export default function SettingsPageContent() {
       subscribe: (handler) => buffer.subscribe(handler),
     };
   }, []);
+
+  const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
+    if (!tokenCache) {
+      return null;
+    }
+    return tokenCache.isOperational && tokenCache.countingMode === 'accurate';
+  }, [tokenCache]);
 
   // Tool operations for native tools (web has no MCP support)
   const toolOperations = useMemo(
@@ -135,7 +146,7 @@ export default function SettingsPageContent() {
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
-      createTokenCountingSettingsCategory(),
+      createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       {
         id: 'models',
         title: 'Models & Providers',
@@ -176,6 +187,7 @@ export default function SettingsPageContent() {
       devInlineFixtureEnabled,
       setDevInlineFixtureEnabled,
       toolOperations,
+      accurateRuntimeAvailable,
     ]
   );
 

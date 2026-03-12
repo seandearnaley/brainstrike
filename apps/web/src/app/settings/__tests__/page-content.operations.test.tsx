@@ -146,6 +146,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
         setDevInlineFixtureEnabled: mockState.setDevInlineFixtureEnabledMock,
       });
   },
+  useOptionalTokenCacheContext: () => null,
 }));
 
 vi.mock('@brainstrike/preferences', () => ({
@@ -154,7 +155,7 @@ vi.mock('@brainstrike/preferences', () => ({
     title: 'Appearance',
     render: () => <div data-testid="appearance-category" />,
   }),
-  createTokenCountingSettingsCategory: (): MockSettingsCategory => ({
+  createTokenCountingSettingsCategoryWithRuntimeSupport: (): MockSettingsCategory => ({
     id: 'token-counting',
     title: 'Token Counting',
     render: () => <div data-testid="token-counting-category" />,

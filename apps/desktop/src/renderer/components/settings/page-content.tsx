@@ -1,11 +1,14 @@
 import { isNativeTool, NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/client';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
-import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
+import {
+  useFileExplorerStoreContext,
+  useOptionalTokenCacheContext,
+} from '@brainstrike/file-explorer-ui';
 import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
-  createTokenCountingSettingsCategory,
+  createTokenCountingSettingsCategoryWithRuntimeSupport,
   createToolsSettingsCategory,
   ModelSelectionPage,
   type SettingsCategory,
@@ -51,8 +54,15 @@ function EmbeddingModelsCategory() {
 export default function SettingsPageContent() {
   // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
   const store = useFileExplorerStoreContext();
+  const tokenCache = useOptionalTokenCacheContext();
   const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
   const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
+  const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
+    if (!tokenCache) {
+      return null;
+    }
+    return tokenCache.isOperational && tokenCache.countingMode === 'accurate';
+  }, [tokenCache]);
 
   // Create tool operations that integrate with window.mcp and window.tools APIs
   const toolOperations = useMemo(
@@ -263,7 +273,7 @@ export default function SettingsPageContent() {
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
-      createTokenCountingSettingsCategory(),
+      createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createApiKeysSettingsCategory(),
       {
         id: 'embedding-models',
@@ -296,7 +306,7 @@ export default function SettingsPageContent() {
         },
       }),
     ],
-    [devInlineFixtureEnabled, setDevInlineFixtureEnabled, toolOperations]
+    [accurateRuntimeAvailable, devInlineFixtureEnabled, setDevInlineFixtureEnabled, toolOperations]
   );
 
   return (

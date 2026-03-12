@@ -1,10 +1,6 @@
 import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
-import {
-  countTokensAccurateLazy,
-  countTokensHeuristicLazy,
-  supportsAccurateTokenCountingLazy,
-} from '@brainstrike/utils';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useOptionalTokenCacheContext } from './token-cache-context';
 
 export type TokenCountingMode = 'accurate' | 'heuristic';
 export type TokenCountingReason = 'preference-disabled' | 'runtime-fallback' | null;
@@ -16,72 +12,35 @@ export interface TokenCountingState {
   reason: TokenCountingReason;
 }
 
-let runtimeSupportPromise: Promise<boolean> | null = null;
-
-async function resolveRuntimeSupport(): Promise<boolean> {
-  if (!runtimeSupportPromise) {
-    runtimeSupportPromise = supportsAccurateTokenCountingLazy();
-  }
-  return runtimeSupportPromise;
-}
-
 export function useTokenCounting(): TokenCountingState {
   const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
-  const [mode, setMode] = useState<TokenCountingMode>('heuristic');
-  const [reason, setReason] = useState<TokenCountingReason>('preference-disabled');
-  const [loading, setLoading] = useState<boolean>(accuratePreference);
+  const tokenCache = useOptionalTokenCacheContext();
+  const hasAccurateRuntime =
+    accuratePreference &&
+    tokenCache?.isOperational === true &&
+    tokenCache.countingMode === 'accurate';
 
-  // biome-ignore lint/plugin: Initialize token counting mode based on preference - async initialization
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!accuratePreference) {
-      setMode('heuristic');
-      setReason('preference-disabled');
-      setLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setLoading(true);
-    setReason(null);
-
-    resolveRuntimeSupport()
-      .then((supported) => {
-        if (cancelled) {
-          return;
-        }
-        if (supported) {
-          setMode('accurate');
-          setReason(null);
-        } else {
-          setMode('heuristic');
-          setReason('runtime-fallback');
-        }
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setMode('heuristic');
-          setReason('runtime-fallback');
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accuratePreference]);
+  const mode: TokenCountingMode = hasAccurateRuntime ? 'accurate' : 'heuristic';
+  const reason: TokenCountingReason = accuratePreference
+    ? hasAccurateRuntime
+      ? null
+      : 'runtime-fallback'
+    : 'preference-disabled';
+  const loading = accuratePreference && tokenCache !== null && tokenCache.isOperational === false;
 
   const countTokens = useCallback(
     async (content: string) => {
       if (!accuratePreference) {
-        return countTokensHeuristicLazy(content);
+        return Math.ceil(content.length / 4);
       }
-      return countTokensAccurateLazy(content);
+
+      if (tokenCache?.isOperational && tokenCache.countingMode === 'accurate') {
+        return tokenCache.countTextTokens(content);
+      }
+
+      return Math.ceil(content.length / 4);
     },
-    [accuratePreference]
+    [accuratePreference, tokenCache]
   );
 
   return useMemo(
@@ -95,6 +54,4 @@ export function useTokenCounting(): TokenCountingState {
   );
 }
 
-export function __resetTokenCountingRuntimeCacheForTests() {
-  runtimeSupportPromise = null;
-}
+export function __resetTokenCountingRuntimeCacheForTests() {}

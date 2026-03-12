@@ -50,6 +50,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
     };
     return mockStore;
   },
+  useOptionalTokenCacheContext: () => null,
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 

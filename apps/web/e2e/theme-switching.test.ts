@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { waitForAppLoad } from './utils/layout-helpers';
+import {
+  waitForAppLoad,
+  waitForContextExplorerPage,
+  waitForSettingsPage,
+} from './utils/layout-helpers';
 
 test.describe('Theme Switching', () => {
   test.beforeEach(async ({ page }) => {
@@ -17,7 +21,7 @@ test.describe('Theme Switching', () => {
     async ({ page }) => {
       // Navigate to Settings page
       await page.getByRole('button', { name: 'Settings', exact: true }).click();
-      await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+      await waitForSettingsPage(page);
 
       // Verify theme controls are visible - use settings-specific selectors to avoid nav button conflicts
       const appearanceSection = page.getByTestId('settings-category-appearance');
@@ -45,16 +49,14 @@ test.describe('Theme Switching', () => {
 
       // Navigate back to Context Explorer to test persistence
       await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await waitForContextExplorerPage(page);
 
       // Verify dark theme persists
       await expect(htmlElement).toHaveClass(/dark/);
 
       // Navigate back to Settings
       await page.getByRole('button', { name: 'Settings', exact: true }).click();
-      await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+      await waitForSettingsPage(page);
 
       // Test switching to Light theme (use settings-specific selector)
       await page
@@ -77,7 +79,7 @@ test.describe('Theme Switching', () => {
   test('should toggle theme via navigation button', { tag: '@smoke' }, async ({ page }) => {
     // First, set a known theme state via settings to avoid system theme ambiguity
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+    await waitForSettingsPage(page);
 
     // Set to light theme explicitly (use settings-specific selector)
     await page
@@ -88,9 +90,7 @@ test.describe('Theme Switching', () => {
 
     // Navigate back to Context Explorer
     await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await waitForContextExplorerPage(page);
 
     // Get the theme toggle button in navigation (aria-label changes based on current theme)
     // In light mode, button says "Switch to dark mode"
@@ -117,7 +117,7 @@ test.describe('Theme Switching', () => {
 
     // Verify the toggle works from Settings page too
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+    await waitForSettingsPage(page);
 
     // Toggle from settings page (button should say "Switch to dark mode" since we're in light)
     await page.getByRole('button', { name: 'Switch to dark mode' }).click();
@@ -131,7 +131,7 @@ test.describe('Theme Switching', () => {
   test('should handle system theme preference', async ({ page }) => {
     // Navigate to Settings
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+    await waitForSettingsPage(page);
 
     // Click System theme button (use settings-specific selector)
     const appearanceSection = page.getByTestId('settings-category-appearance');
@@ -143,13 +143,11 @@ test.describe('Theme Switching', () => {
 
     // Navigate to verify no errors occurred
     await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await waitForContextExplorerPage(page);
 
     // Navigate back to settings to verify system is still selected
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+    await waitForSettingsPage(page);
 
     // The system button should still be available and clickable
     await expect(
@@ -173,16 +171,14 @@ test.describe('Theme Switching', () => {
     await page.reload();
 
     // Wait for page to load - after reload, we'll be on Context Explorer, not Settings
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
+    await waitForContextExplorerPage(page);
 
     // Verify dark theme persists after reload
     await expect(htmlElement).toHaveClass(/dark/);
 
     // Navigate back to settings to test light theme
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+    await waitForSettingsPage(page);
 
     // Switch back to light and test reload persistence (use settings-specific selector)
     await page

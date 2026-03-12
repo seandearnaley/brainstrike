@@ -12,7 +12,6 @@ const {
   getDatabaseOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
-  resolveLazySurfaceVendorChunk,
 } = await import('../vite');
 
 afterEach(() => {
@@ -50,8 +49,6 @@ describe('assistant vite helpers', () => {
         'react-helmet-async',
         'react-hotkeys-hook',
         'react-router-dom',
-        'tiktoken',
-        'tiktoken/lite/init',
         'xxhash-wasm',
         'zod',
         'zustand/shallow',
@@ -114,13 +111,6 @@ describe('assistant vite helpers', () => {
       resolveAssistantVendorChunk('/workspace/node_modules/@shikijs/langs/typescript.mjs')
     ).toBe('assistant-markdown-vendor');
     expect(resolveAssistantVendorChunk('/workspace/node_modules/react/index.js')).toBeUndefined();
-  });
-
-  test('classifies tokenizer vendor chunks consistently', () => {
-    expect(resolveLazySurfaceVendorChunk('/workspace/node_modules/tiktoken/index.js')).toBe(
-      'tokenizer-vendor'
-    );
-    expect(resolveLazySurfaceVendorChunk('/workspace/node_modules/react/index.js')).toBeUndefined();
   });
 });
 

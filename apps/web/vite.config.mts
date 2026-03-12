@@ -33,7 +33,6 @@ const {
   getDatabaseOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
-  resolveLazySurfaceVendorChunk,
 } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
 
@@ -45,11 +44,6 @@ function resolveVendorChunk(id: string): string | undefined {
   const assistantChunk = resolveAssistantVendorChunk(id);
   if (assistantChunk) {
     return assistantChunk;
-  }
-
-  const lazySurfaceChunk = resolveLazySurfaceVendorChunk(id);
-  if (lazySurfaceChunk) {
-    return lazySurfaceChunk;
   }
 
   return 'vendor';

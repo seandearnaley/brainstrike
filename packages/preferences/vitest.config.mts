@@ -31,6 +31,10 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
       },
       {
+        find: '@brainstrike/utils/token-counting-runtime',
+        replacement: resolve(import.meta.dirname, '../utils/src/token-counting-runtime.ts'),
+      },
+      {
         find: '@brainstrike/utils',
         replacement: resolve(import.meta.dirname, '../utils/src/index.ts'),
       },

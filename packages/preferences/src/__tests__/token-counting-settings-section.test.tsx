@@ -9,14 +9,6 @@ const { TokenCountingSettingsSection } = await import(
   '../settings/system/token-counting-settings-section'
 );
 
-vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
-  return {
-    ...actual,
-    supportsAccurateTokenCountingLazy: vi.fn(() => Promise.resolve(true)),
-  };
-});
-
 describe('TokenCountingSettingsSection', () => {
   beforeEach(() => {
     __resetTokenPreferencesStoreForTests();
@@ -27,27 +19,21 @@ describe('TokenCountingSettingsSection', () => {
   it('shows preference-disabled status when accurate counting is off', async () => {
     useTokenPreferencesStore.setState({ accurateCounting: false });
 
-    render(<TokenCountingSettingsSection />);
+    render(<TokenCountingSettingsSection accurateRuntimeAvailable={true} />);
 
     expect(screen.queryByText('Heuristic mode (preference)')).not.toBeNull();
     expect(screen.queryByText(/Accurate counting is disabled globally/i)).not.toBeNull();
   });
 
   it('renders fallback status when runtime does not support WASM tokenizer', async () => {
-    const utilsModule = vi.mocked(await import('@brainstrike/utils'));
-    utilsModule.supportsAccurateTokenCountingLazy.mockResolvedValue(false);
-
-    render(<TokenCountingSettingsSection />);
+    render(<TokenCountingSettingsSection accurateRuntimeAvailable={false} />);
 
     expect(await screen.findByText('Heuristic fallback active')).not.toBeNull();
     expect(screen.queryByText(/Runtime cannot load the WASM tokenizer/i)).not.toBeNull();
   });
 
   it('disables accurate counting via toggle', async () => {
-    const utilsModule = vi.mocked(await import('@brainstrike/utils'));
-    utilsModule.supportsAccurateTokenCountingLazy.mockResolvedValue(true);
-
-    render(<TokenCountingSettingsSection />);
+    render(<TokenCountingSettingsSection accurateRuntimeAvailable={true} />);
 
     const toggle = await screen.findByRole('switch');
     expect(toggle.getAttribute('aria-checked')).toBe('true');
@@ -58,5 +44,11 @@ describe('TokenCountingSettingsSection', () => {
       expect(useTokenPreferencesStore.getState().accurateCounting).toBe(false);
     });
     expect(screen.queryByText(/Heuristic mode/)).not.toBeNull();
+  });
+
+  it('shows checking state when runtime availability is unresolved', async () => {
+    render(<TokenCountingSettingsSection accurateRuntimeAvailable={null} />);
+
+    expect(await screen.findByText('Checking runtime…')).not.toBeNull();
   });
 });

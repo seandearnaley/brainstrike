@@ -7,6 +7,8 @@ import {
   togglePanelVisibility,
   verifyDefaultLayout,
   waitForAppLoad,
+  waitForContextExplorerPage,
+  waitForSettingsPage,
 } from './utils/layout-helpers';
 
 test.describe('Application Layout', { tag: '@smoke' }, () => {
@@ -40,7 +42,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     await home.settingsNavButton.click();
 
     // Verify the Settings page content is visible and Context Explorer is not
-    await expect(home.settingsHeading).toBeVisible();
+    await waitForSettingsPage(page);
     await expect(home.contextExplorerHeading).not.toBeVisible();
 
     // Ensure Context Explorer button is enabled, then click to navigate back
@@ -48,7 +50,7 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     await home.contextExplorerNavButton.click();
 
     // Verify Context Explorer is active again
-    await expect(home.contextExplorerHeading).toBeVisible();
+    await waitForContextExplorerPage(page);
     await expect(home.settingsHeading).not.toBeVisible();
   });
 

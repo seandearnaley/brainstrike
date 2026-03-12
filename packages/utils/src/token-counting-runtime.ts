@@ -45,10 +45,16 @@ export async function supportsAccurateTokenCounting(): Promise<boolean> {
   return tokenUtils.supportsAccurateTokenCounting();
 }
 
+export const supportsAccurateTokenCountingLazy = supportsAccurateTokenCounting;
+
 export async function countTokensAccurate(text: string): Promise<number> {
   const tokenUtils = await loadTokenUtilsModule();
   return tokenUtils.countTokensAccurate(text);
 }
+
+export const countTokensAccurateLazy = countTokensAccurate;
+
+export const countTokensHeuristicLazy = countTokensHeuristic;
 
 export async function calculateGroupTokens(texts: string[]): Promise<number> {
   const tokenUtils = await loadTokenUtilsModule();

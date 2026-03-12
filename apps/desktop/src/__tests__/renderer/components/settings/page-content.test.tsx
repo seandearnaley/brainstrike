@@ -21,6 +21,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
     };
     return mockStore;
   },
+  useOptionalTokenCacheContext: () => null,
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -214,6 +215,11 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
   return {
     ...actual,
+    createTokenCountingSettingsCategoryWithRuntimeSupport: vi.fn(() => ({
+      id: 'token-counting',
+      title: 'Token Counting',
+      render: () => <div data-testid="token-counting-settings-mock" />,
+    })),
     EmbeddingSettings: vi.fn(() => <div data-testid="embedding-settings-mock" />),
     ModelSelectionPage: vi.fn(() => (
       <div data-testid="model-selection-page-mock">

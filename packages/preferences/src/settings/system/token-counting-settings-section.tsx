@@ -8,9 +8,7 @@ import {
   Label,
   Switch,
 } from '@brainstrike/ui';
-import { supportsAccurateTokenCountingLazy } from '@brainstrike/utils';
 import { AlertTriangle, CheckCircle2, Loader2, MinusCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
@@ -23,6 +21,10 @@ interface StatusMetadata {
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   label: string;
   variant: 'secondary' | 'outline' | 'destructive';
+}
+
+export interface TokenCountingRuntimeSupport {
+  accurateRuntimeAvailable: boolean | null;
 }
 
 const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
@@ -54,42 +56,18 @@ const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
   },
 };
 
-export function TokenCountingSettingsSection() {
+export function TokenCountingSettingsSection({
+  accurateRuntimeAvailable,
+}: TokenCountingRuntimeSupport) {
   const accurateCounting = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   const setAccurateCounting = useTokenPreferencesStore((state) => state.setAccurateCounting);
-  // Store resolved status keyed by the accurateCounting value it was computed for
-  const [resolvedStatus, setResolvedStatus] = useState<{
-    for: boolean;
-    status: 'accurate' | 'fallback';
-  } | null>(null);
-
-  useEffect(() => {
-    if (!accurateCounting) {
-      return;
-    }
-
-    let cancelled = false;
-    supportsAccurateTokenCountingLazy()
-      .then((supported) => {
-        if (!cancelled) {
-          setResolvedStatus({ for: accurateCounting, status: supported ? 'accurate' : 'fallback' });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setResolvedStatus({ for: accurateCounting, status: 'fallback' });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accurateCounting]);
 
   const runtimeStatus: TokenRuntimeStatus = accurateCounting
-    ? resolvedStatus?.for === accurateCounting
-      ? resolvedStatus.status
-      : 'checking'
+    ? accurateRuntimeAvailable === null
+      ? 'checking'
+      : accurateRuntimeAvailable
+        ? 'accurate'
+        : 'fallback'
     : 'disabled';
 
   const status = STATUS_METADATA[runtimeStatus];

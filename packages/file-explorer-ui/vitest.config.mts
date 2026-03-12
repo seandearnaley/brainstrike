@@ -27,6 +27,10 @@ export default defineConfig({
     alias: {
       '@brainstrike/types': resolve(import.meta.dirname, '../types/src'),
       '@brainstrike/ui': resolve(import.meta.dirname, '../ui/src'),
+      '@brainstrike/utils/token-counting-runtime': resolve(
+        import.meta.dirname,
+        '../utils/src/token-counting-runtime.ts'
+      ),
       '@brainstrike/utils': resolve(import.meta.dirname, '../utils/src'),
       '@brainstrike/file-explorer': resolve(import.meta.dirname, '../file-explorer/src'),
       '@brainstrike/test-utils': resolve(import.meta.dirname, '../test-utils/src'),

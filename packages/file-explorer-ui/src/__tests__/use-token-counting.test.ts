@@ -3,64 +3,93 @@ import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
 } from '@brainstrike/preferences';
-import {
-  __resetTokenCountingRuntimeModuleForTests,
-  countTokensAccurateLazy,
-  countTokensHeuristicLazy,
-  supportsAccurateTokenCountingLazy,
-} from '@brainstrike/utils';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { TokenCacheContextValue } from '../token-cache-context';
 import { __resetTokenCountingRuntimeCacheForTests, useTokenCounting } from '../use-token-counting';
 
-vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+const tokenCacheMocks = vi.hoisted(() => ({
+  useOptionalTokenCacheContext: vi.fn<() => TokenCacheContextValue | null>(),
+}));
+
+vi.mock('../token-cache-context', async () => {
+  const actual =
+    await vi.importActual<typeof import('../token-cache-context')>('../token-cache-context');
+
   return {
     ...actual,
-    supportsAccurateTokenCountingLazy: vi.fn(),
-    countTokensAccurateLazy: vi.fn(),
-    countTokensHeuristicLazy: vi.fn(),
+    useOptionalTokenCacheContext: tokenCacheMocks.useOptionalTokenCacheContext,
   };
 });
 
-const mockedSupports = vi.mocked(supportsAccurateTokenCountingLazy);
-const mockedAccurate = vi.mocked(countTokensAccurateLazy);
-const mockedHeuristic = vi.mocked(countTokensHeuristicLazy);
+function createTokenCacheContextValue(
+  overrides: Partial<TokenCacheContextValue>
+): TokenCacheContextValue {
+  return {
+    cacheVersion: 0,
+    clearHotCache: () => {},
+    getFileSize: () => undefined,
+    getTokenCount: () => null,
+    getTotalTokens: async () => 0,
+    invalidate: () => {},
+    isAnyLoading: false,
+    isLoading: () => false,
+    preloadFolder: async () => {},
+    queueForCounting: () => {},
+    updateFileSizeCache: () => {},
+    updateHotCache: () => {},
+    isReady: true,
+    isOperational: true,
+    isPersisted: true,
+    persistenceMode: 'persistent',
+    isWorkerReady: true,
+    countingMode: 'accurate',
+    countTextTokens: async () => 0,
+    store: {} as TokenCacheContextValue['store'],
+    ...overrides,
+  };
+}
 
 describe('useTokenCounting', () => {
   beforeEach(() => {
     __resetTokenPreferencesStoreForTests();
     __resetTokenCountingRuntimeCacheForTests();
-    __resetTokenCountingRuntimeModuleForTests();
     vi.clearAllMocks();
-    mockedHeuristic.mockImplementation((text: string) => text.length);
-    mockedAccurate.mockResolvedValue(0);
+    tokenCacheMocks.useOptionalTokenCacheContext.mockReset();
+    tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(null);
   });
 
-  it('resolves to accurate mode when runtime supports WASM tokenizer', async () => {
-    mockedSupports.mockResolvedValue(true);
-    mockedAccurate.mockResolvedValue(42);
+  it('uses the token cache worker when accurate counting is operational', async () => {
+    const countTextTokens = vi.fn(async () => 42);
+    tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
+      createTokenCacheContextValue({
+        isOperational: true,
+        countingMode: 'accurate',
+        countTextTokens,
+      })
+    );
 
     const { result } = renderHook(() => useTokenCounting());
 
-    expect(result.current.loading).toBe(true);
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-      expect(result.current.mode).toBe('accurate');
-      expect(result.current.reason).toBeNull();
-    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.mode).toBe('accurate');
+    expect(result.current.reason).toBeNull();
 
     await expect(result.current.countTokens('hello')).resolves.toBe(42);
-    expect(mockedAccurate).toHaveBeenCalledWith('hello');
+    expect(countTextTokens).toHaveBeenCalledWith('hello');
   });
 
   it('falls back to heuristic mode when preference is disabled', async () => {
-    mockedSupports.mockResolvedValue(true);
-    mockedHeuristic.mockImplementation((text: string) => text.length * 2);
+    const countTextTokens = vi.fn(async () => 123);
+    tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
+      createTokenCacheContextValue({
+        isOperational: true,
+        countingMode: 'accurate',
+        countTextTokens,
+      })
+    );
 
     const { result } = renderHook(() => useTokenCounting());
-    await waitFor(() => expect(result.current.loading).toBe(false));
 
     act(() => {
       useTokenPreferencesStore.getState().setAccurateCounting(false);
@@ -71,22 +100,34 @@ describe('useTokenCounting', () => {
       expect(result.current.reason).toBe('preference-disabled');
     });
 
-    await expect(result.current.countTokens('abc')).resolves.toBe(6);
-    expect(mockedHeuristic).toHaveBeenCalledWith('abc');
+    await expect(result.current.countTokens('abcde')).resolves.toBe(2);
+    expect(countTextTokens).not.toHaveBeenCalled();
     expect(tokenPreferencesSelectors.accurateCounting(useTokenPreferencesStore.getState())).toBe(
       false
     );
   });
 
-  it('reports runtime fallback when WASM tokenizer is unavailable', async () => {
-    mockedSupports.mockResolvedValue(false);
+  it('reports runtime fallback when the token cache worker is unavailable', async () => {
+    tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
+      createTokenCacheContextValue({
+        isOperational: false,
+        countingMode: 'accurate',
+        countTextTokens: vi.fn(async () => 99),
+      })
+    );
 
     const { result } = renderHook(() => useTokenCounting());
 
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-      expect(result.current.mode).toBe('heuristic');
-      expect(result.current.reason).toBe('runtime-fallback');
-    });
+    await waitFor(() => expect(result.current.mode).toBe('heuristic'));
+    expect(result.current.reason).toBe('runtime-fallback');
+  });
+
+  it('uses heuristic fallback when no token cache provider is present', async () => {
+    const { result } = renderHook(() => useTokenCounting());
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.mode).toBe('heuristic');
+    expect(result.current.reason).toBe('runtime-fallback');
+    await expect(result.current.countTokens('abcd')).resolves.toBe(1);
   });
 });
