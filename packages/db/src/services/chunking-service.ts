@@ -15,7 +15,8 @@ export type {
   ResolvedChunkingStrategy,
 } from '@brainstrike/text-splitter';
 
-import { countTokensAccurate, createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils';
+import { countTokensAccurate } from '@brainstrike/utils/token-counting-runtime';
 import { CHUNKING_CONFIG } from '../config/chunking-config.js';
 import type { FileChunkInsert } from '../models/file-chunk';
 

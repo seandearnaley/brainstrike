@@ -654,6 +654,9 @@ importers:
       '@ai-sdk/provider':
         specifier: 3.0.8
         version: 3.0.8
+      '@brainstrike/text-splitter':
+        specifier: workspace:*
+        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1254,6 +1257,9 @@ importers:
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
+      '@brainstrike/text-splitter':
+        specifier: workspace:*
+        version: link:../text-splitter
       '@brainstrike/token-cache':
         specifier: workspace:*
         version: link:../token-cache
@@ -2042,6 +2048,9 @@ importers:
 
   packages/utils:
     dependencies:
+      '@brainstrike/text-splitter':
+        specifier: workspace:*
+        version: link:../text-splitter
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

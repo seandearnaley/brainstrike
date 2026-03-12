@@ -34,18 +34,6 @@ export * from './report-generator';
 export * from './safe-storage';
 export * from './selection-utils';
 export * from './throttled-state';
-export {
-  __resetTokenCountingRuntimeModuleForTests,
-  calculateGroupTokens,
-  countTokensAccurate,
-  countTokensAccurate as countTokensAccurateLazy,
-  countTokensHeuristic,
-  countTokensHeuristic as countTokensHeuristicLazy,
-  estimateTokenCost,
-  formatTokenCount,
-  supportsAccurateTokenCounting,
-  supportsAccurateTokenCounting as supportsAccurateTokenCountingLazy,
-} from './token-counting-runtime';
 export * from './tree-generator';
 export * from './tree-operations';
 export * from './url-utils';

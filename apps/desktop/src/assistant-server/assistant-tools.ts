@@ -11,7 +11,8 @@ import {
   type UpdatePreviewContextFilesInput,
   UpdatePreviewContextFilesInputSchema,
 } from '@brainstrike/agent';
-import { countTokensHeuristic, createLogger, defaultCollator } from '@brainstrike/utils';
+import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { createLogger, defaultCollator } from '@brainstrike/utils';
 import { BrowserWindow } from 'electron';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;

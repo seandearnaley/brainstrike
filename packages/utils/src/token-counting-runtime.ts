@@ -2,9 +2,18 @@
  * Lightweight token-counting runtime facade for visible-renderer consumers.
  *
  * The accurate tokenizer path lives in ./token-utils and pulls in the WASM-backed
- * tiktoken runtime. Keep this facade small so UI code can defer that cost until
+ * tiktoken runtime. Lightweight heuristics come from @brainstrike/text-splitter.
+ * Keep this facade small so UI code can defer the accurate tokenizer cost until
  * the user explicitly enables accurate counting or requests a token count.
  */
+
+import {
+  countTokensHeuristic,
+  estimateTokenCost,
+  formatTokenCount,
+} from '@brainstrike/text-splitter';
+
+export { countTokensHeuristic, estimateTokenCost, formatTokenCount };
 
 type TokenUtilsModule = typeof import('./token-utils');
 
@@ -15,29 +24,6 @@ function loadTokenUtilsModule(): Promise<TokenUtilsModule> {
     tokenUtilsModulePromise = import('./token-utils');
   }
   return tokenUtilsModulePromise;
-}
-
-export function countTokensHeuristic(text: string): number {
-  const chars = text.length;
-  return Math.ceil(chars / 4);
-}
-
-export function formatTokenCount(count: number): string {
-  if (count < 1000) {
-    return `${count} tokens`;
-  }
-
-  if (count < 1_000_000) {
-    return `${(count / 1000).toFixed(1)}K tokens`;
-  }
-
-  return `${(count / 1_000_000).toFixed(1)}M tokens`;
-}
-
-export function estimateTokenCost(inputTokens: number, outputTokens = 0): number {
-  const inputCost = inputTokens * 0.000_01;
-  const outputCost = outputTokens * 0.000_03;
-  return inputCost + outputCost;
 }
 
 export async function supportsAccurateTokenCounting(): Promise<boolean> {

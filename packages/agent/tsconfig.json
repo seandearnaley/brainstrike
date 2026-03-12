@@ -19,5 +19,16 @@
     "node_modules",
     "src/**/*.test.ts",
     "src/**/__tests__/**"
+  ],
+  "references": [
+    {
+      "path": "../text-splitter"
+    },
+    {
+      "path": "../utils"
+    },
+    {
+      "path": "../types"
+    }
   ]
 }

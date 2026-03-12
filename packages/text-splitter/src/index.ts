@@ -54,6 +54,29 @@ export interface StrategyTextSplitterOptions extends RecursiveTextSplitterOption
   strategy: ResolvedChunkingStrategy;
 }
 
+export function countTokensHeuristic(text: string): number {
+  const chars = text.length;
+  return Math.ceil(chars / 4);
+}
+
+export function formatTokenCount(count: number): string {
+  if (count < 1000) {
+    return `${count} tokens`;
+  }
+
+  if (count < 1_000_000) {
+    return `${(count / 1000).toFixed(1)}K tokens`;
+  }
+
+  return `${(count / 1_000_000).toFixed(1)}M tokens`;
+}
+
+export function estimateTokenCost(inputTokens: number, outputTokens = 0): number {
+  const inputCost = inputTokens * 0.000_01;
+  const outputCost = outputTokens * 0.000_03;
+  return inputCost + outputCost;
+}
+
 const CODE_EXTENSIONS = new Set([
   'js',
   'ts',

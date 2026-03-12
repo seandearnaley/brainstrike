@@ -109,13 +109,16 @@ vi.mock('@brainstrike/embeddings/provider-core', () => ({
 }));
 
 vi.mock('@brainstrike/utils', () => ({
-  countTokensHeuristic: (value: string) => value.length,
   createLogger: () => ({
     warn: loggerWarn,
     error: loggerError,
     info: vi.fn(),
     debug: vi.fn(),
   }),
+}));
+
+vi.mock('@brainstrike/text-splitter', () => ({
+  countTokensHeuristic: (value: string) => value.length,
 }));
 
 vi.mock('../../db-main', () => ({

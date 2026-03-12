@@ -21,6 +21,10 @@ export default defineConfig({
         __dirname,
         '../../packages/embedding-worker/src/index.ts'
       ),
+      '@brainstrike/utils/token-counting-runtime': resolve(
+        __dirname,
+        '../../packages/utils/src/token-counting-runtime.ts'
+      ),
       '@brainstrike/utils': resolve(__dirname, '../../packages/utils/src/index.ts'),
     },
   },

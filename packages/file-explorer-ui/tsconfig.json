@@ -45,6 +45,9 @@
       "path": "../preferences"
     },
     {
+      "path": "../text-splitter"
+    },
+    {
       "path": "../utils"
     },
     {

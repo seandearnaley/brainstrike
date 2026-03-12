@@ -50,6 +50,15 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@brainstrike/workers/report-generation-worker': resolve(
+        __dirname,
+        '../workers/report-generation-worker.ts'
+      ),
+      '@brainstrike/hooks': resolve(__dirname, '../hooks/src/index.ts'),
+      '@brainstrike/utils/token-counting-runtime': resolve(
+        __dirname,
+        '../utils/src/token-counting-runtime.ts'
+      ),
       '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
       '@brainstrike/embeddings/runtime-config': resolve(
         __dirname,

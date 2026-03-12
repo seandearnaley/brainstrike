@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  countTokensHeuristic,
+  estimateTokenCost,
+  formatTokenCount,
   getChunkingPreset,
   getChunkingPresetDefinitions,
   getChunkingRoutePreview,
@@ -155,6 +158,12 @@ describe('@brainstrike/text-splitter', () => {
     expect(isChunkingStrategy('auto')).toBe(true);
     expect(isChunkingStrategy('semantic-markdown')).toBe(true);
     expect(isChunkingStrategy('bogus')).toBe(false);
+  });
+
+  it('exports lightweight token heuristics from the package root', () => {
+    expect(countTokensHeuristic('abcdefgh')).toBe(2);
+    expect(formatTokenCount(1500)).toBe('1.5K tokens');
+    expect(estimateTokenCost(1000, 1000)).toBe(0.04);
   });
 
   it('resolves auto strategy from file extension', () => {
