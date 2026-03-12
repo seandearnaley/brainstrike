@@ -412,9 +412,9 @@
     opacity: 0.5;
   }
 
-  /* Focus-visible ring for keyboard navigation */
+  /* Keep accidental focus states on containers/cards neutral rather than bright blue. */
   :focus-visible {
-    outline: 2px solid hsl(var(--ring));
+    outline: 1.5px solid hsl(var(--foreground) / 0.2);
     outline-offset: 2px;
   }
 

@@ -168,14 +168,15 @@ export function SettingsPanel({
         </label>
       </div>
 
-      <div className="grid max-h-[min(42vh,420px)] gap-3 overflow-y-auto pr-1 xl:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid max-h-[min(40vh,360px)] gap-3 overflow-y-auto pr-1 md:grid-cols-2">
         {presets.map((preset) => {
           const isActive = currentPreset === preset.id;
-          const visibleBestFor = isActive ? preset.bestFor : preset.bestFor.slice(0, 2);
+          const visibleBestFor = isActive ? preset.bestFor.slice(0, 3) : preset.bestFor.slice(0, 2);
           return (
             <button
+              aria-pressed={isActive}
               className={cn(
-                'group h-full rounded-2xl border px-4 py-3 text-left transition-colors',
+                'group h-full rounded-2xl border px-4 py-3 text-left transition-colors focus-visible:outline-none',
                 isActive
                   ? 'border-foreground/20 bg-foreground/5 shadow-sm'
                   : 'border-border/70 bg-background/70 hover:border-foreground/15 hover:bg-muted/70'
@@ -238,7 +239,7 @@ export function SettingsPanel({
                 <span>{preset.tokenLimit} cap</span>
               </div>
               {isActive ? (
-                <p className="mt-3 text-[12px] text-muted-foreground leading-6">
+                <p className="mt-3 line-clamp-3 text-[12px] text-muted-foreground leading-6">
                   {preset.tradeoff}
                 </p>
               ) : null}
