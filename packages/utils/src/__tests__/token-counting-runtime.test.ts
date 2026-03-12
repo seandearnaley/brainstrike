@@ -3,8 +3,10 @@ import { __resetTokenCountingRuntimeModuleForTests } from '../token-counting-run
 
 const supportsAccurateTokenCountingMock = vi.hoisted(() => vi.fn());
 const countTokensAccurateMock = vi.hoisted(() => vi.fn());
+const calculateGroupTokensMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../token-utils', () => ({
+  calculateGroupTokens: calculateGroupTokensMock,
   supportsAccurateTokenCounting: supportsAccurateTokenCountingMock,
   countTokensAccurate: countTokensAccurateMock,
 }));
@@ -12,6 +14,7 @@ vi.mock('../token-utils', () => ({
 describe('token-counting-runtime', () => {
   beforeEach(() => {
     __resetTokenCountingRuntimeModuleForTests();
+    calculateGroupTokensMock.mockReset();
     supportsAccurateTokenCountingMock.mockReset();
     countTokensAccurateMock.mockReset();
   });
@@ -40,5 +43,24 @@ describe('token-counting-runtime', () => {
 
     await expect(countTokensAccurate('hello world')).resolves.toBe(42);
     expect(countTokensAccurateMock).toHaveBeenCalledWith('hello world');
+  });
+
+  it('loads the accurate runtime lazily for grouped counting', async () => {
+    calculateGroupTokensMock.mockResolvedValue(99);
+
+    const { calculateGroupTokens } = await import('../token-counting-runtime');
+
+    await expect(calculateGroupTokens(['a', 'bb'])).resolves.toBe(99);
+    expect(calculateGroupTokensMock).toHaveBeenCalledWith(['a', 'bb']);
+  });
+
+  it('keeps lightweight formatting helpers local to the facade', async () => {
+    const { estimateTokenCost, formatTokenCount } = await import('../token-counting-runtime');
+
+    expect(formatTokenCount(1500)).toBe('1.5K tokens');
+    expect(estimateTokenCost(1000, 1000)).toBe(0.04);
+    expect(calculateGroupTokensMock).not.toHaveBeenCalled();
+    expect(supportsAccurateTokenCountingMock).not.toHaveBeenCalled();
+    expect(countTokensAccurateMock).not.toHaveBeenCalled();
   });
 });

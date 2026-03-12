@@ -129,6 +129,60 @@ describe('ToolsPanel', () => {
     });
   });
 
+  test('prefetches the database tab chunk on pointer intent', async () => {
+    const user = userEvent.setup();
+    render(<ToolsPanel />);
+
+    await screen.findByTestId('assistant-chat-card');
+
+    await user.hover(screen.getByRole('tab', { name: /database/i }));
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('prefetches the database tab chunk only once across multiple intents', async () => {
+    const user = userEvent.setup();
+    render(<ToolsPanel />);
+
+    await screen.findByTestId('assistant-chat-card');
+
+    const databaseTab = screen.getByRole('tab', { name: /database/i });
+    await user.hover(databaseTab);
+    await user.unhover(databaseTab);
+    await user.click(databaseTab);
+    await user.click(screen.getByRole('tab', { name: /assistant/i }));
+    await user.tab();
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('allows database prefetch to retry after a rejected intent preload', async () => {
+    const user = userEvent.setup();
+    mockPreloadDatabaseTab.mockRejectedValueOnce(new Error('navigation aborted'));
+    render(<ToolsPanel />);
+
+    await screen.findByTestId('assistant-chat-card');
+
+    const databaseTab = screen.getByRole('tab', { name: /database/i });
+    await user.hover(databaseTab);
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+
+    mockPreloadDatabaseTab.mockResolvedValueOnce(undefined);
+    await user.unhover(databaseTab);
+    await user.hover(databaseTab);
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(2);
+    });
+  });
+
   test('allows switching between tabs', async () => {
     const user = userEvent.setup();
     render(<ToolsPanel />);

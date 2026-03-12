@@ -119,7 +119,6 @@ export default function RootLayoutContent() {
       </Suspense>
     ),
     embeddingQueue, // DO NOT REMOVE - See function docstring
-    preloadDatabaseTabOnMount: true,
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
 

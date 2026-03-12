@@ -22,6 +22,24 @@ export function countTokensHeuristic(text: string): number {
   return Math.ceil(chars / 4);
 }
 
+export function formatTokenCount(count: number): string {
+  if (count < 1000) {
+    return `${count} tokens`;
+  }
+
+  if (count < 1_000_000) {
+    return `${(count / 1000).toFixed(1)}K tokens`;
+  }
+
+  return `${(count / 1_000_000).toFixed(1)}M tokens`;
+}
+
+export function estimateTokenCost(inputTokens: number, outputTokens = 0): number {
+  const inputCost = inputTokens * 0.000_01;
+  const outputCost = outputTokens * 0.000_03;
+  return inputCost + outputCost;
+}
+
 export async function supportsAccurateTokenCounting(): Promise<boolean> {
   const tokenUtils = await loadTokenUtilsModule();
   return tokenUtils.supportsAccurateTokenCounting();
@@ -30,6 +48,11 @@ export async function supportsAccurateTokenCounting(): Promise<boolean> {
 export async function countTokensAccurate(text: string): Promise<number> {
   const tokenUtils = await loadTokenUtilsModule();
   return tokenUtils.countTokensAccurate(text);
+}
+
+export async function calculateGroupTokens(texts: string[]): Promise<number> {
+  const tokenUtils = await loadTokenUtilsModule();
+  return tokenUtils.calculateGroupTokens(texts);
 }
 
 export function __resetTokenCountingRuntimeModuleForTests(): void {

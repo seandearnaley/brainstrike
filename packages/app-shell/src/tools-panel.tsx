@@ -1,7 +1,7 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Database, MessageCircle } from 'lucide-react';
-import { type ReactElement, useEffect } from 'react';
+import { type ReactElement, useEffect, useRef } from 'react';
 import { AssistantTab } from './assistant-tab';
 import { DatabaseTab, preloadDatabaseTab } from './database-tab';
 import {
@@ -35,12 +35,24 @@ export function ToolsPanel({
 }: ToolsPanelProps): ReactElement {
   const activeTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
   const setActiveTab = useToolsPanelStore((state) => state.setActiveTab);
+  const databaseTabPrefetchedRef = useRef<boolean>(false);
+
+  const prefetchDatabaseTab = (): void => {
+    if (databaseTabPrefetchedRef.current) {
+      return;
+    }
+    databaseTabPrefetchedRef.current = true;
+    void preloadDatabaseTab().catch(() => {
+      // Intent prefetch should not surface as an unhandled rejection during navigation/reload.
+      databaseTabPrefetchedRef.current = false;
+    });
+  };
 
   useEffect(() => {
     if (!preloadDatabaseTabOnMount) {
       return;
     }
-    void preloadDatabaseTab();
+    prefetchDatabaseTab();
   }, [preloadDatabaseTabOnMount]);
 
   return (
@@ -62,6 +74,8 @@ export function ToolsPanel({
           <TabsTrigger
             aria-label="Database"
             className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            onFocus={prefetchDatabaseTab}
+            onPointerEnter={prefetchDatabaseTab}
             value="database"
           >
             <Database className="h-3.5 w-3.5" />

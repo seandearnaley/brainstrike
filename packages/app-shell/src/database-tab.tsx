@@ -1,20 +1,19 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { type ComponentType, type ReactElement, useEffect, useState } from 'react';
+import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
 
 type DatabaseTabChunkModule = typeof import('./database-tab-chunk');
 
-let databaseTabModulePromise: Promise<DatabaseTabChunkModule> | null = null;
 let databaseTabChunkComponent: ComponentType<DatabaseTabProps> | null = null;
+const databaseTabModuleLoader = createRetryableLazyModuleLoader<DatabaseTabChunkModule>(
+  () => import('./database-tab-chunk')
+);
 
 function loadDatabaseTabModule(): Promise<DatabaseTabChunkModule> {
-  if (databaseTabModulePromise) {
-    return databaseTabModulePromise;
-  }
-  databaseTabModulePromise = import('./database-tab-chunk').then((module) => {
+  return databaseTabModuleLoader.load().then((module) => {
     databaseTabChunkComponent = module.DatabaseTab;
     return module;
   });
-  return databaseTabModulePromise;
 }
 
 export function preloadDatabaseTab(): Promise<void> {
