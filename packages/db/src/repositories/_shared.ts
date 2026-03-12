@@ -476,12 +476,42 @@ export async function validateEmbeddingDimensions(
     }
   }
 
-  if (uniqueEmbeddingSetIds.size > 0) {
-    await resolveEmbeddingSetDimensions(db, Array.from(uniqueEmbeddingSetIds));
-  }
+  // Pre-warm the cache with a single batch query and keep the result map
+  // so we can look up dimensions synchronously in the loop below.
+  const dimensionMap =
+    uniqueEmbeddingSetIds.size > 0
+      ? await resolveEmbeddingSetDimensions(db, Array.from(uniqueEmbeddingSetIds))
+      : new Map<string, number>();
 
-  // Now validate each sequentially (but the dimensions will be instantly returned from cache without queries)
+  // Validate each embedding synchronously using the pre-fetched dimension map
   for (const data of embeddingsData) {
-    await validateEmbeddingDimension(db, data.embedding, data);
+    if (!data.embedding) {
+      continue;
+    }
+
+    ensureArrayInput(data.embedding);
+    ensureNumericValues(data.embedding);
+    const embeddingDimension = data.embedding.length;
+    assertEmbeddingDimensionBounds(embeddingDimension);
+
+    // Resolve the target dimension from the pre-fetched map or from
+    // the explicit expectedDimension option — no async call needed.
+    let targetDimension: number | undefined;
+    if (data.embeddingSetId) {
+      targetDimension = dimensionMap.get(data.embeddingSetId);
+    } else if (typeof data.expectedDimension === 'number') {
+      targetDimension = data.expectedDimension;
+    }
+
+    if (targetDimension === undefined) {
+      continue;
+    }
+
+    assertTargetDimensionBounds(targetDimension);
+    if (embeddingDimension !== targetDimension) {
+      throw new Error(
+        `Embedding dimension mismatch: received ${embeddingDimension}, expected ${targetDimension}.`
+      );
+    }
   }
 }
