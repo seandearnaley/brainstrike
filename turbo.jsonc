@@ -62,6 +62,7 @@
     "type-check": {
       // Ensures the package is built (generating .d.ts files) before type checking.
       "dependsOn": [
+        "^build",
         "build"
       ],
       // Type checking doesn't produce persistent artifacts to cache, only console output.

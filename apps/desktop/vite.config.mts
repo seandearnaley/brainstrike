@@ -5,6 +5,7 @@ import {
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
+  getCoreAppOptimizeDepsInclude,
   getDatabaseOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
@@ -287,7 +288,7 @@ export default defineConfig({
       '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
     ],
     include: [
-      'react-helmet-async',
+      ...getCoreAppOptimizeDepsInclude(),
       ...getAssistantOptimizeDepsInclude(),
       ...getDatabaseOptimizeDepsInclude(),
     ],

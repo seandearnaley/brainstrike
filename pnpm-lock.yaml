@@ -187,6 +187,18 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@assistant-ui/react':
+        specifier: ^0.12.11
+        version: 0.12.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
+      '@assistant-ui/react-data-stream':
+        specifier: ^0.12.4
+        version: 0.12.5(@assistant-ui/react@0.12.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))(@types/react@19.2.14)(react@19.2.4)
+      '@assistant-ui/react-markdown':
+        specifier: ^0.12.4
+        version: 0.12.5(@assistant-ui/react@0.12.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@assistant-ui/styles':
+        specifier: ^0.3.7
+        version: 0.3.7
       '@brainstrike/build-utils':
         specifier: workspace:*
         version: link:../../packages/build-utils
@@ -202,6 +214,30 @@ importers:
       '@playwright/test':
         specifier: ^1.58.2
         version: 1.58.2
+      '@radix-ui/react-accordion':
+        specifier: ^1.2.12
+        version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-checkbox':
+        specifier: ^1.3.3
+        version: 1.3.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-dialog':
+        specifier: ^1.1.15
+        version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-scroll-area':
+        specifier: ^1.2.10
+        version: 1.2.10(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-tabs':
+        specifier: ^1.1.13
+        version: 1.1.13(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-toast':
+        specifier: ^1.2.15
+        version: 1.2.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@shikijs/langs':
+        specifier: ^3.23.0
+        version: 3.23.0
+      '@shikijs/themes':
+        specifier: ^3.23.0
+        version: 3.23.0
       '@tailwindcss/vite':
         specifier: ^4.2.1
         version: 4.2.1(vite@7.3.1(@types/node@25.3.1)(jiti@2.6.1)(lightningcss@1.31.1)(terser@5.46.0)(tsx@4.21.0))
@@ -238,15 +274,51 @@ importers:
       electron-builder-squirrel-windows:
         specifier: ^26.8.1
         version: 26.8.1(dmg-builder@26.8.1)
+      file-saver:
+        specifier: 2.0.5
+        version: 2.0.5
+      idb:
+        specifier: ^8.0.3
+        version: 8.0.3
       jsdom:
         specifier: 28.1.0
         version: 28.1.0
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.1
+      minimatch:
+        specifier: ^10.1.1
+        version: 10.2.4
       pino:
         specifier: ^10.3.1
         version: 10.3.1
+      react-helmet-async:
+        specifier: ^2.0.5
+        version: 2.0.5(react@19.2.4)
+      react-hotkeys-hook:
+        specifier: ^5.2.1
+        version: 5.2.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react-resizable-panels:
+        specifier: ^4.6.5
+        version: 4.6.5(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react-router-dom:
+        specifier: ^7.13.1
+        version: 7.13.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react-shiki:
+        specifier: ^0.9.1
+        version: 0.9.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      remark-gfm:
+        specifier: ^4.0.1
+        version: 4.0.1
+      shiki:
+        specifier: ^3.23.0
+        version: 3.23.0
       tailwindcss:
         specifier: ^4.2.1
         version: 4.2.1
+      tiktoken:
+        specifier: ^1.0.22
+        version: 1.0.22
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -271,6 +343,12 @@ importers:
       xvfb-maybe:
         specifier: ^0.2.1
         version: 0.2.1
+      xxhash-wasm:
+        specifier: ^1.1.0
+        version: 1.1.0
+      zustand:
+        specifier: ^5
+        version: 5.0.11(@types/react@19.2.14)(immer@10.2.0)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
 
   apps/docs:
     dependencies:
@@ -390,6 +468,18 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@assistant-ui/react':
+        specifier: ^0.12.11
+        version: 0.12.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
+      '@assistant-ui/react-data-stream':
+        specifier: ^0.12.4
+        version: 0.12.5(@assistant-ui/react@0.12.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))(@types/react@19.2.14)(react@19.2.4)
+      '@assistant-ui/react-markdown':
+        specifier: ^0.12.4
+        version: 0.12.5(@assistant-ui/react@0.12.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(immer@10.2.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4)))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@assistant-ui/styles':
+        specifier: ^0.3.7
+        version: 0.3.7
       '@babel/core':
         specifier: ^7.29.0
         version: 7.29.0
@@ -414,6 +504,30 @@ importers:
       '@playwright/test':
         specifier: ^1.58.2
         version: 1.58.2
+      '@radix-ui/react-accordion':
+        specifier: ^1.2.12
+        version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-checkbox':
+        specifier: ^1.3.3
+        version: 1.3.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-dialog':
+        specifier: ^1.1.15
+        version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-scroll-area':
+        specifier: ^1.2.10
+        version: 1.2.10(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-tabs':
+        specifier: ^1.1.13
+        version: 1.1.13(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@radix-ui/react-toast':
+        specifier: ^1.2.15
+        version: 1.2.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@shikijs/langs':
+        specifier: ^3.23.0
+        version: 3.23.0
+      '@shikijs/themes':
+        specifier: ^3.23.0
+        version: 3.23.0
       '@tailwindcss/vite':
         specifier: ^4.2.1
         version: 4.2.1(vite@7.3.1(@types/node@25.3.1)(jiti@2.6.1)(lightningcss@1.31.1)(terser@5.46.0)(tsx@4.21.0))
@@ -444,30 +558,60 @@ importers:
       '@vitest/ui':
         specifier: ^4.0.18
         version: 4.0.18(vitest@4.0.18)
+      file-saver:
+        specifier: 2.0.5
+        version: 2.0.5
       glob:
         specifier: ^13.0.6
         version: 13.0.6
+      idb:
+        specifier: ^8.0.3
+        version: 8.0.3
       jsdom:
         specifier: 28.1.0
         version: 28.1.0
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.1
       knip:
         specifier: ^5.85.0
         version: 5.85.0(@types/node@25.3.1)(typescript@5.9.3)
+      minimatch:
+        specifier: ^10.1.1
+        version: 10.2.4
       pino:
         specifier: ^10.3.1
         version: 10.3.1
       playwright:
         specifier: ^1.58.2
         version: 1.58.2
+      react-hotkeys-hook:
+        specifier: ^5.2.1
+        version: 5.2.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react-resizable-panels:
+        specifier: ^4.6.5
+        version: 4.6.5(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react-shiki:
+        specifier: ^0.9.1
+        version: 0.9.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      remark-gfm:
+        specifier: ^4.0.1
+        version: 4.0.1
       serve:
         specifier: ^14.2.5
         version: 14.2.5
+      shiki:
+        specifier: ^3.23.0
+        version: 3.23.0
       tailwindcss:
         specifier: ^4.2.1
         version: 4.2.1
       terser:
         specifier: ^5.46.0
         version: 5.46.0
+      tiktoken:
+        specifier: ^1.0.22
+        version: 1.0.22
       ts-node:
         specifier: ^10.9.2
         version: 10.9.2(@swc/core@1.15.13(@swc/helpers@0.5.18))(@swc/wasm@1.15.8)(@types/node@25.3.1)(typescript@5.9.3)
@@ -489,6 +633,12 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@25.3.1)(@vitest/browser-playwright@4.0.18)(@vitest/ui@4.0.18)(happy-dom@20.7.0)(jiti@2.6.1)(jsdom@28.1.0)(lightningcss@1.31.1)(terser@5.46.0)(tsx@4.21.0)
+      xxhash-wasm:
+        specifier: ^1.1.0
+        version: 1.1.0
+      zustand:
+        specifier: ^5
+        version: 5.0.11(@types/react@19.2.14)(immer@10.2.0)(react@19.2.4)(use-sync-external-store@1.6.0(react@19.2.4))
 
   packages/agent:
     dependencies:
@@ -14021,6 +14171,7 @@ packages:
   syncpack@14.0.0:
     resolution: {integrity: sha512-OfAa3Oip5YC9Ad1jEs92Hw08Wy4JfdpdeequIwaJGsQG0tJtb8gpQfCdLuBefsk6n8WiUdt/5qmzcW+BDXtzbQ==}
     engines: {node: '>=14.17.0'}
+    deprecated: 'pnpm users: upgrade to 14.0.2 or newer'
     hasBin: true
 
   tabbable@6.4.0:
@@ -17300,7 +17451,7 @@ snapshots:
       stringify-object: 3.3.0
       tslib: 2.8.1
       unified: 11.0.5
-      unist-util-visit: 5.0.0
+      unist-util-visit: 5.1.0
       url-loader: 4.1.1(file-loader@6.2.0(webpack@5.105.1(@swc/core@1.15.13(@swc/helpers@0.5.18))(esbuild@0.27.2)))(webpack@5.105.1(@swc/core@1.15.13(@swc/helpers@0.5.18))(esbuild@0.27.2))
       vfile: 6.0.3
       webpack: 5.105.1(@swc/core@1.15.13(@swc/helpers@0.5.18))(esbuild@0.27.2)
@@ -17349,7 +17500,7 @@ snapshots:
       schema-dts: 1.1.5
       srcset: 4.0.0
       tslib: 2.8.1
-      unist-util-visit: 5.0.0
+      unist-util-visit: 5.1.0
       utility-types: 3.11.0
       webpack: 5.105.1(@swc/core@1.15.13(@swc/helpers@0.5.18))(esbuild@0.27.2)
     transitivePeerDependencies:
@@ -25028,7 +25179,7 @@ snapshots:
       mdast-util-to-hast: 13.2.1
       parse5: 7.3.0
       unist-util-position: 5.0.0
-      unist-util-visit: 5.0.0
+      unist-util-visit: 5.1.0
       vfile: 6.0.3
       web-namespaces: 2.0.1
       zwitch: 2.0.4
@@ -26225,7 +26376,7 @@ snapshots:
       micromark-util-sanitize-uri: 2.0.1
       trim-lines: 3.0.1
       unist-util-position: 5.0.0
-      unist-util-visit: 5.0.0
+      unist-util-visit: 5.1.0
       vfile: 6.0.3
 
   mdast-util-to-markdown@2.1.2:
@@ -26237,7 +26388,7 @@ snapshots:
       mdast-util-to-string: 4.0.0
       micromark-util-classify-character: 2.0.1
       micromark-util-decode-string: 2.0.1
-      unist-util-visit: 5.0.0
+      unist-util-visit: 5.1.0
       zwitch: 2.0.4
 
   mdast-util-to-string@4.0.0:
@@ -28341,7 +28492,7 @@ snapshots:
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
       shiki: 3.23.0
-      unist-util-visit: 5.0.0
+      unist-util-visit: 5.1.0
     optionalDependencies:
       '@types/react': 19.2.14
       '@types/react-dom': 19.2.3(@types/react@19.2.14)

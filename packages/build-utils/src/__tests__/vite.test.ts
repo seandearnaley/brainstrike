@@ -8,6 +8,7 @@ const {
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
+  getCoreAppOptimizeDepsInclude,
   getDatabaseOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
@@ -39,31 +40,51 @@ describe('findPGliteWasm', () => {
 });
 
 describe('assistant vite helpers', () => {
-  test('returns resolved assistant optimize-deps entries', () => {
+  test('returns shared startup optimize-deps package ids', () => {
+    expect(getCoreAppOptimizeDepsInclude()).toEqual(
+      expect.arrayContaining([
+        'idb',
+        'minimatch',
+        'pino',
+        'react-helmet-async',
+        'react-hotkeys-hook',
+        'react-router-dom',
+        'tiktoken',
+        'tiktoken/lite/init',
+        'xxhash-wasm',
+        'zod',
+        'zustand/shallow',
+        '@radix-ui/react-accordion',
+        '@radix-ui/react-checkbox',
+        '@radix-ui/react-dialog',
+        '@radix-ui/react-scroll-area',
+        '@radix-ui/react-tabs',
+        '@radix-ui/react-toast',
+      ])
+    );
+  });
+
+  test('returns assistant optimize-deps package ids', () => {
     const entries = getAssistantOptimizeDepsInclude();
 
     expect(entries).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('/@assistant-ui/react/'),
-        expect.stringContaining('/@assistant-ui/react-data-stream/'),
-        expect.stringContaining('/@assistant-ui/react-markdown/'),
-        expect.stringContaining('/react-shiki/'),
-        expect.stringContaining('/remark-gfm/'),
-        expect.stringContaining('/shiki/'),
-        expect.stringContaining('/@shikijs/themes/'),
-        expect.stringContaining('/@shikijs/langs/'),
+        '@assistant-ui/react',
+        '@assistant-ui/react-data-stream',
+        '@assistant-ui/react-markdown',
+        'react-shiki/core',
+        'remark-gfm',
+        'shiki/wasm',
+        '@shikijs/themes/github-light',
+        '@shikijs/langs/typescript',
       ])
     );
     expect(entries.some((entry) => entry.includes('@assistant-ui/styles'))).toBe(false);
   });
 
-  test('returns resolved database lazy-panel optimize-deps entries', () => {
+  test('returns database lazy-panel optimize-deps package ids', () => {
     expect(getDatabaseOptimizeDepsInclude()).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('/jszip/'),
-        expect.stringContaining('/file-saver/'),
-        expect.stringContaining('/react-resizable-panels/'),
-      ])
+      expect.arrayContaining(['jszip', 'file-saver', 'react-resizable-panels'])
     );
   });
 
@@ -72,7 +93,11 @@ describe('assistant vite helpers', () => {
 
     expect(entries).toEqual([
       '/tmp/brainstrike-app/index.html',
+      expect.stringContaining('/packages/app-shell/src/tools-panel.tsx'),
+      expect.stringContaining('/packages/app-shell/src/assistant-tab.tsx'),
+      expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),
+      expect.stringContaining('/packages/app-shell/src/database-tab.tsx'),
       expect.stringContaining('/packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx'),
       expect.stringContaining('/packages/ui/src/assistant-ui-panel/markdown-text.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),

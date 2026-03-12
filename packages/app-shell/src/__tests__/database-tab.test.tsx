@@ -12,4 +12,9 @@ describe('DatabaseTab', () => {
     expect(screen.getByTestId('database-tab-loading')).toBeInTheDocument();
     expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
   });
+
+  it('renders the database tab chunk content once the lazy module resolves', async () => {
+    render(<DatabaseTab />);
+    expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
+  });
 });

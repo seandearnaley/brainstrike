@@ -29,6 +29,7 @@ const {
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
+  getCoreAppOptimizeDepsInclude,
   getDatabaseOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
@@ -252,7 +253,7 @@ export default defineConfig({
       '@brainstrike/token-cache',
     ],
     include: [
-      'react-helmet-async',
+      ...getCoreAppOptimizeDepsInclude(),
       ...getAssistantOptimizeDepsInclude(),
       ...getDatabaseOptimizeDepsInclude(),
     ],

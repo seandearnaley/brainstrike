@@ -1,5 +1,4 @@
 import { existsSync, readdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger, isCompilerHotspot } from '@brainstrike/utils';
@@ -21,6 +20,26 @@ const ASSISTANT_VENDOR_MATCHERS = [
   '/@assistant-ui/react-data-stream/',
   '/@assistant-ui/react/',
   '/@assistant-ui/styles/',
+] as const;
+
+const CORE_APP_OPTIMIZE_DEPS_INCLUDE = [
+  'idb',
+  'minimatch',
+  'pino',
+  'react-helmet-async',
+  'react-hotkeys-hook',
+  'react-router-dom',
+  'tiktoken',
+  'tiktoken/lite/init',
+  'xxhash-wasm',
+  'zod',
+  'zustand/shallow',
+  '@radix-ui/react-accordion',
+  '@radix-ui/react-checkbox',
+  '@radix-ui/react-dialog',
+  '@radix-ui/react-scroll-area',
+  '@radix-ui/react-tabs',
+  '@radix-ui/react-toast',
 ] as const;
 
 const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
@@ -56,20 +75,9 @@ const moduleDir =
   typeof import.meta.dirname === 'string'
     ? import.meta.dirname
     : path.dirname(fileURLToPath(import.meta.url));
-const uiPackageRequire = createRequire(path.resolve(moduleDir, '..', '..', 'ui', 'package.json'));
-const dbExplorerPackageRequire = createRequire(
-  path.resolve(moduleDir, '..', '..', 'db-explorer', 'package.json')
-);
 const appShellDir = path.resolve(moduleDir, '..', '..', 'app-shell', 'src');
 const uiDir = path.resolve(moduleDir, '..', '..', 'ui', 'src');
 const dbExplorerDir = path.resolve(moduleDir, '..', '..', 'db-explorer', 'src');
-
-function resolveOptimizeDepEntries(
-  packageRequire: NodeJS.Require,
-  specifiers: readonly string[]
-): readonly string[] {
-  return specifiers.map((specifier) => packageRequire.resolve(specifier));
-}
 
 export function resolveAssistantVendorChunk(
   id: string
@@ -86,17 +94,25 @@ export function resolveAssistantVendorChunk(
 }
 
 export function getAssistantOptimizeDepsInclude(): readonly string[] {
-  return resolveOptimizeDepEntries(uiPackageRequire, ASSISTANT_OPTIMIZE_DEPS_INCLUDE);
+  return ASSISTANT_OPTIMIZE_DEPS_INCLUDE;
+}
+
+export function getCoreAppOptimizeDepsInclude(): readonly string[] {
+  return CORE_APP_OPTIMIZE_DEPS_INCLUDE;
 }
 
 export function getDatabaseOptimizeDepsInclude(): readonly string[] {
-  return resolveOptimizeDepEntries(dbExplorerPackageRequire, DATABASE_OPTIMIZE_DEPS_INCLUDE);
+  return DATABASE_OPTIMIZE_DEPS_INCLUDE;
 }
 
 export function getLazySurfaceOptimizeDepsEntries(appRoot: string): readonly string[] {
   return [
     path.resolve(appRoot, 'index.html'),
+    path.resolve(appShellDir, 'tools-panel.tsx'),
+    path.resolve(appShellDir, 'assistant-tab.tsx'),
+    path.resolve(appShellDir, 'assistant-ui-panel-wrapper-lazy.tsx'),
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper.tsx'),
+    path.resolve(appShellDir, 'database-tab.tsx'),
     path.resolve(uiDir, 'assistant-ui-panel', 'assistant-ui-panel.tsx'),
     path.resolve(uiDir, 'assistant-ui-panel', 'markdown-text.tsx'),
     path.resolve(appShellDir, 'database-tab-chunk.tsx'),
