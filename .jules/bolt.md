@@ -22,6 +22,6 @@
 **Learning:** Using `for...of` loops over strings (`for (const character of value)`) introduces significant overhead because string iterators must allocate memory and handle surrogate pairs. For simple ASCII bounds checks (like `hasControlCharacters`), this is unnecessary work.
 **Action:** Replace `for...of` loops on strings with traditional `for` loops using `charCodeAt(i)` in high-frequency validation functions. This provides a ~2.5x speedup without sacrificing readability.
 
-## 2024-05-23 - Batch Database Resolution for Embedding Validation
+## 2026-03-12 - Batch Database Resolution for Embedding Validation
 **Learning:** Sequential database lookups inside a loop (N+1 queries) during bulk inserts (like `insertMany` in repositories) cause a massive performance bottleneck. Resolving all required dimensions iteratively blocks event loops and scales poorly with batch sizes.
 **Action:** Use batch query operations like PostgreSQL's `ANY($1)` to fetch all required metadata in a single round-trip before executing the main insert or validation loop. Update standard repository validation functions (e.g., `validateEmbeddingDimensions` instead of `validateEmbeddingDimension`) to process data arrays efficiently.

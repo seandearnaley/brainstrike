@@ -202,13 +202,11 @@ export async function validateEmbeddingDimensions(
     const embeddingDimension = embedding.length;
     assertEmbeddingDimensionBounds(embeddingDimension);
 
-    let targetDimension: number | undefined;
-
-    if (embeddingSetId) {
-      targetDimension = resolvedDimensions.get(embeddingSetId);
-    } else if (typeof expectedDimension === 'number') {
-      targetDimension = expectedDimension;
-    }
+    const targetDimension: number | undefined = embeddingSetId
+      ? resolvedDimensions.get(embeddingSetId)
+      : typeof expectedDimension === 'number'
+        ? expectedDimension
+        : undefined;
 
     if (targetDimension === undefined) {
       continue;
