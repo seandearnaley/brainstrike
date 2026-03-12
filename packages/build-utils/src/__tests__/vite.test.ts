@@ -9,6 +9,7 @@ const {
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getDatabaseOptimizeDepsInclude,
+  getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
 } = await import('../vite');
 
@@ -64,6 +65,16 @@ describe('assistant vite helpers', () => {
         expect.stringContaining('/react-resizable-panels/'),
       ])
     );
+  });
+
+  test('returns lazy-surface entry points for assistant and database tabs', () => {
+    const entries = getLazySurfaceOptimizeDepsEntries('/tmp/brainstrike-app');
+
+    expect(entries).toEqual([
+      '/tmp/brainstrike-app/index.html',
+      expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),
+      expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),
+    ]);
   });
 
   test('classifies assistant vendor chunks consistently', () => {

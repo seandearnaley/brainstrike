@@ -60,6 +60,7 @@ const uiPackageRequire = createRequire(path.resolve(moduleDir, '..', '..', 'ui',
 const dbExplorerPackageRequire = createRequire(
   path.resolve(moduleDir, '..', '..', 'db-explorer', 'package.json')
 );
+const appShellDir = path.resolve(moduleDir, '..', '..', 'app-shell', 'src');
 
 function resolveOptimizeDepEntries(
   packageRequire: NodeJS.Require,
@@ -88,6 +89,14 @@ export function getAssistantOptimizeDepsInclude(): readonly string[] {
 
 export function getDatabaseOptimizeDepsInclude(): readonly string[] {
   return resolveOptimizeDepEntries(dbExplorerPackageRequire, DATABASE_OPTIMIZE_DEPS_INCLUDE);
+}
+
+export function getLazySurfaceOptimizeDepsEntries(appRoot: string): readonly string[] {
+  return [
+    path.resolve(appRoot, 'index.html'),
+    path.resolve(appShellDir, 'assistant-ui-panel-wrapper.tsx'),
+    path.resolve(appShellDir, 'database-tab-chunk.tsx'),
+  ];
 }
 
 export function findPGliteWasm(baseDir: string): string | null {

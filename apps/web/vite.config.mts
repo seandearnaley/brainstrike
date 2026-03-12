@@ -28,8 +28,7 @@ const ReactCompilerConfig = { compilationMode: 'infer' };
 const {
   findPGliteWasm,
   fullReloadOnCompilerHotspots,
-  getAssistantOptimizeDepsInclude,
-  getDatabaseOptimizeDepsInclude,
+  getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
 } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
@@ -232,6 +231,7 @@ export default defineConfig({
     plugins: () => [],
   },
   optimizeDeps: {
+    entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],
     exclude: [
       '@electric-sql/pglite', // Official PGlite requirement
       '@brainstrike/types',
@@ -251,8 +251,6 @@ export default defineConfig({
     ],
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues
-      ...getAssistantOptimizeDepsInclude(),
-      ...getDatabaseOptimizeDepsInclude(),
     ],
     esbuildOptions: {
       define: {
