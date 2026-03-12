@@ -22,6 +22,8 @@ const ASSISTANT_VENDOR_MATCHERS = [
   '/@assistant-ui/styles/',
 ] as const;
 
+const TOKENIZER_VENDOR_MATCHERS = ['/tiktoken/'] as const;
+
 const CORE_APP_OPTIMIZE_DEPS_INCLUDE = [
   'idb',
   'minimatch',
@@ -88,6 +90,14 @@ export function resolveAssistantVendorChunk(
 
   if (ASSISTANT_VENDOR_MATCHERS.some((matcher) => id.includes(matcher))) {
     return 'assistant-vendor';
+  }
+
+  return;
+}
+
+export function resolveLazySurfaceVendorChunk(id: string): 'tokenizer-vendor' | undefined {
+  if (TOKENIZER_VENDOR_MATCHERS.some((matcher) => id.includes(matcher))) {
+    return 'tokenizer-vendor';
   }
 
   return;

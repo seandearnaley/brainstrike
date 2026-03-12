@@ -9,6 +9,7 @@ import {
   getDatabaseOptimizeDepsInclude,
   getLazySurfaceOptimizeDepsEntries,
   resolveAssistantVendorChunk,
+  resolveLazySurfaceVendorChunk,
 } from '@brainstrike/build-utils';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
@@ -32,6 +33,11 @@ function resolveVendorChunk(id: string): string | undefined {
   const assistantChunk = resolveAssistantVendorChunk(id);
   if (assistantChunk) {
     return assistantChunk;
+  }
+
+  const lazySurfaceChunk = resolveLazySurfaceVendorChunk(id);
+  if (lazySurfaceChunk) {
+    return lazySurfaceChunk;
   }
 
   return 'vendor';
