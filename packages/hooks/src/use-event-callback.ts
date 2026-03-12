@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useLayoutEffect, useRef } from 'react';
 
 /**
  * Returns a callback that always has access to the latest state and props,
@@ -8,12 +8,18 @@ import { useCallback, useRef } from 'react';
  * Do not invoke this callback during render and do not use it to bypass effect dependencies.
  */
 export function useEventCallback<T extends (...args: never[]) => unknown>(callback: T): T {
-  // Store latest callback in a ref so the stable wrapper always calls it.
-  // Direct assignment during render is safe because the ref is only read
-  // from event handlers, never during render itself.
   const callbackRef = useRef(callback);
-  callbackRef.current = callback;
 
+  // Update ref in useLayoutEffect (commit phase) rather than during render
+  // to comply with React concurrent-mode rules. useLayoutEffect fires
+  // synchronously after DOM mutations but before paint, so the ref is
+  // always up-to-date before any event handlers can fire.
+  useLayoutEffect(() => {
+    callbackRef.current = callback;
+  });
+
+  // Cast required: useCallback returns (...args) => ReturnType<T>, not T itself.
+  // This is standard for callback-wrapping hooks.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useCallback((...args: Parameters<T>) => callbackRef.current(...args), []) as T;
 }
