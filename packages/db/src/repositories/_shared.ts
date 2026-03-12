@@ -202,6 +202,10 @@ export async function validateEmbeddingDimensions(
     const embeddingDimension = embedding.length;
     assertEmbeddingDimensionBounds(embeddingDimension);
 
+    if (embeddingSetId && !resolvedDimensions.has(embeddingSetId)) {
+      throw new Error(`Embedding set "${embeddingSetId}" not found`);
+    }
+
     const targetDimension: number | undefined = embeddingSetId
       ? resolvedDimensions.get(embeddingSetId)
       : typeof expectedDimension === 'number'
