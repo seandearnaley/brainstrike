@@ -34,11 +34,19 @@ function resolveVendorChunk(id: string): string | undefined {
   }
 
   if (
-    id.includes('/@assistant-ui/') ||
+    id.includes('/@assistant-ui/react-markdown/') ||
     id.includes('/react-shiki/') ||
     id.includes('/@shikijs/') ||
     id.includes('/shiki/') ||
     id.includes('/remark-gfm/')
+  ) {
+    return 'assistant-markdown-vendor';
+  }
+
+  if (
+    id.includes('/@assistant-ui/react-data-stream/') ||
+    id.includes('/@assistant-ui/react/') ||
+    id.includes('/@assistant-ui/styles/')
   ) {
     return 'assistant-vendor';
   }

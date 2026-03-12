@@ -42,8 +42,8 @@ import { ModelPicker } from '../model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
 import { Switch } from '../switch';
+import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
-import { MarkdownText } from './markdown-text';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
 
@@ -548,6 +548,8 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   const [localLoadingState, setLocalLoadingState] = useState<LocalModelLoadingState | undefined>();
 
   useEffect(() => {
+    void preloadMarkdownText();
+
     const getUrl = window.assistant?.getUrl;
     if (!getUrl) {
       return;
@@ -643,7 +645,7 @@ const UserMessage: FC = () => {
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
-            Text: MarkdownText,
+            Text: AssistantMessageText,
           }}
         />
       </div>
@@ -691,7 +693,7 @@ const AssistantMessage: FC = () => {
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
-            Text: MarkdownText,
+            Text: AssistantMessageText,
             tools: {
               /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
               Fallback: ToolFallback,

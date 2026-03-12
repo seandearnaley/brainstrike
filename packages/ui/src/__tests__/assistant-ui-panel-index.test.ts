@@ -10,16 +10,8 @@ describe('assistant-ui-panel module exports', () => {
     expect(assistantModule.ToolFallback).toBeDefined();
   });
 
-  it('exports MarkdownText', () => {
-    expect(assistantModule.MarkdownText).toBeDefined();
-  });
-
   it('exports TooltipIconButton', () => {
     expect(assistantModule.TooltipIconButton).toBeDefined();
-  });
-
-  it('exports SyntaxHighlighterComponent', () => {
-    expect(assistantModule.SyntaxHighlighterComponent).toBeDefined();
   });
 
   it('exports expected components', () => {
