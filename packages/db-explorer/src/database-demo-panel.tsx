@@ -381,8 +381,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                     </Tooltip>
                   </TooltipProvider>
                   <PopoverContent
-                    align="start"
-                    className="w-[min(92vw,42rem)] max-w-[calc(100vw-2rem)] p-0"
+                    align="end"
+                    className="w-[min(96vw,48rem)] max-w-[calc(100vw-1.5rem)] p-0"
                     collisionPadding={16}
                     side="top"
                   >

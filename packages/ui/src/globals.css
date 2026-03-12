@@ -412,10 +412,24 @@
     opacity: 0.5;
   }
 
-  /* Keep accidental focus states on containers/cards neutral rather than bright blue. */
-  :focus-visible {
+  /* Keep a fallback focus affordance for text-entry primitives only. */
+  :where(a[href], input, textarea, select):focus-visible {
     outline: 1.5px solid hsl(var(--foreground) / 0.2);
     outline-offset: 2px;
+  }
+
+  /* Interactive controls render their own focus treatment via component classes. */
+  :where(
+      button,
+      [role='button'],
+      [role='tab'],
+      [role='option'],
+      [role='checkbox'],
+      [role='radio'],
+      [role='switch'],
+      [role='separator']
+    ):focus-visible {
+    outline: none;
   }
 
   /* Remove default focus outline (we use focus-visible) */

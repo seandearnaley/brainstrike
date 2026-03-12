@@ -34,6 +34,239 @@ interface ExtendedSettingsPanelProps extends SettingsPanelProps {
   };
 }
 
+interface StrategyOption {
+  description: string;
+  label: string;
+  value: ChunkingStrategy;
+}
+
+type ChunkingPresetDefinition = ReturnType<typeof getChunkingPresetDefinitions>[number];
+
+const STRATEGY_OPTIONS: StrategyOption[] = [
+  {
+    value: 'auto',
+    label: 'Auto',
+    description: 'Selects the best splitter from file type and document shape.',
+  },
+  {
+    value: 'semantic-markdown',
+    label: 'Semantic Markdown',
+    description: 'Keeps related heading families together for guides and docs.',
+  },
+  {
+    value: 'markdown',
+    label: 'Markdown',
+    description: 'Markdown-aware splitting with heading and block boundaries.',
+  },
+  {
+    value: 'recursive',
+    label: 'Recursive',
+    description: 'Code and structure aware splitting with boundary-first recursion.',
+  },
+  {
+    value: 'sentence',
+    label: 'Sentence',
+    description: 'General text splitting that favors natural sentence boundaries.',
+  },
+  {
+    value: 'token',
+    label: 'Token',
+    description: 'Token-budget-oriented splits for large-context retrieval.',
+  },
+  {
+    value: 'character',
+    label: 'Character',
+    description: 'Fixed-width splitting when uniform chunk size matters most.',
+  },
+  {
+    value: 'html',
+    label: 'HTML / XML',
+    description: 'Structure-aware splitting across block and tag boundaries.',
+  },
+  {
+    value: 'json',
+    label: 'JSON',
+    description: 'Chunk structured payloads around arrays, objects, and entries.',
+  },
+  {
+    value: 'latex',
+    label: 'LaTeX',
+    description: 'Favors chapter, section, and environment boundaries.',
+  },
+];
+
+function renderPresetIcon(presetId: string) {
+  switch (presetId) {
+    case 'balanced':
+      return <Gauge className="h-4 w-4" />;
+    case 'codebase':
+      return <FileCode2 className="h-4 w-4" />;
+    case 'strict-code':
+      return <FileCode2 className="h-4 w-4" />;
+    case 'docs':
+      return <ScrollText className="h-4 w-4" />;
+    case 'api-reference':
+      return <ScanSearch className="h-4 w-4" />;
+    case 'structured-data':
+      return <Database className="h-4 w-4" />;
+    case 'large-context':
+      return <Files className="h-4 w-4" />;
+    default:
+      return <Gauge className="h-4 w-4" />;
+  }
+}
+
+interface ChunkingPresetListProps {
+  currentPreset: ChunkingPresetSelection;
+  onChoosePreset: (value: ChunkingPresetSelection) => void;
+  presets: readonly ChunkingPresetDefinition[];
+}
+
+function ChunkingPresetList({ currentPreset, onChoosePreset, presets }: ChunkingPresetListProps) {
+  return (
+    <div className="space-y-3">
+      <div className="grid max-h-[min(32vh,260px)] gap-2 overflow-y-auto pr-1">
+        {presets.map((preset) => {
+          const isActive = currentPreset === preset.id;
+          return (
+            <button
+              aria-pressed={isActive}
+              className={cn(
+                'group rounded-2xl border px-3 py-3 text-left transition-colors focus-visible:outline-none',
+                isActive
+                  ? 'border-foreground/20 bg-foreground/5 shadow-sm'
+                  : 'border-border/70 bg-background/70 hover:border-foreground/15 hover:bg-muted/70'
+              )}
+              data-testid={`chunking-preset-${preset.id}`}
+              key={preset.id}
+              onClick={() => onChoosePreset(preset.id)}
+              type="button"
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    'rounded-xl border p-2',
+                    isActive ? 'border-foreground/15 bg-background' : 'border-border/60'
+                  )}
+                >
+                  {renderPresetIcon(preset.id)}
+                </div>
+                <div className="min-w-0 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-medium text-base leading-none">{preset.label}</div>
+                    {preset.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+                  </div>
+                  <div
+                    className="flex flex-wrap gap-1.5"
+                    data-testid={`chunking-preset-status-${preset.id}`}
+                  >
+                    <Badge variant={preset.adaptiveRouting ? 'secondary' : 'outline'}>
+                      {preset.adaptiveRouting ? 'Adaptive' : 'Fixed'}
+                    </Badge>
+                    {preset.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+                    <Badge variant="outline">{preset.strategy}</Badge>
+                  </div>
+                  <p className="line-clamp-2 text-muted-foreground text-sm leading-5">
+                    {preset.description}
+                  </p>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <div className="rounded-2xl border border-border/70 border-dashed bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground leading-5">
+        Presets are intentionally opinionated. Start here, then use the controls below to tighten
+        locality, widen retrieval windows, or pin a specific structure-aware splitter.
+      </div>
+    </div>
+  );
+}
+
+function PresetMetricRow({ items }: { items: [string, string] }) {
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1">
+      <span>{items[0]}</span>
+      <span>{items[1]}</span>
+    </div>
+  );
+}
+
+function ChunkingPresetSummary({
+  importSettings,
+  preset,
+}: {
+  importSettings: ExtendedSettingsPanelProps['importSettings'];
+  preset: ChunkingPresetDefinition | null;
+}) {
+  if (!preset) {
+    return (
+      <div className="rounded-2xl border border-foreground/15 bg-background/90 px-4 py-4 shadow-sm">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="font-medium text-lg leading-none">Custom tuning</div>
+            <Badge variant="outline">Manual</Badge>
+          </div>
+          <p className="text-muted-foreground text-sm leading-6">
+            You&apos;ve diverged from a preset. The controls below are now the source of truth for
+            chunk size, overlap, and structure bias.
+          </p>
+        </div>
+        <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground uppercase tracking-[0.14em] sm:grid-cols-2">
+          <PresetMetricRow
+            items={[importSettings.chunkingStrategy, `${importSettings.chunkSize} size`]}
+          />
+          <PresetMetricRow
+            items={[
+              `${importSettings.chunkOverlap} overlap`,
+              `${importSettings.chunkTokenLimit} cap`,
+            ]}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-foreground/15 bg-background/90 px-4 py-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="rounded-xl border border-foreground/15 bg-background p-2.5">
+          {renderPresetIcon(preset.id)}
+        </div>
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="font-medium text-lg leading-none">{preset.label}</div>
+            <Badge variant={preset.adaptiveRouting ? 'secondary' : 'outline'}>
+              {preset.adaptiveRouting ? 'Adaptive' : 'Fixed'}
+            </Badge>
+            {preset.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+          </div>
+          <p className="text-muted-foreground text-sm leading-6">{preset.description}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {preset.bestFor.slice(0, 4).map((item) => (
+          <Badge
+            className="max-w-full whitespace-normal text-[11px]"
+            key={`${preset.id}-${item}`}
+            variant="outline"
+          >
+            {item}
+          </Badge>
+        ))}
+      </div>
+
+      <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground uppercase tracking-[0.14em] sm:grid-cols-2">
+        <PresetMetricRow items={[preset.strategy, `${preset.chunkSize} size`]} />
+        <PresetMetricRow items={[`${preset.chunkOverlap} overlap`, `${preset.tokenLimit} cap`]} />
+      </div>
+
+      <p className="mt-3 text-[12px] text-muted-foreground leading-6">{preset.tradeoff}</p>
+    </div>
+  );
+}
+
 export function SettingsPanel({
   importSettings,
   clearDatabaseProps,
@@ -46,63 +279,7 @@ export function SettingsPanel({
     ? String(importSettings.chunkTokenLimit)
     : 'custom';
   const accurateCounting = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
-  const strategyOptions: Array<{
-    value: ChunkingStrategy;
-    label: string;
-    description: string;
-  }> = [
-    {
-      value: 'auto',
-      label: 'Auto',
-      description: 'Selects the best splitter from file type and document shape.',
-    },
-    {
-      value: 'semantic-markdown',
-      label: 'Semantic Markdown',
-      description: 'Keeps related heading families together for guides and docs.',
-    },
-    {
-      value: 'markdown',
-      label: 'Markdown',
-      description: 'Markdown-aware splitting with heading and block boundaries.',
-    },
-    {
-      value: 'recursive',
-      label: 'Recursive',
-      description: 'Code and structure aware splitting with boundary-first recursion.',
-    },
-    {
-      value: 'sentence',
-      label: 'Sentence',
-      description: 'General text splitting that favors natural sentence boundaries.',
-    },
-    {
-      value: 'token',
-      label: 'Token',
-      description: 'Token-budget-oriented splits for large-context retrieval.',
-    },
-    {
-      value: 'character',
-      label: 'Character',
-      description: 'Fixed-width splitting when uniform chunk size matters most.',
-    },
-    {
-      value: 'html',
-      label: 'HTML / XML',
-      description: 'Structure-aware splitting across block and tag boundaries.',
-    },
-    {
-      value: 'json',
-      label: 'JSON',
-      description: 'Chunk structured payloads around arrays, objects, and entries.',
-    },
-    {
-      value: 'latex',
-      label: 'LaTeX',
-      description: 'Favors chapter, section, and environment boundaries.',
-    },
-  ];
-  const selectedStrategy = strategyOptions.find(
+  const selectedStrategy = STRATEGY_OPTIONS.find(
     (option) => option.value === importSettings.chunkingStrategy
   );
   if (!selectedStrategy) {
@@ -110,30 +287,12 @@ export function SettingsPanel({
   }
   const currentPreset = importSettings.chunkingPreset;
   const currentPresetDefinition =
-    currentPreset === 'custom' ? null : presets.find((preset) => preset.id === currentPreset);
+    currentPreset === 'custom'
+      ? null
+      : (presets.find((preset) => preset.id === currentPreset) ?? null);
   const routePreview = getChunkingRoutePreview(importSettings.chunkingStrategy);
   const choosePreset = (value: ChunkingPresetSelection) => {
     importSettings.setChunkingPreset(value);
-  };
-  const renderPresetIcon = (presetId: string) => {
-    switch (presetId) {
-      case 'balanced':
-        return <Gauge className="h-4 w-4" />;
-      case 'codebase':
-        return <FileCode2 className="h-4 w-4" />;
-      case 'strict-code':
-        return <FileCode2 className="h-4 w-4" />;
-      case 'docs':
-        return <ScrollText className="h-4 w-4" />;
-      case 'api-reference':
-        return <ScanSearch className="h-4 w-4" />;
-      case 'structured-data':
-        return <Database className="h-4 w-4" />;
-      case 'large-context':
-        return <Files className="h-4 w-4" />;
-      default:
-        return <Gauge className="h-4 w-4" />;
-    }
   };
   return (
     <div
@@ -168,84 +327,13 @@ export function SettingsPanel({
         </label>
       </div>
 
-      <div className="grid max-h-[min(40vh,360px)] gap-3 overflow-y-auto pr-1 md:grid-cols-2">
-        {presets.map((preset) => {
-          const isActive = currentPreset === preset.id;
-          const visibleBestFor = isActive ? preset.bestFor.slice(0, 3) : preset.bestFor.slice(0, 2);
-          return (
-            <button
-              aria-pressed={isActive}
-              className={cn(
-                'group h-full rounded-2xl border px-4 py-3 text-left transition-colors focus-visible:outline-none',
-                isActive
-                  ? 'border-foreground/20 bg-foreground/5 shadow-sm'
-                  : 'border-border/70 bg-background/70 hover:border-foreground/15 hover:bg-muted/70'
-              )}
-              data-testid={`chunking-preset-${preset.id}`}
-              key={preset.id}
-              onClick={() => choosePreset(preset.id)}
-              type="button"
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className={cn(
-                    'rounded-xl border p-2',
-                    isActive ? 'border-foreground/15 bg-background' : 'border-border/60'
-                  )}
-                >
-                  {renderPresetIcon(preset.id)}
-                </div>
-                <div className="min-w-0 space-y-1">
-                  <div className="font-medium text-base leading-none">{preset.label}</div>
-                  <div
-                    className="flex flex-wrap gap-1.5"
-                    data-testid={`chunking-preset-status-${preset.id}`}
-                  >
-                    <Badge variant={preset.adaptiveRouting ? 'secondary' : 'outline'}>
-                      {preset.adaptiveRouting ? 'Adaptive' : 'Fixed'}
-                    </Badge>
-                    {preset.isDefault ? <Badge variant="secondary">Default</Badge> : null}
-                  </div>
-                </div>
-              </div>
-              <p
-                className={cn(
-                  'mt-3 text-muted-foreground text-sm',
-                  isActive ? 'leading-6' : 'line-clamp-2 leading-5'
-                )}
-              >
-                {preset.description}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {visibleBestFor.map((item) => (
-                  <Badge
-                    className="max-w-full whitespace-normal text-[11px]"
-                    key={`${preset.id}-${item}`}
-                    variant="outline"
-                  >
-                    {item}
-                  </Badge>
-                ))}
-                {!isActive && preset.bestFor.length > visibleBestFor.length ? (
-                  <Badge variant="outline">
-                    +{preset.bestFor.length - visibleBestFor.length} more
-                  </Badge>
-                ) : null}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-                <span>{preset.strategy}</span>
-                <span>{preset.chunkSize} size</span>
-                <span>{preset.chunkOverlap} overlap</span>
-                <span>{preset.tokenLimit} cap</span>
-              </div>
-              {isActive ? (
-                <p className="mt-3 line-clamp-3 text-[12px] text-muted-foreground leading-6">
-                  {preset.tradeoff}
-                </p>
-              ) : null}
-            </button>
-          );
-        })}
+      <div className="grid gap-3 md:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+        <ChunkingPresetList
+          currentPreset={currentPreset}
+          onChoosePreset={choosePreset}
+          presets={presets}
+        />
+        <ChunkingPresetSummary importSettings={importSettings} preset={currentPresetDefinition} />
       </div>
 
       <div className="grid gap-4 rounded-2xl border border-border/70 bg-background/80 p-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
@@ -259,7 +347,7 @@ export function SettingsPanel({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {strategyOptions.map((option) => (
+              {STRATEGY_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
