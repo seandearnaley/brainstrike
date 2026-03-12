@@ -28,6 +28,24 @@ const ReactCompilerConfig = { compilationMode: 'infer' };
 const { findPGliteWasm, fullReloadOnCompilerHotspots } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
 
+function resolveVendorChunk(id: string): string | undefined {
+  if (!id.includes('node_modules')) {
+    return;
+  }
+
+  if (
+    id.includes('/@assistant-ui/') ||
+    id.includes('/react-shiki/') ||
+    id.includes('/@shikijs/') ||
+    id.includes('/shiki/') ||
+    id.includes('/remark-gfm/')
+  ) {
+    return 'assistant-vendor';
+  }
+
+  return 'vendor';
+}
+
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '.vite'),
   server: {
@@ -118,12 +136,7 @@ export default defineConfig({
     rollupOptions: {
       external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
-        manualChunks: (id) => {
-          if (id.includes('node_modules')) {
-            return 'vendor';
-          }
-          return;
-        },
+        manualChunks: resolveVendorChunk,
       },
     },
   },

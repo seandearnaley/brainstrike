@@ -16,6 +16,24 @@ const pinoBrowserPath = require.resolve('pino/browser.js');
 
 const wasmPath = findPGliteWasm(__dirname);
 
+function resolveVendorChunk(id: string): string | undefined {
+  if (!id.includes('node_modules')) {
+    return;
+  }
+
+  if (
+    id.includes('/@assistant-ui/') ||
+    id.includes('/react-shiki/') ||
+    id.includes('/@shikijs/') ||
+    id.includes('/shiki/') ||
+    id.includes('/remark-gfm/')
+  ) {
+    return 'assistant-vendor';
+  }
+
+  return 'vendor';
+}
+
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
 // CRITICAL: Keep React/Babel transforms scoped to source files only.
@@ -67,12 +85,7 @@ export default defineConfig({
       },
       external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
-        manualChunks: (id) => {
-          if (id.includes('node_modules')) {
-            return 'vendor';
-          }
-          return;
-        },
+        manualChunks: resolveVendorChunk,
       },
     },
   },

@@ -7,7 +7,6 @@ export {
 } from '@brainstrike/vector-management';
 export * from './app-config';
 export * from './app-layout';
-export * from './assistant-ui-panel-wrapper';
 export * from './connected-prompt-manager';
 export * from './connected-prompt-manager-lazy';
 export * from './diagnostics';

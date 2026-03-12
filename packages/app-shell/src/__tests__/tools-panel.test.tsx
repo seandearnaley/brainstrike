@@ -5,7 +5,8 @@ import { ToolsPanel } from '../tools-panel';
 
 const originalFetch = global.fetch;
 const mockFetch = vi.fn();
-const { mockPreloadDatabaseTab } = vi.hoisted(() => ({
+const { mockPreloadAssistantUiPanelWrapper, mockPreloadDatabaseTab } = vi.hoisted(() => ({
+  mockPreloadAssistantUiPanelWrapper: vi.fn(() => Promise.resolve()),
   mockPreloadDatabaseTab: vi.fn(() => Promise.resolve()),
 }));
 
@@ -19,6 +20,7 @@ beforeEach(() => {
 
 afterEach(() => {
   mockFetch.mockReset();
+  mockPreloadAssistantUiPanelWrapper.mockClear();
   mockPreloadDatabaseTab.mockClear();
   global.fetch = originalFetch;
 });
@@ -90,6 +92,11 @@ vi.mock('../database-tab', () => ({
   preloadDatabaseTab: mockPreloadDatabaseTab,
 }));
 
+vi.mock('../assistant-ui-panel-wrapper-lazy', () => ({
+  AssistantUiPanelWrapperLazy: () => <div>Assistant UI Panel</div>,
+  preloadAssistantUiPanelWrapper: mockPreloadAssistantUiPanelWrapper,
+}));
+
 describe('ToolsPanel', () => {
   test('renders with assistant and database tabs', async () => {
     render(<ToolsPanel />);
@@ -109,6 +116,9 @@ describe('ToolsPanel', () => {
     const assistantCard = await screen.findByTestId('assistant-chat-card');
     expect(assistantCard).toBeInTheDocument();
     expect(screen.getByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockPreloadAssistantUiPanelWrapper).toHaveBeenCalledTimes(1);
+    });
   });
 
   test('preloads the database tab chunk on idle after mount', async () => {
