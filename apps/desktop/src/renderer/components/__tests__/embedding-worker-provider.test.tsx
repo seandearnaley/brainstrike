@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import type { IDatabase } from '@brainstrike/db';
-import type { EmbeddingWorkerController } from '@brainstrike/embeddings';
+import type { EmbeddingWorkerController } from '@brainstrike/embeddings/worker';
 
 // Use vi.hoisted to ensure mock functions are available during module initialization
 const { mockUsePGliteDatabase, mockStartEmbeddingWorker, mockLogger } = vi.hoisted(() => ({
@@ -29,7 +29,7 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: (...args: unknown[]) => mockUsePGliteDatabase(...args),
 }));
 
-vi.mock('@brainstrike/embeddings', () => ({
+vi.mock('@brainstrike/embeddings/worker', () => ({
   startEmbeddingWorker: (...args: unknown[]) => mockStartEmbeddingWorker(...args),
 }));
 

@@ -80,7 +80,7 @@ vi.mock('@brainstrike/db', () => ({
   },
 }));
 
-vi.mock('@brainstrike/embeddings', () => ({
+vi.mock('@brainstrike/embeddings/provider-core', () => ({
   CohereEmbeddingProvider: class {
     embed() {
       return embedMock();

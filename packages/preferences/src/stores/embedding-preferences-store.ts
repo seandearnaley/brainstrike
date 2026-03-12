@@ -1,4 +1,4 @@
-import type { EmbeddingProviderType } from '@brainstrike/embeddings';
+import type { EmbeddingProviderType } from '@brainstrike/embeddings/provider-core';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';

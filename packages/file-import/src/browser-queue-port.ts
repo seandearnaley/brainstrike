@@ -1,6 +1,6 @@
 import type { FileChunk } from '@brainstrike/db';
 import type { EmbeddingDeviceHint } from '@brainstrike/embedding-worker';
-import type { EmbeddingProviderType } from '@brainstrike/embeddings';
+import type { EmbeddingProviderType } from '@brainstrike/embeddings/provider-core';
 import type { ProviderDimensionParameter, QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';

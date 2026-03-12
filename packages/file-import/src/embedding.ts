@@ -1,6 +1,6 @@
 import type { FileChunk } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
-import type { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import { createLogger } from '@brainstrike/utils';
 import { buildEmbeddingText, type ChunkContext } from './embedding-context';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';

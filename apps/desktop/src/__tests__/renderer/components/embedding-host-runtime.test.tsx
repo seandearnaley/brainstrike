@@ -42,7 +42,7 @@ vi.mock('@brainstrike/preferences', () => ({
     selector(storeState),
 }));
 
-vi.mock('@brainstrike/embeddings', () => ({
+vi.mock('@brainstrike/embeddings/worker', () => ({
   POWER_BROADCAST_CHANNEL: 'brainstrike-test-power',
   startEmbeddingWorker: startEmbeddingWorkerMock,
 }));

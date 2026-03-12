@@ -7,17 +7,14 @@ import type {
   ImportProgress,
 } from '@brainstrike/db';
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
-import type {
-  EmbeddingProviderType,
-  ModelConfig,
-  SimpleEmbeddingService,
-} from '@brainstrike/embeddings';
+import type { EmbeddingProviderType, ModelConfig } from '@brainstrike/embeddings/provider-core';
 import {
   canonicalizeProviderModelKey,
   isLocalProviderType,
   parseProviderModelKey,
   resolveHostedProviderApiKey,
 } from '@brainstrike/embeddings/provider-core';
+import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import {

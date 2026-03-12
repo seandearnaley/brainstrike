@@ -1,4 +1,4 @@
-import type { EmbeddingProviderType } from '@brainstrike/embeddings';
+import type { EmbeddingProviderType } from '@brainstrike/embeddings/provider-core';
 import type { ProviderDimensionParameter, QueueAdapter, QueueResult } from '@brainstrike/queue';
 import type { Mock } from 'vitest';
 import { describe, expect, it, vi } from 'vitest';

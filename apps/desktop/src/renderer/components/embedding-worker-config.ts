@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import type { EmbeddingWorkerOptions } from '@brainstrike/embeddings';
+import type { EmbeddingWorkerOptions } from '@brainstrike/embeddings/worker';
 import { useModelRegistryStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 

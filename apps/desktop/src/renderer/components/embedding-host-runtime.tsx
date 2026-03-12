@@ -3,7 +3,7 @@ import {
   type EmbeddingWorkerController,
   POWER_BROADCAST_CHANNEL,
   startEmbeddingWorker,
-} from '@brainstrike/embeddings';
+} from '@brainstrike/embeddings/worker';
 import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 import { type MutableRefObject, useEffect, useRef } from 'react';
