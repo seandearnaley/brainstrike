@@ -12,6 +12,7 @@ describe('validateEmbeddingDimensions performance', () => {
   let set2Id: string;
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await db?.close();
   });
 
@@ -58,15 +59,19 @@ describe('validateEmbeddingDimensions performance', () => {
     await repo.insertMany(chunks);
     const end = performance.now();
 
+    const totalQueries = querySpy.mock.calls.length;
     const dimensionQueries = querySpy.mock.calls.filter((c) =>
       /SELECT\b.*\bdimensions\b.*\bFROM\s+embedding_sets\b/i.test(c[0])
     ).length;
 
     console.log(`insertMany took ${end - start}ms`);
-    console.log(`Made ${dimensionQueries} SELECT queries for dimensions`);
+    console.log(`Made ${totalQueries} total queries, ${dimensionQueries} dimension SELECT queries`);
 
     // Batch approach should use at most 1 SELECT query for dimensions (not N per chunk)
     expect(dimensionQueries).toBeLessThanOrEqual(1);
+
+    // Total queries should be well below 50 (the chunk count), proving no N+1
+    expect(totalQueries).toBeLessThan(50);
 
     // Verify all chunks were actually inserted
     const { rows } = await db.query('SELECT count(*)::int AS cnt FROM file_chunks');

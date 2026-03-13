@@ -102,7 +102,6 @@ function parseAndValidateRowDimension(rowId: string, dimensionsRaw: unknown): nu
       `Embedding set ${rowId} is missing or has invalid dimensions (${dimensionsRaw}).`
     );
   }
-  }
   if (dimensions > MAX_EMBEDDING_DIMENSION) {
     throw new Error(
       `Embedding set ${rowId} defines ${dimensions} dimensions, exceeding the supported maximum (${MAX_EMBEDDING_DIMENSION}).`
