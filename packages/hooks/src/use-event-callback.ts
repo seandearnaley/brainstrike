@@ -17,11 +17,10 @@ const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffec
  * dependencies.
  */
 export function useEventCallback<T extends (...args: never[]) => unknown>(callback: T): T {
-  // Writing to the ref during render is intentional for this pattern.
-  // The ref is only *read* from event handlers (which execute after commit),
-  // so even if React re-invokes the render function in concurrent mode the
-  // final committed value will be correct.  This is a well-known technique
-  // used by usehooks-ts, SWR, and similar libraries.
+  // The ref is initialised with `callback` during mount; subsequent updates
+  // are performed in the layout effect below (commit phase).  The ref is only
+  // *read* from event handlers (which execute after commit), so even in
+  // concurrent mode the final committed value will be correct.
   const callbackRef = useRef(callback);
 
   // Update the ref in a layout effect (commit phase) so it is always current
