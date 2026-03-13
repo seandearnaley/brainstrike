@@ -23,6 +23,17 @@ import type { FileChunkInsert } from '../models/file-chunk';
 
 const logger = createLogger('ChunkingService');
 
+async function countTokensAccurateStrict(text: string): Promise<number> {
+  try {
+    return await countTokensAccurate(text);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Accurate token counting is required for strict chunk sizing, but tiktoken is unavailable: ${message}`
+    );
+  }
+}
+
 export interface ChunkingOptions {
   // When true, allows chunking beyond maxChunkableSize using the streaming API
   allowLargeFiles?: boolean;
@@ -580,7 +591,7 @@ export class ChunkingService {
     };
     if (tokenTrueSizing) {
       logger.debug('Chunk exceeds strict token budget, re-splitting', logDetails);
-      const strictCounter = tokenCounter ?? (async (text: string) => countTokensAccurate(text));
+      const strictCounter = tokenCounter ?? countTokensAccurateStrict;
       const budgetedPieces = await this.splitChunkToTokenBudget(
         content,
         maxTokens,
@@ -758,11 +769,8 @@ export class ChunkingService {
 
     const name = (options.fileName || options.filePath || '').toLowerCase();
     const codeLanguage = detectCodeLanguage(name);
-    const isMarkdown = /\.(md|mdx|markdown)$/.test(name);
     const isCode = Boolean(codeLanguage);
-    const isJson = /\.(json)$/.test(name);
-    const isHtml = /\.(html|htm|xhtml|xml)$/.test(name);
-    const isLatex = /\.(tex|latex)$/.test(name);
+    const resolvedAutoStrategy = resolveChunkingStrategyForFile(name, 'auto');
 
     interface ChunkGroup {
       pieces: string[];
@@ -842,10 +850,7 @@ export class ChunkingService {
     let groups: ChunkGroup[] = [];
     const effectiveStrategy: ResolvedChunkingStrategy = resolveEffectiveStrategy({
       requested: options.strategy,
-      isHtml,
-      isJson,
-      isLatex,
-      isMarkdown,
+      resolvedAutoStrategy,
       isCode,
     });
     let strategyNotified = false;
@@ -891,38 +896,20 @@ export class ChunkingService {
 
 function resolveEffectiveStrategy({
   requested,
-  isHtml,
-  isJson,
-  isLatex,
-  isMarkdown,
+  resolvedAutoStrategy,
   isCode,
 }: {
   requested: ChunkingStrategy;
-  isHtml: boolean;
-  isJson: boolean;
-  isLatex: boolean;
-  isMarkdown: boolean;
+  resolvedAutoStrategy: ResolvedChunkingStrategy;
   isCode: boolean;
 }): ResolvedChunkingStrategy {
   if (requested !== 'auto') {
     return requested;
   }
-  if (isHtml) {
-    return 'html';
+  if (resolvedAutoStrategy === 'recursive' && !isCode) {
+    return 'sentence';
   }
-  if (isJson) {
-    return 'json';
-  }
-  if (isLatex) {
-    return 'latex';
-  }
-  if (isMarkdown) {
-    return 'semantic-markdown';
-  }
-  if (isCode) {
-    return 'recursive';
-  }
-  return 'sentence';
+  return resolvedAutoStrategy;
 }
 
 function resolveMaxTokensCap(cap?: number): number {
@@ -1109,7 +1096,7 @@ async function splitCodeByFunctions(
 
 // Utilities for streaming splitter
 async function computeCharsPerToken(content: string, options: ChunkingOptions): Promise<number> {
-  const counter = options.tokenCounter ?? (async (t: string) => countTokensAccurate(t));
+  const counter = options.tokenCounter ?? countTokensAccurateStrict;
   const sample = content.slice(0, Math.min(10_000, content.length));
   try {
     const tokens = await counter(sample);

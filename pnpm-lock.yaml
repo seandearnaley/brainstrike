@@ -407,9 +407,6 @@ importers:
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../../packages/file-explorer-ui
-      '@brainstrike/file-import':
-        specifier: workspace:*
-        version: link:../../packages/file-import
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
@@ -1327,9 +1324,6 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
-      '@brainstrike/embedding-worker':
-        specifier: workspace:*
-        version: link:../embedding-worker
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings

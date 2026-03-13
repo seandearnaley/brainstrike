@@ -69,4 +69,17 @@ describe('DatabaseTab', () => {
     expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
     expect(queueLoader).toHaveBeenCalledTimes(1);
   });
+
+  it('renders inline error UI when dependent database loading fails', async () => {
+    const { DatabaseTab } = await import('../database-tab');
+    const queueLoader = vi.fn(async (): Promise<QueueAdapter> => {
+      throw new Error('queue exploded');
+    });
+
+    render(<DatabaseTab loadEmbeddingQueue={queueLoader} />);
+
+    expect(await screen.findByTestId('database-tab-load-error')).toHaveTextContent(
+      'Failed to load database tools: queue exploded'
+    );
+  });
 });

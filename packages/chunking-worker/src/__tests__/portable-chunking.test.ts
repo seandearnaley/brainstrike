@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CHUNKING_CONFIG } from '../chunking-config';
 import { chunkContent } from '../portable-chunking';
+
+afterEach(() => {
+  vi.doUnmock('@babel/parser');
+  vi.doUnmock('../token-utils-lite');
+  vi.unstubAllGlobals();
+  vi.resetModules();
+});
 
 describe('portable-chunking', () => {
   describe('chunkContent', () => {

@@ -16,7 +16,10 @@ export default defineConfig({
   clean: true,
   target: 'es2020',
   platform: 'browser',
-  // Bundle heavy dependencies into the worker to avoid ESM resolution issues
+  // Keep these browser-only dependencies bundled so tsup can emit shared split
+  // chunks (for example o200k_base/tiktoken_bg/token-utils-accurate-lite) once
+  // across the worker and runtime entrypoints instead of relying on external ESM
+  // resolution inside worker contexts.
   noExternal: ['xxhash-wasm', 'workerpool', 'tiktoken'],
   external: ['worker_threads', 'os', 'child_process'],
   loader: {

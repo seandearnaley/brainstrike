@@ -5,7 +5,6 @@
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
-    "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/text-splitter": "workspace:*",

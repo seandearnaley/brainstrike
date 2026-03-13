@@ -77,7 +77,14 @@ export function DatabaseTab({
   }, [embeddingQueue, loadEmbeddingQueue, resolvedComponent]);
 
   if (loadError) {
-    throw loadError;
+    return (
+      <div
+        className="flex min-h-0 flex-1 items-center justify-center p-4 text-destructive text-sm"
+        data-testid="database-tab-load-error"
+      >
+        Failed to load database tools: {loadError.message}
+      </div>
+    );
   }
 
   if (!resolvedComponent) {

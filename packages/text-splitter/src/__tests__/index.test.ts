@@ -15,6 +15,18 @@ import {
 } from '../index.js';
 
 describe('@brainstrike/text-splitter', () => {
+  it('bounds the compiled separator regex cache', () => {
+    for (let index = 0; index < 70; index += 1) {
+      const chunks = splitTextRecursively(`a${index}b${index}c`, {
+        chunkSize: 2,
+        chunkOverlap: 0,
+        separators: [`${index}`],
+        isSeparatorRegex: true,
+      });
+      expect(chunks.length).toBeGreaterThan(0);
+    }
+  });
+
   it('splits long text recursively with literal separators', async () => {
     const splitter = new RecursiveTextSplitter({
       chunkSize: 32,

@@ -87,14 +87,20 @@ let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
 
 async function loadBabelParserModule(): Promise<BabelParserModule> {
   if (!babelParserModulePromise) {
-    babelParserModulePromise = import('@babel/parser');
+    babelParserModulePromise = import('@babel/parser').catch((error: unknown) => {
+      babelParserModulePromise = null;
+      throw error;
+    });
   }
   return babelParserModulePromise;
 }
 
 async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
   if (!tokenUtilsLiteModulePromise) {
-    tokenUtilsLiteModulePromise = import('./token-utils-lite');
+    tokenUtilsLiteModulePromise = import('./token-utils-lite').catch((error: unknown) => {
+      tokenUtilsLiteModulePromise = null;
+      throw error;
+    });
   }
   return tokenUtilsLiteModulePromise;
 }

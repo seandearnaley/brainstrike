@@ -479,6 +479,33 @@ class TestClass {
       expect(result.chunks[0].chunkType).toBe('recursive');
     });
 
+    it('uses canonical auto strategy routing for docs and structured formats', async () => {
+      const docsResult = await chunkingService.chunkContent(
+        '# Title\n\n## Intro\n\nBody text',
+        'docs',
+        {
+          strategy: 'auto',
+          fileName: 'guide.adoc',
+        }
+      );
+      const jsonResult = await chunkingService.chunkContent(
+        '{"rows":[{"id":1},{"id":2}]}',
+        'json',
+        {
+          strategy: 'auto',
+          fileName: 'records.ndjson',
+        }
+      );
+      const latexResult = await chunkingService.chunkContent('\\section{Intro}\nBody', 'latex', {
+        strategy: 'auto',
+        fileName: 'refs.bib',
+      });
+
+      expect(docsResult.strategyUsed).toBe('semantic-markdown');
+      expect(jsonResult.strategyUsed).toBe('json');
+      expect(latexResult.strategyUsed).toBe('latex');
+    });
+
     it('keeps TypeScript functions intact using AST-aware chunking', async () => {
       const tsContent = `function alpha() {\n${'const x = 1;\n'.repeat(150)}}\n\nfunction beta() {\n${'const y = 2;\n'.repeat(
         150
