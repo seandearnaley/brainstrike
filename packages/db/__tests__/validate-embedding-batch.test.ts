@@ -75,4 +75,62 @@ describe('validateEmbeddingDimensions batch N+1 regression', () => {
     );
     expect(rows[0].cnt).toBe(50);
   });
+
+  it('rejects a batch when one chunk has a wrong embedding dimension', async () => {
+    const chunks = [
+      {
+        id: 'chunk-ok-1',
+        fileRecordId: 'file-1',
+        chunkIndex: 0,
+        content: 'good',
+        contentHash: 'hash-ok-1',
+        tokenCount: 1,
+        chunkType: 'text' as const,
+        chunkSize: 4,
+        embedding: [0.1, 0.2, 0.3],
+        embeddingSetId: set1Id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'chunk-bad',
+        fileRecordId: 'file-1',
+        chunkIndex: 1,
+        content: 'bad dimension',
+        contentHash: 'hash-bad',
+        tokenCount: 1,
+        chunkType: 'text' as const,
+        chunkSize: 13,
+        // 5-element vector vs expected 3 dimensions
+        embedding: [0.1, 0.2, 0.3, 0.4, 0.5],
+        embeddingSetId: set1Id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'chunk-ok-2',
+        fileRecordId: 'file-1',
+        chunkIndex: 2,
+        content: 'also good',
+        contentHash: 'hash-ok-2',
+        tokenCount: 1,
+        chunkType: 'text' as const,
+        chunkSize: 9,
+        embedding: [0.4, 0.5, 0.6],
+        embeddingSetId: set2Id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+
+    await expect(repo.insertMany(chunks)).rejects.toThrow(
+      'Embedding dimension mismatch: received 5, expected 3.'
+    );
+
+    // Verify no chunks were persisted (transaction should have rolled back)
+    const { rows } = await db.query<{ cnt: number }>(
+      'SELECT count(*)::int AS cnt FROM file_chunks'
+    );
+    expect(rows[0].cnt).toBe(0);
+  });
 });
