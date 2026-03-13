@@ -55,8 +55,10 @@ export interface StrategyTextSplitterOptions extends RecursiveTextSplitterOption
 }
 
 export function countTokensHeuristic(text: string): number {
-  const chars = text.length;
-  return Math.ceil(chars / 4);
+  if (!text) {
+    return 0;
+  }
+  return Math.max(1, Math.ceil(text.length / 4));
 }
 
 export function formatTokenCount(count: number): string {
@@ -72,6 +74,8 @@ export function formatTokenCount(count: number): string {
 }
 
 export function estimateTokenCost(inputTokens: number, outputTokens = 0): number {
+  // These rates are only a UI heuristic for quick cost previews and are not used
+  // for billing or enforcement. Update them intentionally alongside model pricing.
   const inputCost = inputTokens * 0.000_01;
   const outputCost = outputTokens * 0.000_03;
   return inputCost + outputCost;

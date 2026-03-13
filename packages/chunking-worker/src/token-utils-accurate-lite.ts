@@ -1,5 +1,8 @@
 type EncodeFn = (text: string) => Uint32Array;
 
+// The model name is only a lookup hint for encoding_for_model(); the actual
+// tokenization source of truth for this worker is the explicit o200k_base
+// fallback below.
 const DEFAULT_MODEL = 'gpt-5.2';
 const DEFAULT_ENCODING = 'o200k_base';
 const NODE_TIKTOKEN_SPECIFIER = 'tiktoken';
