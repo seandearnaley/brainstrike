@@ -752,11 +752,11 @@ export async function chunkContent(
 
   const name = (options.fileName || options.filePath || '').toLowerCase();
   const codeLanguage = detectCodeLanguage(name);
-  const isMarkdown = /\.(md|mdx|markdown)$/.test(name);
-  const isCode = Boolean(codeLanguage);
-  const isJson = /\.(json)$/.test(name);
-  const isHtml = /\.(html|htm|xhtml|xml)$/.test(name);
-  const isLatex = /\.(tex|latex)$/.test(name);
+  const isMarkdown = initialStrategy === 'markdown' || initialStrategy === 'semantic-markdown';
+  const isCode = initialStrategy === 'recursive' && Boolean(codeLanguage);
+  const isJson = initialStrategy === 'json';
+  const isHtml = initialStrategy === 'html';
+  const isLatex = initialStrategy === 'latex';
 
   interface ChunkGroup {
     pieces: string[];

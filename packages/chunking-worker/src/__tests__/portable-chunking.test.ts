@@ -208,6 +208,25 @@ function baz() {
         expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.largeStructuredMaxTokens);
       });
 
+      it('should route non-legacy auto strategies through the canonical resolver', async () => {
+        const docsResult = await chunkContent('= Guide\n\nSection body.', {
+          strategy: 'auto',
+          fileName: 'guide.adoc',
+        });
+        const dataResult = await chunkContent('{"rows":[{"id":1},{"id":2}]}', {
+          strategy: 'auto',
+          fileName: 'records.jsonl',
+        });
+        const svgResult = await chunkContent('<svg><text>Hello</text></svg>', {
+          strategy: 'auto',
+          fileName: 'diagram.svg',
+        });
+
+        expect(docsResult.strategyUsed).toBe('semantic-markdown');
+        expect(dataResult.strategyUsed).toBe('json');
+        expect(svgResult.strategyUsed).toBe('html');
+      });
+
       it('should honor ignoreFileTypeRecommendations and use configured maxTokens', async () => {
         const json = JSON.stringify({ rows: Array.from({ length: 600 }, (_, i) => ({ i })) });
         const explicitMaxTokens = 320;
