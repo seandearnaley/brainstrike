@@ -130,6 +130,8 @@ const RESOLVED_CHUNKING_STRATEGIES = new Set<ResolvedChunkingStrategy>([
 const DEFAULT_SEPARATORS = ['\n\n', '\n', ' ', ''];
 const MAX_SEPARATOR_REGEX_CACHE_SIZE = 64;
 const SEPARATOR_REGEX_CACHE = new Map<string, RegExp>();
+export const ACCURATE_TOKEN_MODEL_HINT = 'gpt-5.2';
+export const ACCURATE_TOKEN_ENCODING = 'o200k_base';
 
 export function isResolvedChunkingStrategy(value: unknown): value is ResolvedChunkingStrategy {
   return (
@@ -316,7 +318,10 @@ function separatorMatches(text: string, separator: string, isSeparatorRegex: boo
     // Regex separators are an advanced trusted-input path driven by explicit
     // app configuration, not arbitrary untrusted user input.
     if (SEPARATOR_REGEX_CACHE.size >= MAX_SEPARATOR_REGEX_CACHE_SIZE) {
-      SEPARATOR_REGEX_CACHE.clear();
+      const oldestKey = SEPARATOR_REGEX_CACHE.keys().next().value;
+      if (typeof oldestKey === 'string') {
+        SEPARATOR_REGEX_CACHE.delete(oldestKey);
+      }
     }
     compiled = createSeparatorRegex(separator, 'm');
     SEPARATOR_REGEX_CACHE.set(separator, compiled);
@@ -840,6 +845,24 @@ export function resolveChunkingStrategyForFile(
     return 'latex';
   }
   return 'sentence';
+}
+
+export function resolveEffectiveChunkingStrategy({
+  requested,
+  resolvedAutoStrategy,
+  isCode,
+}: {
+  requested: ChunkingStrategy;
+  resolvedAutoStrategy: ResolvedChunkingStrategy;
+  isCode: boolean;
+}): ResolvedChunkingStrategy {
+  if (requested !== 'auto') {
+    return requested;
+  }
+  if (resolvedAutoStrategy === 'recursive' && !isCode) {
+    return 'sentence';
+  }
+  return resolvedAutoStrategy;
 }
 
 export function getChunkingRoutePreview(

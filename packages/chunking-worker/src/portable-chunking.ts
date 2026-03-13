@@ -5,10 +5,10 @@
 
 import type { ParserPlugin } from '@babel/parser';
 import {
-  type ChunkingStrategy,
   RecursiveTextSplitter,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
+  resolveEffectiveChunkingStrategy,
   splitTextByStrategy,
 } from '@brainstrike/text-splitter';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
@@ -329,42 +329,6 @@ async function computeCharsPerToken(content: string, useAccurate: boolean): Prom
     throw new Error('Accurate token counting produced an invalid token count');
   }
   return Number(CHUNKING_CONFIG.averageCharsPerToken);
-}
-
-function resolveEffectiveStrategy({
-  requested,
-  isHtml,
-  isJson,
-  isLatex,
-  isMarkdown,
-  isCode,
-}: {
-  requested: ChunkingStrategy;
-  isHtml: boolean;
-  isJson: boolean;
-  isLatex: boolean;
-  isMarkdown: boolean;
-  isCode: boolean;
-}): ResolvedChunkingStrategy {
-  if (requested !== 'auto') {
-    return requested;
-  }
-  if (isHtml) {
-    return 'html';
-  }
-  if (isJson) {
-    return 'json';
-  }
-  if (isLatex) {
-    return 'latex';
-  }
-  if (isMarkdown) {
-    return 'semantic-markdown';
-  }
-  if (isCode) {
-    return 'recursive';
-  }
-  return 'sentence';
 }
 
 // AST helpers
@@ -752,11 +716,7 @@ export async function chunkContent(
 
   const name = (options.fileName || options.filePath || '').toLowerCase();
   const codeLanguage = detectCodeLanguage(name);
-  const isMarkdown = initialStrategy === 'markdown' || initialStrategy === 'semantic-markdown';
   const isCode = initialStrategy === 'recursive' && Boolean(codeLanguage);
-  const isJson = initialStrategy === 'json';
-  const isHtml = initialStrategy === 'html';
-  const isLatex = initialStrategy === 'latex';
 
   interface ChunkGroup {
     pieces: string[];
@@ -828,12 +788,9 @@ export async function chunkContent(
     ];
   };
 
-  const effectiveStrategy = resolveEffectiveStrategy({
+  const effectiveStrategy = resolveEffectiveChunkingStrategy({
     requested: options.strategy,
-    isHtml,
-    isJson,
-    isLatex,
-    isMarkdown,
+    resolvedAutoStrategy: initialStrategy,
     isCode,
   });
 
@@ -900,8 +857,9 @@ export async function chunkContent(
           if (!subC) {
             continue;
           }
-          // PERF: Use estimates for re-split chunks (accurate counting already done on parent)
-          const subTokenCount = estimateTokenCount(subC);
+          const subTokenCount = useTokenTrueSizing
+            ? await (await loadTokenUtilsLiteModule()).countTokensAccurate(subC)
+            : estimateTokenCount(subC);
           pendingChunks.push({
             content: subC,
             tokenCount: subTokenCount,

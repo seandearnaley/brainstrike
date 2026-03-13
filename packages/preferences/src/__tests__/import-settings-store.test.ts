@@ -160,4 +160,14 @@ describe('import-settings-store', () => {
     const afterClear = storage.getItem(options.name)!;
     expect(afterClear).toBeNull();
   });
+
+  it('rebinds token preference synchronization during test resets', () => {
+    useTokenPreferencesStore.getState().setAccurateCounting(false);
+    expect(useImportSettingsStore.getState().tokenTrueSizing).toBe(false);
+
+    __resetImportSettingsStoreForTests();
+
+    useTokenPreferencesStore.getState().setAccurateCounting(false);
+    expect(useImportSettingsStore.getState().tokenTrueSizing).toBe(false);
+  });
 });

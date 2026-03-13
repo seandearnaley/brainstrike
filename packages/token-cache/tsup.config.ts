@@ -20,7 +20,7 @@ export default defineConfig({
   // chunks (for example o200k_base/tiktoken_bg/token-utils-accurate-lite) once
   // across the worker and runtime entrypoints instead of relying on external ESM
   // resolution inside worker contexts.
-  noExternal: ['xxhash-wasm', 'workerpool', 'tiktoken'],
+  noExternal: ['@brainstrike/text-splitter', 'xxhash-wasm', 'workerpool', 'tiktoken'],
   external: ['worker_threads', 'os', 'child_process'],
   loader: {
     // Use dataurl to inline WASM as base64, avoiding file:// fetch issues in Electron

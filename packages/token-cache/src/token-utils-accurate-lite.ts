@@ -1,7 +1,9 @@
 type EncodeFn = (text: string) => Uint32Array;
 
-const DEFAULT_MODEL = 'gpt-5.2';
-const DEFAULT_ENCODING = 'o200k_base';
+import { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from '@brainstrike/text-splitter';
+
+const DEFAULT_MODEL = ACCURATE_TOKEN_MODEL_HINT;
+const DEFAULT_ENCODING = ACCURATE_TOKEN_ENCODING;
 const NODE_TIKTOKEN_SPECIFIER = 'tiktoken';
 
 type EncoderFactory = (input: string) => { encode: EncodeFn };

@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/hooks": "workspace:*",
+    "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
     "@electric-sql/pglite": "^0.3.15",

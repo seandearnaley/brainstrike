@@ -113,7 +113,7 @@ describe('chunking worker message validation', () => {
     expect(
       isChunkBatchRequest({
         type: 'chunk-batch',
-        requests: Array.from({ length: CHUNKING_CONFIG.maxChunkableSize + 1 }, (_, index) => ({
+        requests: Array.from({ length: CHUNKING_CONFIG.maxBatchSize + 1 }, (_, index) => ({
           id: `chunk-${index}`,
           fileRecordId: `file-${index}`,
           content: 'hello',

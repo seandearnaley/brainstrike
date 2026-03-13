@@ -1,5 +1,7 @@
 type EncodeFn = (text: string) => Uint32Array;
 
+import { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from '@brainstrike/text-splitter';
+
 // This module intentionally stays duplicated with token-cache's accurate-lite
 // helper so each worker bundle remains self-contained and does not pull the
 // other worker graph into its emitted chunk set.
@@ -8,8 +10,8 @@ type EncodeFn = (text: string) => Uint32Array;
 // fallback below.
 // Keep this revisit-visible: it is only a best-effort model lookup hint for
 // encoding_for_model(), while o200k_base remains the canonical tokenizer source.
-const DEFAULT_MODEL = 'gpt-5.2';
-const DEFAULT_ENCODING = 'o200k_base';
+const DEFAULT_MODEL = ACCURATE_TOKEN_MODEL_HINT;
+const DEFAULT_ENCODING = ACCURATE_TOKEN_ENCODING;
 const NODE_TIKTOKEN_SPECIFIER = 'tiktoken';
 
 type EncoderFactory = (input: string) => { encode: EncodeFn };

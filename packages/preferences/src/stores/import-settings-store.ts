@@ -155,12 +155,16 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
   )
 );
 
-useTokenPreferencesStore.subscribe((preferences) => {
-  const current = useImportSettingsStore.getState().tokenTrueSizing;
-  if (current !== preferences.accurateCounting) {
-    useImportSettingsStore.setState({ tokenTrueSizing: preferences.accurateCounting });
-  }
-});
+function bindTokenPreferencesSync(): () => void {
+  return useTokenPreferencesStore.subscribe((preferences) => {
+    const current = useImportSettingsStore.getState().tokenTrueSizing;
+    if (current !== preferences.accurateCounting) {
+      useImportSettingsStore.setState({ tokenTrueSizing: preferences.accurateCounting });
+    }
+  });
+}
+
+let unsubscribeTokenPreferencesSync = bindTokenPreferencesSync();
 
 export const importSettingsSelectors = {
   chunking: (s: ImportSettingsStore) => [s.enableChunking, s.chunkingStrategy] as const,
@@ -192,4 +196,6 @@ export function __resetImportSettingsStoreForTests() {
     tokenTrueSizing: true,
     chunkTokenLimit: DEFAULT_CHUNKING_PRESET.tokenLimit,
   });
+  unsubscribeTokenPreferencesSync();
+  unsubscribeTokenPreferencesSync = bindTokenPreferencesSync();
 }

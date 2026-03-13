@@ -87,7 +87,7 @@ export function isChunkBatchRequest(value: unknown): value is ChunkBatchRequest 
   if (
     msg['type'] !== 'chunk-batch' ||
     !Array.isArray(msg['requests']) ||
-    msg['requests'].length > CHUNKING_CONFIG.maxChunkableSize
+    msg['requests'].length > CHUNKING_CONFIG.maxBatchSize
   ) {
     return false;
   }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ACCURATE_TOKEN_ENCODING,
+  ACCURATE_TOKEN_MODEL_HINT,
   countTokensHeuristic,
   estimateTokenCost,
   formatTokenCount,
@@ -10,6 +12,7 @@ import {
   isResolvedChunkingStrategy,
   RecursiveTextSplitter,
   resolveChunkingStrategyForFile,
+  resolveEffectiveChunkingStrategy,
   splitTextByStrategy,
   splitTextRecursively,
 } from '../index.js';
@@ -25,6 +28,11 @@ describe('@brainstrike/text-splitter', () => {
       });
       expect(chunks.length).toBeGreaterThan(0);
     }
+  });
+
+  it('exports shared accurate token constants for worker runtimes', () => {
+    expect(ACCURATE_TOKEN_MODEL_HINT).toBe('gpt-5.2');
+    expect(ACCURATE_TOKEN_ENCODING).toBe('o200k_base');
   });
 
   it('splits long text recursively with literal separators', async () => {
@@ -213,6 +221,30 @@ describe('@brainstrike/text-splitter', () => {
     expect(resolveChunkingStrategyForFile('/tmp/paper.tex')).toBe('latex');
     expect(resolveChunkingStrategyForFile('/tmp/references.bib')).toBe('latex');
     expect(resolveChunkingStrategyForFile('/tmp/notes.txt')).toBe('sentence');
+  });
+
+  it('resolves final effective strategy from the shared contract', () => {
+    expect(
+      resolveEffectiveChunkingStrategy({
+        requested: 'auto',
+        resolvedAutoStrategy: 'recursive',
+        isCode: true,
+      })
+    ).toBe('recursive');
+    expect(
+      resolveEffectiveChunkingStrategy({
+        requested: 'auto',
+        resolvedAutoStrategy: 'recursive',
+        isCode: false,
+      })
+    ).toBe('sentence');
+    expect(
+      resolveEffectiveChunkingStrategy({
+        requested: 'html',
+        resolvedAutoStrategy: 'sentence',
+        isCode: false,
+      })
+    ).toBe('html');
   });
 
   it('builds a routing preview for adaptive and fixed strategies', () => {

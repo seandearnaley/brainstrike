@@ -5,6 +5,7 @@ import {
   RecursiveTextSplitter,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
+  resolveEffectiveChunkingStrategy,
   splitTextByStrategy,
 } from '@brainstrike/text-splitter';
 
@@ -848,7 +849,7 @@ export class ChunkingService {
     };
 
     let groups: ChunkGroup[] = [];
-    const effectiveStrategy: ResolvedChunkingStrategy = resolveEffectiveStrategy({
+    const effectiveStrategy: ResolvedChunkingStrategy = resolveEffectiveChunkingStrategy({
       requested: options.strategy,
       resolvedAutoStrategy,
       isCode,
@@ -892,24 +893,6 @@ export class ChunkingService {
       yield* emit(g.pieces, g.type, effectiveMaxTokens);
     }
   }
-}
-
-function resolveEffectiveStrategy({
-  requested,
-  resolvedAutoStrategy,
-  isCode,
-}: {
-  requested: ChunkingStrategy;
-  resolvedAutoStrategy: ResolvedChunkingStrategy;
-  isCode: boolean;
-}): ResolvedChunkingStrategy {
-  if (requested !== 'auto') {
-    return requested;
-  }
-  if (resolvedAutoStrategy === 'recursive' && !isCode) {
-    return 'sentence';
-  }
-  return resolvedAutoStrategy;
 }
 
 function resolveMaxTokensCap(cap?: number): number {

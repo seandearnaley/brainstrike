@@ -1833,6 +1833,9 @@ importers:
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@brainstrike/text-splitter':
+        specifier: workspace:*
+        version: link:../text-splitter
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
