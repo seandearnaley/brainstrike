@@ -18,7 +18,10 @@
  * ```
  */
 
-import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
+import {
+  tokenPreferencesSelectors,
+  useTokenPreferencesStore,
+} from '@brainstrike/preferences/stores/token-preferences-store';
 import {
   createTokenCacheWorkerPool,
   FileHasher,

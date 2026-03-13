@@ -11,7 +11,10 @@
  */
 
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui';
-import { databaseStatusSelectors, useDatabaseStatusStore } from '@brainstrike/preferences';
+import {
+  databaseStatusSelectors,
+  useDatabaseStatusStore,
+} from '@brainstrike/preferences/stores/database-status-store';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import {
   Activity,

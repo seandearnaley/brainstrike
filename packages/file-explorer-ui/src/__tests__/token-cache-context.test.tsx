@@ -8,7 +8,7 @@ import {
 } from '../token-cache-context';
 
 // Mock dependencies
-vi.mock('@brainstrike/preferences', () => ({
+vi.mock('@brainstrike/preferences/stores/token-preferences-store', () => ({
   useTokenPreferencesStore: vi.fn(() => false),
   tokenPreferencesSelectors: { accurateCounting: {} },
 }));

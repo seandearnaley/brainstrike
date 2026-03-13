@@ -26,15 +26,13 @@ import {
   useOptionalTokenCacheContext,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui';
-import {
-  useAssistantPreferencesStore,
-  useEnsureModelRegistry,
-  useModelRegistryStore,
-  useNativeToolPreferencesStore,
-  usePanelLayoutStore,
-  useSecretsStore,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { buildWorkspaceLookupCandidates, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import {
