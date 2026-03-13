@@ -42,4 +42,17 @@ describe('useEventCallback', () => {
     expect(updatedCallback).toHaveBeenCalledWith('next');
     expect(initialCallback).not.toHaveBeenCalled();
   });
+
+  it('forwards arguments to the underlying callback', () => {
+    const callback = vi.fn((a: number, b: string) => `${a}-${b}`);
+    const { result } = renderHook(() => useEventCallback(callback));
+
+    let ret: string | undefined;
+    act(() => {
+      ret = result.current(1, 'x');
+    });
+
+    expect(ret).toBe('1-x');
+    expect(callback).toHaveBeenCalledWith(1, 'x');
+  });
 });
