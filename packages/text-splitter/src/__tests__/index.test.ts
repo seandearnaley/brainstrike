@@ -77,6 +77,17 @@ describe('@brainstrike/text-splitter', () => {
     expect(chunks.every((chunk) => chunk.length <= 4)).toBe(true);
   });
 
+  it('throws a clear error for invalid regex separators', () => {
+    expect(() =>
+      splitTextRecursively('abcdef', {
+        chunkSize: 3,
+        chunkOverlap: 0,
+        separators: ['[unclosed'],
+        isSeparatorRegex: true,
+      })
+    ).toThrow('Invalid regex separator "[unclosed"');
+  });
+
   it('supports character strategy with overlap', () => {
     const chunks = splitTextByStrategy('abcdefghij', {
       strategy: 'character',

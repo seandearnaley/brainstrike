@@ -15,8 +15,17 @@
       "@brainstrike/db-explorer/database-demo-panel": [
         "../db-explorer/src/database-demo-panel.tsx"
       ],
+      "@brainstrike/types": [
+        "../types/src"
+      ],
+      "@brainstrike/types/*": [
+        "../types/src/*"
+      ],
       "@brainstrike/preferences/*": [
         "../preferences/src/*"
+      ],
+      "@brainstrike/utils": [
+        "../utils/src/index.ts"
       ],
       "@brainstrike/utils/crypto": [
         "../utils/dist/crypto.d.ts"
@@ -38,6 +47,12 @@
       ],
       "@brainstrike/file-import/chunking-worker-context": [
         "../file-import/src/chunking-worker-context.tsx"
+      ],
+      "@brainstrike/queue": [
+        "../queue/src/index.ts"
+      ],
+      "@brainstrike/queue/*": [
+        "../queue/src/*"
       ]
     },
     "strictNullChecks": true

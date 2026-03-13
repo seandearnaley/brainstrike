@@ -53,7 +53,9 @@ runs:
       if: inputs.skip-electron == 'false'
       id: electron-version
       shell: bash
-      run: echo "version=$(node -e 'console.log(require(\"./apps/desktop/package.json\").devDependencies[\"electron\"])')" >> $GITHUB_OUTPUT
+      run: |
+        version=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
+        echo "version=${version}" >> "$GITHUB_OUTPUT"
 
     - name: Cache Electron binaries
       if: inputs.skip-electron == 'false'

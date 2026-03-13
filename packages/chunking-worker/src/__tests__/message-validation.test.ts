@@ -33,6 +33,9 @@ describe('chunking worker message validation', () => {
     expect(isChunkingRequestOptions({ strategy: 'auto', maxTokens: 0 })).toBe(false);
     expect(isChunkingRequestOptions({ strategy: 'auto', maxTokensCap: -1 })).toBe(false);
     expect(isChunkingRequestOptions({ strategy: 'auto', overlap: -1 })).toBe(false);
+    expect(isChunkingRequestOptions({ strategy: 'auto', maxTokens: 999_999_999 })).toBe(false);
+    expect(isChunkingRequestOptions({ strategy: 'auto', maxTokensCap: 999_999_999 })).toBe(false);
+    expect(isChunkingRequestOptions({ strategy: 'auto', overlap: 999_999_999 })).toBe(false);
     expect(isChunkingRequestOptions({ strategy: 'auto', allowLargeFiles: 'yes' })).toBe(false);
     expect(isChunkingRequestOptions({ strategy: 'auto', separators: ['\n', 1] })).toBe(false);
   });

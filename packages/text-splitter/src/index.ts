@@ -295,6 +295,15 @@ function resolveSeparators(separators?: string[]): string[] {
   return [...separators];
 }
 
+function createSeparatorRegex(separator: string, flags: string): RegExp {
+  try {
+    return new RegExp(separator, flags);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid regex separator "${separator}": ${message}`);
+  }
+}
+
 function separatorMatches(text: string, separator: string, isSeparatorRegex: boolean): boolean {
   if (separator === '') {
     return true;
@@ -309,7 +318,7 @@ function separatorMatches(text: string, separator: string, isSeparatorRegex: boo
     if (SEPARATOR_REGEX_CACHE.size >= MAX_SEPARATOR_REGEX_CACHE_SIZE) {
       SEPARATOR_REGEX_CACHE.clear();
     }
-    compiled = new RegExp(separator, 'm');
+    compiled = createSeparatorRegex(separator, 'm');
     SEPARATOR_REGEX_CACHE.set(separator, compiled);
   }
   return compiled.test(text);
@@ -342,7 +351,7 @@ function splitByLiteralSeparator(text: string, separator: string): string[] {
 }
 
 function splitByRegexSeparator(text: string, separator: string): string[] {
-  const regex = new RegExp(separator, 'gm');
+  const regex = createSeparatorRegex(separator, 'gm');
   const segments: string[] = [];
   let cursor = 0;
 
@@ -397,6 +406,8 @@ function splitByLengthWithOverlap(text: string, chunkSize: number, chunkOverlap:
 
   const chunks: string[] = [];
   for (let cursor = 0; cursor < text.length; cursor += step) {
+    // Trim edge padding intentionally so overlap windows carry content rather than
+    // separator-only whitespace noise across neighboring chunks.
     const chunk = text.slice(cursor, Math.min(text.length, cursor + chunkSize)).trim();
     if (chunk.length > 0) {
       chunks.push(chunk);

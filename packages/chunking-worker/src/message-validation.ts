@@ -1,4 +1,5 @@
 import { isChunkingStrategy } from '@brainstrike/text-splitter';
+import { CHUNKING_CONFIG } from './chunking-config';
 import type { ChunkBatchRequest, ChunkingRequestOptions, ChunkRequest } from './shared';
 
 function isOptionalBoolean(value: unknown): boolean {
@@ -11,6 +12,14 @@ function isOptionalPositiveInteger(value: unknown): boolean {
 
 function isOptionalNonNegativeInteger(value: unknown): boolean {
   return value === undefined || (Number.isInteger(value) && (value as number) >= 0);
+}
+
+function isOptionalBoundedPositiveInteger(value: unknown, max: number): boolean {
+  return isOptionalPositiveInteger(value) && (value === undefined || (value as number) <= max);
+}
+
+function isOptionalBoundedNonNegativeInteger(value: unknown, max: number): boolean {
+  return isOptionalNonNegativeInteger(value) && (value === undefined || (value as number) <= max);
 }
 
 function isOptionalStringArray(value: unknown): boolean {
@@ -39,9 +48,9 @@ export function isChunkingRequestOptions(value: unknown): value is ChunkingReque
     isOptionalBoolean(obj['forceStrategy']) &&
     isOptionalBoolean(obj['ignoreFileTypeRecommendations']) &&
     isOptionalBoolean(obj['tokenTrueSizing']) &&
-    isOptionalPositiveInteger(obj['maxTokens']) &&
-    isOptionalPositiveInteger(obj['maxTokensCap']) &&
-    isOptionalNonNegativeInteger(obj['overlap']) &&
+    isOptionalBoundedPositiveInteger(obj['maxTokens'], CHUNKING_CONFIG.maxTokensHardLimit) &&
+    isOptionalBoundedPositiveInteger(obj['maxTokensCap'], CHUNKING_CONFIG.maxTokensHardLimit) &&
+    isOptionalBoundedNonNegativeInteger(obj['overlap'], CHUNKING_CONFIG.overlapHardLimit) &&
     isOptionalStringArray(obj['separators'])
   );
 }

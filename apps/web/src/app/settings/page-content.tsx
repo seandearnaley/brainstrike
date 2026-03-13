@@ -1,4 +1,9 @@
-import { isNativeTool, NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/client';
+import {
+  isNativeTool,
+  NATIVE_TOOL_DEFAULTS,
+  type NativeToolDefaultMetadata,
+  TOOL_DESCRIPTIONS,
+} from '@brainstrike/agent/client';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import {
@@ -35,16 +40,18 @@ import { getWebLogBuffer } from '../../log-buffer';
 function getNativeToolsAsDisplayMetadata(
   isToolEnabled: (toolId: string) => boolean
 ): ToolDisplayMetadata[] {
-  return Object.entries(NATIVE_TOOL_DEFAULTS).map(([id, metadata]) => ({
-    id,
-    source: 'native' as const,
-    category: metadata.category,
-    loadingTier: metadata.loadingTier,
-    description: getToolDescription(id),
-    enabled: isToolEnabled(id),
-    estimatedTokens: metadata.estimatedTokens,
-    requiresApproval: metadata.requiresApproval,
-  }));
+  return Object.entries(NATIVE_TOOL_DEFAULTS as Record<string, NativeToolDefaultMetadata>).map(
+    ([id, metadata]: [string, NativeToolDefaultMetadata]) => ({
+      id,
+      source: 'native' as const,
+      category: metadata.category,
+      loadingTier: metadata.loadingTier,
+      description: getToolDescription(id),
+      enabled: isToolEnabled(id),
+      estimatedTokens: metadata.estimatedTokens,
+      requiresApproval: metadata.requiresApproval,
+    })
+  );
 }
 
 /**

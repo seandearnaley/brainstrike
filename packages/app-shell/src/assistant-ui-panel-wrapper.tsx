@@ -780,12 +780,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         return;
       }
       const mode = payload.mode ?? 'add';
-      const normalizedPaths = Array.from(
+      const normalizedPaths: string[] = Array.from(
         new Set(
           payload.filePaths
-            .map((filePath) => normalizeWorkspaceLookupPath(String(filePath)))
-            .filter((path) => path.length > 0)
-            .map((path) => (path.startsWith('/') ? path : `/${path}`))
+            .map((filePath: unknown) => normalizeWorkspaceLookupPath(String(filePath)))
+            .filter((path: string) => path.length > 0)
+            .map((path: string) => (path.startsWith('/') ? path : `/${path}`))
         )
       );
       if (normalizedPaths.length === 0) {
