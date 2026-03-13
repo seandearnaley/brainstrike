@@ -1,3 +1,4 @@
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrations } from '../src/migrations/index.js';
 import { MigrationRunner } from '../src/migrations/migration-runner.js';
@@ -5,8 +6,8 @@ import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repo
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
-describe('validateEmbeddingDimensions performance', () => {
-  let db: any;
+describe('validateEmbeddingDimensions batch N+1 regression', () => {
+  let db: PGlite;
   let repo: FileChunkRepository;
   let set1Id: string;
   let set2Id: string;
@@ -36,8 +37,7 @@ describe('validateEmbeddingDimensions performance', () => {
     repo = new FileChunkRepository(db);
   });
 
-  it('measures queries for insertMany', async () => {
-    // Before test, let's clear the local dimension cache if it's exported or we just rely on first run
+  it('uses at most one dimension SELECT for insertMany (no N+1)', async () => {
     const querySpy = vi.spyOn(db, 'query');
 
     const chunks = Array.from({ length: 50 }, (_, i) => ({
@@ -55,17 +55,13 @@ describe('validateEmbeddingDimensions performance', () => {
       updatedAt: new Date().toISOString(),
     }));
 
-    const start = performance.now();
     await repo.insertMany(chunks);
-    const end = performance.now();
 
-    const totalQueries = querySpy.mock.calls.length;
-    const dimensionQueries = querySpy.mock.calls.filter((c) =>
-      /SELECT\b.*\bdimensions\b.*\bFROM\s+embedding_sets\b/i.test(c[0])
+    const dimensionSelectPattern = /SELECT\b[^;]*\bdimensions\b[^;]*\bFROM\s+embedding_sets\b/i;
+    const dimensionQueries = querySpy.mock.calls.filter(
+      (c) => typeof c[0] === 'string' && dimensionSelectPattern.test(c[0])
     ).length;
-
-    console.log(`insertMany took ${end - start}ms`);
-    console.log(`Made ${totalQueries} total queries, ${dimensionQueries} dimension SELECT queries`);
+    const totalQueries = querySpy.mock.calls.length;
 
     // Batch approach should use at most 1 SELECT query for dimensions (not N per chunk)
     expect(dimensionQueries).toBeLessThanOrEqual(1);
@@ -74,7 +70,9 @@ describe('validateEmbeddingDimensions performance', () => {
     expect(totalQueries).toBeLessThan(50);
 
     // Verify all chunks were actually inserted
-    const { rows } = await db.query('SELECT count(*)::int AS cnt FROM file_chunks');
+    const { rows } = await db.query<{ cnt: number }>(
+      'SELECT count(*)::int AS cnt FROM file_chunks'
+    );
     expect(rows[0].cnt).toBe(50);
   });
 });

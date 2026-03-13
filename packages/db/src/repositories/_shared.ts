@@ -165,6 +165,8 @@ async function resolveEmbeddingSetDimension(
     [embeddingSetId]
   );
   const dimensionsRaw = result.rows[0]?.dimensions;
+  // When dimensionsRaw is undefined (row missing), Number(undefined) yields NaN
+  // which the isFinite guard below catches and throws a descriptive error.
   const dimensions = typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw);
   if (!Number.isFinite(dimensions) || dimensions <= 0) {
     throw new Error(
