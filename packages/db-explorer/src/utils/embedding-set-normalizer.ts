@@ -3,7 +3,7 @@ import {
   canonicalizeProviderModelKey,
   formatProviderModelKey,
 } from '@brainstrike/embeddings/provider-core';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 interface SqlClient {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;

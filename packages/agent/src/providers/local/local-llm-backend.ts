@@ -3,7 +3,7 @@
  *
  * Supports text generation with tool/function calling via ONNX models.
  */
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,

@@ -187,6 +187,15 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   };
 });
 
+vi.mock('@brainstrike/utils/logger', () => ({
+  createLogger: () => ({
+    warn: loggerWarn,
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+}));
+
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('@brainstrike/file-system/electron', () => {
   const MockAdapter = vi.fn();

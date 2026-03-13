@@ -20,7 +20,7 @@ import {
   VoyageEmbeddingProvider,
 } from '@brainstrike/embeddings/provider-core';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { getDatabase } from '../db-main';
 import { getSecretsService } from '../secrets';

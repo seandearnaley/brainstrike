@@ -14,8 +14,10 @@ vi.mock('@brainstrike/preferences/stores/model-registry-store', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+vi.mock('@brainstrike/utils/logger', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
+    '@brainstrike/utils/logger'
+  );
   return {
     ...actual,
     createLogger: () => ({

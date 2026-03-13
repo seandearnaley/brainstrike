@@ -1,7 +1,7 @@
 import type { IDatabase } from '@brainstrike/db';
 import type { EmbeddingWorkerOptions } from '@brainstrike/embeddings/worker';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('EmbeddingWorkerConfig');
 // Keep the hidden host responsive, but avoid the one-job-at-a-time churn that

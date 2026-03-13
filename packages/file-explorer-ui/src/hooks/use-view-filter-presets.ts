@@ -18,7 +18,7 @@ import type {
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { asc } from 'drizzle-orm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 

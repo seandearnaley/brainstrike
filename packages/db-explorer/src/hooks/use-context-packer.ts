@@ -10,7 +10,7 @@ import type { ContextPackerOptions, ContextPackerResult } from '@brainstrike/age
 import { ContextPacker } from '@brainstrike/agent/client';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type { SemanticSearchResult } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo } from 'react';
 import {
   formatPackedContext,

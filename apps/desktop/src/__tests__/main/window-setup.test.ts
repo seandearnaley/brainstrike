@@ -145,6 +145,16 @@ vi.mock('@brainstrike/utils', async () => {
     },
   };
 });
+
+vi.mock('@brainstrike/utils/logger', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
+    '@brainstrike/utils/logger'
+  );
+  return {
+    ...actual,
+    createLogger: createLoggerMock,
+  };
+});
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('electron-store', () => {
   const MockElectronStore = vi.fn();

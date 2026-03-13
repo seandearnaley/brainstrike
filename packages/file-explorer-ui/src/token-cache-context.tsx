@@ -33,7 +33,7 @@ import {
   type UseTokenCacheReturn,
   useTokenCache,
 } from '@brainstrike/token-cache';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   createContext,
   type ReactNode,

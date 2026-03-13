@@ -15,7 +15,7 @@ import type {
 } from '@brainstrike/types';
 import { PRESET_ICON_OPTIONS } from '@brainstrike/types';
 import { Button, cn, Input, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   Box,
   Check,

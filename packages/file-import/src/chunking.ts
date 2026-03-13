@@ -7,7 +7,7 @@ import type {
   ResolvedChunkingStrategy,
 } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { getChunkingStrategy } from './chunking-strategy';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 

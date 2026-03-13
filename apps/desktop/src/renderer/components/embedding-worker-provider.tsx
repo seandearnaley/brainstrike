@@ -5,7 +5,7 @@ import {
   startEmbeddingWorker,
 } from '@brainstrike/embeddings/worker';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
 import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 

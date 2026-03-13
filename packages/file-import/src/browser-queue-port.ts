@@ -6,7 +6,7 @@ import type {
   QueueAdapter,
 } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { EmbeddingJobQueuePort } from './enhanced-import';
 
 interface ChunkRepository {

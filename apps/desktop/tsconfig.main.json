@@ -38,6 +38,12 @@
       ],
       "@brainstrike/file-system/path-validation": [
         "../../packages/file-system/dist/path-validation.d.ts"
+      ],
+      "@brainstrike/utils/logger": [
+        "../../packages/utils/dist/logger.d.ts"
+      ],
+      "@brainstrike/utils/safe-storage": [
+        "../../packages/utils/dist/safe-storage.d.ts"
       ]
     },
     "strictNullChecks": true

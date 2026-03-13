@@ -7,7 +7,7 @@ import {
   saveToolPreferences,
   type ToolPreferences,
 } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, dialog, ipcMain } from 'electron';
 import { disposeClients, initClients } from './mcp';

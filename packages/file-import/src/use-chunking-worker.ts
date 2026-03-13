@@ -7,7 +7,7 @@
  * - Handles worker initialization and cleanup
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useState, useSyncExternalStore } from 'react';
 import {
   type ChunkingBatchCallbacks,

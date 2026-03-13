@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import chunkingWorkerUrlHref from '../../chunking-worker/src/chunking.worker.ts?worker&url';
 
 const logger = createLogger('resolveChunkingWorkerUrl');

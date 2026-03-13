@@ -13,7 +13,7 @@ import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { isResolvedChunkingStrategy } from '@brainstrike/text-splitter';
 import type { useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const logger = createLogger('DatabaseDemoData');

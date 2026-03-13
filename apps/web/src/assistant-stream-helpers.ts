@@ -9,7 +9,7 @@ import {
   sanitizeStreamChunk,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { AssistantProviderConfig } from './server/assistant-config';
 import { resolveAssistantProviderConfig } from './server/assistant-config';
 
