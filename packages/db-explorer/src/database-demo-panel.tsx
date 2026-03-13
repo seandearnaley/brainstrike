@@ -7,12 +7,10 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import {
-  useEnsureModelRegistry,
-  useLocalRuntimeEmbeddingModelCatalog,
-  useModelRegistryStore,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences';
+import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,

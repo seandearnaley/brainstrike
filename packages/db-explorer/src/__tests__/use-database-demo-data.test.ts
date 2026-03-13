@@ -29,24 +29,21 @@ const mockVectorStatusUIStore = {
 };
 
 // Mock the preferences store - required for dbInfo sync to global store
-vi.mock('@brainstrike/preferences', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/preferences')>(
-    '@brainstrike/preferences'
-  );
-  return {
-    ...actual,
-    useDatabaseStatusStore: {
-      getState: vi.fn(() => ({
-        setLoading: vi.fn(),
-        setConnected: vi.fn(),
-        setDisconnected: vi.fn(),
-      })),
-    },
-    useVectorStatusUIStore: vi.fn((selector: (state: typeof mockVectorStatusUIStore) => unknown) =>
-      selector(mockVectorStatusUIStore)
-    ),
-  };
-});
+vi.mock('@brainstrike/preferences/stores/database-status-store', () => ({
+  useDatabaseStatusStore: {
+    getState: vi.fn(() => ({
+      setLoading: vi.fn(),
+      setConnected: vi.fn(),
+      setDisconnected: vi.fn(),
+    })),
+  },
+}));
+
+vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
+  useVectorStatusUIStore: vi.fn((selector: (state: typeof mockVectorStatusUIStore) => unknown) =>
+    selector(mockVectorStatusUIStore)
+  ),
+}));
 
 vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');

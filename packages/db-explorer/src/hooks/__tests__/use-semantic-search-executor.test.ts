@@ -5,7 +5,7 @@ import type {
   FileChunk,
   FileRecord,
 } from '@brainstrike/db';
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import type { SearchConfig } from '@brainstrike/ui';
 import {
   addLogListener,

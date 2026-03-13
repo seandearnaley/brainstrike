@@ -23,7 +23,8 @@ import {
 } from '@brainstrike/file-import/browser-queue-port';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { runEnhancedImport } from '@brainstrike/file-import/enhanced-import';
-import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
 import { createBulkOperationContext, createLogger, LogLevel } from '@brainstrike/utils';

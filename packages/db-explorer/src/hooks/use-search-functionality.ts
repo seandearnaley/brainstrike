@@ -13,7 +13,8 @@ import {
   type ModelConfig,
   parseProviderModelKey,
 } from '@brainstrike/embeddings/provider-core';
-import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';

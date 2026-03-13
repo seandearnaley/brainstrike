@@ -4,7 +4,7 @@ import type {
   FileRecord,
   FileRecordRepository,
 } from '@brainstrike/db';
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSearchFunctionality } from '../use-search-functionality';

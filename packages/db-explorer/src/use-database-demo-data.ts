@@ -9,7 +9,8 @@ import {
   type usePGliteDatabase,
   usePGliteLiveQuery,
 } from '@brainstrike/db';
-import { useDatabaseStatusStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database-status-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { isResolvedChunkingStrategy } from '@brainstrike/text-splitter';
 import type { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';

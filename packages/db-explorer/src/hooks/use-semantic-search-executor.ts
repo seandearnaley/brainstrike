@@ -21,7 +21,8 @@ import {
   type ModelConfig,
   parseProviderModelKey,
 } from '@brainstrike/embeddings/provider-core';
-import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef } from 'react';

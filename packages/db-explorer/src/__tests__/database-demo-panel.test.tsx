@@ -255,8 +255,23 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
   return {
     ...actual,
-    useEnsureModelRegistry: mockEnsureModelRegistry,
-    useLocalRuntimeEmbeddingModelCatalog: mockUseLocalRuntimeEmbeddingModelCatalog,
+  };
+});
+
+vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+  useEnsureModelRegistry: mockEnsureModelRegistry,
+}));
+
+vi.mock('@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog', () => ({
+  useLocalRuntimeEmbeddingModelCatalog: mockUseLocalRuntimeEmbeddingModelCatalog,
+}));
+
+vi.mock('@brainstrike/preferences/stores/model-registry-store', async () => {
+  const actual = await vi.importActual<
+    typeof import('@brainstrike/preferences/stores/model-registry-store')
+  >('@brainstrike/preferences/stores/model-registry-store');
+  return {
+    ...actual,
     useModelRegistryStore: mockUseModelRegistryStore,
   };
 });

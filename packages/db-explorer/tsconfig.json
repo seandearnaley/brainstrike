@@ -7,6 +7,11 @@
     "rootDir": "src",
     "outDir": "dist",
     "declarationDir": "dist",
+    "paths": {
+      "@brainstrike/preferences/*": [
+        "../preferences/src/*"
+      ]
+    },
     "types": [
       "node"
     ],
