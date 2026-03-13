@@ -95,6 +95,7 @@ export function ToolsFilterBar({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
+              aria-label="Reset filters"
               className="h-9 w-9"
               data-testid="reset-filters"
               disabled={!hasFilters}
