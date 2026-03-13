@@ -8,6 +8,7 @@
 /// <reference lib="webworker" />
 
 import { worker, workerEmit } from 'workerpool';
+import { countTokensForMode } from './token-counting-runtime';
 import type { TokenCountRequest, TokenCountResult } from './types';
 
 interface XXHashModule {
@@ -73,10 +74,9 @@ async function getTokenUtils(): Promise<{
  */
 async function countTokens(request: TokenCountRequest): Promise<TokenCountResult> {
   let hasher: XXHashModule;
-  let utils: Awaited<ReturnType<typeof getTokenUtils>>;
 
   try {
-    [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
+    hasher = await initHasher();
   } catch (initError) {
     // Re-throw with more context for debugging
     const message = initError instanceof Error ? initError.message : String(initError);
@@ -86,22 +86,8 @@ async function countTokens(request: TokenCountRequest): Promise<TokenCountResult
   // Hash content for cache key
   const contentHash = hashToHex(hasher.h64(request.content));
 
-  if (request.mode === 'accurate') {
-    const accurateSupported = await utils.supportsAccurateTokenCounting();
-    if (!accurateSupported) {
-      const failureReason = utils.getAccurateTokenCountingFailureReason();
-      const failureSuffix = failureReason ? ` (${failureReason})` : '';
-      throw new Error(
-        `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`
-      );
-    }
-  }
-
   // Count tokens based on mode
-  const tokenCount =
-    request.mode === 'accurate'
-      ? await utils.countTokensAccurate(request.content)
-      : utils.countTokensHeuristic(request.content);
+  const tokenCount = await countTokensForMode(request.mode, request.content, getTokenUtils);
 
   return {
     id: request.id,
@@ -121,18 +107,7 @@ async function countTokensBatch(requests: TokenCountRequest[]): Promise<TokenCou
   }
 
   // Pre-initialize to avoid repeated async overhead
-  const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
-  const requiresAccurateCounting = requests.some((request) => request.mode === 'accurate');
-  if (requiresAccurateCounting) {
-    const accurateSupported = await utils.supportsAccurateTokenCounting();
-    if (!accurateSupported) {
-      const failureReason = utils.getAccurateTokenCountingFailureReason();
-      const failureSuffix = failureReason ? ` (${failureReason})` : '';
-      throw new Error(
-        `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`
-      );
-    }
-  }
+  const hasher = await initHasher();
 
   const results: TokenCountResult[] = [];
   const total = requests.length;
@@ -142,10 +117,7 @@ async function countTokensBatch(requests: TokenCountRequest[]): Promise<TokenCou
     const contentHash = hashToHex(hasher.h64(request.content));
 
     // Count tokens
-    const tokenCount =
-      request.mode === 'accurate'
-        ? await utils.countTokensAccurate(request.content)
-        : utils.countTokensHeuristic(request.content);
+    const tokenCount = await countTokensForMode(request.mode, request.content, getTokenUtils);
 
     const result: TokenCountResult = {
       id: request.id,
