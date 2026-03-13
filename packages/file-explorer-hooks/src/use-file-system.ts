@@ -1,6 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { FileExplorerState } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useAdapters } from './adapters-context';
 import { isUserCancellation, mapFileSystemError } from './file-system-error-helpers';

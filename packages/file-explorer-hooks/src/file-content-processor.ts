@@ -3,7 +3,8 @@ import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brain
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
-import { fileContent, fileExplorer } from '@brainstrike/utils';
+import { fileContent } from '@brainstrike/utils/file-content';
+import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import {
   createFileContentWorker,
   type FileContentWorker,

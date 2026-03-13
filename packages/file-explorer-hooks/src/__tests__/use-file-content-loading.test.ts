@@ -1,6 +1,8 @@
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection, fileContent, fileExplorer } from '@brainstrike/utils';
+import { fileContent } from '@brainstrike/utils/file-content';
+import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
+import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DirectFileContentProcessor } from '../file-content-processor';
@@ -8,16 +10,24 @@ import { useFileContentLoading } from '../use-file-content-loading';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 
 // Define mock implementations
-vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const actual: typeof import('@brainstrike/utils') = await importOriginal();
+vi.mock('@brainstrike/utils/file-content', async (importOriginal) => {
+  const actual: typeof import('@brainstrike/utils/file-content') = await importOriginal();
   return {
     ...actual,
     fileContent: {
+      ...actual.fileContent,
       isTextContent: vi.fn(),
       isTextExtension: vi.fn(),
       isBinaryExtension: vi.fn(),
     },
-    encodeFileSelection: vi.fn((folderId, path) => `${folderId}|@|${path}`),
+  };
+});
+
+vi.mock('@brainstrike/utils/selection-utils', async (importOriginal) => {
+  const actual: typeof import('@brainstrike/utils/selection-utils') = await importOriginal();
+  return {
+    ...actual,
+    encodeFileSelection: vi.fn((folderId: string, path: string) => `${folderId}|@|${path}`),
   };
 });
 

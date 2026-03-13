@@ -4,7 +4,7 @@ import {
   isPermissionError,
   isUserCancelledError,
 } from '@brainstrike/file-system';
-import { isAbortError } from '@brainstrike/utils';
+import { isAbortError } from '@brainstrike/utils/error-utils';
 
 /**
  * Determine if the given error indicates the user cancelled the action.

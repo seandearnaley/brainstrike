@@ -74,6 +74,11 @@
       "import": "./dist/file-explorer-utils.mjs",
       "require": "./dist/file-explorer-utils.js"
     },
+    "./file-content": {
+      "types": "./dist/file-content.d.ts",
+      "import": "./dist/file-content.mjs",
+      "require": "./dist/file-content.js"
+    },
     "./file-utils": {
       "types": "./dist/file-utils.d.ts",
       "import": "./dist/file-utils.mjs",
@@ -152,7 +157,7 @@
   },
   "scripts": {
     "bench": "vitest bench",
-    "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/collator.ts src/tree-operations.ts src/perf-timing.ts src/crypto.ts src/token-counting-runtime.ts src/logger.ts src/logging-preferences.ts src/log-buffer.ts src/safe-storage.ts src/color-utils.ts src/create-debounce.ts src/env-utils.ts src/error-utils.ts src/file-explorer-utils.ts src/file-utils.ts src/path-filter.ts src/path-utils.ts src/quick-filter-utils.ts src/relative-file-path.ts src/report-generator.ts src/selection-utils.ts src/tree-generator.ts --format esm,cjs --out-dir dist",
+    "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/collator.ts src/tree-operations.ts src/perf-timing.ts src/crypto.ts src/token-counting-runtime.ts src/logger.ts src/logging-preferences.ts src/log-buffer.ts src/safe-storage.ts src/color-utils.ts src/create-debounce.ts src/env-utils.ts src/error-utils.ts src/file-content.ts src/file-explorer-utils.ts src/file-utils.ts src/path-filter.ts src/path-utils.ts src/quick-filter-utils.ts src/relative-file-path.ts src/report-generator.ts src/selection-utils.ts src/tree-generator.ts --format esm,cjs --out-dir dist",
     "clean": "rimraf dist",
     "dev": "tsup --watch",
     "lint": "pnpm run --dir=../.. lint",
