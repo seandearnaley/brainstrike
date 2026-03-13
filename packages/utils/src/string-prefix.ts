@@ -33,6 +33,11 @@ export function startsWithPrefix(path: string, prefix: string, separator: string
  * Equivalent to `value.startsWith(prefix + sep)` where `sep` is exactly two characters,
  * but avoids the intermediate string allocation.
  *
+ * **Note:** This is intentionally stricter than a plain `startsWith` template check —
+ * it returns `false` if there is no content after the separator (i.e. the value is
+ * exactly `prefix + sep` with nothing following). This ensures callers always receive
+ * a non-empty suffix.
+ *
  * @param sep - Must be exactly two characters (e.g. `'::'`).
  */
 export function startsWithDoubleCharPrefix(value: string, prefix: string, sep: string): boolean {
