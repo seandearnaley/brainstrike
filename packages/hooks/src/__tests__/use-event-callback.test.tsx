@@ -3,14 +3,23 @@ import { describe, expect, it, vi } from 'vitest';
 import { useEventCallback } from '../use-event-callback';
 
 describe('useEventCallback', () => {
-  it('returns a stable function identity across rerenders', () => {
-    const callback = vi.fn();
+  it('returns a stable function that invokes the initial callback', () => {
+    const callback = vi.fn(() => 42);
     const { result, rerender } = renderHook(() => useEventCallback(callback));
 
-    const initialHandler = result.current;
-    rerender();
+    const first = result.current;
 
-    expect(result.current).toBe(initialHandler);
+    let returnValue: number | undefined;
+    act(() => {
+      returnValue = result.current();
+    });
+
+    expect(returnValue).toBe(42);
+    expect(callback).toHaveBeenCalledTimes(1);
+
+    // Reference identity must be stable across rerenders
+    rerender();
+    expect(result.current).toBe(first);
   });
 
   it('invokes the latest callback after rerender', () => {
@@ -32,5 +41,18 @@ describe('useEventCallback', () => {
     expect(returnValue).toBe('updated');
     expect(updatedCallback).toHaveBeenCalledWith('next');
     expect(initialCallback).not.toHaveBeenCalled();
+  });
+
+  it('forwards arguments to the underlying callback', () => {
+    const callback = vi.fn((a: number, b: string) => `${a}-${b}`);
+    const { result } = renderHook(() => useEventCallback(callback));
+
+    let ret: string | undefined;
+    act(() => {
+      ret = result.current(1, 'x');
+    });
+
+    expect(ret).toBe('1-x');
+    expect(callback).toHaveBeenCalledWith(1, 'x');
   });
 });
