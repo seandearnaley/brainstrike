@@ -3,6 +3,7 @@
  * Extracted from @brainstrike/db ChunkingService, removing all database dependencies.
  */
 
+import type { ParserPlugin } from '@babel/parser';
 import {
   type ChunkingStrategy,
   RecursiveTextSplitter,
@@ -77,17 +78,6 @@ type AstNode = {
   start?: number;
   end?: number;
 } & Record<string, unknown>;
-
-type ParserPlugin =
-  | 'classProperties'
-  | 'classPrivateProperties'
-  | 'classPrivateMethods'
-  | 'decorators-legacy'
-  | 'dynamicImport'
-  | 'importAttributes'
-  | 'topLevelAwait'
-  | 'jsx'
-  | 'typescript';
 
 type BabelParserModule = typeof import('@babel/parser');
 type TokenUtilsLiteModule = typeof import('./token-utils-lite');

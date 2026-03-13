@@ -1,6 +1,7 @@
 import { type ParserPlugin, parse } from '@babel/parser';
 import {
   type ChunkingStrategy,
+  isChunkingStrategy,
   RecursiveTextSplitter,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
@@ -165,18 +166,7 @@ export class ChunkingService {
     }
 
     const { strategy } = options;
-    if (
-      strategy !== 'auto' &&
-      strategy !== 'character' &&
-      strategy !== 'sentence' &&
-      strategy !== 'token' &&
-      strategy !== 'recursive' &&
-      strategy !== 'markdown' &&
-      strategy !== 'semantic-markdown' &&
-      strategy !== 'html' &&
-      strategy !== 'json' &&
-      strategy !== 'latex'
-    ) {
+    if (!isChunkingStrategy(strategy)) {
       logger.error(`Unsupported chunking strategy: ${String(strategy)}`);
       throw new Error(`Unsupported chunking strategy: ${String(strategy)}`);
     }

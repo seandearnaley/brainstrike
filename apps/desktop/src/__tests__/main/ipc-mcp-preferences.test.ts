@@ -261,6 +261,7 @@ describe('ipc-mcp tool preference loading', () => {
       config: {
         servers: [
           {
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
             name: 'filesystem',
             transport: 'stdio',
             command: 'npx',

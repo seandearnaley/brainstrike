@@ -494,7 +494,7 @@ describe('DatabaseDemoPanel', () => {
       });
 
       expect(screen.getByTestId('chunking-preset-status-balanced')).toHaveTextContent('Adaptive');
-      expect(screen.getByTestId('chunking-preset-status-balanced')).toHaveTextContent('Default');
+      expect(screen.getByTestId('chunking-preset-status-balanced')).toHaveTextContent('auto');
       expect(screen.getByTestId('chunking-preset-status-codebase')).toHaveTextContent('Adaptive');
     }, 10_000);
   });

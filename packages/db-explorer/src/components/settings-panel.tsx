@@ -166,7 +166,6 @@ function ChunkingPresetList({ currentPreset, onChoosePreset, presets }: Chunking
                     <Badge variant={preset.adaptiveRouting ? 'secondary' : 'outline'}>
                       {preset.adaptiveRouting ? 'Adaptive' : 'Fixed'}
                     </Badge>
-                    {preset.isDefault ? <Badge variant="secondary">Default</Badge> : null}
                     <Badge variant="outline">{preset.strategy}</Badge>
                   </div>
                   <p className="line-clamp-2 text-muted-foreground text-sm leading-5">
@@ -286,6 +285,8 @@ export function SettingsPanel({
     (option) => option.value === importSettings.chunkingStrategy
   );
   if (!selectedStrategy) {
+    // Persisted chunking settings are a strict invariant. Fail fast here rather
+    // than silently coercing an unexpected strategy value during render.
     throw new Error(`Unknown chunking strategy: ${String(importSettings.chunkingStrategy)}`);
   }
   const currentPreset = importSettings.chunkingPreset;

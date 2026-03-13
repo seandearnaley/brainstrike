@@ -59,6 +59,7 @@ declare global {
       onRequest: (callback: (request: ChunkingHostRequest) => void) => () => void;
     };
     desktopLifecycle?: {
+      isTestMode: boolean;
       noteReloadIntent: (reason: string) => Promise<void>;
     };
     electronAPI: {

@@ -13,7 +13,7 @@
  */
 
 import type { MutableRefObject } from 'react';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 import type { TokenCountingState } from './use-token-counting';
 
@@ -104,13 +104,17 @@ export function usePersistentTokenCache({
   const failedRequestsRef = useRef<Map<string, string>>(new Map());
   const countingRuntimeStateKey = `${tokenCounting.mode}:${tokenCounting.reason ?? 'ready'}`;
 
-  if (failedRequestsRef.current.size > 0) {
+  useEffect(() => {
+    if (failedRequestsRef.current.size === 0) {
+      return;
+    }
+
     for (const [compositeKey, failedStateKey] of failedRequestsRef.current.entries()) {
       if (failedStateKey !== countingRuntimeStateKey) {
         failedRequestsRef.current.delete(compositeKey);
       }
     }
-  }
+  }, [countingRuntimeStateKey]);
 
   /**
    * Get token count using persistent cache if available, otherwise in-memory.

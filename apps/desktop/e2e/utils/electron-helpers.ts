@@ -317,6 +317,8 @@ function createLaunchOptions(
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      ELECTRON_IS_E2E_TEST: 'true',
       // Prevent V8 inspector issues that cause "Waiting for debugger to disconnect" hangs
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       NODE_OPTIONS: '', // Clear any inherited NODE_OPTIONS that might enable --inspect

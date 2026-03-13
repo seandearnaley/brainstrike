@@ -365,6 +365,7 @@ describe('preload power bridge', () => {
     mockInvoke.mockResolvedValue(undefined);
     const desktopLifecycleApi = getDesktopLifecycleApi();
     expect(desktopLifecycleApi).toBeDefined();
+    expect(desktopLifecycleApi?.isTestMode).toBe(true);
 
     await desktopLifecycleApi?.noteReloadIntent('factory-reset');
 

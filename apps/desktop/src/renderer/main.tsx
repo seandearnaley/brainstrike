@@ -274,7 +274,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!window.navigator.webdriver) {
+    if (!window.desktopLifecycle?.isTestMode) {
       return;
     }
 

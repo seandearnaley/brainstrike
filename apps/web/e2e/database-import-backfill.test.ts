@@ -303,7 +303,7 @@ test.describe('Database import and backfill (web)', () => {
 
     await ensureDatabasePanelVisible(page);
     await openImportSettings(page);
-    await page.getByRole('button', { name: /Balanced.*Adaptive.*Default/ }).click();
+    await page.getByTestId('chunking-preset-balanced').click();
     await expect(page.getByText('Preset linked')).toBeVisible({ timeout: 15_000 });
     await expect
       .poll(async () => await readImportSettingsState(page), {

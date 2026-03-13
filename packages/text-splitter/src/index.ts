@@ -294,6 +294,8 @@ function separatorMatches(text: string, separator: string, isSeparatorRegex: boo
   if (!isSeparatorRegex) {
     return text.includes(separator);
   }
+  // Regex separators are an advanced trusted-input path driven by explicit app
+  // configuration, not arbitrary untrusted user input.
   return new RegExp(separator, 'm').test(text);
 }
 

@@ -9,6 +9,13 @@ export type TokenCountingMode = 'accurate' | 'heuristic';
 export type TokenCountingReason = 'preference-disabled' | 'runtime-unavailable' | null;
 
 export interface TokenCountingState {
+  /**
+   * Counts tokens using the currently selected mode.
+   *
+   * When accurate counting is preferred, this rejects if the tiktoken runtime
+   * is unavailable. Callers are expected to guard with `loading` / `reason` or
+   * catch the rejection explicitly rather than silently falling back.
+   */
   countTokens: (content: string) => Promise<number>;
   loading: boolean;
   mode: TokenCountingMode;
@@ -59,4 +66,8 @@ export function useTokenCounting(): TokenCountingState {
   );
 }
 
-export function __resetTokenCountingRuntimeCacheForTests() {}
+export function __resetTokenCountingRuntimeCacheForTests() {
+  // No-op: token counting state now lives in the token cache context rather
+  // than module-level runtime caches, but the test helper remains as a stable
+  // import for existing tests.
+}
