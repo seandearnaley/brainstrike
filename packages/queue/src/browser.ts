@@ -1,8 +1,8 @@
-import type { WorkerpoolAdapterOptions } from './adapters/browser-workerpool';
+import type { WorkerpoolAdapterOptions } from './browser-workerpool-options';
 import type { QueueAdapter } from './types';
 import { supportsWorkers } from './util';
 
-export type { WorkerpoolAdapterOptions } from './adapters/browser-workerpool';
+export type { WorkerpoolAdapterOptions } from './browser-workerpool-options';
 
 export interface CreateBrowserEmbeddingQueueOptions {
   /**

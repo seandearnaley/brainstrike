@@ -33,9 +33,11 @@ const {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
+  getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
+const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
 function resolveVendorChunk(id: string): string | undefined {
   if (!id.includes('node_modules')) {
@@ -243,6 +245,7 @@ export default defineConfig({
         '../../packages/vector-management/src'
       ),
       '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
+      ...workerpoolBrowserStubAliases,
       // Force pino to browser build to avoid dynamic require of node libs
       pino: pinoBrowserPath,
       'pino/browser.js': pinoBrowserPath,

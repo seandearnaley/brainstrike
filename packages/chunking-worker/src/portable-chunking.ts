@@ -140,8 +140,9 @@ function shouldSkipChunking(
   }
 
   // Check for very repetitive content (common in generated files)
-  const uniqueLines = new Set(content.split('\n')).size;
-  const totalLines = content.split('\n').length;
+  const allLines = content.split('\n');
+  const uniqueLines = new Set(allLines).size;
+  const totalLines = allLines.length;
   if (totalLines > 1000 && uniqueLines / totalLines < 0.1) {
     return {
       skip: true,

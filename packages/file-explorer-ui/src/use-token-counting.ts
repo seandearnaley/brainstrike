@@ -25,10 +25,11 @@ export interface TokenCountingState {
 export function useTokenCounting(): TokenCountingState {
   const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   const tokenCache = useOptionalTokenCacheContext();
+  const tokenCacheIsOperational = tokenCache?.isOperational === true;
+  const tokenCacheCountingMode = tokenCache?.countingMode;
+  const countTextTokens = tokenCache?.countTextTokens;
   const hasAccurateRuntime =
-    accuratePreference &&
-    tokenCache?.isOperational === true &&
-    tokenCache.countingMode === 'accurate';
+    accuratePreference && tokenCacheIsOperational && tokenCacheCountingMode === 'accurate';
 
   const mode: TokenCountingMode = accuratePreference ? 'accurate' : 'heuristic';
   const reason: TokenCountingReason = accuratePreference
@@ -36,7 +37,7 @@ export function useTokenCounting(): TokenCountingState {
       ? null
       : 'runtime-unavailable'
     : 'preference-disabled';
-  const loading = accuratePreference && tokenCache !== null && tokenCache.isOperational === false;
+  const loading = accuratePreference && tokenCache !== null && tokenCacheIsOperational === false;
 
   const countTokens = useCallback(
     async (content: string) => {
@@ -44,15 +45,15 @@ export function useTokenCounting(): TokenCountingState {
         return Math.ceil(content.length / 4);
       }
 
-      if (tokenCache?.isOperational && tokenCache.countingMode === 'accurate') {
-        return tokenCache.countTextTokens(content);
+      if (tokenCacheIsOperational && tokenCacheCountingMode === 'accurate' && countTextTokens) {
+        return countTextTokens(content);
       }
 
       throw new Error(
         'Accurate token counting is unavailable: tiktoken worker is not operational and heuristic mode was not explicitly selected.'
       );
     },
-    [accuratePreference, tokenCache]
+    [accuratePreference, countTextTokens, tokenCacheCountingMode, tokenCacheIsOperational]
   );
 
   return useMemo(

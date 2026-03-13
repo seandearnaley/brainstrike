@@ -9,6 +9,7 @@ import {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
+  getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } from '@brainstrike/build-utils';
 import tailwindcss from '@tailwindcss/vite';
@@ -22,6 +23,7 @@ import { getDevCSP } from './src/csp-utils';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const pinoBrowserPath = require.resolve('pino/browser.js');
+const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
 const wasmPath = findPGliteWasm(__dirname);
 
@@ -264,6 +266,10 @@ export default defineConfig({
         find: '@brainstrike/vector-management',
         replacement: path.resolve(__dirname, '../../packages/vector-management/src'),
       },
+      ...Object.entries(workerpoolBrowserStubAliases).map(([find, replacement]) => ({
+        find,
+        replacement,
+      })),
       {
         // Force pino to browser build to avoid dynamic require of node libs in renderer
         find: 'pino',

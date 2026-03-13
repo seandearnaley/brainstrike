@@ -126,6 +126,15 @@ export function getLazySurfaceOptimizeDepsEntries(appRoot: string): readonly str
   ];
 }
 
+export function getWorkerpoolBrowserStubAliases(baseDir: string): Readonly<Record<string, string>> {
+  const stubDir = path.resolve(baseDir, '../../packages/build-utils/src/browser-node-stubs');
+  return Object.fromEntries([
+    ['child_process', path.resolve(stubDir, 'child-process.ts')],
+    ['os', path.resolve(stubDir, 'os.ts')],
+    ['worker_threads', path.resolve(stubDir, 'worker-threads.ts')],
+  ]);
+}
+
 export function findPGliteWasm(baseDir: string): string | null {
   const possiblePaths = [
     path.resolve(baseDir, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),

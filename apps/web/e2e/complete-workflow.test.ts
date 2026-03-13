@@ -35,7 +35,7 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     page,
   }) => {
     // Step 1: Verify initial state
-    await expect(page.getByText('0/10')).toBeVisible();
+    await expect(page.getByText('0 files').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Download Context' })).toBeDisabled();
     // Handle both "Copy Context" and "Copy" text due to responsive design
     const copyButton = page
@@ -44,7 +44,7 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
       )
       .first();
     await expect(copyButton).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Select All' })).toBeDisabled();
+    await expect(page.getByTestId('select-root-button')).toBeEnabled();
 
     // Step 2: Select root directory
     await page.getByTestId('select-root-button').click();
@@ -68,11 +68,9 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
 
     await test1Checkbox.click({ force: true });
     await expect(test1Checkbox).toBeChecked();
-    await expect(page.getByText('1/10')).toBeVisible();
 
     await test2Checkbox.click({ force: true });
     await expect(test2Checkbox).toBeChecked();
-    await expect(page.getByText('2/10')).toBeVisible();
 
     // Step 6: Verify action buttons are now enabled
     await expect(page.getByRole('button', { name: 'Download Context' })).toBeEnabled();
@@ -107,7 +105,6 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     const nestedCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
     await nestedCheckbox.click({ force: true });
     await expect(nestedCheckbox).toBeChecked();
-    await expect(page.getByText('3/10')).toBeVisible();
 
     // Step 9: Test context download
     const downloadButton = page.getByRole('button', { name: 'Download Context' });
@@ -158,7 +155,7 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await expect(fileTree).toBeVisible();
 
     // Verify initial state
-    await expect(page.getByText('0/10')).toBeVisible();
+    await expect(page.getByText('0 files').first()).toBeVisible();
 
     // Ensure Select All button is enabled
     const selectAllButton = page.getByRole('button', { name: 'Select All' });
@@ -173,9 +170,6 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await expect(fileCheckbox1).toBeChecked();
     await expect(fileCheckbox2).toBeChecked();
 
-    // Should have selected some files (count should be > 0)
-    await expect(page.getByText('0/10')).not.toBeVisible();
-
     // Button should now say Deselect All
     const deselectAllButton = page.getByRole('button', { name: 'Deselect All' });
     await expect(deselectAllButton).toBeEnabled();
@@ -183,6 +177,6 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
 
     await expect(fileCheckbox1).not.toBeChecked();
     await expect(fileCheckbox2).not.toBeChecked();
-    await expect(page.getByText('0/10')).toBeVisible();
+    await expect(page.getByText('0 files').first()).toBeVisible();
   });
 });

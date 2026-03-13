@@ -12,6 +12,7 @@ const {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
+  getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } = await import('../vite');
 
@@ -174,5 +175,18 @@ describe('fullReloadOnCompilerHotspots', () => {
       expect(send).not.toHaveBeenCalled();
       expect(result).toBeUndefined();
     }
+  });
+});
+
+describe('getWorkerpoolBrowserStubAliases', () => {
+  it('returns explicit browser-safe aliases for workerpool node builtins', () => {
+    const aliases = getWorkerpoolBrowserStubAliases('/tmp/brainstrike-app');
+    expect(aliases['child_process']).toBe(
+      '/packages/build-utils/src/browser-node-stubs/child-process.ts'
+    );
+    expect(aliases['os']).toBe('/packages/build-utils/src/browser-node-stubs/os.ts');
+    expect(aliases['worker_threads']).toBe(
+      '/packages/build-utils/src/browser-node-stubs/worker-threads.ts'
+    );
   });
 });

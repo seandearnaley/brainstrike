@@ -1,6 +1,7 @@
 import { createLogger } from '@brainstrike/utils';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
 import workerpool from 'workerpool';
+import type { WorkerpoolAdapterOptions } from '../browser-workerpool-options';
 import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry';
 import {
   type QueueAdapter,
@@ -15,23 +16,6 @@ import {
 import { estimateHardwareConcurrency, ProgressEmitter } from '../util';
 
 const logger = createLogger('BrowserWorkerpoolAdapter');
-
-export interface WorkerpoolAdapterOptions {
-  readonly maxQueueSize?: number;
-  readonly maxWorkers?: number;
-  /**
-   * Minimum workers to keep alive (default: 1).
-   *
-   * Prevents repeated WASM/WebGPU model load-unload cycles that cause 300 MB
-   * memory spikes. Also ensures workerpool auto-spawns a replacement if a
-   * worker crashes (e.g. WebGPU device loss → self.close() in the worker).
-   * See: docs/debug-handoff-renderer-crash.md
-   */
-  readonly minWorkers?: number;
-  readonly name?: string;
-  /** Canonical worker URL supplied by the host app or caller. */
-  readonly workerUrl?: string;
-}
 
 type WorkerEvent = QueueProgressEvent | QueueErrorEvent;
 
