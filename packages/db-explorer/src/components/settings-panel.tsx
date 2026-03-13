@@ -458,7 +458,9 @@ export function SettingsPanel({
               className="h-9 text-sm"
               max="16384"
               min="512"
-              onChange={(e) => importSettings.setChunkTokenLimit(Number(e.target.value) || 0)}
+              onChange={(e) =>
+                importSettings.setChunkTokenLimit(Math.max(512, Number(e.target.value) || 512))
+              }
               step="128"
               type="number"
               value={importSettings.chunkTokenLimit}

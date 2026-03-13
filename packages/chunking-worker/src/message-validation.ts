@@ -32,6 +32,14 @@ function isOptionalStringArray(value: unknown): boolean {
   return value.every((separator) => typeof separator === 'string');
 }
 
+function isContentString(value: unknown): boolean {
+  return typeof value === 'string' && value.length <= CHUNKING_CONFIG.maxChunkableSize;
+}
+
+function isChunkRequestRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 /**
  * Worker message validation must stay aligned with the canonical chunking strategy
  * contract. If the supported strategy set changes, update the shared source of
@@ -56,7 +64,7 @@ export function isChunkingRequestOptions(value: unknown): value is ChunkingReque
 }
 
 export function isChunkRequest(value: unknown): value is ChunkRequest {
-  if (typeof value !== 'object' || value === null) {
+  if (!isChunkRequestRecord(value)) {
     return false;
   }
   const msg = value as Record<string, unknown>;
@@ -64,7 +72,7 @@ export function isChunkRequest(value: unknown): value is ChunkRequest {
     msg['type'] === 'chunk' &&
     typeof msg['id'] === 'string' &&
     typeof msg['fileRecordId'] === 'string' &&
-    typeof msg['content'] === 'string' &&
+    isContentString(msg['content']) &&
     typeof msg['fileName'] === 'string' &&
     typeof msg['filePath'] === 'string' &&
     isChunkingRequestOptions(msg['options'])
@@ -76,18 +84,22 @@ export function isChunkBatchRequest(value: unknown): value is ChunkBatchRequest 
     return false;
   }
   const msg = value as Record<string, unknown>;
-  if (msg['type'] !== 'chunk-batch' || !Array.isArray(msg['requests'])) {
+  if (
+    msg['type'] !== 'chunk-batch' ||
+    !Array.isArray(msg['requests']) ||
+    msg['requests'].length > CHUNKING_CONFIG.maxChunkableSize
+  ) {
     return false;
   }
   for (const req of msg['requests']) {
-    if (typeof req !== 'object' || req === null) {
+    if (!isChunkRequestRecord(req)) {
       return false;
     }
     const request = req as Record<string, unknown>;
     if (
       typeof request['id'] !== 'string' ||
       typeof request['fileRecordId'] !== 'string' ||
-      typeof request['content'] !== 'string' ||
+      !isContentString(request['content']) ||
       typeof request['fileName'] !== 'string' ||
       typeof request['filePath'] !== 'string' ||
       !isChunkingRequestOptions(request['options'])

@@ -62,7 +62,11 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
           return adapter;
         })
         .catch((error: unknown) => {
+          for (const listener of listeners.keys()) {
+            listeners.set(listener, null);
+          }
           adapterPromise = null;
+          loadedAdapter = null;
           throw error;
         });
     }

@@ -406,10 +406,10 @@ function splitByLengthWithOverlap(text: string, chunkSize: number, chunkOverlap:
 
   const chunks: string[] = [];
   for (let cursor = 0; cursor < text.length; cursor += step) {
-    // Trim edge padding intentionally so overlap windows carry content rather than
-    // separator-only whitespace noise across neighboring chunks.
-    const chunk = text.slice(cursor, Math.min(text.length, cursor + chunkSize)).trim();
-    if (chunk.length > 0) {
+    const chunk = text.slice(cursor, Math.min(text.length, cursor + chunkSize));
+    // Preserve the raw overlap window so the requested overlap remains byte-stable.
+    // We only drop slices that are entirely whitespace noise.
+    if (chunk.trim().length > 0) {
       chunks.push(chunk);
     }
     if (cursor + chunkSize >= text.length) {

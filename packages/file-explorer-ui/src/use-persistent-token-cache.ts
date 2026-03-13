@@ -12,10 +12,13 @@
  * - Cache-first lookup (no content loading required for cached files)
  */
 
+import { createLogger } from '@brainstrike/utils/logger';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useRef } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 import type { TokenCountingState } from './use-token-counting';
+
+const logger = createLogger('PersistentTokenCache');
 
 /**
  * Props for the persistent token cache hook
@@ -167,7 +170,12 @@ export function usePersistentTokenCache({
             failedRequestsRef.current.delete(compositeKey);
             tokenCacheRef.current.set(compositeKey, count);
           })
-          .catch(() => {
+          .catch((error: unknown) => {
+            logger.warn('Strict token counting failed', {
+              compositeKey,
+              countingMode: tokenCounting.mode,
+              error,
+            });
             failedRequestsRef.current.set(compositeKey, countingRuntimeStateKey);
           })
           .finally(() => {

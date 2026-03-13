@@ -1,3 +1,4 @@
+import { addLogListener, type LogRecord } from '@brainstrike/utils/logger';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,17 +36,25 @@ describe('usePersistentTokenCache', () => {
   let tokenCounting: TokenCountingState;
   let fileContents: Record<string, string>;
   let onTokenResolved: () => void;
+  let logEntries: LogRecord[];
+  let removeLogListener: (() => void) | null;
 
   beforeEach(() => {
     tokenCounting = createTokenCounting();
     fileContents = {};
     onTokenResolved = vi.fn();
     mockContext = null;
+    logEntries = [];
+    removeLogListener = addLogListener((entry) => {
+      logEntries.push(entry);
+    });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     mockContext = null;
+    removeLogListener?.();
+    removeLogListener = null;
   });
 
   const renderCacheHook = () =>
@@ -178,6 +187,13 @@ describe('usePersistentTokenCache', () => {
       expect(result.current.getTokenCount('folder::err.txt')).toBeUndefined();
       expect(tokenCounting.countTokens).toHaveBeenCalledTimes(1);
       expect(onTokenResolved).toHaveBeenCalled();
+      expect(
+        logEntries.some(
+          (entry) =>
+            entry.scope === 'PersistentTokenCache' &&
+            entry.message === 'Strict token counting failed'
+        )
+      ).toBe(true);
     });
 
     it('skips counting for inaccessible content', () => {

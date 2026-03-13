@@ -55,6 +55,19 @@ describe('@brainstrike/text-splitter', () => {
     expect(chunks[0]?.slice(-2)).toBe(chunks[1]?.slice(0, 2));
   });
 
+  it('preserves whitespace inside overlap windows', () => {
+    const chunks = splitTextByStrategy('word1    word2    word3', {
+      strategy: 'character',
+      chunkSize: 12,
+      chunkOverlap: 4,
+    });
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks[0]).toContain('    ');
+    expect(chunks[1]).toContain('    ');
+    expect(chunks[1]?.endsWith('wo')).toBe(true);
+  });
+
   it('falls back to fixed-width splits when no separator matches', () => {
     const chunks = splitTextRecursively('abcdefghij', {
       chunkSize: 3,

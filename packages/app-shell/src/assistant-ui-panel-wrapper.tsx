@@ -826,9 +826,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       return;
     }
 
-    const unsubscribe = window.tools.onRootTreeSelectionUpdate((payload) => {
-      handleSelectionUpdate(payload);
-    });
+    const unsubscribe = window.tools.onRootTreeSelectionUpdate(
+      (payload: AssistantSelectionUpdatePayload) => {
+        handleSelectionUpdate(payload);
+      }
+    );
 
     return () => {
       unsubscribe?.();
@@ -840,9 +842,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       return;
     }
 
-    const unsubscribe = window.tools.onPreviewContextSelectionUpdate((payload) => {
-      handleSelectionUpdate(payload);
-    });
+    const unsubscribe = window.tools.onPreviewContextSelectionUpdate(
+      (payload: AssistantSelectionUpdatePayload) => {
+        handleSelectionUpdate(payload);
+      }
+    );
 
     return () => {
       unsubscribe?.();

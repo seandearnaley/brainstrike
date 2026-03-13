@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CHUNKING_CONFIG } from '../chunking-config';
 import {
   isChunkBatchRequest,
   isChunkingRequestOptions,
@@ -90,5 +91,37 @@ describe('chunking worker message validation', () => {
         ],
       })
     ).toBe(true);
+  });
+
+  it('rejects chunk requests whose content exceeds the hard worker limit', () => {
+    expect(
+      isChunkRequest({
+        type: 'chunk',
+        id: 'chunk-1',
+        fileRecordId: 'file-1',
+        content: 'x'.repeat(CHUNKING_CONFIG.maxChunkableSize + 1),
+        fileName: 'README.md',
+        filePath: '/tmp/README.md',
+        options: {
+          strategy: 'recursive',
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('rejects oversized chunk batches before they reach the worker runtime', () => {
+    expect(
+      isChunkBatchRequest({
+        type: 'chunk-batch',
+        requests: Array.from({ length: CHUNKING_CONFIG.maxChunkableSize + 1 }, (_, index) => ({
+          id: `chunk-${index}`,
+          fileRecordId: `file-${index}`,
+          content: 'hello',
+          fileName: `file-${index}.txt`,
+          filePath: `/tmp/file-${index}.txt`,
+          options: { strategy: 'sentence' },
+        })),
+      })
+    ).toBe(false);
   });
 });

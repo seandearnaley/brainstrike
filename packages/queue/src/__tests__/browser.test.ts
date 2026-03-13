@@ -155,4 +155,45 @@ describe('createBrowserEmbeddingQueue', () => {
 
     expect(adapter.drain).toHaveBeenCalledTimes(1);
   });
+
+  it('clears stale listener unsubscribe handles when adapter bootstrap fails', async () => {
+    const unsubscribe = vi.fn();
+    const adapter = createQueueAdapterStub();
+    adapter.onProgress = vi.fn(() => unsubscribe);
+    createWorkerpoolAdapterMock
+      .mockImplementationOnce(() => {
+        throw new Error('workerpool bootstrap failed');
+      })
+      .mockReturnValueOnce(adapter);
+
+    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const queue = createBrowserEmbeddingQueue({
+      worker: { workerUrl: '/embedding.worker.js' },
+    });
+    const listener = vi.fn();
+    queue.onProgress(listener);
+
+    await expect(
+      queue.add({
+        id: 'task-1',
+        kind: 'embed',
+        texts: ['hello'],
+        model: 'local:test',
+        deviceHint: 'webgpu',
+      })
+    ).rejects.toThrow('workerpool bootstrap failed');
+
+    const off = queue.onProgress(listener);
+    await queue.add({
+      id: 'task-2',
+      kind: 'embed',
+      texts: ['world'],
+      model: 'local:test',
+      deviceHint: 'webgpu',
+    });
+
+    expect(adapter.onProgress).toHaveBeenCalled();
+    off();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
 });
