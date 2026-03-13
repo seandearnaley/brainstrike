@@ -95,9 +95,7 @@ function partitionCachedIds(ids: string[]): {
  * Parse and validate a raw dimension value from a database row.
  * Returns the validated dimension or throws on invalid/out-of-range values.
  */
-function parseAndValidateRowDimension(rowId: string, dimensionsRaw: number | undefined): number {
   const dimensions = typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw);
-  if (!Number.isFinite(dimensions) || dimensions <= 0) {
     throw new Error(
       `Embedding set ${rowId} is missing or has invalid dimensions (${dimensionsRaw}).`
     );
