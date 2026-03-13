@@ -317,6 +317,9 @@ async function computeCharsPerToken(content: string, useAccurate: boolean): Prom
     return Math.max(1, Math.min(8, measured));
   }
   if (useAccurate) {
+    // The worker path is intentionally fail-fast here. Unlike the service path,
+    // this runtime should surface invalid accurate token counts as a hard chunk
+    // failure rather than quietly degrading inside the hidden host/browser worker.
     throw new Error('Accurate token counting produced an invalid token count');
   }
   return Number(CHUNKING_CONFIG.averageCharsPerToken);

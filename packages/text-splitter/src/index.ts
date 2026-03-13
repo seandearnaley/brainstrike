@@ -46,6 +46,12 @@ export interface ChunkingRoutePreview {
 export interface RecursiveTextSplitterOptions {
   chunkOverlap: number;
   chunkSize: number;
+  /**
+   * Treats each separator as a trusted regular expression source.
+   *
+   * This is intended only for configuration-controlled inputs. Do not pass
+   * user-provided regex strings through this path.
+   */
   isSeparatorRegex?: boolean;
   separators?: string[];
 }

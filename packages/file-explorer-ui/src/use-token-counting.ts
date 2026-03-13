@@ -15,6 +15,9 @@ export interface TokenCountingState {
    * When accurate counting is preferred, this rejects if the tiktoken runtime
    * is unavailable. Callers are expected to guard with `loading` / `reason` or
    * catch the rejection explicitly rather than silently falling back.
+   *
+   * @throws {Error} When accurate mode is preferred but the tiktoken runtime is
+   * unavailable.
    */
   countTokens: (content: string) => Promise<number>;
   loading: boolean;

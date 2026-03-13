@@ -37,12 +37,7 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     // Step 1: Verify initial state
     await expect(page.getByText('0 files').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Download Context' })).toBeDisabled();
-    // Handle both "Copy Context" and "Copy" text due to responsive design
-    const copyButton = page
-      .locator(
-        'button:has-text("Copy Context"), button:has-text("Copy"):not(:has-text("Copy Context"))'
-      )
-      .first();
+    const copyButton = page.getByTestId('copy-context-button');
     await expect(copyButton).toBeDisabled();
     await expect(page.getByTestId('select-root-button')).toBeEnabled();
 
@@ -117,7 +112,7 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
 
     // Step 10: Test copy to clipboard functionality
     await expect(copyButton).toBeEnabled();
-    await copyButton.click();
+    await copyButton.click({ force: true });
 
     // Wait for success toast (copy operation should show a success message)
     // Use first() to avoid strict mode violation when multiple elements have the same text
