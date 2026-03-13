@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { startsWithPrefix } from '../string-prefix';
+import { startsWithDoubleCharPrefix, startsWithPrefix } from '../string-prefix';
 
 describe('startsWithPrefix', () => {
   describe('basic matching', () => {
@@ -90,6 +90,24 @@ describe('startsWithPrefix', () => {
     });
   });
 
+  describe('undefined/null edge cases', () => {
+    it('throws TypeError when path is undefined', () => {
+      expect(() => startsWithPrefix(undefined as unknown as string, '/foo', '/')).toThrow();
+    });
+
+    it('throws TypeError when prefix is undefined', () => {
+      expect(() => startsWithPrefix('/foo/bar', undefined as unknown as string, '/')).toThrow();
+    });
+
+    it('throws TypeError when path is null', () => {
+      expect(() => startsWithPrefix(null as unknown as string, '/foo', '/')).toThrow();
+    });
+
+    it('throws TypeError when prefix is null', () => {
+      expect(() => startsWithPrefix('/foo/bar', null as unknown as string, '/')).toThrow();
+    });
+  });
+
   describe('dev-mode assertion', () => {
     it('throws when separator has more than 1 character in non-production env', () => {
       // NODE_ENV defaults to 'test' in vitest, which is not 'production'
@@ -101,6 +119,89 @@ describe('startsWithPrefix', () => {
     it('throws for empty separator in non-production env', () => {
       expect(() => startsWithPrefix('/foo/bar', '/foo', '')).toThrow(
         'startsWithPrefix: separator must be a single character, got ""'
+      );
+    });
+  });
+});
+
+describe('startsWithDoubleCharPrefix', () => {
+  describe('basic matching with :: separator', () => {
+    it('returns true when value starts with prefix followed by ::', () => {
+      expect(startsWithDoubleCharPrefix('folder1::file.ts', 'folder1', '::')).toBe(true);
+    });
+
+    it('returns false when value does not start with prefix', () => {
+      expect(startsWithDoubleCharPrefix('other::file.ts', 'folder1', '::')).toBe(false);
+    });
+
+    it('returns true for nested value after separator', () => {
+      expect(startsWithDoubleCharPrefix('folder1::src/index.ts', 'folder1', '::')).toBe(true);
+    });
+  });
+
+  describe('exact prefix without separator', () => {
+    it('returns false when value exactly equals prefix', () => {
+      expect(startsWithDoubleCharPrefix('folder1', 'folder1', '::')).toBe(false);
+    });
+
+    it('returns false when value is prefix followed by only one separator char', () => {
+      expect(startsWithDoubleCharPrefix('folder1:', 'folder1', '::')).toBe(false);
+    });
+
+    it('returns false when value is prefix followed by separator but nothing else', () => {
+      expect(startsWithDoubleCharPrefix('folder1::', 'folder1', '::')).toBe(false);
+    });
+  });
+
+  describe('prefix is substring but wrong separator', () => {
+    it('returns false when prefix is followed by single colon then other chars', () => {
+      expect(startsWithDoubleCharPrefix('folder1:file.ts', 'folder1', '::')).toBe(false);
+    });
+
+    it('does not match when prefix is a prefix of another folder ID', () => {
+      expect(startsWithDoubleCharPrefix('folder10::file.ts', 'folder1', '::')).toBe(false);
+    });
+  });
+
+  describe('empty strings', () => {
+    it('returns false when both value and prefix are empty', () => {
+      expect(startsWithDoubleCharPrefix('', '', '::')).toBe(false);
+    });
+
+    it('returns true when prefix is empty and value starts with separator and has content', () => {
+      expect(startsWithDoubleCharPrefix('::foo', '', '::')).toBe(true);
+    });
+
+    it('returns false when value is empty and prefix is not', () => {
+      expect(startsWithDoubleCharPrefix('', 'folder1', '::')).toBe(false);
+    });
+  });
+
+  describe('length guard ensures content after separator', () => {
+    it('requires at least one char after the two-char separator', () => {
+      // "abc::" has length 5, prefix "abc" has length 3, 5 > 3 + 2 is false
+      expect(startsWithDoubleCharPrefix('abc::', 'abc', '::')).toBe(false);
+      // "abc::x" has length 6, 6 > 5 is true
+      expect(startsWithDoubleCharPrefix('abc::x', 'abc', '::')).toBe(true);
+    });
+  });
+
+  describe('dev-mode assertion', () => {
+    it('throws when separator is not exactly 2 characters', () => {
+      expect(() => startsWithDoubleCharPrefix('a:b', 'a', ':')).toThrow(
+        'startsWithDoubleCharPrefix: separator must be exactly 2 characters, got ":"'
+      );
+    });
+
+    it('throws for empty separator', () => {
+      expect(() => startsWithDoubleCharPrefix('a::b', 'a', '')).toThrow(
+        'startsWithDoubleCharPrefix: separator must be exactly 2 characters, got ""'
+      );
+    });
+
+    it('throws for three-char separator', () => {
+      expect(() => startsWithDoubleCharPrefix('a:::b', 'a', ':::')).toThrow(
+        'startsWithDoubleCharPrefix: separator must be exactly 2 characters, got ":::"'
       );
     });
   });

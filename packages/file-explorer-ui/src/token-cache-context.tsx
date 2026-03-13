@@ -31,7 +31,7 @@ import {
   type UseTokenCacheReturn,
   useTokenCache,
 } from '@brainstrike/token-cache';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, startsWithDoubleCharPrefix } from '@brainstrike/utils';
 import {
   createContext,
   type ReactNode,
@@ -173,15 +173,7 @@ class InMemoryTokenCacheStore {
   async clearFolder(folderId: string): Promise<number> {
     let removed = 0;
     for (const key of this.entries.keys()) {
-      // Uses inline charCodeAt instead of startsWithPrefix because the
-      // separator here is a two-character `::` sequence, which doesn't
-      // fit the single-separator API of startsWithPrefix.
-      if (
-        key.length > folderId.length + 1 &&
-        key.charCodeAt(folderId.length) === 58 && // ':'
-        key.charCodeAt(folderId.length + 1) === 58 && // ':'
-        key.startsWith(folderId)
-      ) {
+      if (startsWithDoubleCharPrefix(key, folderId, '::')) {
         this.entries.delete(key);
         removed += 1;
       }

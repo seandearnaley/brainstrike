@@ -16,7 +16,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@brainstrike/utils': path.resolve(import.meta.dirname, '../utils/src'),
-      // Transitive: @brainstrike/utils source imports from @brainstrike/types
+      // Transitive: @brainstrike/utils source imports from @brainstrike/types.
+      // This alias is needed because resolving @brainstrike/utils from source
+      // (above) bypasses the normal package resolution, so its transitive
+      // dependency on @brainstrike/types must also be aliased explicitly.
       '@brainstrike/types': path.resolve(import.meta.dirname, '../types/src'),
     },
   },

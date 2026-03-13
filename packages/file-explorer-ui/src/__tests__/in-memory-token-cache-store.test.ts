@@ -2,31 +2,27 @@
  * Tests for the InMemoryTokenCacheStore clearFolder logic.
  *
  * InMemoryTokenCacheStore is a private class inside token-cache-context.tsx.
- * These tests exercise the exact charCodeAt-based `::` separator matching
- * pattern used in `clearFolder` to verify correctness of the inline
- * optimization that replaced `startsWith(\`${folderId}::\`)`.
+ * These tests exercise the `::` separator matching pattern used in
+ * `clearFolder` (now delegated to `startsWithDoubleCharPrefix`) to verify
+ * correctness of the optimization that replaced `startsWith(\`${folderId}::\`)`.
  *
- * The implementation under test uses:
- *   key.length > folderId.length + 1 &&
- *   key.charCodeAt(folderId.length) === 58 &&     // ':'
- *   key.charCodeAt(folderId.length + 1) === 58 && // ':'
- *   key.startsWith(folderId)
+ * NOTE: Because InMemoryTokenCacheStore is not exported, this test file
+ * replicates the clearFolder logic in a standalone function rather than
+ * testing the actual class directly. If the class is ever extracted or
+ * exported, these tests should be updated to use the real implementation.
  */
+
+import { startsWithDoubleCharPrefix } from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
 
 /**
  * Portable replica of InMemoryTokenCacheStore.clearFolder logic.
- * This uses the exact same charCodeAt pattern from token-cache-context.tsx.
+ * Uses the same `startsWithDoubleCharPrefix` helper as token-cache-context.tsx.
  */
 function clearFolder(entries: Map<string, unknown>, folderId: string): number {
   let removed = 0;
   for (const key of entries.keys()) {
-    if (
-      key.length > folderId.length + 1 &&
-      key.charCodeAt(folderId.length) === 58 && // ':'
-      key.charCodeAt(folderId.length + 1) === 58 && // ':'
-      key.startsWith(folderId)
-    ) {
+    if (startsWithDoubleCharPrefix(key, folderId, '::')) {
       entries.delete(key);
       removed += 1;
     }
@@ -114,7 +110,7 @@ describe('InMemoryTokenCacheStore clearFolder (:: separator optimization)', () =
     entries.set(createKey('', 'orphan.ts'), { tokenCount: 5 });
 
     const removed = clearFolder(entries, '');
-    // Key '::orphan.ts' has length > 0+1=1, charCodeAt(0)=58, charCodeAt(1)=58, startsWith('')=true
+    // Key '::orphan.ts' starts with '' followed by '::', so startsWithDoubleCharPrefix matches
     expect(removed).toBe(1);
     // 'folder1::file.ts' should survive
     expect(entries.has(createKey('folder1', 'file.ts'))).toBe(true);
