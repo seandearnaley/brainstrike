@@ -128,6 +128,7 @@ const RESOLVED_CHUNKING_STRATEGIES = new Set<ResolvedChunkingStrategy>([
 ]);
 
 const DEFAULT_SEPARATORS = ['\n\n', '\n', ' ', ''];
+const SEPARATOR_REGEX_CACHE = new Map<string, RegExp>();
 
 export function isResolvedChunkingStrategy(value: unknown): value is ResolvedChunkingStrategy {
   return (
@@ -300,9 +301,14 @@ function separatorMatches(text: string, separator: string, isSeparatorRegex: boo
   if (!isSeparatorRegex) {
     return text.includes(separator);
   }
-  // Regex separators are an advanced trusted-input path driven by explicit app
-  // configuration, not arbitrary untrusted user input.
-  return new RegExp(separator, 'm').test(text);
+  let compiled = SEPARATOR_REGEX_CACHE.get(separator);
+  if (!compiled) {
+    // Regex separators are an advanced trusted-input path driven by explicit
+    // app configuration, not arbitrary untrusted user input.
+    compiled = new RegExp(separator, 'm');
+    SEPARATOR_REGEX_CACHE.set(separator, compiled);
+  }
+  return compiled.test(text);
 }
 
 function splitByLiteralSeparator(text: string, separator: string): string[] {

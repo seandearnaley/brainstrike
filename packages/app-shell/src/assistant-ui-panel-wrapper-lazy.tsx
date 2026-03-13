@@ -1,17 +1,17 @@
 import { type ComponentType, memo, useEffect, useState } from 'react';
+import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
 
 type AssistantUiPanelWrapperModule = typeof import('./assistant-ui-panel-wrapper');
 type AssistantUiPanelWrapperComponent = ComponentType;
 
-let assistantUiPanelWrapperModulePromise: Promise<AssistantUiPanelWrapperModule> | null = null;
 let assistantUiPanelWrapperComponent: AssistantUiPanelWrapperComponent | null = null;
+const assistantUiPanelWrapperModuleLoader =
+  createRetryableLazyModuleLoader<AssistantUiPanelWrapperModule>(
+    () => import('./assistant-ui-panel-wrapper')
+  );
 
 function loadAssistantUiPanelWrapperModule(): Promise<AssistantUiPanelWrapperModule> {
-  if (assistantUiPanelWrapperModulePromise) {
-    return assistantUiPanelWrapperModulePromise;
-  }
-  assistantUiPanelWrapperModulePromise = import('./assistant-ui-panel-wrapper');
-  return assistantUiPanelWrapperModulePromise;
+  return assistantUiPanelWrapperModuleLoader.load();
 }
 
 function getLoadedAssistantUiPanelWrapper(): AssistantUiPanelWrapperComponent | null {
