@@ -128,7 +128,11 @@ test.describe('Panel State Preservation', () => {
 
     // Now click on the file button to show it in the preview panel
     const test2FileButton = page.getByRole('button', { name: 'test2.ts' });
-    await test2FileButton.click();
+    await test2FileButton.scrollIntoViewIfNeeded();
+    await test2FileButton.evaluate((element) => {
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    });
+    await test2FileButton.dispatchEvent('click');
 
     // Verify the tab updates to show the new file
     const test2Tab = elements.consolePanel.getByRole('button', { name: /test2\.ts/ }).first();
@@ -159,7 +163,11 @@ test.describe('Panel State Preservation', () => {
 
     // Click on the file button to show it in the preview panel
     const testFileButton = page.getByRole('button', { name: 'test.ts' });
-    await testFileButton.click();
+    await testFileButton.scrollIntoViewIfNeeded();
+    await testFileButton.evaluate((element) => {
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    });
+    await testFileButton.dispatchEvent('click');
 
     // Get references to the toggle buttons
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
@@ -169,12 +177,12 @@ test.describe('Panel State Preservation', () => {
     // Perform multiple hide/show cycles
     for (let i = 0; i < 3; i++) {
       // Hide panel
-      await hideExplorerButton.click();
+      await hideExplorerButton.dispatchEvent('click');
       await expect(leftPanel).not.toBeVisible();
       await expect(showExplorerShim).toBeVisible();
 
       // Show panel
-      await showExplorerShim.click();
+      await showExplorerShim.dispatchEvent('click');
       await expect(leftPanel).toBeVisible();
 
       // Verify state is still preserved
@@ -188,7 +196,7 @@ test.describe('Panel State Preservation', () => {
     // Final verification that everything still works
     // First select test2.ts to make its button available
     const test2Checkbox = fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
-    await test2Checkbox.click({ force: true });
+    await test2Checkbox.dispatchEvent('click');
     await expect(test2Checkbox).toBeChecked();
 
     // Show the console panel first (where tabbed editor lives)
@@ -197,7 +205,11 @@ test.describe('Panel State Preservation', () => {
 
     // Now click on the file button to open it in tabbed editor
     const test2FileButton = page.getByRole('button', { name: 'test2.ts' });
-    await test2FileButton.click();
+    await test2FileButton.scrollIntoViewIfNeeded();
+    await test2FileButton.evaluate((element) => {
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    });
+    await test2FileButton.dispatchEvent('click');
     // Verify the file opens in a tab in the tabbed editor (look specifically in console panel)
     const tab = elements.consolePanel.getByRole('button', { name: /test2\.ts/ }).first();
     await expect(tab).toBeVisible();

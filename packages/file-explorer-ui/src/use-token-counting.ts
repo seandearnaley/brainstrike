@@ -6,7 +6,7 @@ import { useCallback, useMemo } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 export type TokenCountingMode = 'accurate' | 'heuristic';
-export type TokenCountingReason = 'preference-disabled' | 'runtime-fallback' | null;
+export type TokenCountingReason = 'preference-disabled' | 'runtime-unavailable' | null;
 
 export interface TokenCountingState {
   countTokens: (content: string) => Promise<number>;
@@ -23,11 +23,11 @@ export function useTokenCounting(): TokenCountingState {
     tokenCache?.isOperational === true &&
     tokenCache.countingMode === 'accurate';
 
-  const mode: TokenCountingMode = hasAccurateRuntime ? 'accurate' : 'heuristic';
+  const mode: TokenCountingMode = accuratePreference ? 'accurate' : 'heuristic';
   const reason: TokenCountingReason = accuratePreference
     ? hasAccurateRuntime
       ? null
-      : 'runtime-fallback'
+      : 'runtime-unavailable'
     : 'preference-disabled';
   const loading = accuratePreference && tokenCache !== null && tokenCache.isOperational === false;
 
@@ -41,7 +41,9 @@ export function useTokenCounting(): TokenCountingState {
         return tokenCache.countTextTokens(content);
       }
 
-      return Math.ceil(content.length / 4);
+      throw new Error(
+        'Accurate token counting is unavailable: tiktoken worker is not operational and heuristic mode was not explicitly selected.'
+      );
     },
     [accuratePreference, tokenCache]
   );

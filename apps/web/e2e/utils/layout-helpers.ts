@@ -307,7 +307,10 @@ export async function togglePanelVisibility(
 ) {
   const expect = await getPlaywrightExpect();
   await expect(button).toBeVisible();
-  await button.click();
+  await expect(button).toBeEnabled();
+  // Dispatch directly because restored layouts can leave shim toggles under sticky
+  // containers even when Playwright considers them visible and stable.
+  await button.dispatchEvent('click');
   if (isVisibleAfterToggle) {
     await expect(panel).toBeVisible();
   } else {

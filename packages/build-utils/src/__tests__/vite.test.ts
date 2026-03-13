@@ -50,6 +50,8 @@ describe('assistant vite helpers', () => {
         'react-helmet-async',
         'react-hotkeys-hook',
         'react-router-dom',
+        'tiktoken',
+        'tiktoken/lite/init',
         'xxhash-wasm',
         'zod',
         'zustand/shallow',

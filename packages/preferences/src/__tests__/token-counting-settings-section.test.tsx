@@ -21,15 +21,15 @@ describe('TokenCountingSettingsSection', () => {
 
     render(<TokenCountingSettingsSection accurateRuntimeAvailable={true} />);
 
-    expect(screen.queryByText('Heuristic mode (preference)')).not.toBeNull();
-    expect(screen.queryByText(/Accurate counting is disabled globally/i)).not.toBeNull();
+    expect(screen.queryByText('Heuristic mode (explicit)')).not.toBeNull();
+    expect(screen.queryByText(/only because you explicitly selected it/i)).not.toBeNull();
   });
 
-  it('renders fallback status when runtime does not support WASM tokenizer', async () => {
+  it('renders unavailable status when runtime does not support WASM tokenizer', async () => {
     render(<TokenCountingSettingsSection accurateRuntimeAvailable={false} />);
 
-    expect(await screen.findByText('Heuristic fallback active')).not.toBeNull();
-    expect(screen.queryByText(/Runtime cannot load the WASM tokenizer/i)).not.toBeNull();
+    expect(await screen.findByText('Accurate tokenizer unavailable')).not.toBeNull();
+    expect(screen.queryByText(/Requests that need token sizing will fail/i)).not.toBeNull();
   });
 
   it('disables accurate counting via toggle', async () => {

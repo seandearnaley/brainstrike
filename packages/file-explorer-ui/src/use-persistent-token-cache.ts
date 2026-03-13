@@ -2,7 +2,7 @@
  * usePersistentTokenCache
  *
  * Bridge hook that integrates the persistent token cache with the context explorer panel.
- * Uses the TokenCacheContext when available, otherwise falls back to in-memory caching.
+ * Uses the TokenCacheContext when available, otherwise keeps a strict in-memory request/cache layer.
  *
  * Key Benefits:
  * - Token counts persist across sessions (stored in PGlite)
@@ -77,7 +77,7 @@ function isContentAccessible(content: string): boolean {
 }
 
 /**
- * Hook that provides persistent token caching with fallback to in-memory.
+ * Hook that provides persistent token caching with a strict in-memory request/cache layer.
  *
  * Usage:
  * ```tsx
@@ -98,9 +98,19 @@ export function usePersistentTokenCache({
   // Try to get the persistent cache context (may be null if not wrapped in provider)
   const persistentCache = useOptionalTokenCacheContext();
 
-  // Fallback in-memory cache (used when persistent cache is not available)
+  // In-memory request/cache layer used when the persistent cache context is unavailable.
   const tokenCacheRef = useRef<Map<string, number>>(new Map());
   const pendingRequestsRef = useRef<Map<string, Promise<void>>>(new Map());
+  const failedRequestsRef = useRef<Map<string, string>>(new Map());
+  const countingRuntimeStateKey = `${tokenCounting.mode}:${tokenCounting.reason ?? 'ready'}`;
+
+  if (failedRequestsRef.current.size > 0) {
+    for (const [compositeKey, failedStateKey] of failedRequestsRef.current.entries()) {
+      if (failedStateKey !== countingRuntimeStateKey) {
+        failedRequestsRef.current.delete(compositeKey);
+      }
+    }
+  }
 
   /**
    * Get token count using persistent cache if available, otherwise in-memory.
@@ -129,7 +139,7 @@ export function usePersistentTokenCache({
         return;
       }
 
-      // --- Fallback In-Memory Cache Path ---
+      // --- Strict In-Memory Cache Path ---
       const cached = tokenCacheRef.current.get(compositeKey);
       if (typeof cached === 'number') {
         return cached;
@@ -141,17 +151,20 @@ export function usePersistentTokenCache({
         return;
       }
 
+      if (failedRequestsRef.current.get(compositeKey) === countingRuntimeStateKey) {
+        return;
+      }
+
       // Not in cache and not pending - start counting
       if (!pendingRequestsRef.current.has(compositeKey)) {
         const pending = tokenCounting
           .countTokens(content)
           .then((count) => {
+            failedRequestsRef.current.delete(compositeKey);
             tokenCacheRef.current.set(compositeKey, count);
           })
           .catch(() => {
-            // Fall back to heuristic on error
-            const heuristic = Math.ceil(content.length / 4);
-            tokenCacheRef.current.set(compositeKey, heuristic);
+            failedRequestsRef.current.set(compositeKey, countingRuntimeStateKey);
           })
           .finally(() => {
             pendingRequestsRef.current.delete(compositeKey);

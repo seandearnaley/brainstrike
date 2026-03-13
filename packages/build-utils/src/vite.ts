@@ -29,6 +29,8 @@ const CORE_APP_OPTIMIZE_DEPS_INCLUDE = [
   'react-helmet-async',
   'react-hotkeys-hook',
   'react-router-dom',
+  'tiktoken',
+  'tiktoken/lite/init',
   'xxhash-wasm',
   'zod',
   'zustand/shallow',

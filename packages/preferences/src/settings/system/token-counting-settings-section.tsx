@@ -14,7 +14,7 @@ import {
   useTokenPreferencesStore,
 } from '../../stores/token-preferences-store';
 
-type TokenRuntimeStatus = 'checking' | 'accurate' | 'fallback' | 'disabled';
+type TokenRuntimeStatus = 'checking' | 'accurate' | 'unavailable' | 'disabled';
 
 interface StatusMetadata {
   description: string;
@@ -40,17 +40,17 @@ const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
     icon: CheckCircle2,
     variant: 'secondary',
   },
-  fallback: {
-    label: 'Heuristic fallback active',
+  unavailable: {
+    label: 'Accurate tokenizer unavailable',
     description:
-      'Runtime cannot load the WASM tokenizer, so we estimate using the 4 chars/token heuristic.',
+      'BrainStrike is configured to require tiktoken. Requests that need token sizing will fail until the WASM tokenizer loads or you explicitly switch to heuristic mode.',
     icon: AlertTriangle,
     variant: 'destructive',
   },
   disabled: {
-    label: 'Heuristic mode (preference)',
+    label: 'Heuristic mode (explicit)',
     description:
-      'Accurate counting is disabled globally. Token counts use the 4 chars/token heuristic.',
+      'Accurate counting is disabled by preference. Token counts use the 4 chars/token heuristic only because you explicitly selected it.',
     icon: MinusCircle,
     variant: 'outline',
   },
@@ -67,7 +67,7 @@ export function TokenCountingSettingsSection({
       ? 'checking'
       : accurateRuntimeAvailable
         ? 'accurate'
-        : 'fallback'
+        : 'unavailable'
     : 'disabled';
 
   const status = STATUS_METADATA[runtimeStatus];
@@ -79,8 +79,8 @@ export function TokenCountingSettingsSection({
       <CardHeader>
         <CardTitle>Token Counting</CardTitle>
         <CardDescription>
-          Choose how BrainStrike measures tokens for previews and chunking. The WASM tokenizer
-          offers accurate counts but may be unavailable on older browsers.
+          Choose how BrainStrike measures tokens for previews and chunking. The default is tiktoken
+          in WebAssembly; heuristic counting is only used when you explicitly disable accurate mode.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">

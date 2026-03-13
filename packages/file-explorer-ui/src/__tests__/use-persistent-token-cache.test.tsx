@@ -164,7 +164,7 @@ describe('usePersistentTokenCache', () => {
       expect(result.current.getTokenCount('folder::file.txt')).toBe(3);
     });
 
-    it('falls back to heuristic when counting fails', async () => {
+    it('does not silently cache heuristic counts when counting fails', async () => {
       tokenCounting.countTokens = vi.fn(async () => {
         throw new Error('boom');
       });
@@ -175,7 +175,8 @@ describe('usePersistentTokenCache', () => {
       expect(result.current.getTokenCount('folder::err.txt')).toBeUndefined();
       await flushMicrotasks();
 
-      expect(result.current.getTokenCount('folder::err.txt')).toBe(2); // ceil(6/4) = 2
+      expect(result.current.getTokenCount('folder::err.txt')).toBeUndefined();
+      expect(tokenCounting.countTokens).toHaveBeenCalledTimes(1);
       expect(onTokenResolved).toHaveBeenCalled();
     });
 

@@ -178,7 +178,7 @@ export function usePreviewPanelState({
   // Clear hot cache when counting mode changes
   useEffect(() => {
     setTokenVersion((prev) => prev + 1);
-  }, [tokenCounting.mode]);
+  }, [tokenCounting.mode, tokenCounting.reason]);
 
   if (prevSelectedFilesRef.current !== selectedFiles) {
     prevSelectedFilesRef.current = selectedFiles;

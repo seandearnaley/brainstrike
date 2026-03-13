@@ -9,7 +9,7 @@ export default defineConfig({
     'src/background-indexer.worker.ts',
   ],
   format: ['esm'],
-  splitting: false,
+  splitting: true,
   sourcemap: false,
   dts: true,
   outDir: 'dist',

@@ -107,7 +107,7 @@ describe('useTokenCounting', () => {
     );
   });
 
-  it('reports runtime fallback when the token cache worker is unavailable', async () => {
+  it('reports runtime unavailability when the token cache worker is unavailable', async () => {
     tokenCacheMocks.useOptionalTokenCacheContext.mockReturnValue(
       createTokenCacheContextValue({
         isOperational: false,
@@ -118,16 +118,21 @@ describe('useTokenCounting', () => {
 
     const { result } = renderHook(() => useTokenCounting());
 
-    await waitFor(() => expect(result.current.mode).toBe('heuristic'));
-    expect(result.current.reason).toBe('runtime-fallback');
+    await waitFor(() => expect(result.current.mode).toBe('accurate'));
+    expect(result.current.reason).toBe('runtime-unavailable');
+    await expect(result.current.countTokens('abcd')).rejects.toThrow(
+      'Accurate token counting is unavailable'
+    );
   });
 
-  it('uses heuristic fallback when no token cache provider is present', async () => {
+  it('fails fast when no token cache provider is present and accurate mode is enabled', async () => {
     const { result } = renderHook(() => useTokenCounting());
 
     expect(result.current.loading).toBe(false);
-    expect(result.current.mode).toBe('heuristic');
-    expect(result.current.reason).toBe('runtime-fallback');
-    await expect(result.current.countTokens('abcd')).resolves.toBe(1);
+    expect(result.current.mode).toBe('accurate');
+    expect(result.current.reason).toBe('runtime-unavailable');
+    await expect(result.current.countTokens('abcd')).rejects.toThrow(
+      'Accurate token counting is unavailable'
+    );
   });
 });

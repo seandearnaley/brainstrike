@@ -42,7 +42,7 @@ export interface UseContextPackerOptions {
   maxChunks?: number;
   /**
    * Optional function to look up accurate token counts.
-   * Falls back to heuristic estimation if not provided.
+   * When omitted, packing uses the explicit estimateTokens strategy configured for this hook.
    */
   tokenCountLookup?: TokenCountLookup;
 }
