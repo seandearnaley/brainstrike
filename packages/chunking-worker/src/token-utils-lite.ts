@@ -4,6 +4,10 @@
  * This module must stay free of direct tiktoken imports so loading the worker for
  * non-token strategies cannot trigger late Vite dependency optimization and app
  * reloads in development. Accurate counting is isolated in token-utils-accurate-lite.
+ *
+ * It intentionally mirrors the token-cache worker helper instead of importing it
+ * so each worker bundle stays isolated and does not pull the other worker graph
+ * into its runtime chunk.
  */
 
 let accurateTokenUtilsPromise: Promise<typeof import('./token-utils-accurate-lite')> | null = null;
