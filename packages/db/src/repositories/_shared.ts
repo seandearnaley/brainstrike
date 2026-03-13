@@ -167,6 +167,32 @@ async function fetchMissingDimensions(
 }
 
 /**
+ * Resolve the target dimension for a single payload from the pre-fetched map.
+ * Throws if embeddingSetId is truthy but missing from the resolved map,
+ * preventing silent validation skips.
+ */
+function resolvePayloadTargetDimension(
+  embeddingSetId: string | null | undefined,
+  expectedDimension: number | undefined,
+  resolvedDimensions: Map<string, number>
+): number | undefined {
+  if (!embeddingSetId) {
+    return typeof expectedDimension === 'number' ? expectedDimension : undefined;
+  }
+
+  const dimension = resolvedDimensions.get(embeddingSetId);
+  if (dimension !== undefined) {
+    return dimension;
+  }
+
+  // embeddingSetId is truthy but was not resolved — this should not happen
+  // if fetchMissingDimensions ran correctly. Throw rather than silently skip.
+  throw new Error(
+    `Embedding set ${embeddingSetId} is missing or has invalid dimensions (undefined).`
+  );
+}
+
+/**
  * Validate multiple embedding payloads against their optional target dimensions.
  * Efficiently resolves embedding set dimensions using batch lookup.
  */
@@ -202,15 +228,11 @@ export async function validateEmbeddingDimensions(
     const embeddingDimension = embedding.length;
     assertEmbeddingDimensionBounds(embeddingDimension);
 
-    if (embeddingSetId && !resolvedDimensions.has(embeddingSetId)) {
-      throw new Error(`Embedding set "${embeddingSetId}" not found`);
-    }
-
-    const targetDimension: number | undefined = embeddingSetId
-      ? resolvedDimensions.get(embeddingSetId)
-      : typeof expectedDimension === 'number'
-        ? expectedDimension
-        : undefined;
+    const targetDimension = resolvePayloadTargetDimension(
+      embeddingSetId,
+      expectedDimension,
+      resolvedDimensions
+    );
 
     if (targetDimension === undefined) {
       continue;
