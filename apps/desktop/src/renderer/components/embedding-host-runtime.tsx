@@ -21,7 +21,9 @@ let embeddingQueueBootstrapPromise: Promise<void> | null = null;
 async function ensureEmbeddingQueueBootstrapLoaded(): Promise<void> {
   if (!embeddingQueueBootstrapPromise) {
     embeddingQueueBootstrapPromise = import('../create-embedding-queue')
-      .then(() => undefined)
+      .then((module) => {
+        module.getEmbeddingQueue();
+      })
       .catch((error: unknown) => {
         embeddingQueueBootstrapPromise = null;
         throw error;

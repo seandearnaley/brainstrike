@@ -4,6 +4,7 @@ import React from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 let RootLayoutContent: React.ComponentType;
+let activeToolsTab: 'assistant' | 'database' = 'assistant';
 
 const createQueueStub = (): QueueAdapter => {
   const result = {
@@ -36,7 +37,6 @@ const createQueueStub = (): QueueAdapter => {
 const queueStub = createQueueStub();
 
 vi.mock('../../../renderer/create-embedding-queue', () => ({
-  embeddingQueue: queueStub,
   getEmbeddingQueue: () => queueStub,
   createBrowserEmbeddingQueue: vi.fn(() => queueStub),
 }));
@@ -116,6 +116,11 @@ vi.mock('@brainstrike/app-shell', () => ({
   ),
   ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
   ConnectedPromptManagerLazy: () => <div data-testid="connected-prompt-manager" />,
+  toolsPanelSelectors: {
+    activeTab: (state: { activeTab: 'assistant' | 'database' }) => state.activeTab,
+  },
+  useToolsPanelStore: (selector: (state: { activeTab: 'assistant' | 'database' }) => unknown) =>
+    selector({ activeTab: activeToolsTab }),
 }));
 
 // Mock the page components to avoid adapter dependencies
@@ -173,6 +178,7 @@ describe('RootLayoutContent', () => {
   beforeEach(() => {
     currentDb = null;
     homeMountCount = 0;
+    activeToolsTab = 'assistant';
     vi.clearAllMocks();
   });
 
@@ -206,6 +212,20 @@ describe('RootLayoutContent', () => {
 
     await waitFor(() =>
       expect(screen.getByTestId('home-page-content')).toHaveAttribute('data-mount-index', '1')
+    );
+  });
+
+  it('does not mount the embedding queue tracker before the database tab is opened', () => {
+    render(<RootLayoutContent />);
+    expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
+  });
+
+  it('mounts the embedding queue tracker after the database tab becomes active', async () => {
+    activeToolsTab = 'database';
+    render(<RootLayoutContent />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('embedding-job-queue-tracker')).toBeInTheDocument()
     );
   });
 });

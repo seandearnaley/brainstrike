@@ -3,6 +3,7 @@ import React from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let RootLayoutContent: React.ComponentType;
+let activeToolsTab: 'assistant' | 'database' = 'assistant';
 const mockEmbeddingQueue = {
   add: vi.fn(),
   addBulk: vi.fn(),
@@ -66,7 +67,22 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 // Mock vector-management to prevent any queue-related side effects
 vi.mock('@brainstrike/vector-management', () => ({
-  EmbeddingJobQueueTracker: () => null,
+  EmbeddingJobQueueTracker: () => <div data-testid="embedding-job-queue-tracker" />,
+}));
+
+vi.mock('@brainstrike/preferences', () => ({
+  useVectorPreferencesStore: (
+    selector: (state: {
+      devicePref: string;
+      devicePrefConfigured: boolean;
+      setDetectedDevicePref: (value: string) => void;
+    }) => unknown
+  ) =>
+    selector({
+      devicePref: 'wasm',
+      devicePrefConfigured: true,
+      setDetectedDevicePref: vi.fn(),
+    }),
 }));
 
 vi.mock('@brainstrike/queue/browser', async () => {
@@ -81,7 +97,6 @@ vi.mock('@brainstrike/queue/browser', async () => {
 
 // Mock create-embedding-queue to prevent module-level worker pool creation
 vi.mock('../../create-embedding-queue', () => ({
-  embeddingQueue: mockEmbeddingQueue,
   getEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
   createBrowserEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
 }));
@@ -137,6 +152,11 @@ vi.mock('@brainstrike/app-shell', () => ({
   // Mock ConnectedPromptManager
   ConnectedPromptManager: () => null,
   ConnectedPromptManagerLazy: () => null,
+  toolsPanelSelectors: {
+    activeTab: (state: { activeTab: 'assistant' | 'database' }) => state.activeTab,
+  },
+  useToolsPanelStore: (selector: (state: { activeTab: 'assistant' | 'database' }) => unknown) =>
+    selector({ activeTab: activeToolsTab }),
   // Mock AppLayout
   AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
     capturedOnNavigationClick = onNavigationClick;
@@ -236,6 +256,7 @@ describe('RootLayoutContent', () => {
     vi.clearAllMocks();
     homeMountCount = 0;
     currentDb = null;
+    activeToolsTab = 'assistant';
   });
 
   it('renders without crashing', () => {
@@ -303,6 +324,20 @@ describe('RootLayoutContent', () => {
 
     await waitFor(() =>
       expect(screen.getByTestId('home-page-content')).toHaveAttribute('data-mount-index', '1')
+    );
+  });
+
+  it('does not mount the embedding queue tracker before the database tab is opened', () => {
+    render(<RootLayoutContent />);
+    expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
+  });
+
+  it('mounts the embedding queue tracker after the database tab becomes active', async () => {
+    activeToolsTab = 'database';
+    render(<RootLayoutContent />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('embedding-job-queue-tracker')).toBeInTheDocument()
     );
   });
 });

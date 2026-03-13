@@ -14,5 +14,6 @@ export * from './navigation';
 export * from './page-wrapper';
 export * from './root-layout-content';
 export * from './status-items';
+export * from './stores/tools-panel-store';
 export * from './tools-panel';
 export * from './types';

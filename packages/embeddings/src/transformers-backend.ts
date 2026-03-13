@@ -87,7 +87,9 @@ async function getTransformersModule(): Promise<TransformersModule> {
     return transformersModule;
   }
   if (!transformersModulePromise) {
-    transformersModulePromise = import('@huggingface/transformers') as Promise<TransformersModule>;
+    transformersModulePromise = import(
+      /* @vite-ignore */ '@huggingface/transformers'
+    ) as Promise<TransformersModule>;
   }
   transformersModule = await transformersModulePromise;
   return transformersModule;

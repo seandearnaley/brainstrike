@@ -24,6 +24,9 @@ describe('web create-embedding-queue', () => {
   it('creates a singleton embedding queue', async () => {
     const module = await import('../create-embedding-queue');
 
+    expect(createBrowserEmbeddingQueue).not.toHaveBeenCalled();
+    expect(module.getEmbeddingQueue()).toEqual({ id: 'web-queue' });
+    expect(module.getEmbeddingQueue()).toBe(module.getEmbeddingQueue());
     expect(createBrowserEmbeddingQueue).toHaveBeenCalledWith({
       requireWorkerpool: true,
       worker: {
@@ -35,7 +38,5 @@ describe('web create-embedding-queue', () => {
     });
     expect(registerEmbeddingQueueFactory).toHaveBeenCalledTimes(1);
     expect(registerEmbeddingQueueFactory).toHaveBeenCalledWith(expect.any(Function));
-    expect(module.embeddingQueue).toBe(module.getEmbeddingQueue());
-    expect(module.getEmbeddingQueue()).toEqual({ id: 'web-queue' });
   });
 });

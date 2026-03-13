@@ -1,7 +1,10 @@
 import type { FileChunk } from '@brainstrike/db';
-import type { EmbeddingDeviceHint } from '@brainstrike/embedding-worker';
 import type { EmbeddingProviderType } from '@brainstrike/embeddings/provider-core';
-import type { ProviderDimensionParameter, QueueAdapter } from '@brainstrike/queue';
+import type {
+  EmbeddingDeviceHint,
+  ProviderDimensionParameter,
+  QueueAdapter,
+} from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import type { EmbeddingJobQueuePort } from './enhanced-import';
@@ -428,7 +431,7 @@ async function produceEmbedding(
     throw new Error('Embedding worker returned no vector');
   }
 
-  return Array.from(vector);
+  return toNumericEmbedding(vector);
 }
 
 interface PersistArgs {
@@ -525,6 +528,14 @@ async function computeEmbeddingHash(contentHash: string, model: string): Promise
 
   logger.warn('Falling back to unhashed embedding content signature', { hasher: HASHER });
   return payload;
+}
+
+function toNumericEmbedding(vector: Float32Array): number[] {
+  const embedding = Array.from(vector);
+  if (!embedding.every((value) => Number.isFinite(value))) {
+    throw new Error('Embedding worker returned a non-finite vector');
+  }
+  return embedding;
 }
 
 function defaultDispatchProgressEvent(detail: QueueProgressEventDetail) {

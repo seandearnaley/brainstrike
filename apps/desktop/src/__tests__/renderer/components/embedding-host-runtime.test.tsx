@@ -8,6 +8,7 @@ const {
   currentDbRef,
   dbHandle,
   embeddingQueueBootstrapMock,
+  getEmbeddingQueueMock,
   ensureVectorPreferencesHydratedMock,
   reportStatusMock,
   startEmbeddingWorkerMock,
@@ -22,6 +23,7 @@ const {
   },
   dbHandle: { query: vi.fn() },
   embeddingQueueBootstrapMock: vi.fn(),
+  getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
   ensureVectorPreferencesHydratedMock: vi.fn(),
   reportStatusMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
@@ -50,7 +52,9 @@ vi.mock('@brainstrike/embeddings/worker', () => ({
 vi.mock('../../../renderer/create-embedding-queue', () => ({
   ...(() => {
     embeddingQueueBootstrapMock();
-    return { embeddingQueue: { id: 'embedding-queue' } };
+    return {
+      getEmbeddingQueue: getEmbeddingQueueMock,
+    };
   })(),
 }));
 
@@ -128,6 +132,7 @@ describe('EmbeddingHostRuntime', () => {
       );
     });
     expect(embeddingQueueBootstrapMock).toHaveBeenCalledTimes(1);
+    expect(getEmbeddingQueueMock).toHaveBeenCalledTimes(1);
   });
 
   it('resets the worker when it receives a strict reset command envelope', async () => {

@@ -13,8 +13,9 @@ export {
   type QueueTelemetrySnapshot,
 } from './telemetry';
 export type {
-  // Queue Health Diagnostics (BST-166)
   DurableQueueStats,
+  // Queue Health Diagnostics (BST-166)
+  EmbeddingDeviceHint,
   EphemeralQueueMetrics,
   ProviderDimensionParameter,
   QueueAdapter,

@@ -717,8 +717,9 @@ async function initializeAgentStream(
   // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
   // - AssistantDataStreamSession (via cancel() on Response stream)
   const filteredMcpConfig = filterDesktopMastraMcpConfig(mcpConfig);
+  const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtimeData ?? {};
   const runtime: RuntimeData = {
-    ...runtimeData,
+    ...runtimeWithoutMcpConfig,
     mcpEnabled: true,
     mastraTools: buildDesktopAssistantTools(runtimeData),
     signal, // ← AbortSignal passed here, used by stream iterator

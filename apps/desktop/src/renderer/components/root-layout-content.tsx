@@ -3,13 +3,19 @@ import {
   ConnectedPromptManagerLazy,
   navigationItems,
   RootLayoutContent as SharedRootLayoutContent,
+  toolsPanelSelectors,
+  useToolsPanelStore,
 } from '@brainstrike/app-shell';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
-import { EmbeddingJobQueueTracker } from '@brainstrike/vector-management';
-import { type ReactElement, type ReactNode, Suspense, useCallback } from 'react';
+import { lazy, type ReactElement, type ReactNode, Suspense, useCallback, useRef } from 'react';
 import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
+
+const LazyEmbeddingJobQueueTracker = lazy(async () => {
+  const module = await import('@brainstrike/vector-management');
+  return { default: module.EmbeddingJobQueueTracker };
+});
 
 function LazyTabFallback({ testId, text }: { testId: string; text: string }) {
   return (
@@ -58,11 +64,17 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
+  const activeToolsTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
+  const queueTrackerMountedRef = useRef(activeToolsTab === 'database');
+  if (activeToolsTab === 'database') {
+    queueTrackerMountedRef.current = true;
+  }
+
   const navigationConfig = navigationItems as NavigationItem[];
   const loadEmbeddingQueue = useCallback(
     () =>
       import('../create-embedding-queue').then((module) => {
-        return module.embeddingQueue;
+        return module.getEmbeddingQueue();
       }),
     []
   );
@@ -87,7 +99,11 @@ export default function RootLayoutContent() {
 
   return (
     <TokenCacheWrapper>
-      <EmbeddingJobQueueTracker />
+      {queueTrackerMountedRef.current ? (
+        <Suspense fallback={null}>
+          <LazyEmbeddingJobQueueTracker />
+        </Suspense>
+      ) : null}
       <RootLayout {...sharedProps} />
     </TokenCacheWrapper>
   );

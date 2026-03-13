@@ -598,16 +598,12 @@ describe('assistant-server', () => {
         }),
       });
 
-      expect(toAiSdkStyleStream).toHaveBeenCalledWith(
-        expect.any(Array),
-        expect.not.objectContaining({
-          mcpConfig: expect.objectContaining({
-            servers: expect.arrayContaining([
-              expect.objectContaining({ name: 'filesystem', transport: 'stdio' }),
-            ]),
-          }),
-        })
-      );
+      expect(toAiSdkStyleStream).toHaveBeenCalledTimes(1);
+      const [, runtime] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(runtime).not.toHaveProperty('mcpConfig');
     });
 
     it('should handle stream initialization failure', async () => {
