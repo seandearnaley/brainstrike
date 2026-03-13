@@ -11,7 +11,7 @@ import {
   CardTitle,
   useToast,
 } from '@brainstrike/ui';
-import type { LoggingPreferences } from '@brainstrike/utils';
+import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import type { LoggingSettingsPayload } from '../../../logging-shared';
 import { getRendererLogBuffer } from '../../log-buffer';

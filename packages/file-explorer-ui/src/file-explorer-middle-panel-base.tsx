@@ -1,7 +1,9 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
-import { createLogger, decodeFileSelection, generateProjectTreeText } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { generateProjectTreeText } from '@brainstrike/utils/tree-generator';
 import { useCallback, useMemo, useState } from 'react';
 import type { ContextExportOptions } from './context-export-options';
 import { useFileExplorerStoreContext } from './file-explorer-provider';

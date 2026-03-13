@@ -1,7 +1,9 @@
 import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import { Button, cn, LoadingFallback } from '@brainstrike/ui';
-import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { parseFilterString } from '@brainstrike/utils/quick-filter-utils';
+import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';

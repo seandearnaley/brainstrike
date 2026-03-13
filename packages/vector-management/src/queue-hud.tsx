@@ -12,7 +12,7 @@ import {
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { RotateCw } from 'lucide-react';
 import { type ReactElement, useCallback, useMemo, useState } from 'react';
 

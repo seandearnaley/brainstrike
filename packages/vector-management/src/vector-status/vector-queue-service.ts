@@ -3,7 +3,7 @@ import {
   canonicalizeProviderModelKey,
   checkApiKeyAvailability,
 } from '@brainstrike/embeddings/provider-core';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 /**
  * Snapshot of embedding coverage statistics for a specific embedding set.

@@ -1,4 +1,4 @@
-import { splitContentLines } from '@brainstrike/utils';
+import { splitContentLines } from '@brainstrike/utils/report-generator';
 import type { TableRowData } from '../utils/grouping-configs';
 import { splitFilePath } from '../utils/path-display';
 import type { FileTapestry, LineData } from './types';

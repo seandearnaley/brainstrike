@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@brainstrike/ui';
-import { fileExplorer } from '@brainstrike/utils';
+import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { useCallback } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';

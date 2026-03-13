@@ -23,6 +23,9 @@
       "@brainstrike/utils": [
         "../../packages/utils/src/index.ts"
       ],
+      "@brainstrike/utils/*": [
+        "../../packages/utils/src/*"
+      ],
       "@brainstrike/preferences/*": [
         "../../packages/preferences/src/*"
       ]

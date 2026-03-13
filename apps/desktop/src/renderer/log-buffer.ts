@@ -1,4 +1,6 @@
-import { addLogListener, LogBuffer, registerBulkOperationPauseCallback } from '@brainstrike/utils';
+import { registerBulkOperationPauseCallback } from '@brainstrike/utils';
+import { LogBuffer } from '@brainstrike/utils/log-buffer';
+import { addLogListener } from '@brainstrike/utils/logger';
 
 // Use smaller buffer with arg size limits for better memory performance
 const rendererLogBuffer = new LogBuffer({

@@ -1,5 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger, fileExplorer } from '@brainstrike/utils';
+import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('FileNodeCache');
 

@@ -16,7 +16,7 @@ import {
   type ModelPickerModel,
   type ModelPickerProvider,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
