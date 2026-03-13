@@ -313,6 +313,8 @@ export default defineConfig({
       '@brainstrike/db-explorer', // Uses file-import which has worker
       '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
       '@brainstrike/token-cache', // Worker must resolve via package exports (dist)
+      '@brainstrike/token-cache/cache-runtime',
+      '@brainstrike/token-cache/background-indexer',
       '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
     ],
     include: [

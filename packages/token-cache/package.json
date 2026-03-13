@@ -26,6 +26,14 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./cache-runtime": {
+      "types": "./dist/cache-runtime.d.ts",
+      "import": "./dist/cache-runtime.js"
+    },
+    "./background-indexer": {
+      "types": "./dist/background-indexer.d.ts",
+      "import": "./dist/background-indexer.js"
+    },
     "./worker": {
       "types": "./dist/token-cache.worker.d.ts",
       "import": "./dist/token-cache.worker.js"

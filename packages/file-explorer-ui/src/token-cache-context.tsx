@@ -22,17 +22,19 @@ import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
 } from '@brainstrike/preferences/stores/token-preferences-store';
+import type {
+  TokenCacheEntry,
+  TokenCountingMode,
+  TokenCountRequest,
+  TokenCountResult,
+  UseTokenCacheReturn,
+} from '@brainstrike/token-cache/cache-runtime';
 import {
   createTokenCacheWorkerPool,
   FileHasher,
-  type TokenCacheEntry,
   TokenCacheStore,
-  type TokenCountingMode,
-  type TokenCountRequest,
-  type TokenCountResult,
-  type UseTokenCacheReturn,
   useTokenCache,
-} from '@brainstrike/token-cache';
+} from '@brainstrike/token-cache/cache-runtime';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
   createContext,

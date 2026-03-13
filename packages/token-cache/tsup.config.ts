@@ -1,7 +1,13 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/token-cache.worker.ts', 'src/background-indexer.worker.ts'],
+  entry: [
+    'src/index.ts',
+    'src/cache-runtime.ts',
+    'src/background-indexer.ts',
+    'src/token-cache.worker.ts',
+    'src/background-indexer.worker.ts',
+  ],
   format: ['esm'],
   splitting: false,
   sourcemap: false,

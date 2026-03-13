@@ -13,7 +13,7 @@ vi.mock('@brainstrike/preferences/stores/token-preferences-store', () => ({
   tokenPreferencesSelectors: { accurateCounting: {} },
 }));
 
-vi.mock('@brainstrike/token-cache', () => ({
+vi.mock('@brainstrike/token-cache/cache-runtime', () => ({
   // createTokenCacheWorkerPool is now async, return a Promise
   createTokenCacheWorkerPool: vi.fn(() =>
     Promise.resolve({
@@ -220,7 +220,7 @@ describe('TokenCacheContext', () => {
     });
 
     it('keeps worker mode disabled when warmup fails', async () => {
-      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache');
+      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache/cache-runtime');
       const mockExec = vi.fn().mockRejectedValue(new Error('Worker error'));
       const mockedCreatePool = vi.mocked(createTokenCacheWorkerPool);
       const defaultImplementation = mockedCreatePool.getMockImplementation();
@@ -257,7 +257,7 @@ describe('TokenCacheContext', () => {
     });
 
     it('reuses the terminal worker init error instead of recreating the pool after a failure', async () => {
-      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache');
+      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache/cache-runtime');
       const mockExec = vi.fn().mockRejectedValue(new Error('Worker error'));
       vi.mocked(createTokenCacheWorkerPool).mockImplementation(
         () =>
@@ -289,7 +289,7 @@ describe('TokenCacheContext', () => {
     });
 
     it('defers worker pool creation when lazyWorkerInit is enabled until counting is requested', async () => {
-      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache');
+      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache/cache-runtime');
 
       const { result } = renderHook(() => useTokenCacheContext(), {
         wrapper: ({ children }) => (

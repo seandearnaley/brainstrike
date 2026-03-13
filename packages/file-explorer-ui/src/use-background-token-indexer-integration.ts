@@ -10,7 +10,8 @@
 
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
-import { type FileToIndex, useBackgroundTokenIndexer } from '@brainstrike/token-cache';
+import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
+import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
 import { isBinaryFile } from '@brainstrike/utils/file-utils';
 import { createLogger } from '@brainstrike/utils/logger';
