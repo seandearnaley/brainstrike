@@ -2,6 +2,14 @@
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "paths": {
+      "@brainstrike/utils/crypto": [
+        "../utils/dist/crypto.d.ts"
+      ],
+      "@brainstrike/utils/*": [
+        "../utils/dist/*.d.ts"
+      ]
+    },
     "rootDir": "src",
     "outDir": "dist",
     "composite": true,

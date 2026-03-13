@@ -104,6 +104,9 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
         // Ignore invalid composite keys
         continue;
       }
+      if (!(folderId && path)) {
+        continue;
+      }
       const folderCache = fileNodeCache.get(folderId);
       if (!folderCache) {
         continue;

@@ -46,7 +46,7 @@ import {
   type ModelPickerProvider,
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { type FC, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 export interface AssistantUiPanelWrapperProps {

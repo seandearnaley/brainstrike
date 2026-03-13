@@ -383,8 +383,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     }
 
     const { includes, excludes } = parseFilterString(deferredQuickFilter);
-    const includesLower = includes.map((value) => value.toLowerCase());
-    const excludesLower = excludes.map((value) => value.toLowerCase());
+    const includesLower = includes.map((value: string) => value.toLowerCase());
+    const excludesLower = excludes.map((value: string) => value.toLowerCase());
     return filterTreeByPatterns(stableFileTree, includesLower, excludesLower);
   }, [deferredQuickFilter, stableFileTree]);
 

@@ -10,7 +10,8 @@
 
 import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger, isAbortError } from '@brainstrike/utils';
+import { isAbortError } from '@brainstrike/utils/error-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { startTransition, useCallback, useRef, useState } from 'react';
 
 import type { FileSystemHandle } from '../utils/worker-node-conversion';

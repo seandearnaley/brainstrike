@@ -12,14 +12,13 @@ import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { type FileToIndex, useBackgroundTokenIndexer } from '@brainstrike/token-cache';
 import type { IFileNode } from '@brainstrike/types';
+import { isBinaryFile } from '@brainstrike/utils/file-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
-  createLogger,
-  decodeFileSelection,
-  encodeFileSelection,
-  isBinaryFile,
   normalizeFilePathForFolder,
   validateRelativeFilePath,
-} from '@brainstrike/utils';
+} from '@brainstrike/utils/relative-file-path';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
 import { useOptionalFileTreeIndexContext } from './file-tree-provider';

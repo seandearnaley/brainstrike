@@ -9,7 +9,7 @@
  */
 
 import type { ViewFilterPreset } from '@brainstrike/types';
-import { isDevEnv } from '@brainstrike/utils';
+import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';

@@ -815,6 +815,9 @@ export function useLazyFileTree(
       }));
 
       try {
+        if (!node) {
+          throw new Error(`Directory node not found for path: ${path}`);
+        }
         await performDirectoryLoad(path, node, abortController, fileSystemAdapter);
       } finally {
         removeChildController(path);

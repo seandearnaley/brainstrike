@@ -18,6 +18,12 @@
       "@brainstrike/preferences/*": [
         "../preferences/src/*"
       ],
+      "@brainstrike/utils/crypto": [
+        "../utils/dist/crypto.d.ts"
+      ],
+      "@brainstrike/utils/*": [
+        "../utils/dist/*.d.ts"
+      ],
       "@brainstrike/file-explorer-hooks": [
         "../file-explorer-hooks/src"
       ],

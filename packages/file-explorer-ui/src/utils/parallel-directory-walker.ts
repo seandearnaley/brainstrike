@@ -8,7 +8,8 @@
 
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { DepthProgress, IFileNode, StreamMeta } from '@brainstrike/types';
-import { fileFilter, isAbortError } from '@brainstrike/utils';
+import { isAbortError } from '@brainstrike/utils/error-utils';
+import { fileFilter } from '@brainstrike/utils/path-filter';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
 import { fileNodeCollator } from './file-node-collator';
 import { getFinalPath } from './get-final-path';

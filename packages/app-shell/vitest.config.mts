@@ -66,6 +66,14 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../preferences/src/$1'),
       },
       {
+        find: '@brainstrike/utils/crypto',
+        replacement: path.resolve(import.meta.dirname, '../utils/src/crypto.ts'),
+      },
+      {
+        find: /^@brainstrike\/utils\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
+      },
+      {
         find: '@brainstrike/preferences',
         replacement: path.resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
