@@ -1,4 +1,4 @@
-import { getProviderDefinition, type ProviderModelDefinition } from '@brainstrike/agent/client';
+import { getProviderDefinition } from '@brainstrike/agent/client';
 import type {
   ChunkingStrategy,
   FileChunk,
@@ -48,7 +48,10 @@ interface ModelCapabilities {
   type?: string;
 }
 
-type EmbeddingModelDefinition = Extract<ProviderModelDefinition, { type: 'embedding' }>;
+type EmbeddingModelDefinition = Extract<
+  ReturnType<typeof getProviderDefinition>['models'][number],
+  { type: 'embedding' }
+>;
 
 function isEmbeddingModelDefinition(model: unknown): model is EmbeddingModelDefinition {
   return Boolean(model) && (model as EmbeddingModelDefinition).type === 'embedding';
@@ -579,9 +582,7 @@ async function attachHostedModelMetadata(
   }
 
   const definition = getProviderDefinition(supported);
-  const modelDefinition = definition.models.find(
-    (candidate: ProviderModelDefinition) => candidate.id === modelId
-  );
+  const modelDefinition = definition.models.find((candidate) => candidate.id === modelId);
 
   if (modelDefinition && isEmbeddingModelDefinition(modelDefinition)) {
     resolved.targetDimension = pickHostedTargetDimension(modelDefinition);

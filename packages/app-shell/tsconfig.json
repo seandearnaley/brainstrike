@@ -12,6 +12,9 @@
       "node"
     ],
     "paths": {
+      "@brainstrike/db-explorer/database-demo-panel": [
+        "../db-explorer/src/database-demo-panel.tsx"
+      ],
       "@brainstrike/file-explorer-hooks": [
         "../file-explorer-hooks/src"
       ],

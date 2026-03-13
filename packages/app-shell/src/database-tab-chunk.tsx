@@ -1,4 +1,4 @@
-import { DatabaseDemoPanel } from '@brainstrike/db-explorer';
+import { DatabaseDemoPanel } from '@brainstrike/db-explorer/database-demo-panel';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type React from 'react';
