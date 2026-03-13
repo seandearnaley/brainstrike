@@ -1,6 +1,6 @@
 import type { IDatabase } from '@brainstrike/db';
 import type { EmbeddingWorkerOptions } from '@brainstrike/embeddings/worker';
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('EmbeddingWorkerConfig');

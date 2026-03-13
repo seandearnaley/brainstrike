@@ -1,12 +1,10 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import {
-  DbSchemaVerifier,
-  useAssistantPreferencesStore,
-  useLoggingPreferencesStore,
-  useSecretsStore,
-} from '@brainstrike/preferences';
+import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
+import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
+import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import type { LoggingPreferences } from '@brainstrike/utils';
 import {

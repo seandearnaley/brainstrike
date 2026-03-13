@@ -4,7 +4,7 @@ import {
   POWER_BROADCAST_CHANNEL,
   startEmbeddingWorker,
 } from '@brainstrike/embeddings/worker';
-import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences';
+import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { createLogger } from '@brainstrike/utils';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {

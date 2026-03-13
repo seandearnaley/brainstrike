@@ -4,7 +4,10 @@ import {
   TabbedFileEditorPanel,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui';
-import { type PanelTab, usePanelLayoutStore } from '@brainstrike/preferences';
+import {
+  type PanelTab,
+  usePanelLayoutStore,
+} from '@brainstrike/preferences/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
 import {

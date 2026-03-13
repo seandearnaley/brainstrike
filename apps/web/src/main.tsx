@@ -1,7 +1,8 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter, createWebFileSystemAdapter } from '@brainstrike/file-system';
-import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/preferences';
+import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
+import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import {

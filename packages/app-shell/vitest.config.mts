@@ -62,6 +62,10 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../agent/src/client.ts'),
       },
       {
+        find: /^@brainstrike\/preferences\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, '../preferences/src/$1'),
+      },
+      {
         find: '@brainstrike/preferences',
         replacement: path.resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },

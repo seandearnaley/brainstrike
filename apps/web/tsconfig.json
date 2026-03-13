@@ -22,6 +22,9 @@
       ],
       "@brainstrike/utils": [
         "../../packages/utils/src/index.ts"
+      ],
+      "@brainstrike/preferences/*": [
+        "../../packages/preferences/src/*"
       ]
     },
     "types": [

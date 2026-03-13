@@ -4,7 +4,7 @@ import {
   POWER_BROADCAST_CHANNEL,
   startEmbeddingWorker,
 } from '@brainstrike/embeddings/worker';
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { createLogger } from '@brainstrike/utils';
 import { useEffect, useRef } from 'react';
 import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';

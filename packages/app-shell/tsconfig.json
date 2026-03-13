@@ -15,6 +15,9 @@
       "@brainstrike/db-explorer/database-demo-panel": [
         "../db-explorer/src/database-demo-panel.tsx"
       ],
+      "@brainstrike/preferences/*": [
+        "../preferences/src/*"
+      ],
       "@brainstrike/file-explorer-hooks": [
         "../file-explorer-hooks/src"
       ],

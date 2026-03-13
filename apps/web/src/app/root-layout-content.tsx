@@ -11,7 +11,7 @@ import {
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
-import { useVectorPreferencesStore } from '@brainstrike/preferences';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import {
   lazy,
   type ReactElement,

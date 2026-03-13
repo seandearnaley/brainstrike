@@ -1,4 +1,7 @@
-import { databaseStatusSelectors, useDatabaseStatusStore } from '@brainstrike/preferences';
+import {
+  databaseStatusSelectors,
+  useDatabaseStatusStore,
+} from '@brainstrike/preferences/stores/database-status-store';
 import { StatusBarItem } from '@brainstrike/ui';
 import { Database } from 'lucide-react';
 

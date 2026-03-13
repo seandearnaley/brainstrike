@@ -8,7 +8,7 @@ const { loggerInfoMock, registryStoreState } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@brainstrike/preferences', () => ({
+vi.mock('@brainstrike/preferences/stores/model-registry-store', () => ({
   useModelRegistryStore: {
     getState: () => registryStoreState,
   },
