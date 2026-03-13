@@ -9,6 +9,7 @@ const { mockPreloadAssistantUiPanelWrapper, mockPreloadDatabaseTab } = vi.hoiste
   mockPreloadAssistantUiPanelWrapper: vi.fn(() => Promise.resolve()),
   mockPreloadDatabaseTab: vi.fn(() => Promise.resolve()),
 }));
+const mockDatabaseTabRender = vi.fn();
 
 beforeEach(() => {
   mockFetch.mockResolvedValue({
@@ -22,6 +23,7 @@ afterEach(() => {
   mockFetch.mockReset();
   mockPreloadAssistantUiPanelWrapper.mockClear();
   mockPreloadDatabaseTab.mockClear();
+  mockDatabaseTabRender.mockClear();
   global.fetch = originalFetch;
 });
 
@@ -88,7 +90,10 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 // Note: We mock the wrapper component (database-tab) not the chunk files,
 // since tools-panel.tsx imports from the wrapper which uses React.lazy internally.
 vi.mock('../database-tab', () => ({
-  DatabaseTab: () => <div data-testid="mock-database-panel">Database mock</div>,
+  DatabaseTab: () => {
+    mockDatabaseTabRender();
+    return <div data-testid="mock-database-panel">Database mock</div>;
+  },
   preloadDatabaseTab: mockPreloadDatabaseTab,
 }));
 
@@ -127,6 +132,7 @@ describe('ToolsPanel', () => {
     await waitFor(() => {
       expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
     });
+    expect(mockDatabaseTabRender).not.toHaveBeenCalled();
   });
 
   test('prefetches the database tab chunk on pointer intent', async () => {
@@ -140,6 +146,7 @@ describe('ToolsPanel', () => {
     await waitFor(() => {
       expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
     });
+    expect(mockDatabaseTabRender).not.toHaveBeenCalled();
   });
 
   test('prefetches the database tab chunk only once across multiple intents', async () => {
@@ -158,6 +165,19 @@ describe('ToolsPanel', () => {
     await waitFor(() => {
       expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
     });
+  });
+
+  test('does not mount the database tab until it is selected', async () => {
+    const user = userEvent.setup();
+    render(<ToolsPanel />);
+
+    await screen.findByTestId('assistant-chat-card');
+    expect(mockDatabaseTabRender).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('tab', { name: /database/i }));
+
+    expect(await screen.findByTestId('mock-database-panel')).toBeInTheDocument();
+    expect(mockDatabaseTabRender).toHaveBeenCalledTimes(1);
   });
 
   test('allows database prefetch to retry after a rejected intent preload', async () => {

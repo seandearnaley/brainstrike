@@ -1,7 +1,7 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Database, MessageCircle } from 'lucide-react';
-import { type ReactElement, useEffect, useRef } from 'react';
+import { type ReactElement, useEffect, useRef, useState } from 'react';
 import { AssistantTab } from './assistant-tab';
 import { DatabaseTab, preloadDatabaseTab } from './database-tab';
 import {
@@ -38,6 +38,9 @@ export function ToolsPanel({
   const activeTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
   const setActiveTab = useToolsPanelStore((state) => state.setActiveTab);
   const databaseTabPrefetchedRef = useRef<boolean>(false);
+  const [databaseTabMounted, setDatabaseTabMounted] = useState<boolean>(() => {
+    return preloadDatabaseTabOnMount || activeTab === 'database';
+  });
 
   const prefetchDatabaseTab = (): void => {
     if (databaseTabPrefetchedRef.current) {
@@ -57,11 +60,19 @@ export function ToolsPanel({
     prefetchDatabaseTab();
   }, [preloadDatabaseTabOnMount]);
 
+  const handleTabChange = (value: string): void => {
+    const nextTab = sanitizeToolsPanelTab(value);
+    if (nextTab === 'database') {
+      setDatabaseTabMounted(true);
+    }
+    setActiveTab(nextTab);
+  };
+
   return (
     <div className="flex h-full flex-col">
       <Tabs
         className="flex min-h-0 flex-1 flex-col"
-        onValueChange={(value) => setActiveTab(sanitizeToolsPanelTab(value))}
+        onValueChange={handleTabChange}
         value={activeTab}
       >
         <TabsList className="flex h-9 w-full justify-start rounded-none border-b bg-transparent p-0">
@@ -98,9 +109,11 @@ export function ToolsPanel({
             className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
             value="database"
           >
-            {/* CRITICAL: Pass loadEmbeddingQueue to DatabaseTab
-                This keeps a single queue instance without eager startup work. */}
-            <DatabaseTab chunkingMode={chunkingMode} loadEmbeddingQueue={loadEmbeddingQueue} />
+            {databaseTabMounted ? (
+              /* CRITICAL: Pass loadEmbeddingQueue to DatabaseTab
+                 This keeps a single queue instance without eager startup work. */
+              <DatabaseTab chunkingMode={chunkingMode} loadEmbeddingQueue={loadEmbeddingQueue} />
+            ) : null}
           </TabsContent>
         </div>
       </Tabs>
