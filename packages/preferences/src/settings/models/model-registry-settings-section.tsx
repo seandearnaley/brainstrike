@@ -105,7 +105,12 @@ export function ModelRegistrySettingsSection() {
             placeholder="Default system cache directory"
             value={modelCacheDir || ''}
           />
-          <Button size="icon" title="Select Directory" variant="outline">
+          <Button
+            aria-label="Select Model Cache Directory"
+            size="icon"
+            title="Select Directory"
+            variant="outline"
+          >
             <Folder className="h-4 w-4" />
           </Button>
         </div>
