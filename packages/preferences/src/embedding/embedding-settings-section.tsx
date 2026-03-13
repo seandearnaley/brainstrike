@@ -25,7 +25,7 @@ import {
   Input,
   Switch,
 } from '@brainstrike/ui';
-import { defaultCollator } from '@brainstrike/utils';
+import { defaultCollator } from '@brainstrike/utils/collator';
 import { SearchIcon } from 'lucide-react';
 import { type ReactElement, useMemo, useState } from 'react';
 import { useLocalRuntimeEmbeddingModelCatalog } from '../hooks/use-local-runtime-embedding-model-catalog';

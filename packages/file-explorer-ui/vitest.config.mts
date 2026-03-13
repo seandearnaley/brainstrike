@@ -70,6 +70,14 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../file-explorer/src'),
       },
       {
+        find: '@brainstrike/file-explorer-hooks',
+        replacement: resolve(import.meta.dirname, '../file-explorer-hooks/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/hooks',
+        replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
+      },
+      {
         find: '@brainstrike/test-utils',
         replacement: resolve(import.meta.dirname, '../test-utils/src'),
       },

@@ -1,7 +1,7 @@
 import { DEFAULT_EMBEDDING_DIMENSION, usePGliteDatabase } from '@brainstrike/db';
 import type { ModelConfig } from '@brainstrike/embeddings/provider-core';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';

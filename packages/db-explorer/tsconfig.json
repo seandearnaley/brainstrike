@@ -8,6 +8,9 @@
     "outDir": "dist",
     "declarationDir": "dist",
     "paths": {
+      "@brainstrike/utils/*": [
+        "../utils/src/*"
+      ],
       "@brainstrike/preferences/*": [
         "../preferences/src/*"
       ]

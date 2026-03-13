@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { processFilter } from '@brainstrike/utils';
+import { processFilter } from '@brainstrike/utils/filter-utils';
 import { useCallback, useRef, useState } from 'react';
 import {
   arraysEqual,

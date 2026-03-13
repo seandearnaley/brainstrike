@@ -9,7 +9,8 @@ import {
   TablePagination,
   type useToast,
 } from '@brainstrike/ui';
-import { defaultCollator, LogLevel, type LogRecord } from '@brainstrike/utils';
+import { defaultCollator } from '@brainstrike/utils/collator';
+import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 import {
   type CellContext,
   type ColumnDef,

@@ -59,12 +59,48 @@ export default defineConfig({
         replacement: resolve(__dirname, '../hooks/src/index.ts'),
       },
       {
+        find: '@brainstrike/ui',
+        replacement: resolve(__dirname, '../ui/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/utils/create-debounce',
+        replacement: resolve(__dirname, '../utils/src/create-debounce.ts'),
+      },
+      {
+        find: '@brainstrike/utils/collator',
+        replacement: resolve(__dirname, '../utils/src/collator.ts'),
+      },
+      {
+        find: '@brainstrike/utils/file-utils',
+        replacement: resolve(__dirname, '../utils/src/file-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/filter-utils',
+        replacement: resolve(__dirname, '../utils/src/filter-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/quick-filter-utils',
+        replacement: resolve(__dirname, '../utils/src/quick-filter-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/report-generator',
+        replacement: resolve(__dirname, '../utils/src/report-generator.ts'),
+      },
+      {
         find: '@brainstrike/utils/token-counting-runtime',
         replacement: resolve(__dirname, '../utils/src/token-counting-runtime.ts'),
       },
       {
         find: '@brainstrike/utils/logger',
         replacement: resolve(__dirname, '../utils/src/logger.ts'),
+      },
+      {
+        find: '@brainstrike/utils/logging-preferences',
+        replacement: resolve(__dirname, '../utils/src/logging-preferences.ts'),
+      },
+      {
+        find: '@brainstrike/utils/env-utils',
+        replacement: resolve(__dirname, '../utils/src/env-utils.ts'),
       },
       {
         find: '@brainstrike/utils/safe-storage',

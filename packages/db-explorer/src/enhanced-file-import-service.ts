@@ -27,7 +27,8 @@ import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vecto
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
-import { createBulkOperationContext, createLogger, LogLevel } from '@brainstrike/utils';
+import { createBulkOperationContext } from '@brainstrike/utils/bulk-operation-context';
+import { createLogger, LogLevel } from '@brainstrike/utils/logger';
 import {
   type Dispatch,
   type SetStateAction,

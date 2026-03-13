@@ -21,7 +21,7 @@ import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
-import { defaultCollator } from '@brainstrike/utils';
+import { defaultCollator } from '@brainstrike/utils/collator';
 import { Badge } from '../badge';
 import { Button } from '../button';
 import {

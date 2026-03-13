@@ -1,6 +1,6 @@
 import type { ChunkingPresetSelection, ChunkingStrategy } from '@brainstrike/text-splitter';
 import { getChunkingPreset } from '@brainstrike/text-splitter';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { useTokenPreferencesStore } from './token-preferences-store';

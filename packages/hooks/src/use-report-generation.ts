@@ -1,12 +1,12 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import type { ContextLineRange } from '@brainstrike/utils';
+import type { ContextLineRange } from '@brainstrike/utils/report-generator';
 import {
   createReportGenerationWorker,
   type ProgressEvent as ReportProgressEvent,
 } from '@brainstrike/workers/report-generation-worker';
 import { useCallback, useRef, useState } from 'react';
 
-export type { ContextLineRange } from '@brainstrike/utils';
+export type { ContextLineRange } from '@brainstrike/utils/report-generator';
 
 export interface ContextGenerationOverrides {
   projectTreeUsesViewFilters?: boolean;
