@@ -632,6 +632,105 @@ describe('reportGenerator', () => {
     );
   });
 
+  it('emits selection_summary when all tapestry ranges are inactive', async () => {
+    const selectedFiles = new Set(['src/lib/utils.ts']);
+    const report = await generateReport(
+      selectedFiles,
+      mockFileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false,
+      5,
+      {
+        useTapestryRanges: true,
+        selectedLineRangesByFile: {
+          'src/lib/utils.ts': [{ startLine: 0, endLine: 1, isActive: false }],
+        },
+      }
+    );
+
+    expect(report).toContain(
+      '<selection_summary>No active tapestry ranges selected.</selection_summary>'
+    );
+    expect(report).not.toContain('export const formatDate');
+  });
+
+  it('strips all XML-illegal control characters from file paths', async () => {
+    // Test the full range of XML-illegal control characters in file paths:
+    // \x00-\x08, \x0B, \x0C, \x0E-\x1F (everything < 0x20 except tab, LF, CR)
+    const illegalChars = [
+      '\x00',
+      '\x01',
+      '\x02',
+      '\x03',
+      '\x04',
+      '\x05',
+      '\x06',
+      '\x07',
+      '\x08',
+      '\x0B',
+      '\x0C',
+      '\x0E',
+      '\x0F',
+      '\x10',
+      '\x11',
+      '\x12',
+      '\x13',
+      '\x14',
+      '\x15',
+      '\x16',
+      '\x17',
+      '\x18',
+      '\x19',
+      '\x1A',
+      '\x1B',
+      '\x1C',
+      '\x1D',
+      '\x1E',
+      '\x1F',
+    ];
+    const dirtyPath = `src/pre${illegalChars.join('')}fix.ts`;
+    const selectedFiles = new Set([dirtyPath]);
+    const fileContents = { [dirtyPath]: 'export const ok = true;' };
+
+    const report = await generateReport(
+      selectedFiles,
+      fileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false
+    );
+
+    // All illegal chars stripped from the path attribute
+    expect(report).toContain('<file path="src/prefix.ts">');
+    expect(report).toContain('export const ok = true;');
+  });
+
+  it('preserves allowed whitespace characters in file paths', async () => {
+    // Tab (\x09), LF (\x0A), and CR (\x0D) are legal XML characters and should be preserved
+    // (though unusual in paths, the sanitizer should not strip them)
+    const pathWithTab = 'src/tab\there.ts';
+    const selectedFiles = new Set([pathWithTab]);
+    const fileContents = { [pathWithTab]: 'export const tab = true;' };
+
+    const report = await generateReport(
+      selectedFiles,
+      fileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false
+    );
+
+    expect(report).toContain('tab\there.ts');
+    expect(report).toContain('export const tab = true;');
+  });
+
   it('escapes XML-sensitive characters in file path attributes', async () => {
     const selectedFiles = new Set(['src/evil "name"&<tag>.ts']);
     const fileContents = {
