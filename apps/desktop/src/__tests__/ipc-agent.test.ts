@@ -23,6 +23,10 @@ vi.mock('../provider-api-key', () => ({
   readProviderSecretKey: vi.fn(),
 }));
 
+vi.mock('../mcp/mastra-config', () => ({
+  filterDesktopMastraMcpConfig: vi.fn((config: unknown) => config),
+}));
+
 const mockSecretsService = {
   saveKey: vi.fn(),
   getKey: vi.fn(() => Promise.resolve('test-api-key')),
@@ -319,11 +323,13 @@ describe('registerAgentIpcHandlers', () => {
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
+      const { filterDesktopMastraMcpConfig } = await import('../mcp/mastra-config');
       const { readProviderSecretKey, resolveProviderEnvKey } = await import('../provider-api-key');
 
       const mcpConfig = { servers: { testServer: {} } };
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: mcpConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
+      vi.mocked(filterDesktopMastraMcpConfig).mockReturnValue(mcpConfig as never);
       vi.mocked(resolveProviderEnvKey).mockReturnValue(undefined);
       vi.mocked(readProviderSecretKey).mockResolvedValue('secret-key');
 
@@ -354,6 +360,51 @@ describe('registerAgentIpcHandlers', () => {
           apiKey: 'secret-key',
         },
       });
+    });
+
+    it('filters the desktop filesystem bridge before passing MCP config to the agent runtime', async () => {
+      const mockStreamMastraAgent = vi.fn().mockReturnValue({
+        [Symbol.asyncIterator]: () => ({
+          async next() {
+            return { done: true, value: undefined };
+          },
+        }),
+      });
+
+      const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g.__agentModule = {
+        streamMastraAgent: mockStreamMastraAgent,
+      } as unknown as typeof import('@brainstrike/agent');
+
+      const { loadMcpConfig } = await import('../mcp-loader');
+      const { readOpenAIApiKey } = await import('../openai-api-key');
+      const { filterDesktopMastraMcpConfig } = await import('../mcp/mastra-config');
+
+      const rawConfig = {
+        servers: [{ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['/tmp'] }],
+      };
+      const filteredConfig = { servers: [] };
+      vi.mocked(loadMcpConfig).mockResolvedValue({ config: rawConfig } as never);
+      vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
+      vi.mocked(filterDesktopMastraMcpConfig).mockReturnValue(filteredConfig as never);
+
+      const messages = [
+        {
+          id: '1',
+          role: 'user' as const,
+          parts: [{ type: 'text' as const, text: 'Hello' }],
+        },
+      ];
+
+      await chatHandler({} as IpcMainInvokeEvent, messages, { provider: 'openai' });
+
+      expect(filterDesktopMastraMcpConfig).toHaveBeenCalledWith(rawConfig);
+      expect(mockStreamMastraAgent).toHaveBeenCalledWith(
+        messages,
+        expect.objectContaining({
+          runtime: expect.objectContaining({ mcpConfig: filteredConfig }),
+        })
+      );
     });
 
     it('throws when provider is missing or unsupported', async () => {

@@ -308,6 +308,8 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
+      '@brainstrike/embeddings', // Pulls embedding-worker and transformers through source aliases
+      '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
       '@brainstrike/db-explorer', // Uses file-import which has worker
       '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
       '@brainstrike/token-cache', // Worker must resolve via package exports (dist)

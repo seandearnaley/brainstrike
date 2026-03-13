@@ -39,23 +39,6 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 
 export interface RootLayoutContentProps {
   readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
-  /**
-   * CRITICAL: The app-specific embedding queue adapter.
-   *
-   * This queue is created at the app entry point:
-   * - Desktop: apps/desktop/src/renderer/create-embedding-queue.ts
-   * - Web: apps/web/src/create-embedding-queue.ts
-   *
-   * The queue is passed down from here to:
-   * - ToolsPanel → DatabaseTab → DatabaseDemoPanel (embedding controls and import operations)
-   * to ensure all embedding operations use the same queue instance.
-   *
-   * DO NOT make this prop optional or remove it! It's critical for:
-   * - Embedding set management UI
-   * - File import embedding generation
-   * - Vector search operations
-   */
-  readonly embeddingQueue?: QueueAdapter | null;
   readonly homePageContent: ReactNode;
 
   /**
@@ -64,6 +47,24 @@ export interface RootLayoutContentProps {
    * Use this to wrap the left panel with app-specific providers (e.g., TokenCacheProvider).
    */
   readonly leftPanelContent?: ReactNode;
+  /**
+   * CRITICAL: Lazy loader for the app-specific embedding queue adapter.
+   *
+   * The queue module is defined at the app entry point:
+   * - Desktop: apps/desktop/src/renderer/create-embedding-queue.ts
+   * - Web: apps/web/src/create-embedding-queue.ts
+   *
+   * The loader is passed down from here to:
+   * - ToolsPanel → DatabaseTab → DatabaseDemoPanel (embedding controls and import operations)
+   * so startup does not eagerly construct the workerpool-backed embedding runtime
+   * before the database tools are actually opened.
+   *
+   * DO NOT remove this prop path! It's critical for:
+   * - Embedding set management UI
+   * - File import embedding generation
+   * - Vector search operations
+   */
+  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly navigationItems: NavigationItem[];
   readonly preloadDatabaseTabOnMount?: boolean;
   readonly promptsPageContent?: ReactNode;
@@ -85,7 +86,7 @@ export function RootLayoutContent({
   promptsPageContent,
   navigationItems,
   leftPanelContent,
-  embeddingQueue = null,
+  loadEmbeddingQueue = null,
   databaseTabChunkingMode = 'local',
   preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
@@ -114,18 +115,18 @@ export function RootLayoutContent({
     [setState]
   );
 
-  // CRITICAL: Pass embeddingQueue to ToolsPanel
+  // CRITICAL: Pass loadEmbeddingQueue to ToolsPanel
   // The queue flows:
   // - RootLayoutContent → ToolsPanel → DatabaseTab → DatabaseDemoPanel (embedding controls and import operations)
   const rightPanelContent = useMemo(
     () => (
       <ToolsPanel
         chunkingMode={databaseTabChunkingMode}
-        embeddingQueue={embeddingQueue ?? null}
+        loadEmbeddingQueue={loadEmbeddingQueue}
         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
       />
     ),
-    [databaseTabChunkingMode, embeddingQueue, preloadDatabaseTabOnMount]
+    [databaseTabChunkingMode, loadEmbeddingQueue, preloadDatabaseTabOnMount]
   );
 
   // Memoize panel content elements so resize drags don't bust IdeLayout's React.memo.

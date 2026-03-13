@@ -13,26 +13,26 @@ import {
 interface ToolsPanelProps {
   readonly chunkingMode?: 'host-proxy' | 'local';
   /**
-   * CRITICAL: The app-specific embedding queue from RootLayoutContent.
+   * CRITICAL: Lazy loader for the app-specific embedding queue from RootLayoutContent.
    *
-   * This queue flows through: RootLayoutContent → ToolsPanel (HERE) → DatabaseTab
+   * This loader flows through: RootLayoutContent → ToolsPanel (HERE) → DatabaseTab
    *
    * MUST be passed through to DatabaseTab! Without it, embedding
    * management and import operations will fail.
    */
-  embeddingQueue?: QueueAdapter | null;
+  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly preloadDatabaseTabOnMount?: boolean;
 }
 
 /**
  * Tools panel containing Assistant and Database tabs.
  *
- * IMPORTANT: The embeddingQueue prop must be forwarded to DatabaseTab to ensure
+ * IMPORTANT: The loadEmbeddingQueue prop must be forwarded to DatabaseTab to ensure
  * embedding operations and import work correctly.
  */
 export function ToolsPanel({
   chunkingMode = 'local',
-  embeddingQueue = null,
+  loadEmbeddingQueue = null,
   preloadDatabaseTabOnMount = false,
 }: ToolsPanelProps): ReactElement {
   const activeTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
@@ -98,9 +98,9 @@ export function ToolsPanel({
             className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
             value="database"
           >
-            {/* CRITICAL: Pass embeddingQueue to DatabaseTab
-                This ensures import operations use the app's embedding queue */}
-            <DatabaseTab chunkingMode={chunkingMode} embeddingQueue={embeddingQueue} />
+            {/* CRITICAL: Pass loadEmbeddingQueue to DatabaseTab
+                This keeps a single queue instance without eager startup work. */}
+            <DatabaseTab chunkingMode={chunkingMode} loadEmbeddingQueue={loadEmbeddingQueue} />
           </TabsContent>
         </div>
       </Tabs>

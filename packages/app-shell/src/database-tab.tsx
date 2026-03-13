@@ -4,7 +4,12 @@ import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader'
 
 type DatabaseTabChunkModule = typeof import('./database-tab-chunk');
 
-let databaseTabChunkComponent: ComponentType<DatabaseTabProps> | null = null;
+interface LoadedDatabaseTabProps {
+  readonly chunkingMode?: 'host-proxy' | 'local';
+  readonly embeddingQueue?: QueueAdapter | null;
+}
+
+let databaseTabChunkComponent: ComponentType<LoadedDatabaseTabProps> | null = null;
 const databaseTabModuleLoader = createRetryableLazyModuleLoader<DatabaseTabChunkModule>(
   () => import('./database-tab-chunk')
 );
@@ -22,34 +27,46 @@ export function preloadDatabaseTab(): Promise<void> {
 
 interface DatabaseTabProps {
   readonly chunkingMode?: 'host-proxy' | 'local';
-  readonly embeddingQueue?: QueueAdapter | null;
+  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
 }
 
 export function DatabaseTab({
   chunkingMode = 'local',
-  embeddingQueue = null,
+  loadEmbeddingQueue = null,
 }: DatabaseTabProps): ReactElement {
   const [resolvedComponent, setResolvedComponent] =
-    useState<ComponentType<DatabaseTabProps> | null>(() => databaseTabChunkComponent);
+    useState<ComponentType<LoadedDatabaseTabProps> | null>(() => databaseTabChunkComponent);
+  const [embeddingQueue, setEmbeddingQueue] = useState<QueueAdapter | null>(null);
   const [loadError, setLoadError] = useState<Error | null>(null);
 
   useEffect(() => {
-    if (resolvedComponent) {
+    if (resolvedComponent && (embeddingQueue || !loadEmbeddingQueue)) {
       return;
     }
 
     let cancelled = false;
-    void loadDatabaseTabModule()
-      .then((module) => {
+    const modulePromise = resolvedComponent
+      ? Promise.resolve(null)
+      : loadDatabaseTabModule().then((module) => module.DatabaseTab);
+    const queuePromise =
+      embeddingQueue || !loadEmbeddingQueue ? Promise.resolve(null) : loadEmbeddingQueue();
+
+    void Promise.all([modulePromise, queuePromise])
+      .then(([resolvedDatabaseTab, resolvedQueue]) => {
         if (!cancelled) {
-          setResolvedComponent(() => module.DatabaseTab);
+          if (resolvedDatabaseTab) {
+            setResolvedComponent(() => resolvedDatabaseTab);
+          }
+          if (resolvedQueue) {
+            setEmbeddingQueue(resolvedQueue);
+          }
           setLoadError(null);
         }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           setLoadError(
-            error instanceof Error ? error : new Error('Failed to load the database tab chunk.')
+            error instanceof Error ? error : new Error('Failed to load database tools.')
           );
         }
       });
@@ -57,7 +74,7 @@ export function DatabaseTab({
     return () => {
       cancelled = true;
     };
-  }, [resolvedComponent]);
+  }, [embeddingQueue, loadEmbeddingQueue, resolvedComponent]);
 
   if (loadError) {
     throw loadError;

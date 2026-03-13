@@ -1,3 +1,4 @@
+import type { QueueAdapter } from '@brainstrike/queue';
 import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,5 +38,35 @@ describe('DatabaseTab', () => {
 
     render(<DatabaseTab />);
     expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
+  });
+
+  it('does not call the queue loader when none is provided', async () => {
+    const { DatabaseTab } = await import('../database-tab');
+
+    render(<DatabaseTab />);
+    expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
+  });
+
+  it('loads the embedding queue only when the database tab mounts', async () => {
+    const { DatabaseTab } = await import('../database-tab');
+    const queueLoader = vi.fn(
+      async (): Promise<QueueAdapter> =>
+        ({
+          add: vi.fn(),
+          addBulk: vi.fn(),
+          cancel: vi.fn(),
+          drain: vi.fn(),
+          onProgress: vi.fn(() => () => {}),
+          pause: vi.fn(),
+          resume: vi.fn(),
+          isPaused: false,
+          isProcessing: false,
+        }) satisfies QueueAdapter
+    );
+
+    render(<DatabaseTab loadEmbeddingQueue={queueLoader} />);
+
+    expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
+    expect(queueLoader).toHaveBeenCalledTimes(1);
   });
 });
