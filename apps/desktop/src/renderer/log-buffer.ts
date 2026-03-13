@@ -1,4 +1,4 @@
-import { registerBulkOperationPauseCallback } from '@brainstrike/utils';
+import { registerBulkOperationPauseCallback } from '@brainstrike/utils/bulk-operation-context';
 import { LogBuffer } from '@brainstrike/utils/log-buffer';
 import { addLogListener } from '@brainstrike/utils/logger';
 

@@ -2,17 +2,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import { LogBuffer } from '@brainstrike/utils/log-buffer';
+import { addLogListener, createLogger, LogLevel } from '@brainstrike/utils/logger';
 import {
-  addLogListener,
-  applyLoggingPreferences,
-  createDefaultLoggingPreferences,
-  createLogger,
   type InitializeLoggingOptions,
   initializeLogging,
-  LogBuffer,
+} from '@brainstrike/utils/logging-initializer';
+import {
+  applyLoggingPreferences,
+  createDefaultLoggingPreferences,
   type LoggingPreferences,
-  LogLevel,
-} from '@brainstrike/utils';
+} from '@brainstrike/utils/logging-preferences';
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';

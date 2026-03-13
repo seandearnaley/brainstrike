@@ -6,17 +6,15 @@ import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/as
 import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
 import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
-import type { LoggingPreferences } from '@brainstrike/utils';
+import { installConsoleGuard } from '@brainstrike/utils/console-guard';
+import { installRendererErrorHooks } from '@brainstrike/utils/install-renderer-error-hooks';
+import { addLogListener, createLogger, LogLevel } from '@brainstrike/utils/logger';
+import { initializeLogging } from '@brainstrike/utils/logging-initializer';
 import {
-  addLogListener,
   applyLoggingPreferences,
-  createLogger,
-  initializeLogging,
-  installConsoleGuard,
-  installPerformanceMeasureGuard,
-  installRendererErrorHooks,
-  LogLevel,
-} from '@brainstrike/utils';
+  type LoggingPreferences,
+} from '@brainstrike/utils/logging-preferences';
+import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';

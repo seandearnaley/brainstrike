@@ -14,7 +14,8 @@ import type {
   LayoutPersistenceResult,
   PanelPersistenceState,
 } from '@brainstrike/ui';
-import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import type { LogRecord } from '@brainstrike/utils/logger';
+import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type {
   EmbeddingHostBackfillProgress,

@@ -39,10 +39,20 @@
       "import": "./dist/logger.mjs",
       "require": "./dist/logger.js"
     },
+    "./logging-initializer": {
+      "types": "./dist/logging-initializer.d.ts",
+      "import": "./dist/logging-initializer.mjs",
+      "require": "./dist/logging-initializer.js"
+    },
     "./logging-preferences": {
       "types": "./dist/logging-preferences.d.ts",
       "import": "./dist/logging-preferences.mjs",
       "require": "./dist/logging-preferences.js"
+    },
+    "./console-guard": {
+      "types": "./dist/console-guard.d.ts",
+      "import": "./dist/console-guard.mjs",
+      "require": "./dist/console-guard.js"
     },
     "./color-utils": {
       "types": "./dist/color-utils.d.ts",
@@ -93,6 +103,21 @@
       "types": "./dist/hmr-utils.d.ts",
       "import": "./dist/hmr-utils.mjs",
       "require": "./dist/hmr-utils.js"
+    },
+    "./bulk-operation-context": {
+      "types": "./dist/bulk-operation-context.d.ts",
+      "import": "./dist/bulk-operation-context.mjs",
+      "require": "./dist/bulk-operation-context.js"
+    },
+    "./performance-measure-guard": {
+      "types": "./dist/performance-measure-guard.d.ts",
+      "import": "./dist/performance-measure-guard.mjs",
+      "require": "./dist/performance-measure-guard.js"
+    },
+    "./install-renderer-error-hooks": {
+      "types": "./dist/install-renderer-error-hooks.d.ts",
+      "import": "./dist/install-renderer-error-hooks.mjs",
+      "require": "./dist/install-renderer-error-hooks.js"
     },
     "./quick-filter-utils": {
       "types": "./dist/quick-filter-utils.d.ts",
@@ -162,7 +187,7 @@
   },
   "scripts": {
     "bench": "vitest bench",
-    "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/collator.ts src/tree-operations.ts src/perf-timing.ts src/crypto.ts src/token-counting-runtime.ts src/logger.ts src/logging-preferences.ts src/log-buffer.ts src/hmr-utils.ts src/safe-storage.ts src/color-utils.ts src/create-debounce.ts src/env-utils.ts src/error-utils.ts src/file-content.ts src/file-explorer-utils.ts src/file-utils.ts src/path-filter.ts src/path-utils.ts src/quick-filter-utils.ts src/relative-file-path.ts src/report-generator.ts src/selection-utils.ts src/tree-generator.ts --format esm,cjs --out-dir dist",
+    "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/collator.ts src/tree-operations.ts src/perf-timing.ts src/crypto.ts src/token-counting-runtime.ts src/logger.ts src/logging-initializer.ts src/logging-preferences.ts src/log-buffer.ts src/hmr-utils.ts src/console-guard.ts src/bulk-operation-context.ts src/performance-measure-guard.ts src/install-renderer-error-hooks.ts src/safe-storage.ts src/color-utils.ts src/create-debounce.ts src/env-utils.ts src/error-utils.ts src/file-content.ts src/file-explorer-utils.ts src/file-utils.ts src/path-filter.ts src/path-utils.ts src/quick-filter-utils.ts src/relative-file-path.ts src/report-generator.ts src/selection-utils.ts src/tree-generator.ts --format esm,cjs --out-dir dist",
     "clean": "rimraf dist",
     "dev": "tsup --watch",
     "lint": "pnpm run --dir=../.. lint",

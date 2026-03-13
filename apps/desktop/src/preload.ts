@@ -11,7 +11,8 @@ import type {
   LayoutPersistenceResult,
   PanelPersistenceState,
 } from '@brainstrike/ui';
-import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import type { LogRecord } from '@brainstrike/utils/logger';
+import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 // Sandboxed preloads cannot depend on additional local modules at runtime.
