@@ -17,13 +17,15 @@ import {
   useDatabaseStatusStore,
 } from '@brainstrike/preferences';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
-import { QueueDiagnosticsPanel } from '@brainstrike/vector-management';
 import { Activity, CheckCircle2, Database, RefreshCw, Server, XCircle } from 'lucide-react';
-import type { ReactElement } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, type ReactElement, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
+const LazyQueueDiagnosticsPanel = lazy(async () => {
+  const module = await import('@brainstrike/vector-management');
+  return { default: module.QueueDiagnosticsPanel };
+});
 
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
 
@@ -293,7 +295,9 @@ export function SystemDiagnosticsPanel({
 
       {/* Queue diagnostics - full width */}
       <div key={refreshKey}>
-        <QueueDiagnosticsPanel showRefresh={showQueueRefresh} />
+        <Suspense fallback={null}>
+          <LazyQueueDiagnosticsPanel showRefresh={showQueueRefresh} />
+        </Suspense>
       </div>
     </div>
   );
