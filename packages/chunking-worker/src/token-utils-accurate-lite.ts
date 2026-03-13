@@ -1,5 +1,8 @@
 type EncodeFn = (text: string) => Uint32Array;
 
+// This module intentionally stays duplicated with token-cache's accurate-lite
+// helper so each worker bundle remains self-contained and does not pull the
+// other worker graph into its emitted chunk set.
 // The model name is only a lookup hint for encoding_for_model(); the actual
 // tokenization source of truth for this worker is the explicit o200k_base
 // fallback below.

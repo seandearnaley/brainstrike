@@ -79,16 +79,18 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
       return adapter.addBulk(tasks, addOptions);
     },
     async cancel() {
-      if (!loadedAdapter) {
+      const adapter = loadedAdapter ?? (adapterPromise ? await adapterPromise : null);
+      if (!adapter) {
         return;
       }
-      await loadedAdapter.cancel();
+      await adapter.cancel();
     },
     async drain() {
-      if (!loadedAdapter) {
+      const adapter = loadedAdapter ?? (adapterPromise ? await adapterPromise : null);
+      if (!adapter) {
         return;
       }
-      await loadedAdapter.drain();
+      await adapter.drain();
     },
     get isPaused() {
       return loadedAdapter?.isPaused ?? paused;

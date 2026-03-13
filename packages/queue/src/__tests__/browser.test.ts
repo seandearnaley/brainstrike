@@ -107,4 +107,52 @@ describe('createBrowserEmbeddingQueue', () => {
 
     expect(createWorkerpoolAdapterMock).toHaveBeenCalledTimes(2);
   });
+
+  it('waits for the lazy adapter bootstrap before canceling', async () => {
+    const adapter = createQueueAdapterStub();
+    createWorkerpoolAdapterMock.mockReturnValue(adapter);
+
+    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const queue = createBrowserEmbeddingQueue({
+      worker: { workerUrl: '/embedding.worker.js' },
+    });
+
+    const addPromise = queue.add({
+      id: 'task-1',
+      kind: 'embed',
+      texts: ['hello'],
+      model: 'local:test',
+      deviceHint: 'webgpu',
+    });
+    const cancelPromise = queue.cancel();
+
+    await cancelPromise;
+    await addPromise;
+
+    expect(adapter.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the lazy adapter bootstrap before draining', async () => {
+    const adapter = createQueueAdapterStub();
+    createWorkerpoolAdapterMock.mockReturnValue(adapter);
+
+    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const queue = createBrowserEmbeddingQueue({
+      worker: { workerUrl: '/embedding.worker.js' },
+    });
+
+    const addPromise = queue.add({
+      id: 'task-1',
+      kind: 'embed',
+      texts: ['hello'],
+      model: 'local:test',
+      deviceHint: 'webgpu',
+    });
+    const drainPromise = queue.drain();
+
+    await drainPromise;
+    await addPromise;
+
+    expect(adapter.drain).toHaveBeenCalledTimes(1);
+  });
 });

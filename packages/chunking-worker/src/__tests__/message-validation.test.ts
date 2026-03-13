@@ -29,6 +29,30 @@ describe('chunking worker message validation', () => {
     expect(isChunkingRequestOptions({ strategy: 'bogus' })).toBe(false);
   });
 
+  it('rejects invalid numeric and typed request option fields', () => {
+    expect(isChunkingRequestOptions({ strategy: 'auto', maxTokens: 0 })).toBe(false);
+    expect(isChunkingRequestOptions({ strategy: 'auto', maxTokensCap: -1 })).toBe(false);
+    expect(isChunkingRequestOptions({ strategy: 'auto', overlap: -1 })).toBe(false);
+    expect(isChunkingRequestOptions({ strategy: 'auto', allowLargeFiles: 'yes' })).toBe(false);
+    expect(isChunkingRequestOptions({ strategy: 'auto', separators: ['\n', 1] })).toBe(false);
+  });
+
+  it('accepts valid optional request option fields', () => {
+    expect(
+      isChunkingRequestOptions({
+        strategy: 'recursive',
+        allowLargeFiles: true,
+        forceStrategy: false,
+        ignoreFileTypeRecommendations: true,
+        tokenTrueSizing: false,
+        maxTokens: 256,
+        maxTokensCap: 4096,
+        overlap: 32,
+        separators: ['\n\n', '\n'],
+      })
+    ).toBe(true);
+  });
+
   it('accepts chunk requests with expanded strategies', () => {
     expect(
       isChunkRequest({

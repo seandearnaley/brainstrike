@@ -1,6 +1,28 @@
 import { isChunkingStrategy } from '@brainstrike/text-splitter';
 import type { ChunkBatchRequest, ChunkingRequestOptions, ChunkRequest } from './shared';
 
+function isOptionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === 'boolean';
+}
+
+function isOptionalPositiveInteger(value: unknown): boolean {
+  return value === undefined || (Number.isInteger(value) && (value as number) > 0);
+}
+
+function isOptionalNonNegativeInteger(value: unknown): boolean {
+  return value === undefined || (Number.isInteger(value) && (value as number) >= 0);
+}
+
+function isOptionalStringArray(value: unknown): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  if (!Array.isArray(value)) {
+    return false;
+  }
+  return value.every((separator) => typeof separator === 'string');
+}
+
 /**
  * Worker message validation must stay aligned with the canonical chunking strategy
  * contract. If the supported strategy set changes, update the shared source of
@@ -11,7 +33,17 @@ export function isChunkingRequestOptions(value: unknown): value is ChunkingReque
     return false;
   }
   const obj = value as Record<string, unknown>;
-  return isChunkingStrategy(obj['strategy']);
+  return (
+    isChunkingStrategy(obj['strategy']) &&
+    isOptionalBoolean(obj['allowLargeFiles']) &&
+    isOptionalBoolean(obj['forceStrategy']) &&
+    isOptionalBoolean(obj['ignoreFileTypeRecommendations']) &&
+    isOptionalBoolean(obj['tokenTrueSizing']) &&
+    isOptionalPositiveInteger(obj['maxTokens']) &&
+    isOptionalPositiveInteger(obj['maxTokensCap']) &&
+    isOptionalNonNegativeInteger(obj['overlap']) &&
+    isOptionalStringArray(obj['separators'])
+  );
 }
 
 export function isChunkRequest(value: unknown): value is ChunkRequest {
