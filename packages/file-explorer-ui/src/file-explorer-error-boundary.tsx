@@ -128,7 +128,13 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
                 <Icon className={`mr-2 h-6 w-6 ${info?.color ?? 'text-red-500'}`} />
                 <h2 className="font-bold text-xl">{info?.displayTitle ?? 'Error'}</h2>
               </div>
-              <Button onClick={this.handleReset} size="icon" title="Dismiss" variant="ghost">
+              <Button
+                aria-label="Dismiss Error"
+                onClick={this.handleReset}
+                size="icon"
+                title="Dismiss"
+                variant="ghost"
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>
