@@ -148,6 +148,7 @@ class ElectronHarness {
     const normalizedMessage = error.message.toLowerCase();
     return (
       normalizedMessage.includes('page crashed') ||
+      normalizedMessage.includes('net::err_file_not_found') ||
       normalizedMessage.includes('target page, context or browser has been closed') ||
       normalizedMessage.includes('navigation failed because page crashed') ||
       normalizedMessage.includes('navigation failed because page was closed')

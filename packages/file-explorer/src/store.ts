@@ -11,7 +11,7 @@ import type { StorageAdapter } from '@brainstrike/storage';
 import { MemoryStorageAdapter } from '@brainstrike/storage'; // Import MemoryStorageAdapter
 import type { FileExplorerState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
-import { setupHMR } from '@brainstrike/utils';
+import { setupHMR } from '@brainstrike/utils/hmr-utils';
 import type { StateCreator } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';

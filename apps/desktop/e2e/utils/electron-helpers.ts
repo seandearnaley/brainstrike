@@ -169,9 +169,10 @@ export async function launchElectronApp(
   const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
-  // Retry configuration for CI stability
-  // Electron can hang silently in CI due to Xvfb/display timing issues
-  const maxAttempts = process.env['CI'] ? 3 : 1;
+  // Electron launches can fail transiently immediately after a forced
+  // renderer/app reset while the OS releases resources. Keep one local retry
+  // so harness recovery does not poison the following test.
+  const maxAttempts = process.env['CI'] ? 3 : 2;
   const firstWindowTimeout = process.env['CI'] ? 30_000 : 60_000;
   const launchTimeoutMs = process.env['CI'] ? 150_000 : 60_000;
 
