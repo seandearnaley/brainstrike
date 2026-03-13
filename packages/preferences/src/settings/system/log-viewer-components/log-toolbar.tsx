@@ -168,6 +168,7 @@ export function LogToolbar({
           <div className="mx-1 hidden h-4 w-px bg-border/50 sm:block" />
 
           <Button
+            aria-label="Refresh Logs"
             className="h-9 w-9"
             disabled={logsLoading || !canRefresh}
             onClick={onRefresh}
@@ -179,6 +180,7 @@ export function LogToolbar({
           </Button>
 
           <Button
+            aria-label="Export Logs"
             className="h-9 w-9"
             disabled={rowsCount === 0}
             onClick={onExport}
