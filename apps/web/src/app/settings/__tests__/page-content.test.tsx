@@ -1,23 +1,25 @@
 import { __resetNativeToolPreferencesStoreForTests } from '@brainstrike/preferences';
-import { ThemeSettings } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { HelmetProvider } from 'react-helmet-async';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import SettingsPageContent from '../page-content';
 
-vi.mock('@brainstrike/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
-  return {
-    ...actual,
-    ThemeSettings: vi.fn(() => <div data-testid="theme-settings-mock">Theme Settings Mock</div>),
-  };
-});
+vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
+  ModelSelectionPage: vi.fn(() => <div data-testid="model-selection-page-mock" />),
+}));
 
-vi.mock('@brainstrike/preferences', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
+vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/preferences/settings-page-content')>();
   return {
     ...actual,
-    ModelSelectionPage: vi.fn(() => <div data-testid="model-selection-page-mock" />),
+    createAppearanceSettingsCategory: vi.fn(() => ({
+      id: 'appearance',
+      title: 'Appearance',
+      description: 'Appearance settings',
+      keywords: ['appearance'],
+      render: () => <div data-testid="appearance-category-mock">Theme Settings Mock</div>,
+    })),
   };
 });
 
@@ -77,8 +79,7 @@ describe('Web SettingsPageContent', () => {
     const appearanceButton = within(nav).getByRole('button', { name: /Appearance/i });
     expect(appearanceButton).toHaveAttribute('aria-current', 'page');
 
-    expect(ThemeSettings).toHaveBeenCalled();
-    expect(screen.getByTestId('theme-settings-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('appearance-category-mock')).toBeInTheDocument();
     expect(window.location.hash).toBe('#settings/appearance');
   });
 

@@ -4,19 +4,21 @@ import {
   useFileExplorerStoreContext,
   useOptionalTokenCacheContext,
 } from '@brainstrike/file-explorer-ui';
+import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
+import {
+  createToolsSettingsCategory,
+  type ToolDisplayMetadata,
+  type ToolExecutionResult,
+} from '@brainstrike/preferences/settings/tools/index';
 import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
-  createToolsSettingsCategory,
-  ModelSelectionPage,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
-  type ToolDisplayMetadata,
-  type ToolExecutionResult,
-  useNativeToolPreferencesStore,
-} from '@brainstrike/preferences';
+} from '@brainstrike/preferences/settings-page-content';
+import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';

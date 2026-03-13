@@ -5,20 +5,24 @@ import {
   useFileExplorerStoreContext,
   useOptionalTokenCacheContext,
 } from '@brainstrike/file-explorer-ui';
+import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
+import {
+  LoggingSettingsSection,
+  type LogSourceAdapter,
+} from '@brainstrike/preferences/settings/system/logging-settings-section';
+import {
+  createToolsSettingsCategory,
+  type ToolDisplayMetadata,
+  type ToolExecutionResult,
+} from '@brainstrike/preferences/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
-  createToolsSettingsCategory,
-  LoggingSettingsSection,
-  type LogSourceAdapter,
-  ModelSelectionPage,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
-  type ToolDisplayMetadata,
-  type ToolExecutionResult,
-  useNativeToolPreferencesStore,
-} from '@brainstrike/preferences';
+} from '@brainstrike/preferences/settings-page-content';
+import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';

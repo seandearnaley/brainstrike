@@ -1,8 +1,8 @@
 import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
-  useLoggingPreferencesStore,
-} from '@brainstrike/preferences';
+} from '@brainstrike/preferences/settings/system/logging-settings-section';
+import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
 import {
   Card,
   CardContent,

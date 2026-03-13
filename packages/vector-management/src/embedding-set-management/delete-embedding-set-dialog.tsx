@@ -1,5 +1,5 @@
 import type { EmbeddingSet } from '@brainstrike/db';
-import { useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   Button,
   Dialog,

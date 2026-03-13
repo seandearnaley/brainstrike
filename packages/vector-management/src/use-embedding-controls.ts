@@ -1,5 +1,6 @@
 import { JobQueue, usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
-import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 // Import types to ensure global Window augmentation is available
 import '@brainstrike/types';
 import { useCallback, useMemo, useRef } from 'react';

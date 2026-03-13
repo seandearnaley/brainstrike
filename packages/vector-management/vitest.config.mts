@@ -49,35 +49,75 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '@brainstrike/workers/report-generation-worker': resolve(
-        __dirname,
-        '../workers/report-generation-worker.ts'
-      ),
-      '@brainstrike/hooks': resolve(__dirname, '../hooks/src/index.ts'),
-      '@brainstrike/utils/token-counting-runtime': resolve(
-        __dirname,
-        '../utils/src/token-counting-runtime.ts'
-      ),
-      '@brainstrike/utils/logger': resolve(__dirname, '../utils/src/logger.ts'),
-      '@brainstrike/utils/safe-storage': resolve(__dirname, '../utils/src/safe-storage.ts'),
-      '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
-      '@brainstrike/embeddings/runtime-config': resolve(
-        __dirname,
-        '../embeddings/src/runtime-config.ts'
-      ),
-      '@brainstrike/embeddings/provider-core': resolve(
-        __dirname,
-        '../embeddings/src/provider-core.ts'
-      ),
-      '@brainstrike/embeddings/backend': resolve(__dirname, '../embeddings/src/backend-entry.ts'),
-      '@brainstrike/embeddings/factory': resolve(__dirname, '../embeddings/src/factory-entry.ts'),
-      '@brainstrike/embeddings/service': resolve(__dirname, '../embeddings/src/service-entry.ts'),
-      '@brainstrike/embeddings/worker': resolve(__dirname, '../embeddings/src/worker-entry.ts'),
-      '@brainstrike/queue/browser': resolve(__dirname, '../queue/src/browser.ts'),
-      '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
-      '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
-      '@brainstrike/preferences': resolve(__dirname, '../preferences/src/index.ts'),
-    },
+    alias: [
+      {
+        find: '@brainstrike/workers/report-generation-worker',
+        replacement: resolve(__dirname, '../workers/report-generation-worker.ts'),
+      },
+      {
+        find: '@brainstrike/hooks',
+        replacement: resolve(__dirname, '../hooks/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/utils/token-counting-runtime',
+        replacement: resolve(__dirname, '../utils/src/token-counting-runtime.ts'),
+      },
+      {
+        find: '@brainstrike/utils/logger',
+        replacement: resolve(__dirname, '../utils/src/logger.ts'),
+      },
+      {
+        find: '@brainstrike/utils/safe-storage',
+        replacement: resolve(__dirname, '../utils/src/safe-storage.ts'),
+      },
+      {
+        find: '@brainstrike/utils',
+        replacement: resolve(__dirname, '../utils/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/runtime-config',
+        replacement: resolve(__dirname, '../embeddings/src/runtime-config.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/provider-core',
+        replacement: resolve(__dirname, '../embeddings/src/provider-core.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/backend',
+        replacement: resolve(__dirname, '../embeddings/src/backend-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/factory',
+        replacement: resolve(__dirname, '../embeddings/src/factory-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/service',
+        replacement: resolve(__dirname, '../embeddings/src/service-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/worker',
+        replacement: resolve(__dirname, '../embeddings/src/worker-entry.ts'),
+      },
+      {
+        find: '@brainstrike/queue/browser',
+        replacement: resolve(__dirname, '../queue/src/browser.ts'),
+      },
+      {
+        find: '@brainstrike/queue',
+        replacement: resolve(__dirname, '../queue/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/agent/client',
+        replacement: resolve(__dirname, '../agent/src/client.ts'),
+      },
+      {
+        find: /^@brainstrike\/preferences\/(.*)$/,
+        replacement: resolve(__dirname, '../preferences/src/$1'),
+      },
+      {
+        find: '@brainstrike/preferences',
+        replacement: resolve(__dirname, '../preferences/src/index.ts'),
+      },
+    ],
   },
 });

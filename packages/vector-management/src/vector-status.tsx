@@ -5,7 +5,8 @@ import {
   useVectorEnabled,
 } from '@brainstrike/db';
 import { TransformersBackend } from '@brainstrike/embeddings/backend';
-import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 // Import types to ensure global Window augmentation is available
 import '@brainstrike/types';

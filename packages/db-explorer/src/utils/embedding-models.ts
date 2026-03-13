@@ -1,6 +1,6 @@
 import type { ModelConfig } from '@brainstrike/embeddings/provider-core';
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
-import type { DbModel } from '@brainstrike/preferences';
+import type { DbModel } from '@brainstrike/preferences/stores/model-registry-store';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
 const LOCAL_PROVIDER_IDS = new Set<string>(['local', 'transformers']);

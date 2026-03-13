@@ -3,7 +3,8 @@ import {
   type EmbeddingProviderType,
   parseProviderModelKey,
 } from '@brainstrike/embeddings/provider-core';
-import { type DbModel, useModelRegistryStore } from '@brainstrike/preferences';
+import type { DbModel } from '@brainstrike/preferences/stores/model-registry-store';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import {
   Badge,
   Button,

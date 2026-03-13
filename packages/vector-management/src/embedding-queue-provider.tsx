@@ -2,7 +2,7 @@ import {
   registerEmbeddingQueueFactory,
   resetEmbeddingQueueFactory,
 } from '@brainstrike/embeddings/runtime-config';
-import { useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   addQueueTelemetryListener,
   createQueueTelemetryAggregator,
