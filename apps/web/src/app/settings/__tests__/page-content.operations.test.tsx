@@ -116,7 +116,7 @@ vi.mock('@brainstrike/agent/client', () => ({
   isNativeTool: (toolId: string) => toolId in mockState.nativeToolDefaults,
 }));
 
-vi.mock('@brainstrike/app-shell', () => ({
+vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   createSystemDiagnosticsSettingsCategory: (): MockSettingsCategory => ({
     id: 'diagnostics',
     title: 'Diagnostics',

@@ -83,23 +83,24 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-// Mock the app-shell component (do not import original to avoid transitive deps)
-vi.mock('@brainstrike/app-shell', () => ({
+// Mock the app-shell modules directly to avoid pulling the barrel into the test graph.
+vi.mock('@brainstrike/app-shell/navigation', () => ({
   navigationItems: [],
-  AppShell: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="app-shell">{children}</div>
-  ),
-  AppLayout: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="app-layout">
-      <main>{children}</main>
-    </div>
-  ),
-  createAppConfig: vi.fn(() => ({
-    title: 'BrainStrike.ai',
-    description: 'Multi-app dashboard',
-    themeStorageKey: 'app-theme',
-    navigationItems: [],
-  })),
+}));
+
+vi.mock('@brainstrike/app-shell/connected-prompt-manager-lazy', () => ({
+  ConnectedPromptManagerLazy: () => <div data-testid="connected-prompt-manager" />,
+}));
+
+vi.mock('@brainstrike/app-shell/stores/tools-panel-store', () => ({
+  toolsPanelSelectors: {
+    activeTab: (state: { activeTab: 'assistant' | 'database' }) => state.activeTab,
+  },
+  useToolsPanelStore: (selector: (state: { activeTab: 'assistant' | 'database' }) => unknown) =>
+    selector({ activeTab: activeToolsTab }),
+}));
+
+vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent: ({
     sidebarContent,
     homePageContent,
@@ -114,13 +115,6 @@ vi.mock('@brainstrike/app-shell', () => ({
       </div>
     </div>
   ),
-  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
-  ConnectedPromptManagerLazy: () => <div data-testid="connected-prompt-manager" />,
-  toolsPanelSelectors: {
-    activeTab: (state: { activeTab: 'assistant' | 'database' }) => state.activeTab,
-  },
-  useToolsPanelStore: (selector: (state: { activeTab: 'assistant' | 'database' }) => unknown) =>
-    selector({ activeTab: activeToolsTab }),
 }));
 
 // Mock the page components to avoid adapter dependencies

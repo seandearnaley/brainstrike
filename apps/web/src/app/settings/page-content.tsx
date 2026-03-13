@@ -1,5 +1,5 @@
 import { isNativeTool, NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/client';
-import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
+import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import {
   useFileExplorerStoreContext,

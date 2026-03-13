@@ -123,60 +123,27 @@ vi.mock('@brainstrike/db', () => ({
 
 let capturedOnNavigationClick: ((path: string) => void) | undefined;
 
-interface MockAppLayoutProps {
-  children: React.ReactNode;
-  config: {
-    title: string;
-    navigationItems: unknown[];
-  };
-  currentPath: string;
-  onNavigationClick?: (path: string) => void;
-}
-
-interface MockAppConfig {
-  description: string;
-  navigationItems: unknown[];
-  themeStorageKey: string;
-  title: string;
-}
-
-// Mock the app-shell package completely (no importOriginal to avoid loading real modules)
-// This prevents the entire import chain from being evaluated
-vi.mock('@brainstrike/app-shell', () => ({
-  // Mock navigationItems export
+vi.mock('@brainstrike/app-shell/navigation', () => ({
   navigationItems: [
     { path: '/', label: 'Explorer' },
     { path: '/settings', label: 'Settings' },
     { path: '/prompts', label: 'Prompts' },
   ],
-  // Mock ConnectedPromptManager
-  ConnectedPromptManager: () => null,
+}));
+
+vi.mock('@brainstrike/app-shell/connected-prompt-manager-lazy', () => ({
   ConnectedPromptManagerLazy: () => null,
+}));
+
+vi.mock('@brainstrike/app-shell/stores/tools-panel-store', () => ({
   toolsPanelSelectors: {
     activeTab: (state: { activeTab: 'assistant' | 'database' }) => state.activeTab,
   },
   useToolsPanelStore: (selector: (state: { activeTab: 'assistant' | 'database' }) => unknown) =>
     selector({ activeTab: activeToolsTab }),
-  // Mock AppLayout
-  AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
-    capturedOnNavigationClick = onNavigationClick;
-    return (
-      <div data-current-path={currentPath} data-testid="app-layout">
-        <div data-testid="app-config-title">{config.title}</div>
-        <div data-testid="navigation-items-count">{config.navigationItems.length}</div>
-        {children}
-      </div>
-    );
-  },
-  // Mock createAppConfig
-  createAppConfig: (config: Partial<MockAppConfig>) => ({
-    title: 'BrainStrike.ai',
-    description: 'Multi-app dashboard',
-    themeStorageKey: 'app-theme',
-    navigationItems: [],
-    ...config,
-  }),
-  // Mock RootLayoutContent with internal state management
+}));
+
+vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent({
     sidebarContent,
     homePageContent,

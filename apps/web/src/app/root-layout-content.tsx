@@ -1,11 +1,14 @@
-import type { NavigationItem, RootLayoutContentProps } from '@brainstrike/app-shell';
+import { ConnectedPromptManagerLazy } from '@brainstrike/app-shell/connected-prompt-manager-lazy';
+import { navigationItems } from '@brainstrike/app-shell/navigation';
 import {
-  ConnectedPromptManagerLazy,
-  navigationItems,
+  type RootLayoutContentProps,
   RootLayoutContent as SharedRootLayoutContent,
+} from '@brainstrike/app-shell/root-layout-content';
+import {
   toolsPanelSelectors,
   useToolsPanelStore,
-} from '@brainstrike/app-shell';
+} from '@brainstrike/app-shell/stores/tools-panel-store';
+import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
 import { useVectorPreferencesStore } from '@brainstrike/preferences';

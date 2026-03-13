@@ -11,14 +11,27 @@
  */
 
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui';
-import {
-  databaseStatusSelectors,
-  type SettingsCategory,
-  useDatabaseStatusStore,
-} from '@brainstrike/preferences';
+import { databaseStatusSelectors, useDatabaseStatusStore } from '@brainstrike/preferences';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
-import { Activity, CheckCircle2, Database, RefreshCw, Server, XCircle } from 'lucide-react';
-import { lazy, type ReactElement, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Activity,
+  CheckCircle2,
+  Database,
+  type LucideIcon,
+  RefreshCw,
+  Server,
+  XCircle,
+} from 'lucide-react';
+import {
+  lazy,
+  type ReactElement,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
@@ -28,6 +41,15 @@ const LazyQueueDiagnosticsPanel = lazy(async () => {
 });
 
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
+
+interface DiagnosticsSettingsCategory {
+  readonly description?: string;
+  readonly icon?: LucideIcon;
+  readonly id: string;
+  readonly keywords?: string[];
+  readonly render: () => ReactNode;
+  readonly title: string;
+}
 
 interface StatusBadgeProps {
   readonly label: string;
@@ -327,7 +349,7 @@ function ConnectedSystemDiagnosticsPanel(): ReactElement {
  * automatically reads token cache state from TokenCacheContext when
  * rendered inside a TokenCacheProvider.
  */
-export function createSystemDiagnosticsSettingsCategory(): SettingsCategory {
+export function createSystemDiagnosticsSettingsCategory(): DiagnosticsSettingsCategory {
   return {
     id: 'system-diagnostics',
     title: 'System Diagnostics',

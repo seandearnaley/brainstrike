@@ -36,6 +36,30 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./connected-prompt-manager-lazy": {
+      "types": "./dist/connected-prompt-manager-lazy.d.ts",
+      "import": "./dist/connected-prompt-manager-lazy.js"
+    },
+    "./diagnostics": {
+      "types": "./dist/diagnostics/index.d.ts",
+      "import": "./dist/diagnostics/index.js"
+    },
+    "./navigation": {
+      "types": "./dist/navigation.d.ts",
+      "import": "./dist/navigation.js"
+    },
+    "./root-layout-content": {
+      "types": "./dist/root-layout-content.d.ts",
+      "import": "./dist/root-layout-content.js"
+    },
+    "./stores/tools-panel-store": {
+      "types": "./dist/stores/tools-panel-store.d.ts",
+      "import": "./dist/stores/tools-panel-store.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
     "./styles.css": "./styles.css"
   },
   "files": [
