@@ -15,7 +15,7 @@ import type {
 } from '@brainstrike/types';
 import { PRESET_ICON_OPTIONS } from '@brainstrike/types';
 import { Button, cn, Input, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   Box,
   Check,
@@ -558,11 +558,7 @@ export function ViewFilterPresetDropdown({
   return (
     <Popover onOpenChange={handleOpenChange} open={isOpen}>
       <PopoverTrigger asChild>
-        <Button
-          className={cn('justify-between gap-2', className)}
-          disabled={loading}
-          variant="outline"
-        >
+        <Button className={cn('justify-between gap-2', className)} variant="outline">
           <div className="flex items-center gap-2 overflow-hidden">
             {React.createElement(selectedIconType, { className: 'size-4 shrink-0 text-primary' })}
             <span className="truncate font-medium">
@@ -601,6 +597,11 @@ export function ViewFilterPresetDropdown({
 
             {/* Preset List */}
             <div className="max-h-[300px] overflow-y-auto p-1">
+              {loading && filteredPresets.length === 0 && (
+                <div className="py-4 text-center text-muted-foreground text-sm">
+                  Loading presets...
+                </div>
+              )}
               {filteredPresets.map((preset) => {
                 const isEditing = editingId === preset.id;
                 const PresetIcon = getIcon(preset.icon);
@@ -665,7 +666,7 @@ export function ViewFilterPresetDropdown({
                 );
               })}
 
-              {filteredPresets.length === 0 && (
+              {!loading && filteredPresets.length === 0 && (
                 <div className="py-4 text-center text-muted-foreground text-sm">
                   No presets found
                 </div>

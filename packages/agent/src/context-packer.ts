@@ -1,4 +1,4 @@
-import { countTokensHeuristic } from '@brainstrike/utils';
+import { countTokensHeuristic } from '@brainstrike/text-splitter';
 
 interface OffsetRange {
   end?: number;

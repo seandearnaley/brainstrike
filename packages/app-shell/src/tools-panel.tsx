@@ -1,9 +1,9 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Database, MessageCircle } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { type ReactElement, useEffect, useRef, useState } from 'react';
 import { AssistantTab } from './assistant-tab';
-import { DatabaseTab } from './database-tab';
+import { DatabaseTab, preloadDatabaseTab } from './database-tab';
 import {
   sanitizeToolsPanelTab,
   toolsPanelSelectors,
@@ -11,32 +11,68 @@ import {
 } from './stores/tools-panel-store';
 
 interface ToolsPanelProps {
+  readonly chunkingMode?: 'host-proxy' | 'local';
   /**
-   * CRITICAL: The app-specific embedding queue from RootLayoutContent.
+   * CRITICAL: Lazy loader for the app-specific embedding queue from RootLayoutContent.
    *
-   * This queue flows through: RootLayoutContent → ToolsPanel (HERE) → DatabaseTab
+   * This loader flows through: RootLayoutContent → ToolsPanel (HERE) → DatabaseTab
    *
    * MUST be passed through to DatabaseTab! Without it, embedding
    * management and import operations will fail.
    */
-  embeddingQueue?: QueueAdapter | null;
+  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
+  readonly preloadDatabaseTabOnMount?: boolean;
 }
 
 /**
  * Tools panel containing Assistant and Database tabs.
  *
- * IMPORTANT: The embeddingQueue prop must be forwarded to DatabaseTab to ensure
+ * IMPORTANT: The loadEmbeddingQueue prop must be forwarded to DatabaseTab to ensure
  * embedding operations and import work correctly.
  */
-export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactElement {
+export function ToolsPanel({
+  chunkingMode = 'local',
+  loadEmbeddingQueue = null,
+  preloadDatabaseTabOnMount = false,
+}: ToolsPanelProps): ReactElement {
   const activeTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
   const setActiveTab = useToolsPanelStore((state) => state.setActiveTab);
+  const databaseTabPrefetchedRef = useRef<boolean>(false);
+  const [databaseTabMounted, setDatabaseTabMounted] = useState<boolean>(() => {
+    return preloadDatabaseTabOnMount || activeTab === 'database';
+  });
+
+  const prefetchDatabaseTab = (): void => {
+    if (databaseTabPrefetchedRef.current) {
+      return;
+    }
+    databaseTabPrefetchedRef.current = true;
+    void preloadDatabaseTab().catch(() => {
+      // Intent prefetch should not surface as an unhandled rejection during navigation/reload.
+      databaseTabPrefetchedRef.current = false;
+    });
+  };
+
+  useEffect(() => {
+    if (!preloadDatabaseTabOnMount) {
+      return;
+    }
+    prefetchDatabaseTab();
+  }, [preloadDatabaseTabOnMount]);
+
+  const handleTabChange = (value: string): void => {
+    const nextTab = sanitizeToolsPanelTab(value);
+    if (nextTab === 'database') {
+      setDatabaseTabMounted(true);
+    }
+    setActiveTab(nextTab);
+  };
 
   return (
     <div className="flex h-full flex-col">
       <Tabs
         className="flex min-h-0 flex-1 flex-col"
-        onValueChange={(value) => setActiveTab(sanitizeToolsPanelTab(value))}
+        onValueChange={handleTabChange}
         value={activeTab}
       >
         <TabsList className="flex h-9 w-full justify-start rounded-none border-b bg-transparent p-0">
@@ -51,6 +87,8 @@ export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactEle
           <TabsTrigger
             aria-label="Database"
             className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            onFocus={prefetchDatabaseTab}
+            onPointerEnter={prefetchDatabaseTab}
             value="database"
           >
             <Database className="h-3.5 w-3.5" />
@@ -71,9 +109,11 @@ export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactEle
             className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
             value="database"
           >
-            {/* CRITICAL: Pass embeddingQueue to DatabaseTab
-                This ensures import operations use the app's embedding queue */}
-            <DatabaseTab embeddingQueue={embeddingQueue} />
+            {databaseTabMounted ? (
+              /* CRITICAL: Pass loadEmbeddingQueue to DatabaseTab
+                 This keeps a single queue instance without eager startup work. */
+              <DatabaseTab chunkingMode={chunkingMode} loadEmbeddingQueue={loadEmbeddingQueue} />
+            ) : null}
           </TabsContent>
         </div>
       </Tabs>

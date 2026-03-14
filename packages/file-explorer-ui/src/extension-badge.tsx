@@ -1,5 +1,5 @@
 import { Badge, cn } from '@brainstrike/ui';
-import { getFolderColor } from '@brainstrike/utils';
+import { getFolderColor } from '@brainstrike/utils/color-utils';
 import * as React from 'react';
 
 type ExtensionBadgeSize = 'default' | 'compact';

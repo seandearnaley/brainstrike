@@ -16,7 +16,8 @@ import {
   resolveFileTreeWorkerUrl,
 } from '@brainstrike/file-tree-worker';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
-import { createLogger, isAbortError } from '@brainstrike/utils';
+import { isAbortError } from '@brainstrike/utils/error-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
 
 import { runWithConcurrency } from '../utils/concurrency';

@@ -1,8 +1,8 @@
 import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
-  useLoggingPreferencesStore,
-} from '@brainstrike/preferences';
+} from '@brainstrike/preferences/settings/system/logging-settings-section';
+import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
 import {
   Card,
   CardContent,
@@ -11,7 +11,7 @@ import {
   CardTitle,
   useToast,
 } from '@brainstrike/ui';
-import type { LoggingPreferences } from '@brainstrike/utils';
+import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import type { LoggingSettingsPayload } from '../../../logging-shared';
 import { getRendererLogBuffer } from '../../log-buffer';

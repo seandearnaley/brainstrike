@@ -1,4 +1,5 @@
-import { createLogger, type LoggingPreferences, type LogRecord } from '@brainstrike/utils';
+import { createLogger, type LogRecord } from '@brainstrike/utils/logger';
+import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import type { IpcMainEvent } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';

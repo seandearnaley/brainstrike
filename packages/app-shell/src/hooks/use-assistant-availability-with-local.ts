@@ -1,4 +1,5 @@
-import { hasEnabledLocalLlmModels, useModelRegistryStore } from '@brainstrike/preferences';
+import { hasEnabledLocalLlmModels } from '@brainstrike/preferences/models/local-model-utils';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useMemo } from 'react';
 import {
   type AssistantAvailabilityStatus,

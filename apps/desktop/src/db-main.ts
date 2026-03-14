@@ -17,7 +17,8 @@ import type {
   DatabaseInitFailureSnapshot,
   DatabaseInitStage,
 } from '@brainstrike/types';
-import { createLogger, defaultCollator } from '@brainstrike/utils';
+import { defaultCollator } from '@brainstrike/utils/collator';
+import { createLogger } from '@brainstrike/utils/logger';
 import { app } from 'electron';
 
 const logger = createLogger('DatabaseMain');

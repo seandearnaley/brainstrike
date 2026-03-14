@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveChunkingWorkerUrl } from '../index';
+import { CHUNKING_CONFIG, chunkContent, resolveChunkingWorkerUrl } from '../index';
 
 const setImportMetaOverride = (value: unknown) => {
   (globalThis as { __BRAINSTRIKE_IMPORT_META__?: unknown }).__BRAINSTRIKE_IMPORT_META__ = value;
@@ -60,5 +60,17 @@ describe('resolveChunkingWorkerUrl', () => {
     expect(() => resolveChunkingWorkerUrl()).toThrow('chunking worker URL');
     expect(() => resolveChunkingWorkerUrl()).toThrow('import.meta');
     expect(() => resolveChunkingWorkerUrl()).toThrow('ESM');
+  });
+
+  it('re-exports the chunking config and portable chunking helper', async () => {
+    expect(CHUNKING_CONFIG.maxChunkableSize).toBeGreaterThan(0);
+
+    const result = await chunkContent('const value = 1;', {
+      strategy: 'recursive',
+      fileName: 'example.ts',
+    });
+
+    expect(result.skipped).toBe(false);
+    expect(result.chunks.length).toBeGreaterThan(0);
   });
 });

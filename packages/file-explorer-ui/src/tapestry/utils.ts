@@ -1,4 +1,4 @@
-import { generateUUID } from '@brainstrike/utils';
+import { generateUUID } from '@brainstrike/utils/crypto';
 import type { FileTapestry, LineData, TapestryRange } from './types';
 
 const FILE_NAMES = [

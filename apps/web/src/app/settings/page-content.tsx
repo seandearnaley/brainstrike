@@ -1,21 +1,33 @@
-import { isNativeTool, NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/client';
-import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
+import {
+  isNativeTool,
+  NATIVE_TOOL_DEFAULTS,
+  type NativeToolDefaultMetadata,
+  TOOL_DESCRIPTIONS,
+} from '@brainstrike/agent/client';
+import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
-import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
+import {
+  useFileExplorerStoreContext,
+  useOptionalTokenCacheContext,
+} from '@brainstrike/file-explorer-ui';
+import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
+import {
+  LoggingSettingsSection,
+  type LogSourceAdapter,
+} from '@brainstrike/preferences/settings/system/logging-settings-section';
+import {
+  createToolsSettingsCategory,
+  type ToolDisplayMetadata,
+  type ToolExecutionResult,
+} from '@brainstrike/preferences/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
-  createTokenCountingSettingsCategory,
-  createToolsSettingsCategory,
-  LoggingSettingsSection,
-  type LogSourceAdapter,
-  ModelSelectionPage,
+  createTokenCountingSettingsCategoryWithRuntimeSupport,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
-  type ToolDisplayMetadata,
-  type ToolExecutionResult,
-  useNativeToolPreferencesStore,
-} from '@brainstrike/preferences';
+} from '@brainstrike/preferences/settings-page-content';
+import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
@@ -28,16 +40,18 @@ import { getWebLogBuffer } from '../../log-buffer';
 function getNativeToolsAsDisplayMetadata(
   isToolEnabled: (toolId: string) => boolean
 ): ToolDisplayMetadata[] {
-  return Object.entries(NATIVE_TOOL_DEFAULTS).map(([id, metadata]) => ({
-    id,
-    source: 'native' as const,
-    category: metadata.category,
-    loadingTier: metadata.loadingTier,
-    description: getToolDescription(id),
-    enabled: isToolEnabled(id),
-    estimatedTokens: metadata.estimatedTokens,
-    requiresApproval: metadata.requiresApproval,
-  }));
+  return Object.entries(NATIVE_TOOL_DEFAULTS as Record<string, NativeToolDefaultMetadata>).map(
+    ([id, metadata]: [string, NativeToolDefaultMetadata]) => ({
+      id,
+      source: 'native' as const,
+      category: metadata.category,
+      loadingTier: metadata.loadingTier,
+      description: getToolDescription(id),
+      enabled: isToolEnabled(id),
+      estimatedTokens: metadata.estimatedTokens,
+      requiresApproval: metadata.requiresApproval,
+    })
+  );
 }
 
 /**
@@ -59,6 +73,7 @@ function ModelSelectionCategory() {
 
 export default function SettingsPageContent() {
   const { storedFolders, clearStoredHandles } = useRestoreAccess();
+  const tokenCache = useOptionalTokenCacheContext();
 
   // Inline fixture state from file explorer store context
   const store = useFileExplorerStoreContext();
@@ -72,6 +87,13 @@ export default function SettingsPageContent() {
       subscribe: (handler) => buffer.subscribe(handler),
     };
   }, []);
+
+  const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
+    if (!tokenCache) {
+      return null;
+    }
+    return tokenCache.isOperational && tokenCache.countingMode === 'accurate';
+  }, [tokenCache]);
 
   // Tool operations for native tools (web has no MCP support)
   const toolOperations = useMemo(
@@ -135,7 +157,7 @@ export default function SettingsPageContent() {
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
-      createTokenCountingSettingsCategory(),
+      createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       {
         id: 'models',
         title: 'Models & Providers',
@@ -176,6 +198,7 @@ export default function SettingsPageContent() {
       devInlineFixtureEnabled,
       setDevInlineFixtureEnabled,
       toolOperations,
+      accurateRuntimeAvailable,
     ]
   );
 

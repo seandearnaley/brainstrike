@@ -2,7 +2,7 @@ import {
   type ContextLineRange,
   normalizeContextLineRanges,
   splitContentLines,
-} from '@brainstrike/utils';
+} from '@brainstrike/utils/report-generator';
 import type { TapestryRange } from '../tapestry/types';
 
 export interface ContextSelectedTokenSummary {

@@ -7,7 +7,7 @@
  */
 
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { JSX, ReactNode } from 'react';
 import {
   createContext,

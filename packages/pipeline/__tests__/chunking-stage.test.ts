@@ -517,10 +517,10 @@ describe('getRecommendedStrategy', () => {
     expect(getRecommendedStrategy('app.cpp')).toBe('recursive');
   });
 
-  it('recommends sentence for non-code files', () => {
-    expect(getRecommendedStrategy('README.md')).toBe('sentence');
+  it('recommends structure-aware strategies for non-code files', () => {
+    expect(getRecommendedStrategy('README.md')).toBe('semantic-markdown');
     expect(getRecommendedStrategy('document.txt')).toBe('sentence');
-    expect(getRecommendedStrategy('config.json')).toBe('sentence');
+    expect(getRecommendedStrategy('config.json')).toBe('json');
     expect(getRecommendedStrategy('data.csv')).toBe('sentence');
   });
 

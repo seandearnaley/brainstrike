@@ -292,6 +292,54 @@ vi.mock('@brainstrike/preferences', async () => {
   };
 });
 
+vi.mock('@brainstrike/preferences/hooks/use-model-registry', async () => {
+  return {
+    useEnsureModelRegistry: vi.fn(),
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/assistant-preferences-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    useAssistantPreferencesStore: preferences.useAssistantPreferencesStore,
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/model-registry-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    useModelRegistryStore: preferences.useModelRegistryStore,
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    useNativeToolPreferencesStore: preferences.useNativeToolPreferencesStore,
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/panel-layout-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    usePanelLayoutStore: preferences.usePanelLayoutStore,
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/secrets-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    useSecretsStore: preferences.useSecretsStore,
+  };
+});
+
+vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async () => {
+  const preferences = await import('@brainstrike/preferences');
+  return {
+    useVectorStatusUIStore: preferences.useVectorStatusUIStore,
+  };
+});
+
 const { mockDb } = vi.hoisted(() => ({
   mockDb: {
     query: vi.fn().mockResolvedValue({ rows: [] }),

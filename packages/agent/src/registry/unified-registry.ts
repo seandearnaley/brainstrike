@@ -11,7 +11,7 @@
  * @see tool-categories.ts for category and tier definitions
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { JSONSchema7 } from 'json-schema';
 import type { z } from 'zod';

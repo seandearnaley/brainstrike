@@ -14,7 +14,7 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: vi.fn(() => ({})),
 }));
 
-vi.mock('@brainstrike/embeddings', () => {
+vi.mock('@brainstrike/embeddings/service', () => {
   const MockService = vi.fn();
   MockService.prototype.downloadModel = vi.fn().mockRejectedValue(new Error('Network error'));
   return {
@@ -121,7 +121,7 @@ describe('ModelRegistrySettingsSection', () => {
   });
 
   it('successfully downloads a model', async () => {
-    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings');
+    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
     const mockDownload = vi.fn().mockResolvedValue(undefined);
     (SimpleEmbeddingService as unknown as ReturnType<typeof vi.fn>).prototype.downloadModel =
       mockDownload;

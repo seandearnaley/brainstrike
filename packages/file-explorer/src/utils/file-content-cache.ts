@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('FileContentCache');
 export const fileContentCacheLogger = logger;

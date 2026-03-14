@@ -1,0 +1,1 @@
+export { EmbeddingProviderFactory } from './factory';

@@ -36,7 +36,7 @@ interface TokenStatusBadgeProps {
 }
 
 const TokenStatusBadge = memo<TokenStatusBadgeProps>(function TokenStatusBadge({ tokenCounting }) {
-  const isAccurate = tokenCounting.mode === 'accurate';
+  const isAccurate = tokenCounting.mode === 'accurate' && tokenCounting.reason === null;
   const isLoading = tokenCounting.loading;
 
   if (isLoading) {
@@ -53,14 +53,20 @@ const TokenStatusBadge = memo<TokenStatusBadgeProps>(function TokenStatusBadge({
           <CheckCircle2
             className={`size-3 ${isAccurate ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}
           />
-          {isAccurate ? 'WASM' : 'Heuristic'}
+          {isAccurate
+            ? 'WASM'
+            : tokenCounting.reason === 'preference-disabled'
+              ? 'Heuristic'
+              : 'Unavailable'}
         </Badge>
       </TooltipTrigger>
       <TooltipContent side="bottom">
         <div className="text-xs">
           {isAccurate
             ? 'Using tiktoken WASM encoder for accurate token counts'
-            : 'Using 4 chars/token heuristic (less accurate)'}
+            : tokenCounting.reason === 'preference-disabled'
+              ? 'Using 4 chars/token heuristic because heuristic mode was explicitly selected'
+              : 'Accurate token counting is required, but the tiktoken WASM runtime is currently unavailable'}
         </div>
       </TooltipContent>
     </Tooltip>

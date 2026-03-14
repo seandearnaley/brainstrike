@@ -255,8 +255,23 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
   return {
     ...actual,
-    useEnsureModelRegistry: mockEnsureModelRegistry,
-    useLocalRuntimeEmbeddingModelCatalog: mockUseLocalRuntimeEmbeddingModelCatalog,
+  };
+});
+
+vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+  useEnsureModelRegistry: mockEnsureModelRegistry,
+}));
+
+vi.mock('@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog', () => ({
+  useLocalRuntimeEmbeddingModelCatalog: mockUseLocalRuntimeEmbeddingModelCatalog,
+}));
+
+vi.mock('@brainstrike/preferences/stores/model-registry-store', async () => {
+  const actual = await vi.importActual<
+    typeof import('@brainstrike/preferences/stores/model-registry-store')
+  >('@brainstrike/preferences/stores/model-registry-store');
+  return {
+    ...actual,
     useModelRegistryStore: mockUseModelRegistryStore,
   };
 });
@@ -425,7 +440,9 @@ describe('DatabaseDemoPanel', () => {
       await user.click(settingsButton);
 
       await waitFor(() => {
-        expect(screen.getByText('Chunking')).toBeInTheDocument();
+        expect(screen.getByText('Chunking Studio')).toBeInTheDocument();
+        expect(screen.getByText('Routing plan')).toBeInTheDocument();
+        expect(screen.getByText('Code module')).toBeInTheDocument();
         // Factory Reset was moved to global Preferences; it should not appear in Import Settings
         expect(screen.queryByText('Factory Reset')).not.toBeInTheDocument();
       });
@@ -446,10 +463,10 @@ describe('DatabaseDemoPanel', () => {
 
       // Wait for settings panel to be visible
       await waitFor(() => {
-        expect(screen.getByText('Chunking')).toBeInTheDocument();
+        expect(screen.getByText('Chunking Studio')).toBeInTheDocument();
       });
 
-      const chunkingCheckbox = screen.getByLabelText('Chunking');
+      const chunkingCheckbox = screen.getByLabelText('Enable chunking');
       expect(chunkingCheckbox).toBeChecked();
       await user.click(chunkingCheckbox);
       await waitFor(() => {
@@ -459,6 +476,26 @@ describe('DatabaseDemoPanel', () => {
       await waitFor(() => {
         expect(chunkingCheckbox).toBeChecked();
       });
+    }, 10_000);
+
+    it('renders chunking preset badges in dedicated status rows', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Import Settings/ })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: /Import Settings/ }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('chunking-preset-status-balanced')).toBeInTheDocument();
+        expect(screen.getByTestId('chunking-preset-status-codebase')).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId('chunking-preset-status-balanced')).toHaveTextContent('Adaptive');
+      expect(screen.getByTestId('chunking-preset-status-balanced')).toHaveTextContent('auto');
+      expect(screen.getByTestId('chunking-preset-status-codebase')).toHaveTextContent('Adaptive');
     }, 10_000);
   });
 

@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('DesktopAssistantHttpStream');
 export const assistantServerHttpStreamLogger = logger;

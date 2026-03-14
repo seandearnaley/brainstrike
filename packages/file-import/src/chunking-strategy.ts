@@ -1,35 +1,12 @@
-import type { ChunkingStrategy } from '@brainstrike/db';
-import { fileExplorer } from '@brainstrike/utils';
+import {
+  type ChunkingStrategy,
+  type ResolvedChunkingStrategy,
+  resolveChunkingStrategyForFile,
+} from '@brainstrike/text-splitter';
 
 export function getChunkingStrategy(
   filePath: string,
-  defaultStrategy?: ChunkingStrategy
-): ChunkingStrategy {
-  if (defaultStrategy) {
-    return defaultStrategy;
-  }
-
-  const extension = fileExplorer.getFileExtension(filePath);
-  const codeExtensions = [
-    'js',
-    'ts',
-    'jsx',
-    'tsx',
-    'py',
-    'java',
-    'cpp',
-    'c',
-    'h',
-    'cs',
-    'php',
-    'rb',
-    'go',
-    'rs',
-  ];
-
-  if (codeExtensions.includes(extension)) {
-    return 'recursive';
-  }
-
-  return 'sentence';
+  requestedStrategy: ChunkingStrategy = 'auto'
+): ResolvedChunkingStrategy {
+  return resolveChunkingStrategyForFile(filePath, requestedStrategy);
 }

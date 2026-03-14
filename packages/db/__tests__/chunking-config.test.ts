@@ -4,6 +4,7 @@ import { CHUNKING_CONFIG } from '../src/config/chunking-config';
 describe('CHUNKING_CONFIG', () => {
   it('should have correct file size limits', () => {
     expect(CHUNKING_CONFIG.maxChunkableSize).toBe(500 * 1024);
+    expect(CHUNKING_CONFIG.maxBatchSize).toBe(500);
   });
 
   it('should have correct default chunk parameters', () => {
@@ -51,6 +52,7 @@ describe('CHUNKING_CONFIG', () => {
   it('should have all expected properties', () => {
     const expectedKeys = [
       'maxChunkableSize',
+      'maxBatchSize',
       'defaultMaxTokens',
       'defaultOverlap',
       'largeStructuredMaxTokens',

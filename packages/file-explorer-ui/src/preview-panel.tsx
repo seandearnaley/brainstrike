@@ -16,7 +16,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { createLogger, getFileExtension } from '@brainstrike/utils';
+import { getFileExtension } from '@brainstrike/utils/file-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   CheckSquare,
   FileText,

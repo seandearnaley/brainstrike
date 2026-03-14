@@ -145,6 +145,37 @@ vi.mock('@brainstrike/utils', async () => {
     },
   };
 });
+
+vi.mock('@brainstrike/utils/logger', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
+    '@brainstrike/utils/logger'
+  );
+  return {
+    ...actual,
+    createLogger: createLoggerMock,
+  };
+});
+
+vi.mock('@brainstrike/utils/logging-initializer', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils/logging-initializer')>(
+    '@brainstrike/utils/logging-initializer'
+  );
+  return {
+    ...actual,
+    initializeLogging: initializeLoggingMock,
+  };
+});
+
+vi.mock('@brainstrike/utils/logging-preferences', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils/logging-preferences')>(
+    '@brainstrike/utils/logging-preferences'
+  );
+  return {
+    ...actual,
+    createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
+    applyLoggingPreferences: applyLoggingPreferencesMock,
+  };
+});
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('electron-store', () => {
   const MockElectronStore = vi.fn();

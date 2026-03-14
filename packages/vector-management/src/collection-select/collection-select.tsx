@@ -1,6 +1,6 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
-import { useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 

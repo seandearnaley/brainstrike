@@ -35,6 +35,9 @@
       "path": "../queue"
     },
     {
+      "path": "../text-splitter"
+    },
+    {
       "path": "../utils"
     }
   ]

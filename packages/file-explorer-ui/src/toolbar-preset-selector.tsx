@@ -9,7 +9,8 @@
  */
 
 import type { ViewFilterPreset } from '@brainstrike/types';
-import { createLogger, isDevEnv } from '@brainstrike/utils';
+import { isDevEnv } from '@brainstrike/utils/env-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';

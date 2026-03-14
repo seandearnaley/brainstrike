@@ -5,6 +5,7 @@
  * in both browser and Electron contexts.
  */
 
+import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
 import {
   boolean,
   customType,
@@ -109,7 +110,7 @@ export const fileRecords = pgTable(
     embeddingSetId: uuid('embedding_set_id'),
     chunksProcessedAt: timestamp('chunks_processed_at', { withTimezone: true }),
     chunksCount: integer('chunks_count'),
-    chunkingStrategy: text('chunking_strategy'),
+    chunkingStrategy: text('chunking_strategy').$type<ResolvedChunkingStrategy>(),
   },
   (table) => [
     index('idx_file_records_path').on(table.path),

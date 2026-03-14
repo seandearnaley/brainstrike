@@ -63,11 +63,12 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('Worker', class {});
 
     const { queue, add } = createQueueStub();
-    add.mockResolvedValueOnce(createQueueResult('warmup', [0.1, 0.2]));
     add.mockResolvedValueOnce(createQueueResult('task', [0.4, 0.6]));
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 
@@ -85,10 +86,8 @@ describe('TransformersBackend queue integration', () => {
     expect(result.embedding[0]).toBeCloseTo(0.4, 5);
     expect(result.embedding[1]).toBeCloseTo(0.6, 5);
     expect(result.dimensions).toBe(2);
-    expect(add).toHaveBeenCalledTimes(2);
-    const warmupCall = add.mock.calls[0]![0] as QueueAddCall;
-    expect((warmupCall as QueueAddCall).texts).toEqual(['.']);
-    const enqueueCall = add.mock.calls[1]![0] as QueueAddCall;
+    expect(add).toHaveBeenCalledTimes(1);
+    const enqueueCall = add.mock.calls[0]![0] as QueueAddCall;
     expect((enqueueCall as QueueAddCall).texts).toEqual(['queue-text']);
     expect((enqueueCall as QueueAddCall).truncateDim).toBe(2);
     expect(pipelineMock).not.toHaveBeenCalled();
@@ -103,11 +102,12 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('Worker', class {});
 
     const { queue, add } = createQueueStub();
-    add.mockResolvedValueOnce(createQueueResult('warmup', [0.1, 0.2]));
     add.mockRejectedValueOnce(new Error('queue offline'));
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 
@@ -121,7 +121,7 @@ describe('TransformersBackend queue integration', () => {
     await expect(backend.generateEmbedding('queue-text', 'bge-m3')).rejects.toThrow(
       'queue offline'
     );
-    expect(add).toHaveBeenCalledTimes(2);
+    expect(add).toHaveBeenCalledTimes(1);
     expect(pipelineMock).not.toHaveBeenCalled();
 
     await backend.dispose();
@@ -150,12 +150,13 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('Worker', class {});
 
     const { queue, add } = createQueueStub();
-    add.mockResolvedValueOnce(createQueueResult('warmup', [0.1, 0.2]));
     add.mockResolvedValueOnce(createQueueResult('first', [0.3, 0.7]));
     add.mockResolvedValueOnce(createQueueResult('second', [0.6, 0.4]));
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 
@@ -171,10 +172,10 @@ describe('TransformersBackend queue integration', () => {
     backend.setTargetDimensions(-10);
     await backend.generateEmbedding('second-text', 'bge-m3');
 
-    const firstCall = add.mock.calls[1]![0] as QueueAddCall;
+    const firstCall = add.mock.calls[0]![0] as QueueAddCall;
     expect((firstCall as QueueAddCall).truncateDim).toBe(3);
 
-    const secondCall = add.mock.calls[2]![0] as QueueAddCall;
+    const secondCall = add.mock.calls[1]![0] as QueueAddCall;
     expect((secondCall as QueueAddCall).truncateDim).toBeUndefined();
 
     await backend.dispose();
@@ -186,10 +187,10 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('Worker', class {});
 
     const { queue, add } = createQueueStub();
-    add.mockResolvedValueOnce(createQueueResult('warmup', [0.2, 0.8]));
-
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 
@@ -201,7 +202,7 @@ describe('TransformersBackend queue integration', () => {
     });
 
     await backend.dispose();
-    expect(add).toHaveBeenCalledTimes(1);
+    expect(add).not.toHaveBeenCalled();
     expect(pipelineMock).not.toHaveBeenCalled();
     resetEmbeddingQueueFactory();
   });
@@ -210,8 +211,10 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('Worker', class {});
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => {
       throw new Error('creation failed');
@@ -235,11 +238,12 @@ describe('TransformersBackend queue integration', () => {
     vi.stubGlobal('Worker', class {});
 
     const { queue, add } = createQueueStub();
-    add.mockResolvedValueOnce(createQueueResult('warmup', [0.1, 0.2]));
     add.mockRejectedValueOnce(new Error('runtime explode'));
 
-    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
-      await import('../transformers-backend');
+    const { TransformersBackend } = await import('../transformers-backend');
+    const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+      '../runtime-config'
+    );
 
     registerEmbeddingQueueFactory(() => queue);
 
@@ -253,7 +257,7 @@ describe('TransformersBackend queue integration', () => {
     await expect(backend.generateEmbedding('hello world', 'bge-m3')).rejects.toThrow(
       'runtime explode'
     );
-    expect(add).toHaveBeenCalledTimes(2);
+    expect(add).toHaveBeenCalledTimes(1);
     expect(pipelineMock).not.toHaveBeenCalled();
     resetEmbeddingQueueFactory();
   });

@@ -6,7 +6,7 @@ import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electro
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { createRequestId } from '@brainstrike/worker-runtime';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';

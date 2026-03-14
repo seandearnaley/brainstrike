@@ -3,10 +3,11 @@ import {
   type EmbeddingWorkerController,
   POWER_BROADCAST_CHANNEL,
   startEmbeddingWorker,
-} from '@brainstrike/embeddings';
-import { useModelRegistryStore } from '@brainstrike/preferences';
-import { createLogger } from '@brainstrike/utils';
+} from '@brainstrike/embeddings/worker';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
+import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 
 const logger = createLogger('EmbeddingWorkerProvider');
 
@@ -51,6 +52,7 @@ function createWorkerConfig(
     concurrency: Number(import.meta.env['VITE_EMBED_CONCURRENCY'] ?? 1) || 1,
     leaseMs: Number(import.meta.env['VITE_EMBED_LEASE_MS'] ?? 60_000) || 60_000,
     modelKey: import.meta.env['VITE_EMBED_MODEL_KEY'] || undefined,
+    streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
     log: (msg: string, meta?: unknown) => {
       if (meta) {
         logger.info(msg, meta);

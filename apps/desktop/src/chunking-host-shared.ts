@@ -1,3 +1,4 @@
+import type { ChunkingStrategy } from '@brainstrike/text-splitter';
 import type {
   BackgroundRuntimeStatus,
   RuntimeEnvelopeObjectPayloadBase,
@@ -35,7 +36,7 @@ export const CHUNKING_HOST_GET_STATUS_CHANNEL = CHUNKING_HOST_LIFECYCLE_CHANNELS
 export const CHUNKING_HOST_CHUNK_FILE_CHANNEL = CHUNKING_HOST_CHANNELS.chunkFile;
 export const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = CHUNKING_HOST_CHANNELS.chunkBatch;
 
-export type ChunkingHostChunkingStrategy = 'sentence' | 'token' | 'recursive';
+export type ChunkingHostChunkingStrategy = ChunkingStrategy;
 
 export interface ChunkingHostRequestOptions {
   readonly allowLargeFiles?: boolean;
@@ -228,9 +229,16 @@ function readOptionalStrategyOption(
     return;
   }
   if (
+    requestedStrategy !== 'auto' &&
+    requestedStrategy !== 'character' &&
     requestedStrategy !== 'sentence' &&
     requestedStrategy !== 'token' &&
-    requestedStrategy !== 'recursive'
+    requestedStrategy !== 'recursive' &&
+    requestedStrategy !== 'markdown' &&
+    requestedStrategy !== 'semantic-markdown' &&
+    requestedStrategy !== 'html' &&
+    requestedStrategy !== 'json' &&
+    requestedStrategy !== 'latex'
   ) {
     throw new Error('Chunking host request options has invalid requestedStrategy.');
   }

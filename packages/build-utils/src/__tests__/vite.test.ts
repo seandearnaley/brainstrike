@@ -4,7 +4,17 @@ import path from 'node:path';
 import type { HmrContext } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { findPGliteWasm, fullReloadOnCompilerHotspots } = await import('../vite');
+const {
+  findPGliteWasm,
+  fullReloadOnCompilerHotspots,
+  getAssistantOptimizeDepsInclude,
+  getCoreAppOptimizeDepsInclude,
+  getDatabaseOptimizeDepsInclude,
+  getHeavyRuntimeOptimizeDepsExclude,
+  getLazySurfaceOptimizeDepsEntries,
+  getWorkerpoolBrowserStubAliases,
+  resolveAssistantVendorChunk,
+} = await import('../vite');
 
 afterEach(() => {
   vi.resetAllMocks();
@@ -28,6 +38,103 @@ describe('findPGliteWasm', () => {
     mkdirSync(appDir, { recursive: true });
 
     expect(findPGliteWasm(appDir)).toBeNull();
+  });
+});
+
+describe('assistant vite helpers', () => {
+  test('returns shared startup optimize-deps package ids', () => {
+    expect(getCoreAppOptimizeDepsInclude()).toEqual(
+      expect.arrayContaining([
+        'idb',
+        'minimatch',
+        'pino',
+        'react-helmet-async',
+        'react-hotkeys-hook',
+        'react-router-dom',
+        'tiktoken',
+        'tiktoken/lite/init',
+        'xxhash-wasm',
+        'zod',
+        'zustand/shallow',
+        '@radix-ui/react-accordion',
+        '@radix-ui/react-checkbox',
+        '@radix-ui/react-dialog',
+        '@radix-ui/react-scroll-area',
+        '@radix-ui/react-tabs',
+        '@radix-ui/react-toast',
+      ])
+    );
+  });
+
+  test('returns assistant optimize-deps package ids', () => {
+    const entries = getAssistantOptimizeDepsInclude();
+
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        '@assistant-ui/react',
+        '@assistant-ui/react-data-stream',
+        '@assistant-ui/react-markdown',
+        'react-shiki/core',
+        'remark-gfm',
+        'shiki/wasm',
+        '@shikijs/themes/github-light',
+        '@shikijs/langs/typescript',
+      ])
+    );
+    expect(entries.some((entry) => entry.includes('@assistant-ui/styles'))).toBe(false);
+  });
+
+  test('returns database lazy-panel optimize-deps package ids', () => {
+    expect(getDatabaseOptimizeDepsInclude()).toEqual(
+      expect.arrayContaining(['jszip', 'file-saver', 'react-resizable-panels'])
+    );
+  });
+
+  test('returns heavy runtime optimize-deps exclusions', () => {
+    expect(getHeavyRuntimeOptimizeDepsExclude()).toEqual(
+      expect.arrayContaining(['@huggingface/transformers'])
+    );
+  });
+
+  test('returns lazy-surface entry points for assistant and database tabs', () => {
+    const appDir = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-app-'));
+    writeFileSync(path.join(appDir, 'index.html'), '<!doctype html>');
+    const entries = getLazySurfaceOptimizeDepsEntries(appDir);
+
+    expect(entries).toEqual([
+      `${appDir}/index.html`,
+      expect.stringContaining('/packages/app-shell/src/tools-panel.tsx'),
+      expect.stringContaining('/packages/app-shell/src/assistant-tab.tsx'),
+      expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
+      expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),
+      expect.stringContaining('/packages/app-shell/src/database-tab.tsx'),
+      expect.stringContaining('/packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx'),
+      expect.stringContaining('/packages/ui/src/assistant-ui-panel/markdown-text.tsx'),
+      expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),
+      expect.stringContaining('/packages/db-explorer/src/database-demo-panel.tsx'),
+    ]);
+  });
+
+  test('fails fast when a required lazy-surface entry is missing', () => {
+    const appDir = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-app-'));
+    writeFileSync(path.join(appDir, 'index.html'), '<!doctype html>');
+
+    expect(() =>
+      getLazySurfaceOptimizeDepsEntries(
+        appDir,
+        (entry) => !entry.includes('/packages/db-explorer/src/database-demo-panel.tsx')
+      )
+    ).toThrow(/Lazy-surface optimizeDeps entry does not exist/);
+  });
+
+  test('classifies assistant vendor chunks consistently', () => {
+    expect(
+      resolveAssistantVendorChunk('/workspace/node_modules/@assistant-ui/react/index.js')
+    ).toBe('assistant-vendor');
+    expect(
+      resolveAssistantVendorChunk('/workspace/node_modules/@shikijs/langs/typescript.mjs')
+    ).toBe('assistant-markdown-vendor');
+    expect(resolveAssistantVendorChunk('/workspace/node_modules/react/index.js')).toBeUndefined();
   });
 });
 
@@ -82,5 +189,18 @@ describe('fullReloadOnCompilerHotspots', () => {
       expect(send).not.toHaveBeenCalled();
       expect(result).toBeUndefined();
     }
+  });
+});
+
+describe('getWorkerpoolBrowserStubAliases', () => {
+  it('returns explicit browser-safe aliases for workerpool node builtins', () => {
+    const aliases = getWorkerpoolBrowserStubAliases('/tmp/brainstrike-app');
+    expect(aliases['child_process']).toBe(
+      '/packages/build-utils/src/browser-node-stubs/child-process.ts'
+    );
+    expect(aliases['os']).toBe('/packages/build-utils/src/browser-node-stubs/os.ts');
+    expect(aliases['worker_threads']).toBe(
+      '/packages/build-utils/src/browser-node-stubs/worker-threads.ts'
+    );
   });
 });

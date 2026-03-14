@@ -1,4 +1,4 @@
-import type { LoggingPreferences } from '@brainstrike/utils';
+import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 
 export interface LoggingCapabilities {
   canSelectDestination: boolean;

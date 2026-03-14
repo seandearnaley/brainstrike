@@ -63,6 +63,42 @@ test.describe('Database Persistence', () => {
     }
   }
 
+  async function readImportSettingsState(page: Page): Promise<{
+    chunkingPreset: string;
+    chunkingStrategy: string;
+  }> {
+    return await page.evaluate(() => {
+      const stored = window.localStorage.getItem('import-settings.v1');
+      if (!stored) {
+        throw new Error('import-settings.v1 is missing');
+      }
+      const parsed = JSON.parse(stored) as {
+        state?: {
+          chunkingPreset?: string;
+          chunkingStrategy?: string;
+        };
+      };
+      const chunkingPreset = parsed.state?.chunkingPreset;
+      const chunkingStrategy = parsed.state?.chunkingStrategy;
+      if (typeof chunkingPreset !== 'string' || typeof chunkingStrategy !== 'string') {
+        throw new Error('Import settings state is missing canonical chunking fields');
+      }
+      return { chunkingPreset, chunkingStrategy };
+    });
+  }
+
+  async function selectChunkingPreset(page: Page, presetName: RegExp): Promise<void> {
+    const presetButton = page.getByRole('button', { name: presetName });
+    await expect(presetButton).toBeVisible({ timeout: 10_000 });
+    await presetButton.scrollIntoViewIfNeeded();
+    await presetButton.evaluate((element) => {
+      if (!(element instanceof HTMLElement)) {
+        throw new Error('Chunking preset button is not an HTMLElement');
+      }
+      element.click();
+    });
+  }
+
   async function verifyDatabaseConnection(page: Page): Promise<void> {
     if (await isDatabaseError(page)) {
       const errorText = await page.locator('[data-testid="db-init-error"]').textContent();
@@ -208,6 +244,25 @@ test.describe('Database Persistence', () => {
     throw new Error('Neither success panel nor error panel is visible');
   });
 
+  test('opening database panel does not reload the visible renderer', async ({ window }) => {
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+    const activeWindow = await showDatabaseDemoPanel(window);
+
+    await expect
+      .poll(async () => activeWindow.evaluate(() => performance.timeOrigin), {
+        timeout: 10_000,
+        message: 'Opening the database panel should not reload the visible renderer',
+      })
+      .toBe(initialTimeOrigin);
+
+    await expect(
+      activeWindow
+        .locator('[data-testid="database-demo-panel"]')
+        .or(activeWindow.locator('[data-testid="db-init-error"]'))
+        .first()
+    ).toBeVisible({ timeout: 15_000 });
+  });
+
   test('should show correct database location info', async ({ window }) => {
     const activeWindow = await ensureDatabasePanel(window);
 
@@ -253,6 +308,90 @@ test.describe('Database Persistence', () => {
     }
 
     throw new Error('Neither success panel, connected status, nor error panel is visible');
+  });
+
+  test('should persist non-legacy chunking preset selection across renderer reload', async ({
+    window,
+  }) => {
+    let activeWindow = await ensureDatabasePanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator('[data-testid="db-init-error"]').first()).toBeVisible();
+      return;
+    }
+
+    await expandImportSettings(activeWindow);
+    await selectChunkingPreset(activeWindow, /^Docs/);
+    await expect(activeWindow.getByText('Preset linked')).toBeVisible({ timeout: 10_000 });
+
+    await expect
+      .poll(async () => await readImportSettingsState(activeWindow), {
+        timeout: 10_000,
+      })
+      .toEqual({
+        chunkingPreset: 'docs',
+        chunkingStrategy: 'semantic-markdown',
+      });
+
+    await activeWindow.reload();
+    activeWindow = await ensureDatabasePanel(activeWindow);
+
+    await expect
+      .poll(async () => await readImportSettingsState(activeWindow), {
+        timeout: 10_000,
+      })
+      .toEqual({
+        chunkingPreset: 'docs',
+        chunkingStrategy: 'semantic-markdown',
+      });
+  });
+
+  test('should persist adaptive codebase preset routing across renderer reload', async ({
+    window,
+  }) => {
+    let activeWindow = await ensureDatabasePanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator('[data-testid="db-init-error"]').first()).toBeVisible();
+      return;
+    }
+
+    await expandImportSettings(activeWindow);
+    await selectChunkingPreset(activeWindow, /^Codebase/);
+    await expect(activeWindow.getByText('Adaptive presets still route each file type')).toBeVisible(
+      { timeout: 10_000 }
+    );
+    await expect(activeWindow.getByText('docs/getting-started.md')).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(activeWindow.getByText('src/assistant/retrieval.ts')).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect
+      .poll(async () => await readImportSettingsState(activeWindow), {
+        timeout: 10_000,
+      })
+      .toEqual({
+        chunkingPreset: 'codebase',
+        chunkingStrategy: 'auto',
+      });
+
+    await activeWindow.reload();
+    activeWindow = await ensureDatabasePanel(activeWindow);
+    await expandImportSettings(activeWindow);
+    await expect(activeWindow.getByText('Adaptive presets still route each file type')).toBeVisible(
+      { timeout: 10_000 }
+    );
+
+    await expect
+      .poll(async () => await readImportSettingsState(activeWindow), {
+        timeout: 10_000,
+      })
+      .toEqual({
+        chunkingPreset: 'codebase',
+        chunkingStrategy: 'auto',
+      });
   });
 
   async function createTestDataForClearTest(page: Page): Promise<boolean> {
