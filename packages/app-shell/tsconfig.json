@@ -21,6 +21,12 @@
       "@brainstrike/types/*": [
         "../types/src/*"
       ],
+      "@brainstrike/text-splitter": [
+        "../text-splitter/src/index.ts"
+      ],
+      "@brainstrike/text-splitter/*": [
+        "../text-splitter/src/*"
+      ],
       "@brainstrike/preferences/*": [
         "../preferences/src/*"
       ],

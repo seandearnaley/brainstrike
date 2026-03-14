@@ -237,8 +237,9 @@ function mapRecordRow(row: FileRecordRow): FileRecord {
   if (row.chunksCount !== null) {
     record.chunksCount = Number(row.chunksCount);
   }
-  if (isResolvedChunkingStrategy(row.chunkingStrategy)) {
-    record.chunkingStrategy = row.chunkingStrategy;
+  const resolvedChunkingStrategy = row.chunkingStrategy;
+  if (isResolvedChunkingStrategy(resolvedChunkingStrategy)) {
+    record.chunkingStrategy = resolvedChunkingStrategy;
   }
 
   return record;
