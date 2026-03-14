@@ -116,8 +116,7 @@ export const DEFAULT_LARGE_STRUCTURED_PATTERNS = [
   /\.log$/i,
 ] as const;
 
-export function detectCodeLanguage(fileName: string): SharedCodeLanguage | null;
-export function detectCodeLanguage<TLanguage extends string>(
+export function detectCodeLanguage<TLanguage extends string = SharedCodeLanguage>(
   fileName: string,
   patterns?: ReadonlyArray<{ readonly language: TLanguage; readonly pattern: RegExp }>
 ): TLanguage | null {

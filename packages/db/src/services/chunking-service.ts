@@ -157,9 +157,7 @@ export class ChunkingService {
     content: string,
     options: ChunkingOptions
   ): { maxTokens: number; overlap: number } {
-    return adjustChunkingForFileTypeShared(content, options, CHUNKING_CONFIG, (fileName: string) =>
-      detectCodeLanguage(fileName)
-    );
+    return adjustChunkingForFileTypeShared(content, options, CHUNKING_CONFIG, detectCodeLanguage);
   }
 
   // (legacy) processChunks removed; streaming path is preferred.
