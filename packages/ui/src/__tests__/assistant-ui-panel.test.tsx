@@ -15,8 +15,9 @@ vi.mock('@assistant-ui/react-data-stream', () => ({
   useDataStreamRuntime: () => ({ runtime: 'test-runtime' }),
 }));
 
-vi.mock('../../src/assistant-ui-panel/markdown-text', () => ({
-  MarkdownText: () => <div data-testid="markdown-text" />,
+vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
+  AssistantMessageText: () => <div data-testid="markdown-text" />,
+  preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../src/assistant-ui-panel/tool-fallback', () => ({

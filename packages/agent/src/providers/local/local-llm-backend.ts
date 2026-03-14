@@ -3,7 +3,7 @@
  *
  * Supports text generation with tool/function calling via ONNX models.
  */
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,
@@ -140,7 +140,7 @@ let transformersModulePromise: Promise<TransformersModule> | null = null;
  * Separated to avoid complex union types in promise chains.
  */
 async function loadTransformersModule(): Promise<TransformersModule> {
-  const mod: unknown = await import('@huggingface/transformers');
+  const mod: unknown = await import(/* @vite-ignore */ '@huggingface/transformers');
 
   // Runtime validation using type guard
   if (!isTransformersModule(mod)) {

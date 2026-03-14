@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 const logger = createLogger('BackgroundHostErrorBoundary');

@@ -1,8 +1,10 @@
-import { DatabaseDemoPanel } from '@brainstrike/db-explorer';
+import { DatabaseDemoPanel } from '@brainstrike/db-explorer/database-demo-panel';
+import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type React from 'react';
 
 interface DatabaseTabProps {
+  readonly chunkingMode?: 'host-proxy' | 'local';
   /**
    * CRITICAL: The embedding queue from the app layer.
    *
@@ -28,11 +30,16 @@ interface DatabaseTabProps {
  * IMPORTANT: This component MUST forward the embeddingQueue prop to DatabaseDemoPanel.
  * The queue is created at the app level and needs to be shared across import operations.
  */
-export function DatabaseTab({ embeddingQueue = null }: DatabaseTabProps): React.ReactElement {
+export function DatabaseTab({
+  chunkingMode = 'local',
+  embeddingQueue = null,
+}: DatabaseTabProps): React.ReactElement {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Pass embeddingQueue to DatabaseDemoPanel for import operations */}
-      <DatabaseDemoPanel embeddingQueue={embeddingQueue} />
+      <ChunkingWorkerProvider autoStart={false} mode={chunkingMode}>
+        {/* Pass embeddingQueue to DatabaseDemoPanel for import operations */}
+        <DatabaseDemoPanel embeddingQueue={embeddingQueue} />
+      </ChunkingWorkerProvider>
     </div>
   );
 }

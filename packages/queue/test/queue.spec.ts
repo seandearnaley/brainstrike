@@ -8,6 +8,8 @@ import {
   type QueueTelemetryEvent,
 } from '../src/telemetry';
 
+const TEST_WORKER_URL = 'https://example.invalid/embedding.worker.js';
+
 type CancellablePromise = Promise<unknown> & { cancel: () => void };
 
 const workerpoolMocks = vi.hoisted(() => {
@@ -101,26 +103,6 @@ vi.mock('workerpool', () => ({
   workerEmit: vi.fn(),
 }));
 
-vi.mock('@brainstrike/embedding-worker', () => ({
-  resolveEmbeddingWorkerUrl: () => new URL('https://example.invalid/embedding.worker.js'),
-  computeInitialBatchSize: (total: number, preferred?: number) => {
-    const heuristic = Math.ceil(total / 8);
-    const cap = preferred ?? 16;
-    return Math.max(1, Math.min(cap, heuristic));
-  },
-  l2Normalize: (vector: Float32Array) => vector,
-  truncateVector: (vector: Float32Array) => vector,
-  vectorsFromPipelineOutput: (output: unknown) => {
-    if (output instanceof Float32Array) {
-      return [output];
-    }
-    if (Array.isArray(output)) {
-      return (output as number[][]).map((row) => Float32Array.from(row));
-    }
-    return [Float32Array.of(1)];
-  },
-}));
-
 const minimalTask = {
   kind: 'embed' as const,
   deviceHint: 'webgpu' as const,
@@ -156,7 +138,7 @@ function setWorkerSupport(): void {
 describe('createWorkerpoolAdapter', () => {
   it('executes jobs through workerpool and surfaces progress', async () => {
     setWorkerSupport();
-    const adapter = createWorkerpoolAdapter();
+    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
     const events: unknown[] = [];
     adapter.onProgress((event) => events.push(event));
     const result = await adapter.add(minimalTask);
@@ -175,7 +157,7 @@ describe('createWorkerpoolAdapter', () => {
 
   it('forwards provider embedding metadata to worker requests', async () => {
     setWorkerSupport();
-    const adapter = createWorkerpoolAdapter();
+    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
     await adapter.add({
       ...minimalTask,
       provider: 'openai',
@@ -211,7 +193,7 @@ describe('createWorkerpoolAdapter', () => {
       return promise;
     });
 
-    const adapter = createWorkerpoolAdapter();
+    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
     adapter.pause();
     const pending = adapter.add(minimalTask);
     await Promise.resolve();
@@ -239,7 +221,7 @@ describe('createWorkerpoolAdapter', () => {
 
   it('supports idempotent resume and cancel, and rejects adds after cancel', async () => {
     setWorkerSupport();
-    const adapter = createWorkerpoolAdapter();
+    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
 
     adapter.resume();
     await adapter.cancel();
@@ -279,7 +261,7 @@ describe('createWorkerpoolAdapter', () => {
       return promise;
     });
 
-    const adapter = createWorkerpoolAdapter();
+    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
 
     const preAborted = new AbortController();
     preAborted.abort();
@@ -328,7 +310,7 @@ describe('createWorkerpoolAdapter', () => {
       return promise;
     });
 
-    const adapter = createWorkerpoolAdapter();
+    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
     const taskPromise = adapter.add({ ...minimalTask, id: 'drain-task' });
     await Promise.resolve();
     expect(adapter.isProcessing).toBe(true);
@@ -368,7 +350,7 @@ describe('createWorkerpoolAdapter', () => {
       return promise;
     });
 
-    const adapter = createWorkerpoolAdapter();
+    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
     const taskPromise = adapter.add({ ...minimalTask, id: 'cancel-task' });
 
     await expect(adapter.cancel()).resolves.toBeUndefined();
@@ -382,7 +364,7 @@ describe('createWorkerpoolAdapter', () => {
 describe('queue telemetry', () => {
   it('emits telemetry events for the workerpool adapter', async () => {
     setWorkerSupport();
-    const adapter = createWorkerpoolAdapter();
+    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
     const events: QueueTelemetryEvent[] = [];
     const unsubscribe = addQueueTelemetryListener((event) => {
       if (event.taskId === 'telemetry-workerpool') {
@@ -402,7 +384,7 @@ describe('queue telemetry', () => {
   it('includes workerpool pending-task metadata when pool stats are available', async () => {
     setWorkerSupport();
     workerpoolMocks.setStatsImplementation(() => ({ pendingTasks: 7 }));
-    const adapter = createWorkerpoolAdapter();
+    const adapter = createWorkerpoolAdapter({ workerUrl: TEST_WORKER_URL });
     const events: QueueTelemetryEvent[] = [];
 
     const unsubscribe = addQueueTelemetryListener((event) => {
@@ -456,15 +438,29 @@ describe('queue telemetry', () => {
 describe('createBrowserEmbeddingQueue', () => {
   it('uses workerpool when Worker is available', async () => {
     setWorkerSupport();
-    const queue = createBrowserEmbeddingQueue();
+    const queue = createBrowserEmbeddingQueue({
+      worker: { workerUrl: TEST_WORKER_URL },
+    });
     const result = await queue.add(minimalTask);
     expect(result.metadata.device).toBe('webgpu');
   });
 
   it('throws when Worker is unavailable', () => {
     (globalThis as Partial<typeof globalThis>).Worker = undefined;
+    expect(() =>
+      createBrowserEmbeddingQueue({
+        worker: { workerUrl: TEST_WORKER_URL },
+      })
+    ).toThrow('Embedding queue requires Web Workers; this environment does not support them.');
+  });
+
+  it('fails fast when workerUrl is missing', () => {
+    setWorkerSupport();
+    expect(() => createWorkerpoolAdapter()).toThrow(
+      'createWorkerpoolAdapter requires an explicit workerUrl.'
+    );
     expect(() => createBrowserEmbeddingQueue()).toThrow(
-      'Embedding queue requires Web Workers; this environment does not support them.'
+      'createBrowserEmbeddingQueue requires an explicit worker.workerUrl.'
     );
   });
 });

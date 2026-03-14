@@ -1,6 +1,10 @@
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
-import { type EmbeddingProviderType, parseProviderModelKey } from '@brainstrike/embeddings';
-import { type DbModel, useModelRegistryStore } from '@brainstrike/preferences';
+import {
+  type EmbeddingProviderType,
+  parseProviderModelKey,
+} from '@brainstrike/embeddings/provider-core';
+import type { DbModel } from '@brainstrike/preferences/stores/model-registry-store';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import {
   Badge,
   Button,
@@ -12,7 +16,7 @@ import {
   type ModelPickerModel,
   type ModelPickerProvider,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';

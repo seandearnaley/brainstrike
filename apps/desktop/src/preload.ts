@@ -11,7 +11,8 @@ import type {
   LayoutPersistenceResult,
   PanelPersistenceState,
 } from '@brainstrike/ui';
-import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import type { LogRecord } from '@brainstrike/utils/logger';
+import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 // Sandboxed preloads cannot depend on additional local modules at runtime.
@@ -38,6 +39,8 @@ const CHUNKING_HOST_GET_STATUS_CHANNEL = 'chunking-host:get-status' as const;
 const CHUNKING_HOST_CHUNK_FILE_CHANNEL = 'chunking-host:chunk-file' as const;
 const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = 'chunking-host:chunk-batch' as const;
 const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
+const DESKTOP_TEST_MODE =
+  process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 
 type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 type ChunkingHostLifecycleState = EmbeddingHostLifecycleState;
@@ -251,6 +254,7 @@ contextBridge.exposeInMainWorld('settings', {
 contextBridge.exposeInMainWorld('desktopLifecycle', {
   noteReloadIntent: (reason: string) =>
     ipcRenderer.invoke(APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL, reason),
+  isTestMode: DESKTOP_TEST_MODE,
 });
 
 // Local Agent API (non-streaming aggregate; renderer can pseudo-stream chunks)

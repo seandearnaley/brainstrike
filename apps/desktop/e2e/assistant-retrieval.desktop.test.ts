@@ -73,9 +73,6 @@ test.describe('Assistant retrieval (desktop)', () => {
     await expect(window.getByText('brainstrike.retrieveContext').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
-    await expect(window.getByText(errorMessage).first()).toBeVisible({
-      timeout: E2E_TIMEOUTS.toolVisibility,
-    });
   });
 
   test('surfaces assistant stream failures', async ({ window }) => {

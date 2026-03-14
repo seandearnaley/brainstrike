@@ -7,7 +7,7 @@ import {
   ScrollArea,
   useToast,
 } from '@brainstrike/ui';
-import { isDevEnv } from '@brainstrike/utils';
+import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { AlertTriangle, ArrowLeft, Bug, FileWarning, RefreshCw, Server, X } from 'lucide-react';
 import { memo } from 'react';
 

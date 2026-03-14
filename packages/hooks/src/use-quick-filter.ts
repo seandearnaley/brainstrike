@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { parseFilterString } from '@brainstrike/utils';
+import { parseFilterString } from '@brainstrike/utils/quick-filter-utils';
 import { useCallback, useMemo, useState } from 'react';
 import { filterTreeIterative } from './filter-tree';
 import { useDebouncedValue } from './use-debounced-value';

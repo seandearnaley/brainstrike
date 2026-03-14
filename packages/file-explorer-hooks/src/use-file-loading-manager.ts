@@ -6,7 +6,7 @@
  */
 
 import type { FileContents } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useState } from 'react';
 
 interface UseFileLoadingManagerProps {

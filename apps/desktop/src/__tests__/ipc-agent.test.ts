@@ -356,6 +356,90 @@ describe('registerAgentIpcHandlers', () => {
       });
     });
 
+    it('passes filesystem MCP config through to the agent runtime', async () => {
+      const mockStreamMastraAgent = vi.fn().mockReturnValue({
+        [Symbol.asyncIterator]: () => ({
+          async next() {
+            return { done: true, value: undefined };
+          },
+        }),
+      });
+
+      const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g.__agentModule = {
+        streamMastraAgent: mockStreamMastraAgent,
+      } as unknown as typeof import('@brainstrike/agent');
+
+      const { loadMcpConfig } = await import('../mcp-loader');
+      const { readOpenAIApiKey } = await import('../openai-api-key');
+      const rawConfig = {
+        servers: [{ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['/tmp'] }],
+      };
+      vi.mocked(loadMcpConfig).mockResolvedValue({ config: rawConfig } as never);
+      vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
+
+      const messages = [
+        {
+          id: '1',
+          role: 'user' as const,
+          parts: [{ type: 'text' as const, text: 'Hello' }],
+        },
+      ];
+
+      await chatHandler({} as IpcMainInvokeEvent, messages, { provider: 'openai' });
+
+      expect(mockStreamMastraAgent).toHaveBeenCalledWith(
+        messages,
+        expect.objectContaining({
+          runtime: expect.objectContaining({ mcpConfig: rawConfig }),
+        })
+      );
+    });
+
+    it('ignores runtime-supplied MCP config and uses the loaded desktop config', async () => {
+      const mockStreamMastraAgent = vi.fn().mockReturnValue({
+        [Symbol.asyncIterator]: () => ({
+          async next() {
+            return { done: true, value: undefined };
+          },
+        }),
+      });
+
+      const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g.__agentModule = {
+        streamMastraAgent: mockStreamMastraAgent,
+      } as unknown as typeof import('@brainstrike/agent');
+
+      const { loadMcpConfig } = await import('../mcp-loader');
+      const { readOpenAIApiKey } = await import('../openai-api-key');
+      const rawConfig = {
+        servers: [{ name: 'filesystem', transport: 'stdio', command: 'npx', args: ['/tmp'] }],
+      };
+      vi.mocked(loadMcpConfig).mockResolvedValue({ config: rawConfig } as never);
+      vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
+
+      const messages = [
+        {
+          id: '1',
+          role: 'user' as const,
+          parts: [{ type: 'text' as const, text: 'Hello' }],
+        },
+      ];
+
+      await chatHandler({} as IpcMainInvokeEvent, messages, {
+        provider: 'openai',
+        mcpConfig: rawConfig as never,
+      });
+
+      expect(mockStreamMastraAgent).toHaveBeenCalledTimes(1);
+      const [, options] = mockStreamMastraAgent.mock.calls[0] as [
+        unknown,
+        { runtime: Record<string, unknown> },
+      ];
+      expect(options.runtime.provider).toBe('openai');
+      expect(options.runtime.mcpConfig).toEqual(rawConfig);
+    });
+
     it('throws when provider is missing or unsupported', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
       vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback');

@@ -1,5 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
-import { decodeFileSelection, fileExplorer } from '@brainstrike/utils';
+import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
+import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
 import {

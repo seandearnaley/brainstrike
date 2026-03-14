@@ -1,4 +1,4 @@
-import { isDevEnv } from '@brainstrike/utils';
+import { isDevEnv } from '@brainstrike/utils/env-utils';
 import type { ReactNode } from 'react';
 import { createContext, useContext, useMemo, useRef } from 'react';
 import type { PanelPersistenceAdapter } from '../hooks/panel-persistence-adapters';

@@ -32,6 +32,7 @@
  * ```
  */
 
+import { resolveChunkingStrategyForFile } from '@brainstrike/text-splitter';
 import type {
   ChunkingInput,
   ChunkingOutput,
@@ -39,6 +40,7 @@ import type {
   ChunkOutput,
   ContentHash,
   FileId,
+  ResolvedChunkingStrategy,
 } from './types.js';
 
 // =============================================================================
@@ -68,7 +70,7 @@ export interface WorkerChunkResult {
   id: string;
   skipped: boolean;
   skipReason?: string;
-  strategyUsed: ChunkingStrategy;
+  strategyUsed: ResolvedChunkingStrategy;
   totalTokens: number;
   type: 'result';
 }
@@ -558,58 +560,9 @@ function buildFailedBatchResult(
 /**
  * Common code file extensions that benefit from recursive chunking.
  */
-const CODE_EXTENSIONS = new Set([
-  '.js',
-  '.ts',
-  '.jsx',
-  '.tsx',
-  '.py',
-  '.java',
-  '.cpp',
-  '.c',
-  '.h',
-  '.cs',
-  '.php',
-  '.rb',
-  '.go',
-  '.rs',
-  '.swift',
-  '.kt',
-  '.scala',
-  '.vue',
-  '.svelte',
-]);
-
-/**
- * Get the recommended chunking strategy for a file.
- *
- * @param filePath - File path to analyze
- * @param defaultStrategy - Fallback strategy
- * @returns Recommended chunking strategy
- */
 export function getRecommendedStrategy(
   filePath: string,
-  defaultStrategy: ChunkingStrategy = 'sentence'
+  defaultStrategy: ChunkingStrategy = 'auto'
 ): ChunkingStrategy {
-  const extension = getExtension(filePath);
-
-  if (CODE_EXTENSIONS.has(extension)) {
-    return 'recursive';
-  }
-
-  return defaultStrategy;
-}
-
-/**
- * Extract file extension from path.
- */
-function getExtension(filePath: string): string {
-  const lastDot = filePath.lastIndexOf('.');
-  const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
-
-  if (lastDot === -1 || lastDot < lastSlash) {
-    return '';
-  }
-
-  return filePath.slice(lastDot).toLowerCase();
+  return resolveChunkingStrategyForFile(filePath, defaultStrategy);
 }

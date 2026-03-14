@@ -13,15 +13,15 @@ import type {
   FileSystemAdapter,
   IFileNode,
 } from '@brainstrike/types';
+import { fileFilter } from '@brainstrike/utils/path-filter';
 import {
-  fileFilter,
   findNodeByPath as findNodeByPathGeneric,
   isLoading as isLoadingGeneric,
   needsLoading as needsLoadingGeneric,
   setNodeLoadState as setNodeLoadStateGeneric,
   sortTreeNodes,
   updateNodeChildren as updateNodeChildrenGeneric,
-} from '@brainstrike/utils';
+} from '@brainstrike/utils/tree-operations';
 
 export interface LazyLoadOptions {
   /** AbortSignal for cancellation support */

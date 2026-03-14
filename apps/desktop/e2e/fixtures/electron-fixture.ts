@@ -148,6 +148,7 @@ class ElectronHarness {
     const normalizedMessage = error.message.toLowerCase();
     return (
       normalizedMessage.includes('page crashed') ||
+      normalizedMessage.includes('net::err_file_not_found') ||
       normalizedMessage.includes('target page, context or browser has been closed') ||
       normalizedMessage.includes('navigation failed because page crashed') ||
       normalizedMessage.includes('navigation failed because page was closed')
@@ -169,6 +170,7 @@ class ElectronHarness {
 
 interface ElectronTestFixtures {
   electronApp: ElectronAppContext;
+  electronHarness: ElectronHarness;
   /** Failure artifact collector - automatically captures diagnostics on test failure */
   failureCollector: FailureArtifactCollector;
   homePage: HomePage;
@@ -183,12 +185,13 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
   electron: [
     async ({}, use, workerInfo) => {
       const shardIndex = workerInfo.config.shard?.current ?? 0;
+      const workerIndex = workerInfo.workerIndex;
       const runSalt = getRunSalt();
 
       // NOTE: We no longer use explicit debug ports - Playwright manages CDP automatically.
       // This prevents "Waiting for debugger to disconnect" hangs in CI.
       // We still isolate user data directories per shard to prevent state collisions.
-      const userDataDir = deriveUserDataDir(runSalt, shardIndex);
+      const userDataDir = deriveUserDataDir(runSalt, shardIndex, workerIndex);
 
       const harness = new ElectronHarness(undefined, userDataDir);
       try {
@@ -203,6 +206,10 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
   electronApp: async ({ electron }, use) => {
     const context = await electron.ensureContext();
     await use(context);
+  },
+
+  electronHarness: async ({ electron }, use) => {
+    await use(electron);
   },
 
   window: async ({ electron }, use, testInfo: TestInfo) => {
@@ -257,7 +264,15 @@ function getRunSalt(): number {
 // NOTE: deriveDebugPort was removed - Playwright now manages CDP ports automatically
 // to prevent "Waiting for debugger to disconnect" hangs in CI.
 
-function deriveUserDataDir(runSalt: number, shardIndex: number): string | undefined {
+function deriveUserDataDir(
+  runSalt: number,
+  shardIndex: number,
+  workerIndex: number
+): string | undefined {
   const shardSuffix = Number.isInteger(shardIndex) ? shardIndex : 0;
-  return path.join(os.tmpdir(), `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}`);
+  const workerSuffix = Number.isInteger(workerIndex) ? workerIndex : 0;
+  return path.join(
+    os.tmpdir(),
+    `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}-worker-${workerSuffix}`
+  );
 }

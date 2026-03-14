@@ -9,7 +9,7 @@
  * Integrates with both native tools and MCP tools through the unified registry.
  */
 
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { TokenBudgetManager, ToolSelectionResult } from './token-budget-manager';
 import type { ToolLoadingTier } from './tool-categories';

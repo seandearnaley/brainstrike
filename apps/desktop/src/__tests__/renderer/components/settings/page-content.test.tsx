@@ -21,6 +21,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
     };
     return mockStore;
   },
+  useOptionalTokenCacheContext: () => null,
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -210,19 +211,27 @@ describe('Desktop SettingsPageContent', () => {
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
   });
 });
-vi.mock('@brainstrike/preferences', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
+vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/preferences/settings-page-content')>();
   return {
     ...actual,
-    EmbeddingSettings: vi.fn(() => <div data-testid="embedding-settings-mock" />),
-    ModelSelectionPage: vi.fn(() => (
-      <div data-testid="model-selection-page-mock">
-        <h4>Provider API Keys</h4>
-        <label htmlFor="provider-select">Provider</label>
-        <select aria-label="Provider" id="provider-select" />
-        <label htmlFor="api-key-input">API Key</label>
-        <input aria-label="API Key" id="api-key-input" />
-      </div>
-    )),
+    createTokenCountingSettingsCategoryWithRuntimeSupport: vi.fn(() => ({
+      id: 'token-counting',
+      title: 'Token Counting',
+      render: () => <div data-testid="token-counting-settings-mock" />,
+    })),
   };
 });
+
+vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
+  ModelSelectionPage: vi.fn(() => (
+    <div data-testid="model-selection-page-mock">
+      <h4>Provider API Keys</h4>
+      <label htmlFor="provider-select">Provider</label>
+      <select aria-label="Provider" id="provider-select" />
+      <label htmlFor="api-key-input">API Key</label>
+      <input aria-label="API Key" id="api-key-input" />
+    </div>
+  )),
+}));

@@ -11,18 +11,16 @@ import {
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
 import { getElectronAPI, hasElectronAPI } from '../lib/electron-utils';
 
-// Mock @brainstrike/utils
-vi.mock('@brainstrike/utils', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
-  return {
-    ...actual,
-    isDevEnv: vi.fn(() => false),
-    createDebounce: vi.fn((fn: (...args: unknown[]) => void, _ms: number) => ({
-      run: vi.fn((state) => fn(state)),
-      flush: vi.fn(() => Promise.resolve()),
-    })),
-  };
-});
+vi.mock('@brainstrike/utils/env-utils', () => ({
+  isDevEnv: vi.fn(() => false),
+}));
+
+vi.mock('@brainstrike/utils/create-debounce', () => ({
+  createDebounce: vi.fn((fn: (...args: unknown[]) => void, _ms: number) => ({
+    run: vi.fn((state: unknown) => fn(state)),
+    flush: vi.fn(() => Promise.resolve()),
+  })),
+}));
 
 // Mock localStorage
 const localStorageMock = {

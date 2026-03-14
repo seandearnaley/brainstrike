@@ -1,4 +1,4 @@
-import type { FileToIndex } from '@brainstrike/token-cache';
+import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
@@ -23,7 +23,7 @@ const mockBackgroundIndexer = {
   progress: null,
 };
 
-vi.mock('@brainstrike/token-cache', () => ({
+vi.mock('@brainstrike/token-cache/background-indexer', () => ({
   useBackgroundTokenIndexer: (opts: {
     onFileIndexed?: (compositeKey: string, tokenCount: number, fileSize: number) => void;
     onFileError?: (compositeKey: string, error: string) => void;

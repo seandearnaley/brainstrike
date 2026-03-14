@@ -1,4 +1,4 @@
-import { generateUUID } from '@brainstrike/utils';
+import { generateUUID } from '@brainstrike/utils/crypto';
 import type { McpServer } from '../mcp-loader';
 import type { McpClient, PendingEntry } from './types';
 

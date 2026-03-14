@@ -4,7 +4,7 @@ import type {
   LocalRuntimeModelCatalogState,
 } from '@brainstrike/agent/client';
 import { isLoadedRuntimeModelCatalogState } from '@brainstrike/agent/client';
-import type { DbModel, DbProvider } from '@brainstrike/preferences';
+import type { DbModel, DbProvider } from '@brainstrike/preferences/stores/model-registry-store';
 import { useMemo } from 'react';
 
 interface AvailableModel {

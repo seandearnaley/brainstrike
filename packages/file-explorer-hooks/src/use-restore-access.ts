@@ -1,5 +1,5 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
 

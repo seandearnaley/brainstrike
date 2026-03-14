@@ -94,6 +94,7 @@ describe('createChunkingWorkerPort', () => {
     it('should start with isReady() returning false', () => {
       const port = createChunkingWorkerPort(mockWorker);
       expect(port.isReady()).toBe(false);
+      expect(mockWorker.getPostedMessages()).toEqual([{ type: 'init' }]);
     });
 
     it('should set isReady() to true when worker sends ready message', () => {
@@ -109,6 +110,7 @@ describe('createChunkingWorkerPort', () => {
     it('should post a chunk request to the worker', async () => {
       const port = createChunkingWorkerPort(mockWorker);
       mockWorker.simulateMessage({ type: 'ready' });
+      mockWorker.clearPostedMessages();
 
       // Start chunking but don't await yet
       const promise = port.chunkFile('file-1', 'content', 'test.ts', '/test.ts', {
@@ -156,6 +158,7 @@ describe('createChunkingWorkerPort', () => {
     it('should reject with error when worker reports error', async () => {
       const port = createChunkingWorkerPort(mockWorker);
       mockWorker.simulateMessage({ type: 'ready' });
+      mockWorker.clearPostedMessages();
 
       const promise = port.chunkFile('file-1', 'bad content', 'test.ts', '/test.ts', {
         strategy: 'sentence',
@@ -178,6 +181,7 @@ describe('createChunkingWorkerPort', () => {
     it('should post a batch request to the worker', async () => {
       const port = createChunkingWorkerPort(mockWorker);
       mockWorker.simulateMessage({ type: 'ready' });
+      mockWorker.clearPostedMessages();
 
       const files = [
         { fileRecordId: 'file-1', content: 'content 1', fileName: 'a.ts', filePath: '/a.ts' },
@@ -228,6 +232,7 @@ describe('createChunkingWorkerPort', () => {
     it('should call progress callbacks during batch processing', async () => {
       const port = createChunkingWorkerPort(mockWorker);
       mockWorker.simulateMessage({ type: 'ready' });
+      mockWorker.clearPostedMessages();
 
       const files = [
         { fileRecordId: 'file-1', content: 'content 1', fileName: 'a.ts', filePath: '/a.ts' },
@@ -289,6 +294,7 @@ describe('createChunkingWorkerPort', () => {
     it('should reject batch when any file errors', async () => {
       const port = createChunkingWorkerPort(mockWorker);
       mockWorker.simulateMessage({ type: 'ready' });
+      mockWorker.clearPostedMessages();
 
       const files = [
         { fileRecordId: 'file-1', content: 'content 1', fileName: 'a.ts', filePath: '/a.ts' },
@@ -317,6 +323,7 @@ describe('createChunkingWorkerPort', () => {
     it('enters terminal failure state on tokenizer initialization errors', async () => {
       const port = createChunkingWorkerPort(mockWorker);
       mockWorker.simulateMessage({ type: 'ready' });
+      mockWorker.clearPostedMessages();
 
       const files = [
         { fileRecordId: 'file-1', content: 'content 1', fileName: 'a.ts', filePath: '/a.ts' },

@@ -364,7 +364,9 @@ jobs:
 
       - name: Get Playwright version
         id: playwright-version
-        run: echo "version=$(node -e "console.log(require('./packages/storage/package.json').devDependencies['@vitest/browser-playwright'])")" >> $GITHUB_OUTPUT
+        run: |
+          version=$(node -p "require('./packages/storage/package.json').devDependencies['@vitest/browser-playwright']")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -438,7 +440,9 @@ jobs:
 
       - name: Get Playwright version
         id: playwright-version
-        run: echo "version=$(node -e "console.log(require('./apps/web/package.json').devDependencies['@playwright/test'])")" >> $GITHUB_OUTPUT
+        run: |
+          version=$(node -p "require('./apps/web/package.json').devDependencies['@playwright/test']")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright browsers
         id: playwright-cache

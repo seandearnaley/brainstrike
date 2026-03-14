@@ -1,5 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
-import { fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
+import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
+import { isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo, useState } from 'react';
 
 export interface UseFileTreeNodeSelectionProps {

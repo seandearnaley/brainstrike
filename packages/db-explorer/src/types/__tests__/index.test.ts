@@ -91,7 +91,9 @@ describe('types module', () => {
     const settings: ImportSettings = {
       enableChunking: true,
       setEnableChunking: () => {},
-      chunkingStrategy: 'sentence',
+      chunkingPreset: 'balanced',
+      setChunkingPreset: () => {},
+      chunkingStrategy: 'auto',
       setChunkingStrategy: () => {},
       chunkingStrategyExplicit: false,
       chunkSize: 500,
@@ -104,7 +106,7 @@ describe('types module', () => {
       setChunkTokenLimit: () => {},
     };
     expect(settings.enableChunking).toBe(true);
-    expect(settings.chunkingStrategy).toBe('sentence');
+    expect(settings.chunkingStrategy).toBe('auto');
   });
 
   it('ExportHandlers type has all required methods', () => {

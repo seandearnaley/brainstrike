@@ -1,6 +1,6 @@
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
-import { useVectorStatusUIStore } from '@brainstrike/preferences';
-import { createLogger } from '@brainstrike/utils';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('useIndexedChunkCount');

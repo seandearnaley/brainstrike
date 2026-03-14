@@ -24,6 +24,9 @@
     ],
     "baseUrl": ".",
     "paths": {
+      "@brainstrike/utils": [
+        "../../packages/utils/dist/index.d.ts"
+      ],
       "@brainstrike/agent": [
         "../../packages/agent/dist/index.d.ts"
       ],
@@ -38,6 +41,27 @@
       ],
       "@brainstrike/file-system/path-validation": [
         "../../packages/file-system/dist/path-validation.d.ts"
+      ],
+      "@brainstrike/utils/logger": [
+        "../../packages/utils/dist/logger.d.ts"
+      ],
+      "@brainstrike/utils/logging-initializer": [
+        "../../packages/utils/dist/logging-initializer.d.ts"
+      ],
+      "@brainstrike/utils/log-buffer": [
+        "../../packages/utils/dist/log-buffer.d.ts"
+      ],
+      "@brainstrike/utils/logging-preferences": [
+        "../../packages/utils/dist/logging-preferences.d.ts"
+      ],
+      "@brainstrike/utils/collator": [
+        "../../packages/utils/dist/collator.d.ts"
+      ],
+      "@brainstrike/utils/crypto": [
+        "../../packages/utils/dist/crypto.d.ts"
+      ],
+      "@brainstrike/utils/safe-storage": [
+        "../../packages/utils/dist/safe-storage.d.ts"
       ]
     },
     "strictNullChecks": true

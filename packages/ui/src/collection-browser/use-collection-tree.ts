@@ -5,7 +5,8 @@
  * for the Collection Browser. Handles filtering, sorting, and memoization.
  */
 
-import { defaultCollator, englishCollator, getFileExtension } from '@brainstrike/utils';
+import { defaultCollator, englishCollator } from '@brainstrike/utils/collator';
+import { getFileExtension } from '@brainstrike/utils/file-utils';
 import * as React from 'react';
 import { warnCycleOnce } from '../lib/cycle-warning';
 import type { TreeNode } from '../tree-table/types';

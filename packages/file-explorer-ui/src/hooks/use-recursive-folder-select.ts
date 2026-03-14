@@ -14,7 +14,9 @@
 import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger, fileExplorer, isAbortError } from '@brainstrike/utils';
+import { isAbortError } from '@brainstrike/utils/error-utils';
+import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useOptionalFileExplorerStoreContext } from '../file-explorer-provider';

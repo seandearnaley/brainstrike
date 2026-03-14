@@ -1,5 +1,5 @@
 import type { PanelPersistenceState } from '@brainstrike/ui';
-import type { LoggingPreferences } from '@brainstrike/utils';
+import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 
 export interface DesktopWindowBounds {
   height: number;

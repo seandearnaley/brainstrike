@@ -54,6 +54,7 @@ export type {
 } from './interfaces/provider';
 // Export model dimension helpers
 export { isValidDimension, validateDimensions } from './model-dimensions';
+export * from './provider-core';
 export type {
   DistanceMetric,
   EmbeddingInput,
@@ -89,12 +90,15 @@ export {
   resolveHostedProviderApiKey,
 } from './providers/hosted/api-key-resolver';
 export { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
-// Export backend and utilities
 export {
+  getRegisteredEmbeddingRuntimeConfig,
   registerEmbeddingQueueFactory,
+  registerEmbeddingRuntimeConfig,
   resetEmbeddingQueueFactory,
-  TransformersBackend,
-} from './transformers-backend';
+  resetEmbeddingRuntimeConfig,
+} from './runtime-config';
+// Export backend and utilities
+export { TransformersBackend } from './transformers-backend';
 export type {
   EmbeddingConfig,
   EmbeddingProgress,

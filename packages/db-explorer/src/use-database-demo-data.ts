@@ -9,9 +9,11 @@ import {
   type usePGliteDatabase,
   usePGliteLiveQuery,
 } from '@brainstrike/db';
-import { useDatabaseStatusStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database-status-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { isResolvedChunkingStrategy } from '@brainstrike/text-splitter';
 import type { useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const logger = createLogger('DatabaseDemoData');
@@ -235,12 +237,9 @@ function mapRecordRow(row: FileRecordRow): FileRecord {
   if (row.chunksCount !== null) {
     record.chunksCount = Number(row.chunksCount);
   }
-  if (
-    row.chunkingStrategy === 'sentence' ||
-    row.chunkingStrategy === 'token' ||
-    row.chunkingStrategy === 'recursive'
-  ) {
-    record.chunkingStrategy = row.chunkingStrategy;
+  const resolvedChunkingStrategy = row.chunkingStrategy;
+  if (isResolvedChunkingStrategy(resolvedChunkingStrategy)) {
+    record.chunkingStrategy = resolvedChunkingStrategy;
   }
 
   return record;

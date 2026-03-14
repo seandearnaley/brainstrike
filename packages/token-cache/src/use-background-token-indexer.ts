@@ -151,6 +151,8 @@ export interface UseBackgroundTokenIndexerOptions {
   onProgress?: (progress: IndexingProgress) => void;
   /** Token cache store for persistence (null to disable indexing) */
   store: TokenCacheStoreLike | null;
+  /** Worker URL override for app-owned worker graphs */
+  workerUrl?: string;
 }
 
 export interface UseBackgroundTokenIndexerReturn {
@@ -185,8 +187,8 @@ interface PendingBatchTracker {
  * Uses the URL resolver pattern which is compatible with both Vite and tsup builds.
  * The worker is pre-built to JavaScript by tsup, and Vite copies it to the output.
  */
-function createWorkerInstance(): Worker {
-  const url = resolveBackgroundIndexerWorkerUrl();
+function createWorkerInstance(workerUrl?: string): Worker {
+  const url = workerUrl ?? resolveBackgroundIndexerWorkerUrl().href;
   return new Worker(url, { type: 'module' });
 }
 
@@ -197,6 +199,7 @@ export function useBackgroundTokenIndexer({
   onFileIndexed,
   onProgress,
   onFileError,
+  workerUrl,
 }: UseBackgroundTokenIndexerOptions): UseBackgroundTokenIndexerReturn {
   const workerRef = useRef<Worker | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -371,7 +374,7 @@ export function useBackgroundTokenIndexer({
     const initPromise = (async (): Promise<Worker> => {
       let worker: Worker;
       try {
-        worker = createWorkerInstance();
+        worker = createWorkerInstance(workerUrl);
       } catch (error) {
         const normalizedError = error instanceof Error ? error : new Error(String(error));
         failWorker(normalizedError, 'createWorkerInstance');
@@ -546,7 +549,7 @@ export function useBackgroundTokenIndexer({
         workerInitPromiseRef.current = null;
       }
     }
-  }, [failWorker]);
+  }, [failWorker, workerUrl]);
 
   useEffect(() => {
     isMountedRef.current = true;

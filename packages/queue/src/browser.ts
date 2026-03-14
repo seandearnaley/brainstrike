@@ -1,11 +1,8 @@
-import {
-  createWorkerpoolAdapter,
-  type WorkerpoolAdapterOptions,
-} from './adapters/browser-workerpool';
+import type { WorkerpoolAdapterOptions } from './browser-workerpool-options';
 import type { QueueAdapter } from './types';
 import { supportsWorkers } from './util';
 
-export type { WorkerpoolAdapterOptions } from './adapters/browser-workerpool';
+export type { WorkerpoolAdapterOptions } from './browser-workerpool-options';
 
 export interface CreateBrowserEmbeddingQueueOptions {
   /**
@@ -28,7 +25,116 @@ export function createBrowserEmbeddingQueue(
       'Embedding queue requires Web Workers; this environment does not support them.'
     );
   }
-  return createWorkerpoolAdapter(options.worker);
+  if (!(typeof options.worker?.workerUrl === 'string' && options.worker.workerUrl.length > 0)) {
+    throw new Error('createBrowserEmbeddingQueue requires an explicit worker.workerUrl.');
+  }
+  return createLazyWorkerpoolAdapter(options.worker);
 }
 
-export { createWorkerpoolAdapter };
+function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAdapter {
+  type ProgressListener = Parameters<QueueAdapter['onProgress']>[0];
+
+  let loadedAdapter: QueueAdapter | null = null;
+  let adapterPromise: Promise<QueueAdapter> | null = null;
+  let paused = false;
+  const listeners = new Map<ProgressListener, (() => void) | null>();
+
+  const attachListeners = (adapter: QueueAdapter): void => {
+    for (const [listener, unsubscribe] of listeners.entries()) {
+      unsubscribe?.();
+      listeners.set(listener, adapter.onProgress(listener));
+    }
+  };
+
+  const ensureAdapter = async (): Promise<QueueAdapter> => {
+    if (loadedAdapter) {
+      return loadedAdapter;
+    }
+    if (!adapterPromise) {
+      adapterPromise = import('./adapters/browser-workerpool')
+        .then(({ createWorkerpoolAdapter }) => {
+          const adapter = createWorkerpoolAdapter(options);
+          loadedAdapter = adapter;
+          if (paused) {
+            adapter.pause();
+          }
+          attachListeners(adapter);
+          return adapter;
+        })
+        .catch((error: unknown) => {
+          for (const [listener, unsubscribe] of listeners.entries()) {
+            unsubscribe?.();
+            listeners.set(listener, null);
+          }
+          adapterPromise = null;
+          loadedAdapter = null;
+          throw error;
+        });
+    }
+    return adapterPromise;
+  };
+
+  const getBootstrappedAdapterOrNull = async (): Promise<QueueAdapter | null> => {
+    if (loadedAdapter) {
+      return loadedAdapter;
+    }
+    if (!adapterPromise) {
+      return null;
+    }
+    try {
+      return await adapterPromise;
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    async add(task, addOptions) {
+      const adapter = await ensureAdapter();
+      return adapter.add(task, addOptions);
+    },
+    async addBulk(tasks, addOptions) {
+      const adapter = await ensureAdapter();
+      return adapter.addBulk(tasks, addOptions);
+    },
+    async cancel() {
+      const adapter = await getBootstrappedAdapterOrNull();
+      if (!adapter) {
+        return;
+      }
+      await adapter.cancel();
+    },
+    async drain() {
+      const adapter = await getBootstrappedAdapterOrNull();
+      if (!adapter) {
+        return;
+      }
+      await adapter.drain();
+    },
+    get isPaused() {
+      return loadedAdapter?.isPaused ?? paused;
+    },
+    get isProcessing() {
+      return loadedAdapter?.isProcessing ?? false;
+    },
+    onProgress(listener) {
+      listeners.set(listener, null);
+      if (loadedAdapter) {
+        listeners.set(listener, loadedAdapter.onProgress(listener));
+      }
+      return () => {
+        const unsubscribe = listeners.get(listener);
+        unsubscribe?.();
+        listeners.delete(listener);
+      };
+    },
+    pause() {
+      paused = true;
+      loadedAdapter?.pause();
+    },
+    resume() {
+      paused = false;
+      loadedAdapter?.resume();
+    },
+  };
+}

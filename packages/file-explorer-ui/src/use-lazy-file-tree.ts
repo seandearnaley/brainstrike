@@ -14,7 +14,9 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
-import { canLoadNode, createLogger, isAbortError, sortTreeNodes } from '@brainstrike/utils';
+import { isAbortError } from '@brainstrike/utils/error-utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { canLoadNode, sortTreeNodes } from '@brainstrike/utils/tree-operations';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -813,6 +815,9 @@ export function useLazyFileTree(
       }));
 
       try {
+        if (!node) {
+          throw new Error(`Directory node not found for path: ${path}`);
+        }
         await performDirectoryLoad(path, node, abortController, fileSystemAdapter);
       } finally {
         removeChildController(path);

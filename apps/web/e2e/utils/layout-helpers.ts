@@ -261,6 +261,26 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
     });
 }
 
+export async function waitForContextExplorerPage(page: Page, timeout = 15_000): Promise<void> {
+  const expect = await getPlaywrightExpect();
+  await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible({
+    timeout,
+  });
+}
+
+export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise<void> {
+  const expect = await getPlaywrightExpect();
+  const loadingFallback = page.getByTestId('web-settings-page-loading');
+
+  if (await loadingFallback.isVisible().catch(() => false)) {
+    await expect(loadingFallback).not.toBeVisible({ timeout });
+  }
+
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({
+    timeout,
+  });
+}
+
 /**
  * Clear layout state and reload page with clean state
  */
@@ -287,7 +307,10 @@ export async function togglePanelVisibility(
 ) {
   const expect = await getPlaywrightExpect();
   await expect(button).toBeVisible();
-  await button.click();
+  await expect(button).toBeEnabled();
+  // Dispatch directly because restored layouts can leave shim toggles under sticky
+  // containers even when Playwright considers them visible and stable.
+  await button.dispatchEvent('click');
   if (isVisibleAfterToggle) {
     await expect(panel).toBeVisible();
   } else {

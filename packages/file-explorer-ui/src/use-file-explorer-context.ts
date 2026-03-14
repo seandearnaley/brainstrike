@@ -12,7 +12,8 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { createLogger, decodeFileSelection } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useFileExplorerStoreContext } from './file-explorer-provider';

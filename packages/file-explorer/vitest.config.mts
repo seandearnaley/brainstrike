@@ -22,12 +22,31 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '@brainstrike/storage': path.resolve(import.meta.dirname, '../storage/src'),
-      '@brainstrike/file-system': path.resolve(import.meta.dirname, '../file-system/src'),
-      '@brainstrike/utils': path.resolve(import.meta.dirname, '../utils/src'),
-      '@brainstrike/types': path.resolve(import.meta.dirname, '../types/src'),
-      '@brainstrike/platform-utils': path.resolve(import.meta.dirname, '../platform-utils/src'),
-    },
+    alias: [
+      {
+        find: /^@brainstrike\/utils\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
+      },
+      {
+        find: '@brainstrike/storage',
+        replacement: path.resolve(import.meta.dirname, '../storage/src'),
+      },
+      {
+        find: '@brainstrike/file-system',
+        replacement: path.resolve(import.meta.dirname, '../file-system/src'),
+      },
+      {
+        find: '@brainstrike/utils',
+        replacement: path.resolve(import.meta.dirname, '../utils/src'),
+      },
+      {
+        find: '@brainstrike/types',
+        replacement: path.resolve(import.meta.dirname, '../types/src'),
+      },
+      {
+        find: '@brainstrike/platform-utils',
+        replacement: path.resolve(import.meta.dirname, '../platform-utils/src'),
+      },
+    ],
   },
 });

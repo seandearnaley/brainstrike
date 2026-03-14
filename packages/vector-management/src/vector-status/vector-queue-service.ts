@@ -1,6 +1,9 @@
 import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
-import { canonicalizeProviderModelKey, checkApiKeyAvailability } from '@brainstrike/embeddings';
-import { createLogger } from '@brainstrike/utils';
+import {
+  canonicalizeProviderModelKey,
+  checkApiKeyAvailability,
+} from '@brainstrike/embeddings/provider-core';
+import { createLogger } from '@brainstrike/utils/logger';
 
 /**
  * Snapshot of embedding coverage statistics for a specific embedding set.

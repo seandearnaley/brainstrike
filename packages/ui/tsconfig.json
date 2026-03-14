@@ -11,6 +11,9 @@
       "node"
     ],
     "paths": {
+      "@brainstrike/utils/*": [
+        "../utils/src/*"
+      ],
       "@brainstrike/storage": [
         "../storage/src"
       ]

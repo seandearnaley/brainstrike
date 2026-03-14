@@ -257,6 +257,40 @@ describe('resolveValidatedPath', () => {
       expect(result.error.code).toBe('realpath-failure');
     }
   });
+
+  it('allows sensitive paths when blocking is disabled', async () => {
+    const result = await resolveValidatedPath({
+      requestedPath: '/etc/passwd',
+      blockSensitiveDirectories: false,
+      platform: 'linux',
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects symlinks that resolve outside the configured root', async () => {
+    const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'path-validate-external-'));
+    const outsideFile = path.join(externalDir, 'outside.txt');
+    const linkPath = path.join(tempDir, 'outside-link.txt');
+
+    try {
+      fs.writeFileSync(outsideFile, 'outside');
+      await fsPromises.symlink(outsideFile, linkPath);
+
+      const result = await resolveValidatedPath({
+        rootDir: tempDir,
+        requestedPath: 'outside-link.txt',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('outside-root');
+        expect(result.error.path).toBe(await fsPromises.realpath(outsideFile));
+      }
+    } finally {
+      await fsPromises.rm(externalDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('expandHome', () => {
@@ -316,5 +350,9 @@ describe('isPathInsideRoot', () => {
     expect(isPathInsideRoot('/home/user', '/home/other')).toBe(false);
     expect(isPathInsideRoot('/home/user', '/etc/passwd')).toBe(false);
     expect(isPathInsideRoot('/home/user', '/home/user/../other')).toBe(false);
+  });
+
+  it('rejects absolute paths on a different drive/root', () => {
+    expect(isPathInsideRoot('/workspace/root', '/another/root/file.ts')).toBe(false);
   });
 });

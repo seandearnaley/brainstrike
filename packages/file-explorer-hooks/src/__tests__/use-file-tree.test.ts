@@ -2,7 +2,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,8 +29,8 @@ const loggerMock = vi.hoisted<MockLogger>(() => ({
   fatal: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
   return {
     ...actual,
     createLogger: vi.fn(() => loggerMock),

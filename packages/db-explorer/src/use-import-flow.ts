@@ -64,9 +64,7 @@ export function useImportFlow({
   });
 
   const onImportCompleteRef = useRef(onImportComplete);
-  useEffect(() => {
-    onImportCompleteRef.current = onImportComplete;
-  }, [onImportComplete]);
+  onImportCompleteRef.current = onImportComplete;
 
   const resolveCollectionId = useCallback(
     () => resolveActiveCollectionId?.() ?? getActiveEmbeddingSetId(),

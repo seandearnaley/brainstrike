@@ -4,10 +4,21 @@ import {
   TabbedFileEditorPanel,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui';
-import { type PanelTab, usePanelLayoutStore } from '@brainstrike/preferences';
+import {
+  type PanelTab,
+  usePanelLayoutStore,
+} from '@brainstrike/preferences/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { shallow } from 'zustand/shallow';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
@@ -30,23 +41,7 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 }
 
 export interface RootLayoutContentProps {
-  /**
-   * CRITICAL: The app-specific embedding queue adapter.
-   *
-   * This queue is created at the app entry point:
-   * - Desktop: apps/desktop/src/renderer/create-embedding-queue.ts
-   * - Web: apps/web/src/create-embedding-queue.ts
-   *
-   * The queue is passed down from here to:
-   * - ToolsPanel → DatabaseTab → DatabaseDemoPanel (embedding controls and import operations)
-   * to ensure all embedding operations use the same queue instance.
-   *
-   * DO NOT make this prop optional or remove it! It's critical for:
-   * - Embedding set management UI
-   * - File import embedding generation
-   * - Vector search operations
-   */
-  readonly embeddingQueue?: QueueAdapter | null;
+  readonly databaseTabChunkingMode?: 'host-proxy' | 'local';
   readonly homePageContent: ReactNode;
 
   /**
@@ -55,7 +50,26 @@ export interface RootLayoutContentProps {
    * Use this to wrap the left panel with app-specific providers (e.g., TokenCacheProvider).
    */
   readonly leftPanelContent?: ReactNode;
+  /**
+   * CRITICAL: Lazy loader for the app-specific embedding queue adapter.
+   *
+   * The queue module is defined at the app entry point:
+   * - Desktop: apps/desktop/src/renderer/create-embedding-queue.ts
+   * - Web: apps/web/src/create-embedding-queue.ts
+   *
+   * The loader is passed down from here to:
+   * - ToolsPanel → DatabaseTab → DatabaseDemoPanel (embedding controls and import operations)
+   * so startup does not eagerly construct the workerpool-backed embedding runtime
+   * before the database tools are actually opened.
+   *
+   * DO NOT remove this prop path! It's critical for:
+   * - Embedding set management UI
+   * - File import embedding generation
+   * - Vector search operations
+   */
+  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
   readonly navigationItems: NavigationItem[];
+  readonly preloadDatabaseTabOnMount?: boolean;
   readonly promptsPageContent?: ReactNode;
   readonly settingsPageContent: ReactNode;
 }
@@ -75,11 +89,30 @@ export function RootLayoutContent({
   promptsPageContent,
   navigationItems,
   leftPanelContent,
-  embeddingQueue = null,
+  loadEmbeddingQueue = null,
+  databaseTabChunkingMode = 'local',
+  preloadDatabaseTabOnMount = false,
 }: RootLayoutContentProps): ReactElement {
   const activeTab = usePanelLayoutStore((s) => s.activeTab);
   const setState = usePanelLayoutStore((s) => s.setState);
   const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
+  const [mountedTabs, setMountedTabs] = useState<{
+    prompts: boolean;
+    settings: boolean;
+  }>({
+    prompts: activeTab === 'prompts',
+    settings: activeTab === 'settings',
+  });
+
+  useEffect(() => {
+    if (activeTab !== 'prompts' && activeTab !== 'settings') {
+      return;
+    }
+    if (mountedTabs[activeTab]) {
+      return;
+    }
+    setMountedTabs((current) => ({ ...current, [activeTab]: true }));
+  }, [activeTab, mountedTabs]);
 
   const handleNavigationClick = useCallback(
     (path: string) => {
@@ -88,12 +121,18 @@ export function RootLayoutContent({
     [setState]
   );
 
-  // CRITICAL: Pass embeddingQueue to ToolsPanel
+  // CRITICAL: Pass loadEmbeddingQueue to ToolsPanel
   // The queue flows:
   // - RootLayoutContent → ToolsPanel → DatabaseTab → DatabaseDemoPanel (embedding controls and import operations)
   const rightPanelContent = useMemo(
-    () => <ToolsPanel embeddingQueue={embeddingQueue ?? null} />,
-    [embeddingQueue]
+    () => (
+      <ToolsPanel
+        chunkingMode={databaseTabChunkingMode}
+        loadEmbeddingQueue={loadEmbeddingQueue}
+        preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+      />
+    ),
+    [databaseTabChunkingMode, loadEmbeddingQueue, preloadDatabaseTabOnMount]
   );
 
   // Memoize panel content elements so resize drags don't bust IdeLayout's React.memo.
@@ -215,14 +254,14 @@ export function RootLayoutContent({
         className={cn('h-full', activeTab !== 'prompts' && 'hidden')}
         data-testid="prompts-section"
       >
-        {promptsPageContent}
+        {mountedTabs.prompts ? promptsPageContent : null}
       </div>
       <div
         aria-hidden={activeTab !== 'settings'}
         className={cn('h-full', activeTab !== 'settings' && 'hidden')}
         data-testid="settings-section"
       >
-        {settingsPageContent}
+        {mountedTabs.settings ? settingsPageContent : null}
       </div>
     </AppLayout>
   );

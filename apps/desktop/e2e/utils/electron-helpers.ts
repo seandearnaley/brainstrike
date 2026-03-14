@@ -169,9 +169,10 @@ export async function launchElectronApp(
   const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
-  // Retry configuration for CI stability
-  // Electron can hang silently in CI due to Xvfb/display timing issues
-  const maxAttempts = process.env['CI'] ? 3 : 1;
+  // Electron launches can fail transiently immediately after a forced
+  // renderer/app reset while the OS releases resources. Keep one local retry
+  // so harness recovery does not poison the following test.
+  const maxAttempts = process.env['CI'] ? 3 : 2;
   const firstWindowTimeout = process.env['CI'] ? 30_000 : 60_000;
   const launchTimeoutMs = process.env['CI'] ? 150_000 : 60_000;
 
@@ -185,7 +186,7 @@ export async function launchElectronApp(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     verboseLog(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
-    await killLingeringElectronProcesses();
+    await killLingeringElectronProcesses(userDataDir);
 
     const launchOptions = createLaunchOptions(
       electronPath,
@@ -213,17 +214,40 @@ export async function launchElectronApp(
 }
 
 // a Helper to kill lingering Electron processes that might be holding ports
-async function killLingeringElectronProcesses(): Promise<void> {
+async function killLingeringElectronProcesses(userDataDir?: string): Promise<void> {
   try {
+    const escapedUserDataDir = userDataDir?.replace(/'/gu, `'\\''`);
     if (process.platform === 'darwin') {
-      // macOS: Kill Electron processes that might be lingering
-      execSync("pkill -9 -f 'Electron.*--test-mode' || true", { stdio: 'ignore' });
+      if (escapedUserDataDir) {
+        execSync(
+          `pkill -9 -f "Electron.*--test-mode.*--user-data-dir=${escapedUserDataDir}" || true`,
+          {
+            stdio: 'ignore',
+          }
+        );
+      } else {
+        execSync("pkill -9 -f 'Electron.*--test-mode' || true", { stdio: 'ignore' });
+      }
     } else if (process.platform === 'linux') {
-      // Linux: Similar approach
-      execSync("pkill -9 -f 'electron.*--test-mode' || true", { stdio: 'ignore' });
+      if (escapedUserDataDir) {
+        execSync(
+          `pkill -9 -f "electron.*--test-mode.*--user-data-dir=${escapedUserDataDir}" || true`,
+          {
+            stdio: 'ignore',
+          }
+        );
+      } else {
+        execSync("pkill -9 -f 'electron.*--test-mode' || true", { stdio: 'ignore' });
+      }
     } else if (process.platform === 'win32') {
-      // Windows: Use taskkill
-      execSync('taskkill /F /IM electron.exe /T 2>nul || exit 0', { stdio: 'ignore' });
+      if (userDataDir) {
+        execSync(
+          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.CommandLine -like '*--test-mode*' -and $_.CommandLine -like '*--user-data-dir=${userDataDir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`,
+          { stdio: 'ignore' }
+        );
+      } else {
+        execSync('taskkill /F /IM electron.exe /T 2>nul || exit 0', { stdio: 'ignore' });
+      }
     }
     // Give OS time to release resources
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -293,6 +317,8 @@ function createLaunchOptions(
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      ELECTRON_IS_E2E_TEST: 'true',
       // Prevent V8 inspector issues that cause "Waiting for debugger to disconnect" hangs
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       NODE_OPTIONS: '', // Clear any inherited NODE_OPTIONS that might enable --inspect
@@ -543,17 +569,61 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
       }
     }
 
-    const appClosed = appContext.app.waitForEvent('close');
+    const appClosed = appContext.app.waitForEvent('close', { timeout: 10_000 });
     await Promise.all(windowClosePromises);
     intentionallyClosingApps.add(appContext.app);
     await appContext.app.close();
     await appClosed;
     verboseLog('✅ Electron app closed');
   } catch (error) {
+    if (isPlaywrightTimeoutError(error)) {
+      console.warn('⚠️ Electron app did not close gracefully; forcing process termination');
+      await forceTerminateElectronApp(appContext);
+      return;
+    }
     console.error('❌ Error closing Electron app:', error);
     throw error;
   } finally {
     intentionallyClosingApps.delete(appContext.app);
+  }
+}
+
+function isPlaywrightTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TimeoutError';
+}
+
+async function forceTerminateElectronApp(appContext: ElectronAppContext): Promise<void> {
+  const electronProcess = getElectronProcessSafe(appContext);
+  if (!electronProcess) {
+    return;
+  }
+
+  if (electronProcess.exitCode !== null || electronProcess.killed) {
+    return;
+  }
+
+  try {
+    electronProcess.kill('SIGKILL');
+  } catch (error) {
+    console.warn('⚠️ Failed to SIGKILL Electron process during forced teardown:', error);
+  }
+
+  try {
+    await appContext.app.waitForEvent('close', { timeout: 5000 });
+  } catch (error) {
+    if (!isPlaywrightTimeoutError(error)) {
+      throw error;
+    }
+  }
+}
+
+function getElectronProcessSafe(
+  appContext: ElectronAppContext
+): ReturnType<ElectronAppContext['app']['process']> | null {
+  try {
+    return appContext.app.process();
+  } catch {
+    return null;
   }
 }
 

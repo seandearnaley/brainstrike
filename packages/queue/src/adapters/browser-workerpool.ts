@@ -1,7 +1,7 @@
-import { resolveEmbeddingWorkerUrl } from '@brainstrike/embedding-worker';
 import { createLogger } from '@brainstrike/utils';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
 import workerpool from 'workerpool';
+import type { WorkerpoolAdapterOptions } from '../browser-workerpool-options';
 import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry';
 import {
   type QueueAdapter,
@@ -16,23 +16,6 @@ import {
 import { estimateHardwareConcurrency, ProgressEmitter } from '../util';
 
 const logger = createLogger('BrowserWorkerpoolAdapter');
-
-export interface WorkerpoolAdapterOptions {
-  readonly maxQueueSize?: number;
-  readonly maxWorkers?: number;
-  /**
-   * Minimum workers to keep alive (default: 1).
-   *
-   * Prevents repeated WASM/WebGPU model load-unload cycles that cause 300 MB
-   * memory spikes. Also ensures workerpool auto-spawns a replacement if a
-   * worker crashes (e.g. WebGPU device loss → self.close() in the worker).
-   * See: docs/debug-handoff-renderer-crash.md
-   */
-  readonly minWorkers?: number;
-  readonly name?: string;
-  /** Optional worker URL override (use bundler-provided worker URL in apps). */
-  readonly workerUrl?: string;
-}
 
 type WorkerEvent = QueueProgressEvent | QueueErrorEvent;
 
@@ -83,6 +66,9 @@ function calculateElapsed(startedAt: number): number {
 }
 
 export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}): QueueAdapter {
+  if (!(typeof options.workerUrl === 'string' && options.workerUrl.length > 0)) {
+    throw new Error('createWorkerpoolAdapter requires an explicit workerUrl.');
+  }
   const hardwareConcurrency = estimateHardwareConcurrency();
   // MDN documents `navigator.hardwareConcurrency` as the number of logical cores. This allows us to size the pool conservatively.
   // Source: https://developer.mozilla.org/docs/Web/API/NavigatorConcurrentHardware/hardwareConcurrency
@@ -90,7 +76,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     1,
     Math.min(options.maxWorkers ?? Math.max(1, hardwareConcurrency - 1), DEFAULT_MAX_WORKERS_CAP)
   );
-  const workerScript = options.workerUrl ?? resolveEmbeddingWorkerUrl().href;
+  const workerScript = options.workerUrl;
   const minWorkers = options.minWorkers ?? 1;
   const poolOptions: WorkerPoolOptions = {
     minWorkers,

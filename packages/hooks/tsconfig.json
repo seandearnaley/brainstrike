@@ -8,6 +8,11 @@
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
+    "paths": {
+      "@brainstrike/utils/*": [
+        "../utils/src/*"
+      ]
+    },
     "types": [
       "node"
     ],

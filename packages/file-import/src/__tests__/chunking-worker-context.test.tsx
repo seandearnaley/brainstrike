@@ -119,10 +119,14 @@ function createMockWorker() {
         handler(event);
       }
     },
+    clearPostedMessages: () => {
+      postedMessages.length = 0;
+    },
     getPostedMessages: () => postedMessages,
   };
 
   return mockWorker as unknown as Worker & {
+    clearPostedMessages: () => void;
     getPostedMessages: () => unknown[];
     simulateError: (message: string) => void;
     simulateMessage: (data: WorkerResponse) => void;
@@ -173,10 +177,12 @@ describe('ChunkingWorkerProvider', () => {
     await waitForExpect(() =>
       expect(worker.addEventListener).toHaveBeenCalledWith('message', expect.any(Function))
     );
+    expect(worker.getPostedMessages()).toEqual([{ type: 'init' }]);
     await emitWorkerMessage(worker, { type: 'ready' });
 
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
     expect(result.current.port).not.toBeNull();
+    worker.clearPostedMessages();
 
     const port = result.current.port;
     if (!port) {
@@ -228,6 +234,7 @@ describe('ChunkingWorkerProvider', () => {
     await waitForExpect(() =>
       expect(initialWorker.addEventListener).toHaveBeenCalledWith('message', expect.any(Function))
     );
+    expect(initialWorker.getPostedMessages()).toEqual([{ type: 'init' }]);
     await emitWorkerMessage(initialWorker, { type: 'ready' });
     await waitForExpect(() => expect(result.current.isReady).toBe(true));
 
@@ -262,6 +269,7 @@ describe('ChunkingWorkerProvider', () => {
         expect.any(Function)
       )
     );
+    expect(reinitializedWorker.getPostedMessages()).toEqual([{ type: 'init' }]);
     await emitWorkerMessage(reinitializedWorker, { type: 'ready' });
 
     await waitForExpect(() => expect(result.current.isReady).toBe(true));

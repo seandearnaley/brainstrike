@@ -9,20 +9,21 @@
  */
 
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
-import { useVectorStatusUIStore } from '@brainstrike/preferences';
-import { type FileToIndex, useBackgroundTokenIndexer } from '@brainstrike/token-cache';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
+import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
+import { isBinaryFile } from '@brainstrike/utils/file-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
-  createLogger,
-  decodeFileSelection,
-  encodeFileSelection,
-  isBinaryFile,
   normalizeFilePathForFolder,
   validateRelativeFilePath,
-} from '@brainstrike/utils';
+} from '@brainstrike/utils/relative-file-path';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
 import { useOptionalFileTreeIndexContext } from './file-tree-provider';
+import { resolveBackgroundIndexerWorkerUrlHref } from './resolve-token-cache-worker-url';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
@@ -494,6 +495,7 @@ export function useBackgroundTokenIndexerIntegration({
     mode: tokenCache?.countingMode ?? 'heuristic',
     onFileIndexed: handleFileIndexed,
     onFileError: handleFileError,
+    workerUrl: resolveBackgroundIndexerWorkerUrlHref(),
   });
 
   // Stable ref for backgroundIndexer to avoid callback instability

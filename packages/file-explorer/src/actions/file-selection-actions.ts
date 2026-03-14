@@ -1,5 +1,6 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import { createLogger, encodeFileSelection } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
   DEFAULT_SELECTION_CHUNK_SIZE,
   IDLE_CALLBACK_TIMEOUT_MS,
