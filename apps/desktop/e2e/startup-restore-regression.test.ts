@@ -282,6 +282,18 @@ test.describe('Startup Restore Regression', () => {
     const tokenCacheWorkerFailureLogs = records.filter((record) =>
       recordContainsText(record, 'Token cache worker warmup failed after')
     );
+    const tokenCacheWorkerCreateFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'TokenCacheProvider: failed to create worker pool')
+    );
+    const tokenCacheWorkerTerminationLogs = records.filter((record) =>
+      recordContainsText(record, 'Token cache worker pool has been terminated')
+    );
+    const strictTokenCountingFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Strict token counting failed')
+    );
+    const tokenCountingFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Failed to count tokens')
+    );
     const backgroundIndexerFailureLogs = records.filter((record) =>
       recordContainsText(record, 'Background token indexer entered failed state')
     );
@@ -360,9 +372,13 @@ test.describe('Startup Restore Regression', () => {
     expect(workerTreeInitializedLogs.length).toBeLessThanOrEqual(1);
     expect(noOpWarmCacheLogs).toHaveLength(0);
     expect(fileTreeMissingLogs).toHaveLength(0);
-    expect(tokenCacheWorkerStartupLogs).toHaveLength(0);
+    expect(tokenCacheWorkerStartupLogs.length).toBeLessThanOrEqual(1);
     expect(chunkingWorkerStartupLogs).toHaveLength(0);
     expect(tokenCacheWorkerFailureLogs).toHaveLength(0);
+    expect(tokenCacheWorkerCreateFailureLogs).toHaveLength(0);
+    expect(tokenCacheWorkerTerminationLogs).toHaveLength(0);
+    expect(strictTokenCountingFailureLogs).toHaveLength(0);
+    expect(tokenCountingFailureLogs).toHaveLength(0);
     expect(backgroundIndexerFailureLogs).toHaveLength(0);
     expect(chunkingWorkerFailureLogs).toHaveLength(0);
     expect(sharedIndexSkipLogs).toHaveLength(0);

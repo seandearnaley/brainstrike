@@ -54,6 +54,24 @@ test.describe('Application Layout', { tag: '@smoke' }, () => {
     await expect(home.settingsHeading).not.toBeVisible();
   });
 
+  test('should load prompts without hanging fallbacks', async ({ page }) => {
+    const home = new HomePage(page);
+    await home.goto();
+    await waitForAppLoad(page);
+
+    const promptsNavButton = page
+      .getByRole('button', { name: /prompts/i })
+      .or(page.getByRole('link', { name: /prompts/i }))
+      .first();
+    await expect(promptsNavButton).toBeVisible({ timeout: 10_000 });
+    await promptsNavButton.click();
+
+    await expect(page.getByRole('heading', { name: /prompt library/i })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText(/Loading prompts/i)).toHaveCount(0);
+  });
+
   test.describe('Panel Layout Basics', () => {
     test.beforeEach(async ({ page }) => {
       await page.goto('/');

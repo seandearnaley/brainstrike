@@ -2,13 +2,60 @@
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "paths": {
+      "@brainstrike/db-explorer/database-demo-panel": [
+        "../db-explorer/src/database-demo-panel.tsx"
+      ],
+      "@brainstrike/types": [
+        "../types/src/index.ts"
+      ],
+      "@brainstrike/types/*": [
+        "../types/src/*"
+      ],
+      "@brainstrike/preferences/*": [
+        "../preferences/src/*"
+      ],
+      "@brainstrike/utils": [
+        "../utils/src/index.ts"
+      ],
+      "@brainstrike/utils/crypto": [
+        "../utils/dist/crypto.d.ts"
+      ],
+      "@brainstrike/utils/*": [
+        "../utils/dist/*.d.ts"
+      ],
+      "@brainstrike/file-explorer-hooks": [
+        "../file-explorer-hooks/src/index.ts"
+      ],
+      "@brainstrike/file-explorer-ui": [
+        "../file-explorer-ui/src/index.ts"
+      ],
+      "@brainstrike/storage": [
+        "../storage/src/index.ts"
+      ],
+      "@brainstrike/file-import": [
+        "../file-import/src/index.ts"
+      ],
+      "@brainstrike/file-import/chunking-worker-context": [
+        "../file-import/src/chunking-worker-context.tsx"
+      ],
+      "@brainstrike/queue": [
+        "../queue/src/index.ts"
+      ],
+      "@brainstrike/queue/*": [
+        "../queue/src/*"
+      ]
+    },
     "types": [
-      "node"
+      "node",
+      "vite/client"
     ],
     "strictNullChecks": true
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "../file-explorer-ui/src/types/**/*.d.ts",
+    "../file-import/src/types/**/*.d.ts"
   ],
   "exclude": [
     "dist",

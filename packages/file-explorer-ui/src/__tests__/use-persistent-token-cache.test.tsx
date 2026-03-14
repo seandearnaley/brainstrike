@@ -126,6 +126,21 @@ describe('usePersistentTokenCache', () => {
       expect(result.current.cacheVersion).toBe(3);
       expect(result.current.isAnyLoading).toBe(false);
     });
+
+    it('does not fall back to strict in-memory counting while the shared cache is still booting', () => {
+      mockContext = {
+        ...mockContext!,
+        isOperational: false,
+        isAnyLoading: true,
+      };
+
+      fileContents['folder::file.txt'] = 'hello';
+      const { result } = renderCacheHook();
+
+      expect(result.current.getTokenCount('folder::file.txt')).toBeUndefined();
+      expect(mockContext?.getTokenCount).not.toHaveBeenCalled();
+      expect(tokenCounting.countTokens).not.toHaveBeenCalled();
+    });
   });
 
   describe('fallback to in-memory cache', () => {

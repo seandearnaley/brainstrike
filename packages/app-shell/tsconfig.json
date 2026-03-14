@@ -16,7 +16,7 @@
         "../db-explorer/src/database-demo-panel.tsx"
       ],
       "@brainstrike/types": [
-        "../types/src"
+        "../types/src/index.ts"
       ],
       "@brainstrike/types/*": [
         "../types/src/*"
@@ -34,16 +34,16 @@
         "../utils/dist/*.d.ts"
       ],
       "@brainstrike/file-explorer-hooks": [
-        "../file-explorer-hooks/src"
+        "../file-explorer-hooks/src/index.ts"
       ],
       "@brainstrike/file-explorer-ui": [
-        "../file-explorer-ui/src"
+        "../file-explorer-ui/src/index.ts"
       ],
       "@brainstrike/storage": [
-        "../storage/src"
+        "../storage/src/index.ts"
       ],
       "@brainstrike/file-import": [
-        "../file-import/src"
+        "../file-import/src/index.ts"
       ],
       "@brainstrike/file-import/chunking-worker-context": [
         "../file-import/src/chunking-worker-context.tsx"

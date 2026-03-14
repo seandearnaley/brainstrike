@@ -131,8 +131,8 @@ vi.mock('@brainstrike/app-shell/navigation', () => ({
   ],
 }));
 
-vi.mock('@brainstrike/app-shell/connected-prompt-manager-lazy', () => ({
-  ConnectedPromptManagerLazy: () => null,
+vi.mock('@brainstrike/app-shell', () => ({
+  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
 }));
 
 vi.mock('@brainstrike/app-shell/stores/tools-panel-store', () => ({

@@ -32,6 +32,20 @@ test.describe('Assistant panel (desktop)', { tag: '@smoke' }, () => {
       .toBe(initialTimeOrigin);
   });
 
+  test('prompt library is ready without hanging fallbacks', async ({ window }) => {
+    const promptsNav = window
+      .getByRole('button', { name: /prompts/i })
+      .or(window.getByRole('link', { name: /prompts/i }))
+      .first();
+    await expect(promptsNav).toBeVisible({ timeout: 10_000 });
+    await promptsNav.click();
+
+    await expect(window.getByRole('heading', { name: /prompt library/i })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(window.getByText(/Loading prompts/i)).toHaveCount(0);
+  });
+
   test('send message and see streamed response in tools panel', async ({ window }) => {
     const rightPanel = await ensureToolsPanelVisible(window);
     await expect(rightPanel).toBeVisible();

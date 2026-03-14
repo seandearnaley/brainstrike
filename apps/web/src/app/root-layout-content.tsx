@@ -1,4 +1,4 @@
-import { ConnectedPromptManagerLazy } from '@brainstrike/app-shell/connected-prompt-manager-lazy';
+import { ConnectedPromptManager } from '@brainstrike/app-shell';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
 import {
   type RootLayoutContentProps,
@@ -29,29 +29,13 @@ const LazyEmbeddingJobQueueTracker = lazy(async () => {
   return { default: module.EmbeddingJobQueueTracker };
 });
 
-function LazyTabFallback({ testId, text }: { testId: string; text: string }) {
-  return (
-    <div
-      className="flex h-full items-center justify-center text-muted-foreground text-sm"
-      data-testid={testId}
-    >
-      {text}
-    </div>
-  );
-}
-
 /**
  * Wrapper component that provides TokenCacheProvider.
- * The provider now renders children even while the database/worker pool finish
- * initializing so the UI never unmounts during startup.
+ * The token worker must be ready eagerly so background indexing starts immediately.
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
   const db = usePGliteDatabase();
-  return (
-    <TokenCacheProvider db={db} lazyWorkerInit={true}>
-      {children}
-    </TokenCacheProvider>
-  );
+  return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
 }
 
 function useInitializeWebVectorDevicePreference(): void {
@@ -112,13 +96,7 @@ export default function RootLayoutContent() {
     navigationItems: navigationConfig,
     homePageContent: <HomePageContent />,
     settingsPageContent: <SettingsPageContent />,
-    promptsPageContent: (
-      <Suspense
-        fallback={<LazyTabFallback testId="web-prompts-page-loading" text="Loading prompts…" />}
-      >
-        <ConnectedPromptManagerLazy />
-      </Suspense>
-    ),
+    promptsPageContent: <ConnectedPromptManager />,
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;

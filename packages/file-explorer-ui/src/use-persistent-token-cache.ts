@@ -14,7 +14,7 @@
 
 import { createLogger } from '@brainstrike/utils/logger';
 import type { MutableRefObject } from 'react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 import type { TokenCountingState } from './use-token-counting';
 
@@ -85,6 +85,30 @@ function isContentAccessible(content: string): boolean {
   return !(content.startsWith('File not accessible') || content.startsWith('Binary file'));
 }
 
+function shouldDelayRetry(
+  failedRequests: Map<string, FailedRequestState>,
+  compositeKey: string,
+  countingRuntimeStateKey: string
+): boolean {
+  const failedState = failedRequests.get(compositeKey);
+  if (!failedState) {
+    return false;
+  }
+
+  if (failedState.stateKey !== countingRuntimeStateKey) {
+    failedRequests.delete(compositeKey);
+    return false;
+  }
+
+  const retryAt = failedState.failedAt + FAILED_REQUEST_RETRY_COOLDOWN_MS;
+  if (Date.now() < retryAt) {
+    return true;
+  }
+
+  failedRequests.delete(compositeKey);
+  return false;
+}
+
 /**
  * Hook that provides persistent token caching with a strict in-memory request/cache layer.
  *
@@ -113,22 +137,6 @@ export function usePersistentTokenCache({
   const failedRequestsRef = useRef<Map<string, FailedRequestState>>(new Map());
   const countingRuntimeStateKey = `${tokenCounting.mode}:${tokenCounting.reason ?? 'ready'}`;
 
-  useEffect(() => {
-    if (failedRequestsRef.current.size === 0) {
-      return;
-    }
-
-    const staleKeys: string[] = [];
-    for (const [compositeKey, failedState] of failedRequestsRef.current.entries()) {
-      if (failedState.stateKey !== countingRuntimeStateKey) {
-        staleKeys.push(compositeKey);
-      }
-    }
-    for (const compositeKey of staleKeys) {
-      failedRequestsRef.current.delete(compositeKey);
-    }
-  }, [countingRuntimeStateKey]);
-
   /**
    * Get token count using persistent cache if available, otherwise in-memory.
    *
@@ -141,7 +149,13 @@ export function usePersistentTokenCache({
       const { folderId, path } = decodeFileSelection(compositeKey);
 
       // --- Persistent Cache Path (preferred) ---
-      if (persistentCache?.isOperational) {
+      if (persistentCache) {
+        if (!persistentCache.isOperational) {
+          // A provider exists, so token counting is expected to come from the shared worker path.
+          // Do not fall through to the strict in-memory path while that runtime is still booting.
+          return;
+        }
+
         // Try to get from hot cache first (no content needed!)
         // Pass undefined for content to check cache only
         const content = fileContents[compositeKey];
@@ -157,6 +171,7 @@ export function usePersistentTokenCache({
       }
 
       // --- Strict In-Memory Cache Path ---
+      // This path is only valid when no shared token-cache provider exists at all.
       const cached = tokenCacheRef.current.get(compositeKey);
       if (typeof cached === 'number') {
         return cached;
@@ -168,13 +183,8 @@ export function usePersistentTokenCache({
         return;
       }
 
-      const failedState = failedRequestsRef.current.get(compositeKey);
-      if (failedState?.stateKey === countingRuntimeStateKey) {
-        const retryAt = failedState.failedAt + FAILED_REQUEST_RETRY_COOLDOWN_MS;
-        if (Date.now() < retryAt) {
-          return;
-        }
-        failedRequestsRef.current.delete(compositeKey);
+      if (shouldDelayRetry(failedRequestsRef.current, compositeKey, countingRuntimeStateKey)) {
+        return;
       }
 
       // Not in cache and not pending - start counting

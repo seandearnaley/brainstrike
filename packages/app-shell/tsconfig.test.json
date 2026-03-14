@@ -6,16 +6,20 @@
       "node",
       "@testing-library/jest-dom"
     ],
+    "composite": false,
     "declaration": false,
     "emitDeclarationOnly": false,
     "declarationMap": false,
+    "incremental": false,
     "skipLibCheck": true,
     "noEmit": true,
     "strictNullChecks": true
   },
   "include": [
     "src/**/*",
-    "**/*.test.*"
+    "**/*.test.*",
+    "../file-explorer-ui/src/types/**/*.d.ts",
+    "../file-import/src/types/**/*.d.ts"
   ],
   "exclude": [
     "dist",

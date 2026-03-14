@@ -9,7 +9,6 @@
     "@brainstrike/worker-runtime": "workspace:*",
     "@electric-sql/pglite": "^0.3.15",
     "tiktoken": "^1.0.22",
-    "workerpool": "^10.0.1",
     "xxhash-wasm": "^1.1.0"
   },
   "devDependencies": {
