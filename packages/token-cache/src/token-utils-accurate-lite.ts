@@ -253,6 +253,10 @@ function extractEncoderConfig(module: Record<string, unknown>): {
     return null;
   }
 
+  if (!Object.values(specialTokens).every((value) => typeof value === 'number')) {
+    return null;
+  }
+
   return {
     bpeRanks,
     specialTokens: specialTokens as Record<string, number>,

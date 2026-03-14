@@ -8,6 +8,7 @@ export const CHUNKING_CONFIG = {
   maxChunkableSize: 500 * 1024, // 500KB - Maximum file size for chunking
   maxBatchSize: 500, // Maximum chunk requests accepted in a single batch message
   maxMetadataFieldLength: 4096, // Hard limit for request metadata strings (ids, names, paths)
+  maxSeparatorsCount: 64, // Hard limit for custom separator arrays passed into the worker
 
   // Default chunk parameters
   defaultMaxTokens: 500, // Default maximum tokens per chunk

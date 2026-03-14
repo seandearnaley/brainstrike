@@ -57,6 +57,15 @@ describe('chunking worker message validation', () => {
     ).toBe(true);
   });
 
+  it('rejects separator arrays that exceed the hard worker limit', () => {
+    expect(
+      isChunkingRequestOptions({
+        strategy: 'recursive',
+        separators: Array.from({ length: CHUNKING_CONFIG.maxSeparatorsCount + 1 }, () => '\n'),
+      })
+    ).toBe(false);
+  });
+
   it('accepts chunk requests with expanded strategies', () => {
     expect(
       isChunkRequest({

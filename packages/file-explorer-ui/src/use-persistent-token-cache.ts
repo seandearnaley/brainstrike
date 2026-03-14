@@ -112,10 +112,14 @@ export function usePersistentTokenCache({
       return;
     }
 
+    const staleKeys: string[] = [];
     for (const [compositeKey, failedStateKey] of failedRequestsRef.current.entries()) {
       if (failedStateKey !== countingRuntimeStateKey) {
-        failedRequestsRef.current.delete(compositeKey);
+        staleKeys.push(compositeKey);
       }
+    }
+    for (const compositeKey of staleKeys) {
+      failedRequestsRef.current.delete(compositeKey);
     }
   }, [countingRuntimeStateKey]);
 

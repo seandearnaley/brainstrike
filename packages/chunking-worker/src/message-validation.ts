@@ -29,6 +29,9 @@ function isOptionalStringArray(value: unknown): boolean {
   if (!Array.isArray(value)) {
     return false;
   }
+  if (value.length > CHUNKING_CONFIG.maxSeparatorsCount) {
+    return false;
+  }
   return value.every((separator) => typeof separator === 'string');
 }
 
