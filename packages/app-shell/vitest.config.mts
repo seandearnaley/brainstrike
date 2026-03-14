@@ -50,6 +50,25 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../storage/__mocks__/electron.ts'),
       },
       {
+        find: '@brainstrike/db-explorer/database-demo-panel',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../db-explorer/src/database-demo-panel.tsx'
+        ),
+      },
+      {
+        find: /^@brainstrike\/db-explorer$/,
+        replacement: path.resolve(import.meta.dirname, '../db-explorer/src/index.ts'),
+      },
+      {
+        find: /^@brainstrike\/db$/,
+        replacement: path.resolve(import.meta.dirname, '../db/src/index.ts'),
+      },
+      {
+        find: /^@brainstrike\/queue$/,
+        replacement: path.resolve(import.meta.dirname, '../queue/src/index.ts'),
+      },
+      {
         find: '@brainstrike/storage',
         replacement: path.resolve(import.meta.dirname, '../storage/dist'),
       },
@@ -62,8 +81,28 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../agent/src/client.ts'),
       },
       {
+        find: '@brainstrike/text-splitter/chunking-core',
+        replacement: path.resolve(import.meta.dirname, '../text-splitter/src/chunking-core.ts'),
+      },
+      {
+        find: /^@brainstrike\/text-splitter$/,
+        replacement: path.resolve(import.meta.dirname, '../text-splitter/src/index.ts'),
+      },
+      {
         find: /^@brainstrike\/preferences\/(.*)$/,
         replacement: path.resolve(import.meta.dirname, '../preferences/src/$1'),
+      },
+      {
+        find: '@brainstrike/ui/assistant-ui-panel',
+        replacement: path.resolve(import.meta.dirname, '../ui/src/assistant-ui-panel/index.ts'),
+      },
+      {
+        find: /^@brainstrike\/ui$/,
+        replacement: path.resolve(import.meta.dirname, '../ui/src/index.ts'),
+      },
+      {
+        find: /^@brainstrike\/utils$/,
+        replacement: path.resolve(import.meta.dirname, '../utils/src/index.ts'),
       },
       {
         find: '@brainstrike/utils/crypto',
@@ -87,6 +126,14 @@ export default defineConfig({
       {
         find: '@brainstrike/file-import',
         replacement: path.resolve(import.meta.dirname, '../file-import/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/workers/report-generation-worker',
+        replacement: path.resolve(import.meta.dirname, '../workers/report-generation-worker.ts'),
+      },
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: path.resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
       },
       {
         find: '/worker-storage.worker.js',

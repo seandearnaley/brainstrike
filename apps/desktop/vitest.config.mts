@@ -83,6 +83,14 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/file-import/src/enhanced-import.ts'
       ),
+      '@brainstrike/text-splitter/chunking-core': path.resolve(
+        import.meta.dirname,
+        '../../packages/text-splitter/src/chunking-core.ts'
+      ),
+      '@brainstrike/text-splitter': path.resolve(
+        import.meta.dirname,
+        '../../packages/text-splitter/src/index.ts'
+      ),
       '@brainstrike/test-utils': path.resolve(import.meta.dirname, '../../packages/test-utils/src'),
     },
   },

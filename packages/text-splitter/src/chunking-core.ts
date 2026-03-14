@@ -1,0 +1,683 @@
+import {
+  isMarkdownBlockBoundaryLine,
+  MARKDOWN_CODE_FENCE_PATTERN,
+  RecursiveTextSplitter,
+} from './index.js';
+
+export type SharedCodeLanguage =
+  | 'javascript'
+  | 'typescript'
+  | 'python'
+  | 'rust'
+  | 'go'
+  | 'java'
+  | 'csharp'
+  | 'cpp'
+  | 'ruby'
+  | 'php'
+  | 'swift'
+  | 'kotlin';
+
+export interface ChunkAdjustmentConfig<TLanguage extends string> {
+  readonly codeLanguageDefaults: Record<TLanguage, { maxTokens: number; overlap: number }>;
+  readonly codeMaxTokens: number;
+  readonly codeOverlap: number;
+  readonly defaultMaxTokens: number;
+  readonly defaultOverlap: number;
+  readonly largeStructuredMaxTokens: number;
+  readonly largeStructuredOverlap: number;
+  readonly maxChunkableSize: number;
+  readonly maxTokensHardLimit: number;
+  readonly maxTokensSafetyCap: number;
+  readonly overlapHardLimit: number;
+  readonly overlapSafetyCap: number;
+  readonly veryLargeContentThreshold: number;
+  readonly veryLargeMaxTokens: number;
+  readonly veryLargeOverlap: number;
+}
+
+export interface SharedChunkingOptions {
+  readonly allowLargeFiles?: boolean;
+  readonly fileName?: string;
+  readonly filePath?: string;
+  readonly ignoreFileTypeRecommendations?: boolean;
+  readonly maxTokens?: number;
+  readonly maxTokensCap?: number;
+  readonly overlap?: number;
+}
+
+export interface MarkdownBlock {
+  readonly meta: { readonly heading?: string; readonly isFence?: boolean };
+  readonly text: string;
+}
+
+export interface FunctionRange {
+  readonly end: number;
+  readonly start: number;
+}
+
+export type AstNode = {
+  type?: string;
+  start?: number;
+  end?: number;
+} & Record<string, unknown>;
+
+export const DEFAULT_SKIP_CHUNKING_PATTERNS = [
+  /package-lock\.json$/i,
+  /pnpm-lock\.yaml$/i,
+  /yarn\.lock$/i,
+  /composer\.lock$/i,
+  /Gemfile\.lock$/i,
+  /Pipfile\.lock$/i,
+  /poetry\.lock$/i,
+  /go\.sum$/i,
+  /Cargo\.lock$/i,
+  /npm-shrinkwrap\.json$/i,
+  /\.min\.[jt]s$/i,
+  /\.map$/i,
+  /\.wasm$/i,
+  /\.bin$/i,
+  /(^|\/)node_modules(\/|$)/i,
+  /(^|\/)dist(\/|$)/i,
+  /(^|\/)build(\/|$)/i,
+  /(^|\/)coverage(\/|$)/i,
+] as const;
+
+export const DEFAULT_CODE_LANGUAGE_PATTERNS: ReadonlyArray<{
+  readonly language: SharedCodeLanguage;
+  readonly pattern: RegExp;
+}> = [
+  { pattern: /\.vue$/i, language: 'javascript' },
+  { pattern: /\.svelte$/i, language: 'javascript' },
+  { pattern: /\.(ts|tsx|mts|cts)$/i, language: 'typescript' },
+  { pattern: /\.(js|jsx|mjs|cjs)$/i, language: 'javascript' },
+  { pattern: /\.mm$/i, language: 'cpp' },
+  { pattern: /\.m$/i, language: 'cpp' },
+  { pattern: /\.py$/i, language: 'python' },
+  { pattern: /\.rs$/i, language: 'rust' },
+  { pattern: /\.go$/i, language: 'go' },
+  { pattern: /\.(java|class)$/i, language: 'java' },
+  { pattern: /\.cs$/i, language: 'csharp' },
+  { pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/i, language: 'cpp' },
+  { pattern: /\.rb$/i, language: 'ruby' },
+  { pattern: /\.php$/i, language: 'php' },
+  { pattern: /\.swift$/i, language: 'swift' },
+  { pattern: /\.(kt|kts)$/i, language: 'kotlin' },
+] as const;
+
+export const DEFAULT_LARGE_STRUCTURED_PATTERNS = [
+  /\.json$/i,
+  /\.xml$/i,
+  /\.csv$/i,
+  /\.tsv$/i,
+  /\.sql$/i,
+  /\.log$/i,
+] as const;
+
+export function detectCodeLanguage(fileName: string): SharedCodeLanguage | null;
+export function detectCodeLanguage<TLanguage extends string>(
+  fileName: string,
+  patterns?: ReadonlyArray<{ readonly language: TLanguage; readonly pattern: RegExp }>
+): TLanguage | null {
+  const normalizedPatterns =
+    patterns ??
+    (DEFAULT_CODE_LANGUAGE_PATTERNS as ReadonlyArray<{
+      readonly language: TLanguage;
+      readonly pattern: RegExp;
+    }>);
+  const normalizedName = fileName.toLowerCase();
+  for (const { pattern, language } of normalizedPatterns) {
+    if (pattern.test(normalizedName)) {
+      return language;
+    }
+  }
+  return null;
+}
+
+function countUniqueLines(content: string): { totalLines: number; uniqueLines: number } {
+  const uniqueLines = new Set<string>();
+  let totalLines = 0;
+  let lineStart = 0;
+
+  for (let index = 0; index <= content.length; index += 1) {
+    const isLineBreak = index === content.length || content.charCodeAt(index) === 10;
+    if (!isLineBreak) {
+      continue;
+    }
+
+    let line = content.slice(lineStart, index);
+    if (line.endsWith('\r')) {
+      line = line.slice(0, -1);
+    }
+    uniqueLines.add(line);
+    totalLines += 1;
+    lineStart = index + 1;
+  }
+
+  return { totalLines, uniqueLines: uniqueLines.size };
+}
+
+export function shouldSkipChunking(
+  content: string,
+  options: SharedChunkingOptions,
+  maxChunkableSize: number,
+  skipPatterns: readonly RegExp[] = DEFAULT_SKIP_CHUNKING_PATTERNS
+): { reason?: string; skip: boolean } {
+  const fileName = options.fileName || options.filePath || '';
+  for (const pattern of skipPatterns) {
+    if (pattern.test(fileName)) {
+      return {
+        skip: true,
+        reason: `Lock file or dependency manifest: ${fileName}`,
+      };
+    }
+  }
+
+  const probeWindow = content.slice(0, 4096);
+  if (probeWindow.includes('\u0000')) {
+    return { skip: true, reason: 'Binary content detected (NUL bytes present)' };
+  }
+
+  if (!options.allowLargeFiles && content.length > maxChunkableSize) {
+    return {
+      skip: true,
+      reason: `File too large: ${Math.round(content.length / 1024)}KB (max: ${Math.round(
+        maxChunkableSize / 1024
+      )}KB)`,
+    };
+  }
+
+  const { totalLines, uniqueLines } = countUniqueLines(content);
+  if (totalLines > 1000 && uniqueLines / totalLines < 0.1) {
+    return {
+      skip: true,
+      reason: 'Highly repetitive content (likely generated file)',
+    };
+  }
+
+  return { skip: false };
+}
+
+export function resolveMaxTokensCap(
+  cap: number | undefined,
+  maxTokensHardLimit: number,
+  maxTokensSafetyCap: number
+): number {
+  if (!Number.isFinite(cap ?? Number.NaN)) {
+    return maxTokensSafetyCap;
+  }
+  const sanitized = Math.floor(cap as number);
+  if (sanitized <= 0) {
+    return maxTokensSafetyCap;
+  }
+  return Math.max(256, Math.min(maxTokensHardLimit, sanitized));
+}
+
+export function adjustChunkingForFileType<TLanguage extends string>(
+  content: string,
+  options: SharedChunkingOptions,
+  config: ChunkAdjustmentConfig<TLanguage>,
+  detectLanguage: (fileName: string) => TLanguage | null,
+  largeStructuredPatterns: readonly RegExp[] = DEFAULT_LARGE_STRUCTURED_PATTERNS
+): { maxTokens: number; overlap: number } {
+  const fileName = options.fileName || options.filePath || '';
+  const ignoreRecommendations = options.ignoreFileTypeRecommendations === true;
+  const maxTokensCap = resolveMaxTokensCap(
+    options.maxTokensCap,
+    config.maxTokensHardLimit,
+    config.maxTokensSafetyCap
+  );
+
+  const normalize = (value: number | undefined, fallback: number, minimum: number): number => {
+    const candidate = Number.isFinite(value) ? (value as number) : fallback;
+    return Math.max(minimum, Math.floor(candidate));
+  };
+
+  const requestedMaxTokens = options.maxTokens;
+  const requestedOverlap = options.overlap;
+  const hasExplicitMaxTokens = requestedMaxTokens !== undefined;
+  const hasExplicitOverlap = requestedOverlap !== undefined;
+
+  let maxTokens = hasExplicitMaxTokens
+    ? normalize(requestedMaxTokens, config.defaultMaxTokens, 1)
+    : Number.POSITIVE_INFINITY;
+  let overlap = hasExplicitOverlap
+    ? normalize(requestedOverlap, config.defaultOverlap, 0)
+    : Number.POSITIVE_INFINITY;
+
+  interface ChunkAdjustment {
+    maxTokens: number;
+    overlap: number;
+  }
+
+  const apply = (state: ChunkAdjustment, cap: Partial<ChunkAdjustment>) => {
+    const next: ChunkAdjustment = { ...state };
+    if (typeof cap.maxTokens === 'number') {
+      next.maxTokens = Math.min(state.maxTokens, cap.maxTokens);
+    }
+    if (typeof cap.overlap === 'number') {
+      next.overlap = Math.min(state.overlap, cap.overlap);
+    }
+    return next;
+  };
+
+  if (!ignoreRecommendations) {
+    const adjustments: Array<(state: ChunkAdjustment) => ChunkAdjustment> = [];
+    const codeLanguage = detectLanguage(fileName);
+    if (codeLanguage) {
+      adjustments.push((state) => {
+        const languageDefaults = config.codeLanguageDefaults[codeLanguage];
+        const cap: Partial<ChunkAdjustment> = {};
+        if (!hasExplicitMaxTokens) {
+          cap.maxTokens = languageDefaults?.maxTokens ?? config.codeMaxTokens;
+        }
+        if (!hasExplicitOverlap) {
+          cap.overlap = languageDefaults?.overlap ?? config.codeOverlap;
+        }
+        return apply(state, cap);
+      });
+    }
+
+    if (largeStructuredPatterns.some((pattern) => pattern.test(fileName))) {
+      adjustments.push((state) => {
+        const cap: Partial<ChunkAdjustment> = {};
+        if (!hasExplicitMaxTokens) {
+          cap.maxTokens = config.largeStructuredMaxTokens;
+        }
+        if (!hasExplicitOverlap) {
+          cap.overlap = config.largeStructuredOverlap;
+        }
+        return apply(state, cap);
+      });
+    }
+
+    if (content.length > config.veryLargeContentThreshold) {
+      adjustments.push((state) => {
+        const cap: Partial<ChunkAdjustment> = {};
+        if (!hasExplicitMaxTokens) {
+          cap.maxTokens = config.veryLargeMaxTokens;
+        }
+        if (!hasExplicitOverlap) {
+          cap.overlap = config.veryLargeOverlap;
+        }
+        return apply(state, cap);
+      });
+    }
+
+    let state: ChunkAdjustment = { maxTokens, overlap };
+    for (const adjust of adjustments) {
+      state = adjust(state);
+    }
+    maxTokens = state.maxTokens;
+    overlap = state.overlap;
+  }
+
+  const clamp = (value: number, fallback: number, limit: number) => {
+    if (!Number.isFinite(value)) {
+      return fallback;
+    }
+    return Math.max(1, Math.min(value, limit));
+  };
+
+  const resolveLimit = (hardLimit: number, safetyCap: number, explicit: boolean) =>
+    explicit ? hardLimit : Math.min(hardLimit, safetyCap);
+
+  const maxTokensLimit = resolveLimit(
+    config.maxTokensHardLimit,
+    maxTokensCap,
+    hasExplicitMaxTokens
+  );
+  const overlapLimit = resolveLimit(
+    config.overlapHardLimit,
+    config.overlapSafetyCap,
+    hasExplicitOverlap
+  );
+
+  maxTokens = clamp(maxTokens, config.defaultMaxTokens, maxTokensLimit);
+  overlap = clamp(overlap, config.defaultOverlap, overlapLimit);
+
+  if (overlap >= maxTokens) {
+    overlap = Math.max(0, maxTokens - 1);
+  }
+
+  return { maxTokens, overlap };
+}
+
+export function isFunctionNode(type?: string): boolean {
+  if (!type) {
+    return false;
+  }
+  return (
+    type === 'FunctionDeclaration' ||
+    type === 'FunctionExpression' ||
+    type === 'ArrowFunctionExpression' ||
+    type === 'ObjectMethod' ||
+    type === 'ClassMethod' ||
+    type === 'ClassPrivateMethod' ||
+    type === 'TSDeclareFunction' ||
+    type === 'TSMethodSignature' ||
+    type === 'TSCallSignatureDeclaration'
+  );
+}
+
+export function isAstNode(value: unknown): value is AstNode {
+  return Boolean(
+    value && typeof value === 'object' && 'type' in (value as Record<string, unknown>)
+  );
+}
+
+function isTopLevelContainerType(type?: string): boolean {
+  return (
+    type === 'Program' ||
+    type === 'ExportNamedDeclaration' ||
+    type === 'ExportDefaultDeclaration' ||
+    type === 'ClassBody'
+  );
+}
+
+function iterateAstChildren(node: AstNode): AstNode[] {
+  const children: AstNode[] = [];
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        if (isAstNode(child)) {
+          children.push(child);
+        }
+      }
+    } else if (isAstNode(value)) {
+      children.push(value);
+    }
+  }
+  return children;
+}
+
+function collectTopLevelFunctionRanges(
+  node: AstNode | null,
+  ancestors: AstNode[],
+  ranges: FunctionRange[]
+): void {
+  if (!node) {
+    return;
+  }
+
+  const parentType = ancestors.at(-1)?.type;
+  if (
+    isTopLevelContainerType(parentType) &&
+    isFunctionNode(node.type ?? '') &&
+    Number.isFinite(node.start) &&
+    Number.isFinite(node.end)
+  ) {
+    ranges.push({ start: Number(node.start), end: Number(node.end) });
+  }
+
+  ancestors.push(node);
+  for (const child of iterateAstChildren(node)) {
+    collectTopLevelFunctionRanges(child, ancestors, ranges);
+  }
+  ancestors.pop();
+}
+
+export function getTopLevelFunctionRanges(ast: AstNode | null): FunctionRange[] {
+  const ranges: FunctionRange[] = [];
+  collectTopLevelFunctionRanges(ast, [], ranges);
+  ranges.sort((left, right) => left.start - right.start || left.end - right.end);
+  return ranges;
+}
+
+export function getCodeSeparators(custom?: string[]): string[] {
+  if (custom?.length) {
+    return custom;
+  }
+  return [
+    '\n\n',
+    '\nexport default ',
+    '\nexport class ',
+    '\nclass ',
+    '\nexport function ',
+    '\nfunction ',
+    '\nexport const ',
+    '\nconst ',
+    '\nlet ',
+    '\nvar ',
+    '\nexport interface ',
+    '\ninterface ',
+    '\ntype ',
+    '\nimport ',
+    '\ndescribe(',
+    '\nit(',
+    '\nelse ',
+    '\ntry {',
+    '\ncatch (',
+    '\nfinally {',
+    '\nswitch (',
+    '\n}',
+    '\n};',
+    '\n',
+    ';',
+    ',',
+    ' ',
+    '',
+  ];
+}
+
+export async function splitCodeByFunctionRanges(
+  content: string,
+  options: {
+    readonly maxChars: number;
+    readonly overlapChars: number;
+    readonly ranges: readonly FunctionRange[];
+    readonly separators: string[];
+  }
+): Promise<string[] | null> {
+  if (options.ranges.length === 0) {
+    return null;
+  }
+
+  const pieces: string[] = [];
+  let cursor = 0;
+  const recursiveChunker = new RecursiveTextSplitter({
+    chunkSize: options.maxChars,
+    chunkOverlap: options.overlapChars,
+    separators: options.separators,
+  });
+
+  const pushSegment = async (segment: string) => {
+    const trimmed = segment.trim();
+    if (!trimmed) {
+      return;
+    }
+    if (trimmed.length <= options.maxChars * 1.25) {
+      pieces.push(trimmed);
+      return;
+    }
+    const subPieces = await recursiveChunker.splitText(trimmed);
+    pieces.push(...subPieces.map((piece) => piece.trim()).filter(Boolean));
+  };
+
+  const appendRange = async (startIndex: number, endIndex: number) => {
+    const safeStart = Math.max(0, Math.min(startIndex, content.length));
+    const safeEnd = Math.max(safeStart, Math.min(endIndex, content.length));
+    await pushSegment(content.slice(safeStart, safeEnd));
+  };
+
+  for (const range of options.ranges) {
+    const clampedStart = Math.max(0, Math.min(range.start, content.length));
+    const clampedEnd = Math.max(clampedStart, Math.min(range.end, content.length));
+
+    if (clampedStart > cursor) {
+      await appendRange(cursor, clampedStart);
+    }
+
+    const paddedStart = Math.max(0, clampedStart - options.overlapChars);
+    const paddedEnd = Math.min(content.length, clampedEnd + options.overlapChars);
+    await appendRange(paddedStart, paddedEnd);
+    cursor = clampedEnd;
+  }
+
+  if (cursor < content.length) {
+    await appendRange(cursor, content.length);
+  }
+
+  return pieces;
+}
+
+export function splitByBlankLines(text: string): string[] {
+  const parts: string[] = [];
+  let buffer: string[] = [];
+  const lines = text.split(/\r?\n/);
+
+  for (const line of lines) {
+    if (line.trim() === '') {
+      if (buffer.length > 0) {
+        parts.push(buffer.join('\n'));
+        buffer = [];
+      }
+      continue;
+    }
+    buffer.push(line);
+  }
+
+  if (buffer.length > 0) {
+    parts.push(buffer.join('\n'));
+  }
+
+  return parts;
+}
+
+function captureFence(
+  lines: readonly (string | undefined)[],
+  start: number
+): { block?: { meta: { isFence: true }; text: string }; consumed: number } {
+  const line = lines[start] ?? '';
+  const openMatch = MARKDOWN_CODE_FENCE_PATTERN.exec(line);
+  if (!openMatch) {
+    return { consumed: start };
+  }
+
+  const fenceChar = openMatch[1]?.[0] ?? '`';
+  const fenceLength = openMatch[1]?.length ?? 3;
+  const closingPattern = new RegExp(`^\\s*${fenceChar}{${fenceLength},}\\s*$`);
+  const buffer: string[] = [line];
+  let index = start + 1;
+
+  while (index < lines.length) {
+    const current = lines[index] ?? '';
+    if (closingPattern.test(current)) {
+      break;
+    }
+    buffer.push(current);
+    index += 1;
+  }
+
+  if (index < lines.length) {
+    buffer.push(lines[index] ?? '');
+    index += 1;
+  }
+
+  return {
+    consumed: index,
+    block: { text: buffer.join('\n'), meta: { isFence: true } },
+  };
+}
+
+function captureHeading(lines: readonly (string | undefined)[], start: number) {
+  const raw = lines[start] ?? '';
+  const match = raw.match(/^(#{1,6})\s+(.*)$/);
+  if (!match) {
+    return { consumed: start } as const;
+  }
+  return {
+    consumed: start + 1,
+    heading: { text: raw, meta: { heading: match[2] ?? '' } },
+  } as const;
+}
+
+function captureParagraph(lines: readonly (string | undefined)[], start: number) {
+  const buffer: string[] = [];
+  let index = start;
+
+  while (index < lines.length) {
+    const current = lines[index] ?? '';
+    if (isMarkdownBlockBoundaryLine(current)) {
+      break;
+    }
+    buffer.push(current);
+    index += 1;
+  }
+
+  if (buffer.length === 0) {
+    while (index < lines.length && (lines[index] ?? '').trim() === '') {
+      index += 1;
+    }
+    return { consumed: index } as const;
+  }
+
+  while (index < lines.length && (lines[index] ?? '').trim() === '') {
+    index += 1;
+  }
+
+  return {
+    consumed: index,
+    paragraph: { text: buffer.join('\n'), meta: {} as const },
+  } as const;
+}
+
+export function splitMarkdownIntoBlocks(content: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  const lines = content.split(/\r?\n/);
+  let index = 0;
+
+  while (index < lines.length) {
+    const fence = captureFence(lines, index);
+    if (fence.block) {
+      blocks.push(fence.block);
+      index = fence.consumed;
+      continue;
+    }
+
+    const heading = captureHeading(lines, index);
+    if (heading.heading) {
+      blocks.push(heading.heading);
+      index = heading.consumed;
+      continue;
+    }
+
+    const paragraph = captureParagraph(lines, index);
+    if (paragraph.paragraph) {
+      blocks.push(paragraph.paragraph);
+    }
+    index = paragraph.consumed;
+  }
+
+  return blocks;
+}
+
+export function findBalancedSplitPoint(content: string): number {
+  const midpoint = Math.floor(content.length / 2);
+  const separators = ['\n\n', '\n', '. ', ' '] as const;
+
+  for (const separator of separators) {
+    const before = content.lastIndexOf(separator, midpoint);
+    if (before > 0 && before < content.length - separator.length) {
+      return before + separator.length;
+    }
+
+    const after = content.indexOf(separator, midpoint);
+    if (after > 0 && after < content.length - separator.length) {
+      return after + separator.length;
+    }
+  }
+
+  return Math.max(1, midpoint);
+}
+
+export function assertTokenBudgetIterationsWithinLimit(
+  iterations: number,
+  maxIterations: number
+): void {
+  if (iterations > maxIterations) {
+    throw new Error(
+      `splitChunkToTokenBudget exceeded ${String(maxIterations)} iterations for a single chunk`
+    );
+  }
+}
