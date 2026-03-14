@@ -340,6 +340,33 @@ export function feature${index}() {
         expect(result.chunks[0]?.chunkSize).toBe(32);
         expect(result.chunks[0]?.content.length).toBeGreaterThan(0);
       });
+
+      it('re-splits oversized chunks when true sizing exceeds the safety cap', async () => {
+        vi.doMock('../token-utils-lite', () => ({
+          countTokensAccurate: vi.fn(async (text: string) => {
+            if (text.length > 120) {
+              return 160;
+            }
+            return Math.max(1, Math.ceil(text.length / 8));
+          }),
+        }));
+
+        const result = await chunkContent('word '.repeat(250), {
+          strategy: 'token',
+          fileName: 'true-sized.txt',
+          maxTokens: 32,
+          overlap: 8,
+          tokenTrueSizing: true,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('token');
+        expect(result.chunks.length).toBeGreaterThan(1);
+        for (const chunk of result.chunks) {
+          expect(chunk.content.length).toBeGreaterThan(0);
+          expect(chunk.tokenCount).toBeGreaterThan(0);
+        }
+      });
     });
 
     describe('small content handling', () => {

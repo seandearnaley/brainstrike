@@ -83,4 +83,36 @@ describe('token-utils-lite', () => {
       'encoder blew up after initialization'
     );
   });
+
+  it('treats dispose as a no-op before the accurate helper is initialized', async () => {
+    const tokenUtils = await import('../token-utils-lite');
+
+    await expect(tokenUtils.disposeAccurateTokenCountingRuntime()).resolves.toBeUndefined();
+    expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBeNull();
+  });
+
+  it('disposes the accurate helper and clears cached failure state', async () => {
+    const disposeAccurateTokenCountingRuntime = vi.fn();
+    const supportsAccurateTokenCounting = vi.fn(async () => true);
+    const moduleFactory = vi.fn(() => ({
+      countTokensAccurate: vi.fn(async () => 9),
+      disposeAccurateTokenCountingRuntime,
+      getAccurateTokenCountingFailureReason: vi.fn(() => 'stale failure'),
+      supportsAccurateTokenCounting,
+    }));
+
+    vi.doMock('../token-utils-accurate-lite', moduleFactory);
+
+    const tokenUtils = await import('../token-utils-lite');
+
+    await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(true);
+    expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe('stale failure');
+
+    await expect(tokenUtils.disposeAccurateTokenCountingRuntime()).resolves.toBeUndefined();
+    expect(disposeAccurateTokenCountingRuntime).toHaveBeenCalledTimes(1);
+    expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBeNull();
+
+    await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(true);
+    expect(supportsAccurateTokenCounting).toHaveBeenCalledTimes(2);
+  });
 });
