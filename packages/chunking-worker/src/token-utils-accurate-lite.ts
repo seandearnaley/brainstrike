@@ -282,9 +282,17 @@ async function loadNodeEncoder(): Promise<ResolvedEncoder | null> {
           string,
           unknown
         >;
-        return createNodeEncoder(mod);
+        const encoder = createNodeEncoder(mod);
+        if (!encoder) {
+          // Fail fast for all callers sharing this probe; only a later fresh call retries.
+          nodeEncoderPromise = null;
+        }
+        return encoder;
       } catch (error) {
         logOnce('Failed to load tiktoken (node)', error);
+        // Clear the failed promise so later probes can retry after transient loader issues.
+        // Callers already awaiting this attempt still observe the same null result.
+        nodeEncoderPromise = null;
         return null;
       }
     })();
@@ -296,9 +304,17 @@ async function loadBrowserEncoder(): Promise<ResolvedEncoder | null> {
   if (!browserEncoderPromise) {
     browserEncoderPromise = (async () => {
       try {
-        return await instantiateBrowserEncoder();
+        const encoder = await instantiateBrowserEncoder();
+        if (!encoder) {
+          // Fail fast for all callers sharing this probe; only a later fresh call retries.
+          browserEncoderPromise = null;
+        }
+        return encoder;
       } catch (error) {
         logOnce('Failed to load tiktoken (browser)', error);
+        // Clear the failed promise so later probes can retry after transient init issues.
+        // Callers already awaiting this attempt still observe the same null result.
+        browserEncoderPromise = null;
         return null;
       }
     })();

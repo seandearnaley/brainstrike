@@ -115,4 +115,25 @@ describe('token-utils-lite', () => {
     await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(true);
     expect(supportsAccurateTokenCounting).toHaveBeenCalledTimes(2);
   });
+
+  it('retries support probes without caching a failed result', async () => {
+    let shouldReportSupported = false;
+    vi.doMock('../token-utils-accurate-lite', () => ({
+      countTokensAccurate: vi.fn(async () => 7),
+      disposeAccurateTokenCountingRuntime: vi.fn(),
+      getAccurateTokenCountingFailureReason: vi.fn(() =>
+        shouldReportSupported ? null : 'accurate tokenizer unavailable'
+      ),
+      supportsAccurateTokenCounting: vi.fn(async () => {
+        const supported = shouldReportSupported;
+        shouldReportSupported = true;
+        return supported;
+      }),
+    }));
+
+    const tokenUtils = await import('../token-utils-lite');
+
+    await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(false);
+    await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(true);
+  });
 });

@@ -101,6 +101,14 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/platform-utils/src'
       ),
+      '@brainstrike/text-splitter/chunking-core': resolve(
+        import.meta.dirname,
+        '../../packages/text-splitter/src/chunking-core.ts'
+      ),
+      '@brainstrike/text-splitter': resolve(
+        import.meta.dirname,
+        '../../packages/text-splitter/src/index.ts'
+      ),
       '@brainstrike/types': resolve(import.meta.dirname, '../../packages/types/src'),
       '@brainstrike/vector-management': resolve(
         import.meta.dirname,

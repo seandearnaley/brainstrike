@@ -234,7 +234,14 @@ export default defineConfig({
       '@brainstrike/chunking-worker': path.resolve(__dirname, '../../packages/chunking-worker/src'),
       '@brainstrike/preferences': path.resolve(__dirname, '../../packages/preferences/src'),
       '@brainstrike/platform-utils': path.resolve(__dirname, '../../packages/platform-utils/src'),
-      '@brainstrike/text-splitter': path.resolve(__dirname, '../../packages/text-splitter/src'),
+      '@brainstrike/text-splitter/chunking-core': path.resolve(
+        __dirname,
+        '../../packages/text-splitter/src/chunking-core.ts'
+      ),
+      '@brainstrike/text-splitter': path.resolve(
+        __dirname,
+        '../../packages/text-splitter/src/index.ts'
+      ),
       '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
       '@brainstrike/ui': path.resolve(__dirname, '../../packages/ui/src'),
       '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),

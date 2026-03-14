@@ -81,4 +81,24 @@ describe('token-utils-lite', () => {
       'tiktoken encoder failed to initialize'
     );
   });
+
+  it('retries support probes without caching a failed result', async () => {
+    let shouldReportSupported = false;
+    vi.doMock('../token-utils-accurate-lite', () => ({
+      countTokensAccurate: vi.fn(async () => 7),
+      getAccurateTokenCountingFailureReason: vi.fn(() =>
+        shouldReportSupported ? null : 'encoder unavailable'
+      ),
+      supportsAccurateTokenCounting: vi.fn(async () => {
+        const supported = shouldReportSupported;
+        shouldReportSupported = true;
+        return supported;
+      }),
+    }));
+
+    const tokenUtils = await import('../token-utils-lite');
+
+    await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(false);
+    await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(true);
+  });
 });

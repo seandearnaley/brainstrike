@@ -231,8 +231,12 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/preferences/src'),
       },
       {
+        find: '@brainstrike/text-splitter/chunking-core',
+        replacement: path.resolve(__dirname, '../../packages/text-splitter/src/chunking-core.ts'),
+      },
+      {
         find: '@brainstrike/text-splitter',
-        replacement: path.resolve(__dirname, '../../packages/text-splitter/src'),
+        replacement: path.resolve(__dirname, '../../packages/text-splitter/src/index.ts'),
       },
       {
         find: '@brainstrike/storage/electron',
