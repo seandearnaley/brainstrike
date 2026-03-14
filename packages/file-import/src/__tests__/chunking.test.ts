@@ -787,6 +787,52 @@ describe('processChunking', () => {
     expect(mockRepository.findById).not.toHaveBeenCalled();
   });
 
+  it('processes every host-proxy file exactly once when completions resolve out of order', async () => {
+    const processedFileIds: string[] = [];
+
+    const hostProxyWorkerPort = createMockChunkingWorkerPort({
+      transportKind: 'host-proxy',
+      chunkFileById: vi.fn().mockImplementation(async (fileRecordId: string) => {
+        const index = Number(fileRecordId.replace('file-', ''));
+        const delayMs = (index % 4) * 3;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        processedFileIds.push(fileRecordId);
+
+        return {
+          fileRecordId,
+          chunks: [
+            {
+              chunkIndex: 0,
+              content: `Chunk content for ${fileRecordId}`,
+              contentHash: `hash-${fileRecordId}`,
+              tokenCount: 10,
+              chunkType: 'sentence',
+            },
+          ],
+          strategyUsed: 'sentence',
+          totalTokens: 10,
+          skipped: false,
+        };
+      }),
+    });
+
+    const importResults = Array.from({ length: 16 }, (_, index) => ({
+      id: `file-${index + 1}`,
+      imported: true,
+      existed: false,
+    }));
+
+    const results = await processChunking(
+      importResults,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress, chunkingWorkerPort: hostProxyWorkerPort }
+    );
+
+    expect(results).toHaveLength(importResults.length);
+    expect(new Set(processedFileIds)).toEqual(new Set(importResults.map((result) => result.id)));
+    expect(processedFileIds).toHaveLength(importResults.length);
+  });
+
   it('updates final progress correctly via worker', async () => {
     await processChunking(
       [{ id: 'file-1', imported: true, existed: false }],
