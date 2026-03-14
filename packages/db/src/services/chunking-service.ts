@@ -10,6 +10,7 @@ import {
   splitTextByStrategy,
 } from '@brainstrike/text-splitter';
 import {
+  type AstNode,
   adjustChunkingForFileType as adjustChunkingForFileTypeShared,
   assertTokenBudgetIterationsWithinLimit,
   detectCodeLanguage,
@@ -82,12 +83,6 @@ export interface ChunkingResult {
 }
 
 type CodeLanguage = keyof typeof CHUNKING_CONFIG.codeLanguageDefaults;
-
-type AstNode = {
-  type?: string;
-  start?: number;
-  end?: number;
-} & Record<string, unknown>;
 
 export class ChunkingService {
   async chunkContent(
@@ -162,11 +157,8 @@ export class ChunkingService {
     content: string,
     options: ChunkingOptions
   ): { maxTokens: number; overlap: number } {
-    return adjustChunkingForFileTypeShared(
-      content,
-      options,
-      CHUNKING_CONFIG,
-      (fileName: string) => detectCodeLanguage(fileName) as CodeLanguage | null
+    return adjustChunkingForFileTypeShared(content, options, CHUNKING_CONFIG, (fileName: string) =>
+      detectCodeLanguage(fileName)
     );
   }
 

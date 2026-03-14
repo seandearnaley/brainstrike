@@ -1,3 +1,5 @@
+// Keep this dependency one-way: chunking-core may read low-level text-splitter
+// primitives from index, but index must not re-export chunking-core.
 import {
   isMarkdownBlockBoundaryLine,
   MARKDOWN_CODE_FENCE_PATTERN,
