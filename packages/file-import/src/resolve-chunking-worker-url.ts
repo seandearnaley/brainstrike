@@ -25,6 +25,9 @@ function createWorkspaceChunkingWorkerUrl(urlFactory: ChunkingWorkerUrlFactory):
  * so split worker chunks are emitted alongside the worker entry. Resolving the already-built
  * package asset only emitted the worker entry and dropped its sibling chunks, which broke
  * desktop worker startup after chunk splitting.
+ *
+ * This is intentionally Vite/workspace-coupled. Do not reuse it from published package code
+ * or non-Vite bundlers without replacing the `?worker&url` import contract first.
  */
 export async function resolveChunkingWorkerUrl(
   urlFactory: ChunkingWorkerUrlFactory = () => chunkingWorkerUrlHref

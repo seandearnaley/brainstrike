@@ -67,6 +67,12 @@ export function countTokensHeuristic(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
+export const MARKDOWN_CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
+
+export function isMarkdownBlockBoundaryLine(line: string): boolean {
+  return MARKDOWN_CODE_FENCE_PATTERN.test(line) || /^(#{1,6})\s+/.test(line) || line.trim() === '';
+}
+
 export function formatTokenCount(count: number): string {
   if (count < 1000) {
     return `${count} tokens`;

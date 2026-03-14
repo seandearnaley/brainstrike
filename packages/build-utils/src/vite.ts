@@ -77,6 +77,9 @@ const moduleDir =
   typeof import.meta.dirname === 'string'
     ? import.meta.dirname
     : path.dirname(fileURLToPath(import.meta.url));
+// This helper is intentionally monorepo-only: the app Vite configs must point at the
+// workspace source entries so Vite owns the emitted lazy chunks. Do not repurpose this
+// for published/node_modules consumption without reworking the path contract.
 const appShellDir = path.resolve(moduleDir, '..', '..', 'app-shell', 'src');
 const uiDir = path.resolve(moduleDir, '..', '..', 'ui', 'src');
 const dbExplorerDir = path.resolve(moduleDir, '..', '..', 'db-explorer', 'src');
@@ -111,8 +114,11 @@ export function getHeavyRuntimeOptimizeDepsExclude(): readonly string[] {
   return HEAVY_RUNTIME_OPTIMIZE_DEPS_EXCLUDE;
 }
 
-export function getLazySurfaceOptimizeDepsEntries(appRoot: string): readonly string[] {
-  return [
+export function getLazySurfaceOptimizeDepsEntries(
+  appRoot: string,
+  entryExists: (entry: string) => boolean = existsSync
+): readonly string[] {
+  const entries = [
     path.resolve(appRoot, 'index.html'),
     path.resolve(appShellDir, 'tools-panel.tsx'),
     path.resolve(appShellDir, 'assistant-tab.tsx'),
@@ -124,6 +130,14 @@ export function getLazySurfaceOptimizeDepsEntries(appRoot: string): readonly str
     path.resolve(appShellDir, 'database-tab-chunk.tsx'),
     path.resolve(dbExplorerDir, 'database-demo-panel.tsx'),
   ];
+
+  for (const entry of entries) {
+    if (!entryExists(entry)) {
+      throw new Error(`Lazy-surface optimizeDeps entry does not exist: ${entry}`);
+    }
+  }
+
+  return entries;
 }
 
 export function getWorkerpoolBrowserStubAliases(baseDir: string): Readonly<Record<string, string>> {

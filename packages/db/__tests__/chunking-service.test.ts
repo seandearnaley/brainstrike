@@ -197,6 +197,28 @@ class TestClass {
       expect(result.strategyUsed).toBe('sentence');
     });
 
+    it('fails fast when token-budget splitting cannot make progress', async () => {
+      const serviceWithPrivateApi = chunkingService as unknown as {
+        splitChunkToTokenBudget: (
+          content: string,
+          maxTokens: number,
+          overlap: number,
+          tokenCounter: (text: string) => Promise<number>
+        ) => Promise<Array<{ content: string; tokenCount: number }>>;
+        reSplitOversizedChunk: (
+          content: string,
+          maxTokens: number,
+          overlap: number
+        ) => Promise<string[]>;
+      };
+
+      serviceWithPrivateApi.reSplitOversizedChunk = async (content: string) => [content];
+
+      await expect(
+        serviceWithPrivateApi.splitChunkToTokenBudget('oversized chunk', 1, 0, async () => 2)
+      ).rejects.toThrow('Unable to split chunk to token budget without progress');
+    });
+
     it('applies TypeScript language defaults when no overrides are provided', async () => {
       const content = 'export const answer = 42;\n'.repeat(20);
 
@@ -504,6 +526,23 @@ class TestClass {
       expect(docsResult.strategyUsed).toBe('semantic-markdown');
       expect(jsonResult.strategyUsed).toBe('json');
       expect(latexResult.strategyUsed).toBe('latex');
+    });
+
+    it('treats tilde fences as markdown fence blocks', async () => {
+      const result = await chunkingService.chunkContent(
+        '# Title\n\n~~~ts\nconst answer = 42;\n~~~\n\nParagraph after fence.',
+        'docs-fence',
+        {
+          strategy: 'markdown',
+          fileName: 'guide.md',
+        }
+      );
+
+      expect(result.strategyUsed).toBe('markdown');
+      expect(result.chunks.some((chunk) => chunk.content.includes('~~~ts'))).toBe(true);
+      expect(result.chunks.some((chunk) => chunk.content.includes('Paragraph after fence.'))).toBe(
+        true
+      );
     });
 
     it('keeps TypeScript functions intact using AST-aware chunking', async () => {

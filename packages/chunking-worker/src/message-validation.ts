@@ -36,6 +36,14 @@ function isContentString(value: unknown): boolean {
   return typeof value === 'string' && value.length <= CHUNKING_CONFIG.maxChunkableSize;
 }
 
+function isBoundedMetadataString(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= CHUNKING_CONFIG.maxMetadataFieldLength
+  );
+}
+
 function isChunkRequestRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -70,11 +78,11 @@ export function isChunkRequest(value: unknown): value is ChunkRequest {
   const msg = value as Record<string, unknown>;
   return (
     msg['type'] === 'chunk' &&
-    typeof msg['id'] === 'string' &&
-    typeof msg['fileRecordId'] === 'string' &&
+    isBoundedMetadataString(msg['id']) &&
+    isBoundedMetadataString(msg['fileRecordId']) &&
     isContentString(msg['content']) &&
-    typeof msg['fileName'] === 'string' &&
-    typeof msg['filePath'] === 'string' &&
+    isBoundedMetadataString(msg['fileName']) &&
+    isBoundedMetadataString(msg['filePath']) &&
     isChunkingRequestOptions(msg['options'])
   );
 }
@@ -87,6 +95,7 @@ export function isChunkBatchRequest(value: unknown): value is ChunkBatchRequest 
   if (
     msg['type'] !== 'chunk-batch' ||
     !Array.isArray(msg['requests']) ||
+    msg['requests'].length === 0 ||
     msg['requests'].length > CHUNKING_CONFIG.maxBatchSize
   ) {
     return false;
@@ -97,12 +106,14 @@ export function isChunkBatchRequest(value: unknown): value is ChunkBatchRequest 
     }
     const request = req as Record<string, unknown>;
     if (
-      typeof request['id'] !== 'string' ||
-      typeof request['fileRecordId'] !== 'string' ||
-      !isContentString(request['content']) ||
-      typeof request['fileName'] !== 'string' ||
-      typeof request['filePath'] !== 'string' ||
-      !isChunkingRequestOptions(request['options'])
+      !(
+        isBoundedMetadataString(request['id']) &&
+        isBoundedMetadataString(request['fileRecordId']) &&
+        isContentString(request['content']) &&
+        isBoundedMetadataString(request['fileName']) &&
+        isBoundedMetadataString(request['filePath']) &&
+        isChunkingRequestOptions(request['options'])
+      )
     ) {
       return false;
     }

@@ -1,7 +1,10 @@
 import { type ParserPlugin, parse } from '@babel/parser';
 import {
   type ChunkingStrategy,
+  countTokensHeuristic,
   isChunkingStrategy,
+  isMarkdownBlockBoundaryLine,
+  MARKDOWN_CODE_FENCE_PATTERN,
   RecursiveTextSplitter,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
@@ -380,10 +383,7 @@ export class ChunkingService {
   // (legacy) processChunks removed; streaming path is preferred.
 
   private estimateTokenCount(text: string): number {
-    // Standard token estimation for embeddings
-    // Use the standard estimate: 1 token ≈ 4 characters (GPT tokenization)
-    const charCount = text.length;
-    return Math.ceil(charCount / 4);
+    return countTokensHeuristic(text);
   }
 
   private async generateContentHash(content: string): Promise<string> {
@@ -470,8 +470,12 @@ export class ChunkingService {
   ): Promise<Array<{ content: string; tokenCount: number }>> {
     const pendingPieces: string[] = [content];
     const resolvedPieces: Array<{ content: string; tokenCount: number }> = [];
+    let iterations = 0;
+    const maxIterations = 10_000;
 
     while (pendingPieces.length > 0) {
+      iterations += 1;
+      assertTokenBudgetIterationsWithinLimit(iterations, maxIterations);
       const nextPiece = pendingPieces.shift();
       if (!nextPiece) {
         continue;
@@ -483,9 +487,15 @@ export class ChunkingService {
       }
 
       const tokenCount = await tokenCounter(normalizedPiece);
-      if (tokenCount <= maxTokens || normalizedPiece.length <= 1) {
+      if (tokenCount <= maxTokens) {
         resolvedPieces.push({ content: normalizedPiece, tokenCount });
         continue;
+      }
+
+      if (normalizedPiece.length <= 1) {
+        throw new Error(
+          `Unable to split chunk to token budget without progress (tokens=${String(tokenCount)}, limit=${String(maxTokens)})`
+        );
       }
 
       const splitTarget = Math.max(1, Math.min(maxTokens, tokenCount - 1));
@@ -499,8 +509,9 @@ export class ChunkingService {
         const left = normalizedPiece.slice(0, splitIndex).trim();
         const right = normalizedPiece.slice(splitIndex).trim();
         if (!(left && right)) {
-          resolvedPieces.push({ content: normalizedPiece, tokenCount });
-          continue;
+          throw new Error(
+            `Unable to split chunk to token budget without progress (tokens=${String(tokenCount)}, limit=${String(maxTokens)})`
+          );
         }
         pendingPieces.unshift(right, left);
         continue;
@@ -974,10 +985,11 @@ function collectTopLevelFunctionRanges(
     ranges.push({ start: Number(node.start), end: Number(node.end) });
   }
 
-  const nextAncestors = [...ancestors, node];
+  ancestors.push(node);
   for (const child of iterateAstChildren(node)) {
-    collectTopLevelFunctionRanges(child, nextAncestors, ranges);
+    collectTopLevelFunctionRanges(child, ancestors, ranges);
   }
+  ancestors.pop();
 }
 
 async function splitCodeByFunctions(
@@ -1174,6 +1186,14 @@ function findBalancedSplitPoint(content: string): number {
   return Math.max(1, midpoint);
 }
 
+function assertTokenBudgetIterationsWithinLimit(iterations: number, maxIterations: number): void {
+  if (iterations > maxIterations) {
+    throw new Error(
+      `splitChunkToTokenBudget exceeded ${String(maxIterations)} iterations for a single chunk`
+    );
+  }
+}
+
 function splitMarkdownIntoBlocks(content: string) {
   interface Block {
     meta: { isFence?: boolean; heading?: string };
@@ -1211,14 +1231,18 @@ function captureFence(
   start: number
 ): { consumed: number; block?: { text: string; meta: { isFence: true } } } {
   const line = lines[start] ?? '';
-  if (!/^```/.test(line)) {
+  const openMatch = MARKDOWN_CODE_FENCE_PATTERN.exec(line);
+  if (!openMatch) {
     return { consumed: start };
   }
+  const fenceChar = openMatch[1]?.[0] ?? '`';
+  const fenceLen = openMatch[1]?.length ?? 3;
+  const closingPattern = new RegExp(`^\\s*${fenceChar}{${fenceLen},}\\s*$`);
   const buf: string[] = [line];
   let i = start + 1;
   while (i < lines.length) {
     const cur = lines[i] ?? '';
-    if (cur.startsWith('```')) {
+    if (closingPattern.test(cur)) {
       break;
     }
     buf.push(cur);
@@ -1246,7 +1270,7 @@ function captureParagraph(lines: (string | undefined)[], start: number) {
   let i = start;
   while (i < lines.length) {
     const cur = lines[i] ?? '';
-    if (cur.match(/^```/) || cur.match(/^(#{1,6})\s+/) || cur.trim() === '') {
+    if (isMarkdownBlockBoundaryLine(cur)) {
       break;
     }
     buf.push(cur);

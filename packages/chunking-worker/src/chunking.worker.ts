@@ -37,6 +37,15 @@ async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
   return tokenUtilsLiteModulePromise;
 }
 
+async function disposeTokenUtilsLiteModule(): Promise<void> {
+  if (!tokenUtilsLiteModulePromise) {
+    return;
+  }
+  const module = await tokenUtilsLiteModulePromise;
+  await module.disposeAccurateTokenCountingRuntime();
+  tokenUtilsLiteModulePromise = null;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -534,6 +543,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 
     // Handle cleanup message (defensive cleanup for edge cases)
     if (messageType === 'cleanup') {
+      await disposeTokenUtilsLiteModule();
       cleanupGlobalHandlers();
       self.postMessage({ type: 'cleanup-done' });
       return;

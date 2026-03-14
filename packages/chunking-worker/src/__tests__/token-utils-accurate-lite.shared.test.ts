@@ -10,10 +10,18 @@ describe('token-utils-accurate-lite shared behavior', () => {
   });
 
   it('keeps chunking-worker and token-cache accurate-lite runtimes behaviorally aligned', async () => {
+    const freeChunkingEncoder = vi.fn();
+    const freeTokenCacheEncoder = vi.fn();
+    let encoderInstanceCount = 0;
+
     vi.doMock('tiktoken', () => ({
-      encoding_for_model: () => ({
-        encode: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
-      }),
+      encoding_for_model: () => {
+        encoderInstanceCount += 1;
+        return {
+          encode: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
+          free: encoderInstanceCount === 1 ? freeChunkingEncoder : freeTokenCacheEncoder,
+        };
+      },
       get_encoding: () => ({
         encode: (text: string) => new Uint32Array(Math.ceil(text.length / 4)),
       }),
@@ -28,5 +36,13 @@ describe('token-utils-accurate-lite shared behavior', () => {
     );
     await expect(chunkingAccurate.supportsAccurateTokenCounting()).resolves.toBe(true);
     await expect(tokenCacheAccurate.supportsAccurateTokenCounting()).resolves.toBe(true);
+
+    chunkingAccurate.disposeAccurateTokenCountingRuntime();
+    tokenCacheAccurate.disposeAccurateTokenCountingRuntime();
+
+    await vi.waitFor(() => {
+      expect(freeChunkingEncoder).toHaveBeenCalledTimes(1);
+      expect(freeTokenCacheEncoder).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -2,6 +2,7 @@ import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
 } from '@brainstrike/preferences/stores/token-preferences-store';
+import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import { useCallback, useMemo } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
@@ -45,7 +46,7 @@ export function useTokenCounting(): TokenCountingState {
   const countTokens = useCallback(
     async (content: string) => {
       if (!accuratePreference) {
-        return Math.ceil(content.length / 4);
+        return countTokensHeuristic(content);
       }
 
       if (tokenCacheIsOperational && tokenCacheCountingMode === 'accurate' && countTextTokens) {

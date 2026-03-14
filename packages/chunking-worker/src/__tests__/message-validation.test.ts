@@ -93,6 +93,15 @@ describe('chunking worker message validation', () => {
     ).toBe(true);
   });
 
+  it('rejects empty chunk batch requests', () => {
+    expect(
+      isChunkBatchRequest({
+        type: 'chunk-batch',
+        requests: [],
+      })
+    ).toBe(false);
+  });
+
   it('rejects chunk requests whose content exceeds the hard worker limit', () => {
     expect(
       isChunkRequest({
@@ -121,6 +130,42 @@ describe('chunking worker message validation', () => {
           filePath: `/tmp/file-${index}.txt`,
           options: { strategy: 'sentence' },
         })),
+      })
+    ).toBe(false);
+  });
+
+  it('rejects metadata fields that exceed the hard worker limit', () => {
+    const oversizedMetadata = 'x'.repeat(CHUNKING_CONFIG.maxMetadataFieldLength + 1);
+
+    expect(
+      isChunkRequest({
+        type: 'chunk',
+        id: oversizedMetadata,
+        fileRecordId: 'file-1',
+        content: 'hello',
+        fileName: 'README.md',
+        filePath: '/tmp/README.md',
+        options: {
+          strategy: 'recursive',
+        },
+      })
+    ).toBe(false);
+
+    expect(
+      isChunkBatchRequest({
+        type: 'chunk-batch',
+        requests: [
+          {
+            id: 'chunk-1',
+            fileRecordId: 'file-1',
+            content: 'hello',
+            fileName: oversizedMetadata,
+            filePath: '/tmp/README.md',
+            options: {
+              strategy: 'recursive',
+            },
+          },
+        ],
       })
     ).toBe(false);
   });

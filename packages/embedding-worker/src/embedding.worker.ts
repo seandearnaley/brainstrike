@@ -163,18 +163,30 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
   if (transformersRuntimePromise !== null) {
     return transformersRuntimePromise;
   }
-  const runtimePromise: Promise<TransformersRuntime> = import('@huggingface/transformers').then(
-    (runtime) => {
+  const runtimePromise: Promise<TransformersRuntime> = (async (): Promise<TransformersRuntime> => {
+    try {
+      const runtimeModule = await import('@huggingface/transformers');
+      const runtime = runtimeModule as unknown as {
+        env: TransformersRuntime['env'];
+        pipeline: TransformersRuntime['pipeline'];
+      };
+      const tensorConstructor = Reflect.get(
+        runtimeModule as object,
+        'Tensor'
+      ) as TransformersRuntime['tensorConstructor'];
       // Allow remote model downloads when a cache directory is not specified. This aligns with the
       // Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
       runtime.env.allowRemoteModels = runtime.env.allowRemoteModels ?? true;
       return {
         env: runtime.env,
         pipeline: runtime.pipeline,
-        tensorConstructor: runtime.Tensor,
+        tensorConstructor,
       };
+    } catch (error: unknown) {
+      transformersRuntimePromise = null;
+      throw error;
     }
-  );
+  })();
   transformersRuntimePromise = runtimePromise;
   return runtimePromise;
 }

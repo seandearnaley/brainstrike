@@ -62,7 +62,8 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
           return adapter;
         })
         .catch((error: unknown) => {
-          for (const listener of listeners.keys()) {
+          for (const [listener, unsubscribe] of listeners.entries()) {
+            unsubscribe?.();
             listeners.set(listener, null);
           }
           adapterPromise = null;
@@ -71,6 +72,20 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
         });
     }
     return adapterPromise;
+  };
+
+  const getBootstrappedAdapterOrNull = async (): Promise<QueueAdapter | null> => {
+    if (loadedAdapter) {
+      return loadedAdapter;
+    }
+    if (!adapterPromise) {
+      return null;
+    }
+    try {
+      return await adapterPromise;
+    } catch {
+      return null;
+    }
   };
 
   return {
@@ -83,14 +98,14 @@ function createLazyWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAd
       return adapter.addBulk(tasks, addOptions);
     },
     async cancel() {
-      const adapter = loadedAdapter ?? (adapterPromise ? await adapterPromise : null);
+      const adapter = await getBootstrappedAdapterOrNull();
       if (!adapter) {
         return;
       }
       await adapter.cancel();
     },
     async drain() {
-      const adapter = loadedAdapter ?? (adapterPromise ? await adapterPromise : null);
+      const adapter = await getBootstrappedAdapterOrNull();
       if (!adapter) {
         return;
       }

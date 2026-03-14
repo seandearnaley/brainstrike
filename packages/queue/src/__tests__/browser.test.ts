@@ -156,6 +156,52 @@ describe('createBrowserEmbeddingQueue', () => {
     expect(adapter.drain).toHaveBeenCalledTimes(1);
   });
 
+  it('treats cancel as a safe no-op when lazy adapter bootstrap fails', async () => {
+    createWorkerpoolAdapterMock.mockImplementation(() => {
+      throw new Error('workerpool bootstrap failed');
+    });
+
+    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const queue = createBrowserEmbeddingQueue({
+      worker: { workerUrl: '/embedding.worker.js' },
+    });
+
+    await expect(
+      queue.add({
+        id: 'task-1',
+        kind: 'embed',
+        texts: ['hello'],
+        model: 'local:test',
+        deviceHint: 'webgpu',
+      })
+    ).rejects.toThrow('workerpool bootstrap failed');
+
+    await expect(queue.cancel()).resolves.toBeUndefined();
+  });
+
+  it('treats drain as a safe no-op when lazy adapter bootstrap fails', async () => {
+    createWorkerpoolAdapterMock.mockImplementation(() => {
+      throw new Error('workerpool bootstrap failed');
+    });
+
+    const { createBrowserEmbeddingQueue } = await import('../browser');
+    const queue = createBrowserEmbeddingQueue({
+      worker: { workerUrl: '/embedding.worker.js' },
+    });
+
+    await expect(
+      queue.add({
+        id: 'task-1',
+        kind: 'embed',
+        texts: ['hello'],
+        model: 'local:test',
+        deviceHint: 'webgpu',
+      })
+    ).rejects.toThrow('workerpool bootstrap failed');
+
+    await expect(queue.drain()).resolves.toBeUndefined();
+  });
+
   it('clears stale listener unsubscribe handles when adapter bootstrap fails', async () => {
     const unsubscribe = vi.fn();
     const adapter = createQueueAdapterStub();

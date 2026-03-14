@@ -97,10 +97,12 @@ describe('assistant vite helpers', () => {
   });
 
   test('returns lazy-surface entry points for assistant and database tabs', () => {
-    const entries = getLazySurfaceOptimizeDepsEntries('/tmp/brainstrike-app');
+    const appDir = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-app-'));
+    writeFileSync(path.join(appDir, 'index.html'), '<!doctype html>');
+    const entries = getLazySurfaceOptimizeDepsEntries(appDir);
 
     expect(entries).toEqual([
-      '/tmp/brainstrike-app/index.html',
+      `${appDir}/index.html`,
       expect.stringContaining('/packages/app-shell/src/tools-panel.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-tab.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
@@ -111,6 +113,18 @@ describe('assistant vite helpers', () => {
       expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),
       expect.stringContaining('/packages/db-explorer/src/database-demo-panel.tsx'),
     ]);
+  });
+
+  test('fails fast when a required lazy-surface entry is missing', () => {
+    const appDir = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-app-'));
+    writeFileSync(path.join(appDir, 'index.html'), '<!doctype html>');
+
+    expect(() =>
+      getLazySurfaceOptimizeDepsEntries(
+        appDir,
+        (entry) => !entry.includes('/packages/db-explorer/src/database-demo-panel.tsx')
+      )
+    ).toThrow(/Lazy-surface optimizeDeps entry does not exist/);
   });
 
   test('classifies assistant vendor chunks consistently', () => {

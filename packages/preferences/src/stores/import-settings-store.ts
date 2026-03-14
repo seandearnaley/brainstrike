@@ -1,5 +1,5 @@
 import type { ChunkingPresetSelection, ChunkingStrategy } from '@brainstrike/text-splitter';
-import { getChunkingPreset } from '@brainstrike/text-splitter';
+import { getChunkingPreset, isChunkingStrategy } from '@brainstrike/text-splitter';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -40,6 +40,90 @@ const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 const getAccurateCountingPreference = () => useTokenPreferencesStore.getState().accurateCounting;
 const DEFAULT_CHUNKING_PRESET = getChunkingPreset('balanced');
 
+function normalizePersistedNumericSetting(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function normalizePersistedChunkingStrategy(value: unknown): ChunkingStrategy | null {
+  return isChunkingStrategy(value) ? value : null;
+}
+
+function applyBaseMigrationDefaults(
+  snapshot: Partial<ImportSettingsStore>,
+  version: number
+): Partial<ImportSettingsStore> {
+  if (version < 2) {
+    return {
+      ...snapshot,
+      chunkingPreset:
+        typeof snapshot.chunkingPreset === 'string'
+          ? snapshot.chunkingPreset
+          : DEFAULT_CHUNKING_PRESET.id,
+      tokenTrueSizing: true,
+      chunkTokenLimit: 4096,
+    };
+  }
+
+  return {
+    ...snapshot,
+    chunkingPreset:
+      typeof snapshot.chunkingPreset === 'string'
+        ? snapshot.chunkingPreset
+        : DEFAULT_CHUNKING_PRESET.id,
+    tokenTrueSizing:
+      typeof snapshot.tokenTrueSizing === 'boolean' ? snapshot.tokenTrueSizing : true,
+    chunkTokenLimit:
+      typeof snapshot.chunkTokenLimit === 'number'
+        ? Math.max(512, Math.min(16_384, Math.floor(snapshot.chunkTokenLimit)))
+        : 4096,
+  };
+}
+
+function migrateLegacyPresetState(
+  snapshot: Partial<ImportSettingsStore>,
+  next: Partial<ImportSettingsStore>,
+  version: number
+): Partial<ImportSettingsStore> {
+  if (version >= 7 || !next.chunkingPreset || next.chunkingPreset === 'custom') {
+    return next;
+  }
+
+  const preset = getChunkingPreset(next.chunkingPreset);
+  const normalizedStrategy =
+    normalizePersistedChunkingStrategy(next.chunkingStrategy) ?? preset.strategy;
+  const normalizedChunkSize =
+    normalizePersistedNumericSetting(next.chunkSize, 1, Number.MAX_SAFE_INTEGER) ??
+    preset.chunkSize;
+  const normalizedChunkOverlap =
+    normalizePersistedNumericSetting(next.chunkOverlap, 0, Number.MAX_SAFE_INTEGER) ??
+    preset.chunkOverlap;
+  const normalizedChunkTokenLimit =
+    normalizePersistedNumericSetting(next.chunkTokenLimit, 512, 16_384) ?? preset.tokenLimit;
+  const hadExplicitPreset = typeof snapshot.chunkingPreset === 'string';
+  const shouldPromoteLegacySnapshotToCustom =
+    !hadExplicitPreset &&
+    (normalizedStrategy !== preset.strategy ||
+      normalizedChunkSize !== preset.chunkSize ||
+      normalizedChunkOverlap !== preset.chunkOverlap ||
+      normalizedChunkTokenLimit !== preset.tokenLimit);
+
+  return {
+    ...next,
+    chunkingPreset: shouldPromoteLegacySnapshotToCustom ? 'custom' : preset.id,
+    chunkingStrategy: normalizedStrategy,
+    chunkingStrategyExplicit:
+      typeof next.chunkingStrategyExplicit === 'boolean'
+        ? next.chunkingStrategyExplicit
+        : normalizedStrategy !== 'auto',
+    chunkSize: normalizedChunkSize,
+    chunkOverlap: normalizedChunkOverlap,
+    chunkTokenLimit: normalizedChunkTokenLimit,
+  };
+}
+
 export const useImportSettingsStore = create<ImportSettingsStore>()(
   persist(
     (set) => ({
@@ -72,7 +156,7 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
         set({
           chunkingPreset: 'custom',
           chunkingStrategy: v,
-          chunkingStrategyExplicit: v !== 'auto',
+          chunkingStrategyExplicit: true,
         }),
       setChunkSize: (n) => set({ chunkingPreset: 'custom', chunkSize: Math.max(1, Math.floor(n)) }),
       setChunkOverlap: (n) =>
@@ -97,43 +181,11 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
         if (!snapshot) {
           return snapshot;
         }
-        let next: Partial<ImportSettingsStore> = { ...snapshot };
-        if (version < 2) {
-          next = {
-            ...next,
-            chunkingPreset:
-              typeof next.chunkingPreset === 'string'
-                ? next.chunkingPreset
-                : DEFAULT_CHUNKING_PRESET.id,
-            tokenTrueSizing: true,
-            chunkTokenLimit: 4096,
-          };
-        } else {
-          next = {
-            ...next,
-            chunkingPreset:
-              typeof next.chunkingPreset === 'string'
-                ? next.chunkingPreset
-                : DEFAULT_CHUNKING_PRESET.id,
-            tokenTrueSizing:
-              typeof next.tokenTrueSizing === 'boolean' ? next.tokenTrueSizing : true,
-            chunkTokenLimit:
-              typeof next.chunkTokenLimit === 'number'
-                ? Math.max(512, Math.min(16_384, Math.floor(next.chunkTokenLimit)))
-                : 4096,
-          };
-        }
-        if (version < 7 && next.chunkingPreset && next.chunkingPreset !== 'custom') {
-          const preset = getChunkingPreset(next.chunkingPreset);
-          next = {
-            ...next,
-            chunkingStrategy: preset.strategy,
-            chunkingStrategyExplicit: preset.strategy !== 'auto',
-            chunkSize: preset.chunkSize,
-            chunkOverlap: preset.chunkOverlap,
-            chunkTokenLimit: preset.tokenLimit,
-          };
-        }
+        const next = migrateLegacyPresetState(
+          snapshot,
+          applyBaseMigrationDefaults(snapshot, version),
+          version
+        );
         return next satisfies Partial<ImportSettingsStore>;
       },
       partialize: (s) => ({
@@ -164,6 +216,8 @@ function bindTokenPreferencesSync(): () => void {
   });
 }
 
+// Module-scoped subscription is intentional: this store is a singleton in app/runtime code.
+// Tests explicitly reset and rebind it to avoid cross-test leakage.
 let unsubscribeTokenPreferencesSync = bindTokenPreferencesSync();
 
 export const importSettingsSelectors = {

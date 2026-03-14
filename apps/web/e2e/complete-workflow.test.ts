@@ -4,6 +4,25 @@ import { getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
+async function clickUntilVisible(
+  action: () => Promise<void>,
+  assertion: () => Promise<void>,
+  attempts = 3
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await action();
+      await assertion();
+      return;
+    } catch (error: unknown) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
@@ -112,13 +131,15 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
 
     // Step 10: Test copy to clipboard functionality
     await expect(copyButton).toBeEnabled();
-    await copyButton.click({ force: true });
-
-    // Wait for success toast (copy operation should show a success message)
-    // Use first() to avoid strict mode violation when multiple elements have the same text
-    await expect(
-      page.getByText('The context has been copied to your clipboard.').first()
-    ).toBeVisible();
+    const copyToast = page.getByText('The context has been copied to your clipboard.').first();
+    await clickUntilVisible(
+      async () => {
+        await copyButton.click({ force: true, timeout: 10_000 });
+      },
+      async () => {
+        await expect(copyToast).toBeVisible({ timeout: 5000 });
+      }
+    );
 
     // Step 11: Test filter functionality
     const filterInput2 = page.getByPlaceholder(

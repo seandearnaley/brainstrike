@@ -285,9 +285,25 @@ export function SettingsPanel({
     (option) => option.value === importSettings.chunkingStrategy
   );
   if (!selectedStrategy) {
-    // Persisted chunking settings are a strict invariant. Fail fast here rather
-    // than silently coercing an unexpected strategy value during render.
-    throw new Error(`Unknown chunking strategy: ${String(importSettings.chunkingStrategy)}`);
+    return (
+      <div
+        className={cn(
+          'mt-2 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm',
+          className
+        )}
+        role="alert"
+      >
+        <div className="font-medium">Chunking Studio configuration error</div>
+        <p className="mt-2 text-muted-foreground leading-6">
+          Persisted chunking settings are invalid. The saved strategy value{' '}
+          <code className="rounded bg-background px-1 py-0.5 text-xs">
+            {String(importSettings.chunkingStrategy)}
+          </code>{' '}
+          is not recognized by this build. Update or reset the import settings before editing
+          chunking preferences.
+        </p>
+      </div>
+    );
   }
   const currentPreset = importSettings.chunkingPreset;
   const currentPresetDefinition =
@@ -458,9 +474,12 @@ export function SettingsPanel({
               className="h-9 text-sm"
               max="16384"
               min="512"
-              onChange={(e) =>
-                importSettings.setChunkTokenLimit(Math.max(512, Number(e.target.value) || 512))
-              }
+              onChange={(e) => {
+                const nextValue = Number(e.target.value);
+                importSettings.setChunkTokenLimit(
+                  Number.isFinite(nextValue) ? Math.min(16_384, Math.max(512, nextValue)) : 512
+                );
+              }}
               step="128"
               type="number"
               value={importSettings.chunkTokenLimit}

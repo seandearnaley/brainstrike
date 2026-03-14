@@ -14,7 +14,15 @@ const DEFAULT_MODEL = ACCURATE_TOKEN_MODEL_HINT;
 const DEFAULT_ENCODING = ACCURATE_TOKEN_ENCODING;
 const NODE_TIKTOKEN_SPECIFIER = 'tiktoken';
 
-type EncoderFactory = (input: string) => { encode: EncodeFn };
+interface EncoderInstance {
+  encode: EncodeFn;
+  free?: () => void;
+}
+interface ResolvedEncoder {
+  dispose?: () => void;
+  encode: EncodeFn;
+}
+type EncoderFactory = (input: string) => EncoderInstance;
 type BrowserInitFn = (
   callback: (
     imports: WebAssembly.Imports
@@ -24,10 +32,10 @@ type BrowserEncoderCtor = new (
   bpeRanks: string,
   specialTokens: Record<string, number>,
   patStr: string
-) => { encode: EncodeFn };
+) => EncoderInstance;
 
-let nodeEncoderPromise: Promise<EncodeFn | null> | null = null;
-let browserEncoderPromise: Promise<EncodeFn | null> | null = null;
+let nodeEncoderPromise: Promise<ResolvedEncoder | null> | null = null;
+let browserEncoderPromise: Promise<ResolvedEncoder | null> | null = null;
 let loadFailureLogged = false;
 let lastEncoderFailureReason: string | null = null;
 
@@ -46,13 +54,26 @@ function normalizeErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function tryCreateEncoder(factory: EncoderFactory | undefined, input: string): EncodeFn | null {
+function toResolvedEncoder(encoder: EncoderInstance): ResolvedEncoder {
+  const resolvedEncoder: ResolvedEncoder = {
+    encode: (text: string) => encoder.encode(text),
+  };
+  if (typeof encoder.free === 'function') {
+    resolvedEncoder.dispose = () => encoder.free?.();
+  }
+  return resolvedEncoder;
+}
+
+function tryCreateEncoder(
+  factory: EncoderFactory | undefined,
+  input: string
+): ResolvedEncoder | null {
   if (!factory) {
     return null;
   }
   try {
     const encoder = factory(input);
-    return (text: string) => encoder.encode(text);
+    return toResolvedEncoder(encoder);
   } catch {
     return null;
   }
@@ -73,7 +94,7 @@ export function getAccurateTokenCountingFailureReason(): string | null {
   return lastEncoderFailureReason;
 }
 
-function createNodeEncoder(mod: Record<string, unknown>): EncodeFn | null {
+function createNodeEncoder(mod: Record<string, unknown>): ResolvedEncoder | null {
   const encodingForModel = mod['encoding_for_model'] as EncoderFactory | undefined;
   const getEncoding = mod['get_encoding'] as EncoderFactory | undefined;
   const modelEncoder = tryCreateEncoder(encodingForModel, DEFAULT_MODEL);
@@ -101,7 +122,7 @@ function createNodeEncoder(mod: Record<string, unknown>): EncodeFn | null {
   return null;
 }
 
-async function instantiateBrowserEncoder(): Promise<EncodeFn | null> {
+async function instantiateBrowserEncoder(): Promise<ResolvedEncoder | null> {
   const [initModuleRaw, wasmUrlModule, encoderModuleRaw] = await Promise.all([
     import('tiktoken/lite/init') as Promise<Record<string, unknown>>,
     import('tiktoken/lite/tiktoken_bg.wasm?url') as Promise<Record<string, unknown>>,
@@ -124,7 +145,7 @@ async function instantiateBrowserEncoder(): Promise<EncodeFn | null> {
     encoderConfig.specialTokens,
     encoderConfig.patStr
   );
-  return (text: string) => encoder.encode(text);
+  return toResolvedEncoder(encoder);
 }
 
 function extractInitFunction(module: Record<string, unknown>): BrowserInitFn | null {
@@ -247,7 +268,7 @@ function extractEncoderConfig(module: Record<string, unknown>): {
   };
 }
 
-async function loadNodeEncoder(): Promise<EncodeFn | null> {
+async function loadNodeEncoder(): Promise<ResolvedEncoder | null> {
   if (!nodeEncoderPromise) {
     nodeEncoderPromise = (async () => {
       try {
@@ -265,7 +286,7 @@ async function loadNodeEncoder(): Promise<EncodeFn | null> {
   return nodeEncoderPromise;
 }
 
-async function loadBrowserEncoder(): Promise<EncodeFn | null> {
+async function loadBrowserEncoder(): Promise<ResolvedEncoder | null> {
   if (!browserEncoderPromise) {
     browserEncoderPromise = (async () => {
       try {
@@ -279,8 +300,36 @@ async function loadBrowserEncoder(): Promise<EncodeFn | null> {
   return browserEncoderPromise;
 }
 
-async function resolveEncoder(): Promise<EncodeFn | null> {
+async function resolveEncoder(): Promise<ResolvedEncoder | null> {
   return isBrowserLike() ? loadBrowserEncoder() : loadNodeEncoder();
+}
+
+function resetEncoderLoadState(): void {
+  nodeEncoderPromise = null;
+  browserEncoderPromise = null;
+  loadFailureLogged = false;
+  lastEncoderFailureReason = null;
+}
+
+function disposeResolvedEncoder(promise: Promise<ResolvedEncoder | null> | null): void {
+  if (!promise) {
+    return;
+  }
+  void promise
+    .then((encoder) => {
+      encoder?.dispose?.();
+    })
+    .catch(() => {
+      // Ignore failed initialization during disposal/reset.
+    });
+}
+
+export function disposeAccurateTokenCountingRuntime(): void {
+  const pendingNodeEncoder = nodeEncoderPromise;
+  const pendingBrowserEncoder = browserEncoderPromise;
+  resetEncoderLoadState();
+  disposeResolvedEncoder(pendingNodeEncoder);
+  disposeResolvedEncoder(pendingBrowserEncoder);
 }
 
 export async function supportsAccurateTokenCounting(): Promise<boolean> {
@@ -303,7 +352,7 @@ export async function countTokensAccurate(text: string): Promise<number> {
   }
 
   try {
-    return encoder(text).length;
+    return encoder.encode(text).length;
   } catch (error) {
     logOnce('tiktoken encode failed', error);
     const message = error instanceof Error ? error.message : String(error);

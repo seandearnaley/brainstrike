@@ -5,6 +5,9 @@
 
 import type { ParserPlugin } from '@babel/parser';
 import {
+  countTokensHeuristic,
+  isMarkdownBlockBoundaryLine,
+  MARKDOWN_CODE_FENCE_PATTERN,
   RecursiveTextSplitter,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
@@ -309,8 +312,7 @@ async function generateContentHash(content: string): Promise<string> {
 }
 
 function estimateTokenCount(text: string): number {
-  const charCount = text.length;
-  return Math.ceil(charCount / 4);
+  return countTokensHeuristic(text);
 }
 
 async function computeCharsPerToken(content: string, useAccurate: boolean): Promise<number> {
@@ -576,15 +578,12 @@ interface MarkdownBlock {
   text: string;
 }
 
-/** Regex to match code fence opening/closing (backticks or tildes, optionally indented) */
-const CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
-
 function captureFence(
   lines: (string | undefined)[],
   start: number
 ): { consumed: number; block?: { text: string; meta: { isFence: true } } } {
   const line = lines[start] ?? '';
-  const openMatch = CODE_FENCE_PATTERN.exec(line);
+  const openMatch = MARKDOWN_CODE_FENCE_PATTERN.exec(line);
   if (!openMatch) {
     return { consumed: start };
   }
@@ -625,7 +624,7 @@ function captureParagraph(lines: (string | undefined)[], start: number) {
   let i = start;
   while (i < lines.length) {
     const cur = lines[i] ?? '';
-    if (cur.match(/^```/) || cur.match(/^(#{1,6})\s+/) || cur.trim() === '') {
+    if (isMarkdownBlockBoundaryLine(cur)) {
       break;
     }
     buf.push(cur);

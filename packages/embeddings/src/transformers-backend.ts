@@ -77,6 +77,9 @@ async function getBrowserQueue(): Promise<QueueAdapter> {
   if (customQueueFactory) {
     return Promise.resolve(customQueueFactory());
   }
+  // No implicit queue bootstrap is allowed here. The app runtime must register the queue
+  // factory explicitly before embedding initialization so worker URLs and lifecycle stay
+  // under the owning platform's control.
   throw new Error(
     'Embedding queue factory is not registered. Register an explicit queue with a workerUrl before initializing the transformers backend.'
   );

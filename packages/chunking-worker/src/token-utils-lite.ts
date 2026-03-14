@@ -46,3 +46,13 @@ export async function countTokensAccurate(text: string): Promise<number> {
     lastAccurateFailureReason = accurateTokenUtils.getAccurateTokenCountingFailureReason();
   }
 }
+
+export async function disposeAccurateTokenCountingRuntime(): Promise<void> {
+  if (!accurateTokenUtilsPromise) {
+    return;
+  }
+  const accurateTokenUtils = await accurateTokenUtilsPromise;
+  accurateTokenUtils.disposeAccurateTokenCountingRuntime();
+  accurateTokenUtilsPromise = null;
+  lastAccurateFailureReason = null;
+}

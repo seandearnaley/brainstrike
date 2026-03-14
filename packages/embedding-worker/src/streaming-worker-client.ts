@@ -57,6 +57,10 @@ export class StreamingEmbeddingWorkerClient {
   private readonly transport: ReturnType<typeof createWorkerRuntimeClient>['transport'];
   private executionChain: Promise<void> = Promise.resolve();
 
+  /**
+   * The worker must be supplied explicitly by the owning runtime so URL resolution stays
+   * platform-specific and deterministic. This client no longer auto-resolves a worker URL.
+   */
   constructor(workerOrOptions?: StreamingEmbeddingWorkerClientOptions | Worker) {
     const options = isWorkerLike(workerOrOptions) ? { worker: workerOrOptions } : workerOrOptions;
     if (options?.worker) {

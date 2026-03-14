@@ -100,6 +100,15 @@ describe('import-settings-store', () => {
     expect(next.chunkSize).toBe(640);
   });
 
+  it('keeps manually selected auto strategy explicit', () => {
+    useImportSettingsStore.getState().setChunkingStrategy('auto');
+
+    const next = useImportSettingsStore.getState();
+    expect(next.chunkingPreset).toBe('custom');
+    expect(next.chunkingStrategy).toBe('auto');
+    expect(next.chunkingStrategyExplicit).toBe(true);
+  });
+
   it('persists via in-memory storage if localStorage throws', () => {
     const persistApi = storeWithPersist.persist;
     expect(persistApi).toBeDefined();
@@ -169,5 +178,77 @@ describe('import-settings-store', () => {
 
     useTokenPreferencesStore.getState().setAccurateCounting(false);
     expect(useImportSettingsStore.getState().tokenTrueSizing).toBe(false);
+  });
+
+  it('preserves tuned numeric chunk settings when migrating legacy preset snapshots', () => {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    options.storage.setItem(options.name, {
+      state: {
+        enableChunking: true,
+        chunkingPreset: 'docs',
+        chunkingStrategy: 'semantic-markdown',
+        chunkingStrategyExplicit: true,
+        chunkSize: 777,
+        chunkOverlap: 33,
+        tokenTrueSizing: true,
+        chunkTokenLimit: 5555,
+      },
+      version: 6,
+    });
+
+    const migrated = (
+      useImportSettingsStore as unknown as {
+        persist?: { rehydrate?: () => Promise<void> };
+      }
+    ).persist;
+
+    return migrated?.rehydrate?.().then(() => {
+      const next = useImportSettingsStore.getState();
+      expect(next.chunkingPreset).toBe('docs');
+      expect(next.chunkingStrategy).toBe('semantic-markdown');
+      expect(next.chunkSize).toBe(777);
+      expect(next.chunkOverlap).toBe(33);
+      expect(next.chunkTokenLimit).toBe(5555);
+    });
+  });
+
+  it('promotes legacy snapshots without an explicit preset to custom when tuned values differ', () => {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    options.storage.setItem(options.name, {
+      state: {
+        enableChunking: true,
+        chunkSize: 777,
+        chunkOverlap: 33,
+        tokenTrueSizing: true,
+        chunkTokenLimit: 5555,
+      },
+      version: 6,
+    });
+
+    const migrated = (
+      useImportSettingsStore as unknown as {
+        persist?: { rehydrate?: () => Promise<void> };
+      }
+    ).persist;
+
+    return migrated?.rehydrate?.().then(() => {
+      const next = useImportSettingsStore.getState();
+      expect(next.chunkingPreset).toBe('custom');
+      expect(next.chunkingStrategy).toBe('auto');
+      expect(next.chunkingStrategyExplicit).toBe(false);
+      expect(next.chunkSize).toBe(777);
+      expect(next.chunkOverlap).toBe(33);
+      expect(next.chunkTokenLimit).toBe(5555);
+    });
   });
 });

@@ -105,7 +105,10 @@ export function RootLayoutContent({
   });
 
   useEffect(() => {
-    if (activeTab === 'explorer' || mountedTabs[activeTab]) {
+    if (activeTab !== 'prompts' && activeTab !== 'settings') {
+      return;
+    }
+    if (mountedTabs[activeTab]) {
       return;
     }
     setMountedTabs((current) => ({ ...current, [activeTab]: true }));
