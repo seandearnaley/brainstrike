@@ -10,6 +10,10 @@
  * replicates the clearFolder logic in a standalone function rather than
  * testing the actual class directly. If the class is ever extracted or
  * exported, these tests should be updated to use the real implementation.
+ *
+ * @see packages/token-cache/src/__tests__/token-cache-store.test.ts for the
+ *   DB-backed TokenCacheStore tests (those mock functions intentionally use
+ *   the simpler `startsWith` pattern since test code is not a hot path).
  */
 
 import { startsWithDoubleCharPrefix } from '@brainstrike/utils/string-prefix';

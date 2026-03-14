@@ -3,7 +3,8 @@
  *
  * Instead of `path.startsWith(`${prefix}/`)` which allocates a new string on
  * every call, these helpers use `charCodeAt` to verify the separator character
- * before falling back to `startsWith`.
+ * before falling back to `startsWith`. This avoids an intermediate string
+ * allocation per call, which matters in tight loops over large file trees.
  */
 
 /**
@@ -15,8 +16,8 @@
  * @param separator - Must be a single character; only the first `charCode` is checked.
  */
 export function startsWithPrefix(path: string, prefix: string, separator: string): boolean {
-  // Bracket notation is required by noPropertyAccessFromIndexSignature in tsconfig.
-  // esbuild/Vite still statically replace process.env['NODE_ENV'] in production builds.
+  // Bracket notation required: noPropertyAccessFromIndexSignature is enabled in tsconfig.
+  // Bundlers (esbuild/Vite) still statically replace process.env['NODE_ENV'] in prod builds.
   if (process.env['NODE_ENV'] !== 'production' && separator.length !== 1) {
     throw new Error(`startsWithPrefix: separator must be a single character, got "${separator}"`);
   }
@@ -33,7 +34,7 @@ export function startsWithPrefix(path: string, prefix: string, separator: string
  * Equivalent to `value.startsWith(prefix + sep)` where `sep` is exactly two characters,
  * but avoids the intermediate string allocation.
  *
- * **Note:** This is intentionally stricter than a plain `startsWith` template check —
+ * **Note:** This is intentionally stricter than a plain `startsWith` template check --
  * it returns `false` if there is no content after the separator (i.e. the value is
  * exactly `prefix + sep` with nothing following). This ensures callers always receive
  * a non-empty suffix.
@@ -41,6 +42,8 @@ export function startsWithPrefix(path: string, prefix: string, separator: string
  * @param sep - Must be exactly two characters (e.g. `'::'`).
  */
 export function startsWithDoubleCharPrefix(value: string, prefix: string, sep: string): boolean {
+  // Bracket notation required: noPropertyAccessFromIndexSignature is enabled in tsconfig.
+  // Bundlers (esbuild/Vite) still statically replace process.env['NODE_ENV'] in prod builds.
   if (process.env['NODE_ENV'] !== 'production' && sep.length !== 2) {
     throw new Error(
       `startsWithDoubleCharPrefix: separator must be exactly 2 characters, got "${sep}"`
