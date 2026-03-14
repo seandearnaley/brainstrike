@@ -44,6 +44,9 @@
       "@brainstrike/utils": [
         "../../packages/utils/src"
       ],
+      "@brainstrike/utils/*": [
+        "../../packages/utils/src/*"
+      ],
       "@brainstrike/db": [
         "../../packages/db/src"
       ],
@@ -85,6 +88,9 @@
       ],
       "@brainstrike/preferences": [
         "../../packages/preferences/src"
+      ],
+      "@brainstrike/preferences/*": [
+        "../../packages/preferences/src/*"
       ],
       "@brainstrike/embeddings": [
         "../../packages/embeddings/src"

@@ -7,6 +7,8 @@ import type {
   EmbedWorkerSuccess,
 } from '@brainstrike/embedding-worker';
 
+export type { EmbeddingDeviceHint } from '@brainstrike/embedding-worker';
+
 export type ProviderDimensionParameter =
   | 'dimensions'
   | 'output_dimensionality'

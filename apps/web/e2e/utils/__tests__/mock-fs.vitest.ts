@@ -93,11 +93,9 @@ describe('mockBrowserApis', () => {
     await mockBrowserApis(page, 'root', { foo: null });
 
     expect(addInitScript).toHaveBeenCalledTimes(1);
-    expect(addInitScript).toHaveBeenCalledWith(expect.any(Function), {
-      rootName: 'root',
-      tree: { foo: null },
-      enableClipboard: false,
-    });
+    expect(addInitScript).toHaveBeenCalledWith(expect.any(String));
+    expect(addInitScript.mock.calls[0]?.[0]).toContain('"rootName":"root"');
+    expect(addInitScript.mock.calls[0]?.[0]).toContain('"enableClipboard":false');
   });
 
   it('passes clipboard option', async () => {
@@ -107,11 +105,8 @@ describe('mockBrowserApis', () => {
     await mockBrowserApis(page, 'root', { foo: null }, { clipboard: true });
 
     expect(addInitScript).toHaveBeenCalledTimes(1);
-    expect(addInitScript).toHaveBeenCalledWith(expect.any(Function), {
-      rootName: 'root',
-      tree: { foo: null },
-      enableClipboard: true,
-    });
+    expect(addInitScript).toHaveBeenCalledWith(expect.any(String));
+    expect(addInitScript.mock.calls[0]?.[0]).toContain('"enableClipboard":true');
   });
 });
 
@@ -127,15 +122,14 @@ describe('Mock File System Logic', () => {
     if (!firstCall) {
       throw new Error('addInitScript was not called');
     }
-    const [script, scriptArgs] = firstCall;
-    return () =>
-      script(
-        scriptArgs as unknown as {
-          rootName: string;
-          tree: unknown;
-          enableClipboard: boolean;
-        }
-      );
+    const [script] = firstCall;
+    if (typeof script !== 'string') {
+      throw new Error('Expected mock browser init script to be a string');
+    }
+    return () => {
+      const runScript = new Function(script);
+      runScript();
+    };
   };
 
   it('should build a nested file system and read files', async () => {

@@ -49,6 +49,12 @@ export default defineConfig({
       '@brainstrike/queue/browser': resolve(__dirname, '../queue/src/browser.ts'),
       '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
       '@brainstrike/types': resolve(__dirname, '../types/src/index.ts'),
+      '@brainstrike/utils/token-counting-runtime': resolve(
+        __dirname,
+        '../utils/src/token-counting-runtime.ts'
+      ),
+      '@brainstrike/utils/logger': resolve(__dirname, '../utils/src/logger.ts'),
+      '@brainstrike/utils/safe-storage': resolve(__dirname, '../utils/src/safe-storage.ts'),
       '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
     },
   },

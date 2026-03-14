@@ -352,8 +352,8 @@ describe('ToolbarPresetSelector', () => {
 
     render(<ToolbarPresetSelector onFilterChange={mockOnFilterChange} />);
 
-    // Component should render even during loading - button shows selected preset or placeholder
-    expect(screen.getByRole('button')).toBeInTheDocument();
+    // Component should render even during loading and remain interactive.
+    expect(screen.getByRole('button')).toBeEnabled();
   });
 
   it('does not clear the stored preset id while presets are still loading', async () => {

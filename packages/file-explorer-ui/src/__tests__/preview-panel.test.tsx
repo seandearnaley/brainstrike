@@ -312,13 +312,13 @@ describe('PreviewPanel', () => {
       expect(screen.getByText('WASM')).toBeInTheDocument();
     });
 
-    it('should surface heuristic fallback messaging when configured', () => {
+    it('should surface explicit heuristic messaging when configured', () => {
       mockUsePreviewPanelState.mockReturnValue(mockState);
       const props = {
         ...mockProps,
         tokenCounting: {
           mode: 'heuristic' as const,
-          reason: 'runtime-fallback' as const,
+          reason: 'preference-disabled' as const,
           loading: false,
           countTokens: vi.fn(async () => 0),
         },

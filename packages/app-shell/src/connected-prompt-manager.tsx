@@ -1,4 +1,5 @@
-import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { PromptManager } from '@brainstrike/ui';
 import { useMemo } from 'react';
 

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
+import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
 import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
 import { McpBanner } from './mcp-banner';
 
@@ -43,7 +43,7 @@ export function AssistantTab(): ReactElement {
             <div className="px-4 pb-2">
               <McpBanner />
             </div>
-            <AssistantUiPanelWrapper />
+            <AssistantUiPanelWrapperLazy />
           </>
         )}
       </div>

@@ -17,7 +17,8 @@
  * - queryPermission() can check without triggering a prompt
  */
 
-import { createLogger, decodeFileSelection } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 
 // Type declarations for File System Access API permission methods
 // The browser's FileSystemFileHandle may have these methods, but TypeScript's

@@ -2,7 +2,7 @@
  * usePersistentTokenCache
  *
  * Bridge hook that integrates the persistent token cache with the context explorer panel.
- * Uses the TokenCacheContext when available, otherwise falls back to in-memory caching.
+ * Uses the TokenCacheContext when available, otherwise keeps a strict in-memory request/cache layer.
  *
  * Key Benefits:
  * - Token counts persist across sessions (stored in PGlite)
@@ -12,10 +12,19 @@
  * - Cache-first lookup (no content loading required for cached files)
  */
 
+import { createLogger } from '@brainstrike/utils/logger';
 import type { MutableRefObject } from 'react';
 import { useCallback, useRef } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 import type { TokenCountingState } from './use-token-counting';
+
+const logger = createLogger('PersistentTokenCache');
+const FAILED_REQUEST_RETRY_COOLDOWN_MS = 5000;
+
+interface FailedRequestState {
+  failedAt: number;
+  stateKey: string;
+}
 
 /**
  * Props for the persistent token cache hook
@@ -76,8 +85,32 @@ function isContentAccessible(content: string): boolean {
   return !(content.startsWith('File not accessible') || content.startsWith('Binary file'));
 }
 
+function shouldDelayRetry(
+  failedRequests: Map<string, FailedRequestState>,
+  compositeKey: string,
+  countingRuntimeStateKey: string
+): boolean {
+  const failedState = failedRequests.get(compositeKey);
+  if (!failedState) {
+    return false;
+  }
+
+  if (failedState.stateKey !== countingRuntimeStateKey) {
+    failedRequests.delete(compositeKey);
+    return false;
+  }
+
+  const retryAt = failedState.failedAt + FAILED_REQUEST_RETRY_COOLDOWN_MS;
+  if (Date.now() < retryAt) {
+    return true;
+  }
+
+  failedRequests.delete(compositeKey);
+  return false;
+}
+
 /**
- * Hook that provides persistent token caching with fallback to in-memory.
+ * Hook that provides persistent token caching with a strict in-memory request/cache layer.
  *
  * Usage:
  * ```tsx
@@ -98,9 +131,11 @@ export function usePersistentTokenCache({
   // Try to get the persistent cache context (may be null if not wrapped in provider)
   const persistentCache = useOptionalTokenCacheContext();
 
-  // Fallback in-memory cache (used when persistent cache is not available)
+  // In-memory request/cache layer used when the persistent cache context is unavailable.
   const tokenCacheRef = useRef<Map<string, number>>(new Map());
   const pendingRequestsRef = useRef<Map<string, Promise<void>>>(new Map());
+  const failedRequestsRef = useRef<Map<string, FailedRequestState>>(new Map());
+  const countingRuntimeStateKey = `${tokenCounting.mode}:${tokenCounting.reason ?? 'ready'}`;
 
   /**
    * Get token count using persistent cache if available, otherwise in-memory.
@@ -114,7 +149,13 @@ export function usePersistentTokenCache({
       const { folderId, path } = decodeFileSelection(compositeKey);
 
       // --- Persistent Cache Path (preferred) ---
-      if (persistentCache?.isOperational) {
+      if (persistentCache) {
+        if (!persistentCache.isOperational) {
+          // A provider exists, so token counting is expected to come from the shared worker path.
+          // Do not fall through to the strict in-memory path while that runtime is still booting.
+          return;
+        }
+
         // Try to get from hot cache first (no content needed!)
         // Pass undefined for content to check cache only
         const content = fileContents[compositeKey];
@@ -129,7 +170,8 @@ export function usePersistentTokenCache({
         return;
       }
 
-      // --- Fallback In-Memory Cache Path ---
+      // --- Strict In-Memory Cache Path ---
+      // This path is only valid when no shared token-cache provider exists at all.
       const cached = tokenCacheRef.current.get(compositeKey);
       if (typeof cached === 'number') {
         return cached;
@@ -141,17 +183,28 @@ export function usePersistentTokenCache({
         return;
       }
 
+      if (shouldDelayRetry(failedRequestsRef.current, compositeKey, countingRuntimeStateKey)) {
+        return;
+      }
+
       // Not in cache and not pending - start counting
       if (!pendingRequestsRef.current.has(compositeKey)) {
         const pending = tokenCounting
           .countTokens(content)
           .then((count) => {
+            failedRequestsRef.current.delete(compositeKey);
             tokenCacheRef.current.set(compositeKey, count);
           })
-          .catch(() => {
-            // Fall back to heuristic on error
-            const heuristic = Math.ceil(content.length / 4);
-            tokenCacheRef.current.set(compositeKey, heuristic);
+          .catch((error: unknown) => {
+            logger.warn('Strict token counting failed', {
+              compositeKey,
+              countingMode: tokenCounting.mode,
+              error,
+            });
+            failedRequestsRef.current.set(compositeKey, {
+              stateKey: countingRuntimeStateKey,
+              failedAt: Date.now(),
+            });
           })
           .finally(() => {
             pendingRequestsRef.current.delete(compositeKey);

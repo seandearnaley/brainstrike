@@ -17,15 +17,14 @@ import type {
 import { createHybridSearchService, normalizeRRFScores, usePGliteDatabase } from '@brainstrike/db';
 import {
   type EmbeddingProviderConfig,
-  EmbeddingProviderFactory,
   isHostedProvider,
   type ModelConfig,
   parseProviderModelKey,
-  SimpleEmbeddingService,
-} from '@brainstrike/embeddings';
-import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
+} from '@brainstrike/embeddings/provider-core';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { SearchExecutor } from '../contexts/semantic-search-context';
 import {
@@ -79,6 +78,7 @@ async function createHostedEmbedder(
   providerConfig: EmbeddingProviderConfig,
   modelId: string
 ): Promise<SearchEmbedder> {
+  const { EmbeddingProviderFactory } = await import('@brainstrike/embeddings/factory');
   const providerResult = await EmbeddingProviderFactory.createProvider(providerConfig);
   logger.info('Hosted provider creation result', { ok: providerResult.ok });
 
@@ -114,6 +114,7 @@ async function createHostedEmbedder(
  */
 async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbedder> {
   logger.info('Creating local embedder (SimpleEmbeddingService)', { modelKey: modelConfig.id });
+  const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
   const svc = new SimpleEmbeddingService();
   logger.info('Initializing local model...');
   await svc.initializeWithModel(modelConfig);

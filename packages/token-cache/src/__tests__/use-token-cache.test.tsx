@@ -1,7 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Pool } from 'workerpool';
 import type { TokenCacheEntry, TokenCountingMode, TokenCountResult } from '../types';
 import { useTokenCache } from '../use-token-cache';
 
@@ -76,7 +75,7 @@ describe('useTokenCache', () => {
       useTokenCache({
         store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
         hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
-        workerPool: workerPool as unknown as Pool,
+        workerPool: workerPool as unknown as Parameters<typeof useTokenCache>[0]['workerPool'],
         countingMode,
       })
     );
@@ -224,7 +223,7 @@ describe('useTokenCache', () => {
       useTokenCache({
         store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
         hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
-        workerPool: workerPool as unknown as Pool,
+        workerPool: workerPool as unknown as Parameters<typeof useTokenCache>[0]['workerPool'],
         countingMode: 'heuristic',
         onTokenResolved,
       })
@@ -473,7 +472,7 @@ describe('useTokenCache', () => {
         useTokenCache({
           store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
           hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
-          workerPool: workerPool as unknown as Pool,
+          workerPool: workerPool as unknown as Parameters<typeof useTokenCache>[0]['workerPool'],
           countingMode: mode,
         }),
       { initialProps: 'heuristic' as TokenCountingMode }

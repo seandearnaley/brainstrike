@@ -12,7 +12,7 @@
  * exported, these tests should be updated to use the real implementation.
  */
 
-import { startsWithDoubleCharPrefix } from '@brainstrike/utils';
+import { startsWithDoubleCharPrefix } from '@brainstrike/utils/string-prefix';
 import { describe, expect, it } from 'vitest';
 
 /**

@@ -1,7 +1,6 @@
 import { usePGliteDatabase } from '@brainstrike/db';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { Badge, Button, Card, Input, Label, Progress, Switch, useToast } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { ChevronDown, ChevronRight, Download, Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
@@ -48,6 +47,7 @@ export function ModelRegistrySettingsSection() {
 
     const cacheDir = modelCacheDir ?? undefined;
     const cacheDirOption = cacheDir ? { cacheDir } : {};
+    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
     const service = new SimpleEmbeddingService();
     setDownloading(modelId, true);
     setDownloadProgress(modelId, 0);
@@ -105,7 +105,12 @@ export function ModelRegistrySettingsSection() {
             placeholder="Default system cache directory"
             value={modelCacheDir || ''}
           />
-          <Button size="icon" title="Select Directory" variant="outline">
+          <Button
+            aria-label="Select Model Cache Directory"
+            size="icon"
+            title="Select Directory"
+            variant="outline"
+          >
             <Folder className="h-4 w-4" />
           </Button>
         </div>

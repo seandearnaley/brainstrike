@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { app, BrowserWindow } from 'electron';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
 import type { DesktopWindowState } from './store-schema';

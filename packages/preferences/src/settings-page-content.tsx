@@ -362,13 +362,23 @@ export function createAppearanceSettingsCategory(): SettingsCategory {
 }
 
 export function createTokenCountingSettingsCategory(): SettingsCategory {
+  return createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable: null });
+}
+
+export function createTokenCountingSettingsCategoryWithRuntimeSupport({
+  accurateRuntimeAvailable,
+}: {
+  accurateRuntimeAvailable: boolean | null;
+}): SettingsCategory {
   return {
     id: 'token-counting',
     title: 'Token Counting',
     description: 'Control the tokenizer used for previews and chunk generation.',
     keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
     icon: Sigma,
-    render: () => <TokenCountingSettingsSection />,
+    render: () => (
+      <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />
+    ),
   };
 }
 

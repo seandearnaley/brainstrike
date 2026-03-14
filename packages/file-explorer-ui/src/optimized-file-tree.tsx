@@ -8,12 +8,9 @@ import {
   TreeTable,
   type TreeTableColumn,
 } from '@brainstrike/ui';
-import {
-  createLogger,
-  encodeFileSelection,
-  memoizedFileExplorer as fileExplorer,
-  isPathSelectedInFolder,
-} from '@brainstrike/utils';
+import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 import {
   File as FileIcon,
   Folder,

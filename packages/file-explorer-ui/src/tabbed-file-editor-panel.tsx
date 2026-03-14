@@ -1,6 +1,7 @@
 import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { useIdeFileEditor } from '@brainstrike/ui';
-import { createLogger, decodeFileSelection } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('TabbedFileEditorPanel');

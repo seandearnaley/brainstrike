@@ -1,3 +1,4 @@
+import { addLogListener, type LogRecord } from '@brainstrike/utils/logger';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,17 +36,25 @@ describe('usePersistentTokenCache', () => {
   let tokenCounting: TokenCountingState;
   let fileContents: Record<string, string>;
   let onTokenResolved: () => void;
+  let logEntries: LogRecord[];
+  let removeLogListener: (() => void) | null;
 
   beforeEach(() => {
     tokenCounting = createTokenCounting();
     fileContents = {};
     onTokenResolved = vi.fn();
     mockContext = null;
+    logEntries = [];
+    removeLogListener = addLogListener((entry) => {
+      logEntries.push(entry);
+    });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     mockContext = null;
+    removeLogListener?.();
+    removeLogListener = null;
   });
 
   const renderCacheHook = () =>
@@ -117,6 +126,21 @@ describe('usePersistentTokenCache', () => {
       expect(result.current.cacheVersion).toBe(3);
       expect(result.current.isAnyLoading).toBe(false);
     });
+
+    it('does not fall back to strict in-memory counting while the shared cache is still booting', () => {
+      mockContext = {
+        ...mockContext!,
+        isOperational: false,
+        isAnyLoading: true,
+      };
+
+      fileContents['folder::file.txt'] = 'hello';
+      const { result } = renderCacheHook();
+
+      expect(result.current.getTokenCount('folder::file.txt')).toBeUndefined();
+      expect(mockContext?.getTokenCount).not.toHaveBeenCalled();
+      expect(tokenCounting.countTokens).not.toHaveBeenCalled();
+    });
   });
 
   describe('fallback to in-memory cache', () => {
@@ -164,7 +188,7 @@ describe('usePersistentTokenCache', () => {
       expect(result.current.getTokenCount('folder::file.txt')).toBe(3);
     });
 
-    it('falls back to heuristic when counting fails', async () => {
+    it('does not silently cache heuristic counts when counting fails', async () => {
       tokenCounting.countTokens = vi.fn(async () => {
         throw new Error('boom');
       });
@@ -175,8 +199,53 @@ describe('usePersistentTokenCache', () => {
       expect(result.current.getTokenCount('folder::err.txt')).toBeUndefined();
       await flushMicrotasks();
 
-      expect(result.current.getTokenCount('folder::err.txt')).toBe(2); // ceil(6/4) = 2
+      expect(result.current.getTokenCount('folder::err.txt')).toBeUndefined();
+      expect(tokenCounting.countTokens).toHaveBeenCalledTimes(1);
       expect(onTokenResolved).toHaveBeenCalled();
+      expect(
+        logEntries.some(
+          (entry) =>
+            entry.scope === 'PersistentTokenCache' &&
+            entry.message === 'Strict token counting failed'
+        )
+      ).toBe(true);
+    });
+
+    it('retries failed token counts after the cooldown expires', async () => {
+      vi.useFakeTimers();
+      try {
+        let attempts = 0;
+        tokenCounting.countTokens = vi.fn(async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            throw new Error('transient');
+          }
+          return 7;
+        });
+
+        fileContents['folder::retry.txt'] = 'abcdefg';
+        const { result, rerender } = renderCacheHook();
+
+        expect(result.current.getTokenCount('folder::retry.txt')).toBeUndefined();
+        await flushMicrotasks();
+
+        expect(result.current.getTokenCount('folder::retry.txt')).toBeUndefined();
+        expect(tokenCounting.countTokens).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+          vi.advanceTimersByTime(5001);
+          await Promise.resolve();
+        });
+
+        expect(result.current.getTokenCount('folder::retry.txt')).toBeUndefined();
+        await flushMicrotasks();
+        rerender();
+
+        expect(tokenCounting.countTokens).toHaveBeenCalledTimes(2);
+        expect(result.current.getTokenCount('folder::retry.txt')).toBe(7);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('skips counting for inaccessible content', () => {

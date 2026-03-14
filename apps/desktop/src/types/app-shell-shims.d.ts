@@ -14,13 +14,58 @@
  * - packages/app-shell/src/root-layout-content.tsx (RootLayoutContent)
  */
 import type React from 'react';
+import type { LucideIcon } from 'lucide-react';
 
 declare module '@brainstrike/app-shell/navigation' {
   export const navigationItems: unknown;
 }
 
+declare module '@brainstrike/app-shell/types' {
+  export interface NavigationItem {
+    icon: React.ComponentType<{ className?: string }>;
+    name: string;
+    path: string;
+  }
+}
+
 declare module '@brainstrike/app-shell/root-layout-content' {
   export const RootLayoutContent: React.ComponentType;
+  export interface RootLayoutContentProps {
+    databaseTabChunkingMode?: 'host-proxy' | 'local';
+    homePageContent: React.ReactNode;
+    leftPanelContent?: React.ReactNode;
+    loadEmbeddingQueue?: (() => Promise<unknown>) | null;
+    navigationItems: unknown[];
+    preloadDatabaseTabOnMount?: boolean;
+    promptsPageContent?: React.ReactNode;
+    settingsPageContent: React.ReactNode;
+  }
+}
+
+declare module '@brainstrike/app-shell/connected-prompt-manager-lazy' {
+  export const ConnectedPromptManagerLazy: React.ComponentType;
+}
+
+declare module '@brainstrike/app-shell/stores/tools-panel-store' {
+  export const toolsPanelSelectors: {
+    activeTab: (state: { activeTab: 'assistant' | 'database' }) => unknown;
+  };
+  export const useToolsPanelStore: (
+    selector: (state: { activeTab: 'assistant' | 'database' }) => unknown
+  ) => unknown;
+}
+
+declare module '@brainstrike/app-shell/diagnostics' {
+  export interface SettingsCategory {
+    description?: string;
+    icon?: LucideIcon;
+    id: string;
+    keywords?: string[];
+    render: () => React.ReactNode;
+    title: string;
+  }
+
+  export function createSystemDiagnosticsSettingsCategory(): SettingsCategory;
 }
 
 declare module '@brainstrike/app-shell/settings-page-content' {
@@ -29,7 +74,7 @@ declare module '@brainstrike/app-shell/settings-page-content' {
    */
   export interface SettingsCategory {
     description?: string;
-    icon?: React.ComponentType<{ className?: string }>;
+    icon?: LucideIcon;
     id: string;
     keywords?: string[];
     render: () => React.ReactNode;
@@ -55,7 +100,7 @@ declare module '@brainstrike/app-shell' {
   export const RootLayoutContent: React.ComponentType;
   export interface SettingsCategory {
     description?: string;
-    icon?: React.ComponentType<{ className?: string }>;
+    icon?: LucideIcon;
     id: string;
     keywords?: string[];
     render: () => React.ReactNode;

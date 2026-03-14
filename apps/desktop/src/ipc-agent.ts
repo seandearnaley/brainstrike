@@ -1,6 +1,6 @@
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type { McpConfig } from './mcp-loader';
@@ -61,6 +61,7 @@ async function runAgentChat(
 ): Promise<StreamChunk[]> {
   const agentModule = resolveAgentModule();
   const config = await loadMcpConfig();
+  const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
   const provider = resolveAgentProvider(runtime);
   if (!provider) {
     throw new Error('missing_provider');
@@ -72,7 +73,7 @@ async function runAgentChat(
 
   const maybeStream = agentModule.streamMastraAgent(messages, {
     runtime: {
-      ...(runtime ?? {}),
+      ...runtimeWithoutMcpConfig,
       provider,
       apiKey,
       ...(config.config ? { mcpConfig: config.config } : {}),

@@ -16,7 +16,8 @@ import {
   type TreeAdapter,
 } from '@brainstrike/selection-rules';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger, startsWithPrefix } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { startsWithPrefix } from '@brainstrike/utils/string-prefix';
 import { useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 

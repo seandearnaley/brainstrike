@@ -1,5 +1,7 @@
+import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
+
 export interface FileRecord {
-  chunkingStrategy?: 'sentence' | 'token' | 'recursive'; // Strategy used for chunking
+  chunkingStrategy?: ResolvedChunkingStrategy; // Canonical strategy actually used for chunking
   chunksCount?: number; // Number of chunks created for this file
   chunksProcessedAt?: string; // ISO date when file was chunked
   content?: string; // File content (for text files)

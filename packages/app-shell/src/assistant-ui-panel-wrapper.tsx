@@ -26,15 +26,13 @@ import {
   useOptionalTokenCacheContext,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui';
-import {
-  useAssistantPreferencesStore,
-  useEnsureModelRegistry,
-  useModelRegistryStore,
-  useNativeToolPreferencesStore,
-  usePanelLayoutStore,
-  useSecretsStore,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/preferences/stores/panel-layout-store';
+import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { buildWorkspaceLookupCandidates, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import {
@@ -48,7 +46,7 @@ import {
   type ModelPickerProvider,
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { type FC, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 export interface AssistantUiPanelWrapperProps {
@@ -782,12 +780,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         return;
       }
       const mode = payload.mode ?? 'add';
-      const normalizedPaths = Array.from(
+      const normalizedPaths: string[] = Array.from(
         new Set(
           payload.filePaths
-            .map((filePath) => normalizeWorkspaceLookupPath(String(filePath)))
-            .filter((path) => path.length > 0)
-            .map((path) => (path.startsWith('/') ? path : `/${path}`))
+            .map((filePath: unknown) => normalizeWorkspaceLookupPath(String(filePath)))
+            .filter((path: string) => path.length > 0)
+            .map((path: string) => (path.startsWith('/') ? path : `/${path}`))
         )
       );
       if (normalizedPaths.length === 0) {
@@ -828,9 +826,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       return;
     }
 
-    const unsubscribe = window.tools.onRootTreeSelectionUpdate((payload) => {
-      handleSelectionUpdate(payload);
-    });
+    const unsubscribe = window.tools.onRootTreeSelectionUpdate(
+      (payload: AssistantSelectionUpdatePayload) => {
+        handleSelectionUpdate(payload);
+      }
+    );
 
     return () => {
       unsubscribe?.();
@@ -842,9 +842,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       return;
     }
 
-    const unsubscribe = window.tools.onPreviewContextSelectionUpdate((payload) => {
-      handleSelectionUpdate(payload);
-    });
+    const unsubscribe = window.tools.onPreviewContextSelectionUpdate(
+      (payload: AssistantSelectionUpdatePayload) => {
+        handleSelectionUpdate(payload);
+      }
+    );
 
     return () => {
       unsubscribe?.();

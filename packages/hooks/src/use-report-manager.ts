@@ -8,7 +8,7 @@
 
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
-import { error as logError } from '@brainstrike/utils';
+import { error as logError } from '@brainstrike/utils/logger';
 import { useCallback } from 'react';
 
 type ContextGenerator<O> = (options?: O) => Promise<string>;

@@ -1,7 +1,7 @@
 // Main Panel
 
 // Re-export from preferences for backward compatibility
-export { useVectorStatusUIStore } from '@brainstrike/preferences';
+export { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 // Components
 export * from './components';
 // Contexts

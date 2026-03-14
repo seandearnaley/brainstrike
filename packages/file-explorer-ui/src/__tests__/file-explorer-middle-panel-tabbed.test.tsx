@@ -87,13 +87,6 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       performUndoableAction,
       clearUndoTimeout,
     });
-
-    const utilsModule = await import('@brainstrike/utils');
-    vi.spyOn(utilsModule, 'supportsAccurateTokenCounting').mockResolvedValue(true);
-    vi.spyOn(utilsModule, 'countTokensAccurate').mockResolvedValue(0);
-    vi.spyOn(utilsModule, 'countTokensHeuristic').mockImplementation((text: string) =>
-      Math.ceil(text.length / 4)
-    );
   });
 
   afterAll(() => {

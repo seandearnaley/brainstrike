@@ -1,18 +1,12 @@
-// Re-export vector management components
-export {
-  QueueHud,
-  VectorStatus,
-  VectorStatusWithDb,
-  VectorStatusWithDialog,
-} from '@brainstrike/vector-management';
 export * from './app-config';
 export * from './app-layout';
-export * from './assistant-ui-panel-wrapper';
 export * from './connected-prompt-manager';
+export * from './connected-prompt-manager-lazy';
 export * from './diagnostics';
 export * from './navigation';
 export * from './page-wrapper';
 export * from './root-layout-content';
 export * from './status-items';
+export * from './stores/tools-panel-store';
 export * from './tools-panel';
 export * from './types';

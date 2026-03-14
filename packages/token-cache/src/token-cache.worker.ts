@@ -2,13 +2,19 @@
  * Token Cache Worker
  *
  * Background Web Worker for non-blocking token counting.
- * Uses workerpool for easy integration with main thread.
+ * Uses direct postMessage RPC so Electron/browser bundlers own worker startup.
  */
 
 /// <reference lib="webworker" />
 
-import { worker, workerEmit } from 'workerpool';
-import type { TokenCountRequest, TokenCountResult } from './types';
+import { countTokensForMode } from './token-counting-runtime';
+import type {
+  TokenCountRequest,
+  TokenCountResult,
+  TokenWorkerRequest,
+  TokenWorkerResponse,
+  TokenWorkerResponseError,
+} from './types';
 
 interface XXHashModule {
   create64: () => {
@@ -73,10 +79,9 @@ async function getTokenUtils(): Promise<{
  */
 async function countTokens(request: TokenCountRequest): Promise<TokenCountResult> {
   let hasher: XXHashModule;
-  let utils: Awaited<ReturnType<typeof getTokenUtils>>;
 
   try {
-    [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
+    hasher = await initHasher();
   } catch (initError) {
     // Re-throw with more context for debugging
     const message = initError instanceof Error ? initError.message : String(initError);
@@ -86,22 +91,8 @@ async function countTokens(request: TokenCountRequest): Promise<TokenCountResult
   // Hash content for cache key
   const contentHash = hashToHex(hasher.h64(request.content));
 
-  if (request.mode === 'accurate') {
-    const accurateSupported = await utils.supportsAccurateTokenCounting();
-    if (!accurateSupported) {
-      const failureReason = utils.getAccurateTokenCountingFailureReason();
-      const failureSuffix = failureReason ? ` (${failureReason})` : '';
-      throw new Error(
-        `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`
-      );
-    }
-  }
-
   // Count tokens based on mode
-  const tokenCount =
-    request.mode === 'accurate'
-      ? await utils.countTokensAccurate(request.content)
-      : utils.countTokensHeuristic(request.content);
+  const tokenCount = await countTokensForMode(request.mode, request.content, getTokenUtils);
 
   return {
     id: request.id,
@@ -121,18 +112,7 @@ async function countTokensBatch(requests: TokenCountRequest[]): Promise<TokenCou
   }
 
   // Pre-initialize to avoid repeated async overhead
-  const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
-  const requiresAccurateCounting = requests.some((request) => request.mode === 'accurate');
-  if (requiresAccurateCounting) {
-    const accurateSupported = await utils.supportsAccurateTokenCounting();
-    if (!accurateSupported) {
-      const failureReason = utils.getAccurateTokenCountingFailureReason();
-      const failureSuffix = failureReason ? ` (${failureReason})` : '';
-      throw new Error(
-        `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`
-      );
-    }
-  }
+  const hasher = await initHasher();
 
   const results: TokenCountResult[] = [];
   const total = requests.length;
@@ -142,10 +122,7 @@ async function countTokensBatch(requests: TokenCountRequest[]): Promise<TokenCou
     const contentHash = hashToHex(hasher.h64(request.content));
 
     // Count tokens
-    const tokenCount =
-      request.mode === 'accurate'
-        ? await utils.countTokensAccurate(request.content)
-        : utils.countTokensHeuristic(request.content);
+    const tokenCount = await countTokensForMode(request.mode, request.content, getTokenUtils);
 
     const result: TokenCountResult = {
       id: request.id,
@@ -156,8 +133,7 @@ async function countTokensBatch(requests: TokenCountRequest[]): Promise<TokenCou
 
     results.push(result);
 
-    // Emit progress every item (or could batch for efficiency)
-    workerEmit({
+    self.postMessage({
       type: 'progress',
       completed: i + 1,
       total,
@@ -195,10 +171,71 @@ async function hashContentBatch(
   }));
 }
 
-// Export worker methods
-worker({
+const workerMethods = {
   countTokens,
   countTokensBatch,
   hashContent,
   hashContentBatch,
+};
+
+async function executeRequestMethod(
+  method: TokenWorkerRequest['method'],
+  params: unknown[]
+): Promise<unknown> {
+  switch (method) {
+    case 'countTokens':
+      return workerMethods.countTokens(params[0] as TokenCountRequest);
+    case 'countTokensBatch':
+      return workerMethods.countTokensBatch(params[0] as TokenCountRequest[]);
+    case 'hashContent':
+      return workerMethods.hashContent(params[0] as string);
+    case 'hashContentBatch':
+      return workerMethods.hashContentBatch(params[0] as Array<{ id: string; content: string }>);
+  }
+}
+
+function isTokenWorkerRequest(value: unknown): value is TokenWorkerRequest {
+  if (!(typeof value === 'object' && value !== null)) {
+    return false;
+  }
+
+  const candidate = value as Partial<TokenWorkerRequest>;
+  return (
+    candidate.type === 'request' &&
+    typeof candidate.requestId === 'string' &&
+    typeof candidate.method === 'string' &&
+    Array.isArray(candidate.params)
+  );
+}
+
+self.addEventListener('message', (event: MessageEvent<unknown>) => {
+  if (!isTokenWorkerRequest(event.data)) {
+    return;
+  }
+
+  const request = event.data;
+
+  void (async () => {
+    const { method, params, requestId } = request;
+
+    try {
+      const result = await executeRequestMethod(method, params);
+      const response: TokenWorkerResponse = {
+        type: 'response',
+        requestId,
+        result,
+      };
+      self.postMessage(response);
+    } catch (error) {
+      const response: TokenWorkerResponseError = {
+        type: 'error',
+        requestId,
+        message: error instanceof Error ? error.message : String(error),
+      };
+      if (error instanceof Error && error.stack) {
+        response.cause = error.stack;
+      }
+      self.postMessage(response);
+    }
+  })();
 });

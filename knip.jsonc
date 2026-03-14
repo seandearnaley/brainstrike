@@ -22,7 +22,31 @@
       ],
       "ignoreDependencies": [
         "@fontsource-variable/geist", // Imported via CSS @import in globals.css
-        "@fontsource-variable/geist-mono" // Imported via CSS @import in globals.css
+        "@fontsource-variable/geist-mono", // Imported via CSS @import in globals.css
+        // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
+        "@assistant-ui/react",
+        "@assistant-ui/react-data-stream",
+        "@assistant-ui/react-markdown",
+        "@assistant-ui/styles",
+        "@radix-ui/react-accordion",
+        "@radix-ui/react-checkbox",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-scroll-area",
+        "@radix-ui/react-tabs",
+        "@radix-ui/react-toast",
+        "@shikijs/langs",
+        "@shikijs/themes",
+        "file-saver",
+        "idb",
+        "jszip",
+        "minimatch",
+        "react-hotkeys-hook",
+        "react-resizable-panels",
+        "react-shiki",
+        "remark-gfm",
+        "shiki",
+        "tiktoken",
+        "xxhash-wasm"
       ],
       "typescript": {
         // Only add if you need to specify a non-default tsconfig location
@@ -57,7 +81,32 @@
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
         "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
         "@fontsource-variable/geist", // Imported via CSS @import in renderer/styles.css
-        "@fontsource-variable/geist-mono" // Imported via CSS @import in renderer/styles.css
+        "@fontsource-variable/geist-mono", // Imported via CSS @import in renderer/styles.css
+        // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
+        "@assistant-ui/react",
+        "@assistant-ui/react-data-stream",
+        "@assistant-ui/react-markdown",
+        "@assistant-ui/styles",
+        "@radix-ui/react-accordion",
+        "@radix-ui/react-checkbox",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-scroll-area",
+        "@radix-ui/react-tabs",
+        "@radix-ui/react-toast",
+        "@shikijs/langs",
+        "@shikijs/themes",
+        "file-saver",
+        "idb",
+        "jszip",
+        "minimatch",
+        "react-helmet-async",
+        "react-hotkeys-hook",
+        "react-resizable-panels",
+        "react-shiki",
+        "remark-gfm",
+        "shiki",
+        "tiktoken",
+        "xxhash-wasm"
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -337,7 +386,11 @@
     // Ignore all scripts - utility scripts run directly, not imported
     "scripts/**/*",
     // Ignore entire .claude directory - hooks, scripts, and skills are executed via CLI, not imported
-    ".claude/**/*"
+    ".claude/**/*",
+    // Browser-targeted Vite aliases for Node builtins are consumed indirectly via build-utils helpers
+    "packages/build-utils/src/browser-node-stubs/child-process.ts",
+    "packages/build-utils/src/browser-node-stubs/os.ts",
+    "packages/build-utils/src/browser-node-stubs/worker-threads.ts"
   ],
   // Keep existing global settings
   "ignoreBinaries": [

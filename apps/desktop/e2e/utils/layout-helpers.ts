@@ -96,11 +96,23 @@ export async function showDatabaseDemoPanel(
       .waitFor({ state: 'attached', timeout: tabTimeoutMs })
       .catch(() => {});
 
-    const rightPanel = await ensureToolsPanelVisible(activePage);
+    let rightPanel = await ensureToolsPanelVisible(activePage);
+
+    activePage = await resolveActivePage(activePage);
+    rightPanel = await ensureToolsPanelVisible(activePage);
 
     if (!activePage.isClosed()) {
       // Wait a moment for panel to stabilize
-      await activePage.waitForTimeout(500);
+      try {
+        await activePage.waitForTimeout(500);
+      } catch (error) {
+        if (activePage.isClosed()) {
+          activePage = await resolveActivePage(activePage);
+          rightPanel = await ensureToolsPanelVisible(activePage);
+        } else {
+          throw error;
+        }
+      }
     }
 
     // Now navigate to the database tab within the tools panel
@@ -577,10 +589,13 @@ async function resolveActivePage(page: Page): Promise<Page> {
   if (!page.isClosed()) {
     try {
       await page.waitForLoadState('domcontentloaded', { timeout: 10_000 });
+      return page;
     } catch (_error) {
-      // Ignore load state errors; the page may already be ready.
+      if (!page.isClosed()) {
+        // Ignore load state errors when the page is still alive; it may already be ready.
+        return page;
+      }
     }
-    return page;
   }
 
   console.warn('⚠️ Existing window closed; waiting for replacement...');

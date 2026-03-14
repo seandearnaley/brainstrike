@@ -1,19 +1,25 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.typecheck.json",
   "compilerOptions": {
     "types": [
       "vitest/globals",
       "node",
       "@testing-library/jest-dom"
     ],
+    "composite": false,
+    "declaration": false,
+    "emitDeclarationOnly": false,
+    "declarationMap": false,
+    "incremental": false,
     "skipLibCheck": true,
     "noEmit": true,
-    "paths": {},
     "strictNullChecks": true
   },
   "include": [
     "src/**/*",
-    "**/*.test.*"
+    "**/*.test.*",
+    "../file-explorer-ui/src/types/**/*.d.ts",
+    "../file-import/src/types/**/*.d.ts"
   ],
   "exclude": [
     "dist",

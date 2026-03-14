@@ -1,6 +1,35 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  resolve: {
+    alias: [
+      {
+        find: '@brainstrike/types',
+        replacement: resolve(import.meta.dirname, '../types/src/index.ts'),
+      },
+      {
+        find: /^@brainstrike\/utils\/(.*)$/,
+        replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
+      },
+      {
+        find: '@brainstrike/utils',
+        replacement: resolve(import.meta.dirname, '../utils/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/text-splitter',
+        replacement: resolve(import.meta.dirname, '../text-splitter/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/hooks',
+        replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/worker-runtime',
+        replacement: resolve(import.meta.dirname, '../worker-runtime/src/index.ts'),
+      },
+    ],
+  },
   test: {
     globals: true,
     environment: 'happy-dom',

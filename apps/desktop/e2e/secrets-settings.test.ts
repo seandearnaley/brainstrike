@@ -3,7 +3,7 @@ import { expect, test } from './fixtures/electron-fixture';
 test.describe('Secrets Settings', { tag: '@smoke' }, () => {
   test('save and retrieve provider key via settings UI + IPC', async ({ window, homePage }) => {
     await homePage.openSettings();
-    // Wait for Settings page to load by checking for the Settings heading
+    await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
     await expect(window.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 
     // Navigate to API Keys category (scoped to settings nav to avoid nav sidebar conflicts)

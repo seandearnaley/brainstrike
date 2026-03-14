@@ -1,5 +1,5 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { startsWithPrefix } from '@brainstrike/utils';
+import { startsWithPrefix } from '@brainstrike/utils/string-prefix';
 import type { GetState, SetState } from '../types/store-types';
 
 export interface DirectoryExpansionActions {

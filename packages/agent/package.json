@@ -6,6 +6,7 @@
     "@ai-sdk/google": "^3.0.31",
     "@ai-sdk/openai": "^3.0.33",
     "@ai-sdk/provider": "3.0.8",
+    "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "^3.8.1",

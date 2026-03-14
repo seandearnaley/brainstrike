@@ -6,6 +6,13 @@ const transferMock = vi.fn(function TransferStub<T>(value: T) {
   return value;
 });
 const pipelineMock = vi.fn();
+const transformersImportState = vi.hoisted(() => ({
+  env: { allowRemoteModels: false } as {
+    allowRemoteModels: boolean;
+    backends?: { onnx?: { webgpu?: { device?: unknown } } };
+  },
+  error: null as Error | null,
+}));
 const registeredHandlers: {
   runEmbedding?: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
 } = {};
@@ -53,9 +60,24 @@ vi.mock('workerpool', () => ({
 }));
 
 vi.mock('@huggingface/transformers', () => ({
-  env: { allowRemoteModels: false },
-  pipeline: (...args: unknown[]) => pipelineMock(...args),
-  Tensor: MockTensor,
+  get env() {
+    if (transformersImportState.error) {
+      throw transformersImportState.error;
+    }
+    return transformersImportState.env;
+  },
+  pipeline: (...args: unknown[]) => {
+    if (transformersImportState.error) {
+      throw transformersImportState.error;
+    }
+    return pipelineMock(...args);
+  },
+  get Tensor() {
+    if (transformersImportState.error) {
+      throw transformersImportState.error;
+    }
+    return MockTensor;
+  },
 }));
 
 describe('embedding worker runtime', () => {
@@ -65,6 +87,8 @@ describe('embedding worker runtime', () => {
     pipelineMock.mockReset();
     transferMock.mockClear();
     registeredHandlers.runEmbedding = undefined;
+    transformersImportState.error = null;
+    transformersImportState.env = { allowRemoteModels: false };
     vi.unstubAllGlobals();
   });
 
@@ -330,6 +354,38 @@ describe('embedding worker runtime', () => {
     return registeredHandlers.runEmbedding;
   }
 
+  it('retries worker bootstrap after a transformers import failure', async () => {
+    const runEmbedding = await loadWorker();
+
+    transformersImportState.error = new Error('transformers import failed');
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'retry-import-first',
+        model: 'bge-m3',
+        texts: ['hello'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('transformers import failed');
+
+    transformersImportState.error = null;
+    pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'retry-import-second',
+        model: 'bge-m3',
+        texts: ['hello'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      })
+    ).resolves.toMatchObject({
+      type: 'result',
+      id: 'retry-import-second',
+    });
+  });
+
   it('short-circuits when no texts are provided', async () => {
     pipelineMock.mockResolvedValue(async () => new Float32Array([0.1, 0.2]));
     const runEmbedding = await loadWorker();
@@ -506,7 +562,9 @@ describe('embedding worker runtime', () => {
 
   it('continues embedding when ORT device promise rejects', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
-    await setOrtWebGpuDevice(Promise.reject(new Error('device unavailable')));
+    const rejectedDevice = Promise.reject(new Error('device unavailable'));
+    void rejectedDevice.catch(() => {});
+    await setOrtWebGpuDevice(rejectedDevice);
 
     pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
     const runEmbedding = await loadWorker();

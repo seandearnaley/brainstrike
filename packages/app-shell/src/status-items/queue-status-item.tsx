@@ -1,5 +1,9 @@
-import { QueueStatusPopover } from '@brainstrike/vector-management';
-import type { ReactElement } from 'react';
+import { lazy, type ReactElement, Suspense } from 'react';
+
+const LazyQueueStatusPopover = lazy(async () => {
+  const module = await import('@brainstrike/vector-management');
+  return { default: module.QueueStatusPopover };
+});
 
 /**
  * Embedding queue status with expandable diagnostics panel.
@@ -9,5 +13,9 @@ import type { ReactElement } from 'react';
  * and ephemeral queue metrics, worker health, and performance data.
  */
 export function QueueStatusItem(): ReactElement {
-  return <QueueStatusPopover />;
+  return (
+    <Suspense fallback={null}>
+      <LazyQueueStatusPopover />
+    </Suspense>
+  );
 }

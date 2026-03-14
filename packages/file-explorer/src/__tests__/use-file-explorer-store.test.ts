@@ -5,7 +5,7 @@ import {
   MAX_SELECTION_COUNT,
   MIN_MAX_SELECTION_COUNT,
 } from '@brainstrike/types';
-import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils';
+import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla'; // Use vanilla store for testing actions
 import { createDirectoryExpansionActions } from '../actions/directory-expansion-actions';

@@ -170,6 +170,19 @@ describe('useBackgroundTokenIndexer', () => {
     expect(result.current.progress).toBeNull();
   });
 
+  it('uses an explicit workerUrl override when provided', async () => {
+    renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'heuristic',
+        workerUrl: 'http://localhost/custom-background-indexer.worker.js',
+      })
+    );
+
+    const worker = await waitForWorker();
+    expect(String(worker.url)).toBe('http://localhost/custom-background-indexer.worker.js');
+  });
+
   it('invokes onFileError when worker reports an error', async () => {
     const onFileError = vi.fn();
 

@@ -10,7 +10,7 @@
  * @see apps/docs/docs/reference/adr/selection-rules-v1.md for evaluation semantics
  */
 
-import { startsWithPrefix } from '@brainstrike/utils';
+import { startsWithPrefix } from '@brainstrike/utils/string-prefix';
 import { minimatch } from 'minimatch';
 import type {
   CapRule,

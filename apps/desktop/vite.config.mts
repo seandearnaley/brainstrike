@@ -1,7 +1,17 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findPGliteWasm, fullReloadOnCompilerHotspots } from '@brainstrike/build-utils';
+import {
+  findPGliteWasm,
+  fullReloadOnCompilerHotspots,
+  getAssistantOptimizeDepsInclude,
+  getCoreAppOptimizeDepsInclude,
+  getDatabaseOptimizeDepsInclude,
+  getHeavyRuntimeOptimizeDepsExclude,
+  getLazySurfaceOptimizeDepsEntries,
+  getWorkerpoolBrowserStubAliases,
+  resolveAssistantVendorChunk,
+} from '@brainstrike/build-utils';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -13,8 +23,22 @@ import { getDevCSP } from './src/csp-utils';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const pinoBrowserPath = require.resolve('pino/browser.js');
+const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
 const wasmPath = findPGliteWasm(__dirname);
+
+function resolveVendorChunk(id: string): string | undefined {
+  if (!id.includes('node_modules')) {
+    return;
+  }
+
+  const assistantChunk = resolveAssistantVendorChunk(id);
+  if (assistantChunk) {
+    return assistantChunk;
+  }
+
+  return 'vendor';
+}
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
@@ -67,12 +91,7 @@ export default defineConfig({
       },
       external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
-        manualChunks: (id) => {
-          if (id.includes('node_modules')) {
-            return 'vendor';
-          }
-          return;
-        },
+        manualChunks: resolveVendorChunk,
       },
     },
   },
@@ -138,8 +157,40 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/db-explorer/src'),
       },
       {
+        find: '@brainstrike/embedding-worker',
+        replacement: path.resolve(__dirname, '../../packages/embedding-worker/src'),
+      },
+      {
+        find: '@brainstrike/embeddings/runtime-config',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/runtime-config.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/provider-core',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/provider-core.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/backend',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/backend-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/factory',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/factory-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/service',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/service-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/worker',
+        replacement: path.resolve(__dirname, '../../packages/embeddings/src/worker-entry.ts'),
+      },
+      {
         find: '@brainstrike/embeddings',
         replacement: path.resolve(__dirname, '../../packages/embeddings/src'),
+      },
+      {
+        find: '@brainstrike/worker-runtime',
+        replacement: path.resolve(__dirname, '../../packages/worker-runtime/src'),
       },
       {
         find: '@brainstrike/queue/browser',
@@ -172,8 +223,16 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/file-import/src'),
       },
       {
+        find: '@brainstrike/chunking-worker',
+        replacement: path.resolve(__dirname, '../../packages/chunking-worker/src'),
+      },
+      {
         find: '@brainstrike/preferences',
         replacement: path.resolve(__dirname, '../../packages/preferences/src'),
+      },
+      {
+        find: '@brainstrike/text-splitter',
+        replacement: path.resolve(__dirname, '../../packages/text-splitter/src'),
       },
       {
         find: '@brainstrike/storage/electron',
@@ -207,6 +266,10 @@ export default defineConfig({
         find: '@brainstrike/vector-management',
         replacement: path.resolve(__dirname, '../../packages/vector-management/src'),
       },
+      ...Object.entries(workerpoolBrowserStubAliases).map(([find, replacement]) => ({
+        find,
+        replacement,
+      })),
       {
         // Force pino to browser build to avoid dynamic require of node libs in renderer
         find: 'pino',
@@ -235,7 +298,9 @@ export default defineConfig({
     plugins: () => [wasm(), topLevelAwait()],
   },
   optimizeDeps: {
+    entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],
     exclude: [
+      ...getHeavyRuntimeOptimizeDepsExclude(),
       '@electric-sql/pglite',
       '@electric-sql/pglite/vector',
       '@brainstrike/types',
@@ -249,10 +314,19 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
+      '@brainstrike/embeddings', // Pulls embedding-worker and transformers through source aliases
+      '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
       '@brainstrike/db-explorer', // Uses file-import which has worker
       '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
       '@brainstrike/token-cache', // Worker must resolve via package exports (dist)
+      '@brainstrike/token-cache/cache-runtime',
+      '@brainstrike/token-cache/background-indexer',
       '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
+    ],
+    include: [
+      ...getCoreAppOptimizeDepsInclude(),
+      ...getAssistantOptimizeDepsInclude(),
+      ...getDatabaseOptimizeDepsInclude(),
     ],
   },
   define: {

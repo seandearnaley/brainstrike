@@ -5,13 +5,13 @@
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
-    "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/queue": "workspace:*",
+    "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
-    ,"@brainstrike/worker-runtime": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/worker-runtime": "workspace:*"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.15",

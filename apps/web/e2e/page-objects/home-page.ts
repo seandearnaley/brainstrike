@@ -1,6 +1,10 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
-import { waitForAppLoad } from '../utils/layout-helpers';
+import {
+  waitForAppLoad,
+  waitForContextExplorerPage,
+  waitForSettingsPage,
+} from '../utils/layout-helpers';
 
 export class HomePage {
   constructor(public readonly page: Page) {}
@@ -35,11 +39,11 @@ export class HomePage {
 
   async navigateToSettings(): Promise<void> {
     await this.settingsNavButton.click();
-    await expect(this.settingsHeading).toBeVisible();
+    await waitForSettingsPage(this.page);
   }
 
   async navigateToHome(): Promise<void> {
     await this.contextExplorerNavButton.click();
-    await expect(this.contextExplorerHeading).toBeVisible();
+    await waitForContextExplorerPage(this.page);
   }
 }

@@ -18,23 +18,29 @@
  * ```
  */
 
-import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
+import {
+  tokenPreferencesSelectors,
+  useTokenPreferencesStore,
+} from '@brainstrike/preferences/stores/token-preferences-store';
+import type {
+  TokenCacheEntry,
+  TokenCountingMode,
+  TokenCountRequest,
+  TokenCountResult,
+  UseTokenCacheReturn,
+} from '@brainstrike/token-cache/cache-runtime';
 import {
   createTokenCacheWorkerPool,
   FileHasher,
-  resolveTokenCacheWorkerUrl,
-  type TokenCacheEntry,
   TokenCacheStore,
-  type TokenCountingMode,
-  type TokenCountRequest,
-  type TokenCountResult,
-  type UseTokenCacheReturn,
   useTokenCache,
-} from '@brainstrike/token-cache';
-import { createLogger, startsWithDoubleCharPrefix } from '@brainstrike/utils';
+} from '@brainstrike/token-cache/cache-runtime';
+import { createLogger } from '@brainstrike/utils/logger';
+import { startsWithDoubleCharPrefix } from '@brainstrike/utils/string-prefix';
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -42,6 +48,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { resolveTokenCacheWorkerUrlHref } from './resolve-token-cache-worker-url';
 
 const logger = createLogger('TokenCacheContext');
 
@@ -112,7 +119,7 @@ export function __resetTokenCacheWorkerInitErrorsForTests(): void {
 }
 
 function getResolvedTokenCacheWorkerUrl(workerUrl: string | undefined): string {
-  return workerUrl ?? resolveTokenCacheWorkerUrl().href;
+  return workerUrl ?? resolveTokenCacheWorkerUrlHref();
 }
 
 function buildTokenCacheWarmupError(attempts: number, lastError: Error | null): Error {
@@ -373,6 +380,11 @@ export function TokenCacheProvider({
   const workerPoolRef = useRef<WorkerPool | null>(null);
   const workerInitPromiseRef = useRef<Promise<WorkerPool> | null>(null);
   const providerDisposedRef = useRef(false);
+  const workerReadyRef = useRef(workerReady);
+  const workerInitErrorRef = useRef(workerInitError);
+
+  workerReadyRef.current = workerReady;
+  workerInitErrorRef.current = workerInitError;
 
   // Get counting mode preference
   const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
@@ -425,7 +437,7 @@ export function TokenCacheProvider({
     };
   }, [hasher]);
 
-  const initializeWorkerPool = useMemo(() => {
+  const initializeWorkerPool = useCallback(async (): Promise<WorkerPool> => {
     const markWorkerUnavailable = (resolvedWorkerUrl: string, error: Error): void => {
       terminalWorkerInitErrorsByUrl.set(resolvedWorkerUrl, error);
       dispatchWorker({ type: 'WARMUP_FAILED', error, noopPool: noopWorkerPool });
@@ -446,8 +458,8 @@ export function TokenCacheProvider({
         throw terminalInitError;
       }
 
-      if (workerInitError) {
-        throw workerInitError;
+      if (workerInitErrorRef.current) {
+        throw workerInitErrorRef.current;
       }
     };
 
@@ -485,46 +497,44 @@ export function TokenCacheProvider({
       return pool;
     };
 
-    return async (): Promise<WorkerPool> => {
-      const resolvedWorkerUrl = getResolvedTokenCacheWorkerUrl(workerUrl);
-      throwIfWorkerUnavailable(resolvedWorkerUrl);
+    const resolvedWorkerUrl = getResolvedTokenCacheWorkerUrl(workerUrl);
+    throwIfWorkerUnavailable(resolvedWorkerUrl);
 
-      if (workerReady && workerPoolRef.current) {
-        return workerPoolRef.current;
+    if (workerReadyRef.current && workerPoolRef.current) {
+      return workerPoolRef.current;
+    }
+
+    if (workerInitPromiseRef.current) {
+      return workerInitPromiseRef.current;
+    }
+
+    logger.debug('TokenCacheProvider: creating worker pool', {
+      url: resolvedWorkerUrl,
+      lazyWorkerInit,
+    });
+
+    const initPromise = createAndWarmWorkerPool(resolvedWorkerUrl).catch((error: unknown) => {
+      const initError =
+        error instanceof Error
+          ? error
+          : new Error(`Failed to create token cache worker pool: ${String(error)}`);
+      if (!providerDisposedRef.current) {
+        logger.error('TokenCacheProvider: failed to create worker pool', { error: initError });
+        markWorkerUnavailable(resolvedWorkerUrl, initError);
       }
+      workerPoolRef.current = null;
+      throw initError;
+    });
 
-      if (workerInitPromiseRef.current) {
-        return workerInitPromiseRef.current;
+    workerInitPromiseRef.current = initPromise;
+    try {
+      return await initPromise;
+    } finally {
+      if (workerInitPromiseRef.current === initPromise) {
+        workerInitPromiseRef.current = null;
       }
-
-      logger.debug('TokenCacheProvider: creating worker pool', {
-        url: resolvedWorkerUrl,
-        lazyWorkerInit,
-      });
-
-      const initPromise = createAndWarmWorkerPool(resolvedWorkerUrl).catch((error: unknown) => {
-        const initError =
-          error instanceof Error
-            ? error
-            : new Error(`Failed to create token cache worker pool: ${String(error)}`);
-        if (!providerDisposedRef.current) {
-          logger.error('TokenCacheProvider: failed to create worker pool', { error: initError });
-          markWorkerUnavailable(resolvedWorkerUrl, initError);
-        }
-        workerPoolRef.current = null;
-        throw initError;
-      });
-
-      workerInitPromiseRef.current = initPromise;
-      try {
-        return await initPromise;
-      } finally {
-        if (workerInitPromiseRef.current === initPromise) {
-          workerInitPromiseRef.current = null;
-        }
-      }
-    };
-  }, [lazyWorkerInit, noopWorkerPool, workerInitError, workerReady, workerUrl]);
+    }
+  }, [lazyWorkerInit, noopWorkerPool, workerUrl]);
 
   const workerPoolProxy = useMemo<WorkerPool>(
     () => ({
@@ -580,8 +590,8 @@ export function TokenCacheProvider({
   // Two-tier readiness semantics (BST-150):
   // - isOperational: Worker + hasher ready (can count tokens, even without DB)
   // - isPersisted: Operational + DB available (full persistence)
-  const isOperational =
-    hasherReady && (workerReady || (lazyWorkerInit && workerInitError === null));
+  // A lazily configured provider is still non-operational until the worker has actually warmed.
+  const isOperational = hasherReady && workerReady;
   const isPersisted = isOperational && Boolean(db) && hasPersistentStore;
 
   // Backwards compatibility: isReady = isPersisted

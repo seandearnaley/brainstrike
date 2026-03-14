@@ -19,6 +19,8 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   ),
 }));
 
+vi.mock('../../renderer/create-embedding-queue', () => ({}));
+
 const mockRender = vi.fn();
 const mockCreateRoot = vi.fn(() => ({ render: mockRender }));
 

@@ -1,4 +1,4 @@
-import { useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useCallback, useEffect, useState } from 'react';
 import type {
   EmbeddingRuntimeController,
@@ -135,6 +135,7 @@ export function useEmbeddingWorkerControls(
       const message = error instanceof Error ? error.message : String(error);
       setStartWorkerError(message);
       toast({ title: 'Failed to start worker', description: message, variant: 'destructive' });
+      throw error;
     } finally {
       setStartingWorker(false);
     }
