@@ -6,6 +6,11 @@ import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repo
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
+// NOTE: The embedding dimension cache in _shared.ts is module-scoped and
+// persists across tests. Each test uses unique embedding set IDs created via
+// PGlite in-memory databases, so stale cache entries do not affect results.
+// If a future test needs to verify uncached paths, expose a cache-clear
+// helper or use dependency injection.
 describe('validateEmbeddingDimensions batch N+1 regression', () => {
   let db: PGlite;
   let repo: FileChunkRepository;
