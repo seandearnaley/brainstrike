@@ -196,6 +196,43 @@ describe('usePersistentTokenCache', () => {
       ).toBe(true);
     });
 
+    it('retries failed token counts after the cooldown expires', async () => {
+      vi.useFakeTimers();
+      try {
+        let attempts = 0;
+        tokenCounting.countTokens = vi.fn(async () => {
+          attempts += 1;
+          if (attempts === 1) {
+            throw new Error('transient');
+          }
+          return 7;
+        });
+
+        fileContents['folder::retry.txt'] = 'abcdefg';
+        const { result, rerender } = renderCacheHook();
+
+        expect(result.current.getTokenCount('folder::retry.txt')).toBeUndefined();
+        await flushMicrotasks();
+
+        expect(result.current.getTokenCount('folder::retry.txt')).toBeUndefined();
+        expect(tokenCounting.countTokens).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+          vi.advanceTimersByTime(5001);
+          await Promise.resolve();
+        });
+
+        expect(result.current.getTokenCount('folder::retry.txt')).toBeUndefined();
+        await flushMicrotasks();
+        rerender();
+
+        expect(tokenCounting.countTokens).toHaveBeenCalledTimes(2);
+        expect(result.current.getTokenCount('folder::retry.txt')).toBe(7);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('skips counting for inaccessible content', () => {
       fileContents['folder::blocked.txt'] = 'File not accessible - permission denied';
       const { result } = renderCacheHook();

@@ -19,6 +19,12 @@ import { useOptionalTokenCacheContext } from './token-cache-context';
 import type { TokenCountingState } from './use-token-counting';
 
 const logger = createLogger('PersistentTokenCache');
+const FAILED_REQUEST_RETRY_COOLDOWN_MS = 5000;
+
+interface FailedRequestState {
+  failedAt: number;
+  stateKey: string;
+}
 
 /**
  * Props for the persistent token cache hook
@@ -104,7 +110,7 @@ export function usePersistentTokenCache({
   // In-memory request/cache layer used when the persistent cache context is unavailable.
   const tokenCacheRef = useRef<Map<string, number>>(new Map());
   const pendingRequestsRef = useRef<Map<string, Promise<void>>>(new Map());
-  const failedRequestsRef = useRef<Map<string, string>>(new Map());
+  const failedRequestsRef = useRef<Map<string, FailedRequestState>>(new Map());
   const countingRuntimeStateKey = `${tokenCounting.mode}:${tokenCounting.reason ?? 'ready'}`;
 
   useEffect(() => {
@@ -113,8 +119,8 @@ export function usePersistentTokenCache({
     }
 
     const staleKeys: string[] = [];
-    for (const [compositeKey, failedStateKey] of failedRequestsRef.current.entries()) {
-      if (failedStateKey !== countingRuntimeStateKey) {
+    for (const [compositeKey, failedState] of failedRequestsRef.current.entries()) {
+      if (failedState.stateKey !== countingRuntimeStateKey) {
         staleKeys.push(compositeKey);
       }
     }
@@ -162,8 +168,13 @@ export function usePersistentTokenCache({
         return;
       }
 
-      if (failedRequestsRef.current.get(compositeKey) === countingRuntimeStateKey) {
-        return;
+      const failedState = failedRequestsRef.current.get(compositeKey);
+      if (failedState?.stateKey === countingRuntimeStateKey) {
+        const retryAt = failedState.failedAt + FAILED_REQUEST_RETRY_COOLDOWN_MS;
+        if (Date.now() < retryAt) {
+          return;
+        }
+        failedRequestsRef.current.delete(compositeKey);
       }
 
       // Not in cache and not pending - start counting
@@ -180,7 +191,10 @@ export function usePersistentTokenCache({
               countingMode: tokenCounting.mode,
               error,
             });
-            failedRequestsRef.current.set(compositeKey, countingRuntimeStateKey);
+            failedRequestsRef.current.set(compositeKey, {
+              stateKey: countingRuntimeStateKey,
+              failedAt: Date.now(),
+            });
           })
           .finally(() => {
             pendingRequestsRef.current.delete(compositeKey);

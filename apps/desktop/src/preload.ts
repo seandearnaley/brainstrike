@@ -40,9 +40,7 @@ const CHUNKING_HOST_CHUNK_FILE_CHANNEL = 'chunking-host:chunk-file' as const;
 const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = 'chunking-host:chunk-batch' as const;
 const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
 const DESKTOP_TEST_MODE =
-  process.argv.includes('--test-mode') ||
-  process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
-  process.env['NODE_ENV'] === 'test';
+  process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 
 type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 type ChunkingHostLifecycleState = EmbeddingHostLifecycleState;

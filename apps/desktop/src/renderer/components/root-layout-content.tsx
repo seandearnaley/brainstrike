@@ -68,6 +68,8 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  */
 export default function RootLayoutContent() {
   const activeToolsTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
+  // Keep the queue tracker mounted after first DB visit so queue status/backfill
+  // state stays warm across tab switches instead of tearing down and restarting.
   const queueTrackerMountedRef = useRef(activeToolsTab === 'database');
   if (activeToolsTab === 'database') {
     queueTrackerMountedRef.current = true;

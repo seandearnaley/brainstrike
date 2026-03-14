@@ -555,7 +555,7 @@ describe('assistant-server', () => {
       await Promise.race([requestPromise, new Promise((resolve) => setTimeout(resolve, 1000))]);
     }, 15_000);
 
-    it('omits the desktop filesystem bridge from Mastra MCP runtime config', async () => {
+    it('passes filesystem MCP config through to the Mastra runtime', async () => {
       const { loadMcpConfig } = await import('../mcp-loader');
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');
@@ -603,7 +603,16 @@ describe('assistant-server', () => {
         unknown,
         Record<string, unknown>,
       ];
-      expect(runtime).not.toHaveProperty('mcpConfig');
+      expect(runtime.mcpConfig).toEqual({
+        servers: [
+          {
+            name: 'filesystem',
+            transport: 'stdio',
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+          },
+        ],
+      });
     });
 
     it('should handle stream initialization failure', async () => {

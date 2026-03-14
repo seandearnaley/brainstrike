@@ -60,7 +60,12 @@ afterAll(() => {
 
 describe('preload power bridge', () => {
   beforeAll(async () => {
+    process.env['ELECTRON_IS_E2E_TEST'] = 'true';
     await import('../preload');
+  });
+
+  afterAll(() => {
+    process.env['ELECTRON_IS_E2E_TEST'] = undefined;
   });
 
   function getPowerApi() {

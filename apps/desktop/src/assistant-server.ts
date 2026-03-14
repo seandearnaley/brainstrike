@@ -40,7 +40,6 @@ type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import { getDatabase } from './db-main';
-import { filterDesktopMastraMcpConfig } from './mcp/mastra-config';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
 import {
@@ -716,14 +715,13 @@ async function initializeAgentStream(
   // The signal is embedded in RuntimeData and flows through to:
   // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
   // - AssistantDataStreamSession (via cancel() on Response stream)
-  const filteredMcpConfig = filterDesktopMastraMcpConfig(mcpConfig);
   const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtimeData ?? {};
   const runtime: RuntimeData = {
     ...runtimeWithoutMcpConfig,
     mcpEnabled: true,
     mastraTools: buildDesktopAssistantTools(runtimeData),
     signal, // ← AbortSignal passed here, used by stream iterator
-    ...(filteredMcpConfig ? { mcpConfig: filteredMcpConfig } : {}),
+    ...(mcpConfig ? { mcpConfig } : {}),
     ...(apiKey ? { apiKey } : {}),
   };
 

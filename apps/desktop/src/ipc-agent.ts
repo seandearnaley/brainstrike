@@ -3,7 +3,6 @@ import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
-import { filterDesktopMastraMcpConfig } from './mcp/mastra-config';
 import type { McpConfig } from './mcp-loader';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
@@ -62,7 +61,6 @@ async function runAgentChat(
 ): Promise<StreamChunk[]> {
   const agentModule = resolveAgentModule();
   const config = await loadMcpConfig();
-  const filteredMcpConfig = filterDesktopMastraMcpConfig(config.config);
   const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtime ?? {};
   const provider = resolveAgentProvider(runtime);
   if (!provider) {
@@ -78,7 +76,7 @@ async function runAgentChat(
       ...runtimeWithoutMcpConfig,
       provider,
       apiKey,
-      ...(filteredMcpConfig ? { mcpConfig: filteredMcpConfig } : {}),
+      ...(config.config ? { mcpConfig: config.config } : {}),
     },
   });
 
