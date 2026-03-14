@@ -5,8 +5,8 @@
 import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
-} from '@brainstrike/preferences';
-import { render, screen } from '@testing-library/react';
+} from '@brainstrike/preferences/stores/database-status-store';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -72,7 +72,9 @@ describe('SystemDiagnosticsPanel', () => {
     it('renders queue diagnostics panel', () => {
       render(<SystemDiagnosticsPanel />);
 
-      expect(screen.getByTestId('queue-diagnostics-panel')).toBeInTheDocument();
+      return waitFor(() => {
+        expect(screen.getByTestId('queue-diagnostics-panel')).toBeInTheDocument();
+      });
     });
   });
 
@@ -186,8 +188,10 @@ describe('SystemDiagnosticsPanel', () => {
     it('passes showQueueRefresh prop to QueueDiagnosticsPanel', () => {
       render(<SystemDiagnosticsPanel showQueueRefresh={false} />);
 
-      const queuePanel = screen.getByTestId('queue-diagnostics-panel');
-      expect(queuePanel).toHaveAttribute('data-show-refresh', 'false');
+      return waitFor(() => {
+        const queuePanel = screen.getByTestId('queue-diagnostics-panel');
+        expect(queuePanel).toHaveAttribute('data-show-refresh', 'false');
+      });
     });
   });
 });

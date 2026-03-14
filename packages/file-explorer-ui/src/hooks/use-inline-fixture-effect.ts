@@ -6,7 +6,7 @@
 
 import { isFixtureCapableAdapter } from '@brainstrike/file-system';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const logger = createLogger('useInlineFixtureEffect');

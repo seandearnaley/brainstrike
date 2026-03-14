@@ -214,6 +214,19 @@ describe('useViewFilterPresets', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('does not keep loading true once the presets repository is already available', async () => {
+    mockDbInitializing = true;
+
+    const { result } = renderHook(() => useViewFilterPresets());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(mockFindAll).toHaveBeenCalled();
+    expect(result.current.presets).toHaveLength(2);
+  });
+
   it('surfaces database provider errors when the repository is unavailable', () => {
     const providerError = new Error('Database unavailable');
     mockDbProviderError = providerError;

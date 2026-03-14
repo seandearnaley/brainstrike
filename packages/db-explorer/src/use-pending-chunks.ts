@@ -1,6 +1,6 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
 import { isAppActive } from '@brainstrike/hooks';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface PendingRow {

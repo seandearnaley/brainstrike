@@ -118,7 +118,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 
 import type { IFileNode } from '@brainstrike/types';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
-import * as utilsModule from '@brainstrike/utils';
+import * as treeGeneratorModule from '@brainstrike/utils/tree-generator';
 import * as textTokenCountModule from '../hooks/use-text-token-count';
 import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
@@ -318,7 +318,7 @@ describe('FileExplorerMiddlePanel', () => {
     ];
     const fullTreeText = 'full-tree-text';
     const generateProjectTreeTextSpy = vi
-      .spyOn(utilsModule, 'generateProjectTreeText')
+      .spyOn(treeGeneratorModule, 'generateProjectTreeText')
       .mockReturnValue(fullTreeText);
     const useTextTokenCountSpy = vi
       .spyOn(textTokenCountModule, 'useTextTokenCount')

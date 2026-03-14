@@ -1,5 +1,5 @@
 import { Button, ScrollArea } from '@brainstrike/ui';
-import { isDevEnv } from '@brainstrike/utils';
+import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { AlertTriangle, ArrowLeft, Bug, RefreshCw, X } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
@@ -85,7 +85,13 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 <AlertTriangle className="mr-2 h-6 w-6 text-red-500" />
                 <h2 className="font-bold text-xl">Error</h2>
               </div>
-              <Button onClick={this.handleReset} size="icon" title="Dismiss" variant="ghost">
+              <Button
+                aria-label="Dismiss Error"
+                onClick={this.handleReset}
+                size="icon"
+                title="Dismiss"
+                variant="ghost"
+              >
                 <X className="h-4 w-4" />
               </Button>
             </div>

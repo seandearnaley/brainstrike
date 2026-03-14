@@ -1,4 +1,4 @@
-import { isAbortError } from '@brainstrike/utils';
+import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useState } from 'react';
 
 export type AssistantAvailabilityStatus =

@@ -2,7 +2,7 @@
  * Native tool executor for the Tool Playground.
  * Executes self-contained native tools that can run in the main process.
  */
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { z } from 'zod';
 
 // ============================================================================

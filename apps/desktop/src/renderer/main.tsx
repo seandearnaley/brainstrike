@@ -1,19 +1,20 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/preferences';
+import { DbSchemaVerifier } from '@brainstrike/preferences/components/db-schema-verifier';
+import { useAssistantPreferencesStore } from '@brainstrike/preferences/stores/assistant-preferences-store';
+import { useLoggingPreferencesStore } from '@brainstrike/preferences/stores/logging-preferences-store';
+import { useSecretsStore } from '@brainstrike/preferences/stores/secrets-store';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
-import type { LoggingPreferences } from '@brainstrike/utils';
+import { installConsoleGuard } from '@brainstrike/utils/console-guard';
+import { installRendererErrorHooks } from '@brainstrike/utils/install-renderer-error-hooks';
+import { addLogListener, createLogger, LogLevel } from '@brainstrike/utils/logger';
+import { initializeLogging } from '@brainstrike/utils/logging-initializer';
 import {
-  addLogListener,
   applyLoggingPreferences,
-  createLogger,
-  initializeLogging,
-  installConsoleGuard,
-  installPerformanceMeasureGuard,
-  installRendererErrorHooks,
-  LogLevel,
-} from '@brainstrike/utils';
+  type LoggingPreferences,
+} from '@brainstrike/utils/logging-preferences';
+import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
@@ -21,7 +22,6 @@ import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } fro
 import './log-buffer';
 import './styles.css';
 import { ChunkingHostApp } from './components/chunking-host-app';
-import { DesktopChunkingWorkerProvider } from './components/desktop-chunking-worker-provider';
 import { EmbeddingHostApp } from './components/embedding-host-app';
 
 // Import layout component
@@ -253,6 +253,10 @@ declare global {
     __BRAINSTRIKE_DESKTOP_REACT_ROOT__?: ReactRoot;
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_READY__?: boolean;
+    __brainstrikeTestHooks__?: {
+      notifySecretsChanged: () => void;
+      setAssistantModel: (compositeKey: string) => void;
+    };
   }
 }
 
@@ -269,14 +273,31 @@ function App() {
     window.dispatchEvent(new Event('brainstrike:ready'));
   }, []);
 
+  useEffect(() => {
+    if (!window.desktopLifecycle?.isTestMode) {
+      return;
+    }
+
+    window.__brainstrikeTestHooks__ = {
+      notifySecretsChanged: () => {
+        useSecretsStore.getState().notifySecretsChanged();
+      },
+      setAssistantModel: (compositeKey: string) => {
+        useAssistantPreferencesStore.getState().setModel(compositeKey);
+      },
+    };
+
+    return () => {
+      window.__brainstrikeTestHooks__ = undefined;
+    };
+  }, []);
+
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
       <DbSchemaVerifier>
-        <DesktopChunkingWorkerProvider autoStart={false} mode="host-proxy">
-          <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-            <RootLayoutContent />
-          </AdaptersProvider>
-        </DesktopChunkingWorkerProvider>
+        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+          <RootLayoutContent />
+        </AdaptersProvider>
       </DbSchemaVerifier>
     </DbProvider>
   );

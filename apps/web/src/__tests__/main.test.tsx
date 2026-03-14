@@ -40,25 +40,59 @@ const mockLoggingStore = {
   subscribe: vi.fn(() => () => {}),
 };
 
-vi.mock('@brainstrike/preferences', () => ({
+vi.mock('@brainstrike/preferences/stores/logging-preferences-store', () => ({
   useLoggingPreferencesStore: Object.assign(
     vi.fn(() => mockLoggingStore),
     mockLoggingStore
   ),
-  useVectorStatusUIStore: vi.fn((selector: (state: { setSchemaVerified: () => void }) => unknown) =>
-    selector({ setSchemaVerified: vi.fn() })
-  ),
-  // Mock DbSchemaVerifier component - renders children directly
+}));
+
+vi.mock('@brainstrike/preferences/components/db-schema-verifier', () => ({
   DbSchemaVerifier: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-// Mock utils to prevent side effects
-vi.mock('@brainstrike/utils', () => ({
+const createMockLoggingPreferences = (
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> => ({
+  level: 'info',
+  consoleLevel: 'info',
+  consoleEnabled: true,
+  includeTimestamp: false,
+  redactPaths: [],
+  file: {
+    enabled: false,
+    destination: null,
+    level: 'info',
+    append: true,
+    mkdir: true,
+  },
+  ...overrides,
+});
+
+vi.mock('@brainstrike/utils/logging-initializer', () => ({
   initializeLogging: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils/logging-preferences', () => ({
   applyLoggingPreferences: vi.fn(),
+  createDefaultLoggingPreferences: vi.fn((overrides: Record<string, unknown> = {}) =>
+    createMockLoggingPreferences(overrides)
+  ),
+}));
+
+vi.mock('@brainstrike/utils/console-guard', () => ({
   installConsoleGuard: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils/performance-measure-guard', () => ({
   installPerformanceMeasureGuard: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils/install-renderer-error-hooks', () => ({
   installRendererErrorHooks: vi.fn(() => () => {}),
+}));
+
+vi.mock('@brainstrike/utils/logger', () => ({
   LogLevel: { DEBUG: 'debug', INFO: 'info' },
 }));
 

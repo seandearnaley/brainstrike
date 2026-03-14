@@ -1,5 +1,8 @@
-import type { EmbeddingWorkerController, EmbeddingWorkerOptions } from '@brainstrike/embeddings';
-import { startEmbeddingWorker } from '@brainstrike/embeddings';
+import { getRegisteredEmbeddingRuntimeConfig } from '@brainstrike/embeddings/runtime-config';
+import type {
+  EmbeddingWorkerController,
+  EmbeddingWorkerOptions,
+} from '@brainstrike/embeddings/worker';
 import {
   type BackgroundRuntimeProgress,
   type BackgroundRuntimeStatus,
@@ -73,6 +76,23 @@ function getEmbeddingHostApi(): EmbeddingHostApi | null {
 
 function createStoppedLocalStatus(runtimeId: string): EmbeddingRuntimeStatus {
   return createBackgroundRuntimeStatus('embedding-worker', runtimeId, 'stopped');
+}
+
+function getRequiredEmbeddingRuntimeConfig(): { readonly streamingWorkerUrl: string } {
+  const config = getRegisteredEmbeddingRuntimeConfig();
+  if (!config) {
+    throw new Error(
+      'Embedding runtime config is not registered. Register an explicit streamingWorkerUrl before starting the local embedding worker.'
+    );
+  }
+  return config;
+}
+
+async function loadStartEmbeddingWorker(): Promise<
+  typeof import('@brainstrike/embeddings/worker').startEmbeddingWorker
+> {
+  const module = await import('@brainstrike/embeddings/worker');
+  return module.startEmbeddingWorker;
 }
 
 export function useEmbeddingRuntimeController(
@@ -173,17 +193,20 @@ export function useEmbeddingRuntimeController(
       if (!db) {
         throw new Error('Database is required to start the local embedding worker.');
       }
+      const runtimeConfig = getRequiredEmbeddingRuntimeConfig();
 
       updateLocalStatus(
         createBackgroundRuntimeStatus('embedding-worker', localRuntimeIdRef.current, 'starting')
       );
 
       try {
+        const startEmbeddingWorker = await loadStartEmbeddingWorker();
         const controller = await startEmbeddingWorker({
           db,
           enable: true,
           reinitEveryN,
           device: devicePreference,
+          streamingWorkerUrl: runtimeConfig.streamingWorkerUrl,
           onFatalError: (error: Error) => {
             updateLocalStatus(
               createBackgroundRuntimeStatus(

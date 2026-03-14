@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CHUNKING_CONFIG } from '../chunking-config';
 import { chunkContent } from '../portable-chunking';
+
+afterEach(() => {
+  vi.doUnmock('@babel/parser');
+  vi.doUnmock('../token-utils-lite');
+  vi.unstubAllGlobals();
+  vi.resetModules();
+});
 
 describe('portable-chunking', () => {
   describe('chunkContent', () => {
@@ -161,6 +168,52 @@ function baz() {
         expect(result.chunks.length).toBeGreaterThan(0);
       });
 
+      it('falls back to recursive splitting when AST parsing fails', async () => {
+        vi.doMock('@babel/parser', () => ({
+          parse: () => {
+            throw new Error('parser exploded');
+          },
+        }));
+
+        const result = await chunkContent(
+          `
+const alpha = () => 1;
+const beta = () => 2;
+const gamma = () => alpha() + beta();
+`.repeat(40),
+          {
+            strategy: 'recursive',
+            fileName: 'broken.ts',
+          }
+        );
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('recursive');
+        expect(result.chunks.length).toBeGreaterThan(1);
+      });
+
+      it('falls back to recursive splitting when no top-level function ranges exist', async () => {
+        const result = await chunkContent(
+          `
+const CONFIG = {
+  name: 'brainstrike',
+  version: '1.0.0',
+  nested: { enabled: true, retries: 3 },
+};
+
+export const FLAGS = ['alpha', 'beta', 'gamma'];
+`.repeat(50),
+          {
+            strategy: 'recursive',
+            fileName: 'config.ts',
+          }
+        );
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('recursive');
+        expect(result.chunks.length).toBeGreaterThan(1);
+      });
+
       it('should honor forceStrategy for markdown and keep recursive strategy', async () => {
         const markdown = '# Header\n\nParagraph one.\n\nParagraph two.';
 
@@ -199,13 +252,32 @@ function baz() {
       it('should apply default recommendations for structured files', async () => {
         const json = JSON.stringify({ rows: Array.from({ length: 500 }, (_, i) => ({ i })) });
         const result = await chunkContent(json, {
-          strategy: 'sentence',
+          strategy: 'auto',
           fileName: 'dataset.json',
         });
 
         expect(result.skipped).toBe(false);
-        expect(result.strategyUsed).toBe('recursive');
+        expect(result.strategyUsed).toBe('json');
         expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.largeStructuredMaxTokens);
+      });
+
+      it('should route non-legacy auto strategies through the canonical resolver', async () => {
+        const docsResult = await chunkContent('= Guide\n\nSection body.', {
+          strategy: 'auto',
+          fileName: 'guide.adoc',
+        });
+        const dataResult = await chunkContent('{"rows":[{"id":1},{"id":2}]}', {
+          strategy: 'auto',
+          fileName: 'records.jsonl',
+        });
+        const svgResult = await chunkContent('<svg><text>Hello</text></svg>', {
+          strategy: 'auto',
+          fileName: 'diagram.svg',
+        });
+
+        expect(docsResult.strategyUsed).toBe('semantic-markdown');
+        expect(dataResult.strategyUsed).toBe('json');
+        expect(svgResult.strategyUsed).toBe('html');
       });
 
       it('should honor ignoreFileTypeRecommendations and use configured maxTokens', async () => {
@@ -223,6 +295,27 @@ function baz() {
         expect(result.chunks[0]?.chunkSize).toBe(explicitMaxTokens);
       });
 
+      it('applies code-language defaults when recommendations are enabled', async () => {
+        const generatedCode = Array.from(
+          { length: 120 },
+          (_, index) => `
+export function feature${index}() {
+  return 'feature-${index}';
+}
+`
+        ).join('\n');
+
+        const result = await chunkContent(generatedCode, {
+          strategy: 'token',
+          fileName: 'feature.ts',
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.chunks[0]?.chunkSize).toBe(
+          CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens
+        );
+      });
+
       it('should sanitize invalid maxTokensCap values to the safety cap', async () => {
         const result = await chunkContent('word '.repeat(1000), {
           strategy: 'token',
@@ -233,6 +326,46 @@ function baz() {
 
         expect(result.skipped).toBe(false);
         expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.maxTokensSafetyCap);
+      });
+
+      it('clamps overlap below maxTokens when explicit overlap is too large', async () => {
+        const result = await chunkContent('word '.repeat(200), {
+          strategy: 'token',
+          fileName: 'overlap.txt',
+          maxTokens: 32,
+          overlap: 64,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.chunks[0]?.chunkSize).toBe(32);
+        expect(result.chunks[0]?.content.length).toBeGreaterThan(0);
+      });
+
+      it('re-splits oversized chunks when true sizing exceeds the safety cap', async () => {
+        vi.doMock('../token-utils-lite', () => ({
+          countTokensAccurate: vi.fn(async (text: string) => {
+            if (text.length > 120) {
+              return 160;
+            }
+            return Math.max(1, Math.ceil(text.length / 8));
+          }),
+        }));
+
+        const result = await chunkContent('word '.repeat(250), {
+          strategy: 'token',
+          fileName: 'true-sized.txt',
+          maxTokens: 32,
+          overlap: 8,
+          tokenTrueSizing: true,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('token');
+        expect(result.chunks.length).toBeGreaterThan(1);
+        for (const chunk of result.chunks) {
+          expect(chunk.content.length).toBeGreaterThan(0);
+          expect(chunk.tokenCount).toBeGreaterThan(0);
+        }
       });
     });
 

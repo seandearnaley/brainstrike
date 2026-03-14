@@ -1,5 +1,6 @@
 import type { IDatabase } from '@brainstrike/db';
-import { createLogger, createSafeJsonStorageAdapter } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { isLocalModelProviderId } from '../models/local-model-utils';

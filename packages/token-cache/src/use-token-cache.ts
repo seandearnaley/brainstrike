@@ -22,8 +22,8 @@ import type { TokenCacheStore } from './token-cache-store';
 import type { TokenCacheEntry, TokenCountingMode, TokenCountResult } from './types';
 
 /**
- * Minimal worker pool interface for token counting.
- * Subset of workerpool.Pool that this hook actually uses.
+ * Minimal worker interface for token counting.
+ * The cache runtime provides a dedicated Web Worker client that satisfies this contract.
  */
 interface WorkerPoolLike {
   exec: (method: string, params: unknown[]) => Promise<unknown>;
@@ -41,7 +41,7 @@ export interface UseTokenCacheOptions {
   onTokenResolved?: (folderId: string, filePath: string, tokenCount: number) => void;
   /** Token cache store instance */
   store: TokenCacheStore;
-  /** Worker pool instance (minimal interface, compatible with workerpool.Pool) */
+  /** Worker instance (minimal interface provided by the cache runtime) */
   workerPool: WorkerPoolLike;
 }
 

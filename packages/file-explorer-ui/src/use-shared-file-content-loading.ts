@@ -3,7 +3,8 @@ import type { FileHandle } from '@brainstrike/file-system';
 import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger, decodeFileSelection } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
+import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 
 const logger = createLogger('SharedFileContentLoading');
 const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;

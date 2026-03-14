@@ -36,6 +36,7 @@ async function resolvePresetTrigger(window: Page): Promise<Locator> {
     .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
     .first();
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
+  await expect(presetTrigger).toBeEnabled({ timeout: 10_000 });
   return presetTrigger;
 }
 
@@ -97,6 +98,16 @@ test.describe('Desktop filter presets', () => {
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
     await selectDocumentationPreset(window);
+  });
+
+  test('keeps the preset trigger enabled when view filters first appear', async ({ window }) => {
+    test.setTimeout(45_000);
+
+    await ensureLeftPanelVisible(window);
+    await selectMockRoot(window);
+    await ensureViewFiltersExpanded(window);
+
+    await resolvePresetTrigger(window);
   });
 
   test('keeps the selected preset after app restart', async ({ electron, window }) => {

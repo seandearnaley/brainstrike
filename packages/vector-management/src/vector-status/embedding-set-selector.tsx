@@ -1,5 +1,5 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
-import { useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useCallback } from 'react';
 import { CollectionSelect } from '../collection-select/index.js';
 

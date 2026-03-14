@@ -205,7 +205,11 @@ test.describe('Navigation Panel State Preservation', () => {
 
     // Select a new file to open in tabbed editor
     const inputFile = page.getByRole('button', { name: 'Input.tsx' });
-    await inputFile.click();
+    await inputFile.scrollIntoViewIfNeeded();
+    await inputFile.evaluate((element) => {
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    });
+    await inputFile.dispatchEvent('click');
     // Verify the file opens in a tab in the tabbed editor (look specifically in console panel)
     const panelElements = getPanelElements(page);
     const inputTab = panelElements.consolePanel.getByRole('button', { name: /Input\.tsx/ }).first();

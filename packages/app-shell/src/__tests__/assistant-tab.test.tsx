@@ -6,8 +6,9 @@ vi.mock('../hooks/use-assistant-availability-with-local', () => ({
   useAssistantAvailabilityWithLocal: vi.fn(),
 }));
 
-vi.mock('../assistant-ui-panel-wrapper', () => ({
-  AssistantUiPanelWrapper: () => <div>Assistant UI Panel</div>,
+vi.mock('../assistant-ui-panel-wrapper-lazy', () => ({
+  AssistantUiPanelWrapperLazy: () => <div>Assistant UI Panel</div>,
+  preloadAssistantUiPanelWrapper: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../mcp-banner', () => ({

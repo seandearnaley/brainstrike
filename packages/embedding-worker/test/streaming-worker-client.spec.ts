@@ -254,4 +254,41 @@ describe('StreamingEmbeddingWorkerClient', () => {
     await expect(pending).rejects.toThrow('Embedding worker terminated during an active stream.');
     expect(worker.terminate).toHaveBeenCalledTimes(1);
   });
+
+  it('creates a worker from an explicit workerUrl override', () => {
+    const createdWorkers: Array<{ readonly url: string | URL; readonly options?: WorkerOptions }> =
+      [];
+    const originalWorker = globalThis.Worker;
+    class ConstructableMockWorker extends MockWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super();
+        createdWorkers.push({ url, options });
+      }
+    }
+    vi.stubGlobal('Worker', ConstructableMockWorker as unknown as typeof Worker);
+
+    try {
+      const client = new StreamingEmbeddingWorkerClient({
+        workerUrl: 'http://localhost/assets/embedding.worker.js',
+      });
+
+      expect(createdWorkers).toHaveLength(1);
+      expect(String(createdWorkers[0]?.url)).toBe('http://localhost/assets/embedding.worker.js');
+      expect(createdWorkers[0]?.options).toMatchObject({ type: 'module' });
+
+      client.terminate();
+    } finally {
+      if (originalWorker) {
+        vi.stubGlobal('Worker', originalWorker);
+      } else {
+        vi.unstubAllGlobals();
+      }
+    }
+  });
+
+  it('fails fast when no worker or workerUrl is provided', () => {
+    expect(() => new StreamingEmbeddingWorkerClient()).toThrow(
+      'StreamingEmbeddingWorkerClient requires an explicit worker or workerUrl.'
+    );
+  });
 });

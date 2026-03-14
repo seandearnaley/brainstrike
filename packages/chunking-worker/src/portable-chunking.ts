@@ -3,18 +3,26 @@
  * Extracted from @brainstrike/db ChunkingService, removing all database dependencies.
  */
 
-import { type ParserPlugin, parse } from '@babel/parser';
-import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import type { ParserPlugin } from '@babel/parser';
+import {
+  countTokensHeuristic,
+  isMarkdownBlockBoundaryLine,
+  MARKDOWN_CODE_FENCE_PATTERN,
+  RecursiveTextSplitter,
+  type ResolvedChunkingStrategy,
+  resolveChunkingStrategyForFile,
+  resolveEffectiveChunkingStrategy,
+  splitTextByStrategy,
+} from '@brainstrike/text-splitter';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
-import type { ChunkingRequestOptions, ChunkingStrategy, ChunkType, PortableChunk } from './shared';
-import { countTokensAccurate, countTokensHeuristic } from './token-utils-lite';
+import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 
 export interface PortableChunkingResult {
   avgTokensPerChunk: number;
   chunks: PortableChunk[];
   skipped: boolean;
   skipReason?: string;
-  strategyUsed: ChunkingStrategy;
+  strategyUsed: ResolvedChunkingStrategy;
   totalTokens: number;
 }
 
@@ -74,6 +82,32 @@ type AstNode = {
   end?: number;
 } & Record<string, unknown>;
 
+type BabelParserModule = typeof import('@babel/parser');
+type TokenUtilsLiteModule = typeof import('./token-utils-lite');
+
+let babelParserModulePromise: Promise<BabelParserModule> | null = null;
+let tokenUtilsLiteModulePromise: Promise<TokenUtilsLiteModule> | null = null;
+
+async function loadBabelParserModule(): Promise<BabelParserModule> {
+  if (!babelParserModulePromise) {
+    babelParserModulePromise = import('@babel/parser').catch((error: unknown) => {
+      babelParserModulePromise = null;
+      throw error;
+    });
+  }
+  return babelParserModulePromise;
+}
+
+async function loadTokenUtilsLiteModule(): Promise<TokenUtilsLiteModule> {
+  if (!tokenUtilsLiteModulePromise) {
+    tokenUtilsLiteModulePromise = import('./token-utils-lite').catch((error: unknown) => {
+      tokenUtilsLiteModulePromise = null;
+      throw error;
+    });
+  }
+  return tokenUtilsLiteModulePromise;
+}
+
 function detectCodeLanguage(fileName: string): CodeLanguage | null {
   const name = fileName.toLowerCase();
   for (const { pattern, language } of CODE_LANGUAGE_PATTERNS) {
@@ -115,8 +149,9 @@ function shouldSkipChunking(
   }
 
   // Check for very repetitive content (common in generated files)
-  const uniqueLines = new Set(content.split('\n')).size;
-  const totalLines = content.split('\n').length;
+  const allLines = content.split('\n');
+  const uniqueLines = new Set(allLines).size;
+  const totalLines = allLines.length;
   if (totalLines > 1000 && uniqueLines / totalLines < 0.1) {
     return {
       skip: true,
@@ -277,47 +312,30 @@ async function generateContentHash(content: string): Promise<string> {
 }
 
 function estimateTokenCount(text: string): number {
-  const charCount = text.length;
-  return Math.ceil(charCount / 4);
+  return countTokensHeuristic(text);
 }
 
-async function computeCharsPerToken(content: string, useAccurate: boolean): Promise<number> {
+async function computeCharsPerToken(
+  content: string,
+  useAccurate: boolean,
+  tokenUtilsModule: TokenUtilsLiteModule | null
+): Promise<number> {
   const sample = content.slice(0, Math.min(10_000, content.length));
-  const tokens = useAccurate ? await countTokensAccurate(sample) : countTokensHeuristic(sample);
+  const tokens =
+    useAccurate && tokenUtilsModule
+      ? await tokenUtilsModule.countTokensAccurate(sample)
+      : estimateTokenCount(sample);
   if (Number.isFinite(tokens) && tokens > 0) {
     const measured = sample.length / tokens;
     return Math.max(1, Math.min(8, measured));
   }
   if (useAccurate) {
+    // The worker path is intentionally fail-fast here. Unlike the service path,
+    // this runtime should surface invalid accurate token counts as a hard chunk
+    // failure rather than quietly degrading inside the hidden host/browser worker.
     throw new Error('Accurate token counting produced an invalid token count');
   }
   return Number(CHUNKING_CONFIG.averageCharsPerToken);
-}
-
-function resolveEffectiveStrategy({
-  requested,
-  forceStrategy,
-  isMarkdown,
-  isCode,
-}: {
-  requested: ChunkingStrategy;
-  forceStrategy: boolean;
-  isMarkdown: boolean;
-  isCode: boolean;
-}): ChunkingStrategy {
-  if (requested === 'token') {
-    return 'token';
-  }
-  if (forceStrategy) {
-    return requested;
-  }
-  if (isMarkdown) {
-    return 'sentence';
-  }
-  if (requested === 'recursive' || isCode) {
-    return 'recursive';
-  }
-  return 'sentence';
 }
 
 // AST helpers
@@ -446,6 +464,7 @@ async function splitCodeByFunctions(
     separators,
   }: { maxChars: number; overlapChars: number; language: CodeLanguage | null; separators: string[] }
 ): Promise<string[] | null> {
+  const { parse } = await loadBabelParserModule();
   const plugins: ParserPlugin[] = [
     'classProperties',
     'classPrivateProperties',
@@ -492,7 +511,7 @@ async function splitCodeByFunctions(
   const pieces: string[] = [];
   let cursor = 0;
 
-  const recursiveChunker = new RecursiveCharacterTextSplitter({
+  const recursiveChunker = new RecursiveTextSplitter({
     chunkSize: maxChars,
     chunkOverlap: overlapChars,
     separators,
@@ -564,15 +583,12 @@ interface MarkdownBlock {
   text: string;
 }
 
-/** Regex to match code fence opening/closing (backticks or tildes, optionally indented) */
-const CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
-
 function captureFence(
   lines: (string | undefined)[],
   start: number
 ): { consumed: number; block?: { text: string; meta: { isFence: true } } } {
   const line = lines[start] ?? '';
-  const openMatch = CODE_FENCE_PATTERN.exec(line);
+  const openMatch = MARKDOWN_CODE_FENCE_PATTERN.exec(line);
   if (!openMatch) {
     return { consumed: start };
   }
@@ -613,7 +629,7 @@ function captureParagraph(lines: (string | undefined)[], start: number) {
   let i = start;
   while (i < lines.length) {
     const cur = lines[i] ?? '';
-    if (cur.match(/^```/) || cur.match(/^(#{1,6})\s+/) || cur.trim() === '') {
+    if (isMarkdownBlockBoundaryLine(cur)) {
       break;
     }
     buf.push(cur);
@@ -667,6 +683,10 @@ export async function chunkContent(
   content: string,
   options: ChunkingRequestOptions & { fileName?: string; filePath?: string }
 ): Promise<PortableChunkingResult> {
+  const initialStrategy = resolveChunkingStrategyForFile(
+    options.filePath ?? options.fileName ?? '',
+    options.strategy
+  );
   // Check if we should skip this file
   const skipResult = shouldSkipChunking(content, options);
   if (skipResult.skip) {
@@ -674,7 +694,7 @@ export async function chunkContent(
       chunks: [],
       totalTokens: 0,
       avgTokensPerChunk: 0,
-      strategyUsed: options.strategy,
+      strategyUsed: initialStrategy,
       skipped: true,
     };
     // Only include skipReason if defined (exactOptionalPropertyTypes compliance)
@@ -694,38 +714,23 @@ export async function chunkContent(
 
   // Compute chars per token
   const useTokenTrueSizing = options.tokenTrueSizing ?? false;
-  const charsPerToken = await computeCharsPerToken(content, useTokenTrueSizing);
+  const tokenUtilsModule = useTokenTrueSizing ? await loadTokenUtilsLiteModule() : null;
+  const charsPerToken = await computeCharsPerToken(content, useTokenTrueSizing, tokenUtilsModule);
   const maxChars = Math.floor(effectiveMaxTokens * charsPerToken);
   const overlapChars = Math.floor(effectiveOverlap * charsPerToken);
 
   const name = (options.fileName || options.filePath || '').toLowerCase();
   const codeLanguage = detectCodeLanguage(name);
-  const isMarkdown = /\.(md|mdx|markdown)$/.test(name);
-  const isCode = Boolean(codeLanguage);
-  const isStructuredData = /\.(json|xml|yaml|yml|csv|tsv)$/.test(name);
+  // `resolveChunkingStrategyForFile()` is the canonical routing source of truth.
+  // We only keep the recursive->sentence override when code-language detection
+  // says the file is not actually source code, so these two extension sets must
+  // remain aligned.
+  const isCode = initialStrategy === 'recursive' && Boolean(codeLanguage);
 
   interface ChunkGroup {
     pieces: string[];
     type: ChunkType;
   }
-
-  const chunkTokens = async (): Promise<ChunkGroup[]> => {
-    const tokenChunker = new RecursiveCharacterTextSplitter({
-      chunkSize: maxChars,
-      chunkOverlap: overlapChars,
-      separators: ['\n\n', '\n', '. ', ' ', ''],
-    });
-    return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
-  };
-
-  const chunkSentenceAwareText = async (text: string): Promise<string[]> => {
-    const sentenceAwareChunker = new RecursiveCharacterTextSplitter({
-      chunkSize: maxChars,
-      chunkOverlap: overlapChars,
-      separators: ['\n\n', '\n', '. ', ' ', ''],
-    });
-    return sentenceAwareChunker.splitText(text);
-  };
 
   const splitMarkdownBlocks = async (): Promise<ChunkGroup[]> => {
     const blocks = splitMarkdownIntoBlocks(content);
@@ -736,20 +741,25 @@ export async function chunkContent(
           block.text.length > maxChars * 2 ? splitByBlankLines(block.text) : [block.text];
         groups.push({ pieces: parts, type: 'recursive' });
       } else {
-        groups.push({ pieces: await chunkSentenceAwareText(block.text), type: 'sentence' });
+        groups.push({
+          pieces: splitTextByStrategy(block.text, {
+            strategy: 'markdown',
+            chunkSize: maxChars,
+            chunkOverlap: overlapChars,
+          }),
+          type: 'sentence',
+        });
       }
     }
     return groups;
   };
-
-  const chunkMarkdown = async (): Promise<ChunkGroup[]> => splitMarkdownBlocks();
 
   const chunkCode = async (): Promise<ChunkGroup[]> => {
     const supportsAst = codeLanguage === 'typescript' || codeLanguage === 'javascript';
 
     const chunkWithCodeSeparators = async (): Promise<ChunkGroup[]> => {
       const codeSeparators = getCodeSeparators(options.separators);
-      const recursiveChunker = new RecursiveCharacterTextSplitter({
+      const recursiveChunker = new RecursiveTextSplitter({
         chunkSize: maxChars,
         chunkOverlap: overlapChars,
         separators: codeSeparators,
@@ -775,42 +785,49 @@ export async function chunkContent(
       return chunkWithCodeSeparators();
     }
 
-    // Unsupported languages fall back to token-based chunking
-    return chunkTokens();
+    return [
+      {
+        pieces: splitTextByStrategy(content, {
+          strategy: 'token',
+          chunkSize: maxChars,
+          chunkOverlap: overlapChars,
+        }),
+        type: 'text',
+      },
+    ];
   };
 
-  const chunkText = async (): Promise<ChunkGroup[]> => {
-    return [{ pieces: await chunkSentenceAwareText(content), type: 'sentence' }];
-  };
-
-  const chunkStructuredData = async (): Promise<ChunkGroup[]> => {
-    const structuredSeparators = ['\n\n', '\n', '},', '],', '",', ',', '}', ']', ' ', ''];
-    const structuredChunker = new RecursiveCharacterTextSplitter({
-      chunkSize: maxChars,
-      chunkOverlap: overlapChars,
-      separators: structuredSeparators,
-    });
-    return [{ pieces: await structuredChunker.splitText(content), type: 'recursive' }];
-  };
-
-  let effectiveStrategy = resolveEffectiveStrategy({
+  const effectiveStrategy = resolveEffectiveChunkingStrategy({
     requested: options.strategy,
-    forceStrategy: options.forceStrategy ?? false,
-    isMarkdown,
+    resolvedAutoStrategy: initialStrategy,
     isCode,
   });
 
   let groups: ChunkGroup[] = [];
 
-  if (effectiveStrategy === 'token') {
-    groups = await chunkTokens();
-  } else if (effectiveStrategy === 'recursive') {
+  if (effectiveStrategy === 'recursive' && isCode) {
     groups = await chunkCode();
-  } else if (isStructuredData) {
-    groups = await chunkStructuredData();
-    effectiveStrategy = 'recursive';
+  } else if (effectiveStrategy === 'markdown') {
+    groups = await splitMarkdownBlocks();
   } else {
-    groups = isMarkdown ? await chunkMarkdown() : await chunkText();
+    const chunkType: ChunkType =
+      effectiveStrategy === 'recursive' || effectiveStrategy === 'json' ? 'recursive' : 'sentence';
+    const normalizedChunkType: ChunkType =
+      effectiveStrategy === 'character' || effectiveStrategy === 'token' ? 'text' : chunkType;
+
+    groups = [
+      {
+        pieces: splitTextByStrategy(content, {
+          strategy: effectiveStrategy,
+          chunkSize: maxChars,
+          chunkOverlap: overlapChars,
+          ...(effectiveStrategy === 'recursive' && options.separators
+            ? { separators: getCodeSeparators(options.separators) }
+            : {}),
+        }),
+        type: normalizedChunkType,
+      },
+    ];
   }
 
   // Process groups into portable chunks
@@ -823,7 +840,7 @@ export async function chunkContent(
   const pendingChunks: PendingChunk[] = [];
 
   // PERF: Reuse splitter instance for all oversized chunks
-  const reSplitChunker = new RecursiveCharacterTextSplitter({
+  const reSplitChunker = new RecursiveTextSplitter({
     chunkSize: Math.floor(Math.min(effectiveMaxTokens, maxSafeTokens) * charsPerToken),
     chunkOverlap: Math.min(overlapChars, Math.floor(maxChars / 10)),
     separators: ['\n\n', '\n', '. ', ' ', ''],
@@ -836,7 +853,10 @@ export async function chunkContent(
         continue;
       }
 
-      const tokenCount = useTokenTrueSizing ? await countTokensAccurate(c) : estimateTokenCount(c);
+      const tokenCount =
+        useTokenTrueSizing && tokenUtilsModule
+          ? await tokenUtilsModule.countTokensAccurate(c)
+          : estimateTokenCount(c);
 
       // Handle oversized chunks - reuse splitter, use estimates for sub-chunks
       if (tokenCount > maxSafeTokens) {
@@ -847,8 +867,10 @@ export async function chunkContent(
           if (!subC) {
             continue;
           }
-          // PERF: Use estimates for re-split chunks (accurate counting already done on parent)
-          const subTokenCount = estimateTokenCount(subC);
+          const subTokenCount =
+            useTokenTrueSizing && tokenUtilsModule
+              ? await tokenUtilsModule.countTokensAccurate(subC)
+              : estimateTokenCount(subC);
           pendingChunks.push({
             content: subC,
             tokenCount: subTokenCount,

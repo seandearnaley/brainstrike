@@ -43,6 +43,30 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/agent/src/client.ts'
       ),
+      '@brainstrike/embeddings/runtime-config': path.resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/runtime-config.ts'
+      ),
+      '@brainstrike/embeddings/provider-core': path.resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/provider-core.ts'
+      ),
+      '@brainstrike/embeddings/backend': path.resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/backend-entry.ts'
+      ),
+      '@brainstrike/embeddings/factory': path.resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/factory-entry.ts'
+      ),
+      '@brainstrike/embeddings/service': path.resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/service-entry.ts'
+      ),
+      '@brainstrike/embeddings/worker': path.resolve(
+        import.meta.dirname,
+        '../../packages/embeddings/src/worker-entry.ts'
+      ),
       '@brainstrike/queue/browser': path.resolve(
         import.meta.dirname,
         '../../packages/queue/src/browser.ts'

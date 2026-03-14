@@ -7,12 +7,10 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import {
-  useEnsureModelRegistry,
-  useLocalRuntimeEmbeddingModelCatalog,
-  useModelRegistryStore,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences';
+import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog';
+import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,
@@ -31,7 +29,7 @@ import {
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   CreateEmbeddingSetDialog,
   DeleteEmbeddingSetDialog,
@@ -364,7 +362,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                         <PopoverTrigger asChild>
                           <button
                             aria-label="Import Settings"
-                            className="group flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-accent-foreground/20 hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                            className="group flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-accent-foreground/20 hover:bg-accent focus-visible:border-foreground/20 focus-visible:bg-accent/80 focus-visible:outline-none"
                             type="button"
                           >
                             <Settings2 className="size-3.5 text-muted-foreground" />
@@ -380,7 +378,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                       )}
                     </Tooltip>
                   </TooltipProvider>
-                  <PopoverContent align="start" className="w-80 p-0" side="top">
+                  <PopoverContent
+                    align="end"
+                    className="w-[min(96vw,48rem)] max-w-[calc(100vw-1.5rem)] p-0"
+                    collisionPadding={16}
+                    side="top"
+                  >
                     <SettingsPanel
                       className="mt-0 border-none bg-transparent"
                       clearDatabaseProps={{

@@ -1,4 +1,3 @@
-import { type ChildProcess, spawn } from 'node:child_process';
 import type { McpServer } from '../mcp-loader';
 import { handleFilesystemList, handleFilesystemRead, handleFilesystemSearch } from './fs-tools';
 import { normalizeRootDir, resolveBaseDirFromArgs } from './paths';
@@ -9,26 +8,14 @@ export function createFilesystemClientFromStdio(
 ): McpClient {
   const baseDirArg = resolveBaseDirFromArgs(server.args) ?? process.cwd();
   const rootDir = normalizeRootDir(baseDirArg);
-  let child: ChildProcess | null = null;
-  try {
-    child = spawn(server.command, server.args ?? [], {
-      env: { ...process.env, ...(server.env ?? {}) },
-      stdio: 'ignore',
-      detached: true,
-    });
-    child.unref();
-  } catch {}
 
   return {
     name: server.name,
     transport: 'stdio',
-    dispose: async () => {
-      try {
-        if (child) {
-          child.kill();
-        }
-      } catch {}
-    },
+    // Desktop treats the configured filesystem stdio server as a local filesystem bridge.
+    // We do not spawn or speak MCP over stdio here; the server config only declares the
+    // allowed root directory and keeps settings aligned with the MCP tooling UI.
+    dispose: async () => {},
     async callTool(
       tool: string,
       params?: Record<string, unknown>,

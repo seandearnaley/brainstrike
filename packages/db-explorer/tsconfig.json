@@ -7,6 +7,14 @@
     "rootDir": "src",
     "outDir": "dist",
     "declarationDir": "dist",
+    "paths": {
+      "@brainstrike/utils/*": [
+        "../utils/src/*"
+      ],
+      "@brainstrike/preferences/*": [
+        "../preferences/src/*"
+      ]
+    },
     "types": [
       "node"
     ],
@@ -47,6 +55,9 @@
     },
     {
       "path": "../preferences"
+    },
+    {
+      "path": "../text-splitter"
     },
     {
       "path": "../vector-management"

@@ -1,6 +1,12 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { ensureRightPanelVisible, getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import {
+  ensureRightPanelVisible,
+  getPanelElements,
+  waitForAppLoad,
+  waitForContextExplorerPage,
+  waitForSettingsPage,
+} from './utils/layout-helpers';
 
 async function reloadAndWait(page: Page): Promise<void> {
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -383,13 +389,11 @@ test.describe('IDE Layout Persistence', () => {
 
       // Navigate to Settings
       await page.getByRole('button', { name: 'Settings', exact: true }).click();
-      await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+      await waitForSettingsPage(page);
 
       // Navigate back to Context Explorer
       await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
+      await waitForContextExplorerPage(page);
 
       // Verify panel is still visible (state persisted)
       await expect(leftPanel).toBeVisible();

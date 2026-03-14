@@ -5,8 +5,32 @@ import { useFileImportService } from '../base-file-import-service';
 import { FileImportError } from '../file-import/file-import-errors';
 
 // Mock dependencies to avoid complex setup
-const mockBulkImport = vi.fn();
-const mockReadFile = vi.fn();
+const {
+  mockBulkImport,
+  mockReadFile,
+  mockDecodeFileSelection,
+  mockFindNodeByPath,
+  mockGetFileExtension,
+  mockIsBinaryExtension,
+  mockIsTextExtension,
+  mockIsTextContent,
+  mockLogger,
+} = vi.hoisted(() => ({
+  mockBulkImport: vi.fn(),
+  mockReadFile: vi.fn(),
+  mockDecodeFileSelection: vi.fn(),
+  mockFindNodeByPath: vi.fn(),
+  mockGetFileExtension: vi.fn(),
+  mockIsBinaryExtension: vi.fn(),
+  mockIsTextExtension: vi.fn(),
+  mockIsTextContent: vi.fn(),
+  mockLogger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
 
 vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
@@ -29,29 +53,42 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/utils', () => ({
-  decodeFileSelection: vi.fn().mockReturnValue({ folderId: 'test-folder', path: '/test/path' }),
+vi.mock('@brainstrike/utils/selection-utils', () => ({
+  decodeFileSelection: mockDecodeFileSelection,
+}));
+
+vi.mock('@brainstrike/utils/file-content', () => ({
   fileContent: {
-    isBinaryExtension: vi.fn().mockReturnValue(false),
-    isTextExtension: vi.fn().mockReturnValue(true),
-    isTextContent: vi.fn().mockReturnValue(true),
+    isBinaryExtension: mockIsBinaryExtension,
+    isTextExtension: mockIsTextExtension,
+    isTextContent: mockIsTextContent,
   },
+}));
+
+vi.mock('@brainstrike/utils/file-explorer-utils', () => ({
   fileExplorer: {
-    findNodeByPath: vi.fn().mockReturnValue(null),
-    getFileExtension: vi.fn().mockReturnValue('txt'),
+    findNodeByPath: mockFindNodeByPath,
+    getFileExtension: mockGetFileExtension,
   },
-  createLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  })),
+}));
+
+vi.mock('@brainstrike/utils/logger', () => ({
+  createLogger: vi.fn(() => mockLogger),
 }));
 
 describe('useFileImportService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockBulkImport.mockResolvedValue([{ id: '1', imported: true, existed: false }]);
+    mockDecodeFileSelection.mockReturnValue({
+      folderId: 'test-folder',
+      path: '/test/path',
+    });
+    mockFindNodeByPath.mockReturnValue(null);
+    mockGetFileExtension.mockReturnValue('txt');
+    mockIsBinaryExtension.mockReturnValue(false);
+    mockIsTextExtension.mockReturnValue(true);
+    mockIsTextContent.mockReturnValue(true);
   });
 
   describe('Initialization', () => {
@@ -197,9 +234,7 @@ describe('useFileImportService', () => {
         handle: { platform: 'web' } as unknown as FileSystemFileHandle,
       };
 
-      // Re-mock to return our file node
-      const utils = await import('@brainstrike/utils');
-      vi.mocked(utils.fileExplorer.findNodeByPath).mockReturnValue(mockFileNode);
+      mockFindNodeByPath.mockReturnValue(mockFileNode);
       mockReadFile.mockResolvedValue('file content from disk');
 
       const { result } = renderHook(() => useFileImportService());
@@ -234,8 +269,7 @@ describe('useFileImportService', () => {
         handle: { platform: 'web' } as unknown as FileSystemFileHandle,
       };
 
-      const utils = await import('@brainstrike/utils');
-      vi.mocked(utils.fileExplorer.findNodeByPath).mockReturnValue(mockFileNode);
+      mockFindNodeByPath.mockReturnValue(mockFileNode);
       mockReadFile.mockRejectedValue(new Error('File read error'));
 
       const { result } = renderHook(() => useFileImportService());

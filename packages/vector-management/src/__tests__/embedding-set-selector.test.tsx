@@ -1,4 +1,4 @@
-import { render, renderHook, screen } from '@testing-library/react';
+import { act, render, renderHook, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock data
@@ -97,7 +97,7 @@ const mockStoreState = {
   setSchemaVerified: vi.fn(),
 };
 
-vi.mock('@brainstrike/preferences', () => ({
+vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
   useVectorStatusUIStore: vi.fn((selector: (state: typeof mockStoreState) => unknown) =>
     selector(mockStoreState)
   ),
@@ -157,6 +157,11 @@ describe('EmbeddingSetSelector', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(usePGliteLiveQuery).mockReturnValue(mockLiveQueryResult);
+    mockStoreState.activeEmbeddingSetId = null;
+    mockStoreState.cachedCollections = [];
+    mockStoreState.schemaVerified = true;
+    mockStoreState.isEmbeddingActive = false;
+    mockStoreState.isImporting = false;
   });
 
   it('renders with collections', () => {
@@ -346,7 +351,9 @@ describe('useEmbeddingSetSelection', () => {
   it('calls setActiveEmbeddingSetId when setSelectedId is called', () => {
     const { result } = renderHook(() => useEmbeddingSetSelection());
 
-    result.current.setSelectedId('new-set-id');
+    act(() => {
+      result.current.setSelectedId('new-set-id');
+    });
 
     expect(mockStoreState.setActiveEmbeddingSetId).toHaveBeenCalledWith('new-set-id');
   });
@@ -355,7 +362,9 @@ describe('useEmbeddingSetSelection', () => {
     mockStoreState.activeEmbeddingSetId = 'existing-id';
     const { result } = renderHook(() => useEmbeddingSetSelection());
 
-    result.current.setSelectedId(null);
+    act(() => {
+      result.current.setSelectedId(null);
+    });
 
     expect(mockStoreState.setActiveEmbeddingSetId).toHaveBeenCalledWith(null);
   });

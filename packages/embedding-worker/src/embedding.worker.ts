@@ -1,7 +1,10 @@
 /// <reference lib="webworker" />
 
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { env, type FeatureExtractionPipeline, pipeline, Tensor } from '@huggingface/transformers';
+import type {
+  FeatureExtractionPipeline,
+  Tensor as TransformersTensor,
+} from '@huggingface/transformers';
 import { Transfer, worker, workerEmit } from 'workerpool';
 import type {
   EmbeddingDevice,
@@ -123,6 +126,22 @@ interface PipelineCacheEntry {
   readonly pipeline: Promise<FeatureExtractor>;
 }
 
+interface TransformersRuntime {
+  readonly env: {
+    allowRemoteModels?: boolean;
+    backends?: { onnx?: { webgpu?: { device?: unknown } } };
+  };
+  readonly pipeline: (
+    task: 'feature-extraction',
+    model: string,
+    options: {
+      readonly device: EmbeddingDevice;
+      readonly dtype: EmbeddingDType;
+    }
+  ) => Promise<FeatureExtractionPipeline>;
+  readonly tensorConstructor: unknown;
+}
+
 /**
  * Model context window reference (for documentation).
  *
@@ -138,10 +157,39 @@ interface PipelineCacheEntry {
  */
 
 const pipelines = new Map<string, PipelineCacheEntry>();
+let transformersRuntimePromise: Promise<TransformersRuntime> | null = null;
 
-// Allow remote model downloads when a cache directory is not specified. This aligns with the
-// Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
-env.allowRemoteModels = env.allowRemoteModels ?? true;
+async function getTransformersRuntime(): Promise<TransformersRuntime> {
+  if (transformersRuntimePromise !== null) {
+    return transformersRuntimePromise;
+  }
+  const runtimePromise: Promise<TransformersRuntime> = (async (): Promise<TransformersRuntime> => {
+    try {
+      const runtimeModule = await import('@huggingface/transformers');
+      const runtime = runtimeModule as unknown as {
+        env: TransformersRuntime['env'];
+        pipeline: TransformersRuntime['pipeline'];
+      };
+      const tensorConstructor = Reflect.get(
+        runtimeModule as object,
+        'Tensor'
+      ) as TransformersRuntime['tensorConstructor'];
+      // Allow remote model downloads when a cache directory is not specified. This aligns with the
+      // Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
+      runtime.env.allowRemoteModels = runtime.env.allowRemoteModels ?? true;
+      return {
+        env: runtime.env,
+        pipeline: runtime.pipeline,
+        tensorConstructor,
+      };
+    } catch (error: unknown) {
+      transformersRuntimePromise = null;
+      throw error;
+    }
+  })();
+  transformersRuntimePromise = runtimePromise;
+  return runtimePromise;
+}
 
 // ---------------------------------------------------------------------------
 // WebGPU device keep-alive & device loss recovery
@@ -262,8 +310,10 @@ function acknowledgeBatch(id: string, batchIndex: number): void {
  */
 async function getOrtWebGpuDevice(): Promise<GpuDeviceHandle | null> {
   try {
-    const onnxEnv = (env as { backends?: { onnx?: { webgpu?: { device?: unknown } } } }).backends
-      ?.onnx as { webgpu?: { device: Promise<GpuDeviceHandle> | GpuDeviceHandle } } | undefined;
+    const runtime = await getTransformersRuntime();
+    const onnxEnv = runtime.env.backends?.onnx as
+      | { webgpu?: { device: Promise<GpuDeviceHandle> | GpuDeviceHandle } }
+      | undefined;
     if (!onnxEnv?.webgpu) {
       debugLog('GPU guard skipped because env.backends.onnx.webgpu is unavailable');
       return null;
@@ -542,7 +592,8 @@ async function loadPipeline(
 
   const loader = (async () => {
     try {
-      const result = await pipeline('feature-extraction', model, { device, dtype });
+      const runtime = await getTransformersRuntime();
+      const result = await runtime.pipeline('feature-extraction', model, { device, dtype });
 
       // After the first WebGPU pipeline loads, set up keep-alive and device-loss
       // watcher on the ONNX Runtime internal GPUDevice. This must happen after
@@ -622,7 +673,7 @@ function assertValidDimension(payload: EmbedWorkerRequest, requestedDimension: n
  * Convert a Tensor from the pipeline output into normalized Float32Array vectors.
  * Handles 1D, 2D (batch), and arbitrarily nested tensor structures.
  */
-function convertTensorToVectors(tensor: Tensor, truncateDim?: number): Float32Array[] {
+function convertTensorToVectors(tensor: TransformersTensor, truncateDim?: number): Float32Array[] {
   const dims = tensor.dims;
   const data = tensor.data as ArrayLike<number>;
   if (dims.length === 1) {
@@ -646,6 +697,16 @@ function convertTensorToVectors(tensor: Tensor, truncateDim?: number): Float32Ar
   }
   const flattened = Float32Array.from(tensor.tolist().flat(Number.POSITIVE_INFINITY) as number[]);
   return [truncateVector(l2Normalize(flattened, flattened), truncateDim)];
+}
+
+function isTransformersTensor(
+  value: unknown,
+  runtime: TransformersRuntime
+): value is TransformersTensor {
+  const tensorConstructor = runtime.tensorConstructor as abstract new (
+    ...args: never[]
+  ) => TransformersTensor;
+  return value instanceof tensorConstructor;
 }
 
 interface EmbeddingContext {
@@ -780,7 +841,6 @@ function postStreamEvent(
 }
 
 async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState): Promise<void> {
-  const extractor = await loadPipeline(context.model, state.device, context.dtype);
   const { texts, truncateDim, id, total } = context;
   const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
@@ -791,6 +851,8 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     phase: 'initializing',
   });
 
+  const extractor = await loadPipeline(context.model, state.device, context.dtype);
+  const runtime = await getTransformersRuntime();
   let batchIndex = 0;
   let dimensions = context.truncateDim ?? 0;
 
@@ -801,10 +863,9 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
       pooling: 'mean',
       normalize: false,
     });
-    const vectorsFromBatch =
-      rawOutput instanceof Tensor
-        ? convertTensorToVectors(rawOutput, truncateDim)
-        : vectorsFromPipelineOutput(rawOutput, truncateDim);
+    const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
+      ? convertTensorToVectors(rawOutput, truncateDim)
+      : vectorsFromPipelineOutput(rawOutput, truncateDim);
     if (vectorsFromBatch.length === 0) {
       throw new Error('Embedding pipeline returned no tensors');
     }
@@ -856,6 +917,7 @@ async function runBatches(
 ): Promise<Float32Array[]> {
   const vectors: Float32Array[] = [];
   const { texts, truncateDim, id, total } = context;
+  const runtime = await getTransformersRuntime();
 
   for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
     const endIndex = Math.min(total, startIndex + state.batchSize);
@@ -867,10 +929,9 @@ async function runBatches(
       pooling: 'mean',
       normalize: false,
     });
-    const vectorsFromBatch =
-      rawOutput instanceof Tensor
-        ? convertTensorToVectors(rawOutput, truncateDim)
-        : vectorsFromPipelineOutput(rawOutput, truncateDim);
+    const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
+      ? convertTensorToVectors(rawOutput, truncateDim)
+      : vectorsFromPipelineOutput(rawOutput, truncateDim);
     if (vectorsFromBatch.length === 0) {
       throw new Error('Embedding pipeline returned no tensors');
     }

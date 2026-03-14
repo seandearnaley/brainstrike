@@ -1,6 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import { finalPath } from '@brainstrike/utils';
+import { finalPath } from '@brainstrike/utils/path-utils';
 
 export const getFinalPath = (
   directoryHandle: DirectoryHandle,

@@ -18,7 +18,7 @@ import type {
   WorkerResponse,
 } from '@brainstrike/chunking-worker';
 import type { FileChunkInsert } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { createRequestTracker, createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 
 const logger = createLogger('ChunkingWorkerPort');
@@ -312,6 +312,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   removeMessageListener = transport.onMessage((message) => {
     handleMessage(message as WorkerResponse);
   });
+  transport.postMessage({ type: 'init' });
 
   let requestIdCounter = 0;
 

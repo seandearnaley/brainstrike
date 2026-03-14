@@ -1,10 +1,15 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { ToolsPanel } from '../tools-panel';
 
 const originalFetch = global.fetch;
 const mockFetch = vi.fn();
+const { mockPreloadAssistantUiPanelWrapper, mockPreloadDatabaseTab } = vi.hoisted(() => ({
+  mockPreloadAssistantUiPanelWrapper: vi.fn(() => Promise.resolve()),
+  mockPreloadDatabaseTab: vi.fn(() => Promise.resolve()),
+}));
+const mockDatabaseTabRender = vi.fn();
 
 beforeEach(() => {
   mockFetch.mockResolvedValue({
@@ -16,6 +21,9 @@ beforeEach(() => {
 
 afterEach(() => {
   mockFetch.mockReset();
+  mockPreloadAssistantUiPanelWrapper.mockClear();
+  mockPreloadDatabaseTab.mockClear();
+  mockDatabaseTabRender.mockClear();
   global.fetch = originalFetch;
 });
 
@@ -82,7 +90,16 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 // Note: We mock the wrapper component (database-tab) not the chunk files,
 // since tools-panel.tsx imports from the wrapper which uses React.lazy internally.
 vi.mock('../database-tab', () => ({
-  DatabaseTab: () => <div data-testid="mock-database-panel">Database mock</div>,
+  DatabaseTab: () => {
+    mockDatabaseTabRender();
+    return <div data-testid="mock-database-panel">Database mock</div>;
+  },
+  preloadDatabaseTab: mockPreloadDatabaseTab,
+}));
+
+vi.mock('../assistant-ui-panel-wrapper-lazy', () => ({
+  AssistantUiPanelWrapperLazy: () => <div>Assistant UI Panel</div>,
+  preloadAssistantUiPanelWrapper: mockPreloadAssistantUiPanelWrapper,
 }));
 
 describe('ToolsPanel', () => {
@@ -104,6 +121,86 @@ describe('ToolsPanel', () => {
     const assistantCard = await screen.findByTestId('assistant-chat-card');
     expect(assistantCard).toBeInTheDocument();
     expect(screen.getByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
+    expect(mockPreloadAssistantUiPanelWrapper).not.toHaveBeenCalled();
+  });
+
+  test('preloads the database tab chunk on idle after mount', async () => {
+    render(<ToolsPanel preloadDatabaseTabOnMount />);
+
+    await screen.findByTestId('assistant-chat-card');
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+    expect(mockDatabaseTabRender).not.toHaveBeenCalled();
+  });
+
+  test('prefetches the database tab chunk on pointer intent', async () => {
+    const user = userEvent.setup();
+    render(<ToolsPanel />);
+
+    await screen.findByTestId('assistant-chat-card');
+
+    await user.hover(screen.getByRole('tab', { name: /database/i }));
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+    expect(mockDatabaseTabRender).not.toHaveBeenCalled();
+  });
+
+  test('prefetches the database tab chunk only once across multiple intents', async () => {
+    const user = userEvent.setup();
+    render(<ToolsPanel />);
+
+    await screen.findByTestId('assistant-chat-card');
+
+    const databaseTab = screen.getByRole('tab', { name: /database/i });
+    await user.hover(databaseTab);
+    await user.unhover(databaseTab);
+    await user.click(databaseTab);
+    await user.click(screen.getByRole('tab', { name: /assistant/i }));
+    await user.tab();
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('does not mount the database tab until it is selected', async () => {
+    const user = userEvent.setup();
+    render(<ToolsPanel />);
+
+    await screen.findByTestId('assistant-chat-card');
+    expect(mockDatabaseTabRender).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('tab', { name: /database/i }));
+
+    expect(await screen.findByTestId('mock-database-panel')).toBeInTheDocument();
+    expect(mockDatabaseTabRender).toHaveBeenCalledTimes(1);
+  });
+
+  test('allows database prefetch to retry after a rejected intent preload', async () => {
+    const user = userEvent.setup();
+    mockPreloadDatabaseTab.mockRejectedValueOnce(new Error('navigation aborted'));
+    render(<ToolsPanel />);
+
+    await screen.findByTestId('assistant-chat-card');
+
+    const databaseTab = screen.getByRole('tab', { name: /database/i });
+    await user.hover(databaseTab);
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(1);
+    });
+
+    mockPreloadDatabaseTab.mockResolvedValueOnce(undefined);
+    await user.unhover(databaseTab);
+    await user.hover(databaseTab);
+
+    await waitFor(() => {
+      expect(mockPreloadDatabaseTab).toHaveBeenCalledTimes(2);
+    });
   });
 
   test('allows switching between tabs', async () => {

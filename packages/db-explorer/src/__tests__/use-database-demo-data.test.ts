@@ -29,24 +29,21 @@ const mockVectorStatusUIStore = {
 };
 
 // Mock the preferences store - required for dbInfo sync to global store
-vi.mock('@brainstrike/preferences', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/preferences')>(
-    '@brainstrike/preferences'
-  );
-  return {
-    ...actual,
-    useDatabaseStatusStore: {
-      getState: vi.fn(() => ({
-        setLoading: vi.fn(),
-        setConnected: vi.fn(),
-        setDisconnected: vi.fn(),
-      })),
-    },
-    useVectorStatusUIStore: vi.fn((selector: (state: typeof mockVectorStatusUIStore) => unknown) =>
-      selector(mockVectorStatusUIStore)
-    ),
-  };
-});
+vi.mock('@brainstrike/preferences/stores/database-status-store', () => ({
+  useDatabaseStatusStore: {
+    getState: vi.fn(() => ({
+      setLoading: vi.fn(),
+      setConnected: vi.fn(),
+      setDisconnected: vi.fn(),
+    })),
+  },
+}));
+
+vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
+  useVectorStatusUIStore: vi.fn((selector: (state: typeof mockVectorStatusUIStore) => unknown) =>
+    selector(mockVectorStatusUIStore)
+  ),
+}));
 
 vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
@@ -291,6 +288,48 @@ describe('useDatabaseDemoData', () => {
       expect.objectContaining({ id: 'chunk-1', fileRecordId: '1', embeddingSetId: 'set-1' }),
     ]);
     expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('preserves canonical resolved chunking strategies beyond the legacy subset', async () => {
+    const now = new Date().toISOString();
+    setupLiveQueries({
+      records: [
+        {
+          id: 'markdown-record',
+          name: 'guide.md',
+          path: '/guide.md',
+          size: 512,
+          createdAt: now,
+          updatedAt: now,
+          content: '# Guide',
+          contentHash: 'guide-hash',
+          tokenCount: 42,
+          processedAt: now,
+          chunksProcessedAt: now,
+          chunksCount: 3,
+          chunkingStrategy: 'semantic-markdown',
+          hasEmbedding: false,
+          embeddingSetId: 'set-markdown',
+        },
+      ],
+      chunks: [],
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-markdown',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.records).toHaveLength(1);
+    });
+
+    expect(result.current.records[0]?.chunkingStrategy).toBe('semantic-markdown');
   });
 
   it('refreshes live queries when manual reload is requested', async () => {

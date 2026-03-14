@@ -13,6 +13,7 @@
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
+    "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
@@ -40,6 +41,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./database-demo-panel": {
+      "types": "./dist/database-demo-panel.d.ts",
+      "import": "./dist/database-demo-panel.js"
     }
   },
   "files": [

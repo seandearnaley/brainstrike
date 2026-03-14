@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { expect } from '@playwright/test';
+import { waitForSettingsPage } from '../utils/layout-helpers';
 
 export class SettingsPage {
   constructor(public readonly page: Page) {}
@@ -21,6 +21,6 @@ export class SettingsPage {
   }
 
   async expectLoaded(): Promise<void> {
-    await expect(this.heading).toBeVisible();
+    await waitForSettingsPage(this.page);
   }
 }

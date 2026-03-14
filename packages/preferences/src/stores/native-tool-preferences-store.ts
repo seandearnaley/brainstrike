@@ -1,5 +1,5 @@
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
-import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 

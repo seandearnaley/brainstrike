@@ -3,6 +3,17 @@ import React from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let RootLayoutContent: React.ComponentType;
+let activeToolsTab: 'assistant' | 'database' = 'assistant';
+const mockEmbeddingQueue = {
+  add: vi.fn(),
+  addBulk: vi.fn(),
+  onProgress: vi.fn(() => () => {}),
+  pause: vi.fn(),
+  resume: vi.fn(),
+  drain: vi.fn(),
+  isPaused: false,
+  isProcessing: false,
+};
 
 // Mock the chunking worker context to prevent worker initialization during tests
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
@@ -56,35 +67,38 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 // Mock vector-management to prevent any queue-related side effects
 vi.mock('@brainstrike/vector-management', () => ({
-  EmbeddingJobQueueTracker: () => null,
+  EmbeddingJobQueueTracker: () => <div data-testid="embedding-job-queue-tracker" />,
 }));
+
+vi.mock('@brainstrike/preferences', () => ({
+  useVectorPreferencesStore: (
+    selector: (state: {
+      devicePref: string;
+      devicePrefConfigured: boolean;
+      setDetectedDevicePref: (value: string) => void;
+    }) => unknown
+  ) =>
+    selector({
+      devicePref: 'wasm',
+      devicePrefConfigured: true,
+      setDetectedDevicePref: vi.fn(),
+    }),
+}));
+
+vi.mock('@brainstrike/queue/browser', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/queue/browser')>(
+    '@brainstrike/queue/browser'
+  );
+  return {
+    ...actual,
+    createBrowserEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
+  };
+});
 
 // Mock create-embedding-queue to prevent module-level worker pool creation
 vi.mock('../../create-embedding-queue', () => ({
-  embeddingQueue: {
-    add: vi.fn(),
-    addBulk: vi.fn(),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
-    drain: vi.fn(),
-  },
-  getEmbeddingQueue: vi.fn(() => ({
-    add: vi.fn(),
-    addBulk: vi.fn(),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
-    drain: vi.fn(),
-  })),
-  createBrowserEmbeddingQueue: vi.fn(() => ({
-    add: vi.fn(),
-    addBulk: vi.fn(),
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
-    drain: vi.fn(),
-  })),
+  getEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
+  createBrowserEmbeddingQueue: vi.fn(() => mockEmbeddingQueue),
 }));
 
 // Mock the file-explorer-ui
@@ -109,54 +123,27 @@ vi.mock('@brainstrike/db', () => ({
 
 let capturedOnNavigationClick: ((path: string) => void) | undefined;
 
-interface MockAppLayoutProps {
-  children: React.ReactNode;
-  config: {
-    title: string;
-    navigationItems: unknown[];
-  };
-  currentPath: string;
-  onNavigationClick?: (path: string) => void;
-}
-
-interface MockAppConfig {
-  description: string;
-  navigationItems: unknown[];
-  themeStorageKey: string;
-  title: string;
-}
-
-// Mock the app-shell package completely (no importOriginal to avoid loading real modules)
-// This prevents the entire import chain from being evaluated
-vi.mock('@brainstrike/app-shell', () => ({
-  // Mock navigationItems export
+vi.mock('@brainstrike/app-shell/navigation', () => ({
   navigationItems: [
     { path: '/', label: 'Explorer' },
     { path: '/settings', label: 'Settings' },
     { path: '/prompts', label: 'Prompts' },
   ],
-  // Mock ConnectedPromptManager
-  ConnectedPromptManager: () => null,
-  // Mock AppLayout
-  AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
-    capturedOnNavigationClick = onNavigationClick;
-    return (
-      <div data-current-path={currentPath} data-testid="app-layout">
-        <div data-testid="app-config-title">{config.title}</div>
-        <div data-testid="navigation-items-count">{config.navigationItems.length}</div>
-        {children}
-      </div>
-    );
+}));
+
+vi.mock('@brainstrike/app-shell', () => ({
+  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
+}));
+
+vi.mock('@brainstrike/app-shell/stores/tools-panel-store', () => ({
+  toolsPanelSelectors: {
+    activeTab: (state: { activeTab: 'assistant' | 'database' }) => state.activeTab,
   },
-  // Mock createAppConfig
-  createAppConfig: (config: Partial<MockAppConfig>) => ({
-    title: 'BrainStrike.ai',
-    description: 'Multi-app dashboard',
-    themeStorageKey: 'app-theme',
-    navigationItems: [],
-    ...config,
-  }),
-  // Mock RootLayoutContent with internal state management
+  useToolsPanelStore: (selector: (state: { activeTab: 'assistant' | 'database' }) => unknown) =>
+    selector({ activeTab: activeToolsTab }),
+}));
+
+vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent({
     sidebarContent,
     homePageContent,
@@ -236,6 +223,7 @@ describe('RootLayoutContent', () => {
     vi.clearAllMocks();
     homeMountCount = 0;
     currentDb = null;
+    activeToolsTab = 'assistant';
   });
 
   it('renders without crashing', () => {
@@ -265,13 +253,13 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('3');
   });
 
-  it('shows settings page when navigation callback is triggered', () => {
+  it('shows settings page when navigation callback is triggered', async () => {
     render(<RootLayoutContent />);
     act(() => {
       capturedOnNavigationClick?.('/settings');
     });
 
-    expect(screen.getByTestId('settings-page-content')).toBeInTheDocument();
+    expect(await screen.findByTestId('settings-page-content')).toBeInTheDocument();
     expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/settings');
   });
 
@@ -303,6 +291,20 @@ describe('RootLayoutContent', () => {
 
     await waitFor(() =>
       expect(screen.getByTestId('home-page-content')).toHaveAttribute('data-mount-index', '1')
+    );
+  });
+
+  it('does not mount the embedding queue tracker before the database tab is opened', () => {
+    render(<RootLayoutContent />);
+    expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
+  });
+
+  it('mounts the embedding queue tracker after the database tab becomes active', async () => {
+    activeToolsTab = 'database';
+    render(<RootLayoutContent />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('embedding-job-queue-tracker')).toBeInTheDocument()
     );
   });
 });

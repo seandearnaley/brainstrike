@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const childProcessMocks = vi.hoisted(() => ({
-  spawnMock: vi.fn(),
-}));
 const fsToolsMocks = vi.hoisted(() => ({
   handleFilesystemList: vi.fn(async () => ({ ok: 'list' })),
   handleFilesystemRead: vi.fn(async () => ({ ok: 'read' })),
@@ -13,17 +10,7 @@ const pathMocks = vi.hoisted(() => ({
   normalizeRootDir: vi.fn((value: string) => value),
 }));
 
-const { spawnMock } = childProcessMocks;
 const { handleFilesystemList, handleFilesystemRead, handleFilesystemSearch } = fsToolsMocks;
-
-vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>();
-  return {
-    ...actual,
-    spawn: (...args: unknown[]) => spawnMock(...args),
-    default: actual,
-  };
-});
 
 vi.mock('../../mcp/fs-tools', () => fsToolsMocks);
 
@@ -37,11 +24,6 @@ describe('stdio client', () => {
   });
 
   it('routes filesystem tools to the fs handlers', async () => {
-    spawnMock.mockReturnValue({
-      unref: vi.fn(),
-      kill: vi.fn(),
-    });
-
     const client = createFilesystemClientFromStdio({
       name: 'filesystem',
       transport: 'stdio',
@@ -65,11 +47,6 @@ describe('stdio client', () => {
   });
 
   it('throws for unsupported tools', async () => {
-    spawnMock.mockReturnValue({
-      unref: vi.fn(),
-      kill: vi.fn(),
-    });
-
     const client = createFilesystemClientFromStdio({
       name: 'filesystem',
       transport: 'stdio',
@@ -80,11 +57,7 @@ describe('stdio client', () => {
     await expect(client.callTool('unknown.tool')).rejects.toThrow('Unsupported tool');
   });
 
-  it('disposes safely when spawn fails', async () => {
-    spawnMock.mockImplementation(() => {
-      throw new Error('spawn failed');
-    });
-
+  it('disposes safely without spawning a child process', async () => {
     const client = createFilesystemClientFromStdio({
       name: 'filesystem',
       transport: 'stdio',

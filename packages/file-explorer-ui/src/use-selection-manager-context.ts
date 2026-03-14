@@ -10,7 +10,7 @@
  */
 
 import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/file-explorer-hooks';
-import { encodeFileSelection } from '@brainstrike/utils';
+import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 

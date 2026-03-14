@@ -1,4 +1,4 @@
-import { LogLevel, type LogRecord } from '@brainstrike/utils';
+import { LogLevel, type LogRecord } from '@brainstrike/utils/logger';
 
 export function sortLogRecords(records: readonly LogRecord[]): LogRecord[] {
   return [...records].sort((a, b) => a.timestamp - b.timestamp);

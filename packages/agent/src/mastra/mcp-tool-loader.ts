@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { MCPClient } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
@@ -137,7 +137,11 @@ async function fetchMcpToolsWithTimeout(
     return sanitizeTools(toolsFromClient, toolNameMap);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    logger.warn('MCP tool discovery skipped', {
+    const logMethod =
+      reason.includes('Connection closed') || reason.includes('mcp_tool_discovery_timeout')
+        ? logger.debug.bind(logger)
+        : logger.warn.bind(logger);
+    logMethod('MCP tool discovery skipped', {
       code: 'mcp_tools_unavailable',
       reason,
       timeoutMs,

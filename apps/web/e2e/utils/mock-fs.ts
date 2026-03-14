@@ -8,173 +8,180 @@ interface Options {
   clipboard?: boolean;
 }
 
+interface MockBrowserApisPayload {
+  enableClipboard: boolean;
+  rootName: string;
+  tree: FileTree;
+}
+
+function buildMockBrowserApisScript(payload: MockBrowserApisPayload): string {
+  const serializedPayload = JSON.stringify(payload);
+  return `
+(() => {
+  const payload = ${serializedPayload};
+
+  function buildFs(name, obj) {
+    if (obj && typeof obj === 'object') {
+      const children = {};
+      for (const [childName, child] of Object.entries(obj)) {
+        children[childName] = buildFs(childName, child);
+      }
+      return { kind: 'directory', name, _entries: children };
+    }
+    const content = typeof obj === 'string' ? obj : \`\${name} content\`;
+    return { kind: 'file', name, _content: content };
+  }
+
+  class FileSystemFileHandle {
+    constructor(node) {
+      this.node = node;
+      this.kind = 'file';
+      this.name = node.name;
+    }
+
+    async getFile() {
+      return new File([this.node._content], this.node.name);
+    }
+
+    async createWritable() {
+      const handle = this.node;
+      let data = '';
+
+      const tryString = (chunk) => (typeof chunk === 'string' ? chunk : undefined);
+      const tryBlob = async (chunk) => (chunk instanceof Blob ? await chunk.text() : undefined);
+      const tryArrayBuffer = (chunk) =>
+        chunk instanceof ArrayBuffer ? new TextDecoder().decode(chunk) : undefined;
+      const tryArrayBufferView = (chunk) =>
+        ArrayBuffer.isView(chunk) ? new TextDecoder().decode(chunk.buffer) : undefined;
+
+      function isRecord(value) {
+        return typeof value === 'object' && value !== null;
+      }
+
+      function isWriteChunk(value) {
+        return isRecord(value) && value.type === 'write' && 'data' in value;
+      }
+
+      async function toStringChunk(chunk) {
+        const handlers = [tryString, tryBlob, tryArrayBuffer, tryArrayBufferView];
+        for (const handler of handlers) {
+          const result = await handler(chunk);
+          if (result !== undefined) {
+            return result;
+          }
+        }
+        if (isWriteChunk(chunk)) {
+          return toStringChunk(chunk.data);
+        }
+        throw new Error('Unsupported chunk type');
+      }
+
+      return {
+        async write(chunk) {
+          data += await toStringChunk(chunk);
+        },
+        async close() {
+          handle._content = data;
+        },
+      };
+    }
+  }
+
+  class FileSystemDirectoryHandle {
+    constructor(node) {
+      this.node = node;
+      this.kind = 'directory';
+      this.name = node.name;
+      this._entries = node._entries;
+    }
+
+    async *entries() {
+      for (const [name, entry] of Object.entries(this.node._entries)) {
+        yield [name, createHandle(entry)];
+      }
+    }
+
+    async getDirectoryHandle(name, options) {
+      let entry = this.node._entries[name];
+      if (!entry) {
+        if (options?.create) {
+          entry = { kind: 'directory', name, _entries: {} };
+          this.node._entries[name] = entry;
+        } else {
+          throw new Error('Directory not found');
+        }
+      }
+      if (entry.kind !== 'directory') {
+        throw new Error('Not a directory');
+      }
+      return createHandle(entry);
+    }
+
+    async getFileHandle(name, options) {
+      let entry = this.node._entries[name];
+      if (!entry) {
+        if (options?.create) {
+          entry = { kind: 'file', name, _content: '' };
+          this.node._entries[name] = entry;
+        } else {
+          throw new Error('File not found');
+        }
+      }
+      if (entry.kind !== 'file') {
+        throw new Error('Not a file');
+      }
+      return createHandle(entry);
+    }
+
+    async removeEntry(name) {
+      delete this.node._entries[name];
+    }
+  }
+
+  function createHandle(node) {
+    return node.kind === 'directory'
+      ? new FileSystemDirectoryHandle(node)
+      : new FileSystemFileHandle(node);
+  }
+
+  const rootNode = buildFs(payload.rootName, payload.tree);
+  const root = new FileSystemDirectoryHandle(rootNode);
+  window.showDirectoryPicker = async () => root;
+
+  if (payload.enableClipboard) {
+    if (navigator.clipboard) {
+      const originalWriteText = navigator.clipboard.writeText;
+      navigator.clipboard.writeText = async (text) => {
+        try {
+          return await originalWriteText.call(navigator.clipboard, text);
+        } catch {
+          console.log('Clipboard fallback: writeText called with:', text);
+          return Promise.resolve();
+        }
+      };
+    } else {
+      navigator.clipboard = {
+        writeText: async (text) => {
+          console.log('Clipboard mock: writeText called with:', text);
+          return Promise.resolve();
+        },
+      };
+    }
+  }
+})();
+`;
+}
+
 export async function mockBrowserApis(
   page: Page,
   rootName: string,
   tree: FileTree,
   options: Options = {}
 ): Promise<void> {
-  await page.addInitScript(
-    ({ rootName: rn, tree: t, enableClipboard }) => {
-      /* eslint-disable */
-      type FsNode =
-        | { kind: 'file'; name: string; _content: string }
-        | { kind: 'directory'; name: string; _entries: Record<string, FsNode> };
-
-      interface FsInput {
-        [key: string]: FsInput | null | string;
-      }
-
-      function buildFs(name: string, obj: FsInput | null | string): FsNode {
-        if (obj && typeof obj === 'object') {
-          const children: Record<string, FsNode> = {};
-          for (const [childName, child] of Object.entries(obj)) {
-            children[childName] = buildFs(childName, child as FsInput | null | string);
-          }
-          return { kind: 'directory', name, _entries: children };
-        }
-        // If obj is a string, use it as file content; if null, use default content
-        const content = typeof obj === 'string' ? obj : `${name} content`;
-        return { kind: 'file', name, _content: content };
-      }
-
-      class FileSystemFileHandle {
-        constructor(private readonly node: Extract<FsNode, { kind: 'file' }>) {
-          // @ts-expect-error
-          this.kind = 'file';
-          // @ts-expect-error
-          this.name = node.name;
-        }
-        async getFile() {
-          return new File([this.node._content], this.node.name);
-        }
-        async createWritable() {
-          const handle = this.node;
-          let data = '';
-          type Handler = (c: unknown) => string | undefined | Promise<string | undefined>;
-          const tryString: Handler = (c) => (typeof c === 'string' ? c : undefined);
-          const tryBlob: Handler = async (c) => (c instanceof Blob ? await c.text() : undefined);
-          const tryArrayBuffer: Handler = (c) =>
-            c instanceof ArrayBuffer ? new TextDecoder().decode(c) : undefined;
-          const tryArrayBufferView: Handler = (c) =>
-            ArrayBuffer.isView(c)
-              ? new TextDecoder().decode((c as ArrayBufferView).buffer as ArrayBuffer)
-              : undefined;
-          function isRecord(val: unknown): val is Record<string, unknown> {
-            return typeof val === 'object' && val !== null;
-          }
-          function isWriteChunk(val: unknown): val is { type: 'write'; data: unknown } {
-            return isRecord(val) && val['type'] === 'write' && 'data' in val;
-          }
-          async function toStringChunk(chunk: unknown): Promise<string> {
-            const handlers: Handler[] = [tryString, tryBlob, tryArrayBuffer, tryArrayBufferView];
-            for (const h of handlers) {
-              const result = await h(chunk);
-              if (result !== undefined) {
-                return result;
-              }
-            }
-            if (isWriteChunk(chunk)) {
-              return toStringChunk((chunk as { data: unknown }).data);
-            }
-            throw new Error('Unsupported chunk type');
-          }
-          return {
-            async write(chunk: unknown) {
-              data += await toStringChunk(chunk);
-            },
-            async close() {
-              handle._content = data;
-            },
-          };
-        }
-      }
-
-      class FileSystemDirectoryHandle {
-        constructor(private readonly node: Extract<FsNode, { kind: 'directory' }>) {
-          // @ts-expect-error
-          this.kind = 'directory';
-          // @ts-expect-error
-          this.name = node.name;
-          // @ts-expect-error
-          this._entries = node._entries;
-        }
-        async *entries() {
-          for (const [name, entry] of Object.entries(this.node._entries)) {
-            yield [name, createHandle(entry)];
-          }
-        }
-        async getDirectoryHandle(name: string, options?: { create?: boolean }) {
-          let entry = this.node._entries[name];
-          if (!entry) {
-            if (options?.create) {
-              entry = { kind: 'directory', name, _entries: {} };
-              this.node._entries[name] = entry;
-            } else {
-              throw new Error('Directory not found');
-            }
-          }
-          if (entry.kind !== 'directory') {
-            throw new Error('Not a directory');
-          }
-          return createHandle(entry);
-        }
-        async getFileHandle(name: string, options?: { create?: boolean }) {
-          let entry = this.node._entries[name];
-          if (!entry) {
-            if (options?.create) {
-              entry = { kind: 'file', name, _content: '' };
-              this.node._entries[name] = entry;
-            } else {
-              throw new Error('File not found');
-            }
-          }
-          if (entry.kind !== 'file') {
-            throw new Error('Not a file');
-          }
-          return createHandle(entry);
-        }
-        async removeEntry(name: string) {
-          delete this.node._entries[name];
-        }
-      }
-
-      type FileHandle = InstanceType<typeof FileSystemFileHandle>;
-      type DirHandle = InstanceType<typeof FileSystemDirectoryHandle>;
-      function createHandle(node: FsNode): FileHandle | DirHandle {
-        return node.kind === 'directory'
-          ? new FileSystemDirectoryHandle(node)
-          : new FileSystemFileHandle(node);
-      }
-
-      const rootNode = buildFs(rn, t) as Extract<FsNode, { kind: 'directory' }>;
-      const root = new FileSystemDirectoryHandle(rootNode);
-      // @ts-expect-error
-      window.showDirectoryPicker = async () => root;
-
-      if (enableClipboard) {
-        if (navigator.clipboard) {
-          const originalWriteText = navigator.clipboard.writeText;
-          navigator.clipboard.writeText = async (text: string) => {
-            try {
-              return await originalWriteText.call(navigator.clipboard, text);
-            } catch {
-              console.log('Clipboard fallback: writeText called with:', text);
-              return Promise.resolve();
-            }
-          };
-        } else {
-          // @ts-expect-error
-          navigator.clipboard = {
-            writeText: async (text: string) => {
-              console.log('Clipboard mock: writeText called with:', text);
-              return Promise.resolve();
-            },
-          };
-        }
-      }
-      /* eslint-enable */
-    },
-    { rootName, tree, enableClipboard: options.clipboard ?? false }
-  );
+  const payload: MockBrowserApisPayload = {
+    rootName,
+    tree,
+    enableClipboard: options.clipboard ?? false,
+  };
+  await page.addInitScript(buildMockBrowserApisScript(payload));
 }

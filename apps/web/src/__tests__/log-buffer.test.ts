@@ -5,7 +5,7 @@ const resumeSpy = vi.fn();
 const pushSpy = vi.fn();
 const logBufferInstances: Array<{ pause: () => void; resume: () => void; push: () => void }> = [];
 
-vi.mock('@brainstrike/utils', () => ({
+vi.mock('@brainstrike/utils/log-buffer', () => ({
   LogBuffer: class {
     size: number;
     maxArgSize: number;
@@ -18,10 +18,16 @@ vi.mock('@brainstrike/utils', () => ({
       logBufferInstances.push(this);
     }
   },
+}));
+
+vi.mock('@brainstrike/utils/logger', () => ({
   addLogListener: vi.fn((listener: (record: unknown) => void) => {
     listener({ level: 'info', msg: 'test' });
     return vi.fn();
   }),
+}));
+
+vi.mock('@brainstrike/utils/bulk-operation-context', () => ({
   registerBulkOperationPauseCallback: vi.fn(() => vi.fn()),
 }));
 

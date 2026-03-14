@@ -123,3 +123,29 @@ export interface FileMetadata {
   /** File size in bytes */
   size: number;
 }
+
+export type TokenWorkerMethod =
+  | 'countTokens'
+  | 'countTokensBatch'
+  | 'hashContent'
+  | 'hashContentBatch';
+
+export interface TokenWorkerRequest {
+  method: TokenWorkerMethod;
+  params: unknown[];
+  requestId: string;
+  type: 'request';
+}
+
+export interface TokenWorkerResponse {
+  requestId: string;
+  result: unknown;
+  type: 'response';
+}
+
+export interface TokenWorkerResponseError {
+  cause?: string;
+  message: string;
+  requestId: string;
+  type: 'error';
+}
