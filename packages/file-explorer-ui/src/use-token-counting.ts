@@ -71,6 +71,10 @@ export function useTokenCounting(): TokenCountingState {
   );
 }
 
+/**
+ * @deprecated Token counting state now lives in context, not module caches.
+ * Kept only as a stable import for older tests until those call sites are removed.
+ */
 export function __resetTokenCountingRuntimeCacheForTests() {
   // No-op: token counting state now lives in the token cache context rather
   // than module-level runtime caches, but the test helper remains as a stable

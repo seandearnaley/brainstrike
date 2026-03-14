@@ -88,7 +88,8 @@ export function formatTokenCount(count: number): string {
 export function estimateTokenCost(inputTokens: number, outputTokens = 0): number {
   // These rates are only a UI heuristic for quick cost previews and are not used
   // for billing or enforcement. They are loosely aligned with GPT-4-class pricing
-  // as of early 2026 and must be updated intentionally alongside model pricing.
+  // as of early 2026 (last verified 2026-03) and must be updated intentionally
+  // alongside model pricing.
   const inputCost = inputTokens * 0.000_01;
   const outputCost = outputTokens * 0.000_03;
   return inputCost + outputCost;

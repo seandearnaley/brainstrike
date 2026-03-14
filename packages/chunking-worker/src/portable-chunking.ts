@@ -315,11 +315,16 @@ function estimateTokenCount(text: string): number {
   return countTokensHeuristic(text);
 }
 
-async function computeCharsPerToken(content: string, useAccurate: boolean): Promise<number> {
+async function computeCharsPerToken(
+  content: string,
+  useAccurate: boolean,
+  tokenUtilsModule: TokenUtilsLiteModule | null
+): Promise<number> {
   const sample = content.slice(0, Math.min(10_000, content.length));
-  const tokens = useAccurate
-    ? await (await loadTokenUtilsLiteModule()).countTokensAccurate(sample)
-    : estimateTokenCount(sample);
+  const tokens =
+    useAccurate && tokenUtilsModule
+      ? await tokenUtilsModule.countTokensAccurate(sample)
+      : estimateTokenCount(sample);
   if (Number.isFinite(tokens) && tokens > 0) {
     const measured = sample.length / tokens;
     return Math.max(1, Math.min(8, measured));
@@ -709,12 +714,17 @@ export async function chunkContent(
 
   // Compute chars per token
   const useTokenTrueSizing = options.tokenTrueSizing ?? false;
-  const charsPerToken = await computeCharsPerToken(content, useTokenTrueSizing);
+  const tokenUtilsModule = useTokenTrueSizing ? await loadTokenUtilsLiteModule() : null;
+  const charsPerToken = await computeCharsPerToken(content, useTokenTrueSizing, tokenUtilsModule);
   const maxChars = Math.floor(effectiveMaxTokens * charsPerToken);
   const overlapChars = Math.floor(effectiveOverlap * charsPerToken);
 
   const name = (options.fileName || options.filePath || '').toLowerCase();
   const codeLanguage = detectCodeLanguage(name);
+  // `resolveChunkingStrategyForFile()` is the canonical routing source of truth.
+  // We only keep the recursive->sentence override when code-language detection
+  // says the file is not actually source code, so these two extension sets must
+  // remain aligned.
   const isCode = initialStrategy === 'recursive' && Boolean(codeLanguage);
 
   interface ChunkGroup {
@@ -843,9 +853,10 @@ export async function chunkContent(
         continue;
       }
 
-      const tokenCount = useTokenTrueSizing
-        ? await (await loadTokenUtilsLiteModule()).countTokensAccurate(c)
-        : estimateTokenCount(c);
+      const tokenCount =
+        useTokenTrueSizing && tokenUtilsModule
+          ? await tokenUtilsModule.countTokensAccurate(c)
+          : estimateTokenCount(c);
 
       // Handle oversized chunks - reuse splitter, use estimates for sub-chunks
       if (tokenCount > maxSafeTokens) {
@@ -856,9 +867,10 @@ export async function chunkContent(
           if (!subC) {
             continue;
           }
-          const subTokenCount = useTokenTrueSizing
-            ? await (await loadTokenUtilsLiteModule()).countTokensAccurate(subC)
-            : estimateTokenCount(subC);
+          const subTokenCount =
+            useTokenTrueSizing && tokenUtilsModule
+              ? await tokenUtilsModule.countTokensAccurate(subC)
+              : estimateTokenCount(subC);
           pendingChunks.push({
             content: subC,
             tokenCount: subTokenCount,
