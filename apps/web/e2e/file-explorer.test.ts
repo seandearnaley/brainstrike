@@ -108,6 +108,29 @@ test.describe('File Explorer', () => {
   });
 
   test.describe('filtering', { tag: '@smoke' }, () => {
+    async function openViewFilters(page: Page): Promise<void> {
+      const viewFiltersToggle = page.getByRole('button', { name: /view filters/i });
+      await expect(viewFiltersToggle).toBeVisible({ timeout: 10_000 });
+
+      if ((await viewFiltersToggle.getAttribute('aria-expanded')) !== 'true') {
+        await viewFiltersToggle.click();
+      }
+
+      await expect(viewFiltersToggle).toHaveAttribute('aria-expanded', 'true');
+    }
+
+    async function getPresetTrigger(page: Page) {
+      const presetTrigger = page
+        .locator('#explorer-panel')
+        .locator('button')
+        .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
+        .first();
+
+      await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
+      await expect(presetTrigger).toBeEnabled({ timeout: 10_000 });
+      return presetTrigger;
+    }
+
     interface FilterScenario {
       before?: (ctx: { page: Page; explorer: FileExplorerPage }) => Promise<void>;
       expectedHidden: string[];
@@ -158,21 +181,24 @@ test.describe('File Explorer', () => {
     });
 
     test('keeps the preset trigger enabled when view filters first appear', async ({ page }) => {
-      const viewFiltersToggle = page.getByRole('button', { name: /view filters/i });
-      await expect(viewFiltersToggle).toBeVisible({ timeout: 10_000 });
+      await openViewFilters(page);
+      await getPresetTrigger(page);
+    });
 
-      if ((await viewFiltersToggle.getAttribute('aria-expanded')) !== 'true') {
-        await viewFiltersToggle.click();
-      }
+    test('loads presets and applies a selected preset from the dropdown', async ({ page }) => {
+      await openViewFilters(page);
 
-      const presetTrigger = page
-        .locator('#explorer-panel')
-        .locator('button')
-        .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
-        .first();
+      const presetTrigger = await getPresetTrigger(page);
+      await presetTrigger.click();
 
-      await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
-      await expect(presetTrigger).toBeEnabled({ timeout: 10_000 });
+      const documentationOption = page.getByRole('button', { name: /documentation/i }).first();
+      await expect(documentationOption).toBeVisible({ timeout: 10_000 });
+      await documentationOption.click();
+
+      await expect(
+        page.locator('#explorer-panel').getByRole('button', { name: /documentation/i })
+      ).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText('Select filter...')).toHaveCount(0);
     });
 
     const scenarios: FilterScenario[] = [
