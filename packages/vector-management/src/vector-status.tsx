@@ -4,8 +4,9 @@ import {
   usePGliteDatabase,
   useVectorEnabled,
 } from '@brainstrike/db';
-import { TransformersBackend } from '@brainstrike/embeddings';
-import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { TransformersBackend } from '@brainstrike/embeddings/backend';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 // Import types to ensure global Window augmentation is available
 import '@brainstrike/types';
@@ -23,7 +24,7 @@ import {
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('VectorStatus');

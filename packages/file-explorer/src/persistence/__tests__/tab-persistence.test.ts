@@ -18,7 +18,11 @@ const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock('@brainstrike/utils', () => ({
+vi.mock('@brainstrike/utils/logger', () => ({
+  createLogger: vi.fn(() => mockLogger),
+}));
+
+vi.mock('@brainstrike/utils/selection-utils', () => ({
   createLogger: vi.fn(() => mockLogger),
   decodeFileSelection: vi.fn((compositeKey: string) => {
     // Simple mock: compositeKey format is "folderId::path"
@@ -169,7 +173,7 @@ describe('tab-persistence', () => {
       const cache = createMockHandleCache(handles);
 
       // Mock decodeFileSelection to return empty values for invalid key
-      const { decodeFileSelection } = await import('@brainstrike/utils');
+      const { decodeFileSelection } = await import('@brainstrike/utils/selection-utils');
       vi.mocked(decodeFileSelection).mockReturnValueOnce({ folderId: '', path: '' });
 
       const result = await restoreTabFileHandle('tab-1', 'invalid', cache);
@@ -183,7 +187,7 @@ describe('tab-persistence', () => {
       const cache = createMockHandleCache(handles);
 
       // Mock decodeFileSelection to throw for corrupted/legacy keys
-      const { decodeFileSelection } = await import('@brainstrike/utils');
+      const { decodeFileSelection } = await import('@brainstrike/utils/selection-utils');
       vi.mocked(decodeFileSelection).mockImplementationOnce(() => {
         throw new Error('Invalid separator in composite key');
       });

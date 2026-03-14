@@ -1,4 +1,4 @@
-import { render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetTokenCacheWorkerInitErrorsForTests,
@@ -8,12 +8,12 @@ import {
 } from '../token-cache-context';
 
 // Mock dependencies
-vi.mock('@brainstrike/preferences', () => ({
+vi.mock('@brainstrike/preferences/stores/token-preferences-store', () => ({
   useTokenPreferencesStore: vi.fn(() => false),
   tokenPreferencesSelectors: { accurateCounting: {} },
 }));
 
-vi.mock('@brainstrike/token-cache', () => ({
+vi.mock('@brainstrike/token-cache/cache-runtime', () => ({
   // createTokenCacheWorkerPool is now async, return a Promise
   createTokenCacheWorkerPool: vi.fn(() =>
     Promise.resolve({
@@ -21,7 +21,6 @@ vi.mock('@brainstrike/token-cache', () => ({
       terminate: vi.fn().mockResolvedValue(undefined),
     })
   ),
-  resolveTokenCacheWorkerUrl: vi.fn(() => new URL('file:///mock-worker.js')),
   FileHasher: class {
     init = vi.fn().mockResolvedValue(undefined);
   },
@@ -43,6 +42,10 @@ vi.mock('@brainstrike/token-cache', () => ({
     updateFileSizeCache: vi.fn(),
     cacheVersion: 1,
   })),
+}));
+
+vi.mock('../resolve-token-cache-worker-url', () => ({
+  resolveTokenCacheWorkerUrlHref: vi.fn(() => 'file:///mock-worker.js'),
 }));
 
 describe('TokenCacheContext', () => {
@@ -216,8 +219,49 @@ describe('TokenCacheContext', () => {
       expect(result.current.isOperational).toBe(true);
     });
 
+    it('does not tear down the eager worker when readiness flips during warmup', async () => {
+      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache/cache-runtime');
+      const terminate = vi.fn().mockResolvedValue(undefined);
+      const mockedCreatePool = vi.mocked(createTokenCacheWorkerPool);
+      const defaultImplementation = mockedCreatePool.getMockImplementation();
+      const exec = vi.fn().mockResolvedValue({ tokenCount: 42 });
+
+      mockedCreatePool.mockImplementation(
+        () =>
+          Promise.resolve({
+            exec,
+            terminate,
+          }) as never
+      );
+
+      try {
+        const { result } = renderHook(() => useTokenCacheContext(), {
+          wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+        });
+
+        await waitFor(() => expect(result.current.isWorkerReady).toBe(true));
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        expect(result.current.isWorkerReady).toBe(true);
+        expect(mockedCreatePool).toHaveBeenCalledTimes(1);
+        expect(terminate).not.toHaveBeenCalled();
+      } finally {
+        mockedCreatePool.mockImplementation(
+          defaultImplementation ??
+            (() =>
+              Promise.resolve({
+                exec: vi.fn().mockResolvedValue({ tokenCount: 42 }),
+                terminate: vi.fn().mockResolvedValue(undefined),
+              }) as never)
+        );
+      }
+    });
+
     it('keeps worker mode disabled when warmup fails', async () => {
-      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache');
+      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache/cache-runtime');
       const mockExec = vi.fn().mockRejectedValue(new Error('Worker error'));
       const mockedCreatePool = vi.mocked(createTokenCacheWorkerPool);
       const defaultImplementation = mockedCreatePool.getMockImplementation();
@@ -254,9 +298,11 @@ describe('TokenCacheContext', () => {
     });
 
     it('reuses the terminal worker init error instead of recreating the pool after a failure', async () => {
-      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache');
+      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache/cache-runtime');
       const mockExec = vi.fn().mockRejectedValue(new Error('Worker error'));
-      vi.mocked(createTokenCacheWorkerPool).mockImplementation(
+      const mockedCreatePool = vi.mocked(createTokenCacheWorkerPool);
+      const defaultImplementation = mockedCreatePool.getMockImplementation();
+      mockedCreatePool.mockImplementation(
         () =>
           Promise.resolve({
             exec: mockExec,
@@ -264,29 +310,40 @@ describe('TokenCacheContext', () => {
           }) as never
       );
 
-      const firstRender = renderHook(() => useTokenCacheContext(), {
-        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
-      });
+      try {
+        const firstRender = renderHook(() => useTokenCacheContext(), {
+          wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+        });
 
-      await expect(firstRender.result.current.countTextTokens('hello world')).rejects.toThrow(
-        'Token cache worker warmup failed after 3 attempts: Worker error'
-      );
-      expect(vi.mocked(createTokenCacheWorkerPool)).toHaveBeenCalledTimes(1);
+        await expect(firstRender.result.current.countTextTokens('hello world')).rejects.toThrow(
+          'Token cache worker warmup failed after 3 attempts: Worker error'
+        );
+        expect(mockedCreatePool).toHaveBeenCalledTimes(1);
 
-      firstRender.unmount();
+        firstRender.unmount();
 
-      const secondRender = renderHook(() => useTokenCacheContext(), {
-        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
-      });
+        const secondRender = renderHook(() => useTokenCacheContext(), {
+          wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+        });
 
-      await expect(secondRender.result.current.countTextTokens('hello again')).rejects.toThrow(
-        'Token cache worker warmup failed after 3 attempts: Worker error'
-      );
-      expect(vi.mocked(createTokenCacheWorkerPool)).toHaveBeenCalledTimes(1);
+        await expect(secondRender.result.current.countTextTokens('hello again')).rejects.toThrow(
+          'Token cache worker warmup failed after 3 attempts: Worker error'
+        );
+        expect(mockedCreatePool).toHaveBeenCalledTimes(1);
+      } finally {
+        mockedCreatePool.mockImplementation(
+          defaultImplementation ??
+            (() =>
+              Promise.resolve({
+                exec: vi.fn().mockResolvedValue({ tokenCount: 42 }),
+                terminate: vi.fn().mockResolvedValue(undefined),
+              }) as never)
+        );
+      }
     });
 
-    it('defers worker pool creation when lazyWorkerInit is enabled until counting is requested', async () => {
-      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache');
+    it('keeps lazy token counting disabled until the worker is actually requested', async () => {
+      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache/cache-runtime');
 
       const { result } = renderHook(() => useTokenCacheContext(), {
         wrapper: ({ children }) => (
@@ -296,11 +353,14 @@ describe('TokenCacheContext', () => {
         ),
       });
 
-      await waitFor(() => expect(result.current.isOperational).toBe(true));
+      await waitFor(() => expect(result.current.countingMode).toBe('heuristic'));
+      expect(result.current.isOperational).toBe(false);
       expect(result.current.isWorkerReady).toBe(false);
       expect(vi.mocked(createTokenCacheWorkerPool)).not.toHaveBeenCalled();
 
-      await expect(result.current.countTextTokens('hello world')).resolves.toBeGreaterThan(0);
+      await act(async () => {
+        await expect(result.current.countTextTokens('hello world')).resolves.toBeGreaterThan(0);
+      });
       expect(vi.mocked(createTokenCacheWorkerPool)).toHaveBeenCalledTimes(1);
     });
   });

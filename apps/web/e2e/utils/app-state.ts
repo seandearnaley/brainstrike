@@ -9,6 +9,8 @@ const APP_STATE_KEYS = [
   'tools-panel.v1',
   'collection-browser.v1',
   'database-demo.v2',
+  'import-settings.v1',
+  'token-preferences.v1',
 ] as const;
 
 /**

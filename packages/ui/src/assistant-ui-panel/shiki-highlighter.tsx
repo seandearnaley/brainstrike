@@ -1,5 +1,5 @@
 import type { SyntaxHighlighterProps } from '@assistant-ui/react-markdown';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { memo, useEffect, useMemo, useState } from 'react';
 import ShikiHighlighter, { createHighlighterCore, createOnigurumaEngine } from 'react-shiki/core';
 import type { HighlighterCore } from 'shiki';

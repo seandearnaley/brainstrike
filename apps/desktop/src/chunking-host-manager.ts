@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { BrowserWindow } from 'electron';
 import {
   CHUNKING_HOST_PROGRESS_EVENT,

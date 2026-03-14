@@ -6,7 +6,7 @@
  */
 
 import type { StorageAdapter } from '@brainstrike/storage';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('worker-storage');
 

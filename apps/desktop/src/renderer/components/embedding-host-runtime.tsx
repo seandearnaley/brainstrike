@@ -3,18 +3,34 @@ import {
   type EmbeddingWorkerController,
   POWER_BROADCAST_CHANNEL,
   startEmbeddingWorker,
-} from '@brainstrike/embeddings';
-import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences';
-import { createLogger } from '@brainstrike/utils';
+} from '@brainstrike/embeddings/worker';
+import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { createLogger } from '@brainstrike/utils/logger';
 import { type MutableRefObject, useEffect, useRef } from 'react';
 import {
   assertEmbeddingHostCommand,
   type EmbeddingHostCommand,
   type EmbeddingHostStatus,
 } from '../../embedding-host-shared';
+import { resolveEmbeddingWorkerUrlHref } from '../resolve-embedding-worker-url';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
+let embeddingQueueBootstrapPromise: Promise<void> | null = null;
+
+async function ensureEmbeddingQueueBootstrapLoaded(): Promise<void> {
+  if (!embeddingQueueBootstrapPromise) {
+    embeddingQueueBootstrapPromise = import('../create-embedding-queue')
+      .then((module) => {
+        module.getEmbeddingQueue();
+      })
+      .catch((error: unknown) => {
+        embeddingQueueBootstrapPromise = null;
+        throw error;
+      });
+  }
+  await embeddingQueueBootstrapPromise;
+}
 
 function getEmbeddingHostBridge(): {
   onCommand?: (callback: (command: EmbeddingHostCommand) => void) => () => void;
@@ -171,6 +187,7 @@ async function startEmbeddingHostWorkerRuntime({
   reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'starting');
 
   try {
+    await ensureEmbeddingQueueBootstrapLoaded();
     const { devicePref: hydratedDevicePref } = await ensureVectorPreferencesHydrated({
       forceReload: true,
     });
@@ -181,6 +198,7 @@ async function startEmbeddingHostWorkerRuntime({
       onFatalError,
       onWorkerActivityChange,
       stopOnFatalLocalError: true,
+      streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
     });
     if (isDisposed()) {
       await controller.stop();

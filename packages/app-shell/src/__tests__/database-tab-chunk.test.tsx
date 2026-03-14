@@ -6,7 +6,7 @@ import { DatabaseTab } from '../database-tab-chunk';
 let capturedDatabaseProps: { embeddingQueue?: QueueAdapter | null } | null = null;
 
 // Mock dependencies
-vi.mock('@brainstrike/db-explorer', () => ({
+vi.mock('@brainstrike/db-explorer/database-demo-panel', () => ({
   DatabaseDemoPanel: (props: { embeddingQueue?: QueueAdapter | null }) => {
     capturedDatabaseProps = props;
     return <div data-testid="database-demo-panel">DatabaseDemoPanel</div>;

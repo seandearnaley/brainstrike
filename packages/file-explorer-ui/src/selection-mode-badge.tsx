@@ -7,11 +7,6 @@
  * The badge shows the current mode and file count, with a popover for mode switching.
  */
 
-// Opt out of React Compiler for this component.
-// Fixes React #311 in Electron production builds caused by compiler
-// mis-optimizing Zustand selectors with Set objects.
-'use no memo';
-
 import type { SelectionMode } from '@brainstrike/types';
 import {
   Badge,
@@ -130,6 +125,8 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
   rulesEditorAvailable = true,
   show = true,
 }) {
+  'use no memo';
+
   const store = useFileExplorerStoreContext();
 
   // FIX: React Compiler + multiple selectors + optional chaining on Set causes React #311

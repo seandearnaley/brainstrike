@@ -1,5 +1,5 @@
 import type { SerializedState } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 interface ZustandPersistWrapper<T> {
   state?: T;

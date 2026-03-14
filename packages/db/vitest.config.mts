@@ -15,12 +15,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * Browser tests use *.browser.test.ts naming convention.
  */
 export default defineConfig({
-  test: {
+  resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
       src: path.resolve(__dirname, 'src'),
       '@brainstrike/types': path.resolve(__dirname, '../types/src'),
       '@brainstrike/queue': path.resolve(__dirname, '../queue/src'),
+      '@brainstrike/text-splitter': path.resolve(__dirname, '../text-splitter/src/index.ts'),
       '@brainstrike/embedding-worker': path.resolve(__dirname, '../embedding-worker/src'),
       '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),
       '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
@@ -30,6 +31,8 @@ export default defineConfig({
       '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),
       '@brainstrike/ui': path.resolve(__dirname, '../ui/src'),
     },
+  },
+  test: {
     projects: [
       {
         test: {

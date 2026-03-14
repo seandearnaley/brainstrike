@@ -1,4 +1,4 @@
-import { isDevEnv } from '@brainstrike/utils';
+import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { useCallback, useRef } from 'react';
 import { validateAndNormalizeSizes } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';

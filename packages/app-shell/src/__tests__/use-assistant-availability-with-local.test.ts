@@ -8,15 +8,16 @@ vi.mock('../hooks/use-assistant-availability', () => ({
 }));
 
 // Mock the model registry store
-vi.mock('@brainstrike/preferences', async (importOriginal) => {
-  const real = await importOriginal<typeof import('@brainstrike/preferences')>();
+vi.mock('@brainstrike/preferences/stores/model-registry-store', async (importOriginal) => {
+  const real =
+    await importOriginal<typeof import('@brainstrike/preferences/stores/model-registry-store')>();
   return {
     ...real,
     useModelRegistryStore: vi.fn(),
   };
 });
 
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useAssistantAvailability } from '../hooks/use-assistant-availability';
 
 const useAssistantAvailabilityMock = vi.mocked(useAssistantAvailability);

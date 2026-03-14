@@ -253,4 +253,28 @@ describe('ipc-mcp tool preference loading', () => {
     expect(callOrder).toContain('disable-tools');
     expect(callOrder).toContain('enable-tools');
   });
+
+  it('discovers tools for the filesystem MCP server', async () => {
+    loadMcpConfigMock.mockResolvedValueOnce({
+      path: '/mock/config.json',
+      exists: true,
+      config: {
+        servers: [
+          {
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            name: 'filesystem',
+            transport: 'stdio',
+            command: 'npx',
+          },
+        ],
+      },
+    });
+
+    registerMcpIpcHandlers();
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(createMastraAgentRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(loadToolPreferencesMock).toHaveBeenCalledTimes(1);
+  });
 });

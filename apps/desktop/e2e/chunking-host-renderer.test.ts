@@ -218,4 +218,60 @@ test.describe('Chunking Host Renderer', () => {
     const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
     expect(finalTimeOrigin).toBe(initialTimeOrigin);
   });
+
+  test('accepts non-legacy chunking strategies without reloading the visible window', async ({
+    window,
+  }) => {
+    await waitForAppReady(window);
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+
+    const requestOutcome = await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            chunkFile?: (request: {
+              fileRecordId: string;
+              content: string;
+              fileName: string;
+              filePath: string;
+              kind: 'chunk-file';
+              options: {
+                forceStrategy: boolean;
+                strategy: 'character';
+              };
+              requestId: string;
+            }) => Promise<{
+              chunks: Array<{ content: string }>;
+            }>;
+          };
+        }
+      ).chunkingHost;
+      if (!api?.chunkFile) {
+        throw new Error('Chunking host bridge is not available');
+      }
+
+      const result = await api.chunkFile({
+        kind: 'chunk-file',
+        requestId: crypto.randomUUID(),
+        fileRecordId: 'chunking-host-character-request',
+        fileName: 'structured-notes.txt',
+        filePath: '/tmp/structured-notes.txt',
+        content: Array.from(
+          { length: 256 },
+          (_, index) => `Line ${index + 1}: deterministic chunking host test content.`
+        ).join('\n'),
+        options: {
+          strategy: 'character',
+          forceStrategy: true,
+        },
+      });
+
+      return result.chunks.length;
+    });
+
+    expect(requestOutcome).toBeGreaterThan(0);
+    await assertVisibleWindowResponsive(window);
+    const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+    expect(finalTimeOrigin).toBe(initialTimeOrigin);
+  });
 });

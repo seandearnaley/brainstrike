@@ -12,7 +12,7 @@ import {
   SelectValue,
   Switch,
 } from '@brainstrike/ui';
-import type { LogLevel } from '@brainstrike/utils';
+import type { LogLevel } from '@brainstrike/utils/logger';
 import type { Table as ReactTableInstance } from '@tanstack/react-table';
 import { Download, RefreshCw, Search, Settings2 } from 'lucide-react';
 import type { ReactNode } from 'react';

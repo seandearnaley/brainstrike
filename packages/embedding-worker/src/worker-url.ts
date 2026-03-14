@@ -48,6 +48,10 @@ function describeImportMeta(meta: ImportMetaLike | null): string {
   return `${urlDescription}; ${dirnameDescription}`;
 }
 
+export function resolveEmbeddingWorkerUrlHref(): string {
+  return resolveEmbeddingWorkerUrl().href;
+}
+
 export function resolveEmbeddingWorkerUrl(): URL {
   const override = readImportMetaOverride();
   if (override) {

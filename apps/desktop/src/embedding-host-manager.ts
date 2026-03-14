@@ -1,4 +1,4 @@
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {
   createEmbeddingHostCommand,

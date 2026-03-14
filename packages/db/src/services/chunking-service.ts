@@ -1,12 +1,42 @@
 import { type ParserPlugin, parse } from '@babel/parser';
-import { countTokensAccurate, createLogger } from '@brainstrike/utils';
-import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import {
+  type ChunkingStrategy,
+  countTokensHeuristic,
+  isChunkingStrategy,
+  isMarkdownBlockBoundaryLine,
+  MARKDOWN_CODE_FENCE_PATTERN,
+  RecursiveTextSplitter,
+  type ResolvedChunkingStrategy,
+  resolveChunkingStrategyForFile,
+  resolveEffectiveChunkingStrategy,
+  splitTextByStrategy,
+} from '@brainstrike/text-splitter';
+
+export type {
+  ChunkingPresetDefinition,
+  ChunkingPresetId,
+  ChunkingPresetSelection,
+  ChunkingStrategy,
+  ResolvedChunkingStrategy,
+} from '@brainstrike/text-splitter';
+
+import { createLogger } from '@brainstrike/utils';
+import { countTokensAccurate } from '@brainstrike/utils/token-counting-runtime';
 import { CHUNKING_CONFIG } from '../config/chunking-config.js';
 import type { FileChunkInsert } from '../models/file-chunk';
 
 const logger = createLogger('ChunkingService');
 
-export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
+async function countTokensAccurateStrict(text: string): Promise<number> {
+  try {
+    return await countTokensAccurate(text);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Accurate token counting is required for strict chunk sizing, but tiktoken is unavailable: ${message}`
+    );
+  }
+}
 
 export interface ChunkingOptions {
   // When true, allows chunking beyond maxChunkableSize using the streaming API
@@ -21,7 +51,7 @@ export interface ChunkingOptions {
   // Optional override for the global max token budget per chunk
   maxTokensCap?: number;
   // Notify caller which strategy was actually used after file/extension heuristics
-  onStrategyResolved?: (strategy: ChunkingStrategy) => void;
+  onStrategyResolved?: (strategy: ResolvedChunkingStrategy) => void;
   overlap?: number;
   separators?: string[];
   strategy: ChunkingStrategy;
@@ -36,7 +66,7 @@ export interface ChunkingResult {
   chunks: FileChunkInsert[];
   skipped?: boolean;
   skipReason?: string;
-  strategyUsed: ChunkingStrategy;
+  strategyUsed: ResolvedChunkingStrategy;
   totalTokens: number;
 }
 
@@ -118,9 +148,13 @@ export class ChunkingService {
   async chunkContent(
     content: string,
     fileRecordId: string,
-    options: ChunkingOptions = { strategy: 'sentence' }
+    options: ChunkingOptions = { strategy: 'auto' }
   ): Promise<ChunkingResult> {
-    let strategyUsed: ChunkingStrategy = options.strategy;
+    const initialStrategy = resolveChunkingStrategyForFile(
+      options.filePath ?? options.fileName ?? '',
+      options.strategy
+    );
+    let strategyUsed: ResolvedChunkingStrategy = initialStrategy;
     logger.debug(`Starting chunkContent for fileRecordId: ${fileRecordId}`);
     logger.debug(`Content length: ${content?.length || 0}`);
     logger.debug('Options', options);
@@ -147,7 +181,7 @@ export class ChunkingService {
     }
 
     const { strategy } = options;
-    if (strategy !== 'sentence' && strategy !== 'token' && strategy !== 'recursive') {
+    if (!isChunkingStrategy(strategy)) {
       logger.error(`Unsupported chunking strategy: ${String(strategy)}`);
       throw new Error(`Unsupported chunking strategy: ${String(strategy)}`);
     }
@@ -204,8 +238,9 @@ export class ChunkingService {
     }
 
     // Check for very repetitive content (common in generated files)
-    const uniqueLines = new Set(content.split('\n')).size;
-    const totalLines = content.split('\n').length;
+    const allLines = content.split('\n');
+    const uniqueLines = new Set(allLines).size;
+    const totalLines = allLines.length;
     if (totalLines > 1000 && uniqueLines / totalLines < 0.1) {
       return {
         skip: true,
@@ -348,10 +383,7 @@ export class ChunkingService {
   // (legacy) processChunks removed; streaming path is preferred.
 
   private estimateTokenCount(text: string): number {
-    // Standard token estimation for embeddings
-    // Use the standard estimate: 1 token ≈ 4 characters (GPT tokenization)
-    const charCount = text.length;
-    return Math.ceil(charCount / 4);
+    return countTokensHeuristic(text);
   }
 
   private async generateContentHash(content: string): Promise<string> {
@@ -366,10 +398,9 @@ export class ChunkingService {
   }
 
   /**
-   * Re-split an oversized chunk into smaller pieces using RecursiveCharacterTextSplitter.
+   * Re-split an oversized chunk into smaller pieces using the shared recursive splitter.
    * This is a fallback for when character-based splitters produce chunks that exceed token limits.
-   * Note: We use character-based splitting (not TokenTextSplitter) because tiktoken requires
-   * fetching external resources which is blocked by Electron's Content Security Policy.
+   * The shared implementation keeps browser and desktop workers aligned without LangChain.
    */
   private async reSplitOversizedChunk(
     content: string,
@@ -381,7 +412,7 @@ export class ChunkingService {
     const maxChars = Math.floor(maxTokens * charsPerToken);
     const overlapChars = Math.min(Math.floor(overlap * charsPerToken), Math.floor(maxChars / 10));
 
-    const recursiveChunker = new RecursiveCharacterTextSplitter({
+    const recursiveChunker = new RecursiveTextSplitter({
       chunkSize: maxChars,
       chunkOverlap: overlapChars,
       separators: ['\n\n', '\n', '. ', ' ', ''],
@@ -439,8 +470,12 @@ export class ChunkingService {
   ): Promise<Array<{ content: string; tokenCount: number }>> {
     const pendingPieces: string[] = [content];
     const resolvedPieces: Array<{ content: string; tokenCount: number }> = [];
+    let iterations = 0;
+    const maxIterations = 10_000;
 
     while (pendingPieces.length > 0) {
+      iterations += 1;
+      assertTokenBudgetIterationsWithinLimit(iterations, maxIterations);
       const nextPiece = pendingPieces.shift();
       if (!nextPiece) {
         continue;
@@ -452,9 +487,15 @@ export class ChunkingService {
       }
 
       const tokenCount = await tokenCounter(normalizedPiece);
-      if (tokenCount <= maxTokens || normalizedPiece.length <= 1) {
+      if (tokenCount <= maxTokens) {
         resolvedPieces.push({ content: normalizedPiece, tokenCount });
         continue;
+      }
+
+      if (normalizedPiece.length <= 1) {
+        throw new Error(
+          `Unable to split chunk to token budget without progress (tokens=${String(tokenCount)}, limit=${String(maxTokens)})`
+        );
       }
 
       const splitTarget = Math.max(1, Math.min(maxTokens, tokenCount - 1));
@@ -468,8 +509,9 @@ export class ChunkingService {
         const left = normalizedPiece.slice(0, splitIndex).trim();
         const right = normalizedPiece.slice(splitIndex).trim();
         if (!(left && right)) {
-          resolvedPieces.push({ content: normalizedPiece, tokenCount });
-          continue;
+          throw new Error(
+            `Unable to split chunk to token budget without progress (tokens=${String(tokenCount)}, limit=${String(maxTokens)})`
+          );
         }
         pendingPieces.unshift(right, left);
         continue;
@@ -561,7 +603,7 @@ export class ChunkingService {
     };
     if (tokenTrueSizing) {
       logger.debug('Chunk exceeds strict token budget, re-splitting', logDetails);
-      const strictCounter = tokenCounter ?? (async (text: string) => countTokensAccurate(text));
+      const strictCounter = tokenCounter ?? countTokensAccurateStrict;
       const budgetedPieces = await this.splitChunkToTokenBudget(
         content,
         maxTokens,
@@ -674,7 +716,7 @@ export class ChunkingService {
   async *chunkContentStream(
     content: string,
     fileRecordId: string,
-    options: ChunkingOptions = { strategy: 'sentence' }
+    options: ChunkingOptions = { strategy: 'auto' }
   ): AsyncGenerator<FileChunkInsert> {
     if (!(content && fileRecordId)) {
       throw new Error('Content and fileRecordId are required for chunking');
@@ -739,35 +781,13 @@ export class ChunkingService {
 
     const name = (options.fileName || options.filePath || '').toLowerCase();
     const codeLanguage = detectCodeLanguage(name);
-    const isMarkdown = /\.(md|mdx|markdown)$/.test(name);
     const isCode = Boolean(codeLanguage);
-    // Detect structured data files that need special splitting (JSON, XML, YAML, etc.)
-    const isStructuredData = /\.(json|xml|yaml|yml|csv|tsv)$/.test(name);
+    const resolvedAutoStrategy = resolveChunkingStrategyForFile(name, 'auto');
 
     interface ChunkGroup {
       pieces: string[];
       type: FileChunkInsert['chunkType'];
     }
-
-    const chunkTokens = async (): Promise<ChunkGroup[]> => {
-      // Note: We use RecursiveCharacterTextSplitter instead of TokenTextSplitter because
-      // tiktoken requires fetching external resources which is blocked by Electron's CSP.
-      const tokenChunker = new RecursiveCharacterTextSplitter({
-        chunkSize: maxChars,
-        chunkOverlap: overlapChars,
-        separators: ['\n\n', '\n', '. ', ' ', ''],
-      });
-      return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
-    };
-
-    const chunkSentenceAwareText = async (text: string): Promise<string[]> => {
-      const sentenceAwareChunker = new RecursiveCharacterTextSplitter({
-        chunkSize: maxChars,
-        chunkOverlap: overlapChars,
-        separators: ['\n\n', '\n', '. ', ' ', ''],
-      });
-      return sentenceAwareChunker.splitText(text);
-    };
 
     const splitMarkdownBlocks = async (): Promise<ChunkGroup[]> => {
       const blocks = splitMarkdownIntoBlocks(content);
@@ -778,20 +798,25 @@ export class ChunkingService {
             block.text.length > maxChars * 2 ? splitByBlankLines(block.text) : [block.text];
           groups.push({ pieces: parts, type: 'recursive' });
         } else {
-          groups.push({ pieces: await chunkSentenceAwareText(block.text), type: 'sentence' });
+          groups.push({
+            pieces: splitTextByStrategy(block.text, {
+              strategy: 'markdown',
+              chunkSize: maxChars,
+              chunkOverlap: overlapChars,
+            }),
+            type: 'sentence',
+          });
         }
       }
       return groups;
     };
-
-    const chunkMarkdown = async (): Promise<ChunkGroup[]> => splitMarkdownBlocks();
 
     const chunkCode = async (): Promise<ChunkGroup[]> => {
       const supportsAst = codeLanguage === 'typescript' || codeLanguage === 'javascript';
 
       const chunkWithCodeSeparators = async (): Promise<ChunkGroup[]> => {
         const codeSeparators = getCodeSeparators(options.separators);
-        const recursiveChunker = new RecursiveCharacterTextSplitter({
+        const recursiveChunker = new RecursiveTextSplitter({
           chunkSize: maxChars,
           chunkOverlap: overlapChars,
           separators: codeSeparators,
@@ -822,42 +847,26 @@ export class ChunkingService {
         return chunkWithCodeSeparators();
       }
 
-      // Unsupported/unknown languages fall back to token-based chunking to avoid mid-function splits
-      effectiveStrategy = 'token';
-      return chunkTokens();
-    };
-
-    const chunkText = async (): Promise<ChunkGroup[]> => {
-      return [{ pieces: await chunkSentenceAwareText(content), type: 'sentence' }];
-    };
-
-    // Use RecursiveCharacterTextSplitter for structured data (JSON, XML, etc.)
-    // These files have no sentence boundaries, so we split on structural elements
-    const chunkStructuredData = async (): Promise<ChunkGroup[]> => {
-      const structuredSeparators = [
-        '\n\n', // Double newlines (between blocks)
-        '\n', // Single newlines
-        '},', // JSON object boundaries
-        '],', // JSON array boundaries
-        '",', // JSON key-value boundaries
-        ',', // General separators
-        '}', // Closing braces
-        ']', // Closing brackets
-        ' ', // Spaces as last resort
-        '', // Character-by-character fallback
+      return [
+        {
+          pieces: splitTextByStrategy(content, {
+            strategy: 'token',
+            chunkSize: maxChars,
+            chunkOverlap: overlapChars,
+          }),
+          type: 'text',
+        },
       ];
-      const structuredChunker = new RecursiveCharacterTextSplitter({
-        chunkSize: maxChars,
-        chunkOverlap: overlapChars,
-        separators: structuredSeparators,
-      });
-      return [{ pieces: await structuredChunker.splitText(content), type: 'recursive' }];
     };
 
     let groups: ChunkGroup[] = [];
-    let effectiveStrategy: ChunkingStrategy = options.strategy;
+    const effectiveStrategy: ResolvedChunkingStrategy = resolveEffectiveChunkingStrategy({
+      requested: options.strategy,
+      resolvedAutoStrategy,
+      isCode,
+    });
     let strategyNotified = false;
-    const notifyStrategy = (strategy: ChunkingStrategy) => {
+    const notifyStrategy = (strategy: ResolvedChunkingStrategy) => {
       if (strategyNotified) {
         return;
       }
@@ -865,56 +874,36 @@ export class ChunkingService {
       options.onStrategyResolved?.(strategy);
     };
 
-    const forceStrategy = options.forceStrategy === true;
-    effectiveStrategy = resolveEffectiveStrategy({
-      requested: options.strategy,
-      forceStrategy,
-      isMarkdown,
-      isCode,
-    });
-
-    if (effectiveStrategy === 'token') {
-      groups = await chunkTokens();
-    } else if (effectiveStrategy === 'recursive') {
+    if (effectiveStrategy === 'recursive' && isCode) {
       groups = await chunkCode();
-    } else if (isStructuredData) {
-      // Use structured data splitter for JSON/XML/etc. instead of sentence splitter
-      groups = await chunkStructuredData();
-      effectiveStrategy = 'recursive'; // Update strategy to reflect actual method used
+    } else if (effectiveStrategy === 'markdown') {
+      groups = await splitMarkdownBlocks();
     } else {
-      groups = isMarkdown ? await chunkMarkdown() : await chunkText();
+      const chunkType: FileChunkInsert['chunkType'] =
+        effectiveStrategy === 'character' || effectiveStrategy === 'token'
+          ? 'text'
+          : effectiveStrategy === 'recursive' || effectiveStrategy === 'json'
+            ? 'recursive'
+            : 'sentence';
+      groups = [
+        {
+          pieces: splitTextByStrategy(content, {
+            strategy: effectiveStrategy,
+            chunkSize: maxChars,
+            chunkOverlap: overlapChars,
+            ...(effectiveStrategy === 'recursive' && options.separators
+              ? { separators: getCodeSeparators(options.separators) }
+              : {}),
+          }),
+          type: chunkType,
+        },
+      ];
     }
     notifyStrategy(effectiveStrategy);
     for (const g of groups) {
       yield* emit(g.pieces, g.type, effectiveMaxTokens);
     }
   }
-}
-
-function resolveEffectiveStrategy({
-  requested,
-  forceStrategy,
-  isMarkdown,
-  isCode,
-}: {
-  requested: ChunkingStrategy;
-  forceStrategy: boolean;
-  isMarkdown: boolean;
-  isCode: boolean;
-}): ChunkingStrategy {
-  if (requested === 'token') {
-    return 'token';
-  }
-  if (forceStrategy) {
-    return requested;
-  }
-  if (isMarkdown) {
-    return 'sentence';
-  }
-  if (requested === 'recursive' || isCode) {
-    return 'recursive';
-  }
-  return 'sentence';
 }
 
 function resolveMaxTokensCap(cap?: number): number {
@@ -996,10 +985,11 @@ function collectTopLevelFunctionRanges(
     ranges.push({ start: Number(node.start), end: Number(node.end) });
   }
 
-  const nextAncestors = [...ancestors, node];
+  ancestors.push(node);
   for (const child of iterateAstChildren(node)) {
-    collectTopLevelFunctionRanges(child, nextAncestors, ranges);
+    collectTopLevelFunctionRanges(child, ancestors, ranges);
   }
+  ancestors.pop();
 }
 
 async function splitCodeByFunctions(
@@ -1053,7 +1043,7 @@ async function splitCodeByFunctions(
   const pieces: string[] = [];
   let cursor = 0;
 
-  const recursiveChunker = new RecursiveCharacterTextSplitter({
+  const recursiveChunker = new RecursiveTextSplitter({
     chunkSize: maxChars,
     chunkOverlap: overlapChars,
     separators,
@@ -1069,7 +1059,7 @@ async function splitCodeByFunctions(
       return;
     }
     const subPieces = await recursiveChunker.splitText(trimmed);
-    pieces.push(...subPieces.map((p) => p.trim()).filter(Boolean));
+    pieces.push(...subPieces.map((piece: string) => piece.trim()).filter(Boolean));
   };
 
   const appendRange = async (startIndex: number, endIndex: number) => {
@@ -1101,7 +1091,7 @@ async function splitCodeByFunctions(
 
 // Utilities for streaming splitter
 async function computeCharsPerToken(content: string, options: ChunkingOptions): Promise<number> {
-  const counter = options.tokenCounter ?? (async (t: string) => countTokensAccurate(t));
+  const counter = options.tokenCounter ?? countTokensAccurateStrict;
   const sample = content.slice(0, Math.min(10_000, content.length));
   try {
     const tokens = await counter(sample);
@@ -1196,6 +1186,14 @@ function findBalancedSplitPoint(content: string): number {
   return Math.max(1, midpoint);
 }
 
+function assertTokenBudgetIterationsWithinLimit(iterations: number, maxIterations: number): void {
+  if (iterations > maxIterations) {
+    throw new Error(
+      `splitChunkToTokenBudget exceeded ${String(maxIterations)} iterations for a single chunk`
+    );
+  }
+}
+
 function splitMarkdownIntoBlocks(content: string) {
   interface Block {
     meta: { isFence?: boolean; heading?: string };
@@ -1233,14 +1231,18 @@ function captureFence(
   start: number
 ): { consumed: number; block?: { text: string; meta: { isFence: true } } } {
   const line = lines[start] ?? '';
-  if (!/^```/.test(line)) {
+  const openMatch = MARKDOWN_CODE_FENCE_PATTERN.exec(line);
+  if (!openMatch) {
     return { consumed: start };
   }
+  const fenceChar = openMatch[1]?.[0] ?? '`';
+  const fenceLen = openMatch[1]?.length ?? 3;
+  const closingPattern = new RegExp(`^\\s*${fenceChar}{${fenceLen},}\\s*$`);
   const buf: string[] = [line];
   let i = start + 1;
   while (i < lines.length) {
     const cur = lines[i] ?? '';
-    if (cur.startsWith('```')) {
+    if (closingPattern.test(cur)) {
       break;
     }
     buf.push(cur);
@@ -1268,7 +1270,7 @@ function captureParagraph(lines: (string | undefined)[], start: number) {
   let i = start;
   while (i < lines.length) {
     const cur = lines[i] ?? '';
-    if (cur.match(/^```/) || cur.match(/^(#{1,6})\s+/) || cur.trim() === '') {
+    if (isMarkdownBlockBoundaryLine(cur)) {
       break;
     }
     buf.push(cur);

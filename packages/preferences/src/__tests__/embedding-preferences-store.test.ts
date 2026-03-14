@@ -1,4 +1,4 @@
-import type { EmbeddingProviderType } from '@brainstrike/embeddings';
+import type { EmbeddingProviderType } from '@brainstrike/embeddings/provider-core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
 import {

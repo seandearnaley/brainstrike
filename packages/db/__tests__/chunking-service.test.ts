@@ -197,6 +197,28 @@ class TestClass {
       expect(result.strategyUsed).toBe('sentence');
     });
 
+    it('fails fast when token-budget splitting cannot make progress', async () => {
+      const serviceWithPrivateApi = chunkingService as unknown as {
+        splitChunkToTokenBudget: (
+          content: string,
+          maxTokens: number,
+          overlap: number,
+          tokenCounter: (text: string) => Promise<number>
+        ) => Promise<Array<{ content: string; tokenCount: number }>>;
+        reSplitOversizedChunk: (
+          content: string,
+          maxTokens: number,
+          overlap: number
+        ) => Promise<string[]>;
+      };
+
+      serviceWithPrivateApi.reSplitOversizedChunk = async (content: string) => [content];
+
+      await expect(
+        serviceWithPrivateApi.splitChunkToTokenBudget('oversized chunk', 1, 0, async () => 2)
+      ).rejects.toThrow('Unable to split chunk to token budget without progress');
+    });
+
     it('applies TypeScript language defaults when no overrides are provided', async () => {
       const content = 'export const answer = 42;\n'.repeat(20);
 
@@ -457,7 +479,7 @@ class TestClass {
       const result = await chunkingService.chunkContent(
         content,
         'file1'
-        // No options provided, should use default { strategy: 'sentence' }
+        // No options provided, should use default { strategy: 'auto' }
       );
 
       expect(result.skipped).toBeUndefined();
@@ -479,6 +501,50 @@ class TestClass {
       expect(result.chunks[0].chunkType).toBe('recursive');
     });
 
+    it('uses canonical auto strategy routing for docs and structured formats', async () => {
+      const docsResult = await chunkingService.chunkContent(
+        '# Title\n\n## Intro\n\nBody text',
+        'docs',
+        {
+          strategy: 'auto',
+          fileName: 'guide.adoc',
+        }
+      );
+      const jsonResult = await chunkingService.chunkContent(
+        '{"rows":[{"id":1},{"id":2}]}',
+        'json',
+        {
+          strategy: 'auto',
+          fileName: 'records.ndjson',
+        }
+      );
+      const latexResult = await chunkingService.chunkContent('\\section{Intro}\nBody', 'latex', {
+        strategy: 'auto',
+        fileName: 'refs.bib',
+      });
+
+      expect(docsResult.strategyUsed).toBe('semantic-markdown');
+      expect(jsonResult.strategyUsed).toBe('json');
+      expect(latexResult.strategyUsed).toBe('latex');
+    });
+
+    it('treats tilde fences as markdown fence blocks', async () => {
+      const result = await chunkingService.chunkContent(
+        '# Title\n\n~~~ts\nconst answer = 42;\n~~~\n\nParagraph after fence.',
+        'docs-fence',
+        {
+          strategy: 'markdown',
+          fileName: 'guide.md',
+        }
+      );
+
+      expect(result.strategyUsed).toBe('markdown');
+      expect(result.chunks.some((chunk) => chunk.content.includes('~~~ts'))).toBe(true);
+      expect(result.chunks.some((chunk) => chunk.content.includes('Paragraph after fence.'))).toBe(
+        true
+      );
+    });
+
     it('keeps TypeScript functions intact using AST-aware chunking', async () => {
       const tsContent = `function alpha() {\n${'const x = 1;\n'.repeat(150)}}\n\nfunction beta() {\n${'const y = 2;\n'.repeat(
         150
@@ -498,7 +564,7 @@ class TestClass {
       expect(betaChunk).toBeTruthy();
     });
 
-    it('falls back to token strategy for unsupported code languages', async () => {
+    it('honors explicit recursive strategy for unsupported code extensions', async () => {
       const codeContent = 'module Main exposing (.. )\nmain =\n    Debug.log "hi" 42';
 
       const result = await chunkingService.chunkContent(codeContent, 'elm-file', {
@@ -506,8 +572,8 @@ class TestClass {
         fileName: 'Main.elm',
       });
 
-      expect(result.strategyUsed).toBe('token');
-      expect(result.chunks[0]?.chunkType).toBe('text');
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
     });
 
     it('recovers when AST parsing fails and still chunks content', async () => {

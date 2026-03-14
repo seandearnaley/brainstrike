@@ -17,7 +17,7 @@ import {
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { buildWorkspaceLookupCandidates, normalizeWorkspaceLookupPath } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 type AssistantUiMessage = AssistantUiMessageStrict;
 
@@ -715,8 +715,9 @@ async function initializeAgentStream(
   // The signal is embedded in RuntimeData and flows through to:
   // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
   // - AssistantDataStreamSession (via cancel() on Response stream)
+  const { mcpConfig: _ignoredMcpConfig, ...runtimeWithoutMcpConfig } = runtimeData ?? {};
   const runtime: RuntimeData = {
-    ...runtimeData,
+    ...runtimeWithoutMcpConfig,
     mcpEnabled: true,
     mastraTools: buildDesktopAssistantTools(runtimeData),
     signal, // ← AbortSignal passed here, used by stream iterator

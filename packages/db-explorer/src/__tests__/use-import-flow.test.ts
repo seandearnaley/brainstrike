@@ -138,6 +138,36 @@ describe('useImportFlow', () => {
     expect(onChunkRepositoryChange).toHaveBeenCalledWith(importServiceReturn.chunkRepository!);
   });
 
+  it('uses the latest completion handler without waiting for an effect tick', async () => {
+    const toast = vi.fn();
+    const firstComplete = vi.fn();
+    const secondComplete = vi.fn();
+
+    const { rerender } = renderHook(
+      ({ onImportComplete }: { onImportComplete?: (results: EnhancedImportResult[]) => void }) =>
+        useImportFlow({
+          importSettings: baseSettings,
+          toast,
+          resolveActiveCollectionId: () => 'set-1',
+          ...(onImportComplete ? { onImportComplete } : {}),
+        }),
+      {
+        initialProps: { onImportComplete: firstComplete },
+      }
+    );
+
+    rerender({ onImportComplete: secondComplete });
+
+    await act(async () => {
+      await latestOptions.onComplete?.([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 } as EnhancedImportResult,
+      ]);
+    });
+
+    expect(firstComplete).not.toHaveBeenCalled();
+    expect(secondComplete).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces selection limit feedback via toast handler', () => {
     const toast = vi.fn();
     renderHook(() =>

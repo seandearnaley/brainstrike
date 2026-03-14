@@ -2,7 +2,7 @@
   // Turborepo monorepo configuration for brainstrike
   "$schema": "https://turbo.build/schema.json",
   // Global configuration
-  "concurrency": "31",
+  "concurrency": "32",
   // Files that, when changed, should invalidate caches globally
   // These files affect all tasks and will cause cache misses when modified
   "globalDependencies": [
@@ -60,7 +60,9 @@
     },
     // --- Type Check Task --- //
     "type-check": {
-      // Ensures the package is built (generating .d.ts files) before type checking.
+      // Type-check runs after the repo-level build step in our required verification flow.
+      // Re-running ^build here causes dependency dist clean/build churn to race with packages
+      // that resolve workspace declarations from built outputs during type-check.
       "dependsOn": [
         "build"
       ],

@@ -7,7 +7,7 @@
 
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, SerializedState } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { PersistOptions, PersistStorage } from 'zustand/middleware';
 import { migrateState } from './state-migration';
 import { mergeState, serializeState } from './state-serialization';

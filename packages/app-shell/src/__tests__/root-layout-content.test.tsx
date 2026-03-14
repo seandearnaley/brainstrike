@@ -123,6 +123,7 @@ describe('RootLayoutContent', () => {
     // Settings should be hidden
     expect(settingsSection).toHaveClass('hidden');
     expect(settingsSection).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByTestId('settings-page')).not.toBeInTheDocument();
   });
 
   it('should switch to settings view and hide explorer on navigation', () => {
@@ -143,6 +144,7 @@ describe('RootLayoutContent', () => {
     // Settings should now be visible
     expect(settingsSection).not.toHaveClass('hidden');
     expect(settingsSection).toHaveAttribute('aria-hidden', 'false');
+    expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
   it('should switch back to explorer view on subsequent navigation', () => {
@@ -169,6 +171,7 @@ describe('RootLayoutContent', () => {
     // Settings should be hidden again
     expect(settingsSection).toHaveClass('hidden');
     expect(settingsSection).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
   it('should render the tabbed file editor panel in console content', () => {

@@ -1,8 +1,16 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@brainstrike/text-splitter': path.resolve(__dirname, '../text-splitter/src/index.ts'),
+    },
+  },
   test: {
     environment: 'node',
     globals: true,

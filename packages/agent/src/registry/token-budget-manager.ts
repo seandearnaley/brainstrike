@@ -12,7 +12,7 @@
  * - Context/Results: 25%
  */
 
-import { countTokensHeuristic } from '@brainstrike/utils';
+import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import { compareByLoadPriority, TOOL_CATEGORIES, type ToolCategory } from './tool-categories';
 import type { UnifiedToolMetadata } from './unified-registry';
 

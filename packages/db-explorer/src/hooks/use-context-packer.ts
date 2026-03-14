@@ -8,8 +8,9 @@
 
 import type { ContextPackerOptions, ContextPackerResult } from '@brainstrike/agent/client';
 import { ContextPacker } from '@brainstrike/agent/client';
+import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type { SemanticSearchResult } from '@brainstrike/ui';
-import { countTokensHeuristic, createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useMemo } from 'react';
 import {
   formatPackedContext,
@@ -41,7 +42,7 @@ export interface UseContextPackerOptions {
   maxChunks?: number;
   /**
    * Optional function to look up accurate token counts.
-   * Falls back to heuristic estimation if not provided.
+   * When omitted, packing uses the explicit estimateTokens strategy configured for this hook.
    */
   tokenCountLookup?: TokenCountLookup;
 }

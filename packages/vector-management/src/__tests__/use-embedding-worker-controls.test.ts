@@ -156,7 +156,7 @@ describe('useEmbeddingWorkerControls', () => {
     );
 
     await act(async () => {
-      await result.current.startWorker();
+      await expect(result.current.startWorker()).rejects.toThrow('runtime start failed');
     });
 
     expect(result.current.startWorkerError).toBe('runtime start failed');

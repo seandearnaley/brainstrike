@@ -1,5 +1,6 @@
 import { JobQueue, usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
-import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 // Import types to ensure global Window augmentation is available
 import '@brainstrike/types';
 import { useCallback, useMemo, useRef } from 'react';
@@ -214,6 +215,13 @@ export function useEmbeddingControls({
       // Auto-start worker on web if not running
       if (isWebPlatform && !workerControls.workerLocalRunning) {
         await workerControls.startWorker();
+        const runtimeStatus = await runtimeController.getStatus();
+        if (runtimeStatus.state !== 'running') {
+          throw new Error(
+            runtimeStatus.lastError ??
+              'Embedding worker did not enter the running state before backfill.'
+          );
+        }
       }
 
       // Run backfill

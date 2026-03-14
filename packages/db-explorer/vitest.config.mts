@@ -8,21 +8,44 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@brainstrike/agent/client': resolve(import.meta.dirname, '../agent/src/client.ts'),
-      '@brainstrike/file-import/browser-queue-port': resolve(
-        import.meta.dirname,
-        '../file-import/src/browser-queue-port.ts'
-      ),
-      '@brainstrike/file-import/chunking-worker-context': resolve(
-        import.meta.dirname,
-        '../file-import/src/chunking-worker-context.tsx'
-      ),
-      '@brainstrike/file-import/enhanced-import': resolve(
-        import.meta.dirname,
-        '../file-import/src/enhanced-import.ts'
-      ),
-    },
+    alias: [
+      {
+        find: '@brainstrike/agent/client',
+        replacement: resolve(import.meta.dirname, '../agent/src/client.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/provider-core',
+        replacement: resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/factory',
+        replacement: resolve(import.meta.dirname, '../embeddings/src/factory-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/service',
+        replacement: resolve(import.meta.dirname, '../embeddings/src/service-entry.ts'),
+      },
+      {
+        find: /^@brainstrike\/preferences\/(.*)$/,
+        replacement: resolve(import.meta.dirname, '../preferences/src/$1'),
+      },
+      {
+        find: '@brainstrike/preferences',
+        replacement: resolve(import.meta.dirname, '../preferences/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/file-import/browser-queue-port',
+        replacement: resolve(import.meta.dirname, '../file-import/src/browser-queue-port.ts'),
+      },
+      {
+        find: '@brainstrike/file-import/chunking-worker-context',
+        replacement: resolve(import.meta.dirname, '../file-import/src/chunking-worker-context.tsx'),
+      },
+      {
+        find: '@brainstrike/file-import/enhanced-import',
+        replacement: resolve(import.meta.dirname, '../file-import/src/enhanced-import.ts'),
+      },
+    ],
   },
   test: {
     globals: true,

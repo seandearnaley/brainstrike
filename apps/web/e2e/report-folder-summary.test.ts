@@ -78,7 +78,21 @@ test.describe('Report Folder Summary Threshold', () => {
     // Change threshold to 2 via the footer input
     const thresholdInput = page.locator('#folder-summary-threshold-footer');
     await expect(thresholdInput).toBeVisible();
-    await thresholdInput.fill('2');
+    await thresholdInput.scrollIntoViewIfNeeded();
+    await thresholdInput.evaluate((element) => {
+      if (!(element instanceof HTMLInputElement)) {
+        throw new Error('Expected folder summary threshold input');
+      }
+
+      const valueDescriptor = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value'
+      );
+      valueDescriptor?.set?.call(element, '2');
+      element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+    });
+    await expect(thresholdInput).toHaveValue('2');
 
     // Download another context file
     await expect(downloadButton).toBeEnabled({ timeout: 10_000 });

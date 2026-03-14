@@ -6,7 +6,7 @@
  */
 
 import { isNativeTool } from '@brainstrike/agent/client';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import { callTool } from './mcp';

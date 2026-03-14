@@ -55,13 +55,22 @@ export class HomePage {
     const btn = this.settingsButton;
     if (await btn.isVisible().catch(() => false)) {
       await btn.click();
-      return;
+    } else {
+      // Fallback: click by aria-label (tooltips now use aria-label instead of title)
+      const byAriaLabel = this.page.locator('nav [aria-label="Settings"]');
+      if (await byAriaLabel.isVisible().catch(() => false)) {
+        await byAriaLabel.click();
+      }
     }
-    // Fallback: click by aria-label (tooltips now use aria-label instead of title)
-    const byAriaLabel = this.page.locator('nav [aria-label="Settings"]');
-    if (await byAriaLabel.isVisible().catch(() => false)) {
-      await byAriaLabel.click();
+
+    const settingsLoading = this.page.getByTestId('desktop-settings-page-loading');
+    if (await settingsLoading.isVisible().catch(() => false)) {
+      await settingsLoading.waitFor({ state: 'hidden', timeout: 10_000 });
     }
+
+    await this.page
+      .getByRole('navigation', { name: 'Settings categories' })
+      .waitFor({ state: 'visible', timeout: 10_000 });
   }
 
   async toggleTheme() {

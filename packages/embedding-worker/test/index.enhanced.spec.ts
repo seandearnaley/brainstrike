@@ -238,7 +238,7 @@ describe('Embedding Worker - Enhanced Coverage', () => {
   describe('resolveEmbeddingWorkerUrl - Environment Testing', () => {
     it('should work in ESM environment with import.meta.url', async () => {
       // This test runs in an ESM environment by default
-      const { resolveEmbeddingWorkerUrl } = await import('../src');
+      const { resolveEmbeddingWorkerUrl } = await import('../src/worker-url');
       const url = resolveEmbeddingWorkerUrl();
 
       expect(url).toBeInstanceOf(URL);
@@ -246,14 +246,14 @@ describe('Embedding Worker - Enhanced Coverage', () => {
     });
 
     it('should return URL pointing to the source worker in source-import contexts', async () => {
-      const { resolveEmbeddingWorkerUrl } = await import('../src');
+      const { resolveEmbeddingWorkerUrl } = await import('../src/worker-url');
       const url = resolveEmbeddingWorkerUrl();
 
       expect(url.toString()).toContain('embedding.worker.ts');
     });
 
     it('should use file:// protocol', async () => {
-      const { resolveEmbeddingWorkerUrl } = await import('../src');
+      const { resolveEmbeddingWorkerUrl } = await import('../src/worker-url');
       const url = resolveEmbeddingWorkerUrl();
 
       expect(url.protocol).toMatch(/^(file:|http:|https:)/);
