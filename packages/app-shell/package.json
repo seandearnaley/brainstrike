@@ -82,7 +82,7 @@
     "test": "vitest run",
     "test:coverage": "pnpm -w test:coverage",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit --project tsconfig.typecheck.json && tsc --noEmit --project tsconfig.test.json"
   },
   "types": "dist/index.d.ts"
 }
