@@ -119,8 +119,9 @@ async function fetchAndCacheMissingDimensions(
   missingIds: string[],
   result: Map<string, number>
 ): Promise<void> {
-  // ANY($1) is safe here: batch sizes are bounded by MAX_INLINE_FILE_PATHS
-  // and typical insert batches (≤250 rows) are well within PG's parameter limits.
+  // ANY($1) is safe here: unique embedding set IDs are typically a small set
+  // (most chunks in a batch share the same set), and insert batches are capped
+  // at 250 rows, well within PG's parameter limits.
   const queryResult = await db.query<{ id: string; dimensions?: number }>(
     'SELECT id, dimensions FROM embedding_sets WHERE id = ANY($1)',
     [missingIds]
