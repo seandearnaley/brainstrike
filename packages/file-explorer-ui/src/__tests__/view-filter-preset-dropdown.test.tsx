@@ -180,9 +180,18 @@ describe('ViewFilterPresetDropdown', () => {
     });
   });
 
-  it('disables button when loading', () => {
+  it('keeps the trigger enabled when presets are still loading', () => {
     renderWithProviders(<ViewFilterPresetDropdown {...defaultProps} loading={true} />);
-    expect(screen.getByRole('button')).toBeDisabled();
+    expect(screen.getByRole('button')).toBeEnabled();
+  });
+
+  it('shows loading feedback inside the dropdown while presets are loading', async () => {
+    renderWithProviders(<ViewFilterPresetDropdown {...defaultProps} loading={true} presets={[]} />);
+
+    await userEvent.click(screen.getByRole('button'));
+
+    expect(screen.getByText('Loading presets...')).toBeInTheDocument();
+    expect(screen.queryByText('No presets found')).not.toBeInTheDocument();
   });
 
   it('shows empty state when no presets match search', async () => {

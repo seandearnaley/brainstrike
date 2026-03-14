@@ -157,6 +157,24 @@ test.describe('File Explorer', () => {
       await expect(explorer.fileTree).toBeVisible();
     });
 
+    test('keeps the preset trigger enabled when view filters first appear', async ({ page }) => {
+      const viewFiltersToggle = page.getByRole('button', { name: /view filters/i });
+      await expect(viewFiltersToggle).toBeVisible({ timeout: 10_000 });
+
+      if ((await viewFiltersToggle.getAttribute('aria-expanded')) !== 'true') {
+        await viewFiltersToggle.click();
+      }
+
+      const presetTrigger = page
+        .locator('#explorer-panel')
+        .locator('button')
+        .filter({ hasText: /select filter|source files|documentation|typescript\/javascript/i })
+        .first();
+
+      await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
+      await expect(presetTrigger).toBeEnabled({ timeout: 10_000 });
+    });
+
     const scenarios: FilterScenario[] = [
       {
         title: 'matches files by substring',
