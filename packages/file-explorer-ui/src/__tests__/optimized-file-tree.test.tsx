@@ -63,24 +63,28 @@ describe('OptimizedFileTree', () => {
     },
   ];
 
-  it('renders file tree container with correct attributes', () => {
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+  it('renders file tree container with correct attributes', async () => {
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     const container = screen.getByTestId('file-tree-scroll-container');
     expect(container).toBeInTheDocument();
     expect(container).toHaveClass('h-full', 'relative', 'flex-1', 'min-h-0', 'overflow-y-auto');
   });
 
-  it('renders file tree with correct role and label', () => {
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+  it('renders file tree with correct role and label', async () => {
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     const treeGrid = screen.getByRole('treegrid', { name: 'File tree' });
     expect(treeGrid).toBeInTheDocument();
@@ -197,17 +201,21 @@ describe('OptimizedFileTree', () => {
     expect(screen.queryByText('stale-child.ts')).not.toBeInTheDocument();
   });
 
-  it('updates visible file checkbox state after selection changes', () => {
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+  it('updates visible file checkbox state after selection changes', async () => {
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     const fileCheckbox = screen.getByLabelText('Select test.txt');
     expect(fileCheckbox).not.toBeChecked();
 
-    fireEvent.click(fileCheckbox);
+    await act(async () => {
+      fireEvent.click(fileCheckbox);
+    });
     expect(fileCheckbox).toBeChecked();
   });
 
@@ -312,20 +320,26 @@ describe('OptimizedFileTree', () => {
     expect(getDirectoryCheckbox()).toHaveAttribute('data-state', 'unchecked');
   });
 
-  it('does not recompute directory file counts on file-selection rerenders', () => {
+  it('does not recompute directory file counts on file-selection rerenders', async () => {
     const getFolderFileCountSpy = vi.spyOn(memoizedFileExplorer, 'getFolderFileCount');
     try {
-      render(
-        <FileExplorerTestWrapper>
-          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
-        </FileExplorerTestWrapper>
-      );
+      await act(async () => {
+        render(
+          <FileExplorerTestWrapper>
+            <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+          </FileExplorerTestWrapper>
+        );
+      });
 
       const initialCallCount = getFolderFileCountSpy.mock.calls.length;
       const fileCheckbox = screen.getByLabelText('Select test.txt');
 
-      fireEvent.click(fileCheckbox);
-      fireEvent.click(fileCheckbox);
+      await act(async () => {
+        fireEvent.click(fileCheckbox);
+      });
+      await act(async () => {
+        fireEvent.click(fileCheckbox);
+      });
 
       expect(getFolderFileCountSpy.mock.calls.length).toBe(initialCallCount);
     } finally {
@@ -450,7 +464,9 @@ describe('OptimizedFileTree', () => {
       await Promise.resolve();
     });
 
-    fireEvent.click(screen.getByLabelText('Select src'));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select src'));
+    });
 
     const selectedKeys = Array.from(readyStore.getState().selectedFilePaths);
     const selectedSourceFiles = selectedKeys.filter((key) => key.startsWith('root|@|/src/'));
@@ -493,10 +509,14 @@ describe('OptimizedFileTree', () => {
         key.startsWith('root|@|/src/')
       );
 
-    fireEvent.click(screen.getByLabelText('Select src'));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select src'));
+    });
     expect(getSelectedSourceFiles()).toHaveLength(2);
 
-    fireEvent.click(screen.getByLabelText('Select src'));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select src'));
+    });
     expect(getSelectedSourceFiles()).toHaveLength(0);
   });
 
@@ -542,25 +562,31 @@ describe('OptimizedFileTree', () => {
     }
 
     expect(readyStore.getState().selectedFilePaths.size).toBe(0);
-    fireEvent.click(screen.getByLabelText('Select empty'));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select empty'));
+    });
     expect(readyStore.getState().selectedFilePaths.size).toBe(0);
   });
 
   it('uses recursive directory selection callback for unloaded folders', async () => {
     const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
 
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree
-          fileTree={mockFileTree}
-          folderId="root"
-          loadingFiles={new Set()}
-          onSelectFolderRecursively={onSelectFolderRecursively}
-        />
-      </FileExplorerTestWrapper>
-    );
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree
+            fileTree={mockFileTree}
+            folderId="root"
+            loadingFiles={new Set()}
+            onSelectFolderRecursively={onSelectFolderRecursively}
+          />
+        </FileExplorerTestWrapper>
+      );
+    });
 
-    fireEvent.click(screen.getByLabelText('Select src'));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select src'));
+    });
 
     expect(onSelectFolderRecursively).toHaveBeenCalledTimes(1);
     expect(onSelectFolderRecursively).toHaveBeenCalledWith(
@@ -597,97 +623,123 @@ describe('OptimizedFileTree', () => {
       await Promise.resolve();
     });
 
-    fireEvent.click(screen.getByLabelText('Select test.txt'));
-    fireEvent.click(screen.getByLabelText('Select src'));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select test.txt'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Select src'));
+    });
 
     const selectedKeys = Array.from(readyStore.getState().selectedFilePaths);
     expect(selectedKeys).toEqual([encodeFileSelection('root', '/test.txt')]);
   });
 
-  it('calls onRender callback when provided', () => {
+  it('calls onRender callback when provided', async () => {
     const mockOnRender = vi.fn();
 
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree
-          fileTree={mockFileTree}
-          folderId="root"
-          loadingFiles={new Set()}
-          onRender={mockOnRender}
-        />
-      </FileExplorerTestWrapper>
-    );
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree
+            fileTree={mockFileTree}
+            folderId="root"
+            loadingFiles={new Set()}
+            onRender={mockOnRender}
+          />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     expect(mockOnRender).toHaveBeenCalled();
   });
 
-  it('renders empty tree when fileTree is empty', () => {
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={[]} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+  it('renders empty tree when fileTree is empty', async () => {
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={[]} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     expect(screen.getByText('No data available')).toBeInTheDocument();
   });
 
-  it('applies correct classes to tree container', () => {
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+  it('applies correct classes to tree container', async () => {
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     const treeGrid = screen.getByRole('treegrid', { name: 'File tree' });
     expect(treeGrid).toHaveClass('file-tree');
   });
 
-  it('renders with loading files set', () => {
+  it('renders with loading files set', async () => {
     const loadingFiles = new Set(['root:/src/file1.txt']);
 
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={loadingFiles} />
-      </FileExplorerTestWrapper>
-    );
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={loadingFiles} />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     expect(screen.getByTestId('file-tree')).toBeInTheDocument();
   });
 
-  it('handles folderId changes', () => {
-    const { rerender } = render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+  it('handles folderId changes', async () => {
+    let rerenderFn: ReturnType<typeof render>['rerender'];
+
+    await act(async () => {
+      const result = render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+      rerenderFn = result.rerender;
+    });
 
     expect(screen.getByTestId('file-tree')).toBeInTheDocument();
 
-    rerender(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="other" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
-
-    expect(screen.getByTestId('file-tree')).toBeInTheDocument();
-  });
-
-  it('does not call onRender when not provided', () => {
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+    await act(async () => {
+      rerenderFn!(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="other" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     expect(screen.getByTestId('file-tree')).toBeInTheDocument();
   });
 
-  it('handles fileTree updates', () => {
-    const { rerender } = render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+  it('does not call onRender when not provided', async () => {
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+    });
+
+    expect(screen.getByTestId('file-tree')).toBeInTheDocument();
+  });
+
+  it('handles fileTree updates', async () => {
+    let rerenderFn: ReturnType<typeof render>['rerender'];
+
+    await act(async () => {
+      const result = render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+      rerenderFn = result.rerender;
+    });
 
     expect(screen.getByTestId('file-tree')).toBeInTheDocument();
 
@@ -704,16 +756,18 @@ describe('OptimizedFileTree', () => {
       },
     ];
 
-    rerender(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={newFileTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+    await act(async () => {
+      rerenderFn!(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={newFileTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     expect(screen.getByTestId('file-tree')).toBeInTheDocument();
   });
 
-  it('renders with invisible nodes filtered out', () => {
+  it('renders with invisible nodes filtered out', async () => {
     const treeWithInvisible: IFileNode[] = [
       {
         name: 'visible',
@@ -739,16 +793,22 @@ describe('OptimizedFileTree', () => {
       },
     ];
 
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={treeWithInvisible} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree
+            fileTree={treeWithInvisible}
+            folderId="root"
+            loadingFiles={new Set()}
+          />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     expect(screen.getByTestId('file-tree')).toBeInTheDocument();
   });
 
-  it('handles nested directory structure', () => {
+  it('handles nested directory structure', async () => {
     const nestedTree: IFileNode[] = [
       {
         name: 'level1',
@@ -786,11 +846,13 @@ describe('OptimizedFileTree', () => {
       },
     ];
 
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={nestedTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree fileTree={nestedTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+    });
 
     expect(screen.getByTestId('file-tree')).toBeInTheDocument();
   });
