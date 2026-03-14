@@ -168,6 +168,52 @@ function baz() {
         expect(result.chunks.length).toBeGreaterThan(0);
       });
 
+      it('falls back to recursive splitting when AST parsing fails', async () => {
+        vi.doMock('@babel/parser', () => ({
+          parse: () => {
+            throw new Error('parser exploded');
+          },
+        }));
+
+        const result = await chunkContent(
+          `
+const alpha = () => 1;
+const beta = () => 2;
+const gamma = () => alpha() + beta();
+`.repeat(40),
+          {
+            strategy: 'recursive',
+            fileName: 'broken.ts',
+          }
+        );
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('recursive');
+        expect(result.chunks.length).toBeGreaterThan(1);
+      });
+
+      it('falls back to recursive splitting when no top-level function ranges exist', async () => {
+        const result = await chunkContent(
+          `
+const CONFIG = {
+  name: 'brainstrike',
+  version: '1.0.0',
+  nested: { enabled: true, retries: 3 },
+};
+
+export const FLAGS = ['alpha', 'beta', 'gamma'];
+`.repeat(50),
+          {
+            strategy: 'recursive',
+            fileName: 'config.ts',
+          }
+        );
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('recursive');
+        expect(result.chunks.length).toBeGreaterThan(1);
+      });
+
       it('should honor forceStrategy for markdown and keep recursive strategy', async () => {
         const markdown = '# Header\n\nParagraph one.\n\nParagraph two.';
 
@@ -249,6 +295,27 @@ function baz() {
         expect(result.chunks[0]?.chunkSize).toBe(explicitMaxTokens);
       });
 
+      it('applies code-language defaults when recommendations are enabled', async () => {
+        const generatedCode = Array.from(
+          { length: 120 },
+          (_, index) => `
+export function feature${index}() {
+  return 'feature-${index}';
+}
+`
+        ).join('\n');
+
+        const result = await chunkContent(generatedCode, {
+          strategy: 'token',
+          fileName: 'feature.ts',
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.chunks[0]?.chunkSize).toBe(
+          CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens
+        );
+      });
+
       it('should sanitize invalid maxTokensCap values to the safety cap', async () => {
         const result = await chunkContent('word '.repeat(1000), {
           strategy: 'token',
@@ -259,6 +326,19 @@ function baz() {
 
         expect(result.skipped).toBe(false);
         expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.maxTokensSafetyCap);
+      });
+
+      it('clamps overlap below maxTokens when explicit overlap is too large', async () => {
+        const result = await chunkContent('word '.repeat(200), {
+          strategy: 'token',
+          fileName: 'overlap.txt',
+          maxTokens: 32,
+          overlap: 64,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.chunks[0]?.chunkSize).toBe(32);
+        expect(result.chunks[0]?.content.length).toBeGreaterThan(0);
       });
     });
 
