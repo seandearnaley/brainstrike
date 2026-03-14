@@ -122,7 +122,7 @@ async function fetchAndCacheMissingDimensions(
   // ANY($1) is safe here: unique embedding set IDs are typically a small set
   // (most chunks in a batch share the same set), and insert batches are capped
   // at 250 rows, well within PG's parameter limits.
-  const queryResult = await db.query<{ id: string; dimensions?: number }>(
+  const queryResult = await db.query<{ id: string; dimensions: number }>(
     'SELECT id, dimensions FROM embedding_sets WHERE id = ANY($1)',
     [missingIds]
   );
@@ -152,70 +152,6 @@ export async function resolveEmbeddingSetDimensions(
   }
 
   return result;
-}
-
-async function resolveEmbeddingSetDimension(
-  db: Queryable,
-  embeddingSetId: string
-): Promise<number> {
-  const cached = embeddingDimensionCache.get(embeddingSetId);
-  if (typeof cached === 'number') {
-    return cached;
-  }
-
-  const result = await db.query<{ dimensions?: number }>(
-    'SELECT dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
-    [embeddingSetId]
-  );
-  const dimensionsRaw = result.rows[0]?.dimensions;
-  // When dimensionsRaw is undefined (row missing), Number(undefined) yields NaN
-  // which the isFinite guard below catches and throws a descriptive error.
-  const dimensions = typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw);
-  if (!Number.isFinite(dimensions) || dimensions <= 0) {
-    throw new Error(
-      `Embedding set ${embeddingSetId} is missing or has invalid dimensions (${dimensionsRaw}).`
-    );
-  }
-
-  if (dimensions > MAX_EMBEDDING_DIMENSION) {
-    throw new Error(
-      `Embedding set ${embeddingSetId} defines ${dimensions} dimensions, exceeding the supported maximum (${MAX_EMBEDDING_DIMENSION}).`
-    );
-  }
-
-  embeddingDimensionCache.set(embeddingSetId, dimensions);
-  return dimensions;
-}
-
-/**
- * Validate embedding payloads against optional target dimensions.
- * Ensures embeddings are numeric arrays and match the provided embedding_set dimensions.
- */
-export async function validateEmbeddingDimension(
-  db: Queryable,
-  embedding: number[] | undefined,
-  options: { embeddingSetId?: string | null; expectedDimension?: number } = {}
-): Promise<void> {
-  if (!embedding) {
-    return;
-  }
-
-  ensureArrayInput(embedding);
-  ensureNumericValues(embedding);
-  const embeddingDimension = embedding.length;
-  assertEmbeddingDimensionBounds(embeddingDimension);
-
-  const targetDimension = await resolveTargetDimension(db, options);
-  if (targetDimension === undefined) {
-    return;
-  }
-
-  assertTargetDimensionBounds(targetDimension);
-  if (embeddingDimension !== targetDimension) {
-    throw new Error(
-      `Embedding dimension mismatch: received ${embeddingDimension}, expected ${targetDimension}.`
-    );
-  }
 }
 
 function ensureArrayInput(embedding: number[]): void {
@@ -256,21 +192,6 @@ function assertTargetDimensionBounds(dimension: number): void {
       `Invalid target embedding dimension (${dimension}). Maximum supported is ${MAX_EMBEDDING_DIMENSION}.`
     );
   }
-}
-
-async function resolveTargetDimension(
-  db: Queryable,
-  options: { embeddingSetId?: string | null; expectedDimension?: number }
-): Promise<number | undefined> {
-  if (options.embeddingSetId) {
-    return resolveEmbeddingSetDimension(db, options.embeddingSetId);
-  }
-
-  if (typeof options.expectedDimension === 'number') {
-    return options.expectedDimension;
-  }
-
-  return;
 }
 
 import { createLogger } from '@brainstrike/utils';
