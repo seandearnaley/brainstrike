@@ -73,18 +73,11 @@ export function splitContentLines(content: string): string[] {
   return lines.length > 0 ? lines : [''];
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally matching control characters for sanitization
+const XML_ILLEGAL_CONTROL_CHARS_REGEX = /[\x00-\x08\x0b\x0c\x0e-\x1f]/g;
+
 function stripXmlIllegalControlChars(value: string): string {
-  let sanitized = '';
-  for (const char of value) {
-    const codePoint = char.codePointAt(0);
-    if (codePoint === undefined) {
-      continue;
-    }
-    if (codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd || codePoint >= 0x20) {
-      sanitized += char;
-    }
-  }
-  return sanitized;
+  return value.replace(XML_ILLEGAL_CONTROL_CHARS_REGEX, '');
 }
 
 function escapeXmlAttribute(value: string): string {
