@@ -102,7 +102,8 @@ describe('ElectronFileChunkRepository smoke coverage', () => {
       embeddingHash: chunk.embeddingHash ?? null,
     } as FileChunk);
 
-    query.mockResolvedValueOnce({ rows: [{ distance: 'cosine', dimensions: 2 }] });
+    // validateEmbeddingDimensions issues: SELECT id, dimensions FROM embedding_sets WHERE id = ANY($1)
+    query.mockResolvedValueOnce({ rows: [{ id: 'set-2', dimensions: 2 }] });
     query.mockResolvedValueOnce({ rows: [expectedRow] });
 
     const inserted = await repo.insert(chunk);
