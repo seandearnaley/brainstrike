@@ -166,13 +166,14 @@ export const LoadingOverlay = ({
       >
         <div className="relative h-10 w-10">
           {isInitialLoad ? (
-            <Loader2 className="h-10 w-10 animate-spin" />
+            <Loader2 aria-hidden="true" className="h-10 w-10 animate-spin" />
           ) : (
-            <RefreshCw className="h-10 w-10 animate-spin" />
+            <RefreshCw aria-hidden="true" className="h-10 w-10 animate-spin" />
           )}
         </div>
         <div className="w-full">
           <Progress
+            aria-label="Loading progress"
             className={cn('h-2', isCancelling && 'opacity-50')}
             data-progress={isCancelling ? 0 : progressPercentage}
             data-testid="progress-bar"
