@@ -24,7 +24,7 @@ describe('TooltipIconButton', () => {
       </TooltipIconButton>
     );
 
-    expect(screen.getByText('Copy to clipboard')).toBeInTheDocument();
+    expect(screen.getByLabelText('Copy to clipboard')).toBeInTheDocument();
   });
 
   it('renders as a button by default', () => {

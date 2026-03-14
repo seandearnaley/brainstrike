@@ -168,8 +168,8 @@ describe('ToolsFilterBar', () => {
 
       const resetButton = screen.getByTestId('reset-filters');
       expect(resetButton.querySelector('svg')).toBeInTheDocument();
-      // Should not have visible text (only sr-only)
-      expect(resetButton.textContent).toBe('Reset filters');
+      // aria-label provides the accessible name; no visible text needed
+      expect(resetButton.textContent).toBe('');
     });
   });
 
@@ -278,8 +278,8 @@ describe('ToolsFilterBar', () => {
       render(<ToolsFilterBar {...defaultProps} />);
 
       expect(screen.getByTestId('tooltip-content')).toBeInTheDocument();
-      // There are two "Reset filters" texts: one in sr-only span and one in tooltip
-      expect(screen.getAllByText('Reset filters')).toHaveLength(2);
+      // Only the tooltip content text; aria-label provides the accessible name
+      expect(screen.getByText('Reset filters')).toBeInTheDocument();
     });
   });
 });
