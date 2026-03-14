@@ -27,6 +27,9 @@ export function preloadDatabaseTab(): Promise<void> {
 
 interface DatabaseTabProps {
   readonly chunkingMode?: 'host-proxy' | 'local';
+  // Callers must pass a referentially stable loader (useCallback at the app root).
+  // This component treats the first resolved queue for a given loader as canonical
+  // and does not silently swap queue instances during unrelated parent re-renders.
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
 }
 

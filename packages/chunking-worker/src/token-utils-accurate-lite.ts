@@ -222,6 +222,8 @@ function decodeDataUrlToArrayBuffer(dataUrl: string): ArrayBuffer {
     payload,
     'base64'
   );
+  // Buffer.from() may return a pooled/shared backing buffer, so we must copy into
+  // a right-sized Uint8Array instead of returning decoded.buffer directly.
   const bytes = new Uint8Array(decoded.byteLength);
   bytes.set(decoded);
   return bytes.buffer;

@@ -19,6 +19,9 @@ export function isDesktopFilesystemBridgeServer(server: McpServerLike): boolean 
     return false;
   }
 
+  // Intentionally narrow: this strips only the built-in desktop filesystem bridge
+  // launched through `npx @modelcontextprotocol/server-filesystem`, not arbitrary
+  // user-defined file servers with similar behavior or different launchers.
   const normalizedCommand = server.command.trim().toLowerCase();
   const normalizedArgs = server.args?.map((arg) => arg.trim().toLowerCase()) ?? [];
   const runsFilesystemServer =
