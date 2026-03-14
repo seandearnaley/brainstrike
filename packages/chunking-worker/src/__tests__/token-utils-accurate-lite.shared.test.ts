@@ -1,5 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const retryState = vi.hoisted(() => ({
+  shouldFail: false,
+}));
+
+const retryTiktokenFactory = vi.hoisted(() => {
+  return () => ({
+    encoding_for_model: () => {
+      if (retryState.shouldFail) {
+        retryState.shouldFail = false;
+        throw new Error('first init failed');
+      }
+      return {
+        encode: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
+      };
+    },
+    get_encoding: vi.fn(),
+  });
+});
+
 describe('token-utils-accurate-lite shared behavior', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -7,6 +26,7 @@ describe('token-utils-accurate-lite shared behavior', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.doUnmock('tiktoken');
   });
 
   it('keeps chunking-worker and token-cache accurate-lite runtimes behaviorally aligned', async () => {
@@ -44,5 +64,20 @@ describe('token-utils-accurate-lite shared behavior', () => {
       expect(freeChunkingEncoder).toHaveBeenCalledTimes(1);
       expect(freeTokenCacheEncoder).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('retries encoder initialization after the first creation attempt fails in both runtimes', async () => {
+    vi.doMock('tiktoken', retryTiktokenFactory);
+
+    retryState.shouldFail = true;
+    const chunkingAccurate = await import('../token-utils-accurate-lite');
+    await expect(chunkingAccurate.supportsAccurateTokenCounting()).resolves.toBe(false);
+    await expect(chunkingAccurate.supportsAccurateTokenCounting()).resolves.toBe(true);
+
+    vi.resetModules();
+    retryState.shouldFail = true;
+    const tokenCacheAccurate = await import('../../../token-cache/src/token-utils-accurate-lite');
+    await expect(tokenCacheAccurate.supportsAccurateTokenCounting()).resolves.toBe(false);
+    await expect(tokenCacheAccurate.supportsAccurateTokenCounting()).resolves.toBe(true);
   });
 });

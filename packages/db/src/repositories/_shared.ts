@@ -71,66 +71,87 @@ class EmbeddingDimensionCache {
 // Process-local LRU cache with bounded size to prevent memory leaks.
 const embeddingDimensionCache = new EmbeddingDimensionCache(MAX_CACHE_SIZE);
 
-async function resolveEmbeddingSetDimension(
-  db: Queryable,
-  embeddingSetId: string
-): Promise<number> {
-  const cached = embeddingDimensionCache.get(embeddingSetId);
-  if (typeof cached === 'number') {
-    return cached;
+/**
+ * Partition embedding set IDs into cached results and uncached IDs.
+ */
+function partitionCachedIds(ids: string[]): {
+  cached: Map<string, number>;
+  uncachedIds: string[];
+} {
+  const cached = new Map<string, number>();
+  const uncachedIds: string[] = [];
+  for (const id of ids) {
+    const value = embeddingDimensionCache.get(id);
+    if (typeof value === 'number') {
+      cached.set(id, value);
+    } else {
+      uncachedIds.push(id);
+    }
   }
+  return { cached, uncachedIds };
+}
 
-  const result = await db.query<{ dimensions?: number }>(
-    'SELECT dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
-    [embeddingSetId]
-  );
-  const dimensionsRaw = result.rows[0]?.dimensions;
-  const dimensions = typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw ?? 0);
+/**
+ * Parse and validate a raw dimension value from a database row.
+ * Returns the validated dimension or throws on invalid/out-of-range values.
+ */
+function parseAndValidateRowDimension(rowId: string, dimensionsRaw: unknown): number {
+  const dimensions = typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw);
   if (!Number.isFinite(dimensions) || dimensions <= 0) {
     throw new Error(
-      `Embedding set ${embeddingSetId} is missing or has invalid dimensions (${dimensionsRaw}).`
+      `Embedding set ${rowId} is missing or has invalid dimensions (${dimensionsRaw}).`
     );
   }
-
   if (dimensions > MAX_EMBEDDING_DIMENSION) {
     throw new Error(
-      `Embedding set ${embeddingSetId} defines ${dimensions} dimensions, exceeding the supported maximum (${MAX_EMBEDDING_DIMENSION}).`
+      `Embedding set ${rowId} defines ${dimensions} dimensions, exceeding the supported maximum (${MAX_EMBEDDING_DIMENSION}).`
     );
   }
-
-  embeddingDimensionCache.set(embeddingSetId, dimensions);
   return dimensions;
 }
 
 /**
- * Validate embedding payloads against optional target dimensions.
- * Ensures embeddings are numeric arrays and match the provided embedding_set dimensions.
+ * Fetch missing embedding set dimensions from the database, validate them,
+ * populate the cache, and merge into the result map.
  */
-export async function validateEmbeddingDimension(
+async function fetchAndCacheMissingDimensions(
   db: Queryable,
-  embedding: number[] | undefined,
-  options: { embeddingSetId?: string | null; expectedDimension?: number } = {}
+  missingIds: string[],
+  result: Map<string, number>
 ): Promise<void> {
-  if (!embedding) {
-    return;
+  // ANY($1) is safe here: unique embedding set IDs are typically a small set
+  // (most chunks in a batch share the same set), and insert batches are capped
+  // at 250 rows, well within PG's parameter limits.
+  const queryResult = await db.query<{ id: string; dimensions: number }>(
+    'SELECT id, dimensions FROM embedding_sets WHERE id = ANY($1)',
+    [missingIds]
+  );
+
+  for (const row of queryResult.rows) {
+    const dimensions = parseAndValidateRowDimension(row.id, row.dimensions);
+    embeddingDimensionCache.set(row.id, dimensions);
+    result.set(row.id, dimensions);
   }
 
-  ensureArrayInput(embedding);
-  ensureNumericValues(embedding);
-  const embeddingDimension = embedding.length;
-  assertEmbeddingDimensionBounds(embeddingDimension);
+  for (const id of missingIds) {
+    if (!result.has(id)) {
+      throw new Error(`Embedding set ${id} is missing or has invalid dimensions.`);
+    }
+  }
+}
 
-  const targetDimension = await resolveTargetDimension(db, options);
-  if (targetDimension === undefined) {
-    return;
+export async function resolveEmbeddingSetDimensions(
+  db: Queryable,
+  embeddingSetIds: string[]
+): Promise<Map<string, number>> {
+  const uniqueIds = [...new Set(embeddingSetIds)];
+  const { cached: result, uncachedIds } = partitionCachedIds(uniqueIds);
+
+  if (uncachedIds.length > 0) {
+    await fetchAndCacheMissingDimensions(db, uncachedIds, result);
   }
 
-  assertTargetDimensionBounds(targetDimension);
-  if (embeddingDimension !== targetDimension) {
-    throw new Error(
-      `Embedding dimension mismatch: received ${embeddingDimension}, expected ${targetDimension}.`
-    );
-  }
+  return result;
 }
 
 function ensureArrayInput(embedding: number[]): void {
@@ -171,21 +192,6 @@ function assertTargetDimensionBounds(dimension: number): void {
       `Invalid target embedding dimension (${dimension}). Maximum supported is ${MAX_EMBEDDING_DIMENSION}.`
     );
   }
-}
-
-async function resolveTargetDimension(
-  db: Queryable,
-  options: { embeddingSetId?: string | null; expectedDimension?: number }
-): Promise<number | undefined> {
-  if (options.embeddingSetId) {
-    return resolveEmbeddingSetDimension(db, options.embeddingSetId);
-  }
-
-  if (typeof options.expectedDimension === 'number') {
-    return options.expectedDimension;
-  }
-
-  return;
 }
 
 import { createLogger } from '@brainstrike/utils';
@@ -378,4 +384,63 @@ export function appendRawClause(builder: UpdateBuilder, clause: string, value: u
   builder.setParts.push(`${clause} = $${builder.index}`);
   builder.values.push(value);
   builder.index += 1;
+}
+
+export async function validateEmbeddingDimensions(
+  db: Queryable,
+  embeddingsData: {
+    embedding?: number[] | undefined;
+    embeddingSetId?: string | null;
+    expectedDimension?: number;
+  }[]
+): Promise<void> {
+  // Extract all unique embeddingSetIds to pre-fetch them in one batch
+  const uniqueEmbeddingSetIds = new Set<string>();
+  for (const data of embeddingsData) {
+    if (data.embedding && data.embeddingSetId) {
+      uniqueEmbeddingSetIds.add(data.embeddingSetId);
+    }
+  }
+
+  // Pre-warm the cache with a single batch query and keep the result map
+  // so we can look up dimensions synchronously in the loop below.
+  const dimensionMap =
+    uniqueEmbeddingSetIds.size > 0
+      ? await resolveEmbeddingSetDimensions(db, Array.from(uniqueEmbeddingSetIds))
+      : new Map<string, number>();
+
+  // Validate each embedding synchronously using the pre-fetched dimension map
+  for (const data of embeddingsData) {
+    if (!data.embedding) {
+      continue;
+    }
+
+    ensureArrayInput(data.embedding);
+    ensureNumericValues(data.embedding);
+    const embeddingDimension = data.embedding.length;
+    assertEmbeddingDimensionBounds(embeddingDimension);
+
+    // Resolve the target dimension from the pre-fetched map or from
+    // the explicit expectedDimension option — no async call needed.
+    let targetDimension: number | undefined;
+    if (data.embeddingSetId) {
+      targetDimension = dimensionMap.get(data.embeddingSetId);
+    } else if (typeof data.expectedDimension === 'number') {
+      targetDimension = data.expectedDimension;
+    }
+
+    // Payloads without an embeddingSetId (and no explicit expectedDimension)
+    // skip the dimension check — they represent embeddings not yet bound to a
+    // specific set, so there is no target dimension to validate against.
+    if (targetDimension === undefined) {
+      continue;
+    }
+
+    assertTargetDimensionBounds(targetDimension);
+    if (embeddingDimension !== targetDimension) {
+      throw new Error(
+        `Embedding dimension mismatch: received ${embeddingDimension}, expected ${targetDimension}.`
+      );
+    }
+  }
 }

@@ -14,6 +14,7 @@ export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButton
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
+          aria-label={tooltip}
           size="icon"
           variant="ghost"
           {...rest}
@@ -21,14 +22,7 @@ export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButton
           className={cn('size-6 p-1', className)}
           ref={ref}
         >
-          {asChild ? (
-            children
-          ) : (
-            <>
-              {children}
-              <span className="sr-only">{tooltip}</span>
-            </>
-          )}
+          {children}
         </Button>
       </TooltipTrigger>
       <TooltipContent side={side}>{tooltip}</TooltipContent>

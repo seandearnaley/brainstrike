@@ -73,18 +73,17 @@ export function splitContentLines(content: string): string[] {
   return lines.length > 0 ? lines : [''];
 }
 
+// Pre-compile the regular expression to match all XML-illegal ASCII control characters.
+// These are characters < 0x20, EXCEPT tab (0x9), line feed (0xa), and carriage return (0xd).
+// eslint-disable-next-line no-control-regex
+// biome-ignore lint/suspicious/noControlCharactersInRegex: Intentionally matching control characters for sanitization
+const ILLEGAL_XML_CONTROL_CHARS_REGEX = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g;
+
 function stripXmlIllegalControlChars(value: string): string {
-  let sanitized = '';
-  for (const char of value) {
-    const codePoint = char.codePointAt(0);
-    if (codePoint === undefined) {
-      continue;
-    }
-    if (codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd || codePoint >= 0x20) {
-      sanitized += char;
-    }
-  }
-  return sanitized;
+  // Using a pre-compiled regex and native .replace() is significantly faster than
+  // iterating over the string with a for...of loop and manual codePoint checks,
+  // especially since it avoids intermediate string allocations for clean strings.
+  return value.replace(ILLEGAL_XML_CONTROL_CHARS_REGEX, '');
 }
 
 function escapeXmlAttribute(value: string): string {

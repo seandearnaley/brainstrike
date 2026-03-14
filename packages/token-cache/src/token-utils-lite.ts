@@ -18,7 +18,10 @@ export function countTokensHeuristic(text: string): number {
 
 function getAccurateTokenUtils(): Promise<typeof import('./token-utils-accurate-lite')> {
   if (!accurateTokenUtilsPromise) {
-    accurateTokenUtilsPromise = import('./token-utils-accurate-lite');
+    accurateTokenUtilsPromise = import('./token-utils-accurate-lite').catch((error: unknown) => {
+      accurateTokenUtilsPromise = null;
+      throw error;
+    });
   }
   return accurateTokenUtilsPromise;
 }

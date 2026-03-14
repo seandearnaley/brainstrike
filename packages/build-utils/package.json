@@ -18,17 +18,17 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "default": "./dist/index.mjs"
     }
   },
   "files": [
     "dist/**"
   ],
-  "main": "./dist/index.js",
+  "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
+    "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
     "clean": "rm -rf dist",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",

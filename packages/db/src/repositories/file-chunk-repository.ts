@@ -18,7 +18,7 @@ import {
   parseEmbeddingLoose,
   type Queryable,
   type UpdateBuilder,
-  validateEmbeddingDimension,
+  validateEmbeddingDimensions,
 } from './_shared.js';
 
 // Type definition for database row returned by PGlite
@@ -75,14 +75,14 @@ export class FileChunkRepository {
   }
 
   async insert(chunk: FileChunkInsert): Promise<FileChunk> {
-    await validateEmbeddingDimension(this.db as unknown as Queryable, chunk.embedding, {
-      embeddingSetId: chunk.embeddingSetId ?? null,
-    });
+    await validateEmbeddingDimensions(this.db as unknown as Queryable, [
+      { embedding: chunk.embedding, embeddingSetId: chunk.embeddingSetId ?? null },
+    ]);
     const result = await this.db.query(
       `INSERT INTO file_chunks (
-        id, file_record_id, chunk_index, content, content_hash, 
+        id, file_record_id, chunk_index, content, content_hash,
         token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) 
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       ON CONFLICT (id) DO UPDATE SET
         content = EXCLUDED.content,
         content_hash = EXCLUDED.content_hash,
@@ -120,12 +120,8 @@ export class FileChunkRepository {
       return [];
     }
 
-    // Validate all embeddings before processing
-    for (const chunk of chunks) {
-      await validateEmbeddingDimension(this.db as unknown as Queryable, chunk.embedding, {
-        embeddingSetId: chunk.embeddingSetId ?? null,
-      });
-    }
+    // Validate all embeddings before processing in batch
+    await validateEmbeddingDimensions(this.db as unknown as Queryable, chunks);
 
     // Batch inserts to avoid parameter limit issues (250 rows per batch)
     const BatchSize = 250;
@@ -199,12 +195,8 @@ export class FileChunkRepository {
       return [];
     }
 
-    // Validate all embeddings before processing
-    for (const chunk of chunks) {
-      await validateEmbeddingDimension(tx as unknown as Queryable, chunk.embedding, {
-        embeddingSetId: chunk.embeddingSetId ?? null,
-      });
-    }
+    // Validate all embeddings before processing in batch
+    await validateEmbeddingDimensions(tx as unknown as Queryable, chunks);
 
     const BatchSize = 250;
     const batches = batchArray(chunks, BatchSize);
@@ -841,9 +833,9 @@ export class FileChunkRepository {
     }
 
     const validationSetId = chunk.embeddingSetId ?? existingChunk?.embeddingSetId ?? null;
-    await validateEmbeddingDimension(this.db as unknown as Queryable, chunk.embedding, {
-      embeddingSetId: validationSetId,
-    });
+    await validateEmbeddingDimensions(this.db as unknown as Queryable, [
+      { embedding: chunk.embedding, embeddingSetId: validationSetId },
+    ]);
 
     appendColumn(builder, 'embedding', chunk.embedding ? `[${chunk.embedding.join(',')}]` : null);
     appendColumn(builder, 'embedding_updated_at', chunk.embeddingUpdatedAt ?? chunk.updatedAt);

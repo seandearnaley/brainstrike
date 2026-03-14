@@ -3,14 +3,26 @@ import {
   type ChunkingStrategy,
   countTokensHeuristic,
   isChunkingStrategy,
-  isMarkdownBlockBoundaryLine,
-  MARKDOWN_CODE_FENCE_PATTERN,
   RecursiveTextSplitter,
   type ResolvedChunkingStrategy,
   resolveChunkingStrategyForFile,
   resolveEffectiveChunkingStrategy,
   splitTextByStrategy,
 } from '@brainstrike/text-splitter';
+import {
+  type AstNode,
+  adjustChunkingForFileType as adjustChunkingForFileTypeShared,
+  assertTokenBudgetIterationsWithinLimit,
+  detectCodeLanguage,
+  findBalancedSplitPoint,
+  getCodeSeparators,
+  getTopLevelFunctionRanges,
+  resolveMaxTokensCap,
+  shouldSkipChunking as shouldSkipChunkingShared,
+  splitByBlankLines,
+  splitCodeByFunctionRanges,
+  splitMarkdownIntoBlocks,
+} from '@brainstrike/text-splitter/chunking-core';
 
 export type {
   ChunkingPresetDefinition,
@@ -70,79 +82,7 @@ export interface ChunkingResult {
   totalTokens: number;
 }
 
-// File patterns that should be skipped or handled differently (path or name)
-const SKIP_CHUNKING_PATTERNS = [
-  /package-lock\.json$/i,
-  /pnpm-lock\.yaml$/i,
-  /yarn\.lock$/i,
-  /composer\.lock$/i,
-  /Gemfile\.lock$/i,
-  /Pipfile\.lock$/i,
-  /poetry\.lock$/i,
-  /go\.sum$/i,
-  /Cargo\.lock$/i,
-  /npm-shrinkwrap\.json$/i,
-  // Large vendor/build artifacts and maps
-  /\.min\.[jt]s$/i,
-  /\.map$/i,
-  /\.wasm$/i,
-  /\.bin$/i,
-  // Common large directories
-  /(^|\/)node_modules(\/|$)/i,
-  /(^|\/)dist(\/|$)/i,
-  /(^|\/)build(\/|$)/i,
-  /(^|\/)coverage(\/|$)/i,
-];
-
 type CodeLanguage = keyof typeof CHUNKING_CONFIG.codeLanguageDefaults;
-
-const CODE_LANGUAGE_PATTERNS: Array<{ pattern: RegExp; language: CodeLanguage }> = [
-  { pattern: /\.vue$/i, language: 'javascript' },
-  { pattern: /\.svelte$/i, language: 'javascript' },
-  { pattern: /\.(ts|tsx|mts|cts)$/i, language: 'typescript' },
-  { pattern: /\.(js|jsx|mjs|cjs)$/i, language: 'javascript' },
-  { pattern: /\.mm$/i, language: 'cpp' },
-  { pattern: /\.m$/i, language: 'cpp' },
-  { pattern: /\.py$/i, language: 'python' },
-  { pattern: /\.rs$/i, language: 'rust' },
-  { pattern: /\.go$/i, language: 'go' },
-  { pattern: /\.(java|class)$/i, language: 'java' },
-  { pattern: /\.cs$/i, language: 'csharp' },
-  { pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/i, language: 'cpp' },
-  { pattern: /\.rb$/i, language: 'ruby' },
-  { pattern: /\.php$/i, language: 'php' },
-  { pattern: /\.swift$/i, language: 'swift' },
-  { pattern: /\.(kt|kts)$/i, language: 'kotlin' },
-];
-
-type AstNode = {
-  type?: string;
-  start?: number;
-  end?: number;
-} & Record<string, unknown>;
-
-function detectCodeLanguage(fileName: string): CodeLanguage | null {
-  const name = fileName.toLowerCase();
-  for (const { pattern, language } of CODE_LANGUAGE_PATTERNS) {
-    if (pattern.test(name)) {
-      return language;
-    }
-  }
-  return null;
-}
-
-// Large structured files that should use more aggressive chunking
-const LARGE_STRUCTURED_PATTERNS = [
-  /\.json$/i,
-  /\.xml$/i,
-  /\.csv$/i,
-  /\.tsv$/i,
-  /\.sql$/i,
-  /\.log$/i,
-];
-
-// Import the maximum file size from config
-const { maxChunkableSize } = CHUNKING_CONFIG;
 
 export class ChunkingService {
   async chunkContent(
@@ -210,174 +150,14 @@ export class ChunkingService {
     content: string,
     options: ChunkingOptions
   ): { skip: boolean; reason?: string } {
-    // Check file path/name against skip patterns
-    const fileName = options.fileName || options.filePath || '';
-    for (const pattern of SKIP_CHUNKING_PATTERNS) {
-      if (pattern.test(fileName)) {
-        return {
-          skip: true,
-          reason: `Lock file or dependency manifest: ${fileName}`,
-        };
-      }
-    }
-
-    // Skip binary-like content early (NUL bytes in the first few KB)
-    const probeWindow = content.slice(0, 4096);
-    if (probeWindow.includes('\u0000')) {
-      return { skip: true, reason: 'Binary content detected (NUL bytes present)' };
-    }
-
-    // Check content size
-    if (!options.allowLargeFiles && content.length > maxChunkableSize) {
-      return {
-        skip: true,
-        reason: `File too large: ${Math.round(content.length / 1024)}KB (max: ${Math.round(
-          maxChunkableSize / 1024
-        )}KB)`,
-      };
-    }
-
-    // Check for very repetitive content (common in generated files)
-    const allLines = content.split('\n');
-    const uniqueLines = new Set(allLines).size;
-    const totalLines = allLines.length;
-    if (totalLines > 1000 && uniqueLines / totalLines < 0.1) {
-      return {
-        skip: true,
-        reason: 'Highly repetitive content (likely generated file)',
-      };
-    }
-
-    return { skip: false };
+    return shouldSkipChunkingShared(content, options, CHUNKING_CONFIG.maxChunkableSize);
   }
 
   private adjustChunkingForFileType(
     content: string,
     options: ChunkingOptions
   ): { maxTokens: number; overlap: number } {
-    const fileName = options.fileName || options.filePath || '';
-    const ignoreRecommendations = options.ignoreFileTypeRecommendations === true;
-    const maxTokensCap = resolveMaxTokensCap(options.maxTokensCap);
-
-    const normalize = (value: number | undefined, fallback: number, minimum: number): number => {
-      const candidate = Number.isFinite(value) ? (value as number) : fallback;
-      return Math.max(minimum, Math.floor(candidate));
-    };
-
-    const requestedMaxTokens = options.maxTokens;
-    const requestedOverlap = options.overlap;
-    const hasExplicitMaxTokens = requestedMaxTokens !== undefined;
-    const hasExplicitOverlap = requestedOverlap !== undefined;
-
-    // Normalize inputs to sane integer values
-    let maxTokens = hasExplicitMaxTokens
-      ? normalize(requestedMaxTokens, CHUNKING_CONFIG.defaultMaxTokens, 1)
-      : Number.POSITIVE_INFINITY;
-    let overlap = hasExplicitOverlap
-      ? normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0)
-      : Number.POSITIVE_INFINITY;
-
-    interface ChunkAdjustment {
-      maxTokens: number;
-      overlap: number;
-    }
-    const apply = (state: ChunkAdjustment, cap: Partial<ChunkAdjustment>) => {
-      const next: ChunkAdjustment = { ...state };
-      if (typeof cap.maxTokens === 'number') {
-        next.maxTokens = Math.min(state.maxTokens, cap.maxTokens);
-      }
-      if (typeof cap.overlap === 'number') {
-        next.overlap = Math.min(state.overlap, cap.overlap);
-      }
-      return next;
-    };
-
-    if (!ignoreRecommendations) {
-      const adjustments: Array<(state: ChunkAdjustment) => ChunkAdjustment> = [];
-      const codeLanguage = detectCodeLanguage(fileName);
-      const isCode = Boolean(codeLanguage);
-      if (isCode) {
-        adjustments.push((state) => {
-          const cap: Partial<ChunkAdjustment> = {};
-          const languageDefaults = codeLanguage
-            ? CHUNKING_CONFIG.codeLanguageDefaults[codeLanguage]
-            : undefined;
-          if (!hasExplicitMaxTokens) {
-            cap.maxTokens = languageDefaults?.maxTokens ?? CHUNKING_CONFIG.codeMaxTokens;
-          }
-          if (!hasExplicitOverlap) {
-            cap.overlap = languageDefaults?.overlap ?? CHUNKING_CONFIG.codeOverlap;
-          }
-          return apply(state, cap);
-        });
-      }
-
-      const matchesStructured = LARGE_STRUCTURED_PATTERNS.some((pattern) => pattern.test(fileName));
-      if (matchesStructured) {
-        adjustments.push((state) => {
-          const cap: Partial<ChunkAdjustment> = {};
-          if (!hasExplicitMaxTokens) {
-            cap.maxTokens = CHUNKING_CONFIG.largeStructuredMaxTokens;
-          }
-          if (!hasExplicitOverlap) {
-            cap.overlap = CHUNKING_CONFIG.largeStructuredOverlap;
-          }
-          return apply(state, cap);
-        });
-      }
-
-      const exceedsVeryLargeThreshold = content.length > CHUNKING_CONFIG.veryLargeContentThreshold;
-      if (exceedsVeryLargeThreshold) {
-        adjustments.push((state) => {
-          const cap: Partial<ChunkAdjustment> = {};
-          if (!hasExplicitMaxTokens) {
-            cap.maxTokens = CHUNKING_CONFIG.veryLargeMaxTokens;
-          }
-          if (!hasExplicitOverlap) {
-            cap.overlap = CHUNKING_CONFIG.veryLargeOverlap;
-          }
-          return apply(state, cap);
-        });
-      }
-
-      let state: ChunkAdjustment = { maxTokens, overlap };
-      for (const adjust of adjustments) {
-        state = adjust(state);
-      }
-      maxTokens = state.maxTokens;
-      overlap = state.overlap;
-    }
-
-    // Enforce hard safety limits for explicitly provided values and defaults alike
-    const clamp = (value: number, fallback: number, limit: number) => {
-      if (!Number.isFinite(value)) {
-        return fallback;
-      }
-      return Math.max(1, Math.min(value, limit));
-    };
-
-    const resolveLimit = (hardLimit: number, safetyCap: number, explicit: boolean) =>
-      explicit ? hardLimit : Math.min(hardLimit, safetyCap);
-
-    const maxTokensLimit = resolveLimit(
-      CHUNKING_CONFIG.maxTokensHardLimit,
-      maxTokensCap,
-      hasExplicitMaxTokens
-    );
-    const overlapLimit = resolveLimit(
-      CHUNKING_CONFIG.overlapHardLimit,
-      CHUNKING_CONFIG.overlapSafetyCap,
-      hasExplicitOverlap
-    );
-
-    maxTokens = clamp(maxTokens, CHUNKING_CONFIG.defaultMaxTokens, maxTokensLimit);
-    overlap = clamp(overlap, CHUNKING_CONFIG.defaultOverlap, overlapLimit);
-
-    if (overlap >= maxTokens) {
-      overlap = Math.max(0, maxTokens - 1);
-    }
-
-    return { maxTokens, overlap };
+    return adjustChunkingForFileTypeShared(content, options, CHUNKING_CONFIG, detectCodeLanguage);
   }
 
   // (legacy) processChunks removed; streaming path is preferred.
@@ -734,7 +514,11 @@ export class ChunkingService {
     }
 
     const adjusted = this.adjustChunkingForFileType(content, options);
-    const maxTokensCap = resolveMaxTokensCap(options.maxTokensCap);
+    const maxTokensCap = resolveMaxTokensCap(
+      options.maxTokensCap,
+      CHUNKING_CONFIG.maxTokensHardLimit,
+      CHUNKING_CONFIG.maxTokensSafetyCap
+    );
     const effectiveMaxTokens = Math.min(adjusted.maxTokens, maxTokensCap);
     const effectiveOverlap = Math.min(adjusted.overlap, CHUNKING_CONFIG.overlapSafetyCap);
     const nowIso = () => new Date().toISOString();
@@ -906,92 +690,6 @@ export class ChunkingService {
   }
 }
 
-function resolveMaxTokensCap(cap?: number): number {
-  if (!Number.isFinite(cap ?? Number.NaN)) {
-    return CHUNKING_CONFIG.maxTokensSafetyCap;
-  }
-  const sanitized = Math.floor(cap as number);
-  if (sanitized <= 0) {
-    return CHUNKING_CONFIG.maxTokensSafetyCap;
-  }
-  return Math.max(256, Math.min(CHUNKING_CONFIG.maxTokensHardLimit, sanitized));
-}
-
-function isFunctionNode(type?: string): boolean {
-  if (!type) {
-    return false;
-  }
-  return (
-    type === 'FunctionDeclaration' ||
-    type === 'FunctionExpression' ||
-    type === 'ArrowFunctionExpression' ||
-    type === 'ObjectMethod' ||
-    type === 'ClassMethod' ||
-    type === 'ClassPrivateMethod' ||
-    type === 'TSDeclareFunction' ||
-    type === 'TSMethodSignature' ||
-    type === 'TSCallSignatureDeclaration'
-  );
-}
-
-function isAstNode(value: unknown): value is AstNode {
-  return Boolean(
-    value && typeof value === 'object' && 'type' in (value as Record<string, unknown>)
-  );
-}
-
-function isTopLevelContainerType(type?: string): boolean {
-  return (
-    type === 'Program' ||
-    type === 'ExportNamedDeclaration' ||
-    type === 'ExportDefaultDeclaration' ||
-    type === 'ClassBody'
-  );
-}
-
-function iterateAstChildren(node: AstNode): AstNode[] {
-  const children: AstNode[] = [];
-  for (const value of Object.values(node)) {
-    if (Array.isArray(value)) {
-      for (const child of value) {
-        if (isAstNode(child)) {
-          children.push(child);
-        }
-      }
-    } else if (isAstNode(value)) {
-      children.push(value);
-    }
-  }
-  return children;
-}
-
-function collectTopLevelFunctionRanges(
-  node: AstNode | null,
-  ancestors: AstNode[],
-  ranges: Array<{ start: number; end: number }>
-): void {
-  if (!node) {
-    return;
-  }
-
-  const nodeType = node.type ?? '';
-  const parentType = ancestors.at(-1)?.type;
-  if (
-    isTopLevelContainerType(parentType) &&
-    isFunctionNode(nodeType) &&
-    Number.isFinite(node.start) &&
-    Number.isFinite(node.end)
-  ) {
-    ranges.push({ start: Number(node.start), end: Number(node.end) });
-  }
-
-  ancestors.push(node);
-  for (const child of iterateAstChildren(node)) {
-    collectTopLevelFunctionRanges(child, ancestors, ranges);
-  }
-  ancestors.pop();
-}
-
 async function splitCodeByFunctions(
   content: string,
   {
@@ -1031,62 +729,18 @@ async function splitCodeByFunctions(
     return null;
   }
 
-  const ranges: Array<{ start: number; end: number }> = [];
-  collectTopLevelFunctionRanges(ast, [], ranges);
+  const ranges = getTopLevelFunctionRanges(ast);
 
   if (!ranges.length) {
     return null;
   }
 
-  ranges.sort((a, b) => a.start - b.start || a.end - b.end);
-
-  const pieces: string[] = [];
-  let cursor = 0;
-
-  const recursiveChunker = new RecursiveTextSplitter({
-    chunkSize: maxChars,
-    chunkOverlap: overlapChars,
+  return splitCodeByFunctionRanges(content, {
+    maxChars,
+    overlapChars,
+    ranges,
     separators,
   });
-
-  const pushSegment = async (segment: string) => {
-    const trimmed = segment.trim();
-    if (!trimmed) {
-      return;
-    }
-    if (trimmed.length <= maxChars * 1.25) {
-      pieces.push(trimmed);
-      return;
-    }
-    const subPieces = await recursiveChunker.splitText(trimmed);
-    pieces.push(...subPieces.map((piece: string) => piece.trim()).filter(Boolean));
-  };
-
-  const appendRange = async (startIndex: number, endIndex: number) => {
-    const safeStart = Math.max(0, Math.min(startIndex, content.length));
-    const safeEnd = Math.max(safeStart, Math.min(endIndex, content.length));
-    await pushSegment(content.slice(safeStart, safeEnd));
-  };
-
-  for (const range of ranges) {
-    const clampedStart = Math.max(0, Math.min(range.start, content.length));
-    const clampedEnd = Math.max(clampedStart, Math.min(range.end, content.length));
-
-    if (clampedStart > cursor) {
-      await appendRange(cursor, clampedStart);
-    }
-
-    const paddedStart = Math.max(0, clampedStart - overlapChars);
-    const paddedEnd = Math.min(content.length, clampedEnd + overlapChars);
-    await appendRange(paddedStart, paddedEnd);
-    cursor = clampedEnd;
-  }
-
-  if (cursor < content.length) {
-    await appendRange(cursor, content.length);
-  }
-
-  return pieces;
 }
 
 // Utilities for streaming splitter
@@ -1106,184 +760,4 @@ async function computeCharsPerToken(content: string, options: ChunkingOptions): 
     });
   }
   return Number(CHUNKING_CONFIG.averageCharsPerToken);
-}
-
-function getCodeSeparators(custom?: string[]) {
-  if (custom?.length) {
-    return custom;
-  }
-  return [
-    '\n\n',
-    // Declarations and exports
-    '\nexport default ',
-    '\nexport class ',
-    '\nclass ',
-    '\nexport function ',
-    '\nfunction ',
-    '\nexport const ',
-    '\nconst ',
-    '\nlet ',
-    '\nvar ',
-    '\nexport interface ',
-    '\ninterface ',
-    '\ntype ',
-    '\nimport ',
-    // Test blocks and common structures
-    '\ndescribe(',
-    '\nit(',
-    '\nelse ',
-    '\ntry {',
-    '\ncatch (',
-    '\nfinally {',
-    '\nswitch (',
-    // Fallbacks
-    '\n}',
-    '\n};',
-    '\n',
-    ';',
-    ',',
-    ' ',
-    '',
-  ];
-}
-
-function splitByBlankLines(text: string): string[] {
-  const parts: string[] = [];
-  let buf: string[] = [];
-  const lines = text.split(/\r?\n/);
-  for (const line of lines) {
-    if (line.trim() === '') {
-      if (buf.length) {
-        parts.push(buf.join('\n'));
-        buf = [];
-      }
-    } else {
-      buf.push(line);
-    }
-  }
-  if (buf.length) {
-    parts.push(buf.join('\n'));
-  }
-  return parts;
-}
-
-function findBalancedSplitPoint(content: string): number {
-  const midpoint = Math.floor(content.length / 2);
-  const separators = ['\n\n', '\n', '. ', ' '] as const;
-
-  for (const separator of separators) {
-    const before = content.lastIndexOf(separator, midpoint);
-    if (before > 0 && before < content.length - separator.length) {
-      return before + separator.length;
-    }
-
-    const after = content.indexOf(separator, midpoint);
-    if (after > 0 && after < content.length - separator.length) {
-      return after + separator.length;
-    }
-  }
-
-  return Math.max(1, midpoint);
-}
-
-function assertTokenBudgetIterationsWithinLimit(iterations: number, maxIterations: number): void {
-  if (iterations > maxIterations) {
-    throw new Error(
-      `splitChunkToTokenBudget exceeded ${String(maxIterations)} iterations for a single chunk`
-    );
-  }
-}
-
-function splitMarkdownIntoBlocks(content: string) {
-  interface Block {
-    meta: { isFence?: boolean; heading?: string };
-    text: string;
-  }
-  const blocks: Block[] = [];
-  const lines = content.split(/\r?\n/);
-  let i = 0;
-  while (i < lines.length) {
-    const fence = captureFence(lines, i);
-    if (fence.block) {
-      blocks.push(fence.block);
-      i = fence.consumed;
-      continue;
-    }
-
-    const head = captureHeading(lines, i);
-    if (head.heading) {
-      blocks.push(head.heading);
-      i = head.consumed;
-      continue;
-    }
-
-    const para = captureParagraph(lines, i);
-    if (para.paragraph) {
-      blocks.push(para.paragraph);
-    }
-    i = para.consumed;
-  }
-  return blocks;
-}
-
-function captureFence(
-  lines: (string | undefined)[],
-  start: number
-): { consumed: number; block?: { text: string; meta: { isFence: true } } } {
-  const line = lines[start] ?? '';
-  const openMatch = MARKDOWN_CODE_FENCE_PATTERN.exec(line);
-  if (!openMatch) {
-    return { consumed: start };
-  }
-  const fenceChar = openMatch[1]?.[0] ?? '`';
-  const fenceLen = openMatch[1]?.length ?? 3;
-  const closingPattern = new RegExp(`^\\s*${fenceChar}{${fenceLen},}\\s*$`);
-  const buf: string[] = [line];
-  let i = start + 1;
-  while (i < lines.length) {
-    const cur = lines[i] ?? '';
-    if (closingPattern.test(cur)) {
-      break;
-    }
-    buf.push(cur);
-    i++;
-  }
-  if (i < lines.length) {
-    buf.push(lines[i] ?? '');
-    i++;
-  }
-  return { consumed: i, block: { text: buf.join('\n'), meta: { isFence: true } } };
-}
-
-function captureHeading(lines: (string | undefined)[], start: number) {
-  const raw = lines[start] ?? '';
-  const m = raw.match(/^(#{1,6})\s+(.*)$/);
-  if (!m) {
-    return { consumed: start } as const;
-  }
-  const headingText: string = m[2] ?? '';
-  return { consumed: start + 1, heading: { text: raw, meta: { heading: headingText } } } as const;
-}
-
-function captureParagraph(lines: (string | undefined)[], start: number) {
-  const buf: string[] = [];
-  let i = start;
-  while (i < lines.length) {
-    const cur = lines[i] ?? '';
-    if (isMarkdownBlockBoundaryLine(cur)) {
-      break;
-    }
-    buf.push(cur);
-    i++;
-  }
-  if (buf.length === 0) {
-    while (i < lines.length && (lines[i] ?? '').trim() === '') {
-      i++;
-    }
-    return { consumed: i } as const;
-  }
-  while (i < lines.length && (lines[i] ?? '').trim() === '') {
-    i++;
-  }
-  return { consumed: i, paragraph: { text: buf.join('\n'), meta: {} as const } } as const;
 }
