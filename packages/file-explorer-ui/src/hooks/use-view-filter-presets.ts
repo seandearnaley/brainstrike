@@ -18,7 +18,7 @@ import type {
   UpdateViewFilterPresetInput,
   ViewFilterPreset,
 } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { asc } from 'drizzle-orm';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -186,10 +186,10 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
 
   // Select the appropriate presets based on path
   const presets = useDrizzlePath ? drizzlePresets : repoPresets;
-  // Repository consumers must remain in a loading state until lazy DB initialization
-  // settles; otherwise callers cannot distinguish "no presets exist" from
-  // "preset data is temporarily unavailable".
-  const loading = useDrizzlePath ? drizzleLoading : repoLoading || dbInitializing;
+  // Only surface provider initialization as loading when the repository does not
+  // yet exist. Once the repository is usable, callers should render its data
+  // immediately instead of staying trapped behind a global DB spinner.
+  const loading = useDrizzlePath ? drizzleLoading : repoLoading || (!repository && dbInitializing);
   const error = useDrizzlePath ? drizzleError : (repoError ?? dbProviderError);
 
   const createPreset = useCallback(

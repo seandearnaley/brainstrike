@@ -1,7 +1,6 @@
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
-import { reloadRenderer } from './utils/electron-helpers';
 
 interface BufferedLogRecord {
   readonly args: readonly unknown[];
@@ -225,17 +224,20 @@ function isObjectWithNumber(
 }
 
 test.describe('Startup Restore Regression', () => {
-  test('restores folder and active tab without startup churn signatures', async ({ window }) => {
+  test('restores folder and active tab without startup churn signatures', async ({
+    electronHarness,
+    window,
+  }) => {
     await seedRestoredStartupState(window);
-
-    await reloadRenderer(window, 'startup-restore-regression');
+    const restartedContext = await electronHarness.restart();
+    const restartedWindow = restartedContext.window;
     await expect(
-      window.getByRole('tab', { name: new RegExp(RESTORED_FILE_NAME, 'i') })
+      restartedWindow.getByRole('tab', { name: new RegExp(RESTORED_FILE_NAME, 'i') })
     ).toBeVisible({ timeout: 15_000 });
 
-    await window.waitForTimeout(1000);
+    await restartedWindow.waitForTimeout(1000);
 
-    const records = await getRendererLogRecords(window);
+    const records = await getRendererLogRecords(restartedWindow);
     expect(
       records.some((record) =>
         recordContainsText(record, 'Deferring file content loading until tree is ready')
@@ -279,6 +281,18 @@ test.describe('Startup Restore Regression', () => {
     );
     const tokenCacheWorkerFailureLogs = records.filter((record) =>
       recordContainsText(record, 'Token cache worker warmup failed after')
+    );
+    const tokenCacheWorkerCreateFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'TokenCacheProvider: failed to create worker pool')
+    );
+    const tokenCacheWorkerTerminationLogs = records.filter((record) =>
+      recordContainsText(record, 'Token cache worker pool has been terminated')
+    );
+    const strictTokenCountingFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Strict token counting failed')
+    );
+    const tokenCountingFailureLogs = records.filter((record) =>
+      recordContainsText(record, 'Failed to count tokens')
     );
     const backgroundIndexerFailureLogs = records.filter((record) =>
       recordContainsText(record, 'Background token indexer entered failed state')
@@ -358,9 +372,13 @@ test.describe('Startup Restore Regression', () => {
     expect(workerTreeInitializedLogs.length).toBeLessThanOrEqual(1);
     expect(noOpWarmCacheLogs).toHaveLength(0);
     expect(fileTreeMissingLogs).toHaveLength(0);
-    expect(tokenCacheWorkerStartupLogs).toHaveLength(0);
+    expect(tokenCacheWorkerStartupLogs.length).toBeLessThanOrEqual(1);
     expect(chunkingWorkerStartupLogs).toHaveLength(0);
     expect(tokenCacheWorkerFailureLogs).toHaveLength(0);
+    expect(tokenCacheWorkerCreateFailureLogs).toHaveLength(0);
+    expect(tokenCacheWorkerTerminationLogs).toHaveLength(0);
+    expect(strictTokenCountingFailureLogs).toHaveLength(0);
+    expect(tokenCountingFailureLogs).toHaveLength(0);
     expect(backgroundIndexerFailureLogs).toHaveLength(0);
     expect(chunkingWorkerFailureLogs).toHaveLength(0);
     expect(sharedIndexSkipLogs).toHaveLength(0);

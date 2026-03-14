@@ -16,6 +16,10 @@ vi.mock('@brainstrike/utils', () => ({
   createLogger: () => logger,
 }));
 
+vi.mock('@brainstrike/utils/logger', () => ({
+  createLogger: () => logger,
+}));
+
 vi.mock('@brainstrike/agent', () => ({
   isSupportedProvider: (value: string) => mockIsSupportedProvider(value),
 }));

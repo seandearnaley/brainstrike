@@ -18,8 +18,9 @@ import {
   parseProviderModelKey,
   resolveHostedProviderApiKey,
   VoyageEmbeddingProvider,
-} from '@brainstrike/embeddings';
-import { countTokensHeuristic, createLogger } from '@brainstrike/utils';
+} from '@brainstrike/embeddings/provider-core';
+import { countTokensHeuristic } from '@brainstrike/text-splitter';
+import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { getDatabase } from '../db-main';
 import { getSecretsService } from '../secrets';

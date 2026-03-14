@@ -1,4 +1,4 @@
-import { useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 
 export const ACTIVE_EMBEDDING_SET_KEY = 'brainstrike.activeEmbeddingSetId';
 

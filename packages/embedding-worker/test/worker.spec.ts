@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   computeInitialBatchSize,
   l2Normalize,
-  resolveEmbeddingWorkerUrl,
   truncateVector,
   vectorsFromPipelineOutput,
 } from '../src';
+import { resolveEmbeddingWorkerUrl } from '../src/worker-url';
 
 describe('shared math helpers', () => {
   it('normalizes vectors to unit length', () => {

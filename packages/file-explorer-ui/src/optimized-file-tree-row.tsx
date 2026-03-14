@@ -1,13 +1,13 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { LightweightCheckbox } from '@brainstrike/ui';
+import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import {
   countSelectedInDirectory,
-  createLogger,
   encodeFileSelection,
-  memoizedFileExplorer as fileExplorer,
   isPathSelectedInFolder,
-} from '@brainstrike/utils';
+} from '@brainstrike/utils/selection-utils';
 
 import {
   ChevronDown,

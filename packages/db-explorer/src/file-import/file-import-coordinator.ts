@@ -1,6 +1,8 @@
 import type { FileImportRequest, FileImportResult } from '@brainstrike/db';
 import type { IFileNode } from '@brainstrike/types';
-import { decodeFileSelection, fileContent, fileExplorer } from '@brainstrike/utils';
+import { fileContent } from '@brainstrike/utils/file-content';
+import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
+import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { FileImportError, isFileImportError } from './file-import-errors';
 import type {
   FileImportCallbacks,

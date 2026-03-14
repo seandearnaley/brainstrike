@@ -116,7 +116,7 @@ vi.mock('@brainstrike/agent/client', () => ({
   isNativeTool: (toolId: string) => toolId in mockState.nativeToolDefaults,
 }));
 
-vi.mock('@brainstrike/app-shell', () => ({
+vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   createSystemDiagnosticsSettingsCategory: (): MockSettingsCategory => ({
     id: 'diagnostics',
     title: 'Diagnostics',
@@ -146,27 +146,20 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
         setDevInlineFixtureEnabled: mockState.setDevInlineFixtureEnabledMock,
       });
   },
+  useOptionalTokenCacheContext: () => null,
 }));
 
-vi.mock('@brainstrike/preferences', () => ({
+vi.mock('@brainstrike/preferences/settings-page-content', () => ({
   createAppearanceSettingsCategory: (): MockSettingsCategory => ({
     id: 'appearance',
     title: 'Appearance',
     render: () => <div data-testid="appearance-category" />,
   }),
-  createTokenCountingSettingsCategory: (): MockSettingsCategory => ({
+  createTokenCountingSettingsCategoryWithRuntimeSupport: (): MockSettingsCategory => ({
     id: 'token-counting',
     title: 'Token Counting',
     render: () => <div data-testid="token-counting-category" />,
   }),
-  createToolsSettingsCategory: (options: CapturedToolsOptions): MockSettingsCategory => {
-    mockState.capturedToolsOptions = options;
-    return {
-      id: 'tools',
-      title: 'Tools',
-      render: () => <div data-testid="tools-category" />,
-    };
-  },
   createFactoryResetSettingsCategory: (
     options?: CapturedFactoryResetOptions
   ): MockSettingsCategory => {
@@ -177,11 +170,6 @@ vi.mock('@brainstrike/preferences', () => ({
       render: () => <div data-testid="factory-reset-category" />,
     };
   },
-  LoggingSettingsSection: (props: CapturedLoggingProps) => {
-    mockState.capturedLoggingProps = props;
-    return <div data-testid="logging-settings-section" />;
-  },
-  ModelSelectionPage: () => <div data-testid="model-selection-page" />,
   SettingsPageContent: ({
     categories,
   }: {
@@ -199,6 +187,9 @@ vi.mock('@brainstrike/preferences', () => ({
       </div>
     );
   },
+}));
+
+vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', () => ({
   useNativeToolPreferencesStore: {
     getState: () => ({
       isToolEnabled: (toolId: string) => mockState.nativeEnabledToolIds.has(toolId),
@@ -206,6 +197,28 @@ vi.mock('@brainstrike/preferences', () => ({
       resetTools: mockState.resetToolsMock,
     }),
   },
+}));
+
+vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
+  createToolsSettingsCategory: (options: CapturedToolsOptions): MockSettingsCategory => {
+    mockState.capturedToolsOptions = options;
+    return {
+      id: 'ai-tools',
+      title: 'AI Tools',
+      render: () => <div data-testid="tools-category" />,
+    };
+  },
+}));
+
+vi.mock('@brainstrike/preferences/settings/system/logging-settings-section', () => ({
+  LoggingSettingsSection: (props: CapturedLoggingProps) => {
+    mockState.capturedLoggingProps = props;
+    return <div data-testid="logging-settings-section" />;
+  },
+}));
+
+vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
+  ModelSelectionPage: () => <div data-testid="model-selection-page" />,
 }));
 
 const renderPage = () =>
@@ -350,7 +363,7 @@ describe('SettingsPageContent tool operations', () => {
       'token-counting',
       'models',
       'logging',
-      'tools',
+      'ai-tools',
       'diagnostics',
       'factory-reset',
     ]);

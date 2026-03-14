@@ -1,5 +1,5 @@
 import type { IDatabase, JobQueue } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 export interface EmbeddingBackfillQueueCounts {
   failed: number;

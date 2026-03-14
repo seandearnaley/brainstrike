@@ -1,4 +1,4 @@
-import { estimateTokenCost } from '@brainstrike/utils';
+import { estimateTokenCost } from '@brainstrike/text-splitter';
 import { FileExplorerMiddlePanelBase } from './file-explorer-middle-panel-base';
 
 /**

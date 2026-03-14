@@ -9,7 +9,7 @@ import {
   resolveDataStreamSession,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
 
 const logger = createLogger('WebAssistantRoute');

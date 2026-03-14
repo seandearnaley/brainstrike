@@ -6,7 +6,7 @@ import type {
   SerializedState,
 } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('Persistence');
 

@@ -555,6 +555,66 @@ describe('assistant-server', () => {
       await Promise.race([requestPromise, new Promise((resolve) => setTimeout(resolve, 1000))]);
     }, 15_000);
 
+    it('passes filesystem MCP config through to the Mastra runtime', async () => {
+      const { loadMcpConfig } = await import('../mcp-loader');
+      const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
+      const { streamResponse } = await import('../assistant-server/http');
+
+      vi.mocked(loadMcpConfig).mockResolvedValueOnce({
+        config: {
+          servers: [
+            {
+              name: 'filesystem',
+              transport: 'stdio',
+              command: 'npx',
+              args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            },
+          ],
+        },
+      } as never);
+
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { role: 'user', parts: [{ type: 'text', text: 'Hello' }] },
+      ]);
+
+      (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'text', content: 'Response' };
+        },
+      });
+
+      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
+        const response = res as { end?: () => void };
+        response.end?.();
+      });
+
+      await runRequest({
+        method: 'POST',
+        url: '/',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: { provider: 'openai' },
+        }),
+      });
+
+      expect(toAiSdkStyleStream).toHaveBeenCalledTimes(1);
+      const [, runtime] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(runtime.mcpConfig).toEqual({
+        servers: [
+          {
+            name: 'filesystem',
+            transport: 'stdio',
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+          },
+        ],
+      });
+    });
+
     it('should handle stream initialization failure', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
 

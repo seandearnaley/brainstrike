@@ -1,5 +1,5 @@
 import { Badge } from '@brainstrike/ui';
-import { getFolderColor } from '@brainstrike/utils';
+import { getFolderColor } from '@brainstrike/utils/color-utils';
 import { ArrowDown, ArrowUp, Folder } from 'lucide-react';
 import { type CSSProperties, memo } from 'react';
 

@@ -20,6 +20,15 @@ export default defineConfig({
   resolve: {
     alias: {
       '@brainstrike/queue': resolve(import.meta.dirname, '../queue/src/index.ts'),
+      '@brainstrike/utils/token-counting-runtime': resolve(
+        import.meta.dirname,
+        '../utils/src/token-counting-runtime.ts'
+      ),
+      '@brainstrike/utils/logger': resolve(import.meta.dirname, '../utils/src/logger.ts'),
+      '@brainstrike/utils/safe-storage': resolve(
+        import.meta.dirname,
+        '../utils/src/safe-storage.ts'
+      ),
       '@brainstrike/utils': resolve(import.meta.dirname, '../utils/src/index.ts'),
     },
   },

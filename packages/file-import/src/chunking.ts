@@ -4,9 +4,10 @@ import type {
   FileImportResult,
   FileRecord,
   IDatabase,
+  ResolvedChunkingStrategy,
 } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { getChunkingStrategy } from './chunking-strategy';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
@@ -178,7 +179,7 @@ async function updateFileRecordWithChunkInfo(
   repository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileRecordRepository>>,
   fileId: string,
   chunksCount: number,
-  strategy: ChunkingStrategy
+  strategy: ResolvedChunkingStrategy
 ): Promise<void> {
   await repository.update(fileId, {
     chunksProcessedAt: new Date().toISOString(),
@@ -241,7 +242,7 @@ async function prepareChunkingExecution(
     throw new Error(error);
   }
 
-  const fallbackStrategy = options.chunkingStrategy ?? 'sentence';
+  const fallbackStrategy = options.chunkingStrategy ?? 'auto';
 
   if (!(result.imported || result.existed) || result.error) {
     logger.debug('Skipping file chunking (not imported or has error)', {
@@ -278,8 +279,10 @@ async function prepareChunkingExecution(
   const autoStrategy = getChunkingStrategy(fileRecord.path);
   const requestedStrategy = options.chunkingStrategy;
   const forceRequested = options.forceStrategy === true;
-  const hasOverride = requestedStrategy !== undefined && requestedStrategy !== autoStrategy;
-  const strategy = requestedStrategy ?? autoStrategy ?? 'sentence';
+  const hasExplicitRequestedStrategy =
+    requestedStrategy !== undefined && requestedStrategy !== 'auto';
+  const hasOverride = hasExplicitRequestedStrategy && requestedStrategy !== autoStrategy;
+  const strategy = hasExplicitRequestedStrategy ? requestedStrategy : autoStrategy;
   const forceStrategy = forceRequested || hasOverride;
 
   return {
@@ -648,7 +651,7 @@ async function parallelLimit<T, R>(
   fn: (item: T, index: number) => Promise<R>
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
-  const executing: Promise<void>[] = [];
+  const executing = new Set<Promise<void>>();
 
   for (let i = 0; i < items.length; i++) {
     const promise = (async (index: number) => {
@@ -656,12 +659,12 @@ async function parallelLimit<T, R>(
     })(i);
 
     const execution = promise.finally(() => {
-      executing.splice(executing.indexOf(execution), 1);
+      executing.delete(execution);
     });
 
-    executing.push(execution);
+    executing.add(execution);
 
-    if (executing.length >= concurrency) {
+    if (executing.size >= concurrency) {
       try {
         await Promise.race(executing);
       } catch (error) {

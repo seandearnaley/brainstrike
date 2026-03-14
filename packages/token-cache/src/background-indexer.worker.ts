@@ -13,6 +13,7 @@
 
 /// <reference lib="webworker" />
 
+import { countTokensForMode } from './token-counting-runtime';
 import type { TokenCountingMode } from './types';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -280,8 +281,7 @@ async function readFileContent(
  */
 async function processFile(
   request: Omit<IndexerRequest, 'type'>,
-  hasher: XXHashModule,
-  utils: Awaited<ReturnType<typeof getTokenUtils>>
+  hasher: XXHashModule
 ): Promise<IndexerResult | IndexerError> {
   const startTime = performance.now();
 
@@ -337,10 +337,7 @@ async function processFile(
     }
 
     // Count tokens
-    const tokenCount =
-      request.mode === 'accurate'
-        ? await utils.countTokensAccurate(content)
-        : utils.countTokensHeuristic(content);
+    const tokenCount = await countTokensForMode(request.mode, content, getTokenUtils);
     const elapsedMs = performance.now() - startTime;
     log('debug', 'processFile token counted', { tokenCount, mode: request.mode, elapsedMs });
 
@@ -399,25 +396,15 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
   log('debug', 'processBatch start', { total: requests.length });
 
   try {
-    // Pre-initialize to avoid repeated async overhead
-    const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
-    const requiresAccurateCounting = requests.some((request) => request.mode === 'accurate');
-    if (requiresAccurateCounting) {
-      const accurateSupported = await utils.supportsAccurateTokenCounting();
-      if (!accurateSupported) {
-        const failureReason = utils.getAccurateTokenCountingFailureReason();
-        const failureSuffix = failureReason ? ` (${failureReason})` : '';
-        throw new Error(
-          `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`
-        );
-      }
-    }
+    // Pre-initialize hashing once. Accurate tokenizer startup is deferred until
+    // a request explicitly asks for accurate counting.
+    const hasher = await initHasher();
 
     const total = requests.length;
 
     for (const [i, request] of requests.entries()) {
       log('debug', 'processBatch item start', { index: i, total, id: request.id });
-      const result = await processFile(request, hasher, utils);
+      const result = await processFile(request, hasher);
 
       // Fail fast on terminal tokenizer errors. Continuing after this state only
       // creates duplicate per-file failures for the same root cause.
@@ -465,8 +452,8 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   try {
     log('debug', 'onmessage received', { type: (message as { type?: unknown }).type });
     if (message.type === 'index') {
-      const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
-      const result = await processFile(message, hasher, utils);
+      const hasher = await initHasher();
+      const result = await processFile(message, hasher);
       self.postMessage(result);
     } else if (message.type === 'index-batch') {
       await processBatch(message.requests);
@@ -490,7 +477,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
 const bootstrap = async (): Promise<void> => {
   try {
-    await Promise.all([initHasher(), getTokenUtils()]);
+    await initHasher();
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'worker bootstrap failed', formatted);

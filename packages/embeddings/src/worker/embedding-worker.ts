@@ -309,6 +309,8 @@ export interface EmbeddingWorkerOptions {
    * This is intended for desktop hidden-host mode to avoid renderer churn.
    */
   stopOnFatalLocalError?: boolean;
+  /** Explicit worker URL for streamed local embedding execution in the renderer host. */
+  streamingWorkerUrl?: string;
   workerId?: string; // optional
 }
 
@@ -776,7 +778,15 @@ async function initializeEmbeddingService(
 ): Promise<{ service: EmbeddingService; modelConfig: ModelConfig }> {
   workerLogger.info('initializeEmbeddingService: START', { modelKey });
 
-  const service = options.service ?? new SimpleEmbeddingService();
+  const service =
+    options.service ??
+    new SimpleEmbeddingService(
+      options.streamingWorkerUrl
+        ? {
+            streamingWorkerUrl: options.streamingWorkerUrl,
+          }
+        : undefined
+    );
   const initializeLocalService = mode?.initializeLocalService ?? true;
 
   const parsedForRegistry = parseProviderModelKey(modelKey);
@@ -973,7 +983,15 @@ export async function startEmbeddingWorker(
   } | null = null;
 
   if (isLocalProviderType(modelResolution.provider) && !initializeLocalModelOnStart) {
-    service = options.service ?? new SimpleEmbeddingService();
+    service =
+      options.service ??
+      new SimpleEmbeddingService(
+        options.streamingWorkerUrl
+          ? {
+              streamingWorkerUrl: options.streamingWorkerUrl,
+            }
+          : undefined
+      );
     localServiceInitialized = service.getStatus() === 'ready';
     workerLogger.info('Deferring local embedding model initialization until first claimed job', {
       modelKey: activeCompositeKey,
@@ -1121,7 +1139,13 @@ export async function startEmbeddingWorker(
       workerLogger.warn('Failed to dispose embedding service during reinitialization', { error });
     }
 
-    const nextService = new SimpleEmbeddingService();
+    const nextService = new SimpleEmbeddingService(
+      options.streamingWorkerUrl
+        ? {
+            streamingWorkerUrl: options.streamingWorkerUrl,
+          }
+        : undefined
+    );
     await nextService.initializeWithModel(cfg, undefined, options.device, options.cacheDir);
     return nextService;
   }

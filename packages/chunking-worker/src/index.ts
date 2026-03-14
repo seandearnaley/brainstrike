@@ -145,6 +145,10 @@ export function resolveChunkingWorkerUrl(): URL {
       : new URL('./chunking.worker.js', import.meta.url);
   }
 
+  // `import.meta.url` is always present in the ESM environments we test and ship.
+  // This dirname-only fallback exists for unusual non-bundled runtimes and is not
+  // practically exercisable under Vitest's ESM runner.
+  /* v8 ignore next 10 */
   const meta = getImportMeta();
   if (meta && typeof meta.dirname === 'string') {
     return new URL('./chunking.worker.js', `file://${meta.dirname}/`);

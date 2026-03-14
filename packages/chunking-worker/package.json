@@ -4,8 +4,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@babel/parser": "^7.29.0",
-    "@langchain/core": "^1.1.28",
-    "@langchain/textsplitters": "^1.0.1",
+    "@brainstrike/text-splitter": "workspace:*",
     "tiktoken": "^1.0.22"
   },
   "devDependencies": {

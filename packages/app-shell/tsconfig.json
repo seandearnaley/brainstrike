@@ -12,17 +12,107 @@
       "node"
     ],
     "paths": {
+      "@brainstrike/db-explorer/database-demo-panel": [
+        "../db-explorer/src/database-demo-panel.tsx"
+      ],
+      "@brainstrike/types": [
+        "../types/src/index.ts"
+      ],
+      "@brainstrike/types/*": [
+        "../types/src/*"
+      ],
+      "@brainstrike/text-splitter": [
+        "../text-splitter/src/index.ts"
+      ],
+      "@brainstrike/text-splitter/*": [
+        "../text-splitter/src/*"
+      ],
+      "@brainstrike/db": [
+        "../db/src/index.ts"
+      ],
+      "@brainstrike/db/*": [
+        "../db/src/*"
+      ],
+      "@brainstrike/embeddings": [
+        "../embeddings/src/index.ts"
+      ],
+      "@brainstrike/embeddings/*": [
+        "../embeddings/src/*"
+      ],
+      "@brainstrike/file-system": [
+        "../file-system/src/index.ts"
+      ],
+      "@brainstrike/file-system/*": [
+        "../file-system/src/*"
+      ],
+      "@brainstrike/file-tree-worker": [
+        "../file-tree-worker/src/index.ts"
+      ],
+      "@brainstrike/file-tree-worker/*": [
+        "../file-tree-worker/src/*"
+      ],
+      "@brainstrike/hooks": [
+        "../hooks/src/index.ts"
+      ],
+      "@brainstrike/hooks/*": [
+        "../hooks/src/*"
+      ],
+      "@brainstrike/platform-utils": [
+        "../platform-utils/src/index.ts"
+      ],
+      "@brainstrike/platform-utils/*": [
+        "../platform-utils/src/*"
+      ],
+      "@brainstrike/preferences/*": [
+        "../preferences/src/*"
+      ],
+      "@brainstrike/utils": [
+        "../utils/src/index.ts"
+      ],
+      "@brainstrike/utils/crypto": [
+        "../utils/src/crypto.ts"
+      ],
+      "@brainstrike/utils/*": [
+        "../utils/src/*"
+      ],
       "@brainstrike/file-explorer-hooks": [
-        "../file-explorer-hooks/src"
+        "../file-explorer-hooks/src/index.ts"
       ],
       "@brainstrike/file-explorer-ui": [
-        "../file-explorer-ui/src"
+        "../file-explorer-ui/src/index.ts"
       ],
       "@brainstrike/storage": [
-        "../storage/src"
+        "../storage/src/index.ts"
+      ],
+      "@brainstrike/token-cache": [
+        "../token-cache/src/index.ts"
+      ],
+      "@brainstrike/token-cache/*": [
+        "../token-cache/src/*"
       ],
       "@brainstrike/file-import": [
-        "../file-import/src"
+        "../file-import/src/index.ts"
+      ],
+      "@brainstrike/file-import/chunking-worker-context": [
+        "../file-import/src/chunking-worker-context.tsx"
+      ],
+      "@brainstrike/queue": [
+        "../queue/src/index.ts"
+      ],
+      "@brainstrike/queue/*": [
+        "../queue/src/*"
+      ],
+      "@brainstrike/selection-rules": [
+        "../selection-rules/src/index.ts"
+      ],
+      "@brainstrike/selection-rules/*": [
+        "../selection-rules/src/*"
+      ],
+      "@brainstrike/workers": [
+        "../workers/src/index.ts"
+      ],
+      "@brainstrike/workers/*": [
+        "../workers/src/*"
       ]
     },
     "strictNullChecks": true

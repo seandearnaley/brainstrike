@@ -1,4 +1,4 @@
-import { getProviderDefinition, type ProviderModelDefinition } from '@brainstrike/agent/client';
+import { getProviderDefinition } from '@brainstrike/agent/client';
 import type {
   ChunkingStrategy,
   FileChunk,
@@ -7,17 +7,14 @@ import type {
   ImportProgress,
 } from '@brainstrike/db';
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
-import type {
-  EmbeddingProviderType,
-  ModelConfig,
-  SimpleEmbeddingService,
-} from '@brainstrike/embeddings';
+import type { EmbeddingProviderType, ModelConfig } from '@brainstrike/embeddings/provider-core';
 import {
   canonicalizeProviderModelKey,
   isLocalProviderType,
   parseProviderModelKey,
   resolveHostedProviderApiKey,
-} from '@brainstrike/embeddings';
+} from '@brainstrike/embeddings/provider-core';
+import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import {
@@ -51,7 +48,10 @@ interface ModelCapabilities {
   type?: string;
 }
 
-type EmbeddingModelDefinition = Extract<ProviderModelDefinition, { type: 'embedding' }>;
+type EmbeddingModelDefinition = Extract<
+  ReturnType<typeof getProviderDefinition>['models'][number],
+  { type: 'embedding' }
+>;
 
 function isEmbeddingModelDefinition(model: unknown): model is EmbeddingModelDefinition {
   return Boolean(model) && (model as EmbeddingModelDefinition).type === 'embedding';
@@ -582,9 +582,7 @@ async function attachHostedModelMetadata(
   }
 
   const definition = getProviderDefinition(supported);
-  const modelDefinition = definition.models.find(
-    (candidate: ProviderModelDefinition) => candidate.id === modelId
-  );
+  const modelDefinition = definition.models.find((candidate) => candidate.id === modelId);
 
   if (modelDefinition && isEmbeddingModelDefinition(modelDefinition)) {
     resolved.targetDimension = pickHostedTargetDimension(modelDefinition);

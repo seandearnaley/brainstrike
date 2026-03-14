@@ -2,10 +2,27 @@ import type { ElectronAPI } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type UseEmbeddingControlsOptions, useEmbeddingControls } from '../use-embedding-controls';
+import type { EmbeddingRuntimeStatus } from '../vector-status/embedding-runtime-controller';
 import type {
   ApiKeyValidationResult,
   TelemetryTrendPoint,
 } from '../vector-status/use-vector-queue-state';
+
+const RUNNING_EMBEDDING_WORKER_STATUS: EmbeddingRuntimeStatus = {
+  runtimeKind: 'embedding-worker',
+  runtimeId: 'embedding-worker:test',
+  state: 'running',
+  active: false,
+  lastError: null,
+};
+
+const STOPPED_EMBEDDING_WORKER_STATUS: EmbeddingRuntimeStatus = {
+  runtimeKind: 'embedding-worker',
+  runtimeId: 'embedding-worker:test',
+  state: 'stopped',
+  active: false,
+  lastError: null,
+};
 
 /** Helper to create default queue state mock with required properties */
 function createQueueStateMock(
@@ -57,11 +74,14 @@ vi.mock('@brainstrike/db', () => {
   };
 });
 
-vi.mock('@brainstrike/preferences', () => ({
+vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
   useVectorPreferencesStore: vi.fn((selector) => {
     const state = { devicePref: 'webgpu', reinitEveryN: 100 };
     return selector(state);
   }),
+}));
+
+vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
   useVectorStatusUIStore: vi.fn((selector) => {
     const state = {
       activeEmbeddingSetId: 'set-1',
@@ -96,10 +116,25 @@ vi.mock('../vector-status/backfill-utils', () => ({
   getBackfillDisabledState: vi.fn(() => ({ disabled: false, title: '' })),
 }));
 
+vi.mock('../vector-status/embedding-runtime-controller', () => ({
+  useEmbeddingRuntimeController: vi.fn(() => ({
+    enqueueBackfill: vi.fn(async () => {}),
+    ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+    getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+    onBackfillProgress: vi.fn(() => () => {}),
+    onStatus: vi.fn(() => () => {}),
+    reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+    start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+    stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+  })),
+}));
+
 // Import mocked modules for manipulation
 import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
-import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';
+import { useEmbeddingRuntimeController } from '../vector-status/embedding-runtime-controller';
 import { useEmbeddingWorkerControls } from '../vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
 
@@ -151,6 +186,16 @@ describe('useEmbeddingControls', () => {
     vi.mocked(useVectorQueueState).mockReturnValue(createQueueStateMock());
 
     vi.mocked(getBackfillDisabledState).mockReturnValue({ disabled: false, title: '' });
+    vi.mocked(useEmbeddingRuntimeController).mockReturnValue({
+      enqueueBackfill: vi.fn(async () => {}),
+      ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      onBackfillProgress: vi.fn(() => () => {}),
+      onStatus: vi.fn(() => () => {}),
+      reset: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+      start: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      stop: vi.fn(async () => STOPPED_EMBEDDING_WORKER_STATUS),
+    });
   });
 
   describe('return structure', () => {
@@ -596,6 +641,7 @@ describe('useEmbeddingControls', () => {
 
       // On web, should auto-start worker before backfill
       expect(startWorker).toHaveBeenCalled();
+      expect(backfillActiveSet).toHaveBeenCalled();
     });
 
     it('shows toast when backfill fails after worker startup', async () => {
@@ -634,6 +680,47 @@ describe('useEmbeddingControls', () => {
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Backfill Failed',
         description: 'web backfill failed',
+        variant: 'destructive',
+      });
+    });
+
+    it('fails fast and does not enqueue backfill when worker startup fails on web', async () => {
+      const startWorker = vi.fn(async () => {
+        throw new Error('worker boot failed');
+      });
+      const backfillActiveSet = vi.fn(async () => {});
+
+      vi.mocked(useEmbeddingWorkerControls).mockReturnValue({
+        workerLocalRunning: false,
+        startingWorker: false,
+        startWorkerError: null,
+        startWorker,
+        stopWorker: vi.fn(async () => {}),
+        resetWorker: vi.fn(async () => {}),
+        clearWorkerError: vi.fn(),
+      });
+
+      vi.mocked(useVectorQueueState).mockReturnValue(
+        createQueueStateMock({
+          queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+          throughput: 0,
+          latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+          backfillActiveSet,
+        })
+      );
+
+      const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
+
+      await act(async () => {
+        await expect(result.current.dropdownProps.onBackfill()).rejects.toThrow(
+          'worker boot failed'
+        );
+      });
+
+      expect(backfillActiveSet).not.toHaveBeenCalled();
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Backfill Failed',
+        description: 'worker boot failed',
         variant: 'destructive',
       });
     });

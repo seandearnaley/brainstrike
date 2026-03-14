@@ -16,7 +16,8 @@ import {
   Switch,
   useToast,
 } from '@brainstrike/ui';
-import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
+import { LogLevel } from '@brainstrike/utils/logger';
+import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import { FolderOpen, RefreshCw } from 'lucide-react';
 import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 import { useLoggingPreferencesStore } from '../../stores/logging-preferences-store';

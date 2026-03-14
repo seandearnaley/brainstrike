@@ -23,4 +23,3 @@ export {
   StreamingEmbeddingWorkerClient,
   type StreamingEmbedOptions,
 } from './streaming-worker-client';
-export { resolveEmbeddingWorkerUrl } from './worker-url';

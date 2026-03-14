@@ -17,6 +17,10 @@ export interface DownloadModelOptions {
   onProgress?: (progress: EmbeddingProgress) => void;
 }
 
+export interface SimpleEmbeddingServiceOptions {
+  readonly streamingWorkerUrl?: string;
+}
+
 /**
  * Embedding service using transformers.js feature-extraction pipeline.
  * Model configuration must be provided via initializeWithModel() from database.
@@ -28,7 +32,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
   private _currentModelKey: string | null = null;
   private _currentModelConfig: ModelConfig | null = null;
 
-  constructor() {
+  constructor(options: SimpleEmbeddingServiceOptions = {}) {
     this._backend = new TransformersBackend();
 
     // Default config - will be overwritten by initializeWithModel()
@@ -39,6 +43,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       modelId: 'jinaai/jina-embeddings-v2-base-code', // Default HuggingFace ID
       device: 'webgpu',
       quantized: false,
+      ...(options.streamingWorkerUrl ? { streamingWorkerUrl: options.streamingWorkerUrl } : {}),
     };
     this._backend.setTargetDimensions(DEFAULT_EMBEDDING_DIMENSION);
   }

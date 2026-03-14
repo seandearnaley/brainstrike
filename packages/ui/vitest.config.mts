@@ -1,6 +1,55 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  resolve: {
+    alias: [
+      {
+        find: '@brainstrike/utils/create-debounce',
+        replacement: resolve(import.meta.dirname, '../utils/src/create-debounce.ts'),
+      },
+      {
+        find: '@brainstrike/utils/collator',
+        replacement: resolve(import.meta.dirname, '../utils/src/collator.ts'),
+      },
+      {
+        find: '@brainstrike/utils/env-utils',
+        replacement: resolve(import.meta.dirname, '../utils/src/env-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/file-utils',
+        replacement: resolve(import.meta.dirname, '../utils/src/file-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/filter-utils',
+        replacement: resolve(import.meta.dirname, '../utils/src/filter-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/logger',
+        replacement: resolve(import.meta.dirname, '../utils/src/logger.ts'),
+      },
+      {
+        find: '@brainstrike/utils/quick-filter-utils',
+        replacement: resolve(import.meta.dirname, '../utils/src/quick-filter-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/report-generator',
+        replacement: resolve(import.meta.dirname, '../utils/src/report-generator.ts'),
+      },
+      {
+        find: '@brainstrike/utils/safe-storage',
+        replacement: resolve(import.meta.dirname, '../utils/src/safe-storage.ts'),
+      },
+      {
+        find: '@brainstrike/hooks',
+        replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/utils',
+        replacement: resolve(import.meta.dirname, '../utils/src/index.ts'),
+      },
+    ],
+  },
   test: {
     // Standardize to happy-dom for unit/integration UI tests (2025 baseline)
     environment: 'happy-dom',

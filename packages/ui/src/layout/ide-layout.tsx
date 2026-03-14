@@ -1,4 +1,5 @@
-import { createLogger, isDevEnv } from '@brainstrike/utils';
+import { isDevEnv } from '@brainstrike/utils/env-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { ChevronLeft, ChevronRight, PanelLeft, PanelRight, Terminal, X } from 'lucide-react';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import {

@@ -174,8 +174,10 @@ vi.mock('../../embedding-host-manager', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+vi.mock('@brainstrike/utils/logger', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
+    '@brainstrike/utils/logger'
+  );
   return {
     ...actual,
     createLogger: () => ({

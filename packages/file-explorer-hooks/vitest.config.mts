@@ -15,12 +15,31 @@ export default defineConfig({
     testTimeout: 30_000,
   },
   resolve: {
-    alias: {
-      '@brainstrike/workers': path.resolve(import.meta.dirname, '../workers'),
-      '@brainstrike/workers/file-content-worker': path.resolve(
-        import.meta.dirname,
-        '../workers/file-content-worker.ts'
-      ),
-    },
+    alias: [
+      {
+        find: /^@brainstrike\/utils\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
+      },
+      {
+        find: '@brainstrike/utils',
+        replacement: path.resolve(import.meta.dirname, '../utils/src/index.ts'),
+      },
+      {
+        find: /^@brainstrike\/file-system\/(.*)$/,
+        replacement: path.resolve(import.meta.dirname, '../file-system/src/$1.ts'),
+      },
+      {
+        find: '@brainstrike/file-system',
+        replacement: path.resolve(import.meta.dirname, '../file-system/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/workers',
+        replacement: path.resolve(import.meta.dirname, '../workers'),
+      },
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: path.resolve(import.meta.dirname, '../workers/file-content-worker.ts'),
+      },
+    ],
   },
 });

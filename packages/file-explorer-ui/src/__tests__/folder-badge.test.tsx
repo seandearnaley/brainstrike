@@ -1,4 +1,4 @@
-import { getFolderColor } from '@brainstrike/utils';
+import { getFolderColor } from '@brainstrike/utils/color-utils';
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { FolderBadge } from '../folder-badge'; // Updated import
@@ -8,12 +8,12 @@ type MockedGetFolderColor = ReturnType<typeof vi.fn> & {
   mockReturnValue: (value: unknown) => void;
 };
 
-// Mock the @brainstrike/utils package specifically for getFolderColor
-vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+// Mock the color utils entry specifically for getFolderColor.
+vi.mock('@brainstrike/utils/color-utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/color-utils')>();
   return {
-    ...actual, // Keep other exports from the package
-    getFolderColor: vi.fn(), // Mock only getFolderColor
+    ...actual,
+    getFolderColor: vi.fn(),
   };
 });
 

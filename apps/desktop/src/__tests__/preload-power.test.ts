@@ -60,7 +60,12 @@ afterAll(() => {
 
 describe('preload power bridge', () => {
   beforeAll(async () => {
+    process.env['ELECTRON_IS_E2E_TEST'] = 'true';
     await import('../preload');
+  });
+
+  afterAll(() => {
+    process.env['ELECTRON_IS_E2E_TEST'] = undefined;
   });
 
   function getPowerApi() {
@@ -365,6 +370,7 @@ describe('preload power bridge', () => {
     mockInvoke.mockResolvedValue(undefined);
     const desktopLifecycleApi = getDesktopLifecycleApi();
     expect(desktopLifecycleApi).toBeDefined();
+    expect(desktopLifecycleApi?.isTestMode).toBe(true);
 
     await desktopLifecycleApi?.noteReloadIntent('factory-reset');
 

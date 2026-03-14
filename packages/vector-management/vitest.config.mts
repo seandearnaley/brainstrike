@@ -49,12 +49,111 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
-      '@brainstrike/queue/browser': resolve(__dirname, '../queue/src/browser.ts'),
-      '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
-      '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
-      '@brainstrike/preferences': resolve(__dirname, '../preferences/src/index.ts'),
-    },
+    alias: [
+      {
+        find: '@brainstrike/workers/report-generation-worker',
+        replacement: resolve(__dirname, '../workers/report-generation-worker.ts'),
+      },
+      {
+        find: '@brainstrike/hooks',
+        replacement: resolve(__dirname, '../hooks/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/ui',
+        replacement: resolve(__dirname, '../ui/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/utils/create-debounce',
+        replacement: resolve(__dirname, '../utils/src/create-debounce.ts'),
+      },
+      {
+        find: '@brainstrike/utils/collator',
+        replacement: resolve(__dirname, '../utils/src/collator.ts'),
+      },
+      {
+        find: '@brainstrike/utils/file-utils',
+        replacement: resolve(__dirname, '../utils/src/file-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/filter-utils',
+        replacement: resolve(__dirname, '../utils/src/filter-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/quick-filter-utils',
+        replacement: resolve(__dirname, '../utils/src/quick-filter-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/report-generator',
+        replacement: resolve(__dirname, '../utils/src/report-generator.ts'),
+      },
+      {
+        find: '@brainstrike/utils/token-counting-runtime',
+        replacement: resolve(__dirname, '../utils/src/token-counting-runtime.ts'),
+      },
+      {
+        find: '@brainstrike/utils/logger',
+        replacement: resolve(__dirname, '../utils/src/logger.ts'),
+      },
+      {
+        find: '@brainstrike/utils/logging-preferences',
+        replacement: resolve(__dirname, '../utils/src/logging-preferences.ts'),
+      },
+      {
+        find: '@brainstrike/utils/env-utils',
+        replacement: resolve(__dirname, '../utils/src/env-utils.ts'),
+      },
+      {
+        find: '@brainstrike/utils/safe-storage',
+        replacement: resolve(__dirname, '../utils/src/safe-storage.ts'),
+      },
+      {
+        find: '@brainstrike/utils',
+        replacement: resolve(__dirname, '../utils/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/runtime-config',
+        replacement: resolve(__dirname, '../embeddings/src/runtime-config.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/provider-core',
+        replacement: resolve(__dirname, '../embeddings/src/provider-core.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/backend',
+        replacement: resolve(__dirname, '../embeddings/src/backend-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/factory',
+        replacement: resolve(__dirname, '../embeddings/src/factory-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/service',
+        replacement: resolve(__dirname, '../embeddings/src/service-entry.ts'),
+      },
+      {
+        find: '@brainstrike/embeddings/worker',
+        replacement: resolve(__dirname, '../embeddings/src/worker-entry.ts'),
+      },
+      {
+        find: '@brainstrike/queue/browser',
+        replacement: resolve(__dirname, '../queue/src/browser.ts'),
+      },
+      {
+        find: '@brainstrike/queue',
+        replacement: resolve(__dirname, '../queue/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/agent/client',
+        replacement: resolve(__dirname, '../agent/src/client.ts'),
+      },
+      {
+        find: /^@brainstrike\/preferences\/(.*)$/,
+        replacement: resolve(__dirname, '../preferences/src/$1'),
+      },
+      {
+        find: '@brainstrike/preferences',
+        replacement: resolve(__dirname, '../preferences/src/index.ts'),
+      },
+    ],
   },
 });

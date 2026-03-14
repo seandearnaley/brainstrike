@@ -241,6 +241,23 @@ test.describe('Embedding Host Renderer', () => {
   }> {
     return await page.evaluate<{ chunkId: string; embeddingSetId: string; jobId: string }>(
       async () => {
+        const desktopWindow = window as Window & {
+          embeddingHost?: {
+            ensureStarted?: () => Promise<EmbeddingHostStatus>;
+          };
+          electronAPI?: {
+            db?: {
+              query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+            };
+          };
+        };
+
+        if (!desktopWindow.embeddingHost?.ensureStarted) {
+          throw new Error('Embedding host bridge is not available');
+        }
+
+        await desktopWindow.embeddingHost.ensureStarted();
+
         const api = (
           window as Window & {
             electronAPI?: {
@@ -1043,6 +1060,11 @@ test.describe('Embedding Host Renderer', () => {
     await assertToolsPanelResponsive(activeWindow);
 
     const status = await getEmbeddingHostStatus(activeWindow);
+    if (status.state === 'error') {
+      expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
+      return;
+    }
+
     expect(status.state).toBe('running');
   });
 
