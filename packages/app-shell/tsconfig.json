@@ -27,6 +27,42 @@
       "@brainstrike/text-splitter/*": [
         "../text-splitter/src/*"
       ],
+      "@brainstrike/db": [
+        "../db/src/index.ts"
+      ],
+      "@brainstrike/db/*": [
+        "../db/src/*"
+      ],
+      "@brainstrike/embeddings": [
+        "../embeddings/src/index.ts"
+      ],
+      "@brainstrike/embeddings/*": [
+        "../embeddings/src/*"
+      ],
+      "@brainstrike/file-system": [
+        "../file-system/src/index.ts"
+      ],
+      "@brainstrike/file-system/*": [
+        "../file-system/src/*"
+      ],
+      "@brainstrike/file-tree-worker": [
+        "../file-tree-worker/src/index.ts"
+      ],
+      "@brainstrike/file-tree-worker/*": [
+        "../file-tree-worker/src/*"
+      ],
+      "@brainstrike/hooks": [
+        "../hooks/src/index.ts"
+      ],
+      "@brainstrike/hooks/*": [
+        "../hooks/src/*"
+      ],
+      "@brainstrike/platform-utils": [
+        "../platform-utils/src/index.ts"
+      ],
+      "@brainstrike/platform-utils/*": [
+        "../platform-utils/src/*"
+      ],
       "@brainstrike/preferences/*": [
         "../preferences/src/*"
       ],
@@ -34,10 +70,10 @@
         "../utils/src/index.ts"
       ],
       "@brainstrike/utils/crypto": [
-        "../utils/dist/crypto.d.ts"
+        "../utils/src/crypto.ts"
       ],
       "@brainstrike/utils/*": [
-        "../utils/dist/*.d.ts"
+        "../utils/src/*"
       ],
       "@brainstrike/file-explorer-hooks": [
         "../file-explorer-hooks/src/index.ts"
@@ -47,6 +83,12 @@
       ],
       "@brainstrike/storage": [
         "../storage/src/index.ts"
+      ],
+      "@brainstrike/token-cache": [
+        "../token-cache/src/index.ts"
+      ],
+      "@brainstrike/token-cache/*": [
+        "../token-cache/src/*"
       ],
       "@brainstrike/file-import": [
         "../file-import/src/index.ts"
@@ -59,6 +101,18 @@
       ],
       "@brainstrike/queue/*": [
         "../queue/src/*"
+      ],
+      "@brainstrike/selection-rules": [
+        "../selection-rules/src/index.ts"
+      ],
+      "@brainstrike/selection-rules/*": [
+        "../selection-rules/src/*"
+      ],
+      "@brainstrike/workers": [
+        "../workers/src/index.ts"
+      ],
+      "@brainstrike/workers/*": [
+        "../workers/src/*"
       ]
     },
     "strictNullChecks": true
