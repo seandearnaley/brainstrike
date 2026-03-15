@@ -1,5 +1,6 @@
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Store mock functions at module level for access in tests
@@ -225,6 +226,29 @@ describe('useViewFilterPresets', () => {
 
     expect(mockFindAll).toHaveBeenCalled();
     expect(result.current.presets).toHaveLength(2);
+  });
+
+  it('loads presets under React StrictMode effect replay', async () => {
+    mockFindAll.mockImplementation(
+      () =>
+        new Promise<ViewFilterPreset[]>((resolve) => {
+          setTimeout(() => resolve(mockPresets), 0);
+        })
+    );
+
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(React.StrictMode, null, children);
+
+    const { result } = renderHook(() => useViewFilterPresets(), { wrapper });
+
+    expect(result.current.loading).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.presets).toHaveLength(2);
+    expect(mockFindAll).toHaveBeenCalled();
   });
 
   it('surfaces database provider errors when the repository is unavailable', () => {

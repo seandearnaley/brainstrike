@@ -118,9 +118,6 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
     }));
   }, [rows]);
 
-  // Track the repository we've fetched for (to detect changes and trigger re-fetch)
-  const lastFetchedRepoRef = useRef<typeof repository>(undefined);
-
   // Fetch presets using repository (Electron path)
   // Returns a cleanup function for AbortController cancellation
   const fetchPresetsFromRepo = useCallback(
@@ -161,20 +158,16 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
   const fetchPresetsRef = useRef(fetchPresetsFromRepo);
   fetchPresetsRef.current = fetchPresetsFromRepo;
 
-  // Fetch repository data when repository changes (Electron path)
-  // Using useEffect with cleanup for proper cancellation
+  // Fetch repository data when repository changes (Electron path).
+  // This effect must re-run on React dev replay as well as true repository changes.
+  // Suppressing the replay with a ref leaves the first aborted request as the only
+  // one that ever ran, which traps the UI in "Loading presets..." forever.
   useEffect(() => {
     if (useDrizzlePath || !repository) {
       // Not using repository path, ensure loading is false
       setRepoLoading(false);
       return;
     }
-
-    // Only fetch if repository has changed
-    if (lastFetchedRepoRef.current === repository) {
-      return;
-    }
-    lastFetchedRepoRef.current = repository;
 
     const controller = new AbortController();
     void fetchPresetsRef.current(controller.signal);
