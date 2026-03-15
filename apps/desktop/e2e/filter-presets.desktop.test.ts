@@ -62,6 +62,8 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
   const presetTrigger = await resolvePresetTrigger(window);
   await presetTrigger.click();
 
+  await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+
   const documentationOption = window.getByRole('button', { name: /documentation/i }).first();
   await expect(documentationOption).toBeVisible({ timeout: 10_000 });
   await documentationOption.click();
@@ -108,6 +110,22 @@ test.describe('Desktop filter presets', () => {
     await ensureViewFiltersExpanded(window);
 
     await resolvePresetTrigger(window);
+  });
+
+  test('loads presets without getting stuck on the loading state', async ({ window }) => {
+    test.setTimeout(45_000);
+
+    await ensureLeftPanelVisible(window);
+    await selectMockRoot(window);
+    await ensureViewFiltersExpanded(window);
+
+    const presetTrigger = await resolvePresetTrigger(window);
+    await presetTrigger.click();
+
+    await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+    await expect(window.getByRole('button', { name: /documentation/i }).first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('keeps the selected preset after app restart', async ({ electron, window }) => {
