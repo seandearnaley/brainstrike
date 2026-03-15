@@ -175,9 +175,19 @@ export default defineConfig({
       // NOTE: Do NOT alias @brainstrike/agent to source - server-side routes need the
       // full package which has Node.js dependencies. Only the /client subpath is browser-safe.
       // '@brainstrike/agent': path.resolve(__dirname, '../../packages/agent/src'),
-      // NOTE: @brainstrike/token-cache must resolve via package exports (dist) so the
-      // worker subpath `@brainstrike/token-cache/worker` points to the built worker.
-      // Do not alias to src or the worker entry will be missing.
+      // Resolve dev/runtime imports from source so Vite never depends on workspace dist churn.
+      '@brainstrike/token-cache/cache-runtime': path.resolve(
+        __dirname,
+        '../../packages/token-cache/src/cache-runtime.ts'
+      ),
+      '@brainstrike/token-cache/background-indexer': path.resolve(
+        __dirname,
+        '../../packages/token-cache/src/background-indexer.ts'
+      ),
+      '@brainstrike/selection-rules': path.resolve(
+        __dirname,
+        '../../packages/selection-rules/src/index.ts'
+      ),
       // Ensure hooks resolve to source once to avoid duplicates
       '@brainstrike/file-explorer-hooks': path.resolve(
         __dirname,

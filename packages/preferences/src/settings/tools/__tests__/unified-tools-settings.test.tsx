@@ -1186,6 +1186,11 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
 
       const editor = await screen.findByTestId('mcp-config-editor');
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-status')).toHaveTextContent(
+          'Created a new MCP config template with commented examples.'
+        );
+      });
       expect(editor).toHaveAttribute('aria-describedby', 'mcp-config-status-message');
 
       fireEvent.change(editor, {
