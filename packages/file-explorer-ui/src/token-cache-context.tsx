@@ -131,7 +131,8 @@ function buildTokenCacheWarmupError(attempts: number, lastError: Error | null): 
   );
 }
 
-class InMemoryTokenCacheStore {
+/** @internal Exported for testing only. */
+export class InMemoryTokenCacheStore {
   private readonly entries = new Map<string, TokenCacheEntry>();
 
   private static createKey(folderId: string, filePath: string): string {
