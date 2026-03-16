@@ -890,6 +890,86 @@ describe('processChunking', () => {
     expect(processedFileIds).toHaveLength(importResults.length);
   });
 
+  it('keeps cumulative chunk progress accurate when local-worker completions resolve out of order', async () => {
+    const progressSnapshots: EnhancedImportProgress[] = [];
+    let currentProgress: EnhancedImportProgress | null = {
+      completed: 0,
+      errors: [],
+      phase: 'chunking',
+      chunkingProgress: {
+        filesProcessed: 0,
+        totalFiles: 20,
+        chunksCreated: 0,
+      },
+      total: 20,
+    };
+
+    mockUpdateProgress.mockImplementation((updater: ProgressUpdater) => {
+      currentProgress = updater(currentProgress);
+      if (currentProgress) {
+        progressSnapshots.push(currentProgress);
+      }
+    });
+
+    const delayedWorkerPort = createMockChunkingWorkerPort({
+      transportKind: 'local-worker',
+      chunkFile: vi
+        .fn()
+        .mockImplementation(
+          async (
+            fileRecordId: string,
+            _content: string,
+            _fileName: string,
+            _filePath: string,
+            _options: unknown
+          ) => {
+            const index = Number(fileRecordId.replace('file-', ''));
+            const delayMs = (20 - index) % 5;
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            return {
+              fileRecordId,
+              chunks: [
+                {
+                  chunkIndex: 0,
+                  content: `Chunk content for ${fileRecordId}`,
+                  contentHash: `hash-${fileRecordId}`,
+                  tokenCount: 10,
+                  chunkType: 'sentence',
+                },
+              ],
+              strategyUsed: 'sentence',
+              totalTokens: 10,
+              skipped: false,
+            };
+          }
+        ),
+    });
+
+    const importResults: FileImportResult[] = Array.from({ length: 20 }, (_, index) => ({
+      id: `file-${index + 1}`,
+      imported: true,
+      existed: false,
+    }));
+
+    await processChunking(
+      importResults,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress, chunkingWorkerPort: delayedWorkerPort }
+    );
+
+    expect(progressSnapshots.at(-1)).toEqual({
+      completed: 0,
+      errors: [],
+      phase: 'complete',
+      chunkingProgress: {
+        filesProcessed: 20,
+        totalFiles: 20,
+        chunksCreated: 20,
+      },
+      total: 20,
+    });
+  });
+
   it('updates final progress correctly via worker', async () => {
     await processChunking(
       [{ id: 'file-1', imported: true, existed: false }],

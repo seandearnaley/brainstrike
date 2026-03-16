@@ -212,6 +212,14 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const lastEmbeddingSetIdRef = useRef<string | null>(null);
   const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backfillRequestIdRef = useRef<string | null>(null);
+  const backfillInvocationIdRef = useRef(0);
+
+  const clearBackfillTimeout = useCallback(() => {
+    if (backfillTimeoutRef.current) {
+      clearTimeout(backfillTimeoutRef.current);
+      backfillTimeoutRef.current = null;
+    }
+  }, []);
   const isBackfillActive = activeBackfill !== null;
   const backfillProgress = activeBackfill?.progress ?? null;
 
@@ -221,15 +229,12 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const liveQueryEnabled =
     Boolean(service) && !isImporting && !isEmbeddingActive && !isBackfillActive;
 
-  // Clear timeout on unmount
-  // biome-ignore lint/plugin: Cleanup timeout on unmount - standard cleanup pattern
+  // Clear timeout on unmount.
   useEffect(
     () => () => {
-      if (backfillTimeoutRef.current) {
-        clearTimeout(backfillTimeoutRef.current);
-      }
+      clearBackfillTimeout();
     },
-    []
+    [clearBackfillTimeout]
   );
 
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
@@ -442,8 +447,12 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     if (!activeEmbeddingSetId) {
       throw new Error('No active embedding set selected.');
     }
+    const invocationId = backfillInvocationIdRef.current + 1;
+    backfillInvocationIdRef.current = invocationId;
+    clearBackfillTimeout();
     setIsJobQueueActive(true);
     const pendingRequestId = `pending:${activeEmbeddingSetId}:${Date.now()}`;
+    let invocationRequestId = pendingRequestId;
     backfillRequestIdRef.current = pendingRequestId;
     setActiveBackfill({
       embeddingSetId: activeEmbeddingSetId,
@@ -454,6 +463,10 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       controller,
       activeEmbeddingSetId,
       (backfill) => {
+        if (backfillInvocationIdRef.current !== invocationId) {
+          return;
+        }
+        invocationRequestId = backfill.requestId;
         backfillRequestIdRef.current = backfill.requestId;
         setActiveBackfill(backfill);
       }
@@ -472,22 +485,32 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       throw error;
     } finally {
       unsubscribeProgress();
-      setIsJobQueueActive(false);
-      if (backfillTimeoutRef.current) {
-        clearTimeout(backfillTimeoutRef.current);
+      if (backfillInvocationIdRef.current === invocationId) {
+        setIsJobQueueActive(false);
+        clearBackfillTimeout();
+        const completedRequestId = invocationRequestId;
+        backfillTimeoutRef.current = setTimeout(() => {
+          if (
+            backfillInvocationIdRef.current === invocationId &&
+            completedRequestId &&
+            useVectorStatusUIStore.getState().activeBackfill?.requestId === completedRequestId
+          ) {
+            setActiveBackfill(null);
+            if (backfillRequestIdRef.current === completedRequestId) {
+              backfillRequestIdRef.current = null;
+            }
+          }
+          backfillTimeoutRef.current = null;
+        }, 1000);
       }
-      const completedRequestId = backfillRequestIdRef.current;
-      backfillTimeoutRef.current = setTimeout(() => {
-        if (
-          completedRequestId &&
-          useVectorStatusUIStore.getState().activeBackfill?.requestId === completedRequestId
-        ) {
-          setActiveBackfill(null);
-        }
-        backfillTimeoutRef.current = null;
-      }, 1000);
     }
-  }, [activeEmbeddingSetId, controller, setActiveBackfill, setIsJobQueueActive]);
+  }, [
+    activeEmbeddingSetId,
+    clearBackfillTimeout,
+    controller,
+    setActiveBackfill,
+    setIsJobQueueActive,
+  ]);
 
   const validateApiKey = useCallback(async (): Promise<ApiKeyValidationResult> => {
     if (!(service && activeEmbeddingSetId)) {

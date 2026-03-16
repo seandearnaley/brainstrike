@@ -206,6 +206,21 @@ function createMockController(): MockController {
   };
 }
 
+function createDeferred(): {
+  promise: Promise<void>;
+  reject: (reason?: unknown) => void;
+  resolve: () => void;
+} {
+  let resolve!: () => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, reject, resolve };
+}
+
 function resetLiveQueryData(): void {
   liveQueryState.queueCounts.rows = [{ queued: 0, running: 0, failed: 0, succeeded: 0 }];
   liveQueryState.throughput.rows = [{ count: 0 }];
@@ -216,6 +231,7 @@ function resetLiveQueryData(): void {
 
 describe('useVectorQueueState', () => {
   afterEach(() => {
+    vi.useRealTimers();
     resetLiveQueryData();
     liveQueryRefresh.queueCounts.mockReset();
     liveQueryRefresh.throughput.mockReset();
@@ -407,6 +423,73 @@ describe('useVectorQueueState', () => {
     expect(result.current.backfilling).toBe(false);
     expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
     expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
+  });
+
+  it('does not let an older backfill invocation clear newer backfill state', async () => {
+    vi.useFakeTimers();
+    const controller = createMockController();
+    const firstBackfill = createDeferred();
+    const secondBackfill = createDeferred();
+
+    controller.enqueueBackfillMock
+      .mockImplementationOnce(async () => await firstBackfill.promise)
+      .mockImplementationOnce(async () => await secondBackfill.promise);
+
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    const firstRun = result.current.backfillActiveSet();
+    controller.emitBackfillProgress({
+      embeddingSetId: 'set-1',
+      requestId: 'embedding-backfill:first',
+      stage: 'backfill',
+      current: 1,
+      total: 10,
+    });
+
+    const secondRun = result.current.backfillActiveSet();
+    controller.emitBackfillProgress({
+      embeddingSetId: 'set-1',
+      requestId: 'embedding-backfill:second',
+      stage: 'backfill',
+      current: 4,
+      total: 10,
+    });
+
+    firstBackfill.resolve();
+    await act(async () => {
+      await firstRun;
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(vectorStatusUiStoreState.activeBackfill).toEqual({
+      embeddingSetId: 'set-1',
+      requestId: 'embedding-backfill:second',
+      progress: { done: 4, total: 10 },
+    });
+    expect(vectorStatusUiStoreState.setIsJobQueueActive).not.toHaveBeenCalledWith(false);
+
+    secondBackfill.resolve();
+    await act(async () => {
+      await secondRun;
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(vectorStatusUiStoreState.activeBackfill).toBeNull();
+    expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
+    vi.useRealTimers();
   });
 
   it('refreshes live queries when the queue drained event targets the active embedding set', async () => {

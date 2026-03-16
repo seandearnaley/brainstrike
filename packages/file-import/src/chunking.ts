@@ -685,6 +685,20 @@ async function parallelLimit<T, R>(
   return results;
 }
 
+function createChunkingProgressAccumulator(
+  schedule: (update: {
+    chunksCreatedDelta: number;
+    strategyUsed: ChunkingStrategy;
+  }) => Promise<void>
+): (update: { chunksCreatedDelta: number; strategyUsed: ChunkingStrategy }) => Promise<void> {
+  let chain = Promise.resolve();
+
+  return async (update) => {
+    chain = chain.then(() => schedule(update));
+    await chain;
+  };
+}
+
 export async function processChunking(
   importResults: FileImportResult[],
   deps: ChunkingDeps,
@@ -735,6 +749,16 @@ export async function processChunking(
   let totalChunksCreated = 0;
   let filesProcessed = 0;
   const progressScheduler = createChunkingProgressScheduler(options.updateProgress);
+  const recordProgress = createChunkingProgressAccumulator(async (update) => {
+    totalChunksCreated += update.chunksCreatedDelta;
+    filesProcessed += 1;
+    progressScheduler.schedule({
+      filesProcessed,
+      totalFiles: importResults.length,
+      chunksCreated: totalChunksCreated,
+      strategyUsed: update.strategyUsed,
+    });
+  });
 
   // CRITICAL: No per-file fallback. A single chunking failure means import state is inconsistent.
   // Fail fast so we do not spam repeated worker/database errors across the whole selection.
@@ -798,12 +822,8 @@ export async function processChunking(
           await options.processEmbeddings(chunks, enhancedResult);
         }
 
-        totalChunksCreated += chunksCreated;
-        filesProcessed++;
-        progressScheduler.schedule({
-          filesProcessed,
-          totalFiles: importResults.length,
-          chunksCreated: totalChunksCreated,
+        await recordProgress({
+          chunksCreatedDelta: chunksCreated,
           strategyUsed,
         });
 
