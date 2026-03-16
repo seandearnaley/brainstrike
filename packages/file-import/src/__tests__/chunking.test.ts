@@ -611,6 +611,36 @@ describe('processChunking', () => {
     expect(results[1]?.chunksCreated).toBe(1);
   });
 
+  it('prefetches local-worker file records in bounded windows instead of one full-corpus fetch', async () => {
+    const importResults: FileImportResult[] = Array.from({ length: 45 }, (_, index) => ({
+      id: `file-${index + 1}`,
+      imported: true,
+      existed: false,
+    }));
+
+    mockRepository.findByIds.mockImplementation(async (ids: readonly string[]) =>
+      ids.map((id) => ({
+        id,
+        name: `${id}.txt`,
+        path: `/${id}.txt`,
+        content: `File content for ${id}`,
+      }))
+    );
+
+    await processChunking(
+      importResults,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+    );
+
+    expect(mockRepository.findByIds.mock.calls.length).toBeGreaterThan(1);
+    expect(
+      mockRepository.findByIds.mock.calls.every(
+        (call) => ((call[0] as readonly string[]).length || 0) <= 16
+      )
+    ).toBe(true);
+  });
+
   it('processes embeddings when enabled via worker', async () => {
     await processChunking(
       [{ id: 'file-1', imported: true, existed: false }],

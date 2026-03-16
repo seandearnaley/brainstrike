@@ -372,7 +372,6 @@ async function processFile(
 
 const TERMINAL_TOKENIZATION_ERROR_PATTERNS: RegExp[] = [
   /^accurate token counting unavailable:/i,
-  /^accurate token counting failed:/i,
   /tiktoken encoder failed to initialize/i,
 ];
 
@@ -406,8 +405,8 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
       log('debug', 'processBatch item start', { index: i, total, id: request.id });
       const result = await processFile(request, hasher);
 
-      // Fail fast on terminal tokenizer errors. Continuing after this state only
-      // creates duplicate per-file failures for the same root cause.
+      // Fail fast only when the tokenizer runtime is unavailable. File-content
+      // tokenization failures must stay file-scoped and must not poison the worker.
       if (result.type === 'error' && isTerminalTokenizationError(result.error)) {
         throw new Error(result.error);
       }

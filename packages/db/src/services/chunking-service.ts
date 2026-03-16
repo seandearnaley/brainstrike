@@ -99,9 +99,9 @@ export class ChunkingService {
     logger.debug(`Content length: ${content?.length || 0}`);
     logger.debug('Options', options);
 
-    if (!(content && fileRecordId)) {
+    if (typeof content !== 'string' || fileRecordId.length === 0) {
       logger.error('Missing required parameters', {
-        hasContent: !!content,
+        hasContent: typeof content === 'string',
         fileRecordId,
       });
       throw new Error('Content and fileRecordId are required for chunking');
@@ -498,7 +498,7 @@ export class ChunkingService {
     fileRecordId: string,
     options: ChunkingOptions = { strategy: 'auto' }
   ): AsyncGenerator<FileChunkInsert> {
-    if (!(content && fileRecordId)) {
+    if (typeof content !== 'string' || fileRecordId.length === 0) {
       throw new Error('Content and fileRecordId are required for chunking');
     }
 

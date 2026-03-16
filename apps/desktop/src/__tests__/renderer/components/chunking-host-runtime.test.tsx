@@ -1,7 +1,6 @@
-import { addLogListener, type LogRecord } from '@brainstrike/utils';
 import { render, waitFor } from '@testing-library/react';
 import { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChunkingHostRuntime } from '../../../renderer/components/chunking-host-runtime';
 
 const { ensureStartedMock, getChunkingStrategyMock } = vi.hoisted(() => ({
@@ -38,16 +37,10 @@ describe('ChunkingHostRuntime', () => {
   const reportStatusMock = vi.fn();
   const dbQueryMock = vi.fn();
   const chunkFileMock = vi.fn();
-  let logRecords: LogRecord[] = [];
-  let removeLogListener: (() => void) | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
     onRequestCallback = null;
-    logRecords = [];
-    removeLogListener = addLogListener((record: LogRecord) => {
-      logRecords.push(record);
-    });
 
     ensureStartedMock.mockResolvedValue({
       chunkFile: chunkFileMock,
@@ -82,13 +75,6 @@ describe('ChunkingHostRuntime', () => {
     };
 
     window.history.replaceState({}, '', '/?mode=chunking-host&runtimeId=test-runtime');
-  });
-
-  afterEach(() => {
-    if (removeLogListener) {
-      removeLogListener();
-      removeLogListener = null;
-    }
   });
 
   it('loads file content by id inside the hidden host before chunking', async () => {
@@ -204,6 +190,59 @@ describe('ChunkingHostRuntime', () => {
     });
   });
 
+  it('treats zero-byte file content as a valid chunking skip, not a host error', async () => {
+    chunkFileMock.mockResolvedValue({
+      chunks: [],
+      fileRecordId: 'file-empty',
+      id: 'req-empty',
+      skipped: true,
+      skipReason: 'Empty file content',
+      strategyUsed: 'recursive',
+      totalTokens: 0,
+      type: 'result',
+    });
+    dbQueryMock.mockResolvedValue({
+      rows: [{ name: 'empty.ts', path: '/mock/empty.ts', content: '' }],
+    });
+
+    render(<ChunkingHostRuntime />);
+
+    await act(async () => {
+      onRequestCallback?.({
+        type: 'request',
+        channel: 'chunk',
+        requestId: 'req-empty',
+        runtimeId: 'test-runtime',
+        payload: {
+          kind: 'chunk-file-by-id',
+          requestId: 'req-empty',
+          fileRecordId: 'file-empty',
+          options: {},
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(chunkFileMock).toHaveBeenCalledWith('file-empty', '', 'empty.ts', '/mock/empty.ts', {
+        strategy: 'recursive',
+      });
+      expect(reportResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'result',
+          channel: 'chunk-result',
+          requestId: 'req-empty',
+          runtimeId: 'test-runtime',
+          payload: expect.objectContaining({
+            result: expect.objectContaining({
+              skipped: true,
+              skipReason: 'Empty file content',
+            }),
+          }),
+        })
+      );
+    });
+  });
+
   it('fails fast when the db bridge returns a malformed rows payload', async () => {
     dbQueryMock.mockResolvedValue({
       rows: null,
@@ -240,7 +279,7 @@ describe('ChunkingHostRuntime', () => {
     });
   });
 
-  it('warns if request accounting would underflow during cleanup', async () => {
+  it('stops cleanly if a request resolves after cleanup', async () => {
     let releaseChunking: (() => void) | null = null;
     chunkFileMock.mockImplementation(
       () =>
@@ -284,13 +323,15 @@ describe('ChunkingHostRuntime', () => {
     releaseChunking?.();
 
     await waitFor(() => {
-      expect(
-        logRecords.some(
-          (record) =>
-            record.level === 'warn' &&
-            String(record.message ?? '').includes('active request count underflow')
-        )
-      ).toBe(true);
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runtimeId: 'test-runtime',
+          runtimeKind: 'chunking-host',
+          state: 'stopped',
+          active: false,
+          lastError: null,
+        })
+      );
     });
   });
 });

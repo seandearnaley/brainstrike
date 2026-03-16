@@ -55,6 +55,7 @@ interface ChunkingOptions {
 // but we also do not allow unbounded fan-out that would recreate the earlier crash.
 const MAX_HOST_PROXY_CHUNKING_CONCURRENCY = 4;
 const MAX_LOCAL_WORKER_CHUNKING_CONCURRENCY = 10;
+const LOCAL_WORKER_RECORD_PREFETCH_WINDOW_MULTIPLIER = 4;
 
 interface ChunkingProgressSnapshot {
   chunksCreated: number;
@@ -724,68 +725,85 @@ export async function processChunking(
   let filesProcessed = 0;
   const progressScheduler = createChunkingProgressScheduler(options.updateProgress);
 
-  // Avoid materializing every imported file's content in the visible renderer when
-  // chunking is proxied to the hidden desktop host. In that mode, on-demand lookup
-  // keeps renderer heap bounded even for large import sets.
-  let recordsMap: Map<string, FileRecord> | undefined;
-  const validResults = importResults.filter(
-    (r): r is FileImportResult => Boolean(r) && (r.imported || r.existed) && !r.error
-  );
-  const ids = validResults.map((r) => r.id);
-  if (!isHostProxyTransport && ids.length > 0) {
-    const batchFetchStart = Date.now();
-    const records = await repository.findByIds(ids);
-    const batchFetchDuration = Date.now() - batchFetchStart;
-    recordsMap = new Map(records.map((r) => [r.id, r]));
-    logger.debug('Batch fetched file records', {
-      count: records.length,
-      requested: ids.length,
-      durationMs: batchFetchDuration,
-    });
-  } else if (isHostProxyTransport && ids.length > 0) {
-    logger.debug('Skipped batch file-record prefetch for host-proxy chunking transport', {
-      requested: ids.length,
-      transportKind: chunkingWorkerPort.transportKind,
-    });
-  }
-
   // CRITICAL: No per-file fallback. A single chunking failure means import state is inconsistent.
   // Fail fast so we do not spam repeated worker/database errors across the whole selection.
   // This guard prevents "degraded mode" behavior where thousands of files continue after root failure.
-  // Process files in parallel with concurrency limit
-  const allResults = await parallelLimit(importResults, ChunkingConcurrency, async (result, i) => {
-    if (!result) {
-      return null; // Mark for filtering
+  const enhancedResults: EnhancedImportResult[] = [];
+  const prefetchWindowSize = isHostProxyTransport
+    ? importResults.length
+    : Math.max(ChunkingConcurrency * LOCAL_WORKER_RECORD_PREFETCH_WINDOW_MULTIPLIER, 1);
+
+  for (
+    let sliceStart = 0;
+    sliceStart < importResults.length;
+    sliceStart += Math.max(prefetchWindowSize, 1)
+  ) {
+    const sliceEnd = Math.min(sliceStart + Math.max(prefetchWindowSize, 1), importResults.length);
+    const importResultsSlice = importResults.slice(sliceStart, sliceEnd);
+    let recordsMap: Map<string, FileRecord> | undefined;
+
+    if (!isHostProxyTransport) {
+      const validResults = importResultsSlice.filter(
+        (result): result is FileImportResult =>
+          Boolean(result) && (result.imported || result.existed) && !result.error
+      );
+      const ids = validResults.map((result) => result.id);
+      if (ids.length > 0) {
+        const batchFetchStart = Date.now();
+        const records = await repository.findByIds(ids);
+        const batchFetchDuration = Date.now() - batchFetchStart;
+        recordsMap = new Map(records.map((record) => [record.id, record]));
+        logger.debug('Window-fetched file records for chunking', {
+          count: records.length,
+          requested: ids.length,
+          durationMs: batchFetchDuration,
+          sliceStart,
+          sliceEnd,
+        });
+      }
     }
-    const preFetchedRecord = recordsMap?.get(result.id);
-    const { enhancedResult, chunksCreated, chunks, strategyUsed } = await processFileChunking(
-      result,
-      i,
-      importResults.length,
-      totalChunksCreated,
-      deps,
-      options,
-      preFetchedRecord
+
+    const sliceResults = await parallelLimit(
+      importResultsSlice,
+      ChunkingConcurrency,
+      async (result, offset) => {
+        if (!result) {
+          return null;
+        }
+
+        const absoluteIndex = sliceStart + offset;
+        const preFetchedRecord = recordsMap?.get(result.id);
+        const { enhancedResult, chunksCreated, chunks, strategyUsed } = await processFileChunking(
+          result,
+          absoluteIndex,
+          importResults.length,
+          totalChunksCreated,
+          deps,
+          options,
+          preFetchedRecord
+        );
+
+        if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
+          await options.processEmbeddings(chunks, enhancedResult);
+        }
+
+        totalChunksCreated += chunksCreated;
+        filesProcessed++;
+        progressScheduler.schedule({
+          filesProcessed,
+          totalFiles: importResults.length,
+          chunksCreated: totalChunksCreated,
+          strategyUsed,
+        });
+
+        return enhancedResult;
+      }
     );
 
-    if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
-      await options.processEmbeddings(chunks, enhancedResult);
-    }
-
-    totalChunksCreated += chunksCreated;
-    filesProcessed++;
-    progressScheduler.schedule({
-      filesProcessed,
-      totalFiles: importResults.length,
-      chunksCreated: totalChunksCreated,
-      strategyUsed,
-    });
-
-    return enhancedResult;
-  });
-
-  // Filter out null results (from undefined inputs)
-  const enhancedResults = allResults.filter((r): r is EnhancedImportResult => r !== null);
+    enhancedResults.push(
+      ...sliceResults.filter((result): result is EnhancedImportResult => result !== null)
+    );
+  }
 
   logger.info('Parallel chunking complete', {
     totalFiles: enhancedResults.length,

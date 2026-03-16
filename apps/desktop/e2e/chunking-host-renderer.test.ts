@@ -274,4 +274,79 @@ test.describe('Chunking Host Renderer', () => {
     const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
     expect(finalTimeOrigin).toBe(initialTimeOrigin);
   });
+
+  test('supports accurate token sizing in the hidden chunking host without crashing the visible window', async ({
+    window,
+  }) => {
+    await waitForAppReady(window);
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+
+    const requestOutcome = await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            chunkFile?: (request: {
+              fileRecordId: string;
+              content: string;
+              fileName: string;
+              filePath: string;
+              kind: 'chunk-file';
+              options: {
+                forceStrategy: boolean;
+                strategy: 'sentence';
+                tokenTrueSizing: true;
+              };
+              requestId: string;
+            }) => Promise<{
+              chunks: Array<{ tokenCount: number }>;
+              totalTokens: number;
+            }>;
+          };
+        }
+      ).chunkingHost;
+      if (!api?.chunkFile) {
+        throw new Error('Chunking host bridge is not available');
+      }
+
+      try {
+        const result = await api.chunkFile({
+          kind: 'chunk-file',
+          requestId: crypto.randomUUID(),
+          fileRecordId: 'chunking-host-accurate-token-request',
+          fileName: 'accurate-token-host.txt',
+          filePath: '/tmp/accurate-token-host.txt',
+          content: Array.from(
+            { length: 128 },
+            (_, index) => `Deterministic accurate token sizing line ${index + 1}.`
+          ).join('\n'),
+          options: {
+            strategy: 'sentence',
+            forceStrategy: true,
+            tokenTrueSizing: true,
+          },
+        });
+        return {
+          ok: true as const,
+          chunkCount: result.chunks.length,
+          totalTokens: result.totalTokens,
+          minTokenCount: Math.min(...result.chunks.map((chunk) => chunk.tokenCount)),
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    expect(requestOutcome.ok).toBe(true);
+    if (requestOutcome.ok) {
+      expect(requestOutcome.chunkCount).toBeGreaterThan(0);
+      expect(requestOutcome.totalTokens).toBeGreaterThan(0);
+      expect(requestOutcome.minTokenCount).toBeGreaterThan(0);
+    }
+    await assertVisibleWindowResponsive(window);
+    const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+    expect(finalTimeOrigin).toBe(initialTimeOrigin);
+  });
 });

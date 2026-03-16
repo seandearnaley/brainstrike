@@ -31,7 +31,6 @@ const CHUNKING_WORKER_READY_TIMEOUT_MS = 30_000;
 
 const TERMINAL_TOKENIZER_ERROR_PATTERNS: RegExp[] = [
   /^accurate token counting unavailable:/i,
-  /^accurate token counting failed:/i,
   /tiktoken encoder failed to initialize/i,
 ];
 

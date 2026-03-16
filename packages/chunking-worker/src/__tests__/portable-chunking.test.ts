@@ -33,6 +33,19 @@ describe('portable-chunking', () => {
         expect(result.chunks).toHaveLength(0);
       });
 
+      it('should skip zero-byte files explicitly', async () => {
+        const result = await chunkContent('', {
+          strategy: 'recursive',
+          fileName: 'empty.ts',
+          tokenTrueSizing: true,
+        });
+
+        expect(result.skipped).toBe(true);
+        expect(result.skipReason).toBe('Empty file content');
+        expect(result.chunks).toHaveLength(0);
+        expect(result.totalTokens).toBe(0);
+      });
+
       it('should skip node_modules paths', async () => {
         const result = await chunkContent('const x = 1;', {
           strategy: 'sentence',

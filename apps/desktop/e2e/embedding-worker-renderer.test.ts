@@ -33,6 +33,13 @@ interface EmbeddingSetCountsRow {
   totalChunks: number | string | null;
 }
 
+interface HeapSnapshot {
+  label: string;
+  limitMB: number;
+  totalMB: number;
+  usedMB: number;
+}
+
 test.describe('Embedding Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -232,6 +239,38 @@ test.describe('Embedding Host Renderer', () => {
 
   function countRecordsContainingText(records: readonly BufferedLogRecord[], text: string): number {
     return records.filter((record) => recordContainsText(record, text)).length;
+  }
+
+  async function forceRendererGarbageCollection(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      const globalWindow = window as Window & { gc?: () => void };
+      globalWindow.gc?.();
+    });
+    await page.waitForTimeout(500);
+  }
+
+  async function readRendererHeapSnapshot(page: Page, label: string): Promise<HeapSnapshot> {
+    return await page.evaluate<HeapSnapshot, string>((snapshotLabel) => {
+      const memory = (
+        performance as Performance & {
+          memory?: {
+            usedJSHeapSize: number;
+            totalJSHeapSize: number;
+            jsHeapSizeLimit: number;
+          };
+        }
+      ).memory;
+      if (!memory) {
+        throw new Error('performance.memory is unavailable in this renderer');
+      }
+
+      return {
+        label: snapshotLabel,
+        usedMB: Math.round((memory.usedJSHeapSize / 1024 / 1024) * 10) / 10,
+        totalMB: Math.round((memory.totalJSHeapSize / 1024 / 1024) * 10) / 10,
+        limitMB: Math.round((memory.jsHeapSizeLimit / 1024 / 1024) * 10) / 10,
+      };
+    }, label);
   }
 
   async function createTestBackfillJob(page: Page): Promise<{
@@ -1178,6 +1217,67 @@ test.describe('Embedding Host Renderer', () => {
     await assertToolsPanelResponsive(activeWindow);
     await activeWindow.waitForTimeout(500);
     await assertToolsPanelResponsive(activeWindow);
+  });
+
+  test('keeps visible renderer heap bounded while the hidden host enqueues and processes a large backfill', async ({
+    window,
+  }) => {
+    const activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
+    await reloadRenderer(activeWindow, 'embedding-worker-visible-memory-diagnostic');
+    await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const baseline = await readRendererHeapSnapshot(activeWindow, 'before-backfill');
+
+    const backfillButton = activeWindow
+      .locator('[data-testid="database-demo-panel"]')
+      .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+
+    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+    await backfillButton.click({ timeout: 5000 });
+
+    const outcome = await waitForActiveProcessingOrFatalError(activeWindow);
+    expect(['error', 'running']).toContain(outcome);
+
+    await assertToolsPanelResponsive(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+    const retained = await readRendererHeapSnapshot(activeWindow, 'after-backfill');
+    const retainedGrowthMB = retained.usedMB - baseline.usedMB;
+    const queueStats = await getEmbeddingQueueStats(activeWindow);
+
+    console.log(
+      JSON.stringify({
+        type: 'desktop-visible-renderer-memory-diagnostic',
+        embeddingSetId: fixture.embeddingSetId,
+        baseline,
+        retained,
+        retainedGrowthMB,
+        queueStats,
+        outcome,
+      })
+    );
+
+    if (outcome === 'error') {
+      const status = await getEmbeddingHostStatus(activeWindow);
+      expect(status.state).toBe('error');
+      expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
+    }
+
+    expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
+    expect(retainedGrowthMB).toBeLessThan(60);
   });
 
   test('backfills chunked imported data without hanging and updates collection coverage', async ({

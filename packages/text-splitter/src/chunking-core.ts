@@ -174,6 +174,12 @@ export function shouldSkipChunking(
     }
   }
 
+  // Zero-byte files are valid repository inputs. They should be skipped explicitly
+  // rather than flowing into token sizing where an empty sample has no valid token count.
+  if (content.length === 0) {
+    return { skip: true, reason: 'Empty file content' };
+  }
+
   const probeWindow = content.slice(0, 4096);
   if (probeWindow.includes('\u0000')) {
     return { skip: true, reason: 'Binary content detected (NUL bytes present)' };

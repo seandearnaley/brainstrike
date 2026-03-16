@@ -166,6 +166,26 @@ describe('useFileImportService', () => {
       expect(onComplete).toHaveBeenCalled();
     });
 
+    it('imports cached files in bounded batches to cap retained request memory', async () => {
+      const { result } = renderHook(() => useFileImportService());
+      const selectedFilePaths = new Set<string>();
+      const fileContents: Record<string, string> = {};
+
+      for (let index = 0; index < 120; index += 1) {
+        const compositeKey = `test-folder:/test/path-${index}.ts`;
+        selectedFilePaths.add(compositeKey);
+        fileContents[compositeKey] = `export const value${index} = ${index};`;
+      }
+
+      await act(async () => {
+        await result.current.importFiles(selectedFilePaths, [], fileContents);
+      });
+
+      expect(mockBulkImport).toHaveBeenCalledTimes(3);
+      const batchSizes = mockBulkImport.mock.calls.map((call) => (call[0] as unknown[]).length);
+      expect(batchSizes).toEqual([50, 50, 20]);
+    });
+
     it('should handle progress tracking', async () => {
       const onProgress = vi.fn();
       const { result } = renderHook(() => useFileImportService({ onProgress }));
