@@ -1,5 +1,5 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -464,5 +464,48 @@ describe('CollectionBrowserView', () => {
     expect(
       screen.queryByRole('button', { name: /add selected to context/i })
     ).not.toBeInTheDocument();
+  });
+
+  it('does not call onChunkSelect after unmount if chunk detail resolves late', async () => {
+    let resolveChunkDetail!: (chunk: FileChunk | null) => void;
+    const loadChunkDetail = vi.fn(
+      () =>
+        new Promise<FileChunk | null>((resolve) => {
+          resolveChunkDetail = resolve;
+        })
+    );
+    const onChunkSelect = vi.fn();
+
+    const { unmount } = render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        loadChunkDetail={loadChunkDetail}
+        onChunkSelect={onChunkSelect}
+        records={TEST_RECORDS}
+      />
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0] as
+      | {
+          onSelect?: (nodeId: string, nodeType: string, nodeData: unknown) => void;
+        }
+      | undefined;
+
+    expect(latestProps?.onSelect).toBeDefined();
+
+    act(() => {
+      latestProps?.onSelect?.('chunk-chunk-1', 'chunk', {});
+    });
+
+    unmount();
+
+    await act(async () => {
+      resolveChunkDetail(TEST_CHUNKS[0] ?? null);
+      await Promise.resolve();
+    });
+
+    expect(onChunkSelect).not.toHaveBeenCalled();
   });
 });

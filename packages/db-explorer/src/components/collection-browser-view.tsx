@@ -632,6 +632,7 @@ export function CollectionBrowserView({
 
   // Inspector panel ref for imperative control
   const inspectorPanelRef = useRef<PanelImperativeHandle>(null);
+  const isMountedRef = useRef(true);
 
   // Handle inspector toggle from within the component
   const handleInspectorCollapse = useCallback(
@@ -673,7 +674,7 @@ export function CollectionBrowserView({
         }
       } else if (nodeType === 'chunk' && onChunkSelect && loadChunkDetail) {
         void loadChunkDetail(originalId).then((chunk) => {
-          if (chunk) {
+          if (isMountedRef.current && chunk) {
             onChunkSelect(originalId, chunk);
           }
         });
@@ -681,6 +682,12 @@ export function CollectionBrowserView({
     },
     [setSelectedId, records, loadChunkDetail, onFileSelect, onChunkSelect]
   );
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Handle multi-select toggle — also toggles showCheckbox in sync
   const handleMultiSelectToggle = useCallback(
