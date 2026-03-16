@@ -450,9 +450,16 @@ export function CollectionBrowserView({
     setSelectedChunkDetail(null);
 
     const loadSelectedChunk = async () => {
-      const detail = await loadChunkDetail(selectedNodeId);
-      if (!cancelled) {
-        setSelectedChunkDetail(detail);
+      try {
+        const detail = await loadChunkDetail(selectedNodeId);
+        if (!cancelled) {
+          setSelectedChunkDetail(detail);
+        }
+      } catch (error: unknown) {
+        logger.warn('Failed to load selected chunk detail', {
+          error,
+          chunkId: selectedNodeId,
+        });
       }
     };
 
@@ -673,11 +680,18 @@ export function CollectionBrowserView({
           onFileSelect(originalId, file);
         }
       } else if (nodeType === 'chunk' && onChunkSelect && loadChunkDetail) {
-        void loadChunkDetail(originalId).then((chunk) => {
-          if (isMountedRef.current && chunk) {
-            onChunkSelect(originalId, chunk);
-          }
-        });
+        void loadChunkDetail(originalId)
+          .then((chunk) => {
+            if (isMountedRef.current && chunk) {
+              onChunkSelect(originalId, chunk);
+            }
+          })
+          .catch((error: unknown) => {
+            logger.warn('Failed to load chunk detail for selection', {
+              error,
+              chunkId: originalId,
+            });
+          });
       }
     },
     [setSelectedId, records, loadChunkDetail, onFileSelect, onChunkSelect]

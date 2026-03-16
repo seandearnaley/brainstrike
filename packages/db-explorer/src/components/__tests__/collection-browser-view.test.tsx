@@ -566,4 +566,34 @@ describe('CollectionBrowserView', () => {
 
     expect(onChunkSelect).not.toHaveBeenCalled();
   });
+
+  it('handles chunk detail selection failures without unhandled rejections', async () => {
+    const loadChunkDetail = vi.fn().mockRejectedValue(new Error('chunk detail failed'));
+    const onChunkSelect = vi.fn();
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        loadChunkDetail={loadChunkDetail}
+        onChunkSelect={onChunkSelect}
+        records={TEST_RECORDS}
+      />
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0] as
+      | {
+          onSelect?: (nodeId: string, nodeType: string, nodeData: unknown) => void;
+        }
+      | undefined;
+
+    await act(async () => {
+      latestProps?.onSelect?.('chunk-chunk-1', 'chunk', {});
+      await Promise.resolve();
+    });
+
+    expect(loadChunkDetail).toHaveBeenCalledWith('chunk-1');
+    expect(onChunkSelect).not.toHaveBeenCalled();
+  });
 });
