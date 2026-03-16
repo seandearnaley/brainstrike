@@ -242,10 +242,10 @@ function mergeCollections(
   cachedCollections: CollectionWithDocCount[]
 ): CollectionWithDocCount[] {
   const merged = new Map<string, CollectionWithDocCount>();
-  for (const collection of liveCollections) {
+  for (const collection of cachedCollections) {
     merged.set(collection.id, collection);
   }
-  for (const collection of cachedCollections) {
+  for (const collection of liveCollections) {
     merged.set(collection.id, collection);
   }
   return Array.from(merged.values()).sort(

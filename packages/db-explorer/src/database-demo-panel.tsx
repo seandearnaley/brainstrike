@@ -1,5 +1,4 @@
 import {
-  type EmbeddingSet,
   useClearAllData,
   useDbProviderError,
   useEmbeddingSetsRepository,
@@ -575,28 +574,29 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {/* Rename Collection Dialog */}
       {collectionDialogs.renameDialogOpen && collectionDialogs.selectedCollection && (
         <RenameEmbeddingSetDialog
-          embeddingSet={
-            {
-              id: collectionDialogs.selectedCollection.id,
-              modelKey: collectionDialogs.selectedCollection.modelKey,
-              modelId: collectionDialogs.selectedCollection.modelId,
-              dimensions: collectionDialogs.selectedCollection.dimensions,
-              distance: collectionDialogs.selectedCollection.distance,
-              createdAt: collectionDialogs.selectedCollection.createdAt,
-              ...(collectionDialogs.selectedCollection.name && {
-                name: collectionDialogs.selectedCollection.name,
-              }),
-              ...(collectionDialogs.selectedCollection.description && {
-                description: collectionDialogs.selectedCollection.description,
-              }),
-              ...(collectionDialogs.selectedCollection.tags && {
-                tags: collectionDialogs.selectedCollection.tags,
-              }),
-              ...(collectionDialogs.selectedCollection.category && {
-                category: collectionDialogs.selectedCollection.category,
-              }),
-            } satisfies EmbeddingSet
-          }
+          embeddingSet={{
+            id: collectionDialogs.selectedCollection.id,
+            modelKey: collectionDialogs.selectedCollection.modelKey,
+            modelId: collectionDialogs.selectedCollection.modelId,
+            dimensions: collectionDialogs.selectedCollection.dimensions,
+            distance: collectionDialogs.selectedCollection.distance,
+            createdAt: collectionDialogs.selectedCollection.createdAt,
+            fileCount: collectionDialogs.selectedCollection.fileCount,
+            chunkCount: collectionDialogs.selectedCollection.chunkCount,
+            embeddingCount: collectionDialogs.selectedCollection.embeddingCount,
+            ...(collectionDialogs.selectedCollection.name && {
+              name: collectionDialogs.selectedCollection.name,
+            }),
+            ...(collectionDialogs.selectedCollection.description && {
+              description: collectionDialogs.selectedCollection.description,
+            }),
+            ...(collectionDialogs.selectedCollection.tags && {
+              tags: collectionDialogs.selectedCollection.tags,
+            }),
+            ...(collectionDialogs.selectedCollection.category && {
+              category: collectionDialogs.selectedCollection.category,
+            }),
+          }}
           onOpenChange={(open: boolean) => {
             if (!open) {
               collectionDialogs.closeRenameDialog();

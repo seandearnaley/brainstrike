@@ -135,6 +135,22 @@ const DEFAULT_DB_INFO: DatabaseInfo = {
   connected: false,
 };
 
+const EXPORT_LOAD_BATCH_SIZE = 50;
+
+async function mapInBatches<T, R>(
+  items: readonly T[],
+  mapper: (item: T) => Promise<R>,
+  batchSize = EXPORT_LOAD_BATCH_SIZE
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let start = 0; start < items.length; start += batchSize) {
+    const batch = items.slice(start, start + batchSize);
+    const batchResults = await Promise.all(batch.map((item) => mapper(item)));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 // PERFORMANCE: Do NOT select the full embedding column in live queries!
 // See FILE_CHUNKS_LIVE_QUERY comment for details.
 const FILE_RECORDS_PAGE_QUERY = `
@@ -1129,18 +1145,16 @@ export function useDatabaseDemoData({
       [activeCollectionId]
     );
     const recordIds = recordIdsResult.rows.map((record) => record.id);
-    const settledRecords = await Promise.all(
-      recordIds.map(async (recordId) => {
-        const record = await repository.findById(recordId);
-        if (!record) {
-          throw new Error(`Missing file record during export: ${recordId}`);
-        }
-        return record;
-      })
-    );
+    const settledRecords = await mapInBatches(recordIds, async (recordId) => {
+      const record = await repository.findById(recordId);
+      if (!record) {
+        throw new Error(`Missing file record during export: ${recordId}`);
+      }
+      return record;
+    });
 
-    const chunkGroups = await Promise.all(
-      settledRecords.map((record) => _chunkRepository.findByFileRecordId(record.id))
+    const chunkGroups = await mapInBatches(settledRecords, (record) =>
+      _chunkRepository.findByFileRecordId(record.id)
     );
 
     return {

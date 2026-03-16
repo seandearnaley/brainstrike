@@ -15,8 +15,14 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useState } from 'react';
 import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 
+type RenameableEmbeddingSet = EmbeddingSet & {
+  chunkCount: number;
+  embeddingCount: number;
+  fileCount: number;
+};
+
 interface RenameEmbeddingSetDialogProps {
-  embeddingSet: EmbeddingSet | null;
+  embeddingSet: RenameableEmbeddingSet | null;
   onOpenChange: (open: boolean) => void;
   onSetRenamed?: (setId: string) => void;
   open: boolean;
@@ -127,9 +133,9 @@ export function RenameEmbeddingSetDialog({
           description: metadata.description ?? null,
           tags: metadata.tags ?? null,
           category: metadata.category ?? null,
-          fileCount: 0,
-          chunkCount: 0,
-          embeddingCount: 0,
+          fileCount: embeddingSet.fileCount,
+          chunkCount: embeddingSet.chunkCount,
+          embeddingCount: embeddingSet.embeddingCount,
         },
       });
 

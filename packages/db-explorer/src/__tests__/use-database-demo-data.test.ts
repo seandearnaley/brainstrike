@@ -554,6 +554,102 @@ describe('useDatabaseDemoData', () => {
     });
   });
 
+  it('bounds export repository fan-out in fixed-size batches', async () => {
+    const now = new Date().toISOString();
+    const recordCount = 120;
+    const records: FileRecord[] = Array.from({ length: recordCount }, (_, index) => ({
+      id: `record-${index}`,
+      name: `file-${index}.ts`,
+      path: `/file-${index}.ts`,
+      size: index + 1,
+      createdAt: now,
+      updatedAt: now,
+      content: `content-${index}`,
+    }));
+    const chunks: FileChunk[] = records.map((record, index) => ({
+      id: `chunk-${index}`,
+      fileRecordId: record.id,
+      chunkIndex: 0,
+      content: `chunk-${index}`,
+      contentHash: `chunk-hash-${index}`,
+      tokenCount: 5,
+      chunkType: 'code',
+      chunkSize: 10,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    let activeRecordLoads = 0;
+    let maxConcurrentRecordLoads = 0;
+    let activeChunkLoads = 0;
+    let maxConcurrentChunkLoads = 0;
+
+    const repository = {
+      findById: vi.fn(async (id: string) => {
+        activeRecordLoads += 1;
+        maxConcurrentRecordLoads = Math.max(maxConcurrentRecordLoads, activeRecordLoads);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        activeRecordLoads -= 1;
+        return records.find((record) => record.id === id) ?? null;
+      }),
+      count: vi.fn().mockResolvedValue(recordCount),
+      findAll: vi.fn().mockResolvedValue(records),
+    } as unknown as DrizzleFileRecordRepository;
+
+    const chunkRepository = {
+      findById: vi.fn(async (id: string) => chunks.find((chunk) => chunk.id === id) ?? null),
+      findAll: vi.fn().mockResolvedValue(chunks),
+      findByFileRecordId: vi.fn(async (fileRecordId: string) => {
+        activeChunkLoads += 1;
+        maxConcurrentChunkLoads = Math.max(maxConcurrentChunkLoads, activeChunkLoads);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        activeChunkLoads -= 1;
+        return chunks.filter((chunk) => chunk.fileRecordId === fileRecordId);
+      }),
+    } as unknown as DrizzleFileChunkRepository;
+
+    setupLiveQueries({
+      records: records.map((record) => ({
+        id: record.id,
+        name: record.name,
+        path: record.path,
+        size: record.size,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+        contentHash: null,
+        tokenCount: 5,
+        processedAt: now,
+        chunksProcessedAt: now,
+        chunksCount: 1,
+        embeddedChunksCount: 0,
+        chunkingStrategy: 'recursive',
+        hasEmbedding: false,
+        embeddingSetId: 'set-1',
+      })),
+    });
+    const database = createMockDatabase({
+      recordRows: records.map((record) => ({ id: record.id })),
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast: vi.fn(),
+        database,
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await expect(result.current.loadCollectionExportData()).resolves.toEqual({
+      records,
+      chunks,
+    });
+
+    expect(maxConcurrentRecordLoads).toBeLessThanOrEqual(50);
+    expect(maxConcurrentChunkLoads).toBeLessThanOrEqual(50);
+  });
+
   it('preserves canonical resolved chunking strategies beyond the legacy subset', async () => {
     const now = new Date().toISOString();
     setupLiveQueries({

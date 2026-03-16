@@ -215,6 +215,42 @@ describe('useCollections', () => {
       expect(result.current.loading).toBe(true);
     });
 
+    it('prefers live collections over stale cached collections while loading', () => {
+      mockStoreState.cachedCollections = [
+        {
+          id: 'set-1',
+          modelKey: 'openai',
+          modelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          distance: 'cosine',
+          createdAt: '2024-01-01T00:00:00Z',
+          name: 'Stale Cached Name',
+          description: 'stale',
+          tags: null,
+          category: null,
+          fileCount: 1,
+          chunkCount: 2,
+          embeddingCount: 3,
+        },
+      ];
+      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+        ...mockLiveQueryResult,
+        loading: true,
+      });
+
+      const { result } = renderHook(() => useCollections(mockDb as any));
+
+      expect(result.current.collections).toEqual([
+        expect.objectContaining({
+          id: 'set-1',
+          name: 'Test Collection',
+          fileCount: 10,
+          chunkCount: 100,
+          embeddingCount: 50,
+        }),
+      ]);
+    });
+
     it('should return error state from live query when enabled', () => {
       const testError = new Error('Test error');
       vi.mocked(usePGliteLiveQuery).mockReturnValue({
