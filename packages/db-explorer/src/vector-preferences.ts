@@ -39,8 +39,12 @@ export function setActiveEmbeddingSetId(id: string | null): void {
     // ignore
   }
 
-  dispatchEmbeddingSetUpdated({
-    id,
-    reason: 'selected',
-  });
+  try {
+    dispatchEmbeddingSetUpdated({
+      id,
+      reason: 'selected',
+    });
+  } catch {
+    // ignore dispatch issues - consumers still get store/localStorage updates
+  }
 }

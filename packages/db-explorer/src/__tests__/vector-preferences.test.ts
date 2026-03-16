@@ -53,4 +53,16 @@ describe('vector-preferences', () => {
 
     spy.mockRestore();
   });
+
+  it('keeps store and localStorage updated when dispatch throws', () => {
+    const spy = vi.spyOn(window, 'dispatchEvent').mockImplementation(() => {
+      throw new Error('dispatch failed');
+    });
+
+    expect(() => setActiveEmbeddingSetId('set-789')).not.toThrow();
+    expect(localStorage.getItem(ACTIVE_EMBEDDING_SET_KEY)).toBe('set-789');
+    expect(getActiveEmbeddingSetId()).toBe('set-789');
+
+    spy.mockRestore();
+  });
 });
