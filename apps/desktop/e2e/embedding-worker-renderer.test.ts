@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import type { ElectronApplication } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
 import { reloadRenderer, waitForAppReady } from './utils/electron-helpers';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
@@ -39,6 +40,54 @@ interface HeapSnapshot {
   totalMB: number;
   usedMB: number;
 }
+
+interface RuntimeProcessSnapshot {
+  osProcessId: number | null;
+  privateMB: number | null;
+  runtimeKind: 'chunking-host' | 'embedding-host' | 'visible-ui';
+  sharedMB: number | null;
+  workingSetMB: number | null;
+}
+
+interface DesktopProcessSnapshot {
+  mainProcess: {
+    heapUsedMB: number;
+    rssMB: number;
+  };
+  runtimes: RuntimeProcessSnapshot[];
+}
+
+interface CombinedMemorySnapshot {
+  hostHeap: HeapSnapshot;
+  label: string;
+  process: DesktopProcessSnapshot;
+  visibleHeap: HeapSnapshot;
+}
+
+interface BackfillCorpusFixture {
+  embeddingSetId: string;
+  fileCount: number;
+  totalChunks: number;
+}
+
+interface MemorySample {
+  elapsedMs: number;
+  queueStats: QueueStatsRow;
+  snapshot: CombinedMemorySnapshot;
+}
+
+const LARGE_BACKFILL_FILE_COUNT = 1000;
+const LARGE_BACKFILL_CHUNKS_PER_FILE = 20;
+const LARGE_BACKFILL_CYCLE_FILE_COUNT = 80;
+const LARGE_BACKFILL_CYCLE_CHUNKS_PER_FILE = 10;
+const LARGE_BACKFILL_SAMPLE_COUNT = 6;
+const LARGE_BACKFILL_SAMPLE_INTERVAL_MS = 2500;
+const LARGE_BACKFILL_HOST_HEAP_GROWTH_LIMIT_MB = 120;
+const LARGE_BACKFILL_VISIBLE_HEAP_GROWTH_LIMIT_MB = 80;
+const LARGE_BACKFILL_MAIN_RSS_GROWTH_LIMIT_MB = 180;
+const LARGE_BACKFILL_MAIN_HEAP_GROWTH_LIMIT_MB = 80;
+const LARGE_BACKFILL_IDLE_HOST_HEAP_DRIFT_LIMIT_MB = 40;
+const LARGE_BACKFILL_IDLE_MAIN_RSS_DRIFT_LIMIT_MB = 90;
 
 test.describe('Embedding Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
@@ -191,6 +240,42 @@ test.describe('Embedding Host Renderer', () => {
     throw new Error('Timed out waiting for bounded backfill enqueue or fatal host error');
   }
 
+  async function waitForEmbeddingHostIdleAndQueueDrain(
+    page: Page,
+    timeoutMs = 120_000
+  ): Promise<{
+    queueStats: QueueStatsRow;
+    status: EmbeddingHostStatus;
+  }> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const [status, queueStats] = await Promise.all([
+        getEmbeddingHostStatus(page),
+        getEmbeddingQueueStats(page),
+      ]);
+
+      if (status.state === 'error') {
+        throw new Error(
+          status.lastError ?? 'Embedding host entered an error state while waiting for idle.'
+        );
+      }
+
+      if (
+        status.state === 'running' &&
+        !status.active &&
+        queueStats.queued === 0 &&
+        queueStats.running === 0
+      ) {
+        return { status, queueStats };
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error('Timed out waiting for embedding host idle state and queue drain');
+  }
+
   async function getEmbeddingHostPage(window: Page): Promise<Page> {
     const context = window.context();
     const startedAt = Date.now();
@@ -271,6 +356,136 @@ test.describe('Embedding Host Renderer', () => {
         limitMB: Math.round((memory.jsHeapSizeLimit / 1024 / 1024) * 10) / 10,
       };
     }, label);
+  }
+
+  async function readDesktopProcessSnapshot(
+    electronApp: ElectronApplication
+  ): Promise<DesktopProcessSnapshot> {
+    return await electronApp.evaluate<DesktopProcessSnapshot>(async ({ BrowserWindow }) => {
+      const toMBFromKilobytes = (value: number | undefined): number | null =>
+        typeof value === 'number' && Number.isFinite(value)
+          ? Math.round((value / 1024) * 10) / 10
+          : null;
+
+      const runtimes = await Promise.all(
+        BrowserWindow.getAllWindows().map(async (browserWindow) => {
+          const webContents = browserWindow.webContents as typeof browserWindow.webContents & {
+            getProcessMemoryInfo?: () => Promise<{
+              private: number;
+              residentSet: number;
+              shared: number;
+            }>;
+          };
+          const url = browserWindow.webContents.getURL();
+          const mode = new URL(url).searchParams.get('mode');
+          const runtimeKind: RuntimeProcessSnapshot['runtimeKind'] =
+            mode === 'embedding-host'
+              ? 'embedding-host'
+              : mode === 'chunking-host'
+                ? 'chunking-host'
+                : 'visible-ui';
+          const osProcessId = browserWindow.webContents.getOSProcessId();
+          if (typeof webContents.getProcessMemoryInfo !== 'function') {
+            return {
+              runtimeKind,
+              osProcessId,
+              workingSetMB: null,
+              privateMB: null,
+              sharedMB: null,
+            };
+          }
+
+          const memory = await webContents.getProcessMemoryInfo();
+
+          return {
+            runtimeKind,
+            osProcessId,
+            workingSetMB: toMBFromKilobytes(memory.residentSet),
+            privateMB: toMBFromKilobytes(memory.private),
+            sharedMB: toMBFromKilobytes(memory.shared),
+          };
+        })
+      );
+
+      const mainMemory = process.memoryUsage();
+      return {
+        mainProcess: {
+          rssMB: Math.round((mainMemory.rss / 1024 / 1024) * 10) / 10,
+          heapUsedMB: Math.round((mainMemory.heapUsed / 1024 / 1024) * 10) / 10,
+        },
+        runtimes: runtimes.sort((left, right) => left.runtimeKind.localeCompare(right.runtimeKind)),
+      };
+    });
+  }
+
+  function getRuntimeSnapshot(
+    snapshot: DesktopProcessSnapshot,
+    runtimeKind: RuntimeProcessSnapshot['runtimeKind']
+  ): RuntimeProcessSnapshot {
+    const runtime = snapshot.runtimes.find((entry) => entry.runtimeKind === runtimeKind);
+    if (!runtime) {
+      throw new Error(`Missing runtime process snapshot for ${runtimeKind}`);
+    }
+    return runtime;
+  }
+
+  function growth(after: number, before: number): number {
+    return Math.round((after - before) * 10) / 10;
+  }
+
+  async function readCombinedMemorySnapshot(
+    electronApp: ElectronApplication,
+    activeWindow: Page,
+    hostPage: Page,
+    label: string
+  ): Promise<CombinedMemorySnapshot> {
+    const [visibleHeap, hostHeap, process] = await Promise.all([
+      readRendererHeapSnapshot(activeWindow, `${label}-visible`),
+      readRendererHeapSnapshot(hostPage, `${label}-host`),
+      readDesktopProcessSnapshot(electronApp),
+    ]);
+
+    return {
+      label,
+      visibleHeap,
+      hostHeap,
+      process,
+    };
+  }
+
+  async function sampleMemoryWhileBackfillActive(
+    electronApp: ElectronApplication,
+    activeWindow: Page,
+    sampleCount = LARGE_BACKFILL_SAMPLE_COUNT,
+    intervalMs = LARGE_BACKFILL_SAMPLE_INTERVAL_MS
+  ): Promise<MemorySample[]> {
+    const startedAt = Date.now();
+    const samples: MemorySample[] = [];
+
+    for (let index = 0; index < sampleCount; index += 1) {
+      const hostPage = await getEmbeddingHostPage(activeWindow);
+      const [snapshot, queueStats] = await Promise.all([
+        readCombinedMemorySnapshot(
+          electronApp,
+          activeWindow,
+          hostPage,
+          `active-sample-${index + 1}`
+        ),
+        getEmbeddingQueueStats(activeWindow),
+      ]);
+
+      samples.push({
+        elapsedMs: Date.now() - startedAt,
+        snapshot,
+        queueStats,
+      });
+
+      if (index < sampleCount - 1) {
+        await activeWindow.waitForTimeout(intervalMs);
+      }
+    }
+
+    return samples;
   }
 
   async function createTestBackfillJob(page: Page): Promise<{
@@ -514,6 +729,196 @@ test.describe('Embedding Host Renderer', () => {
         return { embeddingSetId };
       },
       { chunkCount, persistActiveSet: options?.persistActiveSet ?? true }
+    );
+  }
+
+  async function createLargeBackfillCorpusFixture(
+    page: Page,
+    options: {
+      chunksPerFile: number;
+      fileCount: number;
+      persistActiveSet?: boolean;
+    }
+  ): Promise<BackfillCorpusFixture> {
+    return await page.evaluate<
+      BackfillCorpusFixture,
+      { chunksPerFile: number; fileCount: number; persistActiveSet: boolean }
+    >(
+      async ({ chunksPerFile, fileCount, persistActiveSet }) => {
+        const api = (
+          window as Window & {
+            electronAPI?: {
+              db?: {
+                exec?: (sql: string) => Promise<unknown>;
+                query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+              };
+              storage?: {
+                setItem?: (key: string, value: string) => Promise<void>;
+              };
+            };
+          }
+        ).electronAPI;
+
+        if (!(api?.db?.query && api.db.exec)) {
+          throw new Error('Database API not available');
+        }
+        if (!api?.storage?.setItem) {
+          throw new Error('Storage API not available');
+        }
+        const dbApi = api.db;
+        const exec = dbApi.exec;
+        const query = dbApi.query;
+        if (typeof exec !== 'function' || typeof query !== 'function') {
+          throw new Error('Database API not available');
+        }
+
+        const now = new Date().toISOString();
+        const randomSuffix = Math.random().toString(36).slice(2, 10);
+        const embeddingSetId = `corpus-set-${randomSuffix}`;
+        const modelId = 'Xenova/all-MiniLM-L6-v2';
+        const modelKey = `local::${modelId}`;
+        const fileBatchSize = 100;
+        const chunkBatchSize = 200;
+
+        const insertFileBatch = async (offset: number, count: number): Promise<void> => {
+          const values: string[] = [];
+          const params: unknown[] = [];
+          let nextParam = 1;
+
+          for (let index = 0; index < count; index += 1) {
+            const fileIndex = offset + index;
+            const fileRecordId = `${embeddingSetId}-file-${fileIndex}`;
+            values.push(
+              `($${nextParam}, $${nextParam + 1}, $${nextParam + 2}, $${nextParam + 3}, $${nextParam + 4}, $${nextParam + 5}, $${nextParam + 6}, $${nextParam + 7}, $${nextParam + 8}, $${nextParam + 8})`
+            );
+            params.push(
+              fileRecordId,
+              `/corpus/${embeddingSetId}/file-${fileIndex}.ts`,
+              `file-${fileIndex}.ts`,
+              chunksPerFile * 128,
+              `export const corpusFile${fileIndex} = "${embeddingSetId}-${fileIndex}";`,
+              `file-hash-${embeddingSetId}-${fileIndex}`,
+              chunksPerFile * 32,
+              embeddingSetId,
+              now
+            );
+            nextParam += 9;
+          }
+
+          await query(
+            `INSERT INTO file_records (
+               id, path, name, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at
+             )
+             VALUES ${values.join(', ')}`,
+            params
+          );
+        };
+
+        const insertChunkBatch = async (
+          rows: Array<{ chunkIndex: number; content: string; fileRecordId: string; id: string }>
+        ): Promise<void> => {
+          const values: string[] = [];
+          const params: unknown[] = [];
+          let nextParam = 1;
+
+          for (const row of rows) {
+            values.push(
+              `($${nextParam}, $${nextParam + 1}, $${nextParam + 2}, $${nextParam + 3}, $${nextParam + 4}, $${nextParam + 5}, 'text', $${nextParam + 6}, $${nextParam + 7}, $${nextParam + 7})`
+            );
+            params.push(
+              row.id,
+              row.fileRecordId,
+              row.chunkIndex,
+              row.content,
+              `chunk-hash-${row.id}`,
+              32,
+              32,
+              now
+            );
+            nextParam += 8;
+          }
+
+          await query(
+            `INSERT INTO file_chunks (
+               id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
+             )
+             VALUES ${values.join(', ')}`,
+            params
+          );
+        };
+
+        await exec('BEGIN');
+        try {
+          await query(
+            `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [embeddingSetId, modelKey, modelId, 384, 'cosine', 'Large Backfill Corpus', now]
+          );
+
+          for (let offset = 0; offset < fileCount; offset += fileBatchSize) {
+            await insertFileBatch(offset, Math.min(fileBatchSize, fileCount - offset));
+          }
+
+          let chunkRows: Array<{
+            chunkIndex: number;
+            content: string;
+            fileRecordId: string;
+            id: string;
+          }> = [];
+
+          for (let fileIndex = 0; fileIndex < fileCount; fileIndex += 1) {
+            const fileRecordId = `${embeddingSetId}-file-${fileIndex}`;
+            for (let chunkIndex = 0; chunkIndex < chunksPerFile; chunkIndex += 1) {
+              chunkRows.push({
+                id: `${fileRecordId}-chunk-${chunkIndex}`,
+                fileRecordId,
+                chunkIndex,
+                content: [
+                  `export const fileIndex = ${fileIndex};`,
+                  `export const chunkIndex = ${chunkIndex};`,
+                  `export const corpusId = "${embeddingSetId}";`,
+                  'export const note = "backfill-memory-regression";',
+                ].join('\n'),
+              });
+
+              if (chunkRows.length === chunkBatchSize) {
+                await insertChunkBatch(chunkRows);
+                chunkRows = [];
+              }
+            }
+          }
+
+          if (chunkRows.length > 0) {
+            await insertChunkBatch(chunkRows);
+          }
+
+          await exec('COMMIT');
+        } catch (error) {
+          await exec('ROLLBACK');
+          throw error;
+        }
+
+        if (persistActiveSet) {
+          await api.storage.setItem(
+            'vector-status-ui.v1',
+            JSON.stringify({
+              state: { activeEmbeddingSetId: embeddingSetId },
+              version: 1,
+            })
+          );
+        }
+
+        return {
+          embeddingSetId,
+          fileCount,
+          totalChunks: fileCount * chunksPerFile,
+        };
+      },
+      {
+        fileCount: options.fileCount,
+        chunksPerFile: options.chunksPerFile,
+        persistActiveSet: options.persistActiveSet ?? true,
+      }
     );
   }
 
@@ -944,6 +1349,121 @@ test.describe('Embedding Host Renderer', () => {
     throw new Error('Timed out waiting for set-scoped backfill queue movement or fatal host error');
   }
 
+  async function waitForJobTerminalState(
+    page: Page,
+    jobId: string,
+    timeoutMs = 120_000
+  ): Promise<'failed' | 'succeeded'> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const state = await getJobStatus(page, jobId);
+      if (state === 'succeeded' || state === 'failed') {
+        return state;
+      }
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error(`Timed out waiting for terminal state for job ${jobId}`);
+  }
+
+  async function ensureEmbeddingHostWarmed(page: Page): Promise<Page> {
+    await clearEmbeddingQueue(page);
+    const warmupJob = await createTestBackfillJob(page);
+    const status = await waitForEmbeddingHostState(
+      page,
+      (candidate) => candidate.state === 'error' || candidate.state === 'running',
+      60_000
+    );
+
+    if (status.state === 'error') {
+      throw new Error(`Embedding host warmup failed: ${status.lastError ?? 'unknown error'}`);
+    }
+
+    const terminalState = await waitForJobTerminalState(page, warmupJob.jobId, 120_000);
+    if (terminalState !== 'succeeded') {
+      throw new Error(`Embedding host warmup job failed with state ${terminalState}`);
+    }
+
+    await clearEmbeddingQueue(page);
+    const hostPage = await getEmbeddingHostPage(page);
+    await hostPage.waitForTimeout(1000);
+    await forceRendererGarbageCollection(page);
+    await forceRendererGarbageCollection(hostPage);
+    return hostPage;
+  }
+
+  async function startBackfillViaBridge(page: Page, embeddingSetId: string): Promise<void> {
+    await page.evaluate<void, string>(async (id) => {
+      const host = (
+        window as Window & {
+          __e2eEmbeddingBackfillState?: {
+            done: boolean;
+            embeddingSetId: string;
+            error: string | null;
+          };
+          embeddingHost?: {
+            enqueueBackfill?: (embeddingSetId: string) => Promise<void>;
+          };
+        }
+      ).embeddingHost;
+
+      if (!host?.enqueueBackfill) {
+        throw new Error('Embedding host enqueue bridge is not available');
+      }
+
+      const state = {
+        embeddingSetId: id,
+        done: false,
+        error: null as string | null,
+      };
+      (
+        window as Window & { __e2eEmbeddingBackfillState?: typeof state }
+      ).__e2eEmbeddingBackfillState = state;
+
+      void host.enqueueBackfill(id).then(
+        () => {
+          state.done = true;
+        },
+        (error: unknown) => {
+          state.done = true;
+          state.error = error instanceof Error ? error.message : String(error);
+        }
+      );
+    }, embeddingSetId);
+  }
+
+  async function waitForBridgeBackfillCompletion(page: Page, timeoutMs = 240_000): Promise<void> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const state = await page.evaluate(() => {
+        return (
+          (
+            window as Window & {
+              __e2eEmbeddingBackfillState?: {
+                done: boolean;
+                embeddingSetId: string;
+                error: string | null;
+              };
+            }
+          ).__e2eEmbeddingBackfillState ?? null
+        );
+      });
+
+      if (state?.done) {
+        if (state.error) {
+          throw new Error(state.error);
+        }
+        return;
+      }
+
+      await page.waitForTimeout(250);
+    }
+
+    throw new Error('Timed out waiting for bridge-driven backfill completion');
+  }
+
   test.beforeAll(async ({ electron }) => {
     test.setTimeout(150_000);
     const { window: appWindow } = await electron.ensureContext();
@@ -1278,6 +1798,228 @@ test.describe('Embedding Host Renderer', () => {
 
     expect(queueStats.queued + queueStats.running).toBeLessThanOrEqual(64);
     expect(retainedGrowthMB).toBeLessThan(60);
+  });
+
+  test('keeps hidden-host, visible-renderer, and main-process memory bounded during a 20k chunk backfill', async ({
+    electronApp,
+    electronHarness,
+    window,
+  }) => {
+    test.setTimeout(420_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRenderer(activeWindow, 'embedding-worker-20k-backfill-memory-pressure');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const warmedHostPage = await ensureEmbeddingHostWarmed(activeWindow);
+    const warmedBaseline = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      warmedHostPage,
+      'post-warmup-idle'
+    );
+
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: LARGE_BACKFILL_FILE_COUNT,
+      chunksPerFile: LARGE_BACKFILL_CHUNKS_PER_FILE,
+      persistActiveSet: false,
+    });
+    await reloadRenderer(activeWindow, 'embedding-worker-20k-backfill-memory-diagnostic');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const hostPage = await getEmbeddingHostPage(activeWindow);
+    const baseline = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      hostPage,
+      'before-20k-backfill'
+    );
+    const baselineHostProcess = getRuntimeSnapshot(baseline.process, 'embedding-host');
+    const baselineHostPid = baselineHostProcess.osProcessId;
+    expect(baselineHostPid).toBeTruthy();
+
+    const backfillButton = activeWindow
+      .locator('[data-testid="database-demo-panel"]')
+      .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+
+    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+    await backfillButton.click({ timeout: 5000 });
+
+    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+    expect(outcome).toBe('running');
+
+    const samples = await sampleMemoryWhileBackfillActive(electronApp.app, activeWindow);
+    const activeHostPid = getRuntimeSnapshot(
+      samples[0]?.snapshot.process ?? baseline.process,
+      'embedding-host'
+    ).osProcessId;
+    expect(activeHostPid).toBeTruthy();
+    const peaks = samples.reduce(
+      (current, sample) => {
+        const hostProcess = getRuntimeSnapshot(sample.snapshot.process, 'embedding-host');
+        return {
+          hostHeapMB: Math.max(current.hostHeapMB, sample.snapshot.hostHeap.usedMB),
+          visibleHeapMB: Math.max(current.visibleHeapMB, sample.snapshot.visibleHeap.usedMB),
+          mainRssMB: Math.max(current.mainRssMB, sample.snapshot.process.mainProcess.rssMB),
+          mainHeapMB: Math.max(current.mainHeapMB, sample.snapshot.process.mainProcess.heapUsedMB),
+          hostPids: current.hostPids.concat(hostProcess.osProcessId),
+        };
+      },
+      {
+        hostHeapMB: baseline.hostHeap.usedMB,
+        visibleHeapMB: baseline.visibleHeap.usedMB,
+        mainRssMB: baseline.process.mainProcess.rssMB,
+        mainHeapMB: baseline.process.mainProcess.heapUsedMB,
+        hostPids: [] as Array<number | null>,
+      }
+    );
+
+    console.log(
+      JSON.stringify({
+        type: 'desktop-large-backfill-memory-pressure',
+        fixture,
+        warmedBaseline,
+        baseline,
+        peaks,
+        samples,
+      })
+    );
+
+    for (const sample of samples) {
+      expect(sample.queueStats.queued + sample.queueStats.running).toBeLessThanOrEqual(64);
+      expect(getRuntimeSnapshot(sample.snapshot.process, 'embedding-host').osProcessId).toBe(
+        activeHostPid
+      );
+    }
+
+    expect(growth(peaks.hostHeapMB, baseline.hostHeap.usedMB)).toBeLessThan(
+      LARGE_BACKFILL_HOST_HEAP_GROWTH_LIMIT_MB
+    );
+    expect(growth(peaks.visibleHeapMB, baseline.visibleHeap.usedMB)).toBeLessThan(
+      LARGE_BACKFILL_VISIBLE_HEAP_GROWTH_LIMIT_MB
+    );
+    expect(growth(peaks.mainRssMB, baseline.process.mainProcess.rssMB)).toBeLessThan(
+      LARGE_BACKFILL_MAIN_RSS_GROWTH_LIMIT_MB
+    );
+    expect(growth(peaks.mainHeapMB, baseline.process.mainProcess.heapUsedMB)).toBeLessThan(
+      LARGE_BACKFILL_MAIN_HEAP_GROWTH_LIMIT_MB
+    );
+
+    await electronHarness.restart();
+  });
+
+  test('does not accumulate hidden-host memory across repeated large backfill cycles on the same host process', async ({
+    electronHarness,
+  }) => {
+    test.setTimeout(420_000);
+
+    const electronContext = await electronHarness.restart();
+    let activeWindow = await showDatabaseDemoPanel(electronContext.window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRenderer(activeWindow, 'embedding-worker-repeat-backfill-cycles');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+    await resetEmbeddingHost(activeWindow);
+    await waitForEmbeddingHostState(
+      activeWindow,
+      (status) => status.state === 'error' || status.state === 'running',
+      60_000
+    );
+
+    const initialHostPage = await getEmbeddingHostPage(activeWindow);
+    const initialSnapshot = await readCombinedMemorySnapshot(
+      electronContext.app,
+      activeWindow,
+      initialHostPage,
+      'repeat-cycle-initial'
+    );
+    const idleSnapshots: CombinedMemorySnapshot[] = [];
+    let baseline: CombinedMemorySnapshot | null = null;
+    let hostPage = initialHostPage;
+    let referenceHostPid: number | null = null;
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+        fileCount: LARGE_BACKFILL_CYCLE_FILE_COUNT,
+        chunksPerFile: LARGE_BACKFILL_CYCLE_CHUNKS_PER_FILE,
+        persistActiveSet: false,
+      });
+
+      await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+      const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 90_000);
+      expect(outcome).toBe('running');
+
+      await waitForBridgeBackfillCompletion(activeWindow, 240_000);
+      await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 30_000);
+      hostPage = await getEmbeddingHostPage(activeWindow);
+      await clearEmbeddingQueue(activeWindow);
+      await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 30_000);
+      await forceRendererGarbageCollection(activeWindow);
+      await forceRendererGarbageCollection(hostPage);
+      await forceRendererGarbageCollection(hostPage);
+      const idleSnapshot = await readCombinedMemorySnapshot(
+        electronContext.app,
+        activeWindow,
+        hostPage,
+        `repeat-cycle-${cycle + 1}-idle`
+      );
+      idleSnapshots.push(idleSnapshot);
+
+      const hostProcess = getRuntimeSnapshot(idleSnapshot.process, 'embedding-host');
+      if (referenceHostPid === null) {
+        referenceHostPid = hostProcess.osProcessId;
+        expect(referenceHostPid).toBeTruthy();
+        baseline = idleSnapshot;
+        continue;
+      }
+
+      expect(hostProcess.osProcessId).toBe(referenceHostPid);
+    }
+
+    if (!baseline) {
+      throw new Error('Expected a warmed idle baseline after the first repeated backfill cycle');
+    }
+
+    const finalIdleSnapshot = idleSnapshots.at(-1);
+    if (!finalIdleSnapshot) {
+      throw new Error('Expected at least one idle snapshot after repeated backfill cycles');
+    }
+
+    console.log(
+      JSON.stringify({
+        type: 'desktop-repeat-backfill-idle-drift',
+        initialSnapshot,
+        baseline,
+        idleSnapshots,
+        referenceHostPid,
+      })
+    );
+
+    expect(growth(finalIdleSnapshot.hostHeap.usedMB, baseline.hostHeap.usedMB)).toBeLessThan(
+      LARGE_BACKFILL_IDLE_HOST_HEAP_DRIFT_LIMIT_MB
+    );
+    expect(
+      growth(finalIdleSnapshot.process.mainProcess.rssMB, baseline.process.mainProcess.rssMB)
+    ).toBeLessThan(LARGE_BACKFILL_IDLE_MAIN_RSS_DRIFT_LIMIT_MB);
   });
 
   test('backfills chunked imported data without hanging and updates collection coverage', async ({
