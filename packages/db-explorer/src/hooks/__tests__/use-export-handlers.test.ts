@@ -403,6 +403,7 @@ describe('useExportHandlers', () => {
 
       await result.current.handleExportEmbeddings();
 
+      expect(csvExportUtils.generateEmbeddingsCSV).toHaveBeenCalledWith([chunks[1]]);
       // Should export only the chunk with embedding
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Export Successful',

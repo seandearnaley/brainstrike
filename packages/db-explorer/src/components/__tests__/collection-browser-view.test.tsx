@@ -406,6 +406,64 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('context-menu')).toBeInTheDocument();
   });
 
+  it('expands freshly loaded chunk children from the context menu', async () => {
+    const user = userEvent.setup();
+    const loadFileChunkSummaries = vi.fn().mockResolvedValue([
+      {
+        id: 'loaded-chunk-1',
+        fileRecordId: '1',
+        chunkIndex: 0,
+        tokenCount: 12,
+        hasEmbedding: true,
+        contentPreview: 'const one = 1;',
+        embeddingSetId: 'collection-1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'loaded-chunk-2',
+        fileRecordId: '1',
+        chunkIndex: 1,
+        tokenCount: 10,
+        hasEmbedding: false,
+        contentPreview: 'const two = 2;',
+        embeddingSetId: 'collection-1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={[]}
+        height={500}
+        loadFileChunkSummaries={loadFileChunkSummaries}
+        records={[
+          {
+            id: '1',
+            name: 'one.ts',
+            path: '/one.ts',
+            size: 100,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            chunksCount: 2,
+            embeddingSetId: 'collection-1',
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
+    await user.click(screen.getByRole('button', { name: 'Expand All Children' }));
+
+    expect(loadFileChunkSummaries).toHaveBeenCalledWith('1');
+    expect(useCollectionBrowserStore.getState().expandedIds).toEqual([
+      'file-1',
+      'chunk-loaded-chunk-1',
+    ]);
+  });
+
   it('updates groupBy via toolbar', async () => {
     const user = userEvent.setup();
 

@@ -427,15 +427,15 @@ export function CollectionBrowserView({
   const [selectedChunkDetail, setSelectedChunkDetail] = useState<FileChunk | null>(null);
 
   const ensureFileChunksLoaded = useCallback(
-    async (fileRecordId: string): Promise<void> => {
+    async (fileRecordId: string): Promise<DatabaseFileChunkSummary[]> => {
       if (!loadFileChunkSummaries) {
-        return;
+        return [];
       }
-      const alreadyLoaded = chunks.some((chunk) => chunk.fileRecordId === fileRecordId);
-      if (alreadyLoaded) {
-        return;
+      const loadedChunks = chunks.filter((chunk) => chunk.fileRecordId === fileRecordId);
+      if (loadedChunks.length > 0) {
+        return loadedChunks;
       }
-      await loadFileChunkSummaries(fileRecordId);
+      return loadFileChunkSummaries(fileRecordId);
     },
     [chunks, loadFileChunkSummaries]
   );
@@ -803,8 +803,7 @@ export function CollectionBrowserView({
       const { originalId } = parseNodeId(contextMenu.nodeId);
 
       if (contextMenu.nodeType === 'file') {
-        await ensureFileChunksLoaded(originalId);
-        const fileChunks = chunks.filter((c) => c.fileRecordId === originalId);
+        const fileChunks = await ensureFileChunksLoaded(originalId);
         childIds.push(contextMenu.nodeId);
         for (const chunk of fileChunks) {
           if (chunk.hasEmbedding) {
@@ -820,7 +819,7 @@ export function CollectionBrowserView({
     };
 
     void run();
-  }, [closeContextMenu, chunks, contextMenu, ensureFileChunksLoaded, expandIds]);
+  }, [closeContextMenu, contextMenu, ensureFileChunksLoaded, expandIds]);
 
   // Context menu: inspect node (open inspector)
   const handleContextInspect = useCallback(() => {

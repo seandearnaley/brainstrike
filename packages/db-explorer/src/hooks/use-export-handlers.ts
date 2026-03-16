@@ -105,7 +105,7 @@ export function useExportHandlers(
         return;
       }
 
-      const csvContent = generateEmbeddingsCSV(chunks);
+      const csvContent = generateEmbeddingsCSV(chunksWithEmbeddings);
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('embeddings');
 
