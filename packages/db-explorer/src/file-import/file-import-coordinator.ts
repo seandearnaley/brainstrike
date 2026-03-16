@@ -180,8 +180,9 @@ async function importRequestBatch(
   repository: NonNullable<FileImportDependencies['repository']>,
   requests: FileImportRequest[],
   tracker: ImportProgressTracker,
-  processedRequestCount: number
-): Promise<FileImportResult[]> {
+  processedRequestCount: number,
+  processedResultErrorCount: number
+): Promise<{ resultErrorCount: number; results: FileImportResult[] }> {
   if (!repository.bulkImport) {
     throw new FileImportError('unsupported-operation', 'Bulk import not supported by repository', {
       progress: tracker.snapshot(),
@@ -189,12 +190,21 @@ async function importRequestBatch(
   }
 
   const requestMap = createRequestMap(requests);
-  const initialErrorCount = tracker.errorCount;
+  const nonRequestErrorCount = tracker.errorCount - processedResultErrorCount;
+  if (nonRequestErrorCount < 0) {
+    throw new FileImportError(
+      'unknown',
+      'Import progress tracker entered an invalid error-count state.',
+      {
+        progress: tracker.snapshot(),
+      }
+    );
+  }
 
   let results: FileImportResult[] | null;
   try {
     results = await repository.bulkImport(requests, (completed, _total, current) => {
-      tracker.update(initialErrorCount + processedRequestCount + completed, current);
+      tracker.update(nonRequestErrorCount + processedRequestCount + completed, current);
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error during bulk import';
@@ -212,7 +222,10 @@ async function importRequestBatch(
 
   const resultErrors = mapResultErrors(results, requestMap);
   tracker.addErrors(resultErrors);
-  return results;
+  return {
+    resultErrorCount: resultErrors.length,
+    results,
+  };
 }
 
 function splitIntoBatches<T>(items: readonly T[], batchSize: number): T[][] {
@@ -272,16 +285,19 @@ export async function runFileImport(
   const { requests: cachedRequests, pending } = prepareRequestsFromCache(context, tracker);
   const results: FileImportResult[] = [];
   let processedRequestCount = 0;
+  let processedResultErrorCount = 0;
 
   for (const batch of splitIntoBatches(cachedRequests, IMPORT_REQUEST_BATCH_SIZE)) {
-    const batchResults = await importRequestBatch(
+    const batchOutcome = await importRequestBatch(
       repository,
       batch,
       tracker,
-      processedRequestCount
+      processedRequestCount,
+      processedResultErrorCount
     );
-    results.push(...batchResults);
+    results.push(...batchOutcome.results);
     processedRequestCount += batch.length;
+    processedResultErrorCount += batchOutcome.resultErrorCount;
   }
 
   for (const pendingBatch of splitIntoBatches(pending, IMPORT_REQUEST_BATCH_SIZE)) {
@@ -294,14 +310,16 @@ export async function runFileImport(
     if (loadedRequests.length === 0) {
       continue;
     }
-    const batchResults = await importRequestBatch(
+    const batchOutcome = await importRequestBatch(
       repository,
       loadedRequests,
       tracker,
-      processedRequestCount
+      processedRequestCount,
+      processedResultErrorCount
     );
-    results.push(...batchResults);
+    results.push(...batchOutcome.results);
     processedRequestCount += loadedRequests.length;
+    processedResultErrorCount += batchOutcome.resultErrorCount;
   }
 
   if (results.length === 0) {

@@ -490,6 +490,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         clearBackfillTimeout();
         const completedRequestId = invocationRequestId;
         backfillTimeoutRef.current = setTimeout(() => {
+          // Only the still-current invocation is allowed to clear visible backfill state.
+          // A newer backfill increments backfillInvocationIdRef and invalidates this timeout.
           if (
             backfillInvocationIdRef.current === invocationId &&
             completedRequestId &&

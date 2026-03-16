@@ -201,6 +201,72 @@ describe('useFileImportService', () => {
       expect(onProgress).toHaveBeenCalled();
       expect(result.current.progress).toBeDefined();
     });
+
+    it('does not double-count prior batch failures in later batch progress updates', async () => {
+      const onProgress = vi.fn();
+      const { result } = renderHook(() => useFileImportService({ onProgress }));
+
+      const selectedFilePaths = new Set<string>();
+      const fileContents: Record<string, string> = {};
+
+      for (let index = 0; index < 75; index += 1) {
+        const compositeKey = `test-folder:/test/path-${index}.ts`;
+        selectedFilePaths.add(compositeKey);
+        fileContents[compositeKey] = `export const value${index} = ${index};`;
+      }
+
+      mockBulkImport
+        .mockImplementationOnce(
+          async (
+            requests: Array<{
+              content: string;
+              embeddingSetId?: string;
+              name: string;
+              path: string;
+              size: number;
+            }>,
+            onBatchProgress: (completed: number, total: number, current?: string) => void
+          ) => {
+            onBatchProgress(50, requests.length, 'batch-1-complete');
+            return requests.map((request, index) =>
+              index === 0
+                ? { id: `failed-${request.name}`, imported: false, existed: false, error: 'failed' }
+                : { id: `${request.name}`, imported: true, existed: false }
+            );
+          }
+        )
+        .mockImplementationOnce(
+          async (
+            requests: Array<{
+              content: string;
+              embeddingSetId?: string;
+              name: string;
+              path: string;
+              size: number;
+            }>,
+            onBatchProgress: (completed: number, total: number, current?: string) => void
+          ) => {
+            onBatchProgress(24, requests.length, 'batch-2-incomplete');
+            onBatchProgress(25, requests.length, 'batch-2-complete');
+            return requests.map((request) => ({
+              id: `${request.name}`,
+              imported: true,
+              existed: false,
+            }));
+          }
+        );
+
+      await act(async () => {
+        await result.current.importFiles(selectedFilePaths, [], fileContents);
+      });
+
+      const incompleteSecondBatchProgress = onProgress.mock.calls
+        .map(([progress]) => progress as { completed: number; current?: string })
+        .find((progress) => progress.current === 'batch-2-incomplete');
+
+      expect(incompleteSecondBatchProgress).toBeDefined();
+      expect(incompleteSecondBatchProgress?.completed).toBe(74);
+    });
   });
 
   describe('Error handling', () => {
