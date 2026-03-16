@@ -459,42 +459,6 @@ export function getRangeSelection<T>(
  * @param getChildren - Function to get children of a node
  * @returns Object with matching node IDs and their ancestor IDs
  */
-/**
- * Helper to add all ancestor IDs to a set
- */
-function addAncestors(ancestors: string[], ancestorIds: Set<string>): void {
-  for (const ancestorId of ancestors) {
-    ancestorIds.add(ancestorId);
-  }
-}
-
-/**
- * Process a single node during tree traversal for filtering
- */
-function processNodeForFilter<T>(
-  node: TreeNode<T>,
-  ancestors: string[],
-  predicate: (node: TreeNode<T>) => boolean,
-  getChildren: (node: TreeNode<T>) => TreeNode<T>[],
-  matchingIds: Set<string>,
-  ancestorIds: Set<string>,
-  traverseFn: (nodeList: TreeNode<T>[], ancestors: string[]) => boolean
-): boolean {
-  const nodeMatches = predicate(node);
-  const childHasMatch = node.hasChildren
-    ? traverseFn(getChildren(node), [...ancestors, node.id])
-    : false;
-
-  if (nodeMatches || childHasMatch) {
-    if (nodeMatches) {
-      matchingIds.add(node.id);
-    }
-    addAncestors(ancestors, ancestorIds);
-    return true;
-  }
-  return false;
-}
-
 export function filterTreeNodes<T>(
   nodes: TreeNode<T>[],
   predicate: (node: TreeNode<T>) => boolean,
@@ -503,19 +467,37 @@ export function filterTreeNodes<T>(
   const matchingIds = new Set<string>();
   const ancestorIds = new Set<string>();
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: optimized for performance
   function traverse(nodeList: TreeNode<T>[], ancestors: string[]): boolean {
     let hasMatchingDescendant = false;
-    for (const node of nodeList) {
-      const matched = processNodeForFilter(
-        node,
-        ancestors,
-        predicate,
-        getChildren,
-        matchingIds,
-        ancestorIds,
-        traverse
-      );
-      if (matched) {
+    // Manual loop unrolling/optimization for performance hot path
+    // biome-ignore lint/style/useForOf: optimized for performance
+    for (let i = 0; i < nodeList.length; i++) {
+      const node = nodeList[i];
+      if (!node) {
+        continue;
+      }
+
+      const nodeMatches = predicate(node);
+      let childHasMatch = false;
+
+      if (node.hasChildren) {
+        ancestors.push(node.id);
+        childHasMatch = traverse(getChildren(node), ancestors);
+        ancestors.pop();
+      }
+
+      if (nodeMatches || childHasMatch) {
+        if (nodeMatches) {
+          matchingIds.add(node.id);
+        }
+        // biome-ignore lint/style/useForOf: optimized for performance
+        for (let j = 0; j < ancestors.length; j++) {
+          const ancestorId = ancestors[j];
+          if (ancestorId) {
+            ancestorIds.add(ancestorId);
+          }
+        }
         hasMatchingDescendant = true;
       }
     }
