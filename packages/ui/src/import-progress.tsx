@@ -31,15 +31,24 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-sm">
             {isComplete ? (
-              <CheckCircle className="h-4 w-4 text-green-600" />
+              <CheckCircle aria-hidden="true" className="h-4 w-4 text-green-600" />
             ) : (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <div
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"
+              />
             )}
             Import Progress
           </CardTitle>
           {onClose && (
-            <Button className="h-6 w-6 p-0" onClick={onClose} size="sm" variant="ghost">
-              <X className="h-3 w-3" />
+            <Button
+              aria-label="Close"
+              className="h-6 w-6 p-0"
+              onClick={onClose}
+              size="sm"
+              variant="ghost"
+            >
+              <X aria-hidden="true" className="h-3 w-3" />
             </Button>
           )}
         </div>
@@ -52,7 +61,7 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
             <span>{percentage}%</span>
           </div>
 
-          <Progress className="h-2" value={percentage} />
+          <Progress aria-label="Import progress" className="h-2" value={percentage} />
 
           {current && (
             <div className="truncate text-muted-foreground text-xs">Current: {current}</div>
@@ -74,24 +83,26 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
       {hasErrors && (
         <CardContent className="pt-0">
           <Button
+            aria-controls="error-list"
+            aria-expanded={showErrors}
             className="h-auto w-full justify-start p-2"
             onClick={() => setShowErrors(!showErrors)}
             size="sm"
             variant="ghost"
           >
             {showErrors ? (
-              <ChevronDown className="mr-2 h-3 w-3" />
+              <ChevronDown aria-hidden="true" className="mr-2 h-3 w-3" />
             ) : (
-              <ChevronRight className="mr-2 h-3 w-3" />
+              <ChevronRight aria-hidden="true" className="mr-2 h-3 w-3" />
             )}
-            <AlertTriangle className="mr-2 h-3 w-3 text-amber-600" />
+            <AlertTriangle aria-hidden="true" className="mr-2 h-3 w-3 text-amber-600" />
             <span className="text-xs">
               View {errors.length} error{errors.length !== 1 ? 's' : ''}
             </span>
           </Button>
 
           {showErrors && (
-            <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
+            <div className="mt-2 max-h-32 space-y-1 overflow-y-auto" id="error-list">
               {errors.map((error) => (
                 <div
                   className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
