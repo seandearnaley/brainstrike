@@ -153,7 +153,7 @@ const setupLiveQueries = (
       if (queryOptions.query.includes('COUNT(*)::int AS "totalRecords"')) {
         return totalRecordsResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
       }
-      if (queryOptions.query.includes('COUNT(DISTINCT fr.id)::int AS "recordsCount"')) {
+      if (queryOptions.query.includes('AS "recordsCount"')) {
         return collectionCountsResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
       }
       if (
@@ -187,7 +187,7 @@ const createMockDatabase = (options?: {
       if (sql.includes('COUNT(*)::int AS "totalRecords"')) {
         return { rows: options?.totalRecordsRows ?? [{ totalRecords: 0 }] };
       }
-      if (sql.includes('COUNT(DISTINCT fr.id)::int AS "recordsCount"')) {
+      if (sql.includes('AS "recordsCount"')) {
         return {
           rows: options?.collectionCountsRows ?? [
             { recordsCount: 0, chunksCount: 0, embeddingsCount: 0 },
@@ -335,6 +335,31 @@ describe('useDatabaseDemoData', () => {
             params[1] === 'set-1'
         )
       ).toBe(true);
+    });
+  });
+
+  it('uses subqueries for collection counts instead of a collection-wide join', async () => {
+    setupLiveQueries();
+
+    renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      const countQuery = mockedUsePGliteLiveQuery.mock.calls.find(
+        ([queryOptions]) =>
+          typeof queryOptions.query === 'string' && queryOptions.query.includes('AS "recordsCount"')
+      )?.[0].query;
+
+      expect(countQuery).toBeDefined();
+      expect(countQuery).toContain('SELECT COUNT(*)::int');
+      expect(countQuery).not.toContain('LEFT JOIN file_chunks');
     });
   });
 

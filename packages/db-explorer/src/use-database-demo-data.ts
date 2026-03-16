@@ -194,12 +194,21 @@ const FILE_RECORDS_TOTAL_QUERY = `
 
 const COLLECTION_COUNTS_QUERY = `
   SELECT
-    COUNT(DISTINCT fr.id)::int AS "recordsCount",
-    COUNT(fc.id)::int AS "chunksCount",
-    COUNT(*) FILTER (WHERE fc.embedding IS NOT NULL)::int AS "embeddingsCount"
-  FROM file_records fr
-  LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
-  WHERE fr.embedding_set_id = $1
+    (
+      SELECT COUNT(*)::int
+      FROM file_records
+      WHERE embedding_set_id = $1
+    ) AS "recordsCount",
+    (
+      SELECT COUNT(*)::int
+      FROM file_chunks
+      WHERE embedding_set_id = $1
+    ) AS "chunksCount",
+    (
+      SELECT COUNT(*)::int
+      FROM file_chunks
+      WHERE embedding_set_id = $1 AND embedding IS NOT NULL
+    ) AS "embeddingsCount"
 `.trim();
 
 // PERFORMANCE: chunk summaries for the collection browser are loaded per file on demand.
