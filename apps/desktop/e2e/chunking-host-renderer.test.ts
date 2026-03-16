@@ -329,7 +329,10 @@ test.describe('Chunking Host Renderer', () => {
           ok: true as const,
           chunkCount: result.chunks.length,
           totalTokens: result.totalTokens,
-          minTokenCount: Math.min(...result.chunks.map((chunk) => chunk.tokenCount)),
+          minTokenCount:
+            result.chunks.length > 0
+              ? Math.min(...result.chunks.map((chunk) => chunk.tokenCount))
+              : 0,
         };
       } catch (error) {
         return {
