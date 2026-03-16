@@ -33,6 +33,13 @@ type FileSystemAction =
   | { type: 'setRoot'; handle: DirectoryHandle | null }
   | { type: 'setAccessLoading'; loading: boolean };
 
+function getCanonicalFolderId(handle: DirectoryHandle): string {
+  if (!handle.path) {
+    throw new Error('Directory handle is missing its canonical path');
+  }
+  return handle.path;
+}
+
 function reducer(state: FileSystemState, action: FileSystemAction): FileSystemState {
   switch (action.type) {
     case 'setRoot':
@@ -90,7 +97,7 @@ export function useFileSystem({
     try {
       const handle = await fileSystemAdapter.requestDirectoryAccess();
       dispatch({ type: 'setRoot', handle });
-      updateCurrentFolderId(handle.name);
+      updateCurrentFolderId(getCanonicalFolderId(handle));
       return handle;
     } catch (error) {
       if (isUserCancellation(error)) {
@@ -116,7 +123,7 @@ export function useFileSystem({
     (handle: DirectoryHandle | null) => {
       dispatch({ type: 'setRoot', handle });
       if (handle) {
-        updateCurrentFolderId(handle.name);
+        updateCurrentFolderId(getCanonicalFolderId(handle));
       } else {
         updateCurrentFolderId(null);
       }
@@ -150,16 +157,17 @@ export function useFileSystem({
         return;
       }
       dispatch({ type: 'setRoot', handle: restored });
+      const restoredFolderId = getCanonicalFolderId(restored);
 
       // Check if the persisted currentFolderId already matches.
       // If so, skip calling setCurrentFolderId to avoid triggering the
       // folder-switching logic which would read from stale folderStates.
       const persistedFolderId = getPersistedCurrentFolderId?.();
-      if (persistedFolderId !== restored.name) {
-        updateCurrentFolderId(restored.name);
+      if (persistedFolderId !== restoredFolderId) {
+        updateCurrentFolderId(restoredFolderId);
       } else {
         logger.debug('Skipping setCurrentFolderId - folder already matches persisted state', {
-          folderId: restored.name,
+          folderId: restoredFolderId,
         });
       }
     },

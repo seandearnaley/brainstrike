@@ -422,7 +422,10 @@ export function useFileTree(
       isRoot = true,
       abortSignal?: AbortSignal
     ): Promise<IFileNode[]> => {
-      const rootFolderId = rootHandle.name;
+      if (!rootHandle.path) {
+        throw new Error('Root directory handle is missing its canonical path');
+      }
+      const rootFolderId = rootHandle.path;
       const stats: ProcessingStats = { successCount: 0, failCount: 0 };
 
       if (abortSignal?.aborted) {

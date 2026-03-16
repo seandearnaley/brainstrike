@@ -5,6 +5,7 @@ import type {
   FileRecordRepository,
 } from '@brainstrike/db';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSearchFunctionality } from '../use-search-functionality';
@@ -22,7 +23,14 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   };
 });
 
-const initializeWithModel = vi.fn<(modelConfig: unknown) => Promise<void>>();
+const initializeWithModel =
+  vi.fn<
+    (
+      modelConfig: unknown,
+      onProgress?: unknown,
+      deviceOverride?: 'wasm' | 'webgpu'
+    ) => Promise<void>
+  >();
 const dispose = vi.fn<() => void>();
 const generateQueryEmbedding = vi.fn<(text: string) => Promise<{ embedding: Float32Array }>>();
 
@@ -39,8 +47,12 @@ vi.mock('@brainstrike/embeddings/factory', () => ({
 
 vi.mock('@brainstrike/embeddings/service', () => {
   class MockSimpleEmbeddingService {
-    initializeWithModel(modelConfig: unknown): Promise<void> {
-      return initializeWithModel(modelConfig);
+    initializeWithModel(
+      modelConfig: unknown,
+      onProgress?: unknown,
+      deviceOverride?: 'wasm' | 'webgpu'
+    ): Promise<void> {
+      return initializeWithModel(modelConfig, onProgress, deviceOverride);
     }
 
     generateQueryEmbedding(text: string): Promise<{ embedding: Float32Array }> {
@@ -96,6 +108,17 @@ describe('useSearchFunctionality', () => {
       isLoading: false,
       hasLoaded: true,
       error: null,
+    });
+    useVectorPreferencesStore.setState({
+      hasHydrated: true,
+      devicePref: 'wasm',
+      devicePrefConfigured: true,
+      reinitEveryN: 200,
+      verboseOrtLogs: false,
+      setDetectedDevicePref: vi.fn(),
+      setDevicePref: vi.fn(),
+      setReinitEveryN: vi.fn(),
+      setVerboseOrtLogs: vi.fn(),
     });
   });
 
@@ -176,7 +199,9 @@ describe('useSearchFunctionality', () => {
     });
 
     expect(initializeWithModel).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'jinaai/jina-embeddings-v3' })
+      expect.objectContaining({ id: 'jinaai/jina-embeddings-v3' }),
+      undefined,
+      'wasm'
     );
     expect(generateQueryEmbedding).toHaveBeenCalledWith('hello line');
 

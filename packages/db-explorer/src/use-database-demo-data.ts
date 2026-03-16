@@ -202,12 +202,12 @@ const COLLECTION_COUNTS_QUERY = `
     (
       SELECT COUNT(*)::int
       FROM file_chunks
-      WHERE embedding_set_id = $1
+      WHERE embedding_set_id = $2
     ) AS "chunksCount",
     (
       SELECT COUNT(*)::int
       FROM file_chunks
-      WHERE embedding_set_id = $1 AND embedding IS NOT NULL
+      WHERE embedding_set_id = $3 AND embedding IS NOT NULL
     ) AS "embeddingsCount"
 `.trim();
 
@@ -701,6 +701,11 @@ export function useDatabaseDemoData({
     () => (activeCollectionId ? [activeCollectionId] : undefined),
     [activeCollectionId]
   );
+  const collectionCountsQueryParams = useMemo<readonly [string, string, string] | undefined>(
+    () =>
+      activeCollectionId ? [activeCollectionId, activeCollectionId, activeCollectionId] : undefined,
+    [activeCollectionId]
+  );
 
   // Pause live queries during import and active embedding. These queries still
   // re-run on every file_chunks mutation, and cache-backed snapshots are enough
@@ -743,7 +748,7 @@ export function useDatabaseDemoData({
   } = usePGliteLiveQuery<CollectionCountsRow>({
     cacheKey: makeLiveQueryKey('file-record-collection-counts', activeCollectionId),
     query: COLLECTION_COUNTS_QUERY,
-    ...(recordTotalQueryParams ? { params: recordTotalQueryParams } : {}),
+    ...(collectionCountsQueryParams ? { params: collectionCountsQueryParams } : {}),
     enabled: liveQueryEnabled,
   });
 
@@ -864,7 +869,11 @@ export function useDatabaseDemoData({
         ? queryDatabase.query<FileRecordsTotalRow>(FILE_RECORDS_TOTAL_QUERY, [activeCollectionId])
         : Promise.resolve(null));
       const collectionCountsResult = await (options.includeCollectionCounts
-        ? queryDatabase.query<CollectionCountsRow>(COLLECTION_COUNTS_QUERY, [activeCollectionId])
+        ? queryDatabase.query<CollectionCountsRow>(COLLECTION_COUNTS_QUERY, [
+            activeCollectionId,
+            activeCollectionId,
+            activeCollectionId,
+          ])
         : Promise.resolve(null));
 
       if (recordsResult) {

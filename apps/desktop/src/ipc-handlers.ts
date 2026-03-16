@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { JobQueue } from '@brainstrike/db';
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
 import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
@@ -27,6 +27,7 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 // Storage keys for persistent data
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
 const MOCK_PATH_PREFIX = '/mock/' as const;
+const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 
 /**
  * Register all IPC handlers used by the desktop application.
@@ -42,6 +43,19 @@ interface LiveSubscriptionRecord {
   listener: (results: LiveQueryResults<unknown>) => void;
   mode: 'query' | 'incremental';
   webContentsId: number;
+}
+
+interface ElectronE2eFileSystemFixture {
+  directoriesByPath: Record<string, SerializableFileNode[]>;
+  fileContentsByPath: Record<string, string>;
+  readDirectoryCalls: string[];
+  readFileByPathCalls: string[];
+  readFileCalls: string[];
+  requestDirectoryAccessCount: number;
+  rootHandle: DirectoryHandle & {
+    id: string;
+    type: 'directory';
+  };
 }
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
@@ -64,6 +78,15 @@ const LIVE_FLUSH_INTERVAL_MS = 2000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
 let embeddingBackfillInFlight: { embeddingSetId: string } | null = null;
+
+function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
+  const fixture = (
+    globalThis as typeof globalThis & {
+      [E2E_FILE_SYSTEM_FIXTURE_KEY]?: ElectronE2eFileSystemFixture;
+    }
+  )[E2E_FILE_SYSTEM_FIXTURE_KEY];
+  return fixture ?? null;
+}
 
 function isDisposedRenderFrameSendError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -449,6 +472,11 @@ export function registerIpcHandlers(
       process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
 
     if (isTestMode) {
+      const fixture = getElectronE2eFileSystemFixture();
+      if (fixture) {
+        fixture.requestDirectoryAccessCount += 1;
+        return fixture.rootHandle;
+      }
       // Return a mock directory handle for testing
       return {
         id: 'mock-directory-handle',
@@ -463,6 +491,20 @@ export function registerIpcHandlers(
     return fileSystem.requestDirectoryAccess();
   });
   registerHandler('fs:readDirectory', async (_e: IpcMainInvokeEvent, handle: DirectoryHandle) => {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      fixture.readDirectoryCalls.push(handle.path);
+      const entries = fixture.directoriesByPath[handle.path];
+      if (!entries) {
+        throw new AccessError(
+          `Failed to read directory: no E2E fixture registered for ${handle.path}`,
+          handle.path,
+          'read'
+        );
+      }
+      return entries;
+    }
+
     // Check if this is a mock handle for testing
     if (
       handle &&
@@ -478,6 +520,20 @@ export function registerIpcHandlers(
   });
 
   registerHandler('fs:readFile', async (_e: IpcMainInvokeEvent, handle: FileHandle) => {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      fixture.readFileCalls.push(handle.path);
+      const content = fixture.fileContentsByPath[handle.path];
+      if (content === undefined) {
+        throw new AccessError(
+          `Failed to read file: no E2E fixture registered for ${handle.path}`,
+          handle.path,
+          'read'
+        );
+      }
+      return content;
+    }
+
     // Check if this is a mock handle for testing
     if (
       handle &&
@@ -504,6 +560,20 @@ export function registerIpcHandlers(
 
   // BST-307: Direct path-based file reading for persisted tab restoration
   registerHandler('fs:readFileByPath', async (_e: IpcMainInvokeEvent, absolutePath: string) => {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      fixture.readFileByPathCalls.push(absolutePath);
+      const content = fixture.fileContentsByPath[absolutePath];
+      if (content === undefined) {
+        throw new AccessError(
+          `Failed to read file by path: no E2E fixture registered for ${absolutePath}`,
+          absolutePath,
+          'read'
+        );
+      }
+      return content;
+    }
+
     // Check for mock paths in test mode
     if (absolutePath.startsWith(MOCK_PATH_PREFIX)) {
       return 'Mock file content for testing purposes\nThis is a test file.\n';
@@ -531,6 +601,15 @@ export function registerIpcHandlers(
   });
 
   registerHandler('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      return (
+        p === fixture.rootHandle.path ||
+        p in fixture.directoriesByPath ||
+        p in fixture.fileContentsByPath
+      );
+    }
+
     // Check for mock paths in test mode
     if (p.startsWith(MOCK_PATH_PREFIX)) {
       return true;

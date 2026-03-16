@@ -12,7 +12,48 @@ interface BufferedLogRecord {
 interface EmbeddingHostStatus {
   active: boolean;
   lastError: string | null;
+  runtimeId: string;
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+}
+
+interface ChunkingHostStatus {
+  active: boolean;
+  lastError: string | null;
+  runtimeId: string;
+  state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+}
+
+interface MainBufferedLogRecord {
+  bindings?: Record<string, unknown>;
+  message?: string;
+  scope?: string;
+}
+
+interface ElectronE2eFileSystemFixture {
+  directoriesByPath: Record<string, unknown[]>;
+  fileContentsByPath: Record<string, string>;
+  readDirectoryCalls: string[];
+  readFileByPathCalls: string[];
+  readFileCalls: string[];
+  requestDirectoryAccessCount: number;
+  rootHandle: {
+    id: string;
+    kind: 'directory';
+    name: string;
+    path: string;
+    platform: 'electron';
+    type: 'directory';
+  };
+}
+
+interface ElectronE2eFileSystemFixtureSummary {
+  directoryPaths: string[];
+  fileCount: number;
+  readDirectoryCalls: string[];
+  readFileByPathCallCount: number;
+  readFileCallCount: number;
+  requestDirectoryAccessCount: number;
+  rootHandlePath: string;
 }
 
 interface QueueStatsRow {
@@ -32,6 +73,57 @@ interface EmbeddingSetCountsRow {
   embeddedChunks: number | string | null;
   fileCount: number | string | null;
   totalChunks: number | string | null;
+}
+
+interface ImportedPathCounts {
+  fileCount: number;
+  totalChunks: number;
+}
+
+function isDisposedElectronEvaluateError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message.includes('Execution context was destroyed') ||
+      error.message.includes('Target page, context or browser has been closed'))
+  );
+}
+
+interface FileExplorerTestSnapshot {
+  currentFolderId: string | null;
+  materializedPathCount: number;
+  materializedPathSamples: string[];
+  rootDirectoryPath: string | null;
+  selectedFilePathCount: number;
+  selectedFilePathSamples: string[];
+  selectionMode: 'explicit' | 'rules';
+  treeRootCount: number;
+  treeSamples: Array<{
+    childCount: number;
+    path: string;
+    rootFolderId: string | null;
+    type: string;
+  }>;
+}
+
+interface DatabaseDemoImportTestSnapshot {
+  activeCollectionId: string | null;
+  isImporting: boolean;
+  progress: {
+    completed: number;
+    current: string;
+    errors: Array<{ error: string; file: string }>;
+    phase: string;
+    total: number;
+  } | null;
+  selectedFileCount: number;
+}
+
+interface DatabaseDemoSemanticSearchTestSnapshot {
+  error: string | null;
+  firstResultNodeId: string | null;
+  hasSearched: boolean;
+  isSearching: boolean;
+  resultCount: number;
 }
 
 interface HeapSnapshot {
@@ -102,6 +194,9 @@ const LARGE_COLLECTION_VISIBLE_HEAP_GROWTH_LIMIT_MB = 120;
 const LARGE_COLLECTION_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 250;
 const LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB = 80;
 const LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 180;
+const ACTUAL_IMPORT_STRESS_FILE_COUNT = 1000;
+const ACTUAL_IMPORT_SENTENCES_PER_FILE = 24;
+const ACTUAL_IMPORT_VISIBLE_WORKING_SET_LIMIT_MB = 1400;
 
 test.describe('Embedding Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
@@ -145,6 +240,38 @@ test.describe('Embedding Host Renderer', () => {
     });
   }
 
+  async function getChunkingHostStatus(page: Page): Promise<ChunkingHostStatus> {
+    return await page.evaluate<ChunkingHostStatus>(async () => {
+      const host = (
+        window as Window & {
+          chunkingHost?: {
+            getStatus?: () => Promise<ChunkingHostStatus>;
+          };
+        }
+      ).chunkingHost;
+      if (!host?.getStatus) {
+        throw new Error('Chunking host bridge is not available');
+      }
+      return await host.getStatus();
+    });
+  }
+
+  async function getMainBufferedLogs(page: Page): Promise<MainBufferedLogRecord[]> {
+    return await page.evaluate<MainBufferedLogRecord[]>(async () => {
+      const loggingApi = (
+        window as Window & {
+          logging?: {
+            getBufferedLogs?: () => Promise<MainBufferedLogRecord[]>;
+          };
+        }
+      ).logging;
+      if (!loggingApi?.getBufferedLogs) {
+        throw new Error('Logging bridge is not available');
+      }
+      return await loggingApi.getBufferedLogs();
+    });
+  }
+
   async function resetEmbeddingHost(page: Page): Promise<EmbeddingHostStatus> {
     return await page.evaluate<EmbeddingHostStatus>(async () => {
       const host = (
@@ -158,6 +285,38 @@ test.describe('Embedding Host Renderer', () => {
         throw new Error('Embedding host reset bridge is not available');
       }
       return await host.reset();
+    });
+  }
+
+  async function stopEmbeddingHost(page: Page): Promise<EmbeddingHostStatus> {
+    return await page.evaluate<EmbeddingHostStatus>(async () => {
+      const host = (
+        window as Window & {
+          embeddingHost?: {
+            stop?: () => Promise<EmbeddingHostStatus>;
+          };
+        }
+      ).embeddingHost;
+      if (!host?.stop) {
+        throw new Error('Embedding host stop bridge is not available');
+      }
+      return await host.stop();
+    });
+  }
+
+  async function stopChunkingHost(page: Page): Promise<ChunkingHostStatus> {
+    return await page.evaluate<ChunkingHostStatus>(async () => {
+      const host = (
+        window as Window & {
+          chunkingHost?: {
+            stop?: () => Promise<ChunkingHostStatus>;
+          };
+        }
+      ).chunkingHost;
+      if (!host?.stop) {
+        throw new Error('Chunking host stop bridge is not available');
+      }
+      return await host.stop();
     });
   }
 
@@ -358,6 +517,238 @@ test.describe('Embedding Host Renderer', () => {
     });
   }
 
+  async function ensureLeftPanelVisible(page: Page): Promise<void> {
+    const leftPanel = page.locator('#explorer-panel');
+    const showLeftPanelButton = page
+      .getByTestId('show-explorer-panel')
+      .or(page.getByRole('button', { name: /show explorer/i }));
+
+    if (
+      !(await leftPanel.isVisible().catch(() => false)) &&
+      (await showLeftPanelButton.isVisible().catch(() => false))
+    ) {
+      await showLeftPanelButton.click();
+    }
+
+    await expect(leftPanel).toBeVisible({ timeout: 15_000 });
+  }
+
+  async function installLargeImportFileSystemMock(
+    electronApp: ElectronApplication,
+    options: { fileCount: number; rootPath: string; sentencesPerFile: number }
+  ): Promise<void> {
+    const fixture: ElectronE2eFileSystemFixture = {
+      directoriesByPath: {},
+      fileContentsByPath: {},
+      readDirectoryCalls: [],
+      readFileByPathCalls: [],
+      readFileCalls: [],
+      rootHandle: {
+        id: 'mock-directory-handle',
+        kind: 'directory',
+        name: 'mock-stress-directory',
+        path: options.rootPath,
+        platform: 'electron',
+        type: 'directory',
+      },
+      requestDirectoryAccessCount: 0,
+    };
+
+    fixture.directoriesByPath[options.rootPath] = Array.from(
+      { length: options.fileCount },
+      (_, index) => {
+        const fileName = `stress-file-${String(index).padStart(4, '0')}.ts`;
+        const path = `${options.rootPath}/${fileName}`;
+        const sentences = Array.from({ length: options.sentencesPerFile }, (_, sentenceIndex) => {
+          return `export const sentence_${sentenceIndex} = "stress-file-${index}-sentence-${sentenceIndex}.";`;
+        });
+        fixture.fileContentsByPath[path] = sentences.join('\n');
+
+        return {
+          name: fileName,
+          path,
+          type: 'file' as const,
+          size: fixture.fileContentsByPath[path].length,
+          depth: 1,
+          selectionState: 'unchecked' as const,
+          rootFolderId: fixture.rootHandle.path,
+          handle: {
+            id: `mock-stress-file-${index}`,
+            kind: 'file' as const,
+            name: fileName,
+            path,
+            platform: 'electron' as const,
+          },
+        };
+      }
+    );
+
+    await electronApp.evaluate((_electron, nextFixture) => {
+      (
+        globalThis as typeof globalThis & {
+          __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
+        }
+      ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
+    }, fixture);
+  }
+
+  async function clearLargeImportFileSystemMock(electronApp: ElectronApplication): Promise<void> {
+    try {
+      await electronApp.evaluate(() => {
+        (
+          globalThis as typeof globalThis & {
+            __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
+          }
+        ).__brainstrike_e2e_file_system_fixture__ = undefined;
+      });
+    } catch (error) {
+      if (isDisposedElectronEvaluateError(error)) {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  async function getVisibleAlertTexts(page: Page): Promise<string[]> {
+    return await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('[role="alert"], [role="status"]'))
+        .map((node) => node.textContent?.trim() ?? '')
+        .filter((text) => text.length > 0);
+    });
+  }
+
+  async function getFileExplorerTestSnapshot(page: Page): Promise<FileExplorerTestSnapshot | null> {
+    return await page.evaluate<FileExplorerTestSnapshot | null>(() => {
+      const hooks = (
+        window as Window & {
+          __brainstrikeFileExplorerTestHooks__?: {
+            getSnapshot?: () => FileExplorerTestSnapshot;
+          };
+        }
+      ).__brainstrikeFileExplorerTestHooks__;
+      if (!hooks?.getSnapshot) {
+        return null;
+      }
+      return hooks.getSnapshot();
+    });
+  }
+
+  async function getDatabaseDemoImportSnapshot(
+    page: Page
+  ): Promise<DatabaseDemoImportTestSnapshot | null> {
+    return await page.evaluate<DatabaseDemoImportTestSnapshot | null>(() => {
+      const hooks = (
+        window as Window & {
+          __brainstrikeDatabaseDemoTestHooks__?: {
+            getImportSnapshot?: () => DatabaseDemoImportTestSnapshot;
+          };
+        }
+      ).__brainstrikeDatabaseDemoTestHooks__;
+      if (!hooks?.getImportSnapshot) {
+        return null;
+      }
+      return hooks.getImportSnapshot();
+    });
+  }
+
+  async function getDatabaseDemoSemanticSearchSnapshot(
+    page: Page
+  ): Promise<DatabaseDemoSemanticSearchTestSnapshot | null> {
+    return await page.evaluate<DatabaseDemoSemanticSearchTestSnapshot | null>(() => {
+      const hooks = (
+        window as Window & {
+          __brainstrikeDatabaseDemoSemanticSearchTestHooks__?: {
+            getSnapshot?: () => DatabaseDemoSemanticSearchTestSnapshot;
+          };
+        }
+      ).__brainstrikeDatabaseDemoSemanticSearchTestHooks__;
+      if (!hooks?.getSnapshot) {
+        return null;
+      }
+      return hooks.getSnapshot();
+    });
+  }
+
+  async function getMainProcessFileSystemFixtureSummary(
+    electronApp: ElectronApplication
+  ): Promise<ElectronE2eFileSystemFixtureSummary | null> {
+    return await electronApp.evaluate(() => {
+      const fixture = globalThis as typeof globalThis & {
+        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture;
+      };
+      const currentFixture = fixture.__brainstrike_e2e_file_system_fixture__;
+      if (!currentFixture) {
+        return null;
+      }
+
+      return {
+        directoryPaths: Object.keys(currentFixture.directoriesByPath),
+        fileCount: Object.keys(currentFixture.fileContentsByPath).length,
+        readDirectoryCalls: [...currentFixture.readDirectoryCalls],
+        readFileByPathCallCount: currentFixture.readFileByPathCalls.length,
+        readFileCallCount: currentFixture.readFileCalls.length,
+        requestDirectoryAccessCount: currentFixture.requestDirectoryAccessCount,
+        rootHandlePath: currentFixture.rootHandle.path,
+      };
+    });
+  }
+
+  async function setImportSettingsForStressTest(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      localStorage.setItem(
+        'import-settings.v1',
+        JSON.stringify({
+          state: {
+            enableChunking: true,
+            chunkingPreset: 'custom',
+            chunkingStrategy: 'sentence',
+            chunkingStrategyExplicit: true,
+            chunkSize: 512,
+            chunkOverlap: 0,
+            tokenTrueSizing: true,
+            chunkTokenLimit: 4096,
+          },
+          version: 7,
+        })
+      );
+    });
+  }
+
+  async function setFileExplorerMaxSelectionCount(
+    page: Page,
+    maxSelectionCount: number
+  ): Promise<void> {
+    const selectionCounterButton = page.getByRole('button', {
+      name: 'Click to edit maximum selection count',
+    });
+    await expect(selectionCounterButton).toBeVisible({ timeout: 15_000 });
+    await selectionCounterButton.click({ timeout: 5000 });
+
+    const selectionCountInput = page.getByLabel('Maximum selection count input');
+    await expect(selectionCountInput).toBeVisible({ timeout: 15_000 });
+    await selectionCountInput.fill(String(maxSelectionCount));
+    await page.getByRole('button', { name: 'Apply selection count' }).click({ timeout: 5000 });
+    await expect(page.getByTestId('selection-max')).toHaveText(String(maxSelectionCount), {
+      timeout: 15_000,
+    });
+  }
+
+  function extractUnexpectedLifecycleLogs(
+    records: readonly MainBufferedLogRecord[]
+  ): MainBufferedLogRecord[] {
+    return records.filter((record) => {
+      const message = record.message ?? '';
+      const reloadReason = record.bindings?.['reloadReason'];
+      return (
+        message.includes('Renderer process gone') ||
+        message.includes('Renderer crashed; deferring recovery') ||
+        message.includes('did-fail-load') ||
+        message.includes('Render frame was disposed before WebFrameMain could be accessed') ||
+        reloadReason === 'renderer-crash-recovery'
+      );
+    });
+  }
+
   function recordContainsText(record: BufferedLogRecord, text: string): boolean {
     if (typeof record.message === 'string' && record.message.includes(text)) {
       return true;
@@ -368,6 +759,24 @@ test.describe('Embedding Host Renderer', () => {
 
   function countRecordsContainingText(records: readonly BufferedLogRecord[], text: string): number {
     return records.filter((record) => recordContainsText(record, text)).length;
+  }
+
+  function extractStructuredLogString(
+    record: BufferedLogRecord,
+    key: 'error' | 'stack'
+  ): string | null {
+    for (const arg of record.args) {
+      if (!(arg && typeof arg === 'object')) {
+        continue;
+      }
+
+      const candidate = (arg as Record<string, unknown>)[key];
+      if (typeof candidate === 'string' && candidate.length > 0) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   async function forceRendererGarbageCollection(page: Page): Promise<void> {
@@ -421,7 +830,12 @@ test.describe('Embedding Host Renderer', () => {
             }>;
           };
           const url = browserWindow.webContents.getURL();
-          const mode = new URL(url).searchParams.get('mode');
+          let mode: string | null = null;
+          try {
+            mode = new URL(url).searchParams.get('mode');
+          } catch {
+            mode = null;
+          }
           const runtimeKind: RuntimeProcessSnapshot['runtimeKind'] =
             mode === 'embedding-host'
               ? 'embedding-host'
@@ -1180,6 +1594,51 @@ test.describe('Embedding Host Renderer', () => {
     });
   }
 
+  async function getImportedPathCounts(
+    page: Page,
+    rootPathPrefix: string
+  ): Promise<ImportedPathCounts> {
+    return await page.evaluate<ImportedPathCounts, string>(async (pathPrefix) => {
+      const api = (
+        window as Window & {
+          electronAPI?: {
+            db?: {
+              query?: (
+                sql: string,
+                params?: unknown[]
+              ) => Promise<{
+                rows: Array<{
+                  fileCount?: number | string | null;
+                  totalChunks?: number | string | null;
+                }>;
+              }>;
+            };
+          };
+        }
+      ).electronAPI;
+      if (!api?.db?.query) {
+        throw new Error('Database API not available');
+      }
+      const result = await api.db.query(
+        `SELECT
+           COUNT(DISTINCT fr.id)::int AS "fileCount",
+           COUNT(fc.id)::int AS "totalChunks"
+         FROM file_records fr
+         LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
+         WHERE fr.path LIKE $1`,
+        [`${pathPrefix}/%`]
+      );
+      const row = (result.rows[0] ?? {}) as {
+        fileCount?: number | string;
+        totalChunks?: number | string;
+      };
+      return {
+        fileCount: Number(row.fileCount ?? 0),
+        totalChunks: Number(row.totalChunks ?? 0),
+      };
+    }, rootPathPrefix);
+  }
+
   async function getEmbeddingSetQueueStats(
     page: Page,
     embeddingSetId: string
@@ -1291,6 +1750,16 @@ test.describe('Embedding Host Renderer', () => {
     await expect(option).toBeVisible({ timeout: 15_000 });
     const text = await option.innerText();
     return parseCollectionSummaryCounts(text);
+  }
+
+  async function resolveCollectionIdByName(page: Page, collectionName: string): Promise<string> {
+    const option = page.getByRole('option').filter({ hasText: collectionName }).first();
+    await expect(option).toBeVisible({ timeout: 15_000 });
+    const optionId = await option.getAttribute('id');
+    if (!optionId?.startsWith('collection-option-')) {
+      throw new Error(`Collection option is missing the canonical id for ${collectionName}`);
+    }
+    return optionId.replace('collection-option-', '');
   }
 
   async function createImportTargetCollection(
@@ -2580,6 +3049,365 @@ test.describe('Embedding Host Renderer', () => {
     const timeOriginAfterBackfill = await getRendererTimeOrigin(activeWindow);
     expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
     await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
+  });
+
+  test('does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(420_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await stopEmbeddingHost(activeWindow);
+    await stopChunkingHost(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await setImportSettingsForStressTest(activeWindow);
+    await reloadRenderer(activeWindow, 'embedding-worker-real-import-stress');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+    await expect
+      .poll(async () => await getEmbeddingHostStatus(activeWindow), {
+        timeout: 15_000,
+      })
+      .toMatchObject({ state: 'stopped' });
+    await expect
+      .poll(async () => await getChunkingHostStatus(activeWindow), {
+        timeout: 15_000,
+      })
+      .toMatchObject({ state: 'stopped' });
+
+    await ensureLeftPanelVisible(activeWindow);
+    await installLargeImportFileSystemMock(electronApp.app, {
+      fileCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
+      rootPath: '/mock/stress-import',
+      sentencesPerFile: ACTUAL_IMPORT_SENTENCES_PER_FILE,
+    });
+
+    try {
+      const fixtureSummaryAfterInstall = await getMainProcessFileSystemFixtureSummary(
+        electronApp.app
+      );
+      expect(fixtureSummaryAfterInstall).toMatchObject({
+        fileCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
+        requestDirectoryAccessCount: 0,
+        rootHandlePath: '/mock/stress-import',
+      });
+
+      const collectionName = `Stress Import ${Date.now()}`;
+      await createCollectionViaDialog(activeWindow, collectionName);
+      const embeddingSetId = await resolveCollectionIdByName(activeWindow, collectionName);
+
+      const initialTimeOrigin = await getRendererTimeOrigin(activeWindow);
+      const initialLogCount = (await getMainBufferedLogs(activeWindow)).length;
+
+      const selectRootButton = activeWindow.getByTestId('select-root-button');
+      await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
+      await selectRootButton.click({ timeout: 5000 });
+      await setFileExplorerMaxSelectionCount(activeWindow, ACTUAL_IMPORT_STRESS_FILE_COUNT);
+
+      await expect
+        .poll(async () => await getMainProcessFileSystemFixtureSummary(electronApp.app), {
+          timeout: 30_000,
+        })
+        .toMatchObject({
+          fileCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
+          requestDirectoryAccessCount: 1,
+          rootHandlePath: '/mock/stress-import',
+        });
+      await expect(activeWindow.getByText('mock-stress-directory')).toBeVisible({
+        timeout: 15_000,
+      });
+
+      const selectAllButton = activeWindow.getByRole('button', { name: /^Select All$/i }).first();
+      await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
+      await selectAllButton.click({ timeout: 5000 });
+
+      await expect(activeWindow.getByTestId('selection-count')).toHaveText(
+        String(ACTUAL_IMPORT_STRESS_FILE_COUNT),
+        {
+          timeout: 60_000,
+        }
+      );
+
+      const fixtureSummaryAfterSelection = await getMainProcessFileSystemFixtureSummary(
+        electronApp.app
+      );
+      const fileExplorerSnapshotAfterSelection = await getFileExplorerTestSnapshot(activeWindow);
+      expect(fixtureSummaryAfterSelection).toMatchObject({
+        fileCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
+        requestDirectoryAccessCount: 1,
+        rootHandlePath: '/mock/stress-import',
+      });
+      expect(fixtureSummaryAfterSelection?.readDirectoryCalls).toEqual(['/mock/stress-import']);
+      expect(fileExplorerSnapshotAfterSelection).not.toBeNull();
+      expect(fileExplorerSnapshotAfterSelection).toMatchObject({
+        currentFolderId: '/mock/stress-import',
+        rootDirectoryPath: '/mock/stress-import',
+        selectedFilePathCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
+      });
+      expect(
+        fileExplorerSnapshotAfterSelection?.selectedFilePathSamples.every((key) =>
+          key.startsWith('/mock/stress-import|@|')
+        )
+      ).toBe(true);
+
+      const importButton = activeWindow.getByRole('button', { name: /^Import\s*\(/ });
+      await expect(importButton).toContainText(`(${ACTUAL_IMPORT_STRESS_FILE_COUNT})`, {
+        timeout: 30_000,
+      });
+
+      await importButton.click({ timeout: 5000 });
+
+      const runtimeIds = {
+        chunking: new Set<string>(),
+        embedding: new Set<string>(),
+      };
+      let peakVisibleWorkingSetMB = 0;
+      const importStartedAt = Date.now();
+      let importedPathCounts: ImportedPathCounts | null = null;
+
+      while (Date.now() - importStartedAt < 240_000) {
+        const [
+          pathCounts,
+          timeOrigin,
+          embeddingStatus,
+          chunkingStatus,
+          processSnapshot,
+          rendererLogs,
+          importSnapshot,
+        ] = await Promise.all([
+          getImportedPathCounts(activeWindow, '/mock/stress-import'),
+          getRendererTimeOrigin(activeWindow),
+          getEmbeddingHostStatus(activeWindow),
+          getChunkingHostStatus(activeWindow),
+          readDesktopProcessSnapshot(electronApp.app),
+          getRendererLogRecords(activeWindow),
+          getDatabaseDemoImportSnapshot(activeWindow),
+        ]);
+
+        if (embeddingStatus.state !== 'stopped') {
+          runtimeIds.embedding.add(embeddingStatus.runtimeId);
+        }
+        if (chunkingStatus.state !== 'stopped') {
+          runtimeIds.chunking.add(chunkingStatus.runtimeId);
+        }
+        const visibleRuntime = getRuntimeSnapshot(processSnapshot, 'visible-ui');
+        peakVisibleWorkingSetMB = Math.max(
+          peakVisibleWorkingSetMB,
+          visibleRuntime.workingSetMB ?? 0
+        );
+
+        expect(timeOrigin).toBe(initialTimeOrigin);
+
+        const catastrophicImportLog = rendererLogs.find((record) =>
+          recordContainsText(record, 'Enhanced import failed catastrophically')
+        );
+        const importErrors = importSnapshot?.progress?.errors ?? [];
+        if (importErrors.length > 0) {
+          const [alertTexts, fixtureSummary, fileExplorerSnapshot] = await Promise.all([
+            getVisibleAlertTexts(activeWindow),
+            getMainProcessFileSystemFixtureSummary(electronApp.app),
+            getFileExplorerTestSnapshot(activeWindow),
+          ]);
+          throw new Error(
+            `Real desktop import reported progress errors: ${JSON.stringify(importErrors.slice(0, 10))}\nimportSnapshot=${JSON.stringify(importSnapshot)}\nalerts=${JSON.stringify(alertTexts)}\nfixture=${JSON.stringify(fixtureSummary)}\nfileExplorer=${JSON.stringify(fileExplorerSnapshot)}`
+          );
+        }
+        if (catastrophicImportLog) {
+          const errorMessage =
+            extractStructuredLogString(catastrophicImportLog, 'error') ??
+            catastrophicImportLog.message ??
+            'unknown enhanced import failure';
+          const errorStack = extractStructuredLogString(catastrophicImportLog, 'stack');
+          const [alertTexts, fixtureSummary, fileExplorerSnapshot] = await Promise.all([
+            getVisibleAlertTexts(activeWindow),
+            getMainProcessFileSystemFixtureSummary(electronApp.app),
+            getFileExplorerTestSnapshot(activeWindow),
+          ]);
+          throw new Error(
+            `Enhanced import failed during real desktop import: ${errorMessage}${errorStack ? `\n${errorStack}` : ''}\nalerts=${JSON.stringify(alertTexts)}\nfixture=${JSON.stringify(fixtureSummary)}\nfileExplorer=${JSON.stringify(fileExplorerSnapshot)}`
+          );
+        }
+
+        if (
+          pathCounts.fileCount === ACTUAL_IMPORT_STRESS_FILE_COUNT &&
+          pathCounts.totalChunks > 0
+        ) {
+          importedPathCounts = pathCounts;
+          break;
+        }
+
+        await activeWindow.waitForTimeout(1000);
+      }
+
+      if (!importedPathCounts) {
+        const [alertTexts, fixtureSummary, fileExplorerSnapshot] = await Promise.all([
+          getVisibleAlertTexts(activeWindow),
+          getMainProcessFileSystemFixtureSummary(electronApp.app),
+          getFileExplorerTestSnapshot(activeWindow),
+        ]);
+        throw new Error(
+          `Timed out waiting for imported file records and chunks to persist\nalerts=${JSON.stringify(alertTexts)}\nfixture=${JSON.stringify(fixtureSummary)}\nfileExplorer=${JSON.stringify(fileExplorerSnapshot)}`
+        );
+      }
+
+      expect(importedPathCounts.fileCount).toBe(ACTUAL_IMPORT_STRESS_FILE_COUNT);
+      expect(importedPathCounts.totalChunks).toBeGreaterThan(0);
+
+      const collectionOption = activeWindow.getByRole('option', {
+        name: new RegExp(collectionName),
+      });
+      await expect(collectionOption).toHaveAttribute('aria-selected', 'true');
+
+      const backfillButton = activeWindow
+        .locator('[data-testid="database-demo-panel"]')
+        .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+      await expect(backfillButton).toBeVisible({ timeout: 30_000 });
+      await waitForBackfillButtonEnabled(activeWindow, backfillButton, 60_000);
+      await backfillButton.click({ timeout: 5000 });
+
+      const backfillOutcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+      expect(backfillOutcome).toBe('running');
+
+      const memorySamples = await sampleMemoryWhileBackfillActive(
+        electronApp.app,
+        activeWindow,
+        8,
+        3000
+      );
+      for (const sample of memorySamples) {
+        const embeddingStatus = await getEmbeddingHostStatus(activeWindow);
+        const chunkingStatus = await getChunkingHostStatus(activeWindow);
+        runtimeIds.embedding.add(embeddingStatus.runtimeId);
+        if (chunkingStatus.state !== 'stopped') {
+          runtimeIds.chunking.add(chunkingStatus.runtimeId);
+        }
+        expect(await getRendererTimeOrigin(activeWindow)).toBe(initialTimeOrigin);
+        peakVisibleWorkingSetMB = Math.max(
+          peakVisibleWorkingSetMB,
+          getRuntimeSnapshot(sample.snapshot.process, 'visible-ui').workingSetMB ?? 0
+        );
+      }
+
+      const timeOriginAfterBackfill = await getRendererTimeOrigin(activeWindow);
+      expect(timeOriginAfterBackfill).toBe(initialTimeOrigin);
+
+      await expect
+        .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
+          timeout: 240_000,
+        })
+        .toMatchObject({
+          fileCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
+          totalChunks: expect.any(Number),
+          embeddedChunks: expect.any(Number),
+        });
+
+      const semanticQuery = 'stress-file-42-sentence-0';
+      const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
+      const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
+      const emptySemanticSearchMessage = collectionTreeRegion.getByText(
+        'No matching results found. Try adjusting your query or threshold.'
+      );
+      const searchingOverlay = collectionTreeRegion.getByText('Searching...');
+      await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
+      await semanticSearchBox.fill(semanticQuery);
+      await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
+
+      const semanticSearchStartedAt = Date.now();
+      let lastSemanticSearchSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
+      let lastSemanticSearchAlertTexts: string[] = [];
+      while (Date.now() - semanticSearchStartedAt < 60_000) {
+        const [rendererLogs, alertTexts, emptyStateCount, searchingCount, semanticSearchSnapshot] =
+          await Promise.all([
+            getRendererLogRecords(activeWindow),
+            getVisibleAlertTexts(activeWindow),
+            emptySemanticSearchMessage.count(),
+            searchingOverlay.count(),
+            getDatabaseDemoSemanticSearchSnapshot(activeWindow),
+          ]);
+        lastSemanticSearchSnapshot = semanticSearchSnapshot;
+        lastSemanticSearchAlertTexts = alertTexts;
+        const queueFailureLog = rendererLogs.find((record) =>
+          recordContainsText(record, 'Embedding worker queue failed')
+        );
+        const searchFailureLog = rendererLogs.find((record) =>
+          recordContainsText(record, 'Search failed')
+        );
+
+        if (queueFailureLog || searchFailureLog) {
+          const failureLog = queueFailureLog ?? searchFailureLog;
+          const errorMessage =
+            (failureLog ? extractStructuredLogString(failureLog, 'error') : null) ??
+            failureLog?.message ??
+            'unknown semantic search failure';
+          const errorStack = failureLog ? extractStructuredLogString(failureLog, 'stack') : null;
+          throw new Error(
+            `Semantic search failed after real desktop backfill: ${errorMessage}${errorStack ? `\n${errorStack}` : ''}\nalerts=${JSON.stringify(alertTexts)}`
+          );
+        }
+
+        if (semanticSearchSnapshot?.error) {
+          throw new Error(
+            `Semantic search failed after real desktop backfill: ${semanticSearchSnapshot.error}\nalerts=${JSON.stringify(alertTexts)}`
+          );
+        }
+
+        if (
+          semanticSearchSnapshot?.hasSearched &&
+          !semanticSearchSnapshot.isSearching &&
+          semanticSearchSnapshot.resultCount > 0 &&
+          semanticSearchSnapshot.firstResultNodeId !== null &&
+          searchingCount === 0 &&
+          emptyStateCount === 0
+        ) {
+          break;
+        }
+
+        await activeWindow.waitForTimeout(250);
+      }
+
+      if (
+        !(
+          lastSemanticSearchSnapshot?.hasSearched &&
+          !lastSemanticSearchSnapshot.isSearching &&
+          lastSemanticSearchSnapshot.resultCount > 0 &&
+          lastSemanticSearchSnapshot.firstResultNodeId !== null
+        )
+      ) {
+        throw new Error(
+          `Semantic search did not surface rendered results within 60s after real desktop backfill\nsnapshot=${JSON.stringify(lastSemanticSearchSnapshot)}\nalerts=${JSON.stringify(lastSemanticSearchAlertTexts)}`
+        );
+      }
+      await expect(emptySemanticSearchMessage).toHaveCount(0, { timeout: 60_000 });
+      await expect
+        .poll(async () => await getDatabaseDemoSemanticSearchSnapshot(activeWindow), {
+          timeout: 60_000,
+        })
+        .toMatchObject({
+          error: null,
+          hasSearched: true,
+          isSearching: false,
+          resultCount: expect.any(Number),
+        });
+
+      const finalLogs = await getMainBufferedLogs(activeWindow);
+      const unexpectedLifecycleLogs = extractUnexpectedLifecycleLogs(
+        finalLogs.slice(initialLogCount)
+      );
+
+      expect(runtimeIds.embedding.size).toBe(1);
+      expect(runtimeIds.chunking.size).toBeLessThanOrEqual(1);
+      expect(peakVisibleWorkingSetMB).toBeLessThan(ACTUAL_IMPORT_VISIBLE_WORKING_SET_LIMIT_MB);
+      expect(unexpectedLifecycleLogs).toEqual([]);
+    } finally {
+      await clearLargeImportFileSystemMock(electronApp.app);
+    }
   });
 
   test('fails invalid job payloads without taking down the embedding host or visible UI', async ({

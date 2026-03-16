@@ -352,14 +352,17 @@ describe('useDatabaseDemoData', () => {
     );
 
     await waitFor(() => {
-      const countQuery = mockedUsePGliteLiveQuery.mock.calls.find(
+      const countQueryCall = mockedUsePGliteLiveQuery.mock.calls.find(
         ([queryOptions]) =>
           typeof queryOptions.query === 'string' && queryOptions.query.includes('AS "recordsCount"')
-      )?.[0].query;
+      );
+      const countQuery = countQueryCall?.[0].query;
+      const countQueryParams = countQueryCall?.[0].params;
 
       expect(countQuery).toBeDefined();
       expect(countQuery).toContain('SELECT COUNT(*)::int');
       expect(countQuery).not.toContain('LEFT JOIN file_chunks');
+      expect(countQueryParams).toEqual(['set-1', 'set-1', 'set-1']);
     });
   });
 

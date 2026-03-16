@@ -6,6 +6,11 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
+import {
+  getRegisteredEmbeddingQueueFactory,
+  registerEmbeddingQueueFactory,
+  resetEmbeddingQueueFactory,
+} from '@brainstrike/embeddings/runtime-config';
 import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
@@ -48,7 +53,7 @@ import {
   SearchCollectionSelector,
   SettingsPanel,
 } from './components';
-import { SemanticSearchProvider } from './contexts/semantic-search-context';
+import { SemanticSearchProvider, useSemanticSearch } from './contexts/semantic-search-context';
 import {
   createImportCompletionHandler,
   useAvailableModels,
@@ -69,7 +74,74 @@ interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
 }
 
+interface DatabaseDemoImportTestSnapshot {
+  activeCollectionId: string | null;
+  isImporting: boolean;
+  progress: {
+    completed: number;
+    current: string;
+    errors: Array<{ error: string; file: string }>;
+    phase: EnhancedImportProgress['phase'];
+    total: number;
+  } | null;
+  selectedFileCount: number;
+}
+
+interface DatabaseDemoSemanticSearchTestSnapshot {
+  error: string | null;
+  firstResultNodeId: string | null;
+  hasSearched: boolean;
+  isSearching: boolean;
+  resultCount: number;
+}
+
+declare global {
+  interface Window {
+    __brainstrikeDatabaseDemoSemanticSearchTestHooks__?:
+      | {
+          getSnapshot: () => DatabaseDemoSemanticSearchTestSnapshot;
+        }
+      | undefined;
+    __brainstrikeDatabaseDemoTestHooks__?:
+      | {
+          getImportSnapshot: () => DatabaseDemoImportTestSnapshot;
+        }
+      | undefined;
+    desktopLifecycle?:
+      | {
+          isTestMode?: boolean;
+        }
+      | undefined;
+  }
+}
+
 const logger = createLogger('DatabaseDemoPanel');
+
+function DatabaseDemoSemanticSearchTestHookBridge() {
+  const { error, hasSearched, isSearching, searchResults } = useSemanticSearch();
+
+  useEffect(() => {
+    if (!window.desktopLifecycle?.isTestMode) {
+      return;
+    }
+
+    window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__ = {
+      getSnapshot: () => ({
+        error,
+        firstResultNodeId: searchResults[0]?.nodeId ?? null,
+        hasSearched,
+        isSearching,
+        resultCount: searchResults.length,
+      }),
+    };
+
+    return () => {
+      window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__ = undefined;
+    };
+  }, [error, hasSearched, isSearching, searchResults]);
+
+  return null;
+}
 
 // Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Legacy component with complex UI state - refactor tracked separately
@@ -233,6 +305,56 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   useEffect(() => {
     setIsImporting(importFlow.isImporting);
   }, [importFlow.isImporting, setIsImporting]);
+
+  useEffect(() => {
+    if (!embeddingQueue) {
+      return;
+    }
+
+    const queueFactory = () => embeddingQueue;
+    registerEmbeddingQueueFactory(queueFactory);
+
+    return () => {
+      if (getRegisteredEmbeddingQueueFactory() === queueFactory) {
+        resetEmbeddingQueueFactory();
+      }
+    };
+  }, [embeddingQueue]);
+
+  useEffect(() => {
+    if (!window.desktopLifecycle?.isTestMode) {
+      return;
+    }
+
+    window.__brainstrikeDatabaseDemoTestHooks__ = {
+      getImportSnapshot: () => ({
+        activeCollectionId,
+        isImporting: importFlow.isImporting,
+        selectedFileCount: importFlow.selectedFileCount,
+        progress: importFlow.progress
+          ? {
+              phase: importFlow.progress.phase,
+              total: importFlow.progress.total,
+              completed: importFlow.progress.completed,
+              current: importFlow.progress.current ?? '',
+              errors: importFlow.progress.errors.map((entry) => ({
+                file: entry.file,
+                error: entry.error,
+              })),
+            }
+          : null,
+      }),
+    };
+
+    return () => {
+      window.__brainstrikeDatabaseDemoTestHooks__ = undefined;
+    };
+  }, [
+    activeCollectionId,
+    importFlow.isImporting,
+    importFlow.progress,
+    importFlow.selectedFileCount,
+  ]);
 
   const handleClearDatabase = useCallback(async () => {
     if (!clearAllData) {
@@ -506,6 +628,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             <SemanticSearchProvider
               {...(semanticSearchExecutor ? { searchExecutor: semanticSearchExecutor } : {})}
             >
+              <DatabaseDemoSemanticSearchTestHookBridge />
               <CollectionBrowserView
                 activeCollectionId={activeCollectionId}
                 chunks={chunks}

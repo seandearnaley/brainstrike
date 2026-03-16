@@ -15,6 +15,7 @@ import {
 } from '@brainstrike/embeddings/provider-core';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';
@@ -42,6 +43,7 @@ export function useSearchFunctionality(
   const [hasSearched, setHasSearched] = useState(false);
   const db = usePGliteDatabase();
   const { models } = useModelRegistryStore();
+  const devicePref = useVectorPreferencesStore((state) => state.devicePref);
 
   // Maintain an internal service wrapper
   const embedderRef = useRef<SearchEmbedder | null>(null);
@@ -127,7 +129,7 @@ export function useSearchFunctionality(
     // We rely on SimpleEmbeddingService because it handles retrieval prompts for models like BGE-M3
     const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
     const svc = new SimpleEmbeddingService();
-    await svc.initializeWithModel(modelConfig);
+    await svc.initializeWithModel(modelConfig, undefined, devicePref);
 
     return {
       embedQuery: async (text: string) => {

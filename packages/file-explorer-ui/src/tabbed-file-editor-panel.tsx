@@ -9,6 +9,7 @@ const logger = createLogger('TabbedFileEditorPanel');
 import { useTabManager } from './hooks/use-tab-manager';
 import { TabbedFileEditor, type TabStripAction } from './tabbed-file-editor';
 import { useFileExplorer } from './use-file-explorer-context';
+import { getRootFolderId } from './utils/get-root-folder-id';
 
 export interface TabbedFileEditorPanelProps {
   className?: string;
@@ -170,8 +171,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     const handleOpenFileInTab = useCallback(
       (compositeKey: string) => {
         const { path } = decodeFileSelection(compositeKey);
-        // Create a more unique ID by prepending the root directory name
-        const uniqueTabId = `${rootDirectoryHandle?.name ?? 'default'}:${compositeKey}`;
+        const uniqueTabId = `${getRootFolderId(rootDirectoryHandle) ?? 'default'}:${compositeKey}`;
         openTab(path, uniqueTabId, compositeKey);
 
         // Load content if not already loaded or loading (read latest values via refs)

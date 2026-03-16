@@ -4,6 +4,7 @@ import { EmptyState } from '@brainstrike/ui';
 import { FolderOpen, Loader2 } from 'lucide-react';
 import { memo, useDeferredValue } from 'react';
 import OptimizedFileTree from './optimized-file-tree';
+import { getRootFolderId } from './utils/get-root-folder-id';
 
 const NoFilesSelected = () => (
   <EmptyState
@@ -124,7 +125,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = memo(
               <OptimizedFileTree
                 cancelChildLoading={cancelChildLoading}
                 fileTree={deferredTree}
-                folderId={(rootDirectoryHandle?.name ?? currentFolderId ?? '') as string}
+                folderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? ''}
                 isLoadingForSelection={isLoadingForSelection}
                 loadingFiles={loadingFiles}
                 loadingPathForSelection={loadingPathForSelection}

@@ -173,7 +173,7 @@ function buildFixtureState(
     directories.set(currentPath, sortNodes(entries));
   };
 
-  walk(definition.tree, rootHandle.path, rootHandle.name);
+  walk(definition.tree, rootHandle.path, rootHandle.path);
 
   // Ensure every directory path has a map entry, even if empty
   if (!directories.has(rootHandle.path)) {
