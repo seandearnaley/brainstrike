@@ -3,6 +3,7 @@ import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import type { EmbeddingSetUpdatedEventDetail } from './embedding-set-events';
 
 /**
  * Row shape returned by the collections query
@@ -85,7 +86,7 @@ const COLLECTIONS_QUERY = `
     FROM embedding_sets s
     LEFT JOIN file_counts f ON f.embedding_set_id = s.id
     LEFT JOIN chunk_counts c ON c.embedding_set_id = s.id
-    ORDER BY s.created_at DESC
+    ORDER BY s.created_at DESC, s.id DESC
   `.trim();
 
 export type CollectionSelectSize = 'compact' | 'default';
@@ -236,6 +237,114 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
   }));
 }
 
+function mergeCollections(
+  liveCollections: CollectionWithDocCount[],
+  cachedCollections: CollectionWithDocCount[]
+): CollectionWithDocCount[] {
+  const merged = new Map<string, CollectionWithDocCount>();
+  for (const collection of liveCollections) {
+    merged.set(collection.id, collection);
+  }
+  for (const collection of cachedCollections) {
+    merged.set(collection.id, collection);
+  }
+  return Array.from(merged.values()).sort(
+    (left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+  );
+}
+
+function upsertCollectionSnapshot(
+  collections: CollectionWithDocCount[],
+  collection: CollectionWithDocCount
+): CollectionWithDocCount[] {
+  const next = collections.filter((candidate) => candidate.id !== collection.id);
+  next.unshift(collection);
+  next.sort(
+    (left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+  );
+  return next;
+}
+
+type PendingCollectionMutationReason = 'created' | 'deleted' | 'updated';
+
+function applyPendingCollectionMutations(
+  liveCollections: CollectionWithDocCount[],
+  cachedCollections: CollectionWithDocCount[],
+  pendingMutations: ReadonlyMap<string, PendingCollectionMutationReason>
+): CollectionWithDocCount[] {
+  const merged = new Map<string, CollectionWithDocCount>(
+    liveCollections.map((collection) => [collection.id, collection])
+  );
+
+  for (const [collectionId, reason] of pendingMutations) {
+    if (reason === 'deleted') {
+      merged.delete(collectionId);
+      continue;
+    }
+    const cachedCollection = cachedCollections.find((candidate) => candidate.id === collectionId);
+    if (cachedCollection) {
+      merged.set(collectionId, cachedCollection);
+    }
+  }
+
+  return Array.from(merged.values()).sort(
+    (left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+  );
+}
+
+function clearSatisfiedPendingCollectionMutations(
+  liveCollections: CollectionWithDocCount[],
+  pendingMutations: Map<string, PendingCollectionMutationReason>
+): void {
+  for (const [collectionId, reason] of pendingMutations.entries()) {
+    const liveHasCollection = liveCollections.some((collection) => collection.id === collectionId);
+    if (reason === 'deleted') {
+      if (!liveHasCollection) {
+        pendingMutations.delete(collectionId);
+      }
+      continue;
+    }
+    if (liveHasCollection) {
+      pendingMutations.delete(collectionId);
+    }
+  }
+}
+
+function areCollectionsEqual(
+  left: readonly CollectionWithDocCount[],
+  right: readonly CollectionWithDocCount[]
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftCollection = left[index];
+    const rightCollection = right[index];
+    if (
+      !(leftCollection && rightCollection) ||
+      leftCollection.id !== rightCollection.id ||
+      leftCollection.modelKey !== rightCollection.modelKey ||
+      leftCollection.modelId !== rightCollection.modelId ||
+      leftCollection.dimensions !== rightCollection.dimensions ||
+      leftCollection.distance !== rightCollection.distance ||
+      leftCollection.createdAt !== rightCollection.createdAt ||
+      leftCollection.name !== rightCollection.name ||
+      leftCollection.description !== rightCollection.description ||
+      leftCollection.tags !== rightCollection.tags ||
+      leftCollection.category !== rightCollection.category ||
+      leftCollection.fileCount !== rightCollection.fileCount ||
+      leftCollection.chunkCount !== rightCollection.chunkCount ||
+      leftCollection.embeddingCount !== rightCollection.embeddingCount
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
@@ -243,6 +352,11 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   // Use Zustand store for caching - persists across component unmounts during bulk operations
   const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
   const setCachedCollections = useVectorStatusUIStore((s) => s.setCachedCollections);
+  const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
+  const removeCachedCollection = useVectorStatusUIStore((s) => s.removeCachedCollection);
+  const cachedCollectionsRef = useRef(cachedCollections);
+  const pendingMutationsRef = useRef(new Map<string, PendingCollectionMutationReason>());
+  cachedCollectionsRef.current = cachedCollections;
   // Only enable live queries when:
   // 1. Database is available
   // 2. Schema has been verified (migrations completed, tables exist)
@@ -300,7 +414,17 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
       const result = await (
         db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
       ).query(COLLECTIONS_QUERY);
-      setCachedCollections(normalizeCollectionRows(result.rows));
+      const normalizedRows = normalizeCollectionRows(result.rows);
+      clearSatisfiedPendingCollectionMutations(normalizedRows, pendingMutationsRef.current);
+      const nextCollections = applyPendingCollectionMutations(
+        normalizedRows,
+        cachedCollectionsRef.current,
+        pendingMutationsRef.current
+      );
+      if (!areCollectionsEqual(nextCollections, cachedCollectionsRef.current)) {
+        cachedCollectionsRef.current = nextCollections;
+        setCachedCollections(nextCollections);
+      }
       dispatchFetch({ type: 'success' });
     } catch (error) {
       const normalized = error instanceof Error ? error : new Error(String(error));
@@ -316,7 +440,24 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
       return;
     }
 
-    const handleEmbeddingSetUpdated = () => {
+    const handleEmbeddingSetUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<EmbeddingSetUpdatedEventDetail>).detail;
+      if (detail?.reason === 'deleted' && detail.id) {
+        pendingMutationsRef.current.set(detail.id, 'deleted');
+        cachedCollectionsRef.current = cachedCollectionsRef.current.filter(
+          (collection) => collection.id !== detail.id
+        );
+        removeCachedCollection(detail.id);
+      } else if (detail?.collection) {
+        if (detail.reason === 'created' || detail.reason === 'updated') {
+          pendingMutationsRef.current.set(detail.collection.id, detail.reason);
+        }
+        cachedCollectionsRef.current = upsertCollectionSnapshot(
+          cachedCollectionsRef.current,
+          detail.collection
+        );
+        upsertCachedCollection(detail.collection);
+      }
       if (liveQueryEnabled) {
         void refresh();
       }
@@ -328,7 +469,13 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       window.removeEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
     };
-  }, [liveQueryEnabled, refresh, refreshCollectionsSnapshot]);
+  }, [
+    liveQueryEnabled,
+    refresh,
+    refreshCollectionsSnapshot,
+    removeCachedCollection,
+    upsertCachedCollection,
+  ]);
 
   const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
 
@@ -364,16 +511,40 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     [rawCollections]
   );
 
+  const resolvedCollections = useMemo(() => {
+    if (!liveQueryEnabled) {
+      return cachedCollections;
+    }
+    if (loading) {
+      return mergeCollections(collections, cachedCollections);
+    }
+    return applyPendingCollectionMutations(
+      collections,
+      cachedCollections,
+      pendingMutationsRef.current
+    );
+  }, [cachedCollections, collections, liveQueryEnabled, loading]);
+
   // Sync live query results to the Zustand store cache when available
   useEffect(() => {
     if (!liveQueryEnabled || loading) {
       return;
     }
-    // Only update cache if we have real data (not just an empty array from initial state)
-    if (collections.length > 0 || cachedCollections.length > 0) {
-      setCachedCollections(collections);
+    clearSatisfiedPendingCollectionMutations(collections, pendingMutationsRef.current);
+    if (collections.length === 0 && cachedCollections.length === 0) {
+      return;
     }
-  }, [cachedCollections.length, collections, liveQueryEnabled, loading, setCachedCollections]);
+    const nextCollections = applyPendingCollectionMutations(
+      collections,
+      cachedCollectionsRef.current,
+      pendingMutationsRef.current
+    );
+    if (areCollectionsEqual(nextCollections, cachedCollectionsRef.current)) {
+      return;
+    }
+    cachedCollectionsRef.current = nextCollections;
+    setCachedCollections(nextCollections);
+  }, [cachedCollections, collections, liveQueryEnabled, loading, setCachedCollections]);
 
   // Initial fetch: ALWAYS runs once when db and schema are ready, regardless of embedding state.
   // This ensures collections load at least once. The live query provides real-time updates afterward.
@@ -424,7 +595,7 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   // Return live data when enabled, otherwise return cached data from Zustand store
   // Use initial loading/error state when live query is disabled
   return {
-    collections: liveQueryEnabled ? collections : cachedCollections,
+    collections: resolvedCollections,
     loading: liveQueryEnabled ? loading : fetchState.loading,
     error: liveQueryEnabled ? error : fetchState.error,
   };

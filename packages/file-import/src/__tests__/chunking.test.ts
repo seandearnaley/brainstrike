@@ -322,6 +322,33 @@ describe('processFileChunking', () => {
     expect(mockWorkerPort.chunkFile).toHaveBeenCalled();
   });
 
+  it('can skip retaining inserted chunks when the caller does not need post-processing payloads', async () => {
+    mockRepository.findById.mockResolvedValue({
+      id: 'file-1',
+      name: 'test.txt',
+      path: '/test.txt',
+      content: 'File content to be chunked',
+    });
+
+    const result = await processFileChunking(
+      { id: 'file-1', imported: true, existed: false },
+      0,
+      1,
+      0,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      {
+        updateProgress: mockUpdateProgress,
+        chunkingWorkerPort: mockWorkerPort,
+        retainInsertedChunks: false,
+      }
+    );
+
+    expect(result.enhancedResult.chunksCreated).toBe(1);
+    expect(result.chunks).toBeUndefined();
+    expect(mockChunkRepository.insertMany).toHaveBeenCalled();
+    expect(mockRepository.update).toHaveBeenCalled();
+  });
+
   it('handles chunking skipped scenario via worker', async () => {
     mockRepository.findById.mockResolvedValue({
       id: 'file-1',

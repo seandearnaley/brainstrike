@@ -2,42 +2,42 @@ import { Button } from '@brainstrike/ui';
 import { Archive, Brain, Download } from 'lucide-react';
 import type { ExportButtonsProps } from '../types';
 
-export function ExportButtons({ records, chunks, exportHandlers }: ExportButtonsProps) {
+export function ExportButtons({ counts, exportHandlers }: ExportButtonsProps) {
   return (
     <div className="flex gap-2 pt-2">
       <Button
         className="flex items-center gap-1"
-        disabled={records.length === 0}
+        disabled={counts.records === 0}
         onClick={exportHandlers.handleExportFiles}
         size="sm"
         variant="outline"
       >
         <Download className="h-3 w-3" />
-        Files ({records.length})
+        Files ({counts.records})
       </Button>
       <Button
         className="flex items-center gap-1"
-        disabled={chunks.length === 0}
+        disabled={counts.chunks === 0}
         onClick={exportHandlers.handleExportChunks}
         size="sm"
         variant="outline"
       >
         <Download className="h-3 w-3" />
-        Chunks ({chunks.length})
+        Chunks ({counts.chunks})
       </Button>
       <Button
         className="flex items-center gap-1"
-        disabled={chunks.filter((c) => c.embedding).length === 0}
+        disabled={counts.embeddings === 0}
         onClick={exportHandlers.handleExportEmbeddings}
         size="sm"
         variant="outline"
       >
         <Brain className="h-3 w-3" />
-        Embeddings ({chunks.filter((c) => c.embedding).length})
+        Embeddings ({counts.embeddings})
       </Button>
       <Button
         className="flex items-center gap-1"
-        disabled={records.length === 0 && chunks.length === 0}
+        disabled={counts.records === 0 && counts.chunks === 0}
         onClick={exportHandlers.handleExportAll}
         size="sm"
         variant="outline"

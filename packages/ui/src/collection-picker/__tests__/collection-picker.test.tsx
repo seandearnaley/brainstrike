@@ -74,9 +74,16 @@ describe('CollectionPicker', () => {
   });
 
   it('shows loading state', () => {
-    render(<CollectionPicker {...defaultProps} loading={true} />);
+    render(<CollectionPicker {...defaultProps} collections={[]} loading={true} />);
 
     expect(screen.getByText('Loading collections...')).toBeInTheDocument();
+  });
+
+  it('keeps cached collections visible while a refresh is in flight', () => {
+    render(<CollectionPicker {...defaultProps} loading={true} />);
+
+    expect(screen.getByText('Collection 1')).toBeInTheDocument();
+    expect(screen.queryByText('Loading collections...')).not.toBeInTheDocument();
   });
 
   it('shows empty state', () => {

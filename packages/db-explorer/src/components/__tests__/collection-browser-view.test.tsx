@@ -48,12 +48,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     showCheckbox?: boolean;
     contextNodeIds?: Set<string>;
     treeWindowingStrategy?: string;
-    treePagination?: {
-      pageSize?: number;
-      pageSizeOptions?: readonly number[];
-      showControls?: boolean;
-      showItemRange?: boolean;
-    };
   }) => {
     collectionBrowserPropsSpy(props as Record<string, unknown>);
     const {
@@ -127,6 +121,19 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 
   const NodeInspector = ({ nodeId, nodeType }: { nodeId?: string; nodeType: string | null }) => (
     <div data-testid="node-inspector">{`${nodeType ?? 'none'}:${nodeId ?? ''}`}</div>
+  );
+  const TablePagination = ({
+    currentPage,
+    pageSize,
+    totalItems,
+    totalPages,
+  }: {
+    currentPage: number;
+    pageSize?: number;
+    totalItems: number;
+    totalPages: number;
+  }) => (
+    <div data-testid="table-pagination">{`${currentPage}:${pageSize ?? 0}:${totalItems}:${totalPages}`}</div>
   );
 
   const SearchModeBar = ({
@@ -204,6 +211,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     NodeInspector,
     SearchConfigPanel,
     SearchModeBar,
+    TablePagination,
   };
 });
 
@@ -329,25 +337,28 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('bulk-actions-count')).toHaveTextContent('3');
   });
 
-  it('uses paged tree windowing with explicit pagination defaults', () => {
+  it('renders source pagination controls without double-paging the tree', () => {
     render(
       <CollectionBrowserView
         activeCollectionId={null}
         chunks={TEST_CHUNKS}
         height={500}
+        pagination={{
+          currentPage: 1,
+          onPageChange: vi.fn(),
+          onPageSizeChange: vi.fn(),
+          pageSize: 50,
+          totalRecords: 120,
+        }}
         records={TEST_RECORDS}
       />
     );
 
     const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
     expect(latestProps).toMatchObject({
-      treeWindowingStrategy: 'paged',
-      treePagination: {
-        pageSizeOptions: [25, 50, 100, 250],
-        showControls: true,
-        showItemRange: true,
-      },
+      treeWindowingStrategy: 'virtual',
     });
+    expect(screen.getByTestId('table-pagination')).toHaveTextContent('1:50:120:3');
   });
 
   it('handles double-click by toggling expansion for file nodes', async () => {

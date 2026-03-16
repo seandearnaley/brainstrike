@@ -12,21 +12,24 @@ import {
 import type { ExportHandlers } from '../types';
 
 export function useExportHandlers(
-  records: FileRecord[],
-  chunks: FileChunk[],
+  loadExportData: () => Promise<{
+    chunks: FileChunk[];
+    records: FileRecord[];
+  }>,
   toast: ReturnType<typeof useToast>['toast']
 ): ExportHandlers {
-  const handleExportFiles = useCallback(() => {
-    if (records.length === 0) {
-      toast({
-        title: 'No Data to Export',
-        description: 'Import some files first before exporting.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
+  const handleExportFiles = useCallback(async () => {
     try {
+      const { records } = await loadExportData();
+      if (records.length === 0) {
+        toast({
+          title: 'No Data to Export',
+          description: 'Import some files first before exporting.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const csvContent = generateFilesWithChunksCSV(records);
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('files');
@@ -50,19 +53,20 @@ export function useExportHandlers(
         variant: 'destructive',
       });
     }
-  }, [records, toast]);
+  }, [loadExportData, toast]);
 
-  const handleExportChunks = useCallback(() => {
-    if (chunks.length === 0) {
-      toast({
-        title: 'No Chunks to Export',
-        description: 'Process some files with chunking enabled first.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
+  const handleExportChunks = useCallback(async () => {
     try {
+      const { chunks } = await loadExportData();
+      if (chunks.length === 0) {
+        toast({
+          title: 'No Chunks to Export',
+          description: 'Process some files with chunking enabled first.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const csvContent = generateChunksCSV(chunks);
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('chunks');
@@ -86,20 +90,21 @@ export function useExportHandlers(
         variant: 'destructive',
       });
     }
-  }, [chunks, toast]);
+  }, [loadExportData, toast]);
 
-  const handleExportEmbeddings = useCallback(() => {
-    const chunksWithEmbeddings = chunks.filter((chunk) => chunk.embedding);
-    if (chunksWithEmbeddings.length === 0) {
-      toast({
-        title: 'No Embeddings to Export',
-        description: 'Generate embeddings for chunks first.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
+  const handleExportEmbeddings = useCallback(async () => {
     try {
+      const { chunks } = await loadExportData();
+      const chunksWithEmbeddings = chunks.filter((chunk) => chunk.embedding);
+      if (chunksWithEmbeddings.length === 0) {
+        toast({
+          title: 'No Embeddings to Export',
+          description: 'Generate embeddings for chunks first.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const csvContent = generateEmbeddingsCSV(chunks);
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('embeddings');
@@ -123,19 +128,19 @@ export function useExportHandlers(
         variant: 'destructive',
       });
     }
-  }, [chunks, toast]);
+  }, [loadExportData, toast]);
 
   const handleExportAll = useCallback(async () => {
-    if (records.length === 0 && chunks.length === 0) {
-      toast({
-        title: 'No Data to Export',
-        description: 'Import some files first before exporting.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     try {
+      const { records, chunks } = await loadExportData();
+      if (records.length === 0 && chunks.length === 0) {
+        toast({
+          title: 'No Data to Export',
+          description: 'Import some files first before exporting.',
+          variant: 'destructive',
+        });
+        return;
+      }
       await exportAllDataAsZip(records, chunks);
       toast({
         title: 'Export Successful',
@@ -148,7 +153,7 @@ export function useExportHandlers(
         variant: 'destructive',
       });
     }
-  }, [records, chunks, toast]);
+  }, [loadExportData, toast]);
 
   return {
     handleExportFiles,

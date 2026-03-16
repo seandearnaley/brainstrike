@@ -39,7 +39,7 @@ import {
   useEmbeddingControls,
 } from '@brainstrike/vector-management';
 import { Database, FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import {
   ClearDatabaseDialog,
@@ -116,6 +116,11 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const availableProviders = useAvailableProviders(providers, runtimeEmbeddingCatalog);
 
   const showSettings = useDatabaseDemoStore((s) => s.showSettings);
+  const recordPage = useDatabaseDemoStore((s) => s.recordPage);
+  const recordPageSize = useDatabaseDemoStore((s) => s.recordPageSize);
+  const resetRecordPagination = useDatabaseDemoStore((s) => s.resetRecordPagination);
+  const setRecordPage = useDatabaseDemoStore((s) => s.setRecordPage);
+  const setRecordPageSize = useDatabaseDemoStore((s) => s.setRecordPageSize);
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
 
   const importSettings = useImportSettings();
@@ -135,24 +140,41 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     activeCollectionId,
     isImporting: isImportActive,
     isEmbeddingActive,
+    recordPage,
+    recordPageSize,
   });
-  const { records, chunks, refreshing, loadRecords, loadChunks } = data;
+  const {
+    collectionCounts,
+    records,
+    chunks,
+    refreshing,
+    loadRecords,
+    loadChunks,
+    loadChunkDetail,
+    loadFileChunkSummaries,
+    loadCollectionExportData,
+    recordPagination,
+  } = data;
+  const activeCollectionCounts = collectionCounts;
+  const previousCollectionIdRef = useRef<string | null>(activeCollectionId);
 
-  const filteredRecords = useMemo(() => {
-    if (!activeCollectionId) {
-      return [];
+  useEffect(() => {
+    if (previousCollectionIdRef.current === activeCollectionId) {
+      return;
     }
-    return records.filter((record) => record.embeddingSetId === activeCollectionId);
-  }, [records, activeCollectionId]);
+    previousCollectionIdRef.current = activeCollectionId;
+    resetRecordPagination();
+  }, [activeCollectionId, resetRecordPagination]);
 
-  const filteredChunks = useMemo(() => {
-    if (!activeCollectionId) {
-      return [];
+  // biome-ignore lint/plugin: Persisted pagination must clamp after collection totals change.
+  useEffect(() => {
+    const maxPage = Math.max(0, recordPagination.totalPages - 1);
+    if (recordPage > maxPage) {
+      setRecordPage(maxPage);
     }
-    return chunks.filter((chunk) => chunk.embeddingSetId === activeCollectionId);
-  }, [chunks, activeCollectionId]);
+  }, [recordPage, recordPagination.totalPages, setRecordPage]);
 
-  const exportHandlers = useExportHandlers(filteredRecords, filteredChunks, toast);
+  const exportHandlers = useExportHandlers(loadCollectionExportData, toast);
 
   // Create semantic search executor for the collection browser
   // Use dbChunkRepository (from hook) which is always available when DB is ready,
@@ -388,8 +410,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                       className="mt-0 border-none bg-transparent"
                       clearDatabaseProps={{
                         clearAllData,
-                        records,
-                        chunks,
+                        recordsCount: activeCollectionCounts.records,
+                        chunksCount: activeCollectionCounts.chunks,
                         clearing,
                         showClearDialog,
                         setShowClearDialog,
@@ -419,11 +441,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                     <TooltipContent side="top">Refresh database records</TooltipContent>
                   </Tooltip>
 
-                  <ExportDropdown
-                    chunks={filteredChunks}
-                    exportHandlers={exportHandlers}
-                    records={filteredRecords}
-                  />
+                  <ExportDropdown counts={activeCollectionCounts} exportHandlers={exportHandlers} />
 
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -494,6 +512,15 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 chunks={chunks}
                 height="100%"
                 isLoading={refreshing}
+                loadChunkDetail={loadChunkDetail}
+                loadFileChunkSummaries={loadFileChunkSummaries}
+                pagination={{
+                  currentPage: recordPagination.currentPage,
+                  onPageChange: setRecordPage,
+                  onPageSizeChange: setRecordPageSize,
+                  pageSize: recordPagination.pageSize,
+                  totalRecords: recordPagination.totalRecords,
+                }}
                 records={records}
               />
             </SemanticSearchProvider>
@@ -514,10 +541,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
       {/* Clear Database Dialog - triggered from Import Settings */}
       <ClearDatabaseDialog
-        chunks={chunks}
+        chunksCount={activeCollectionCounts.chunks}
         clearing={clearing}
         onClear={handleClearDatabase}
-        records={records}
+        recordsCount={activeCollectionCounts.records}
         setShowClearDialog={setShowClearDialog}
         showClearDialog={showClearDialog}
       />
@@ -606,9 +633,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             ...(collectionDialogs.selectedCollection.category && {
               category: collectionDialogs.selectedCollection.category,
             }),
-            chunkCount: chunks.filter(
-              (c) => c.embeddingSetId === collectionDialogs.selectedCollection?.id
-            ).length,
+            chunkCount: collectionDialogs.selectedCollection.chunkCount,
           }}
           onOpenChange={(open: boolean) => {
             if (!open) {

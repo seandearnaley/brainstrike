@@ -6,7 +6,7 @@ import type {
   UsePGliteLiveQueryOptions,
 } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseDemoData } from '../use-database-demo-data';
 
@@ -17,9 +17,17 @@ const mockVectorStatusUIStore = {
     mockVectorStatusUIStore.schemaVerified = value;
   }),
   cachedFileData: null as null | {
+    collectionCounts: {
+      chunks: number;
+      embeddings: number;
+      records: number;
+    };
     collectionId: string;
+    page: number;
+    pageSize: number;
     records: Record<string, unknown>[];
     chunks: Record<string, unknown>[];
+    totalRecords: number;
   },
   setCachedFileData: vi.fn((data: typeof mockVectorStatusUIStore.cachedFileData) => {
     mockVectorStatusUIStore.cachedFileData = data;
@@ -72,25 +80,42 @@ const createRepository = (
 ): DrizzleFileRecordRepository =>
   ({
     findAll: vi.fn().mockResolvedValue(records),
+    findById: vi.fn(async (id: string) => records.find((record) => record.id === id) ?? null),
     count: vi.fn().mockResolvedValue(count),
   }) as unknown as DrizzleFileRecordRepository;
 
 const createChunkRepository = (chunks: FileChunk[]): DrizzleFileChunkRepository =>
   ({
     findAll: vi.fn().mockResolvedValue(chunks),
+    findById: vi.fn(async (id: string) => chunks.find((chunk) => chunk.id === id) ?? null),
+    findByFileRecordId: vi.fn(async (fileRecordId: string) =>
+      chunks.filter((chunk) => chunk.fileRecordId === fileRecordId)
+    ),
   }) as unknown as DrizzleFileChunkRepository;
 
 const setupLiveQueries = (
   options: {
+    collectionCounts?: Record<string, unknown>[];
     records?: Record<string, unknown>[];
-    chunks?: Record<string, unknown>[];
     recordError?: Error | null;
-    chunkError?: Error | null;
+    totalRecords?: Record<string, unknown>[];
   } = {}
 ) => {
-  const { records = [], chunks = [], recordError = null, chunkError = null } = options;
+  const {
+    records = [],
+    recordError = null,
+    totalRecords = [{ totalRecords: records.length }],
+    collectionCounts = [
+      {
+        recordsCount: records.length,
+        chunksCount: 0,
+        embeddingsCount: 0,
+      },
+    ],
+  } = options;
   const recordRefresh = vi.fn().mockResolvedValue(undefined);
-  const chunkRefresh = vi.fn().mockResolvedValue(undefined);
+  const totalRecordsRefresh = vi.fn().mockResolvedValue(undefined);
+  const collectionCountsRefresh = vi.fn().mockResolvedValue(undefined);
 
   const recordResult = {
     rows: records,
@@ -98,12 +123,17 @@ const setupLiveQueries = (
     error: recordError,
     refresh: recordRefresh,
   };
-
-  const chunkResult = {
-    rows: chunks,
+  const totalRecordsResult = {
+    rows: totalRecords,
     loading: false,
-    error: chunkError,
-    refresh: chunkRefresh,
+    error: null,
+    refresh: totalRecordsRefresh,
+  };
+  const collectionCountsResult = {
+    rows: collectionCounts,
+    loading: false,
+    error: null,
+    refresh: collectionCountsRefresh,
   };
 
   const disabledResult = {
@@ -120,22 +150,70 @@ const setupLiveQueries = (
         return disabledResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
       }
 
-      if (queryOptions.query.includes('FROM file_records')) {
+      if (queryOptions.query.includes('COUNT(*)::int AS "totalRecords"')) {
+        return totalRecordsResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
+      }
+      if (queryOptions.query.includes('COUNT(DISTINCT fr.id)::int AS "recordsCount"')) {
+        return collectionCountsResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
+      }
+      if (
+        queryOptions.query.includes('FROM file_records fr') &&
+        queryOptions.query.includes('LIMIT $3')
+      ) {
         return recordResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
       }
-      return chunkResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
+      return disabledResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
     }
   );
 
   return {
+    collectionCountsRefresh,
     recordRefresh,
-    chunkRefresh,
+    totalRecordsRefresh,
   };
 };
-
-const createMockDatabase = () =>
+const createMockDatabase = (options?: {
+  collectionCountsRows?: Record<string, unknown>[];
+  chunkRowsByFileRecordId?: Record<string, Record<string, unknown>[]>;
+  failChunkSummaryLoads?: boolean;
+  recordRows?: Record<string, unknown>[];
+  totalRecordsRows?: Record<string, unknown>[];
+}) =>
   ({
-    query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
+    query: vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('PGlite WASM')) {
+        return { rows: [{ location: 'PGlite WASM' }] };
+      }
+      if (sql.includes('COUNT(*)::int AS "totalRecords"')) {
+        return { rows: options?.totalRecordsRows ?? [{ totalRecords: 0 }] };
+      }
+      if (sql.includes('COUNT(DISTINCT fr.id)::int AS "recordsCount"')) {
+        return {
+          rows: options?.collectionCountsRows ?? [
+            { recordsCount: 0, chunksCount: 0, embeddingsCount: 0 },
+          ],
+        };
+      }
+      if (sql.includes('FROM file_records fr') && sql.includes('LIMIT $3')) {
+        return { rows: options?.recordRows ?? [] };
+      }
+      if (
+        sql.includes('SELECT id') &&
+        sql.includes('FROM file_records') &&
+        sql.includes('WHERE embedding_set_id = $1')
+      ) {
+        return { rows: options?.recordRows ?? [] };
+      }
+      if (sql.includes('FROM file_chunks') && sql.includes('file_record_id')) {
+        if (options?.failChunkSummaryLoads) {
+          throw new Error('chunk summary query failed');
+        }
+        return {
+          rows: options?.chunkRowsByFileRecordId?.[String(params?.[0] ?? '')] ?? [],
+        };
+      }
+      return { rows: [] };
+    }),
   }) as never;
 
 beforeEach(() => {
@@ -154,7 +232,14 @@ describe('useDatabaseDemoData', () => {
   it('pauses live queries while embedding is active and falls back to cached snapshots', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.cachedFileData = {
+      collectionCounts: {
+        records: 1,
+        chunks: 1,
+        embeddings: 0,
+      },
       collectionId: 'set-1',
+      page: 0,
+      pageSize: 50,
       records: [
         {
           id: 'cached-record',
@@ -163,12 +248,12 @@ describe('useDatabaseDemoData', () => {
           size: 12,
           createdAt: '2024-01-01T00:00:00Z',
           updatedAt: '2024-01-01T00:00:00Z',
-          content: null,
           contentHash: 'cached-record-hash',
           tokenCount: 1,
           processedAt: null,
           chunksProcessedAt: null,
           chunksCount: 1,
+          embeddedChunksCount: 0,
           chunkingStrategy: null,
           hasEmbedding: false,
           embeddingSetId: 'set-1',
@@ -193,6 +278,7 @@ describe('useDatabaseDemoData', () => {
           updatedAt: '2024-01-01T00:00:00Z',
         },
       ],
+      totalRecords: 1,
     };
     setupLiveQueries();
 
@@ -214,7 +300,7 @@ describe('useDatabaseDemoData', () => {
     expect(result.current.chunks.at(0)?.id).toBe('cached-chunk');
   });
 
-  it('streams records, chunks, and db info when repositories are provided', async () => {
+  it('streams records and loads chunk summaries on demand when repositories are provided', async () => {
     const now = new Date().toISOString();
     const repository = createRepository([], 5);
     const chunkRepository = createChunkRepository([]);
@@ -234,29 +320,33 @@ describe('useDatabaseDemoData', () => {
           processedAt: now,
           chunksProcessedAt: now,
           chunksCount: 2,
+          embeddedChunksCount: 0,
           chunkingStrategy: 'sentence',
-          embedding: null,
           embeddingSetId: 'set-1',
         },
       ],
-      chunks: [
-        {
-          id: 'chunk-1',
-          fileRecordId: '1',
-          chunkIndex: 0,
-          content: 'test',
-          contentHash: 'hash',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 10,
-          embedding: null,
-          embeddingSetId: 'set-1',
-          embeddingUpdatedAt: now,
-          embeddingHash: null,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ],
+    });
+    const database = createMockDatabase({
+      chunkRowsByFileRecordId: {
+        '1': [
+          {
+            id: 'chunk-1',
+            fileRecordId: '1',
+            chunkIndex: 0,
+            contentHash: 'hash',
+            tokenCount: 10,
+            chunkType: 'text',
+            chunkSize: 10,
+            hasEmbedding: false,
+            embeddingDimensions: 0,
+            embeddingSetId: 'set-1',
+            embeddingUpdatedAt: now,
+            embeddingHash: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      },
     });
 
     const { result } = renderHook(() =>
@@ -264,7 +354,7 @@ describe('useDatabaseDemoData', () => {
         repository,
         chunkRepository,
         toast,
-        database: createMockDatabase(),
+        database,
         activeCollectionId: 'set-1',
       })
     );
@@ -284,10 +374,184 @@ describe('useDatabaseDemoData', () => {
         chunksCount: 2,
       }),
     ]);
+    await act(async () => {
+      await expect(result.current.loadFileChunkSummaries('1')).resolves.toEqual([
+        expect.objectContaining({ id: 'chunk-1', fileRecordId: '1', embeddingSetId: 'set-1' }),
+      ]);
+    });
+    await waitFor(() => {
+      expect(result.current.chunks).toHaveLength(1);
+    });
     expect(result.current.chunks).toEqual([
       expect.objectContaining({ id: 'chunk-1', fileRecordId: '1', embeddingSetId: 'set-1' }),
     ]);
     expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('keeps live queries summary-only and does not surface chunk content in the visible renderer payload', async () => {
+    const now = new Date().toISOString();
+    setupLiveQueries({
+      records: [
+        {
+          id: '1',
+          name: 'file',
+          path: '/file',
+          size: 123,
+          createdAt: now,
+          updatedAt: now,
+          contentHash: 'record-hash',
+          tokenCount: 1,
+          processedAt: now,
+          chunksProcessedAt: now,
+          chunksCount: 2,
+          embeddedChunksCount: 1,
+          chunkingStrategy: 'sentence',
+          hasEmbedding: true,
+          embeddingSetId: 'set-1',
+        },
+      ],
+    });
+    const database = createMockDatabase({
+      chunkRowsByFileRecordId: {
+        '1': [
+          {
+            id: 'chunk-1',
+            fileRecordId: '1',
+            chunkIndex: 0,
+            contentHash: 'hash',
+            tokenCount: 10,
+            chunkType: 'text',
+            chunkSize: 10,
+            hasEmbedding: true,
+            embeddingDimensions: 384,
+            embeddingSetId: 'set-1',
+            embeddingUpdatedAt: now,
+            embeddingHash: 'embedding-hash',
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database,
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.records).toHaveLength(1);
+    });
+    const summaries = await result.current.loadFileChunkSummaries('1');
+
+    expect(result.current.records[0]).not.toHaveProperty('content');
+    expect(summaries[0]).not.toHaveProperty('content');
+    expect(result.current.records[0]).toEqual(expect.objectContaining({ hasEmbedding: true }));
+    expect(summaries[0]).toEqual(
+      expect.objectContaining({ hasEmbedding: true, embeddingDimensions: 384 })
+    );
+
+    const liveQueryCalls = mockedUsePGliteLiveQuery.mock.calls.map(([options]) => options.query);
+    expect(
+      liveQueryCalls.some((query) => query.includes('SELECT') && query.includes('content,'))
+    ).toBe(false);
+  });
+
+  it('loads full chunk detail and export payloads only on demand', async () => {
+    const now = new Date().toISOString();
+    const fullRecord: FileRecord = {
+      id: 'record-1',
+      name: 'detail.ts',
+      path: '/detail.ts',
+      size: 42,
+      createdAt: now,
+      updatedAt: now,
+      content: 'const detail = true;',
+    };
+    const fullChunk: FileChunk = {
+      id: 'chunk-1',
+      fileRecordId: 'record-1',
+      chunkIndex: 0,
+      content: 'const detail = true;',
+      contentHash: 'chunk-hash',
+      tokenCount: 5,
+      chunkType: 'code',
+      chunkSize: 21,
+      createdAt: now,
+      updatedAt: now,
+      embedding: [0.1, 0.2],
+    };
+    setupLiveQueries({
+      records: [
+        {
+          id: 'record-1',
+          name: 'detail.ts',
+          path: '/detail.ts',
+          size: 42,
+          createdAt: now,
+          updatedAt: now,
+          contentHash: 'record-hash',
+          tokenCount: 5,
+          processedAt: now,
+          chunksProcessedAt: now,
+          chunksCount: 1,
+          embeddedChunksCount: 1,
+          chunkingStrategy: 'recursive',
+          hasEmbedding: false,
+          embeddingSetId: 'set-1',
+        },
+      ],
+    });
+    const repository = createRepository([fullRecord], 1);
+    const chunkRepository = createChunkRepository([fullChunk]);
+    const database = createMockDatabase({
+      recordRows: [{ id: 'record-1' }],
+      chunkRowsByFileRecordId: {
+        'record-1': [
+          {
+            id: 'chunk-1',
+            fileRecordId: 'record-1',
+            chunkIndex: 0,
+            contentHash: 'chunk-hash',
+            tokenCount: 5,
+            chunkType: 'code',
+            chunkSize: 21,
+            hasEmbedding: true,
+            embeddingDimensions: 2,
+            embeddingSetId: 'set-1',
+            embeddingUpdatedAt: now,
+            embeddingHash: 'embedding-hash',
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast: vi.fn(),
+        database,
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await act(async () => {
+      await result.current.loadFileChunkSummaries('record-1');
+    });
+
+    await expect(result.current.loadChunkDetail('chunk-1')).resolves.toEqual(fullChunk);
+    await expect(result.current.loadCollectionExportData()).resolves.toEqual({
+      records: [fullRecord],
+      chunks: [fullChunk],
+    });
   });
 
   it('preserves canonical resolved chunking strategies beyond the legacy subset', async () => {
@@ -312,7 +576,6 @@ describe('useDatabaseDemoData', () => {
           embeddingSetId: 'set-markdown',
         },
       ],
-      chunks: [],
     });
 
     const { result } = renderHook(() =>
@@ -344,17 +607,60 @@ describe('useDatabaseDemoData', () => {
     });
 
     try {
+      const now = new Date().toISOString();
       const repository = createRepository();
       const chunkRepository = createChunkRepository([]);
       const toast = vi.fn();
-      const { recordRefresh, chunkRefresh } = setupLiveQueries();
+      const { recordRefresh } = setupLiveQueries({
+        records: [
+          {
+            id: 'record-1',
+            name: 'refresh.ts',
+            path: '/refresh.ts',
+            size: 42,
+            createdAt: now,
+            updatedAt: now,
+            contentHash: 'refresh-hash',
+            tokenCount: 5,
+            processedAt: now,
+            chunksProcessedAt: now,
+            chunksCount: 1,
+            embeddedChunksCount: 1,
+            chunkingStrategy: 'recursive',
+            hasEmbedding: true,
+            embeddingSetId: 'set-1',
+          },
+        ],
+      });
+      const database = createMockDatabase({
+        chunkRowsByFileRecordId: {
+          'record-1': [
+            {
+              id: 'chunk-1',
+              fileRecordId: 'record-1',
+              chunkIndex: 0,
+              contentHash: 'chunk-hash',
+              tokenCount: 5,
+              chunkType: 'code',
+              chunkSize: 21,
+              hasEmbedding: true,
+              embeddingDimensions: 2,
+              embeddingSetId: 'set-1',
+              embeddingUpdatedAt: now,
+              embeddingHash: 'embedding-hash',
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        },
+      });
 
       const { result } = renderHook(() =>
         useDatabaseDemoData({
           repository,
           chunkRepository,
           toast,
-          database: createMockDatabase(),
+          database,
           activeCollectionId: 'set-1',
         })
       );
@@ -373,25 +679,31 @@ describe('useDatabaseDemoData', () => {
         expect(result.current.refreshing).toBe(false);
       });
 
+      await result.current.loadFileChunkSummaries('record-1');
       await result.current.loadRecords();
       await result.current.loadChunks();
 
       await waitFor(() => {
         expect(recordRefresh).toHaveBeenCalled();
-        expect(chunkRefresh).toHaveBeenCalled();
+        expect(
+          (
+            database as unknown as {
+              query: ReturnType<typeof vi.fn>;
+            }
+          ).query
+        ).toHaveBeenCalledWith(expect.stringContaining('FROM file_chunks'), ['record-1']);
       });
     } finally {
       console.error = originalError;
     }
   });
 
-  it('surfaces chunk live query errors via toast', async () => {
+  it('surfaces record live query errors via toast', async () => {
     const repository = createRepository();
     const chunkRepository = createChunkRepository([]);
     const toast = vi.fn();
     setupLiveQueries({
-      chunks: [],
-      chunkError: new Error('relation "file_chunks" does not exist'),
+      recordError: new Error('relation "file_records" does not exist'),
     });
 
     renderHook(() =>
@@ -411,7 +723,7 @@ describe('useDatabaseDemoData', () => {
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Error',
-        description: expect.stringContaining('Chunk storage is missing'),
+        description: expect.stringContaining('file_records'),
       })
     );
   });

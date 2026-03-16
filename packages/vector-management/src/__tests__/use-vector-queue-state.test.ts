@@ -9,6 +9,11 @@ import type { VectorQueueService } from '../vector-status/vector-queue-service';
 import { patchMockQueueMetrics, resetMockQueueMetrics } from './setup-mock-queue';
 
 const vectorStatusUiStoreState = {
+  activeBackfill: null as null | {
+    embeddingSetId: string;
+    progress: { done: number; total: number } | null;
+    requestId: string;
+  },
   durableQueueStats: null as null | {
     failed: number;
     nextRunnableAt: string | null;
@@ -16,6 +21,17 @@ const vectorStatusUiStoreState = {
     running: number;
     succeeded: number;
   },
+  setActiveBackfill: vi.fn(
+    (
+      backfill: null | {
+        embeddingSetId: string;
+        progress: { done: number; total: number } | null;
+        requestId: string;
+      }
+    ) => {
+      vectorStatusUiStoreState.activeBackfill = backfill;
+    }
+  ),
   setIsJobQueueActive: vi.fn(),
 };
 
@@ -109,11 +125,17 @@ vi.mock('@brainstrike/db', async () => {
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
-  useVectorStatusUIStore: vi.fn((selector: (state: typeof vectorStatusUiStoreState) => unknown) =>
-    selector(vectorStatusUiStoreState)
-  ),
-}));
+vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => {
+  const useVectorStatusUIStore = vi.fn(
+    (selector: (state: typeof vectorStatusUiStoreState) => unknown) =>
+      selector(vectorStatusUiStoreState)
+  ) as unknown as {
+    (selector: (state: typeof vectorStatusUiStoreState) => unknown): unknown;
+    getState: () => typeof vectorStatusUiStoreState;
+  };
+  useVectorStatusUIStore.getState = () => vectorStatusUiStoreState;
+  return { useVectorStatusUIStore };
+});
 
 interface MockController {
   readonly controller: EmbeddingRuntimeController;
@@ -201,7 +223,9 @@ describe('useVectorQueueState', () => {
     liveQueryRefresh.latency.mockReset();
     liveQueryRefresh.coverage.mockReset();
     resetMockQueueMetrics();
+    vectorStatusUiStoreState.activeBackfill = null;
     vectorStatusUiStoreState.durableQueueStats = null;
+    vectorStatusUiStoreState.setActiveBackfill.mockReset();
     vectorStatusUiStoreState.setIsJobQueueActive.mockReset();
     const testWindow = window as Window & {
       electronAPI?: unknown;
@@ -272,7 +296,7 @@ describe('useVectorQueueState', () => {
       });
     });
 
-    const { result } = renderHook(() =>
+    const { result, rerender } = renderHook(() =>
       useVectorQueueState({
         service: createMockService(),
         controller: controller.controller,
@@ -286,12 +310,77 @@ describe('useVectorQueueState', () => {
     });
 
     expect(controller.enqueueBackfillMock).toHaveBeenCalledWith('set-1');
+    expect(vectorStatusUiStoreState.setActiveBackfill).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embeddingSetId: 'set-1',
+        progress: null,
+      })
+    );
     expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenNthCalledWith(1, true);
     expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
 
-    await waitFor(() => {
-      expect(result.current.backfillProgress).toEqual({ done: 5, total: 5 });
+    rerender();
+    expect(result.current.backfillProgress).toEqual({ done: 5, total: 5 });
+  });
+
+  it('preserves backfill progress across remounts by reading the shared store', async () => {
+    const controller = createMockController();
+    controller.enqueueBackfillMock.mockImplementationOnce(async (embeddingSetId: string) => {
+      controller.emitBackfillProgress({
+        embeddingSetId,
+        requestId: 'embedding-backfill:shared',
+        stage: 'backfill',
+        current: 3,
+        total: 10,
+      });
     });
+
+    const firstRender = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await act(async () => {
+      await firstRender.result.current.backfillActiveSet();
+    });
+
+    firstRender.unmount();
+
+    const secondRender = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    expect(secondRender.result.current.backfilling).toBe(true);
+    expect(secondRender.result.current.backfillProgress).toEqual({ done: 3, total: 10 });
+  });
+
+  it('keeps backfill progress visible even when the active collection changes mid-backfill', () => {
+    vectorStatusUiStoreState.activeBackfill = {
+      embeddingSetId: 'set-1',
+      requestId: 'embedding-backfill:shared',
+      progress: { done: 7, total: 10 },
+    };
+
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: createMockController().controller,
+        activeEmbeddingSetId: 'set-2',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    expect(result.current.backfilling).toBe(true);
+    expect(result.current.backfillProgress).toEqual({ done: 7, total: 10 });
   });
 
   it('clears transient backfill state when controller backfill fails', async () => {

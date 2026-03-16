@@ -579,15 +579,11 @@ describe('DatabaseDemoPanel', () => {
 
       const refreshButton = screen.getByRole('button', { name: /Refresh/ });
       const recordRefreshCallsBeforeClick = mockRecordLiveQueryResult.refresh.mock.calls.length;
-      const chunkRefreshCallsBeforeClick = mockChunkLiveQueryResult.refresh.mock.calls.length;
       await user.click(refreshButton);
 
       await waitFor(() => {
         expect(mockRecordLiveQueryResult.refresh.mock.calls.length).toBeGreaterThan(
           recordRefreshCallsBeforeClick
-        );
-        expect(mockChunkLiveQueryResult.refresh.mock.calls.length).toBeGreaterThan(
-          chunkRefreshCallsBeforeClick
         );
       });
     });

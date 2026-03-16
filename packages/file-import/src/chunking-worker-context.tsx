@@ -71,6 +71,53 @@ function getTerminalTokenizerErrorMessage(data: unknown): WorkerErrorMessage | n
   return isTerminalTokenizerError(data.error) ? data : null;
 }
 
+interface ChunkingWorkerMessageContext {
+  clearReadyMonitor: () => void;
+  enterTerminalFailureState: (failure: Error, context: string) => void;
+  markReady: () => void;
+  readyReceived: boolean;
+  setReadyReceived: () => void;
+}
+
+function handleChunkingWorkerMessageData(
+  data: unknown,
+  context: ChunkingWorkerMessageContext
+): void {
+  if (data && typeof data === 'object' && 'type' in data && data.type === 'ready') {
+    if (context.readyReceived) {
+      return;
+    }
+    context.setReadyReceived();
+    context.clearReadyMonitor();
+    logger.debug('Chunking worker ready');
+    context.markReady();
+    return;
+  }
+
+  if (isInitWorkerErrorMessage(data)) {
+    const errorMessage = data.error || 'Worker initialization failed';
+    logger.error('Chunking worker init error', { error: errorMessage });
+    context.enterTerminalFailureState(new Error(errorMessage), 'worker.message.__init__');
+    return;
+  }
+
+  const tokenizerErrorData = getTerminalTokenizerErrorMessage(data);
+  if (!tokenizerErrorData) {
+    return;
+  }
+
+  const tokenizerError = tokenizerErrorData.error;
+  logger.error('Chunking worker tokenizer failure', {
+    id: tokenizerErrorData.id,
+    fileRecordId: tokenizerErrorData.fileRecordId,
+    error: tokenizerError,
+  });
+  context.enterTerminalFailureState(
+    new Error(tokenizerError),
+    `worker.message.tokenizer.${tokenizerErrorData.fileRecordId ?? tokenizerErrorData.id ?? 'unknown'}`
+  );
+}
+
 export interface ChunkingWorkerContextValue {
   ensureStarted: () => Promise<ChunkingWorkerPort>;
   error: Error | null;
@@ -434,30 +481,58 @@ function ChunkingLocalWorkerProvider({
   const workerRef = useRef<Worker | null>(null);
   const portRef = useRef<ChunkingWorkerPort | null>(null);
   const initPromiseRef = useRef<Promise<void> | null>(null);
+  const lifecycleGenerationRef = useRef(0);
+  const readyMonitorCleanupRef = useRef<(() => void) | null>(null);
+  const workerListenerCleanupRef = useRef<(() => void) | null>(null);
   const terminalFailureActiveRef = useRef(false);
 
-  const enterTerminalFailureState = useCallback((failure: Error, context: string) => {
-    if (terminalFailureActiveRef.current) {
-      return;
-    }
-    terminalFailureActiveRef.current = true;
-    logger.error('Chunking worker entered terminal failure state', {
-      context,
-      error: failure.message,
-    });
-    setError(failure);
-    setIsReady(false);
-    setIsProcessing(false);
-    if (portRef.current) {
-      portRef.current.terminate();
-      portRef.current = null;
-    }
-    if (workerRef.current) {
-      workerRef.current.terminate();
-      workerRef.current = null;
-    }
-    setCurrentPortState(null);
+  const clearReadyMonitor = useCallback(() => {
+    readyMonitorCleanupRef.current?.();
+    readyMonitorCleanupRef.current = null;
   }, []);
+
+  const clearWorkerListeners = useCallback(() => {
+    workerListenerCleanupRef.current?.();
+    workerListenerCleanupRef.current = null;
+  }, []);
+
+  const disposeCurrentWorker = useCallback(() => {
+    clearReadyMonitor();
+    clearWorkerListeners();
+
+    const activePort = portRef.current;
+    const activeWorker = workerRef.current;
+    portRef.current = null;
+    workerRef.current = null;
+
+    if (activePort) {
+      activePort.terminate();
+    } else if (activeWorker) {
+      activeWorker.terminate();
+    }
+
+    setCurrentPortState(null);
+  }, [clearReadyMonitor, clearWorkerListeners]);
+
+  const enterTerminalFailureState = useCallback(
+    (failure: Error, context: string) => {
+      if (terminalFailureActiveRef.current) {
+        return;
+      }
+      terminalFailureActiveRef.current = true;
+      lifecycleGenerationRef.current += 1;
+      logger.error('Chunking worker entered terminal failure state', {
+        context,
+        error: failure.message,
+      });
+      setError(failure);
+      setIsReady(false);
+      setIsProcessing(false);
+      initPromiseRef.current = null;
+      disposeCurrentWorker();
+    },
+    [disposeCurrentWorker]
+  );
 
   const initialize = useCallback(async (): Promise<ChunkingWorkerPort> => {
     if (initPromiseRef.current) {
@@ -468,58 +543,49 @@ function ChunkingLocalWorkerProvider({
       return portRef.current;
     }
 
+    const generation = ++lifecycleGenerationRef.current;
     initPromiseRef.current = (async () => {
       try {
         terminalFailureActiveRef.current = false;
         let readyReceived = false;
         logger.debug('Initializing chunking worker');
         const workerUrl = await resolveChunkingWorkerUrl();
+        if (generation !== lifecycleGenerationRef.current) {
+          return;
+        }
         const worker = new Worker(workerUrl, { type: 'module' });
         workerRef.current = worker;
         const { createChunkingWorkerPort } = await loadChunkingWorkerPortFactory();
+        if (generation !== lifecycleGenerationRef.current) {
+          worker.terminate();
+          return;
+        }
         const port = createChunkingWorkerPort(worker);
         portRef.current = port;
         setCurrentPortState(port);
 
         const handleMessage = (event: MessageEvent) => {
-          const { data } = event;
-
-          if (data.type === 'ready') {
-            if (readyReceived) {
-              return;
-            }
-            readyReceived = true;
-            logger.debug('Chunking worker ready');
-            setIsReady(true);
-            setError(null);
+          if (generation !== lifecycleGenerationRef.current) {
             return;
           }
-
-          if (isInitWorkerErrorMessage(data)) {
-            const errorMessage = data.error || 'Worker initialization failed';
-            logger.error('Chunking worker init error', { error: errorMessage });
-            worker.removeEventListener('message', handleMessage);
-            enterTerminalFailureState(new Error(errorMessage), 'worker.message.__init__');
-            return;
-          }
-
-          const tokenizerErrorData = getTerminalTokenizerErrorMessage(data);
-          if (tokenizerErrorData) {
-            const tokenizerError = tokenizerErrorData.error;
-            logger.error('Chunking worker tokenizer failure', {
-              id: tokenizerErrorData.id,
-              fileRecordId: tokenizerErrorData.fileRecordId,
-              error: tokenizerError,
-            });
-            worker.removeEventListener('message', handleMessage);
-            enterTerminalFailureState(
-              new Error(tokenizerError),
-              `worker.message.tokenizer.${tokenizerErrorData.fileRecordId ?? tokenizerErrorData.id ?? 'unknown'}`
-            );
-          }
+          handleChunkingWorkerMessageData(event.data, {
+            clearReadyMonitor,
+            enterTerminalFailureState,
+            markReady: () => {
+              setIsReady(true);
+              setError(null);
+            },
+            readyReceived,
+            setReadyReceived: () => {
+              readyReceived = true;
+            },
+          });
         };
 
         const handleError = (event: ErrorEvent) => {
+          if (generation !== lifecycleGenerationRef.current) {
+            return;
+          }
           const errorDetails = {
             message: event.message || 'Unknown worker error',
             filename: event.filename || 'unknown',
@@ -534,17 +600,29 @@ function ChunkingLocalWorkerProvider({
 
         worker.addEventListener('message', handleMessage);
         worker.addEventListener('error', handleError);
+        workerListenerCleanupRef.current = () => {
+          worker.removeEventListener('message', handleMessage);
+          worker.removeEventListener('error', handleError);
+        };
 
         const checkReadyInterval = setInterval(() => {
+          if (generation !== lifecycleGenerationRef.current) {
+            clearReadyMonitor();
+            return;
+          }
           if (port.isReady()) {
+            clearReadyMonitor();
             setIsReady(true);
-            clearInterval(checkReadyInterval);
+            setError(null);
           }
         }, 100);
 
-        setTimeout(() => {
-          clearInterval(checkReadyInterval);
-          if (!portRef.current?.isReady()) {
+        const readyTimeout = setTimeout(() => {
+          if (generation !== lifecycleGenerationRef.current) {
+            return;
+          }
+          clearReadyMonitor();
+          if (!port.isReady()) {
             const timeoutError = new Error(
               `Chunking worker ready timeout after ${CHUNKING_WORKER_READY_TIMEOUT_MS / 1000} seconds`
             );
@@ -552,6 +630,11 @@ function ChunkingLocalWorkerProvider({
             enterTerminalFailureState(timeoutError, 'worker.ready-timeout');
           }
         }, CHUNKING_WORKER_READY_TIMEOUT_MS);
+
+        readyMonitorCleanupRef.current = () => {
+          clearInterval(checkReadyInterval);
+          clearTimeout(readyTimeout);
+        };
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Failed to initialize worker';
         logger.error('Failed to initialize chunking worker', { error: errorMsg });
@@ -564,29 +647,21 @@ function ChunkingLocalWorkerProvider({
       throw new Error('Chunking worker port was not created');
     }
     return portRef.current;
-  }, [enterTerminalFailureState]);
+  }, [clearReadyMonitor, enterTerminalFailureState]);
 
   const reinitialize = useCallback(() => {
     logger.info('Reinitializing chunking worker');
 
-    if (portRef.current) {
-      portRef.current.terminate();
-    }
-    if (workerRef.current) {
-      workerRef.current.terminate();
-    }
-
-    workerRef.current = null;
-    portRef.current = null;
+    lifecycleGenerationRef.current += 1;
     initPromiseRef.current = null;
     setIsReady(false);
-    setCurrentPortState(null);
     setError(null);
     setIsProcessing(false);
     terminalFailureActiveRef.current = false;
+    disposeCurrentWorker();
 
     void initialize();
-  }, [initialize]);
+  }, [disposeCurrentWorker, initialize]);
 
   useEffect(() => {
     if (autoStart) {
@@ -594,18 +669,12 @@ function ChunkingLocalWorkerProvider({
     }
 
     return () => {
-      if (portRef.current) {
-        portRef.current.terminate();
-      }
-      if (workerRef.current) {
-        workerRef.current.terminate();
-      }
-      workerRef.current = null;
-      portRef.current = null;
+      lifecycleGenerationRef.current += 1;
       initPromiseRef.current = null;
       terminalFailureActiveRef.current = false;
+      disposeCurrentWorker();
     };
-  }, [autoStart, initialize]);
+  }, [autoStart, disposeCurrentWorker, initialize]);
 
   const wrappedPort = useMemo((): ChunkingWorkerPort | null => {
     if (!currentPortState) {
@@ -659,6 +728,7 @@ function ChunkingLocalWorkerProvider({
         currentPortState.terminate();
         portRef.current = null;
         setIsReady(false);
+        setCurrentPortState(null);
       },
     };
 

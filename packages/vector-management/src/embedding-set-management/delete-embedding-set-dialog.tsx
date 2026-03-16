@@ -13,6 +13,7 @@ import {
 import { createLogger } from '@brainstrike/utils/logger';
 import type { PGlite } from '@electric-sql/pglite';
 import { useState } from 'react';
+import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 
 interface DeleteEmbeddingSetDialogProps {
   db: PGlite | null;
@@ -62,14 +63,10 @@ export function DeleteEmbeddingSetDialog({
       // Uses functional action to avoid stale closure bugs
       removeCachedCollection(collectionId);
 
-      // Emit event to notify other components
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
-            detail: { id: collectionId },
-          })
-        );
-      }
+      dispatchEmbeddingSetUpdated({
+        id: collectionId,
+        reason: 'deleted',
+      });
 
       toast({
         title: 'Success',

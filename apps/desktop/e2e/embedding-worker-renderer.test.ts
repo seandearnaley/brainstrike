@@ -70,6 +70,11 @@ interface BackfillCorpusFixture {
   totalChunks: number;
 }
 
+interface LargeCollectionListFixture {
+  embeddingSetId: string;
+  fileCount: number;
+}
+
 interface MemorySample {
   elapsedMs: number;
   queueStats: QueueStatsRow;
@@ -78,8 +83,13 @@ interface MemorySample {
 
 const LARGE_BACKFILL_FILE_COUNT = 1000;
 const LARGE_BACKFILL_CHUNKS_PER_FILE = 20;
-const LARGE_BACKFILL_CYCLE_FILE_COUNT = 80;
-const LARGE_BACKFILL_CYCLE_CHUNKS_PER_FILE = 10;
+const LARGE_COLLECTION_LIST_FILE_COUNT = 50_000;
+const LARGE_COLLECTION_RENDER_FILE_COUNT = 5000;
+const LARGE_COLLECTION_RENDER_CHUNKS_PER_FILE = 10;
+// Repeated-cycle coverage is about retained-memory drift on a single live host.
+// The 20k chunk pressure test above already covers peak-load behavior.
+const LARGE_BACKFILL_CYCLE_FILE_COUNT = 32;
+const LARGE_BACKFILL_CYCLE_CHUNKS_PER_FILE = 8;
 const LARGE_BACKFILL_SAMPLE_COUNT = 6;
 const LARGE_BACKFILL_SAMPLE_INTERVAL_MS = 2500;
 const LARGE_BACKFILL_HOST_HEAP_GROWTH_LIMIT_MB = 120;
@@ -88,6 +98,10 @@ const LARGE_BACKFILL_MAIN_RSS_GROWTH_LIMIT_MB = 180;
 const LARGE_BACKFILL_MAIN_HEAP_GROWTH_LIMIT_MB = 80;
 const LARGE_BACKFILL_IDLE_HOST_HEAP_DRIFT_LIMIT_MB = 40;
 const LARGE_BACKFILL_IDLE_MAIN_RSS_DRIFT_LIMIT_MB = 90;
+const LARGE_COLLECTION_VISIBLE_HEAP_GROWTH_LIMIT_MB = 120;
+const LARGE_COLLECTION_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 250;
+const LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB = 80;
+const LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 180;
 
 test.describe('Embedding Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
@@ -238,6 +252,36 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     throw new Error('Timed out waiting for bounded backfill enqueue or fatal host error');
+  }
+
+  async function waitForBackfillProgressText(
+    backfillButton: ReturnType<Page['locator']>,
+    timeoutMs = 15_000
+  ): Promise<string> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const label = (await backfillButton.textContent())?.trim() ?? '';
+      if (/^\d+\/\d+$/u.test(label)) {
+        return label;
+      }
+      await backfillButton.page().waitForTimeout(100);
+    }
+
+    throw new Error('Timed out waiting for visible backfill progress text');
+  }
+
+  function parseBackfillProgressLabel(label: string): { done: number; total: number } {
+    const match = /^(\d+)\/(\d+)$/u.exec(label.trim());
+    if (!match) {
+      throw new Error(`Invalid backfill progress label: ${label}`);
+    }
+    const done = Number(match[1]);
+    const total = Number(match[2]);
+    if (!(Number.isFinite(done) && Number.isFinite(total) && total >= 0 && done >= 0)) {
+      throw new Error(`Invalid numeric backfill progress label: ${label}`);
+    }
+    return { done, total };
   }
 
   async function waitForEmbeddingHostIdleAndQueueDrain(
@@ -735,16 +779,30 @@ test.describe('Embedding Host Renderer', () => {
   async function createLargeBackfillCorpusFixture(
     page: Page,
     options: {
+      chunkContentBytes?: number;
       chunksPerFile: number;
+      fileContentBytes?: number;
       fileCount: number;
       persistActiveSet?: boolean;
     }
   ): Promise<BackfillCorpusFixture> {
     return await page.evaluate<
       BackfillCorpusFixture,
-      { chunksPerFile: number; fileCount: number; persistActiveSet: boolean }
+      {
+        chunkContentBytes: number;
+        chunksPerFile: number;
+        fileContentBytes: number;
+        fileCount: number;
+        persistActiveSet: boolean;
+      }
     >(
-      async ({ chunksPerFile, fileCount, persistActiveSet }) => {
+      async ({
+        chunkContentBytes,
+        chunksPerFile,
+        fileContentBytes,
+        fileCount,
+        persistActiveSet,
+      }) => {
         const api = (
           window as Window & {
             electronAPI?: {
@@ -779,6 +837,8 @@ test.describe('Embedding Host Renderer', () => {
         const modelKey = `local::${modelId}`;
         const fileBatchSize = 100;
         const chunkBatchSize = 200;
+        const fileContentTemplate = 'f'.repeat(fileContentBytes);
+        const chunkContentTemplate = 'c'.repeat(chunkContentBytes);
 
         const insertFileBatch = async (offset: number, count: number): Promise<void> => {
           const values: string[] = [];
@@ -796,7 +856,7 @@ test.describe('Embedding Host Renderer', () => {
               `/corpus/${embeddingSetId}/file-${fileIndex}.ts`,
               `file-${fileIndex}.ts`,
               chunksPerFile * 128,
-              `export const corpusFile${fileIndex} = "${embeddingSetId}-${fileIndex}";`,
+              `${fileContentTemplate}\nexport const corpusFile${fileIndex} = "${embeddingSetId}-${fileIndex}";`,
               `file-hash-${embeddingSetId}-${fileIndex}`,
               chunksPerFile * 32,
               embeddingSetId,
@@ -829,7 +889,7 @@ test.describe('Embedding Host Renderer', () => {
               row.id,
               row.fileRecordId,
               row.chunkIndex,
-              row.content,
+              `${chunkContentTemplate}\n${row.content}`,
               `chunk-hash-${row.id}`,
               32,
               32,
@@ -915,11 +975,157 @@ test.describe('Embedding Host Renderer', () => {
         };
       },
       {
+        chunkContentBytes: options.chunkContentBytes ?? 0,
         fileCount: options.fileCount,
+        fileContentBytes: options.fileContentBytes ?? 0,
         chunksPerFile: options.chunksPerFile,
         persistActiveSet: options.persistActiveSet ?? true,
       }
     );
+  }
+
+  async function createLargeCollectionListFixture(
+    page: Page,
+    options: {
+      fileCount: number;
+      fileContentBytes?: number;
+      persistActiveSet?: boolean;
+    }
+  ): Promise<LargeCollectionListFixture> {
+    return await page.evaluate<
+      LargeCollectionListFixture,
+      {
+        fileContentBytes: number;
+        fileCount: number;
+        persistActiveSet: boolean;
+      }
+    >(
+      async ({ fileContentBytes, fileCount, persistActiveSet }) => {
+        const api = (
+          window as Window & {
+            electronAPI?: {
+              db?: {
+                exec?: (sql: string) => Promise<unknown>;
+                query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+              };
+              storage?: {
+                setItem?: (key: string, value: string) => Promise<void>;
+              };
+            };
+          }
+        ).electronAPI;
+
+        if (!(api?.db?.query && api.db.exec)) {
+          throw new Error('Database API not available');
+        }
+        if (!api?.storage?.setItem) {
+          throw new Error('Storage API not available');
+        }
+
+        const now = new Date().toISOString();
+        const randomSuffix = Math.random().toString(36).slice(2, 10);
+        const embeddingSetId = `list-set-${randomSuffix}`;
+        const modelId = 'Xenova/all-MiniLM-L6-v2';
+        const modelKey = `local::${modelId}`;
+        const fileBatchSize = 250;
+        const fileContentTemplate = 'l'.repeat(fileContentBytes);
+        const dbApi = api.db;
+        const exec = dbApi.exec;
+        const query = dbApi.query;
+        if (typeof exec !== 'function' || typeof query !== 'function') {
+          throw new Error('Database API not available');
+        }
+
+        const insertFileBatch = async (offset: number, count: number): Promise<void> => {
+          const values: string[] = [];
+          const params: unknown[] = [];
+          let nextParam = 1;
+
+          for (let index = 0; index < count; index += 1) {
+            const fileIndex = offset + index;
+            const fileRecordId = `${embeddingSetId}-file-${String(fileIndex).padStart(5, '0')}`;
+            values.push(
+              `($${nextParam}, $${nextParam + 1}, $${nextParam + 2}, $${nextParam + 3}, $${nextParam + 4}, $${nextParam + 5}, $${nextParam + 6}, $${nextParam + 7}, $${nextParam + 7}, 0, 0)`
+            );
+            params.push(
+              fileRecordId,
+              `/list/${embeddingSetId}/file-${String(fileIndex).padStart(5, '0')}.ts`,
+              `file-${String(fileIndex).padStart(5, '0')}.ts`,
+              64,
+              `${fileContentTemplate}\nexport const fileIndex = ${fileIndex};`,
+              `file-hash-${embeddingSetId}-${fileIndex}`,
+              embeddingSetId,
+              now
+            );
+            nextParam += 8;
+          }
+
+          await query(
+            `INSERT INTO file_records (
+               id, path, name, size, content, content_hash, embedding_set_id, created_at, updated_at, chunks_count, token_count
+             )
+             VALUES ${values.join(', ')}`,
+            params
+          );
+        };
+
+        await exec('BEGIN');
+        try {
+          await query(
+            `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [embeddingSetId, modelKey, modelId, 384, 'cosine', 'Large Collection List', now]
+          );
+
+          for (let offset = 0; offset < fileCount; offset += fileBatchSize) {
+            await insertFileBatch(offset, Math.min(fileBatchSize, fileCount - offset));
+          }
+
+          await exec('COMMIT');
+        } catch (error) {
+          await exec('ROLLBACK');
+          throw error;
+        }
+
+        if (persistActiveSet) {
+          await api.storage.setItem(
+            'vector-status-ui.v1',
+            JSON.stringify({
+              state: { activeEmbeddingSetId: embeddingSetId },
+              version: 1,
+            })
+          );
+        }
+
+        return {
+          embeddingSetId,
+          fileCount,
+        };
+      },
+      {
+        fileContentBytes: options.fileContentBytes ?? 0,
+        fileCount: options.fileCount,
+        persistActiveSet: options.persistActiveSet ?? true,
+      }
+    );
+  }
+
+  async function createCollectionViaDialog(page: Page, collectionName: string): Promise<void> {
+    const databasePanel = page.getByTestId('database-demo-panel');
+    await databasePanel.getByRole('button', { name: 'New' }).click({ timeout: 5000 });
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('Create Search Collection')).toBeVisible({ timeout: 15_000 });
+
+    const nameInput = dialog.getByLabel('Name *');
+    await expect(nameInput).toBeVisible({ timeout: 15_000 });
+    await nameInput.fill(collectionName);
+
+    const createButton = dialog.getByRole('button', { name: 'Create Collection' });
+    await expect(createButton).toBeEnabled({ timeout: 15_000 });
+    await createButton.click({ timeout: 5000 });
+
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
   }
 
   async function getJobStatus(page: Page, jobId: string): Promise<string | null> {
@@ -1917,6 +2123,287 @@ test.describe('Embedding Host Renderer', () => {
     expect(growth(peaks.mainHeapMB, baseline.process.mainProcess.heapUsedMB)).toBeLessThan(
       LARGE_BACKFILL_MAIN_HEAP_GROWTH_LIMIT_MB
     );
+
+    await electronHarness.restart();
+  });
+
+  test('keeps the visible renderer bounded when opening a 50k chunk collection in the database tab', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(420_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRenderer(activeWindow, 'database-visible-render-large-collection-pref');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const hostPage = await ensureEmbeddingHostWarmed(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(hostPage);
+
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: LARGE_COLLECTION_RENDER_FILE_COUNT,
+      chunksPerFile: LARGE_COLLECTION_RENDER_CHUNKS_PER_FILE,
+      fileContentBytes: 4096,
+      chunkContentBytes: 1024,
+      persistActiveSet: false,
+    });
+
+    await reloadRenderer(activeWindow, 'database-visible-render-large-collection');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+    const reloadedHostPage = await getEmbeddingHostPage(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(reloadedHostPage);
+
+    const baseline = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      reloadedHostPage,
+      'before-large-collection-open'
+    );
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+    await expect(collectionOption).toHaveAttribute('aria-selected', 'true');
+
+    await activeWindow.waitForTimeout(3000);
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+
+    const selected = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      reloadedHostPage,
+      'after-large-collection-open'
+    );
+
+    const baselineVisibleProcess = getRuntimeSnapshot(baseline.process, 'visible-ui');
+    const selectedVisibleProcess = getRuntimeSnapshot(selected.process, 'visible-ui');
+    const visibleHeapGrowthMB = growth(selected.visibleHeap.usedMB, baseline.visibleHeap.usedMB);
+    const visibleWorkingSetGrowthMB = growth(
+      selectedVisibleProcess.workingSetMB ?? 0,
+      baselineVisibleProcess.workingSetMB ?? 0
+    );
+
+    console.log(
+      JSON.stringify({
+        type: 'desktop-visible-render-large-collection',
+        fixture,
+        baseline,
+        selected,
+        visibleHeapGrowthMB,
+        visibleWorkingSetGrowthMB,
+      })
+    );
+
+    await assertToolsPanelResponsive(activeWindow);
+
+    expect(visibleHeapGrowthMB).toBeLessThan(LARGE_COLLECTION_VISIBLE_HEAP_GROWTH_LIMIT_MB);
+    expect(visibleWorkingSetGrowthMB).toBeLessThan(
+      LARGE_COLLECTION_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB
+    );
+  });
+
+  test('keeps the database tab source-paginated and memory-bounded for a 50k file collection', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(420_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRenderer(activeWindow, 'database-visible-render-large-file-list-pref');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const hostPage = await ensureEmbeddingHostWarmed(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(hostPage);
+
+    const fixture = await createLargeCollectionListFixture(activeWindow, {
+      fileCount: LARGE_COLLECTION_LIST_FILE_COUNT,
+      fileContentBytes: 1024,
+      persistActiveSet: false,
+    });
+
+    await reloadRenderer(activeWindow, 'database-visible-render-large-file-list');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+    const reloadedHostPage = await getEmbeddingHostPage(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(reloadedHostPage);
+
+    const baseline = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      reloadedHostPage,
+      'before-large-file-list-open'
+    );
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+    await expect(collectionOption).toHaveAttribute('aria-selected', 'true');
+
+    const treegrid = activeWindow.getByRole('treegrid');
+    const firstVisibleDataRow = treegrid.getByRole('row').nth(1);
+    await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
+    const firstPageFirstRowText = ((await firstVisibleDataRow.textContent()) ?? '').trim();
+    expect(firstPageFirstRowText.length).toBeGreaterThan(0);
+
+    const pageNumberInput = activeWindow.getByRole('spinbutton', { name: 'Page number' });
+    await expect(pageNumberInput).toHaveValue('1');
+
+    await activeWindow.getByRole('button', { name: 'Go to next page' }).click({ timeout: 5000 });
+
+    await expect(pageNumberInput).toHaveValue('2');
+    await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
+    const secondPageFirstRowText = ((await firstVisibleDataRow.textContent()) ?? '').trim();
+    expect(secondPageFirstRowText.length).toBeGreaterThan(0);
+    expect(secondPageFirstRowText).not.toBe(firstPageFirstRowText);
+
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+
+    const paged = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      reloadedHostPage,
+      'after-large-file-list-page-change'
+    );
+
+    const baselineVisibleProcess = getRuntimeSnapshot(baseline.process, 'visible-ui');
+    const pagedVisibleProcess = getRuntimeSnapshot(paged.process, 'visible-ui');
+    const visibleHeapGrowthMB = growth(paged.visibleHeap.usedMB, baseline.visibleHeap.usedMB);
+    const visibleWorkingSetGrowthMB = growth(
+      pagedVisibleProcess.workingSetMB ?? 0,
+      baselineVisibleProcess.workingSetMB ?? 0
+    );
+
+    console.log(
+      JSON.stringify({
+        type: 'desktop-visible-render-large-file-list',
+        fixture,
+        baseline,
+        paged,
+        visibleHeapGrowthMB,
+        visibleWorkingSetGrowthMB,
+      })
+    );
+
+    expect(visibleHeapGrowthMB).toBeLessThan(LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB);
+    expect(visibleWorkingSetGrowthMB).toBeLessThan(
+      LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB
+    );
+  });
+
+  test('shows a newly created collection immediately without leaving the database tab', async ({
+    window,
+  }) => {
+    test.setTimeout(180_000);
+
+    const activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    const collectionName = `Immediate Collection ${Date.now()}`;
+    await createCollectionViaDialog(activeWindow, collectionName);
+
+    const createdOption = activeWindow.getByRole('option', { name: new RegExp(collectionName) });
+    await expect(createdOption).toBeVisible({ timeout: 15_000 });
+    await expect(createdOption).toHaveAttribute('aria-selected', 'true');
+    await expect(activeWindow.getByRole('tab', { name: /database/i })).toHaveAttribute(
+      'data-state',
+      'active'
+    );
+  });
+
+  test('preserves backfill progress on the database button across tab switches', async ({
+    electronHarness,
+    window,
+  }) => {
+    test.setTimeout(420_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: LARGE_BACKFILL_FILE_COUNT,
+      chunksPerFile: LARGE_BACKFILL_CHUNKS_PER_FILE,
+      persistActiveSet: false,
+    });
+
+    await reloadRenderer(activeWindow, 'database-backfill-progress-tab-switch');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
+    const resolveBackfillActionButton = () =>
+      databasePanel
+        .locator('button')
+        .filter({ hasText: /^(?:Start & )?Backfill(?:\s|$)|^Backfilling|^\d+\/\d+$/u })
+        .first();
+    const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
+
+    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+    await backfillButton.click({ timeout: 5000 });
+
+    const initialProgressLabel = await waitForBackfillProgressText(
+      resolveBackfillActionButton(),
+      30_000
+    );
+    const initialProgress = parseBackfillProgressLabel(initialProgressLabel);
+    expect(initialProgress.total).toBe(fixture.totalChunks);
+    expect(initialProgress.done).toBeGreaterThan(0);
+
+    await activeWindow.getByRole('tab', { name: /assistant/i }).click({ timeout: 5000 });
+    await expect(activeWindow.getByRole('tab', { name: /assistant/i })).toHaveAttribute(
+      'data-state',
+      'active'
+    );
+
+    await activeWindow.getByRole('tab', { name: /database/i }).click({ timeout: 5000 });
+    await expect(activeWindow.getByRole('tab', { name: /database/i })).toHaveAttribute(
+      'data-state',
+      'active'
+    );
+
+    const remountedDatabasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
+    const remountedBackfillButton = remountedDatabasePanel
+      .locator('button')
+      .filter({ hasText: /^(?:Start & )?Backfill(?:\s|$)|^Backfilling|^\d+\/\d+$/u })
+      .first();
+    const resumedProgressLabel = await waitForBackfillProgressText(remountedBackfillButton, 30_000);
+    const resumedProgress = parseBackfillProgressLabel(resumedProgressLabel);
+
+    expect(resumedProgress.total).toBe(initialProgress.total);
+    expect(resumedProgress.done).toBeGreaterThanOrEqual(initialProgress.done);
 
     await electronHarness.restart();
   });

@@ -36,6 +36,12 @@ interface ChunkingOptions {
     fileRecordId: string
   ) => Promise<void>;
   forceStrategy?: boolean;
+  /**
+   * Keep inserted chunk rows on the returned result.
+   * Disable this when the caller only needs counts/side effects to avoid
+   * retaining large per-file chunk payloads after insert/enqueue completes.
+   */
+  retainInsertedChunks?: boolean;
   // Post-review: support transactional enqueue with chunk insert
   runInTransaction?: <T>(fn: (tx: IDatabase) => Promise<T>) => Promise<T>;
   streamBatchSize?: number;
@@ -536,7 +542,7 @@ async function processFileChunkingHostProxyPath(
       chunkingStrategy: workerResult.strategyUsed,
     },
     chunksCreated: chunks.length,
-    chunks,
+    ...(options.retainInsertedChunks === false ? {} : { chunks }),
     strategyUsed: workerResult.strategyUsed,
   };
 }
@@ -637,7 +643,7 @@ async function processFileChunkingWorkerPath(
       chunkingStrategy: workerResult.strategyUsed,
     },
     chunksCreated: chunks.length,
-    chunks,
+    ...(options.retainInsertedChunks === false ? {} : { chunks }),
     strategyUsed: workerResult.strategyUsed,
   };
 }
@@ -706,6 +712,11 @@ export async function processChunking(
   }
 
   const isHostProxyTransport = chunkingWorkerPort.transportKind === 'host-proxy';
+  const fileProcessingOptions: ChunkingOptions = {
+    ...options,
+    retainInsertedChunks:
+      options.retainInsertedChunks ?? Boolean(options.enableEmbedding && options.processEmbeddings),
+  };
 
   // Determine concurrency based on environment and file count
   const ChunkingConcurrency = Math.min(
@@ -779,7 +790,7 @@ export async function processChunking(
           importResults.length,
           totalChunksCreated,
           deps,
-          options,
+          fileProcessingOptions,
           preFetchedRecord
         );
 

@@ -13,6 +13,7 @@ import {
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useState } from 'react';
+import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 
 interface RenameEmbeddingSetDialogProps {
   embeddingSet: EmbeddingSet | null;
@@ -112,14 +113,25 @@ export function RenameEmbeddingSetDialog({
 
       await repository.updateMetadata(embeddingSet.id, metadata);
 
-      // Emit event to notify other components
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
-            detail: { id: embeddingSet.id },
-          })
-        );
-      }
+      dispatchEmbeddingSetUpdated({
+        id: embeddingSet.id,
+        reason: 'updated',
+        collection: {
+          id: embeddingSet.id,
+          modelKey: embeddingSet.modelKey,
+          modelId: embeddingSet.modelId,
+          dimensions: embeddingSet.dimensions,
+          distance: embeddingSet.distance,
+          createdAt: embeddingSet.createdAt,
+          name: metadata.name ?? null,
+          description: metadata.description ?? null,
+          tags: metadata.tags ?? null,
+          category: metadata.category ?? null,
+          fileCount: 0,
+          chunkCount: 0,
+          embeddingCount: 0,
+        },
+      });
 
       toast({
         title: 'Success',
