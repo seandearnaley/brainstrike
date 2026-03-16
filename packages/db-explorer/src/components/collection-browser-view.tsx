@@ -378,17 +378,6 @@ export function CollectionBrowserView({
     setEmbeddingStatus('all');
   }, [setSearchQuery, setNodeTypes, setEmbeddingStatus]);
 
-  // Handle expand all
-  const handleExpandAll = useCallback(() => {
-    const allExpandableIds = new Set<string>();
-    for (const record of records) {
-      if ((record.chunksCount ?? 0) > 0) {
-        allExpandableIds.add(`file-${record.id}`);
-      }
-    }
-    setExpandedIds(Array.from(allExpandableIds));
-  }, [records, setExpandedIds]);
-
   // Handle collapse all
   const handleCollapseAll = useCallback(() => {
     setExpandedIds([]);
@@ -541,6 +530,16 @@ export function CollectionBrowserView({
     },
     [ensureFileChunksLoaded, expandedIdsSet, setExpandedIds]
   );
+
+  const handleExpandAll = useCallback(() => {
+    const allExpandableIds = new Set<string>();
+    for (const record of records) {
+      if ((record.chunksCount ?? 0) > 0) {
+        allExpandableIds.add(`file-${record.id}`);
+      }
+    }
+    handleExpandedIdsChange(allExpandableIds);
+  }, [handleExpandedIdsChange, records]);
 
   // Handle selection changes
   const handleSelectedIdChange = useCallback(

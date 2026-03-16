@@ -844,6 +844,7 @@ export function useDatabaseDemoData({
       };
       const recordParams = recordQueryParams ?? [
         activeCollectionId,
+        activeCollectionId,
         normalizedRecordPageSize,
         recordOffset,
       ];

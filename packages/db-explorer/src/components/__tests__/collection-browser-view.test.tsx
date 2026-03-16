@@ -141,11 +141,13 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     onMultiSelectToggle,
     groupBy,
     onGroupByChange,
+    onExpandAll,
   }: {
     multiSelectEnabled?: boolean;
     onMultiSelectToggle?: (enabled: boolean) => void;
     groupBy?: string;
     onGroupByChange?: (key: string) => void;
+    onExpandAll?: () => void;
   }) => (
     <div data-testid="search-mode-bar">
       {onMultiSelectToggle && (
@@ -164,6 +166,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
           type="button"
         >
           Group by status
+        </button>
+      )}
+      {onExpandAll && (
+        <button aria-label="Expand all" onClick={onExpandAll} type="button">
+          Expand all
         </button>
       )}
       {groupBy && groupBy !== 'none' && <span data-testid="active-group-by">{groupBy}</span>}
@@ -462,6 +469,48 @@ describe('CollectionBrowserView', () => {
       'file-1',
       'chunk-loaded-chunk-1',
     ]);
+  });
+
+  it('loads file chunk summaries when expanding all files from the toolbar', async () => {
+    const user = userEvent.setup();
+    const loadFileChunkSummaries = vi.fn().mockResolvedValue([
+      {
+        id: 'loaded-chunk-1',
+        fileRecordId: '1',
+        chunkIndex: 0,
+        tokenCount: 12,
+        hasEmbedding: true,
+        embeddingSetId: 'collection-1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={[]}
+        height={500}
+        loadFileChunkSummaries={loadFileChunkSummaries}
+        records={[
+          {
+            id: '1',
+            name: 'one.ts',
+            path: '/one.ts',
+            size: 100,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            chunksCount: 1,
+            embeddingSetId: 'collection-1',
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Expand all' }));
+
+    expect(loadFileChunkSummaries).toHaveBeenCalledWith('1');
+    expect(useCollectionBrowserStore.getState().expandedIds).toEqual(['file-1']);
   });
 
   it('updates groupBy via toolbar', async () => {

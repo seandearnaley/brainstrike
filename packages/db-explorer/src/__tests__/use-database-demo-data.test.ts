@@ -300,6 +300,44 @@ describe('useDatabaseDemoData', () => {
     expect(result.current.chunks.at(0)?.id).toBe('cached-chunk');
   });
 
+  it('uses the canonical four-parameter record query when fetching snapshots', async () => {
+    mockVectorStatusUIStore.schemaVerified = true;
+    mockVectorStatusUIStore.isEmbeddingActive = true;
+    setupLiveQueries();
+    const database = createMockDatabase({
+      recordRows: [],
+      totalRecordsRows: [{ totalRecords: 0 }],
+      collectionCountsRows: [{ recordsCount: 0, chunksCount: 0, embeddingsCount: 0 }],
+    });
+
+    renderHook(() =>
+      useDatabaseDemoData({
+        repository: createRepository(),
+        chunkRepository: createChunkRepository([]),
+        toast: vi.fn(),
+        database,
+        activeCollectionId: 'set-1',
+        isEmbeddingActive: true,
+      })
+    );
+
+    await waitFor(() => {
+      const queryMock = (database as unknown as { query: ReturnType<typeof vi.fn> }).query;
+      expect(
+        queryMock.mock.calls.some(
+          ([sql, params]) =>
+            typeof sql === 'string' &&
+            sql.includes('FROM file_records fr') &&
+            sql.includes('LIMIT $3') &&
+            Array.isArray(params) &&
+            params.length === 4 &&
+            params[0] === 'set-1' &&
+            params[1] === 'set-1'
+        )
+      ).toBe(true);
+    });
+  });
+
   it('streams records and loads chunk summaries on demand when repositories are provided', async () => {
     const now = new Date().toISOString();
     const repository = createRepository([], 5);
