@@ -77,6 +77,7 @@ function createFakeWindow(id: number): FakeWindow {
     webContents: {
       id,
       listeners: webContentsListeners,
+      setWindowOpenHandler: vi.fn(),
       on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
         if (event === 'render-process-gone') {
           webContentsListeners.renderProcessGone = listener as FakeListenerMap['renderProcessGone'];

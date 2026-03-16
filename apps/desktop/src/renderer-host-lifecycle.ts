@@ -359,6 +359,11 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   private attachWindow(window: BrowserWindow): void {
+    // Security: Prevent any new windows from being opened by background renderer hosts
+    window.webContents.setWindowOpenHandler(() => {
+      return { action: 'deny' };
+    });
+
     window.on('closed', () => {
       if (this.hostWindow?.id !== window.id) {
         return;
