@@ -3345,6 +3345,260 @@ test.describe('Embedding Host Renderer', () => {
     await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
   });
 
+  test('end-to-end: import, embed, then vector search returns correct results', async ({
+    window,
+  }) => {
+    test.setTimeout(300_000);
+
+    // ── 1. Setup: navigate to database demo, create a collection ─────────
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      throw new Error('Database initialization failed — cannot proceed with search E2E');
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+
+    const collectionName = `Search E2E ${Date.now()}`;
+    const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
+
+    // ── 2. Insert deterministic fixture data with known searchable content ─
+    const chunkedFixture = await createChunkedImportFixture(activeWindow, embeddingSetId);
+    expect(chunkedFixture.fileCount).toBe(2);
+    expect(chunkedFixture.totalChunks).toBeGreaterThan(0);
+
+    // ── 3. Configure WASM device and reload to pick up preferences ────────
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-search-e2e');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    // Select our collection
+    const collectionOption = activeWindow.locator(`#collection-option-${embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    // Verify chunks are visible before backfill
+    await waitForImportedChunks(activeWindow, embeddingSetId);
+    const countsBeforeBackfill = await getEmbeddingSetCounts(activeWindow, embeddingSetId);
+    expect(countsBeforeBackfill.embeddedChunks).toBe(0);
+
+    // ── 4. Backfill: generate embeddings for all chunks ───────────────────
+    const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
+    const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
+    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+    await backfillButton.click({ timeout: 5000 });
+
+    const outcome = await waitForBackfillQueueMovementOrFatalError(activeWindow, embeddingSetId);
+    if (outcome === 'error') {
+      const status = await getEmbeddingHostStatus(activeWindow);
+      throw new Error(
+        `Backfill failed during search E2E: ${status.lastError ?? 'unknown host error'}`
+      );
+    }
+
+    // Wait for ALL chunks to be embedded
+    await expect
+      .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
+        timeout: 120_000,
+      })
+      .toMatchObject({
+        fileCount: chunkedFixture.fileCount,
+        totalChunks: chunkedFixture.totalChunks,
+        embeddedChunks: chunkedFixture.totalChunks,
+      });
+
+    // ── 5. Verify at DB level: embeddings stored with correct dimensions ──
+    const dbDiagnostics = await activeWindow.evaluate(async (id) => {
+      const api = (
+        window as unknown as {
+          electronAPI?: {
+            db?: {
+              query?: (
+                sql: string,
+                params?: unknown[]
+              ) => Promise<{ rows: Record<string, unknown>[] }>;
+            };
+          };
+        }
+      ).electronAPI;
+      if (!api?.db?.query) {
+        throw new Error('Database API not available');
+      }
+
+      const result = await api.db.query(
+        `SELECT
+           id,
+           content,
+           embedding_set_id,
+           vector_dims(embedding) AS dims,
+           embedding IS NOT NULL AS has_embedding
+         FROM file_chunks
+         WHERE file_record_id IN (
+           SELECT id FROM file_records WHERE embedding_set_id = $1
+         )
+         ORDER BY chunk_index`,
+        [id]
+      );
+
+      const rows = result.rows as Array<{
+        content: string;
+        dims: number | null;
+        embedding_set_id: string | null;
+        has_embedding: boolean;
+        id: string;
+      }>;
+
+      return {
+        embeddedCount: rows.filter((r) => r.has_embedding).length,
+        dimensions: rows.map((r) => Number(r.dims ?? 0)).filter((d) => d > 0),
+        embeddingSetIds: rows.map((r) => r.embedding_set_id).filter((s): s is string => s !== null),
+        sampleContentPrefixes: rows.map((r) => (r.content ?? '').slice(0, 60)),
+      };
+    }, embeddingSetId);
+
+    expect(dbDiagnostics.embeddedCount).toBe(chunkedFixture.totalChunks);
+    expect(dbDiagnostics.dimensions.length).toBeGreaterThan(0);
+    // All dimensions should be the same (same model)
+    const uniqueDimensions = [...new Set(dbDiagnostics.dimensions)];
+    expect(uniqueDimensions).toHaveLength(1);
+    const embeddingDimension = uniqueDimensions[0]!;
+    expect(embeddingDimension).toBeGreaterThan(0);
+    // All chunks should have the correct embedding_set_id
+    expect(dbDiagnostics.embeddingSetIds).toContain(embeddingSetId);
+
+    // ── 6. Direct SQL vector search: verify pgvector similarity works ─────
+    // Use a chunk's own embedding as the query vector to guarantee a match.
+    const directSqlSearchResult = await activeWindow.evaluate(
+      async ({ embeddingSetId: id, dimension: dim }) => {
+        const api = (
+          window as unknown as {
+            electronAPI?: {
+              db?: {
+                query?: (
+                  sql: string,
+                  params?: unknown[]
+                ) => Promise<{ rows: Record<string, unknown>[] }>;
+              };
+            };
+          }
+        ).electronAPI;
+        if (!api?.db?.query) {
+          throw new Error('Database API not available');
+        }
+
+        // Get the first chunk's embedding to use as the query vector
+        const refResult = await api.db.query(
+          `SELECT embedding::text AS vec FROM file_chunks
+           WHERE embedding IS NOT NULL AND embedding_set_id = $1
+           LIMIT 1`,
+          [id]
+        );
+        const refRow = refResult.rows[0] as { vec?: string } | undefined;
+        const refVec = refRow?.vec;
+        if (!refVec) {
+          throw new Error('No embedded chunks found for direct SQL search');
+        }
+
+        // Run a cosine similarity search using the reference embedding
+        const searchResult = await api.db.query(
+          `SELECT
+             content,
+             (1 - (embedding <=> $1::vector)) AS similarity
+           FROM file_chunks
+           WHERE embedding IS NOT NULL
+             AND embedding_set_id = $2
+             AND vector_dims(embedding) = $3
+           ORDER BY embedding <=> $1::vector
+           LIMIT 5`,
+          [refVec, id, dim]
+        );
+
+        const rows = searchResult.rows as Array<{
+          content: string;
+          similarity: number;
+        }>;
+
+        return {
+          matchCount: rows.length,
+          topSimilarity: rows.length > 0 ? Number(rows[0]!.similarity) : 0,
+          topContent: rows.length > 0 ? String(rows[0]!.content ?? '').slice(0, 80) : '',
+        };
+      },
+      { embeddingSetId, dimension: embeddingDimension }
+    );
+
+    expect(directSqlSearchResult.matchCount).toBeGreaterThan(0);
+    // The top result should be the chunk itself (similarity ~1.0)
+    expect(directSqlSearchResult.topSimilarity).toBeGreaterThan(0.95);
+
+    // ── 7. UI semantic search: fill search box, click Query, verify results ─
+    const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
+    await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
+
+    // Search for known content from our fixture
+    const searchQuery = 'desktop chunking backfill';
+    await semanticSearchBox.fill(searchQuery);
+    await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
+
+    // Poll for search results
+    const searchStartedAt = Date.now();
+    let lastSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
+    while (Date.now() - searchStartedAt < 60_000) {
+      const snapshot = await getDatabaseDemoSemanticSearchSnapshot(activeWindow);
+      lastSnapshot = snapshot;
+
+      if (snapshot?.error) {
+        throw new Error(`Semantic search failed: ${snapshot.error}`);
+      }
+
+      if (
+        snapshot?.hasSearched &&
+        !snapshot.isSearching &&
+        snapshot.resultCount > 0 &&
+        snapshot.firstResultNodeId !== null
+      ) {
+        break;
+      }
+
+      await activeWindow.waitForTimeout(250);
+    }
+
+    if (
+      !(
+        lastSnapshot?.hasSearched &&
+        !lastSnapshot.isSearching &&
+        lastSnapshot.resultCount > 0 &&
+        lastSnapshot.firstResultNodeId !== null
+      )
+    ) {
+      // Gather diagnostic info for debugging
+      const rendererLogs = await getRendererLogRecords(activeWindow);
+      const alertTexts = await getVisibleAlertTexts(activeWindow);
+      const searchLogs = rendererLogs.filter(
+        (record) =>
+          recordContainsText(record, 'Search') ||
+          recordContainsText(record, 'search') ||
+          recordContainsText(record, 'embedder') ||
+          recordContainsText(record, 'Embedder')
+      );
+      throw new Error(
+        'Semantic search did not return results within 60s after successful backfill.\n' +
+          `query="${searchQuery}"\n` +
+          `snapshot=${JSON.stringify(lastSnapshot)}\n` +
+          `directSqlSearchWorked=${directSqlSearchResult.matchCount > 0}\n` +
+          `dbEmbeddedChunks=${dbDiagnostics.embeddedCount}\n` +
+          `dbDimension=${embeddingDimension}\n` +
+          `alerts=${JSON.stringify(alertTexts)}\n` +
+          `searchLogs=${JSON.stringify(searchLogs.slice(-10))}`
+      );
+    }
+
+    expect(lastSnapshot!.resultCount).toBeGreaterThan(0);
+    expect(lastSnapshot!.firstResultNodeId).not.toBeNull();
+  });
+
   test('does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
     electronApp,
     window,
