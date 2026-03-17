@@ -40,6 +40,7 @@ interface LiveQueryShape {
 }
 
 const liveQueryRefresh = {
+  activeSetQueueCounts: vi.fn(async () => {}),
   queueCounts: vi.fn(async () => {}),
   throughput: vi.fn(async () => {}),
   lastError: vi.fn(async () => {}),
@@ -48,9 +49,12 @@ const liveQueryRefresh = {
 };
 
 const liveQueryState: Record<
-  'queueCounts' | 'throughput' | 'lastError' | 'latency' | 'coverage',
+  'activeSetQueueCounts' | 'queueCounts' | 'throughput' | 'lastError' | 'latency' | 'coverage',
   LiveQueryShape
 > = {
+  activeSetQueueCounts: {
+    rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
+  },
   queueCounts: {
     rows: [{ queued: 0, running: 0, failed: 0, succeeded: 0 }],
   },
@@ -79,6 +83,14 @@ vi.mock('@brainstrike/db', async () => {
           return { rows: [], loading: false, error: null, refresh: vi.fn(async () => {}) };
         }
         const query = options.query;
+        if (query.includes("payload->>'embeddingSetId'")) {
+          return {
+            rows: liveQueryState.activeSetQueueCounts.rows,
+            loading: false,
+            error: null,
+            refresh: liveQueryRefresh.activeSetQueueCounts,
+          };
+        }
         if (query.includes("FILTER (WHERE state = 'queued'")) {
           return {
             rows: liveQueryState.queueCounts.rows,
@@ -222,6 +234,7 @@ function createDeferred(): {
 }
 
 function resetLiveQueryData(): void {
+  liveQueryState.activeSetQueueCounts.rows = [{ queued: 0, running: 0, failed: 0, succeeded: 0 }];
   liveQueryState.queueCounts.rows = [{ queued: 0, running: 0, failed: 0, succeeded: 0 }];
   liveQueryState.throughput.rows = [{ count: 0 }];
   liveQueryState.lastError.rows = [];
@@ -233,6 +246,7 @@ describe('useVectorQueueState', () => {
   afterEach(() => {
     vi.useRealTimers();
     resetLiveQueryData();
+    liveQueryRefresh.activeSetQueueCounts.mockReset();
     liveQueryRefresh.queueCounts.mockReset();
     liveQueryRefresh.throughput.mockReset();
     liveQueryRefresh.lastError.mockReset();
@@ -260,6 +274,7 @@ describe('useVectorQueueState', () => {
   });
 
   it('reads queue and coverage state from live queries', () => {
+    liveQueryState.activeSetQueueCounts.rows = [{ queued: 1, running: 2, failed: 0, succeeded: 3 }];
     liveQueryState.queueCounts.rows = [{ queued: 3, running: 1, failed: 2, succeeded: 9 }];
     liveQueryState.throughput.rows = [{ count: 14 }];
     liveQueryState.lastError.rows = [{ error: 'embedding failed' }];
@@ -284,6 +299,12 @@ describe('useVectorQueueState', () => {
       running: 1,
       failed: 2,
       succeeded: 9,
+    });
+    expect(result.current.activeSetQueueCounts).toEqual({
+      queued: 1,
+      running: 2,
+      failed: 0,
+      succeeded: 3,
     });
     expect(result.current.throughput).toBe(14);
     expect(result.current.lastError).toBe('embedding failed');
@@ -377,6 +398,8 @@ describe('useVectorQueueState', () => {
 
     expect(secondRender.result.current.backfilling).toBe(true);
     expect(secondRender.result.current.backfillProgress).toEqual({ done: 3, total: 10 });
+    expect(secondRender.result.current.activeSetBackfilling).toBe(true);
+    expect(secondRender.result.current.activeSetBackfillProgress).toEqual({ done: 3, total: 10 });
   });
 
   it('keeps backfill progress visible even when the active collection changes mid-backfill', () => {
@@ -397,6 +420,8 @@ describe('useVectorQueueState', () => {
 
     expect(result.current.backfilling).toBe(true);
     expect(result.current.backfillProgress).toEqual({ done: 7, total: 10 });
+    expect(result.current.activeSetBackfilling).toBe(false);
+    expect(result.current.activeSetBackfillProgress).toBeNull();
   });
 
   it('clears transient backfill state when controller backfill fails', async () => {
@@ -513,6 +538,7 @@ describe('useVectorQueueState', () => {
     await waitFor(() => {
       expect(liveQueryRefresh.queueCounts).toHaveBeenCalledTimes(1);
     });
+    expect(liveQueryRefresh.activeSetQueueCounts).toHaveBeenCalledTimes(1);
     expect(liveQueryRefresh.throughput).toHaveBeenCalledTimes(1);
     expect(liveQueryRefresh.lastError).toHaveBeenCalledTimes(1);
     expect(liveQueryRefresh.latency).toHaveBeenCalledTimes(1);
@@ -538,6 +564,7 @@ describe('useVectorQueueState', () => {
     });
 
     expect(liveQueryRefresh.queueCounts).not.toHaveBeenCalled();
+    expect(liveQueryRefresh.activeSetQueueCounts).not.toHaveBeenCalled();
     expect(liveQueryRefresh.coverage).not.toHaveBeenCalled();
   });
 

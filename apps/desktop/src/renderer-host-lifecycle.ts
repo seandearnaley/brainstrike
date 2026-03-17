@@ -12,6 +12,8 @@ import {
 } from './window-role';
 
 const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
+const HOST_LOAD_RETRY_ATTEMPTS = 3;
+const HOST_LOAD_RETRY_DELAY_MS = 300;
 const logger = createLogger('RendererHostLifecycle');
 const RENDERER_HOST_LIFECYCLE_DISPOSED_CODE = 'RENDERER_HOST_LIFECYCLE_DISPOSED';
 
@@ -317,13 +319,11 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     this.status = this.options.createStoppedStatus();
   }
 
-  private async createWindow(runtimeId: string): Promise<BrowserWindow> {
+  private buildWindow(): BrowserWindow {
     const isTestMode = process.argv.includes('--test-mode') && !app.isPackaged;
-    // Hidden host renderers only drop sandboxing under the explicit E2E-only --test-mode flag.
-    // Packaged production builds do not pass that flag, so the runtime stays sandboxed there.
     const enableSandbox = !isTestMode;
     const preloadPath = path.join(resolveDistRoot(), 'preload.js');
-    const window = new BrowserWindow({
+    return new BrowserWindow({
       width: 320,
       height: 240,
       show: false,
@@ -342,20 +342,52 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         backgroundThrottling: false,
       },
     });
+  }
 
-    assignWindowRole(window, this.options.role);
-
+  private async loadWindow(window: BrowserWindow, runtimeId: string): Promise<void> {
+    const isTestMode = process.argv.includes('--test-mode') && !app.isPackaged;
     if (app.isPackaged || isTestMode) {
       await window.loadFile(path.join(resolveDistRoot(), 'renderer/index.html'), {
         query: { mode: this.options.mode, runtimeId },
       });
-      return window;
+      return;
     }
-
     await window.loadURL(
       `${DESKTOP_DEV_RENDERER_URL}?mode=${encodeURIComponent(this.options.mode)}&runtimeId=${encodeURIComponent(runtimeId)}`
     );
-    return window;
+  }
+
+  private async createWindow(runtimeId: string): Promise<BrowserWindow> {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < HOST_LOAD_RETRY_ATTEMPTS; attempt++) {
+      if (this.disposed) {
+        throw new Error(`${this.options.role} lifecycle was disposed during load retry.`);
+      }
+      const window = this.buildWindow();
+      assignWindowRole(window, this.options.role);
+      try {
+        await this.loadWindow(window, runtimeId);
+        return window;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        logger.warn(
+          `${this.options.role} loadFile failed (attempt ${attempt + 1}/${HOST_LOAD_RETRY_ATTEMPTS})`,
+          {
+            attempt: attempt + 1,
+            errorMessage: lastError.message,
+          }
+        );
+        clearWindowRoleByWebContentsId(window.webContents.id);
+        window.destroy();
+        if (attempt < HOST_LOAD_RETRY_ATTEMPTS - 1) {
+          await new Promise<void>((resolve) => setTimeout(resolve, HOST_LOAD_RETRY_DELAY_MS));
+        }
+      }
+    }
+    throw new Error(
+      `${this.options.role} failed to load after ${HOST_LOAD_RETRY_ATTEMPTS} attempts`,
+      { cause: lastError }
+    );
   }
 
   private attachWindow(window: BrowserWindow): void {

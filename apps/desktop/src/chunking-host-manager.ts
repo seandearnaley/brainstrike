@@ -19,6 +19,20 @@ import { RendererHostLifecycle } from './renderer-host-lifecycle';
 
 const logger = createLogger('ChunkingHostManager');
 const CHUNKING_HOST_REQUEST_TIMEOUT_MS = 30_000;
+const CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
+
+function waitForWindowDestroyed(window: BrowserWindow, timeoutMs: number): Promise<void> {
+  if (window.isDestroyed()) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    window.once('closed', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
 
 type PendingChunkingRequest =
   | {
@@ -119,7 +133,9 @@ export class ChunkingHostManager {
 
     const window = this.lifecycle.getHostWindow();
     if (window && !window.isDestroyed()) {
+      const windowRef = window;
       this.lifecycle.destroyHostWindow();
+      await waitForWindowDestroyed(windowRef, CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS);
     }
 
     this.lifecycle.clearHostWindow();

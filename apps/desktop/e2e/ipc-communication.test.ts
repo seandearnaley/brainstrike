@@ -1,8 +1,9 @@
 import { expect, test } from './fixtures/electron-fixture';
-import { mockFileSystemOperations } from './utils/electron-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('IPC Communication', { tag: '@smoke' }, () => {
   test.beforeEach(async ({ window }) => {
+    const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(window);
   });
 

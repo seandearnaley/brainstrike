@@ -39,6 +39,9 @@ export interface TelemetryTrendPoint {
 export type ApiKeyValidationResult = { valid: true } | { valid: false; message: string };
 
 export interface UseVectorQueueStateResult {
+  activeSetBackfilling: boolean;
+  activeSetBackfillProgress: BackfillProgress;
+  activeSetQueueCounts: QueueCounts;
   backfillActiveSet: () => Promise<void>;
   backfilling: boolean;
   backfillProgress: BackfillProgress;
@@ -71,6 +74,18 @@ const QUEUE_COUNTS_QUERY = `
     COUNT(*) FILTER (WHERE state = 'succeeded')::int AS "succeeded"
   FROM job_queue
   WHERE queue = $1
+`.trim();
+
+const ACTIVE_SET_QUEUE_COUNTS_QUERY = `
+  SELECT
+    COUNT(*) FILTER (WHERE state = 'queued')::int    AS "queued",
+    COUNT(*) FILTER (WHERE state = 'running')::int   AS "running",
+    COUNT(*) FILTER (WHERE state = 'failed')::int    AS "failed",
+    COUNT(*) FILTER (WHERE state = 'succeeded')::int AS "succeeded"
+  FROM job_queue
+  WHERE queue = $1
+    AND job_type = 'embed_chunk'
+    AND payload->>'embeddingSetId' = $2
 `.trim();
 
 const ISO_UTC_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"' as const;
@@ -222,6 +237,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, []);
   const isBackfillActive = activeBackfill !== null;
   const backfillProgress = activeBackfill?.progress ?? null;
+  const isActiveSetBackfill =
+    activeBackfill !== null && activeBackfill.embeddingSetId === activeEmbeddingSetId;
+  const activeSetBackfillProgress = isActiveSetBackfill ? (activeBackfill?.progress ?? null) : null;
 
   // Pause live queries during import, active embedding, and local backfill submission.
   // These queries invalidate on every job_queue mutation and can cause visible renderer
@@ -264,6 +282,31 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
     return DEFAULT_QUEUE_COUNTS;
   }, [durableQueueStats, queueCountsResult.rows]);
+
+  const activeSetQueueCountsParams = useMemo<readonly [string, string] | undefined>(
+    () => (activeEmbeddingSetId ? ([EMBEDDINGS_QUEUE, activeEmbeddingSetId] as const) : undefined),
+    [activeEmbeddingSetId]
+  );
+
+  const activeSetQueueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
+    cacheKey: makeLiveQueryKey('active-set-queue-counts', activeEmbeddingSetId),
+    query: ACTIVE_SET_QUEUE_COUNTS_QUERY,
+    ...(activeSetQueueCountsParams ? { params: activeSetQueueCountsParams } : {}),
+    enabled: liveQueryEnabled && Boolean(activeEmbeddingSetId),
+  });
+
+  const activeSetQueueCounts = useMemo<QueueCounts>(() => {
+    const row = activeSetQueueCountsResult.rows[0];
+    if (!row) {
+      return DEFAULT_QUEUE_COUNTS;
+    }
+    return {
+      queued: Number(row.queued ?? 0),
+      running: Number(row.running ?? 0),
+      failed: Number(row.failed ?? 0),
+      succeeded: Number(row.succeeded ?? 0),
+    };
+  }, [activeSetQueueCountsResult.rows]);
 
   const throughputResult = usePGliteLiveQuery<ThroughputRow>({
     cacheKey: makeLiveQueryKey('throughput', EMBEDDINGS_QUEUE),
@@ -348,6 +391,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
     await Promise.all([
       queueCountsResult.refresh(),
+      activeSetQueueCountsResult.refresh(),
       throughputResult.refresh(),
       lastErrorResult.refresh(),
       latencyRowsResult.refresh(),
@@ -356,6 +400,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [
     activeEmbeddingSetId,
     coverageResult,
+    activeSetQueueCountsResult,
     lastErrorResult,
     latencyRowsResult,
     queueCountsResult,
@@ -565,6 +610,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   return useMemo(
     () => ({
       coverage,
+      activeSetBackfilling: isActiveSetBackfill,
+      activeSetBackfillProgress,
+      activeSetQueueCounts,
       queueCounts,
       throughput,
       latencyStats,
@@ -581,6 +629,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }),
     [
       coverage,
+      isActiveSetBackfill,
+      activeSetBackfillProgress,
+      activeSetQueueCounts,
       queueCounts,
       throughput,
       latencyStats,

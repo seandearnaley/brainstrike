@@ -23,8 +23,10 @@ describe('CollectionBrowser', () => {
     expect(screen.getByTestId('collection-tree-region')).toHaveClass('min-w-0');
   });
 
-  it('renders loading state', () => {
+  it('renders loading overlay without unmounting the tree region', () => {
     render(<CollectionBrowser data={{ files: [], chunks: [] }} isLoading={true} />);
+    expect(screen.getByTestId('collection-tree-region')).toBeInTheDocument();
+    expect(screen.getByTestId('collection-tree-region')).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 

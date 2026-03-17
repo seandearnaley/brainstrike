@@ -1,8 +1,8 @@
 import type { Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
-import { reloadRenderer, waitForAppReady } from './utils/electron-helpers';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 interface BufferedLogRecord {
   args: readonly unknown[];
@@ -44,6 +44,23 @@ interface ElectronE2eFileSystemFixture {
     platform: 'electron';
     type: 'directory';
   };
+}
+
+async function getBufferedElectronOutputInTest(
+  app: ElectronApplication
+): Promise<{ stderr: string[]; stdout: string[] }> {
+  const { getBufferedElectronOutput } = await loadElectronHelpers();
+  return await getBufferedElectronOutput(app);
+}
+
+async function reloadRendererInTest(page: Page, reason: string): Promise<void> {
+  const { reloadRenderer } = await loadElectronHelpers();
+  await reloadRenderer(page, reason);
+}
+
+async function waitForAppReadyInTest(page: Page): Promise<void> {
+  const { waitForAppReady } = await loadElectronHelpers();
+  await waitForAppReady(page);
 }
 
 interface ElectronE2eFileSystemFixtureSummary {
@@ -162,6 +179,16 @@ interface BackfillCorpusFixture {
   totalChunks: number;
 }
 
+interface RealWorldMixedStateScenario {
+  activeWindow: Page;
+  backgroundFixture: BackfillCorpusFixture;
+  importEmbeddingSetId: string;
+  importImportedPathCounts: ImportedPathCounts;
+  initialTimeOrigin: number;
+  sawChunkingHostActive: boolean;
+  searchableEmbeddingSetId: string;
+}
+
 interface LargeCollectionListFixture {
   embeddingSetId: string;
   fileCount: number;
@@ -197,6 +224,9 @@ const LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 180;
 const ACTUAL_IMPORT_STRESS_FILE_COUNT = 1000;
 const ACTUAL_IMPORT_SENTENCES_PER_FILE = 24;
 const ACTUAL_IMPORT_VISIBLE_WORKING_SET_LIMIT_MB = 1400;
+const REAL_WORLD_MIXED_STATE_FILE_COUNT = 1002;
+const REAL_WORLD_BACKGROUND_FILE_COUNT = 256;
+const REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE = 12;
 
 test.describe('Embedding Host Renderer', () => {
   test.describe.configure({ mode: 'serial' });
@@ -2139,10 +2169,274 @@ test.describe('Embedding Host Renderer', () => {
     throw new Error('Timed out waiting for bridge-driven backfill completion');
   }
 
+  async function getRelevantElectronStderr(app: ElectronApplication): Promise<string[]> {
+    const output = await getBufferedElectronOutputInTest(app);
+    return output.stderr.filter((line) => {
+      return (
+        line.includes('Embedding host stopped while backfill was in progress.') ||
+        line.includes('Embedding backfill is already running for set') ||
+        line.includes('Chunking host stopped while requests were in flight.') ||
+        line.includes("Error occurred in handler for 'embedding-host:enqueue-backfill'") ||
+        line.includes("Error occurred in handler for 'chunking-host:chunk-file'")
+      );
+    });
+  }
+
+  async function getRelevantElectronStderrSince(
+    app: ElectronApplication,
+    baselineCount: number
+  ): Promise<string[]> {
+    const lines = await getRelevantElectronStderr(app);
+    return lines.slice(baselineCount);
+  }
+
+  async function prepareRealWorldMixedStateScenario(
+    electronApp: ElectronApplication,
+    window: Page
+  ): Promise<RealWorldMixedStateScenario> {
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      throw new Error('Database initialization failed in desktop mixed-state setup');
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await stopEmbeddingHost(activeWindow);
+    await stopChunkingHost(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await setImportSettingsForStressTest(activeWindow);
+    await reloadRendererInTest(activeWindow, 'embedding-worker-real-world-mixed-state');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    await expect
+      .poll(async () => await getEmbeddingHostStatus(activeWindow), {
+        timeout: 15_000,
+      })
+      .toMatchObject({ state: 'stopped' });
+    await expect
+      .poll(async () => await getChunkingHostStatus(activeWindow), {
+        timeout: 15_000,
+      })
+      .toMatchObject({ state: 'stopped' });
+
+    await ensureLeftPanelVisible(activeWindow);
+    await installLargeImportFileSystemMock(electronApp, {
+      fileCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
+      rootPath: '/mock/real-world-import',
+      sentencesPerFile: ACTUAL_IMPORT_SENTENCES_PER_FILE,
+    });
+
+    const searchableCollectionName = `Searchable Mixed State ${Date.now()}`;
+    await createCollectionViaDialog(activeWindow, searchableCollectionName);
+    const searchableEmbeddingSetId = await resolveCollectionIdByName(
+      activeWindow,
+      searchableCollectionName
+    );
+    const searchableFixture = await createChunkedImportFixture(
+      activeWindow,
+      searchableEmbeddingSetId
+    );
+
+    const searchableCollectionOption = activeWindow.locator(
+      `#collection-option-${searchableEmbeddingSetId}`
+    );
+    await expect(searchableCollectionOption).toBeVisible({ timeout: 15_000 });
+    await searchableCollectionOption.click({ timeout: 5000 });
+    await waitForImportedChunks(activeWindow, searchableEmbeddingSetId);
+
+    const searchableBackfillButton = activeWindow
+      .locator('[data-testid="database-demo-panel"]')
+      .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+    await expect(searchableBackfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, searchableBackfillButton);
+    await searchableBackfillButton.click({ timeout: 5000 });
+
+    const searchableBackfillOutcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      searchableEmbeddingSetId
+    );
+    if (searchableBackfillOutcome === 'error') {
+      const status = await getEmbeddingHostStatus(activeWindow);
+      throw new Error(
+        `Searchable mixed-state setup failed during seed backfill: ${status.lastError ?? 'unknown host error'}`
+      );
+    }
+
+    await waitForEmbeddedCollectionSummary(activeWindow, searchableCollectionName);
+    await expect
+      .poll(async () => await getEmbeddingSetCounts(activeWindow, searchableEmbeddingSetId), {
+        timeout: 120_000,
+      })
+      .toMatchObject({
+        fileCount: searchableFixture.fileCount,
+        totalChunks: searchableFixture.totalChunks,
+        embeddedChunks: searchableFixture.totalChunks,
+      });
+
+    const importCollectionName = `Mixed State Import ${Date.now()}`;
+    await createCollectionViaDialog(activeWindow, importCollectionName);
+    const importEmbeddingSetId = await resolveCollectionIdByName(
+      activeWindow,
+      importCollectionName
+    );
+
+    const initialTimeOrigin = await getRendererTimeOrigin(activeWindow);
+    const selectRootButton = activeWindow.getByTestId('select-root-button');
+    await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
+    await selectRootButton.click({ timeout: 5000 });
+    await setFileExplorerMaxSelectionCount(activeWindow, REAL_WORLD_MIXED_STATE_FILE_COUNT);
+
+    await expect
+      .poll(async () => await getMainProcessFileSystemFixtureSummary(electronApp), {
+        timeout: 30_000,
+      })
+      .toMatchObject({
+        fileCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
+        requestDirectoryAccessCount: 1,
+        rootHandlePath: '/mock/real-world-import',
+      });
+    await expect(activeWindow.getByText('mock-stress-directory')).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const selectAllButton = activeWindow.getByRole('button', { name: /^Select All$/i }).first();
+    await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
+    await selectAllButton.click({ timeout: 5000 });
+
+    await expect(activeWindow.getByTestId('selection-count')).toHaveText(
+      String(REAL_WORLD_MIXED_STATE_FILE_COUNT),
+      {
+        timeout: 60_000,
+      }
+    );
+
+    const importButton = activeWindow.getByRole('button', { name: /^Import\s*\(/ });
+    await expect(importButton).toContainText(`(${REAL_WORLD_MIXED_STATE_FILE_COUNT})`, {
+      timeout: 30_000,
+    });
+    await importButton.click({ timeout: 5000 });
+
+    let sawChunkingHostActive = false;
+    let importImportedPathCounts: ImportedPathCounts | null = null;
+    const importStartedAt = Date.now();
+    while (Date.now() - importStartedAt < 240_000) {
+      const [pathCounts, timeOrigin, chunkingStatus, importSnapshot, rendererLogs] =
+        await Promise.all([
+          getImportedPathCounts(activeWindow, '/mock/real-world-import'),
+          getRendererTimeOrigin(activeWindow),
+          getChunkingHostStatus(activeWindow),
+          getDatabaseDemoImportSnapshot(activeWindow),
+          getRendererLogRecords(activeWindow),
+        ]);
+
+      expect(timeOrigin).toBe(initialTimeOrigin);
+
+      if (chunkingStatus.state !== 'stopped') {
+        sawChunkingHostActive = true;
+      }
+
+      const catastrophicImportLog = rendererLogs.find((record) =>
+        recordContainsText(record, 'Enhanced import failed catastrophically')
+      );
+      const importErrors = importSnapshot?.progress?.errors ?? [];
+
+      if (importErrors.length > 0) {
+        throw new Error(
+          `Mixed-state import reported progress errors: ${JSON.stringify(importErrors.slice(0, 10))}\nimportSnapshot=${JSON.stringify(importSnapshot)}`
+        );
+      }
+
+      if (catastrophicImportLog) {
+        const errorMessage =
+          extractStructuredLogString(catastrophicImportLog, 'error') ??
+          catastrophicImportLog.message ??
+          'unknown enhanced import failure';
+        const errorStack = extractStructuredLogString(catastrophicImportLog, 'stack');
+        throw new Error(
+          `Mixed-state import failed during chunking/token sizing: ${errorMessage}${errorStack ? `\n${errorStack}` : ''}`
+        );
+      }
+
+      if (
+        pathCounts.fileCount === REAL_WORLD_MIXED_STATE_FILE_COUNT &&
+        pathCounts.totalChunks > 0
+      ) {
+        importImportedPathCounts = pathCounts;
+        break;
+      }
+
+      await activeWindow.waitForTimeout(1000);
+    }
+
+    if (!importImportedPathCounts) {
+      const [fixtureSummary, fileExplorerSnapshot, importSnapshot] = await Promise.all([
+        getMainProcessFileSystemFixtureSummary(electronApp),
+        getFileExplorerTestSnapshot(activeWindow),
+        getDatabaseDemoImportSnapshot(activeWindow),
+      ]);
+      throw new Error(
+        `Timed out waiting for mixed-state import to persist files and chunks\nfixture=${JSON.stringify(fixtureSummary)}\nfileExplorer=${JSON.stringify(fileExplorerSnapshot)}\nimportSnapshot=${JSON.stringify(importSnapshot)}`
+      );
+    }
+
+    expect(sawChunkingHostActive).toBe(true);
+    expect(importImportedPathCounts.fileCount).toBe(REAL_WORLD_MIXED_STATE_FILE_COUNT);
+    expect(importImportedPathCounts.totalChunks).toBeGreaterThan(0);
+
+    await expect
+      .poll(async () => await getEmbeddingSetCounts(activeWindow, importEmbeddingSetId), {
+        timeout: 30_000,
+      })
+      .toMatchObject({
+        fileCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
+        totalChunks: expect.any(Number),
+        embeddedChunks: 0,
+      });
+
+    const backgroundFixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: REAL_WORLD_BACKGROUND_FILE_COUNT,
+      chunksPerFile: REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE,
+      persistActiveSet: false,
+    });
+
+    await startBackfillViaBridge(activeWindow, backgroundFixture.embeddingSetId);
+
+    const backgroundOutcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+    expect(backgroundOutcome).toBe('running');
+
+    await expect
+      .poll(
+        async () => {
+          const stats = await getEmbeddingQueueStats(activeWindow);
+          return stats.queued + stats.running;
+        },
+        { timeout: 30_000 }
+      )
+      .toBeGreaterThan(0);
+
+    const fileExplorerSnapshotBeforeChecks = await getFileExplorerTestSnapshot(activeWindow);
+    expect(fileExplorerSnapshotBeforeChecks).toMatchObject({
+      currentFolderId: '/mock/real-world-import',
+      rootDirectoryPath: '/mock/real-world-import',
+      selectedFilePathCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
+    });
+
+    return {
+      activeWindow,
+      backgroundFixture,
+      importEmbeddingSetId,
+      importImportedPathCounts,
+      initialTimeOrigin,
+      sawChunkingHostActive,
+      searchableEmbeddingSetId,
+    };
+  }
+
   test.beforeAll(async ({ electron }) => {
-    test.setTimeout(150_000);
+    test.setTimeout(300_000);
     const { window: appWindow } = await electron.ensureContext();
-    await waitForAppReady(appWindow);
+    await waitForAppReadyInTest(appWindow);
 
     const dbStatus = await appWindow.evaluate(async () => {
       const api = (
@@ -2186,7 +2480,7 @@ test.describe('Embedding Host Renderer', () => {
   test('defers hidden embedding host startup until first use', async ({ electron }) => {
     const context = await electron.restart();
     const window = context.window;
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
 
     if (await isDatabaseError(window)) {
       await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
@@ -2314,7 +2608,7 @@ test.describe('Embedding Host Renderer', () => {
 
     await clearEmbeddingQueue(activeWindow);
     const fixture = await createLargeBackfillFixture(activeWindow, 160);
-    await reloadRenderer(activeWindow, 'embedding-worker-large-backfill-fixture');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-large-backfill-fixture');
     await showDatabaseDemoPanel(activeWindow);
 
     const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
@@ -2360,7 +2654,7 @@ test.describe('Embedding Host Renderer', () => {
 
     await clearEmbeddingQueue(activeWindow);
     const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
-    await reloadRenderer(activeWindow, 'embedding-worker-host-processing-fixture');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-host-processing-fixture');
     await showDatabaseDemoPanel(activeWindow);
 
     const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
@@ -2426,7 +2720,7 @@ test.describe('Embedding Host Renderer', () => {
 
     await clearEmbeddingQueue(activeWindow);
     const fixture = await createLargeBackfillFixture(activeWindow, 96, { persistActiveSet: false });
-    await reloadRenderer(activeWindow, 'embedding-worker-visible-memory-diagnostic');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-visible-memory-diagnostic');
     await showDatabaseDemoPanel(activeWindow);
 
     const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
@@ -2491,7 +2785,7 @@ test.describe('Embedding Host Renderer', () => {
 
     await clearEmbeddingQueue(activeWindow);
     await setVectorDevicePreference(activeWindow, 'wasm');
-    await reloadRenderer(activeWindow, 'embedding-worker-20k-backfill-memory-pressure');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-20k-backfill-memory-pressure');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 
     const warmedHostPage = await ensureEmbeddingHostWarmed(activeWindow);
@@ -2507,7 +2801,7 @@ test.describe('Embedding Host Renderer', () => {
       chunksPerFile: LARGE_BACKFILL_CHUNKS_PER_FILE,
       persistActiveSet: false,
     });
-    await reloadRenderer(activeWindow, 'embedding-worker-20k-backfill-memory-diagnostic');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-20k-backfill-memory-diagnostic');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 
     const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
@@ -2610,7 +2904,7 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     await setVectorDevicePreference(activeWindow, 'wasm');
-    await reloadRenderer(activeWindow, 'database-visible-render-large-collection-pref');
+    await reloadRendererInTest(activeWindow, 'database-visible-render-large-collection-pref');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 
     const hostPage = await ensureEmbeddingHostWarmed(activeWindow);
@@ -2625,7 +2919,7 @@ test.describe('Embedding Host Renderer', () => {
       persistActiveSet: false,
     });
 
-    await reloadRenderer(activeWindow, 'database-visible-render-large-collection');
+    await reloadRendererInTest(activeWindow, 'database-visible-render-large-collection');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
     const reloadedHostPage = await getEmbeddingHostPage(activeWindow);
     await forceRendererGarbageCollection(activeWindow);
@@ -2695,7 +2989,7 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     await setVectorDevicePreference(activeWindow, 'wasm');
-    await reloadRenderer(activeWindow, 'database-visible-render-large-file-list-pref');
+    await reloadRendererInTest(activeWindow, 'database-visible-render-large-file-list-pref');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 
     const hostPage = await ensureEmbeddingHostWarmed(activeWindow);
@@ -2708,7 +3002,7 @@ test.describe('Embedding Host Renderer', () => {
       persistActiveSet: false,
     });
 
-    await reloadRenderer(activeWindow, 'database-visible-render-large-file-list');
+    await reloadRendererInTest(activeWindow, 'database-visible-render-large-file-list');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
     const reloadedHostPage = await getEmbeddingHostPage(activeWindow);
     await forceRendererGarbageCollection(activeWindow);
@@ -2824,7 +3118,7 @@ test.describe('Embedding Host Renderer', () => {
       persistActiveSet: false,
     });
 
-    await reloadRenderer(activeWindow, 'database-backfill-progress-tab-switch');
+    await reloadRendererInTest(activeWindow, 'database-backfill-progress-tab-switch');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 
     const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
@@ -2892,7 +3186,7 @@ test.describe('Embedding Host Renderer', () => {
 
     await clearEmbeddingQueue(activeWindow);
     await setVectorDevicePreference(activeWindow, 'wasm');
-    await reloadRenderer(activeWindow, 'embedding-worker-repeat-backfill-cycles');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-repeat-backfill-cycles');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
     await resetEmbeddingHost(activeWindow);
     await waitForEmbeddingHostState(
@@ -2994,7 +3288,7 @@ test.describe('Embedding Host Renderer', () => {
     const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
     const chunkedFixture = await createChunkedImportFixture(activeWindow, embeddingSetId);
     await setVectorDevicePreference(activeWindow, 'wasm');
-    await reloadRenderer(activeWindow, 'embedding-worker-import-backfill-flow');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-import-backfill-flow');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
 
     const collectionOption = activeWindow.locator(`#collection-option-${embeddingSetId}`);
@@ -3069,7 +3363,7 @@ test.describe('Embedding Host Renderer', () => {
     await stopChunkingHost(activeWindow);
     await setVectorDevicePreference(activeWindow, 'wasm');
     await setImportSettingsForStressTest(activeWindow);
-    await reloadRenderer(activeWindow, 'embedding-worker-real-import-stress');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-real-import-stress');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
     await expect
       .poll(async () => await getEmbeddingHostStatus(activeWindow), {
@@ -3410,6 +3704,580 @@ test.describe('Embedding Host Renderer', () => {
     }
   });
 
+  test('keeps search working and backfill actionable during a real mixed-state desktop session', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(540_000);
+    const electronStderrBaselineCount = (await getRelevantElectronStderr(electronApp.app)).length;
+    const scenario = await prepareRealWorldMixedStateScenario(electronApp.app, window);
+    const { importEmbeddingSetId, searchableEmbeddingSetId } = scenario;
+    const activeWindow = scenario.activeWindow;
+    // Clicks in this stress test use 30s timeouts because the collection browser's loading
+    // overlay (z-20, aria-busy) stays visible for 15–30s while refetching data after heavy
+    // import/backfill/search operations. This is a known collection browser perf issue.
+    try {
+      const searchableCollectionOption = activeWindow.locator(
+        `#collection-option-${searchableEmbeddingSetId}`
+      );
+      await expect(searchableCollectionOption).toBeVisible({ timeout: 15_000 });
+      await searchableCollectionOption.click({ timeout: 30_000 });
+      await expect(searchableCollectionOption).toHaveAttribute('aria-selected', 'true');
+
+      const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
+      const queryButton = activeWindow.getByRole('button', { name: /^Query$/ });
+      await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
+      await semanticSearchBox.fill('desktop import backfill regression');
+      await queryButton.click({ timeout: 30_000 });
+
+      const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
+      const emptySemanticSearchMessage = collectionTreeRegion.getByText(
+        'No matching results found. Try adjusting your query or threshold.'
+      );
+      const searchingOverlay = collectionTreeRegion.getByText('Searching...');
+      const mixedStateFailures: string[] = [];
+
+      const semanticSearchStartedAt = Date.now();
+      let searchWorked = false;
+      let lastSemanticSearchSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
+      while (Date.now() - semanticSearchStartedAt < 60_000) {
+        const [
+          semanticSearchSnapshot,
+          rendererLogs,
+          emptyStateCount,
+          searchingCount,
+          embeddingHostStatus,
+          queueStats,
+        ] = await Promise.all([
+          getDatabaseDemoSemanticSearchSnapshot(activeWindow),
+          getRendererLogRecords(activeWindow),
+          emptySemanticSearchMessage.count(),
+          searchingOverlay.count(),
+          getEmbeddingHostStatus(activeWindow),
+          getEmbeddingQueueStats(activeWindow),
+        ]);
+
+        lastSemanticSearchSnapshot = semanticSearchSnapshot;
+
+        const queueFailureLog = rendererLogs.find((record) =>
+          recordContainsText(record, 'Embedding worker queue failed')
+        );
+        const searchFailureLog = rendererLogs.find((record) =>
+          recordContainsText(record, 'Search failed')
+        );
+
+        if (queueFailureLog || searchFailureLog) {
+          const failureLog = queueFailureLog ?? searchFailureLog;
+          const errorMessage =
+            (failureLog ? extractStructuredLogString(failureLog, 'error') : null) ??
+            failureLog?.message ??
+            'unknown semantic search failure';
+          const errorStack = failureLog ? extractStructuredLogString(failureLog, 'stack') : null;
+          throw new Error(
+            `Mixed-state semantic search failed: ${errorMessage}${errorStack ? `\n${errorStack}` : ''}`
+          );
+        }
+
+        if (
+          queueStats.queued + queueStats.running > 0 &&
+          (embeddingHostStatus.state === 'error' || embeddingHostStatus.state === 'stopped')
+        ) {
+          mixedStateFailures.push(
+            `embedding host stopped during active mixed-state backfill: hostStatus=${JSON.stringify(embeddingHostStatus)} queueStats=${JSON.stringify(queueStats)}`
+          );
+          break;
+        }
+
+        if (
+          semanticSearchSnapshot?.hasSearched &&
+          !semanticSearchSnapshot.isSearching &&
+          !semanticSearchSnapshot.error &&
+          semanticSearchSnapshot.resultCount > 0 &&
+          semanticSearchSnapshot.firstResultNodeId !== null &&
+          searchingCount === 0 &&
+          emptyStateCount === 0
+        ) {
+          searchWorked = true;
+          break;
+        }
+
+        await activeWindow.waitForTimeout(250);
+      }
+
+      const expandAllButton = activeWindow
+        .locator('[data-testid="database-demo-panel"]')
+        .getByRole('button', { name: 'Expand all' });
+      await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
+      await expandAllButton.click({ timeout: 30_000 });
+
+      const [embeddingHostStatusAfterExpand, queueStatsAfterExpand] = await Promise.all([
+        getEmbeddingHostStatus(activeWindow),
+        getEmbeddingQueueStats(activeWindow),
+      ]);
+
+      if (
+        queueStatsAfterExpand.queued + queueStatsAfterExpand.running > 0 &&
+        (embeddingHostStatusAfterExpand.state === 'error' ||
+          embeddingHostStatusAfterExpand.state === 'stopped')
+      ) {
+        mixedStateFailures.push(
+          `embedding host stopped during active mixed-state backfill after expand-all: hostStatus=${JSON.stringify(embeddingHostStatusAfterExpand)} queueStats=${JSON.stringify(queueStatsAfterExpand)}`
+        );
+      }
+
+      const collectionTreeVisibleAfterExpand = await collectionTreeRegion
+        .isVisible({ timeout: 5000 })
+        .catch(() => false);
+      let expandedTreeNodeCount: number | null = null;
+      if (collectionTreeVisibleAfterExpand) {
+        expandedTreeNodeCount = await collectionTreeRegion.evaluate((node) => {
+          return node.querySelectorAll('[aria-expanded="true"]').length;
+        });
+      } else {
+        const [
+          queueStatsAfterTreeLoss,
+          hostStatusAfterTreeLoss,
+          semanticSearchSnapshotAfterTreeLoss,
+          fileExplorerSnapshotAfterTreeLoss,
+          importSnapshotAfterTreeLoss,
+        ] = await Promise.all([
+          getEmbeddingQueueStats(activeWindow),
+          getEmbeddingHostStatus(activeWindow),
+          getDatabaseDemoSemanticSearchSnapshot(activeWindow),
+          getFileExplorerTestSnapshot(activeWindow),
+          getDatabaseDemoImportSnapshot(activeWindow),
+        ]);
+        mixedStateFailures.push(
+          `collection tree region disappeared after expand-all during mixed-state run: hostStatus=${JSON.stringify(hostStatusAfterTreeLoss)} queueStats=${JSON.stringify(queueStatsAfterTreeLoss)} semanticSearch=${JSON.stringify(semanticSearchSnapshotAfterTreeLoss)} fileExplorer=${JSON.stringify(fileExplorerSnapshotAfterTreeLoss)} importSnapshot=${JSON.stringify(importSnapshotAfterTreeLoss)}`
+        );
+      }
+
+      const importCollectionOption = activeWindow.locator(
+        `#collection-option-${importEmbeddingSetId}`
+      );
+      await expect(importCollectionOption).toBeVisible({ timeout: 15_000 });
+      await importCollectionOption.click({ timeout: 30_000 });
+      await expect(importCollectionOption).toHaveAttribute('aria-selected', 'true');
+
+      const importCollectionBackfillButton = activeWindow
+        .locator('[data-testid="database-demo-panel"]')
+        .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+      await expect(importCollectionBackfillButton).toBeVisible({ timeout: 15_000 });
+
+      const [
+        backfillEnabled,
+        globalQueueStats,
+        importCollectionQueueStats,
+        importCollectionCounts,
+        semanticSearchSnapshotAfterChecks,
+        importSnapshotAfterChecks,
+        alerts,
+        fileExplorerSnapshotAfterChecks,
+        fixtureSummaryAfterChecks,
+        electronStderr,
+        embeddingHostStatus,
+        chunkingHostStatus,
+      ] = await Promise.all([
+        importCollectionBackfillButton.isEnabled(),
+        getEmbeddingQueueStats(activeWindow),
+        getEmbeddingSetQueueStats(activeWindow, importEmbeddingSetId),
+        getEmbeddingSetCounts(activeWindow, importEmbeddingSetId),
+        getDatabaseDemoSemanticSearchSnapshot(activeWindow),
+        getDatabaseDemoImportSnapshot(activeWindow),
+        getVisibleAlertTexts(activeWindow),
+        getFileExplorerTestSnapshot(activeWindow),
+        getMainProcessFileSystemFixtureSummary(electronApp.app),
+        getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+        getEmbeddingHostStatus(activeWindow),
+        getChunkingHostStatus(activeWindow),
+      ]);
+
+      const failures = [...mixedStateFailures];
+      if (!searchWorked) {
+        failures.push(
+          'semantic search returned no results while background embedding work was active'
+        );
+      }
+      if (!backfillEnabled) {
+        failures.push(
+          'backfill button was disabled for the selected import collection while that collection had no queued or running jobs'
+        );
+      }
+      if (
+        !fileExplorerSnapshotAfterChecks ||
+        fileExplorerSnapshotAfterChecks.selectedFilePathCount !== REAL_WORLD_MIXED_STATE_FILE_COUNT
+      ) {
+        failures.push('explorer selection state did not remain mounted at 1002 selected files');
+      }
+      if (!scenario.sawChunkingHostActive) {
+        failures.push('chunking host never activated during the real import path');
+      }
+
+      if (failures.length > 0) {
+        throw new Error(
+          `Mixed-state desktop regression reproduced: ${failures.join('; ')}\n` +
+            `globalQueueStats=${JSON.stringify(globalQueueStats)}\n` +
+            `importCollectionQueueStats=${JSON.stringify(importCollectionQueueStats)}\n` +
+            `importCollectionCounts=${JSON.stringify(importCollectionCounts)}\n` +
+            `semanticSearchSnapshot=${JSON.stringify(semanticSearchSnapshotAfterChecks ?? lastSemanticSearchSnapshot)}\n` +
+            `expandedTreeNodeCount=${expandedTreeNodeCount}\n` +
+            `importSnapshot=${JSON.stringify(importSnapshotAfterChecks)}\n` +
+            `alerts=${JSON.stringify(alerts)}\n` +
+            `fileExplorer=${JSON.stringify(fileExplorerSnapshotAfterChecks)}\n` +
+            `fixture=${JSON.stringify(fixtureSummaryAfterChecks)}\n` +
+            `electronStderr=${JSON.stringify(electronStderr)}\n` +
+            `embeddingHostStatus=${JSON.stringify(embeddingHostStatus)}\n` +
+            `chunkingHostStatus=${JSON.stringify(chunkingHostStatus)}`
+        );
+      }
+
+      expect(globalQueueStats.queued + globalQueueStats.running).toBeGreaterThan(0);
+      expect(importCollectionQueueStats.queued + importCollectionQueueStats.running).toBe(0);
+      expect(importCollectionCounts.fileCount).toBe(REAL_WORLD_MIXED_STATE_FILE_COUNT);
+      expect(importCollectionCounts.totalChunks).toBeGreaterThan(0);
+      expect(importCollectionCounts.embeddedChunks).toBe(0);
+      expect(searchWorked).toBe(true);
+      expect(backfillEnabled).toBe(true);
+      expect(expandedTreeNodeCount).toBeGreaterThan(0);
+      expect(electronStderr).toEqual([]);
+    } finally {
+      await clearLargeImportFileSystemMock(electronApp.app);
+      await clearEmbeddingQueue(activeWindow);
+      await stopEmbeddingHost(activeWindow);
+      await stopChunkingHost(activeWindow);
+    }
+  });
+
+  test('keeps the import collection backfill and search path working during a real mixed-state desktop session', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(540_000);
+    const electronStderrBaselineCount = (await getRelevantElectronStderr(electronApp.app)).length;
+
+    const scenario = await prepareRealWorldMixedStateScenario(electronApp.app, window);
+    const activeWindow = scenario.activeWindow;
+
+    // Clicks in this stress test use 30s timeouts because the collection browser's loading
+    // overlay (z-20, aria-busy) stays visible for 15–30s while refetching data after heavy
+    // import/backfill/search operations. This is a known collection browser perf issue.
+    try {
+      const importCollectionOption = activeWindow.locator(
+        `#collection-option-${scenario.importEmbeddingSetId}`
+      );
+      await expect(importCollectionOption).toBeVisible({ timeout: 15_000 });
+      await importCollectionOption.click({ timeout: 30_000 });
+      await expect(importCollectionOption).toHaveAttribute('aria-selected', 'true');
+
+      const backfillButton = activeWindow
+        .locator('[data-testid="database-demo-panel"]')
+        .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+      await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+
+      const [
+        backfillEnabledBefore,
+        globalQueueStatsBefore,
+        importCollectionQueueStatsBefore,
+        importCollectionCountsBefore,
+        fileExplorerBefore,
+      ] = await Promise.all([
+        backfillButton.isEnabled(),
+        getEmbeddingQueueStats(activeWindow),
+        getEmbeddingSetQueueStats(activeWindow, scenario.importEmbeddingSetId),
+        getEmbeddingSetCounts(activeWindow, scenario.importEmbeddingSetId),
+        getFileExplorerTestSnapshot(activeWindow),
+      ]);
+
+      const failures: string[] = [];
+      if (!backfillEnabledBefore) {
+        failures.push(
+          'backfill button was disabled for the import collection before manual backfill started'
+        );
+      }
+      if (globalQueueStatsBefore.queued + globalQueueStatsBefore.running <= 0) {
+        failures.push('background queue pressure was not active before import-collection checks');
+      }
+      if (importCollectionQueueStatsBefore.queued + importCollectionQueueStatsBefore.running > 0) {
+        failures.push('import collection already had active jobs before manual backfill');
+      }
+      if (importCollectionCountsBefore.embeddedChunks !== 0) {
+        failures.push('import collection was already partially embedded before manual backfill');
+      }
+      if (
+        !fileExplorerBefore ||
+        fileExplorerBefore.selectedFilePathCount !== REAL_WORLD_MIXED_STATE_FILE_COUNT
+      ) {
+        failures.push('explorer selection was not still mounted before import-collection backfill');
+      }
+
+      if (failures.length > 0) {
+        const [importSnapshot, electronStderr, embeddingHostStatus, chunkingHostStatus] =
+          await Promise.all([
+            getDatabaseDemoImportSnapshot(activeWindow),
+            getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+            getEmbeddingHostStatus(activeWindow),
+            getChunkingHostStatus(activeWindow),
+          ]);
+        throw new Error(
+          `Import-collection mixed-state regression reproduced before backfill: ${failures.join('; ')}\n` +
+            `globalQueueStats=${JSON.stringify(globalQueueStatsBefore)}\n` +
+            `importCollectionQueueStats=${JSON.stringify(importCollectionQueueStatsBefore)}\n` +
+            `importCollectionCounts=${JSON.stringify(importCollectionCountsBefore)}\n` +
+            `fileExplorer=${JSON.stringify(fileExplorerBefore)}\n` +
+            `importSnapshot=${JSON.stringify(importSnapshot)}\n` +
+            `electronStderr=${JSON.stringify(electronStderr)}\n` +
+            `embeddingHostStatus=${JSON.stringify(embeddingHostStatus)}\n` +
+            `chunkingHostStatus=${JSON.stringify(chunkingHostStatus)}`
+        );
+      }
+
+      await backfillButton.click({ timeout: 30_000 });
+
+      let importBackfillOutcome: 'error' | 'queued';
+      try {
+        importBackfillOutcome = await waitForBackfillQueueMovementOrFatalError(
+          activeWindow,
+          scenario.importEmbeddingSetId,
+          60_000
+        );
+      } catch (error) {
+        const [
+          globalQueueStats,
+          importCollectionQueueStats,
+          importCollectionCounts,
+          importSnapshot,
+          electronStderr,
+          embeddingHostStatus,
+          chunkingHostStatus,
+        ] = await Promise.all([
+          getEmbeddingQueueStats(activeWindow),
+          getEmbeddingSetQueueStats(activeWindow, scenario.importEmbeddingSetId),
+          getEmbeddingSetCounts(activeWindow, scenario.importEmbeddingSetId),
+          getDatabaseDemoImportSnapshot(activeWindow),
+          getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+          getEmbeddingHostStatus(activeWindow),
+          getChunkingHostStatus(activeWindow),
+        ]);
+        throw new Error(
+          `Import-collection backfill did not produce set-scoped queue movement under mixed-state load: ${error instanceof Error ? error.message : String(error)}\n` +
+            `globalQueueStats=${JSON.stringify(globalQueueStats)}\n` +
+            `importCollectionQueueStats=${JSON.stringify(importCollectionQueueStats)}\n` +
+            `importCollectionCounts=${JSON.stringify(importCollectionCounts)}\n` +
+            `importSnapshot=${JSON.stringify(importSnapshot)}\n` +
+            `electronStderr=${JSON.stringify(electronStderr)}\n` +
+            `embeddingHostStatus=${JSON.stringify(embeddingHostStatus)}\n` +
+            `chunkingHostStatus=${JSON.stringify(chunkingHostStatus)}`
+        );
+      }
+      if (importBackfillOutcome === 'error') {
+        const [electronStderr, embeddingHostStatus, chunkingHostStatus, importSnapshot] =
+          await Promise.all([
+            getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+            getEmbeddingHostStatus(activeWindow),
+            getChunkingHostStatus(activeWindow),
+            getDatabaseDemoImportSnapshot(activeWindow),
+          ]);
+        throw new Error(
+          'Import-collection backfill failed to start under mixed-state load\n' +
+            `importSnapshot=${JSON.stringify(importSnapshot)}\n` +
+            `electronStderr=${JSON.stringify(electronStderr)}\n` +
+            `embeddingHostStatus=${JSON.stringify(embeddingHostStatus)}\n` +
+            `chunkingHostStatus=${JSON.stringify(chunkingHostStatus)}`
+        );
+      }
+
+      const embedStartedAt = Date.now();
+      let embeddedChunkCount = 0;
+      while (Date.now() - embedStartedAt < 120_000) {
+        const [counts, queueStats, embeddingHostStatus, chunkingHostStatus, electronStderr] =
+          await Promise.all([
+            getEmbeddingSetCounts(activeWindow, scenario.importEmbeddingSetId),
+            getEmbeddingQueueStats(activeWindow),
+            getEmbeddingHostStatus(activeWindow),
+            getChunkingHostStatus(activeWindow),
+            getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+          ]);
+
+        if (counts.embeddedChunks > 0 && queueStats.queued + queueStats.running > 0) {
+          embeddedChunkCount = counts.embeddedChunks;
+          break;
+        }
+
+        if (
+          electronStderr.length > 0 ||
+          embeddingHostStatus.state === 'error' ||
+          chunkingHostStatus.state === 'error'
+        ) {
+          throw new Error(
+            'Hidden runtime failure surfaced during mixed-state import backfill\n' +
+              `counts=${JSON.stringify(counts)}\n` +
+              `queueStats=${JSON.stringify(queueStats)}\n` +
+              `electronStderr=${JSON.stringify(electronStderr)}\n` +
+              `embeddingHostStatus=${JSON.stringify(embeddingHostStatus)}\n` +
+              `chunkingHostStatus=${JSON.stringify(chunkingHostStatus)}`
+          );
+        }
+
+        await activeWindow.waitForTimeout(500);
+      }
+
+      expect(embeddedChunkCount).toBeGreaterThan(0);
+
+      const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
+      const queryButton = activeWindow.getByRole('button', { name: /^Query$/ });
+      await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
+      await semanticSearchBox.fill('stress-file-42-sentence-0');
+      await queryButton.click({ timeout: 30_000 });
+
+      const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
+      const emptySemanticSearchMessage = collectionTreeRegion.getByText(
+        'No matching results found. Try adjusting your query or threshold.'
+      );
+      const searchingOverlay = collectionTreeRegion.getByText('Searching...');
+
+      const searchStartedAt = Date.now();
+      let lastSemanticSearchSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
+      while (Date.now() - searchStartedAt < 60_000) {
+        const [
+          semanticSearchSnapshot,
+          emptyStateCount,
+          searchingCount,
+          electronStderr,
+          embeddingHostStatus,
+          chunkingHostStatus,
+        ] = await Promise.all([
+          getDatabaseDemoSemanticSearchSnapshot(activeWindow),
+          emptySemanticSearchMessage.count(),
+          searchingOverlay.count(),
+          getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+          getEmbeddingHostStatus(activeWindow),
+          getChunkingHostStatus(activeWindow),
+        ]);
+
+        lastSemanticSearchSnapshot = semanticSearchSnapshot;
+
+        if (
+          electronStderr.length > 0 ||
+          embeddingHostStatus.state === 'error' ||
+          chunkingHostStatus.state === 'error'
+        ) {
+          throw new Error(
+            'Hidden runtime failure surfaced during mixed-state import search\n' +
+              `semanticSearch=${JSON.stringify(semanticSearchSnapshot)}\n` +
+              `electronStderr=${JSON.stringify(electronStderr)}\n` +
+              `embeddingHostStatus=${JSON.stringify(embeddingHostStatus)}\n` +
+              `chunkingHostStatus=${JSON.stringify(chunkingHostStatus)}`
+          );
+        }
+
+        if (
+          semanticSearchSnapshot?.hasSearched &&
+          !semanticSearchSnapshot.isSearching &&
+          !semanticSearchSnapshot.error &&
+          semanticSearchSnapshot.resultCount > 0 &&
+          semanticSearchSnapshot.firstResultNodeId !== null &&
+          searchingCount === 0 &&
+          emptyStateCount === 0
+        ) {
+          break;
+        }
+
+        await activeWindow.waitForTimeout(250);
+      }
+
+      if (
+        !(
+          lastSemanticSearchSnapshot?.hasSearched &&
+          !lastSemanticSearchSnapshot.isSearching &&
+          !lastSemanticSearchSnapshot.error &&
+          lastSemanticSearchSnapshot.resultCount > 0 &&
+          lastSemanticSearchSnapshot.firstResultNodeId !== null
+        )
+      ) {
+        const [
+          globalQueueStats,
+          importCollectionQueueStats,
+          importCollectionCounts,
+          importSnapshot,
+          fileExplorer,
+          electronStderr,
+          embeddingHostStatus,
+          chunkingHostStatus,
+        ] = await Promise.all([
+          getEmbeddingQueueStats(activeWindow),
+          getEmbeddingSetQueueStats(activeWindow, scenario.importEmbeddingSetId),
+          getEmbeddingSetCounts(activeWindow, scenario.importEmbeddingSetId),
+          getDatabaseDemoImportSnapshot(activeWindow),
+          getFileExplorerTestSnapshot(activeWindow),
+          getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+          getEmbeddingHostStatus(activeWindow),
+          getChunkingHostStatus(activeWindow),
+        ]);
+        throw new Error(
+          'Import-collection mixed-state semantic search did not return results\n' +
+            `semanticSearch=${JSON.stringify(lastSemanticSearchSnapshot)}\n` +
+            `globalQueueStats=${JSON.stringify(globalQueueStats)}\n` +
+            `importCollectionQueueStats=${JSON.stringify(importCollectionQueueStats)}\n` +
+            `importCollectionCounts=${JSON.stringify(importCollectionCounts)}\n` +
+            `importSnapshot=${JSON.stringify(importSnapshot)}\n` +
+            `fileExplorer=${JSON.stringify(fileExplorer)}\n` +
+            `electronStderr=${JSON.stringify(electronStderr)}\n` +
+            `embeddingHostStatus=${JSON.stringify(embeddingHostStatus)}\n` +
+            `chunkingHostStatus=${JSON.stringify(chunkingHostStatus)}`
+        );
+      }
+
+      const expandAllButton = activeWindow
+        .locator('[data-testid="database-demo-panel"]')
+        .getByRole('button', { name: 'Expand all' });
+      await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
+      await expandAllButton.click({ timeout: 30_000 });
+
+      const [
+        collectionTreeVisibleAfterExpand,
+        globalQueueStatsAfterExpand,
+        importCollectionQueueStatsAfterExpand,
+        importCollectionCountsAfterExpand,
+        importSnapshotAfterExpand,
+        fileExplorerAfterExpand,
+        electronStderrAfterExpand,
+        embeddingHostStatusAfterExpand,
+        chunkingHostStatusAfterExpand,
+      ] = await Promise.all([
+        collectionTreeRegion.isVisible({ timeout: 5000 }).catch(() => false),
+        getEmbeddingQueueStats(activeWindow),
+        getEmbeddingSetQueueStats(activeWindow, scenario.importEmbeddingSetId),
+        getEmbeddingSetCounts(activeWindow, scenario.importEmbeddingSetId),
+        getDatabaseDemoImportSnapshot(activeWindow),
+        getFileExplorerTestSnapshot(activeWindow),
+        getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+        getEmbeddingHostStatus(activeWindow),
+        getChunkingHostStatus(activeWindow),
+      ]);
+
+      expect(collectionTreeVisibleAfterExpand).toBe(true);
+      expect(
+        globalQueueStatsAfterExpand.queued + globalQueueStatsAfterExpand.running
+      ).toBeGreaterThan(0);
+      expect(
+        importCollectionQueueStatsAfterExpand.queued + importCollectionQueueStatsAfterExpand.running
+      ).toBeGreaterThan(0);
+      expect(importCollectionCountsAfterExpand.embeddedChunks).toBeGreaterThan(0);
+      expect(fileExplorerAfterExpand?.selectedFilePathCount).toBe(
+        REAL_WORLD_MIXED_STATE_FILE_COUNT
+      );
+      expect(electronStderrAfterExpand).toEqual([]);
+      expect(embeddingHostStatusAfterExpand.state).not.toBe('error');
+      expect(chunkingHostStatusAfterExpand.state).not.toBe('error');
+      expect(importSnapshotAfterExpand?.activeCollectionId).not.toBeNull();
+    } finally {
+      await clearLargeImportFileSystemMock(electronApp.app);
+      await clearEmbeddingQueue(activeWindow);
+      await stopEmbeddingHost(activeWindow);
+      await stopChunkingHost(activeWindow);
+    }
+  });
+
   test('fails invalid job payloads without taking down the embedding host or visible UI', async ({
     window,
   }) => {
@@ -3420,14 +4288,25 @@ test.describe('Embedding Host Renderer', () => {
       return;
     }
 
+    // Explicitly stop first to avoid a race between the prior test's 'stop' command and
+    // our 'reset' command. Without this, startWorker can silently skip starting when
+    // startingRef.current is still true from a concurrent stop/start sequence.
+    await stopEmbeddingHost(activeWindow);
+    await activeWindow.waitForTimeout(200);
+    await clearEmbeddingQueue(activeWindow);
     await resetEmbeddingHost(activeWindow);
     await waitForEmbeddingHostState(activeWindow, (status) => status.state === 'running');
+
+    // Wait longer than the worker's 400ms idle backoff to ensure at least one poll
+    // cycle has completed, confirming the worker loop is actively running.
+    await activeWindow.waitForTimeout(600);
+    await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 30_000);
 
     const invalidJobId = await createInvalidJob(activeWindow);
 
     await expect
       .poll(async () => await getJobStatus(activeWindow, invalidJobId), {
-        timeout: 15_000,
+        timeout: 30_000,
       })
       .toBe('failed');
 

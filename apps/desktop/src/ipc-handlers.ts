@@ -77,7 +77,7 @@ let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_INTERVAL_MS = 2000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
-let embeddingBackfillInFlight: { embeddingSetId: string } | null = null;
+const embeddingBackfillsInFlight = new Set<string>();
 
 function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
   const fixture = (
@@ -790,18 +790,16 @@ export function registerIpcHandlers(
         if (!embeddingHostManager) {
           throw new Error('Embedding host manager is required for desktop backfill.');
         }
-        if (embeddingBackfillInFlight) {
+        if (embeddingBackfillsInFlight.has(embeddingSetId.trim())) {
           throw new Error(
-            `Embedding backfill is already running for set ${embeddingBackfillInFlight.embeddingSetId}.`
+            `Embedding backfill is already running for set ${embeddingSetId.trim()}.`
           );
         }
 
         const normalizedEmbeddingSetId = embeddingSetId.trim();
         const backfillRequestId = createRequestId('embedding-backfill');
         let backfillProgressTargetUnavailable = false;
-        embeddingBackfillInFlight = {
-          embeddingSetId: normalizedEmbeddingSetId,
-        };
+        embeddingBackfillsInFlight.add(normalizedEmbeddingSetId);
 
         try {
           const hostStatus = await embeddingHostManager.ensureStarted({ waitForRunning: true });
@@ -865,7 +863,7 @@ export function registerIpcHandlers(
             }
           );
         } finally {
-          embeddingBackfillInFlight = null;
+          embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
         }
       }, EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)
   );

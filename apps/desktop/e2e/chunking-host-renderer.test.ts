@@ -1,11 +1,16 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { waitForAppReady } from './utils/electron-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 interface ChunkingHostStatus {
   active: boolean;
   lastError: string | null;
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+}
+
+async function waitForAppReadyInTest(page: Page): Promise<void> {
+  const { waitForAppReady } = await loadElectronHelpers();
+  await waitForAppReady(page);
 }
 
 async function assertVisibleWindowResponsive(page: Page): Promise<void> {
@@ -78,7 +83,7 @@ test.describe('Chunking Host Renderer', () => {
     electronApp,
     window,
   }) => {
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     await window.evaluate(async () => {
@@ -127,7 +132,7 @@ test.describe('Chunking Host Renderer', () => {
   test('hidden chunking host logs are forwarded into the exported desktop log stream', async ({
     window,
   }) => {
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
 
     await window.evaluate(async () => {
       const api = (
@@ -156,7 +161,7 @@ test.describe('Chunking Host Renderer', () => {
   });
 
   test('large chunking requests do not reload the visible window', async ({ window }) => {
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     const requestOutcome = await window.evaluate(async () => {
@@ -222,7 +227,7 @@ test.describe('Chunking Host Renderer', () => {
   test('accepts non-legacy chunking strategies without reloading the visible window', async ({
     window,
   }) => {
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     const requestOutcome = await window.evaluate(async () => {
@@ -278,7 +283,7 @@ test.describe('Chunking Host Renderer', () => {
   test('supports accurate token sizing in the hidden chunking host without crashing the visible window', async ({
     window,
   }) => {
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     const requestOutcome = await window.evaluate(async () => {
