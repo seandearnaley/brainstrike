@@ -379,12 +379,17 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           }
         );
         clearWindowRoleByWebContentsId(window.webContents.id);
-        window.destroy();
         if (attempt < HOST_LOAD_RETRY_ATTEMPTS - 1) {
-          // Wait for the window to fully close before retrying so Chromium has time
-          // to release renderer resources. Falls back to a 300ms timeout if the
-          // closed event never fires (e.g. window was already gone).
-          await waitForWindowClosed(window, HOST_LOAD_RETRY_DELAY_MS);
+          // Register the closed listener BEFORE destroy() — Electron's destroy()
+          // synchronously sets isDestroyed()=true, so waitForWindowClosed must
+          // capture the 'closed' event while the window is still alive. The 300ms
+          // timeout acts as a maximum wait; if 'closed' fires sooner, we retry
+          // immediately (the goal is resource release, not a guaranteed backoff).
+          const closedPromise = waitForWindowClosed(window, HOST_LOAD_RETRY_DELAY_MS);
+          window.destroy();
+          await closedPromise;
+        } else {
+          window.destroy();
         }
       }
     }

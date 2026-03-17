@@ -121,9 +121,12 @@ export class ChunkingHostManager {
 
     const window = this.lifecycle.getHostWindow();
     if (window && !window.isDestroyed()) {
-      const windowRef = window;
+      // Register the closed listener BEFORE destroy() — Electron's destroy()
+      // synchronously sets isDestroyed()=true, so waitForWindowClosed must be
+      // called while the window is still alive to capture the 'closed' event.
+      const closedPromise = waitForWindowClosed(window, CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS);
       this.lifecycle.destroyHostWindow();
-      await waitForWindowClosed(windowRef, CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS);
+      await closedPromise;
     }
 
     this.lifecycle.clearHostWindow();
