@@ -42,6 +42,7 @@ interface FakeWindow {
     listeners: FakeListenerMap;
     on: ReturnType<typeof vi.fn>;
     send: ReturnType<typeof vi.fn>;
+    setWindowOpenHandler: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -86,6 +87,7 @@ function createFakeWindow(id: number): FakeWindow {
         }
       }),
       send: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
     },
   };
 }
@@ -136,6 +138,40 @@ describe('RendererHostLifecycle', () => {
         /^http:\/\/localhost:8081\?mode=chunking-host&runtimeId=chunking-host%3A/
       )
     );
+  });
+
+  it('denies new window creation for background hosts', async () => {
+    const hostWindow = createFakeWindow(42);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+    expect(hostWindow.webContents.setWindowOpenHandler).toHaveBeenCalledTimes(1);
+
+    const handler = hostWindow.webContents.setWindowOpenHandler.mock.calls[0][0];
+    const result = handler({ url: 'https://example.com' });
+    expect(result).toEqual({ action: 'deny' });
   });
 
   it('encodes dev host query parameters before loading the renderer url', async () => {

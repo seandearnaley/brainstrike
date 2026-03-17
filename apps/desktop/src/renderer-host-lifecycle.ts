@@ -345,6 +345,9 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
 
     assignWindowRole(window, this.options.role);
 
+    // Security: Prevent unauthorized window creation by background renderer hosts
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
     if (app.isPackaged || isTestMode) {
       await window.loadFile(path.join(resolveDistRoot(), 'renderer/index.html'), {
         query: { mode: this.options.mode, runtimeId },
