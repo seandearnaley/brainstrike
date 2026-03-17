@@ -16,29 +16,11 @@ import {
   createStoppedChunkingHostStatus,
 } from './chunking-host-shared';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
+import { waitForWindowClosed } from './window-lifecycle-utils';
 
 const logger = createLogger('ChunkingHostManager');
 const CHUNKING_HOST_REQUEST_TIMEOUT_MS = 30_000;
 const CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
-
-function waitForWindowDestroyed(window: BrowserWindow, timeoutMs: number): Promise<void> {
-  if (window.isDestroyed()) {
-    return Promise.resolve();
-  }
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, timeoutMs);
-    try {
-      window.once('closed', () => {
-        clearTimeout(timer);
-        resolve();
-      });
-    } catch {
-      // Window was destroyed between the isDestroyed() check and listener registration.
-      clearTimeout(timer);
-      resolve();
-    }
-  });
-}
 
 type PendingChunkingRequest =
   | {
@@ -141,7 +123,7 @@ export class ChunkingHostManager {
     if (window && !window.isDestroyed()) {
       const windowRef = window;
       this.lifecycle.destroyHostWindow();
-      await waitForWindowDestroyed(windowRef, CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS);
+      await waitForWindowClosed(windowRef, CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS);
     }
 
     this.lifecycle.clearHostWindow();

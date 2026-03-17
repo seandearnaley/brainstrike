@@ -4,6 +4,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { app, BrowserWindow } from 'electron';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
+import { waitForWindowClosed } from './window-lifecycle-utils';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -15,25 +16,6 @@ const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
 const HOST_LOAD_RETRY_ATTEMPTS = 3;
 const HOST_LOAD_RETRY_DELAY_MS = 300;
 const logger = createLogger('RendererHostLifecycle');
-
-function waitForWindowClosed(window: BrowserWindow, timeoutMs: number): Promise<void> {
-  if (window.isDestroyed()) {
-    return Promise.resolve();
-  }
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, timeoutMs);
-    try {
-      window.once('closed', () => {
-        clearTimeout(timer);
-        resolve();
-      });
-    } catch {
-      // Window was destroyed between the isDestroyed() check and listener registration.
-      clearTimeout(timer);
-      resolve();
-    }
-  });
-}
 const RENDERER_HOST_LIFECYCLE_DISPOSED_CODE = 'RENDERER_HOST_LIFECYCLE_DISPOSED';
 
 export type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';

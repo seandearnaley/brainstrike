@@ -1,3 +1,8 @@
-export async function loadElectronHelpers(): Promise<typeof import('./electron-helpers.mts')> {
-  return await import('./electron-helpers.mts');
+let cached: Promise<typeof import('./electron-helpers.mts')> | null = null;
+
+export function loadElectronHelpers(): Promise<typeof import('./electron-helpers.mts')> {
+  if (!cached) {
+    cached = import('./electron-helpers.mts');
+  }
+  return cached;
 }
