@@ -3468,6 +3468,76 @@ test.describe('Embedding Host Renderer', () => {
     // All chunks should have the correct embedding_set_id
     expect(dbDiagnostics.embeddingSetIds).toContain(embeddingSetId);
 
+    // ── 5b. Verify FTS: tsvector populated and direct FTS query works ─────
+    const ftsDiagnostics = await activeWindow.evaluate(async (id) => {
+      const api = (
+        window as unknown as {
+          electronAPI?: {
+            db?: {
+              query?: (
+                sql: string,
+                params?: unknown[]
+              ) => Promise<{ rows: Record<string, unknown>[] }>;
+            };
+          };
+        }
+      ).electronAPI;
+      if (!api?.db?.query) {
+        throw new Error('Database API not available');
+      }
+
+      // Check tsvector population
+      const tsvectorResult = await api.db.query(
+        `SELECT
+           COUNT(*)::int AS "totalChunks",
+           COUNT(*) FILTER (WHERE content_tsvector IS NOT NULL)::int AS "withTsvector",
+           COUNT(*) FILTER (WHERE content IS NOT NULL AND LENGTH(content) > 0)::int AS "withContent"
+         FROM file_chunks
+         WHERE file_record_id IN (
+           SELECT id FROM file_records WHERE embedding_set_id = $1
+         )`,
+        [id]
+      );
+      const tsRow = tsvectorResult.rows[0] as {
+        totalChunks: number;
+        withTsvector: number;
+        withContent: number;
+      };
+
+      // Run direct FTS query for "backfill" — known word in fixture content
+      const ftsResult = await api.db.query(
+        `SELECT id, content, fts_rank
+         FROM (
+           SELECT id, content,
+             ts_rank(content_tsvector, websearch_to_tsquery('english', 'backfill'), 0) AS fts_rank
+           FROM file_chunks
+           WHERE content_tsvector IS NOT NULL
+             AND content_tsvector @@ websearch_to_tsquery('english', 'backfill')
+         ) sub
+         ORDER BY fts_rank DESC
+         LIMIT 5`
+      );
+      const ftsRows = ftsResult.rows as Array<{
+        content: string;
+        fts_rank: number;
+        id: string;
+      }>;
+
+      return {
+        totalChunks: Number(tsRow.totalChunks ?? 0),
+        withTsvector: Number(tsRow.withTsvector ?? 0),
+        withContent: Number(tsRow.withContent ?? 0),
+        ftsMatchCount: ftsRows.length,
+        ftsTopContent: ftsRows.length > 0 ? String(ftsRows[0]!.content).slice(0, 80) : '',
+      };
+    }, embeddingSetId);
+
+    // All chunks should have content and tsvector populated
+    expect(ftsDiagnostics.withContent).toBe(ftsDiagnostics.totalChunks);
+    expect(ftsDiagnostics.withTsvector).toBe(ftsDiagnostics.totalChunks);
+    // FTS should find "backfill" in our fixture content
+    expect(ftsDiagnostics.ftsMatchCount).toBeGreaterThan(0);
+
     // ── 6. Direct SQL vector search: verify pgvector similarity works ─────
     // Use a chunk's own embedding as the query vector to guarantee a match.
     const directSqlSearchResult = await activeWindow.evaluate(
