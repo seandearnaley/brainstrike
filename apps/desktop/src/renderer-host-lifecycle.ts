@@ -15,6 +15,25 @@ const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
 const HOST_LOAD_RETRY_ATTEMPTS = 3;
 const HOST_LOAD_RETRY_DELAY_MS = 300;
 const logger = createLogger('RendererHostLifecycle');
+
+function waitForWindowClosed(window: BrowserWindow, timeoutMs: number): Promise<void> {
+  if (window.isDestroyed()) {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    try {
+      window.once('closed', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    } catch {
+      // Window was destroyed between the isDestroyed() check and listener registration.
+      clearTimeout(timer);
+      resolve();
+    }
+  });
+}
 const RENDERER_HOST_LIFECYCLE_DISPOSED_CODE = 'RENDERER_HOST_LIFECYCLE_DISPOSED';
 
 export type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
@@ -380,7 +399,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         clearWindowRoleByWebContentsId(window.webContents.id);
         window.destroy();
         if (attempt < HOST_LOAD_RETRY_ATTEMPTS - 1) {
-          await new Promise<void>((resolve) => setTimeout(resolve, HOST_LOAD_RETRY_DELAY_MS));
+          // Wait for the window to fully close before retrying so Chromium has time
+          // to release renderer resources. Falls back to a 300ms timeout if the
+          // closed event never fires (e.g. window was already gone).
+          await waitForWindowClosed(window, HOST_LOAD_RETRY_DELAY_MS);
         }
       }
     }

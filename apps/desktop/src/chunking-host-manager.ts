@@ -27,10 +27,16 @@ function waitForWindowDestroyed(window: BrowserWindow, timeoutMs: number): Promi
   }
   return new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, timeoutMs);
-    window.once('closed', () => {
+    try {
+      window.once('closed', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    } catch {
+      // Window was destroyed between the isDestroyed() check and listener registration.
       clearTimeout(timer);
       resolve();
-    });
+    }
   });
 }
 

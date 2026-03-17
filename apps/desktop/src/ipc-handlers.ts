@@ -790,13 +790,12 @@ export function registerIpcHandlers(
         if (!embeddingHostManager) {
           throw new Error('Embedding host manager is required for desktop backfill.');
         }
-        if (embeddingBackfillsInFlight.has(embeddingSetId.trim())) {
+        const normalizedEmbeddingSetId = embeddingSetId.trim();
+        if (embeddingBackfillsInFlight.has(normalizedEmbeddingSetId)) {
           throw new Error(
-            `Embedding backfill is already running for set ${embeddingSetId.trim()}.`
+            `Embedding backfill is already running for set ${normalizedEmbeddingSetId}.`
           );
         }
-
-        const normalizedEmbeddingSetId = embeddingSetId.trim();
         const backfillRequestId = createRequestId('embedding-backfill');
         let backfillProgressTargetUnavailable = false;
         embeddingBackfillsInFlight.add(normalizedEmbeddingSetId);
