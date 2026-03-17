@@ -535,12 +535,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     [setFilters, setUseRegex]
   );
 
-  // biome-ignore lint/plugin: setCurrentFolderId is a stable Zustand action - syncing folder ID with handle is controlled state update
   useEffect(() => {
     if (rootDirectoryHandle) {
       const id = getRootFolderId(rootDirectoryHandle);
       if (!id) {
-        throw new Error('Root directory handle is missing its canonical path');
+        // Throwing synchronously inside useEffect bypasses React error boundaries.
+        // Log the invariant violation and bail out instead of crashing the tree.
+        logger.error('Root directory handle is missing its canonical path', {
+          handleName: rootDirectoryHandle.name,
+        });
+        return;
       }
       const currentState = store.getState();
       if (currentState.currentFolderId !== id) {

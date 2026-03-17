@@ -80,12 +80,18 @@ describe('main E2E window isolation', () => {
   beforeEach(() => {
     vi.resetModules();
     process.argv = ORIGINAL_ARGV.filter((arg) => arg !== '--test-mode');
-    process.env['ELECTRON_IS_E2E_TEST'] = undefined;
+    // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
+    delete process.env['ELECTRON_IS_E2E_TEST'];
   });
 
   afterEach(() => {
     process.argv = [...ORIGINAL_ARGV];
-    process.env['ELECTRON_IS_E2E_TEST'] = ORIGINAL_ELECTRON_E2E;
+    if (ORIGINAL_ELECTRON_E2E === undefined) {
+      // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
+      delete process.env['ELECTRON_IS_E2E_TEST'];
+    } else {
+      process.env['ELECTRON_IS_E2E_TEST'] = ORIGINAL_ELECTRON_E2E;
+    }
   });
 
   it('skips single-instance focus behavior during desktop E2E launches', async () => {
