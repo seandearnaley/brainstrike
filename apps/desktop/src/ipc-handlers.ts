@@ -257,6 +257,63 @@ function releaseLiveSubscriptionPause(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// GPU memory reclaim: periodically restart the embedding host during backfill
+// to release WebGPU/Dawn Metal buffer pool memory that accumulates unboundedly.
+// ---------------------------------------------------------------------------
+const GPU_MEMORY_RECLAIM_INTERVAL = 500;
+const GPU_MEMORY_CHECK_MS = 15_000;
+
+function startGpuMemoryReclaimTimer(
+  embeddingSetId: string,
+  hostManager: EmbeddingHostManager,
+  isReclaimInProgress: () => boolean,
+  setReclaimInProgress: (value: boolean) => void
+): ReturnType<typeof setInterval> {
+  let succeededAtLastRestart = 0;
+  return setInterval(async () => {
+    if (isReclaimInProgress()) {
+      return;
+    }
+    try {
+      const { getDatabase } = await import('./db-main');
+      const db = await getDatabase();
+      const result = await db.query(
+        `SELECT COUNT(*)::int AS count FROM job_queue
+         WHERE queue = 'embeddings' AND state = 'succeeded'
+           AND payload->>'embeddingSetId' = $1`,
+        [embeddingSetId]
+      );
+      const row = result.rows[0] as { count?: number | string | null } | undefined;
+      const currentSucceeded = Number(row?.count ?? 0);
+      if (currentSucceeded - succeededAtLastRestart < GPU_MEMORY_RECLAIM_INTERVAL) {
+        return;
+      }
+      succeededAtLastRestart = currentSucceeded;
+      setReclaimInProgress(true);
+      logger.info('Restarting embedding host to reclaim GPU memory', {
+        embeddingSetId,
+        succeededSoFar: currentSucceeded,
+      });
+      try {
+        await hostManager.stop();
+        const restartStatus = await hostManager.ensureStarted({ waitForRunning: true });
+        if (restartStatus.state !== 'running') {
+          logger.warn('Embedding host restart for GPU reclaim failed', {
+            state: restartStatus.state,
+          });
+        }
+      } finally {
+        setReclaimInProgress(false);
+      }
+    } catch (error) {
+      logger.debug('GPU memory reclaim check failed (non-fatal)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, GPU_MEMORY_CHECK_MS);
+}
+
 function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
   if (!error || typeof error !== 'object') {
     return false;
@@ -814,15 +871,22 @@ export function registerIpcHandlers(
         }
         const backfillRequestId = createRequestId('embedding-backfill');
         let backfillProgressTargetUnavailable = false;
+        let gpuMemoryReclaimInProgress = false;
         embeddingBackfillsInFlight.add(normalizedEmbeddingSetId);
 
         // Pause all PGlite live query subscriptions during backfill.
-        // The backfill generates ~3× total_chunks mutations in job_queue
-        // (insert + running + succeeded per chunk). Each mutation causes
-        // PGlite to re-evaluate ALL active live queries, consuming massive
-        // main-process CPU and flooding the renderer with IPC updates.
-        // Pausing subscriptions stops PGlite from evaluating queries entirely.
         acquireLiveSubscriptionPause();
+
+        // Periodically restart the embedding host to release WebGPU/Dawn
+        // GPU buffers that accumulate during sustained inference.
+        const gpuReclaimTimer = startGpuMemoryReclaimTimer(
+          normalizedEmbeddingSetId,
+          embeddingHostManager,
+          () => gpuMemoryReclaimInProgress,
+          (v) => {
+            gpuMemoryReclaimInProgress = v;
+          }
+        );
 
         try {
           const hostStatus = await embeddingHostManager.ensureStarted({ waitForRunning: true });
@@ -868,6 +932,9 @@ export function registerIpcHandlers(
             },
             {
               assertCanContinue: () => {
+                if (gpuMemoryReclaimInProgress) {
+                  return; // Host is restarting for GPU memory reclaim — don't abort
+                }
                 const status = embeddingHostManager?.getStatus();
                 if (!status) {
                   return;
@@ -886,11 +953,8 @@ export function registerIpcHandlers(
             }
           );
         } finally {
+          clearInterval(gpuReclaimTimer);
           embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
-          // Always release the pause ref so the depth counter stays balanced.
-          // If the window is still backgrounded, depth remains ≥1 (from
-          // setBackgrounded) and subscriptions stay paused — which is correct.
-          // Only flush pending updates if we're in the foreground.
           releaseLiveSubscriptionPause();
           if (!isBackgrounded) {
             flushPendingLiveUpdates();

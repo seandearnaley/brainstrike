@@ -314,10 +314,11 @@ function createLaunchOptions(
     // Specifying an explicit port can cause "Waiting for debugger to disconnect" hangs.
     // Explicitly set user data dir to avoid collisions in shared environments
     ...(userDataDir ? [`--user-data-dir=${userDataDir}`] : []),
-    // Disable GPU features to prevent crashes/hangs in CI
-    '--disable-gpu',
-    '--disable-gpu-sandbox',
-    '--disable-software-rasterizer',
+    // Disable GPU features to prevent crashes/hangs in CI.
+    // Allow GPU in specific tests (e.g., WebGPU memory diagnostics) via env var.
+    ...(process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] === '1'
+      ? []
+      : ['--disable-gpu', '--disable-gpu-sandbox', '--disable-software-rasterizer']),
     '--no-sandbox',
     '--disable-dev-shm-usage',
     // Additional flags to prevent debugger/inspector issues

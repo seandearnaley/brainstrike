@@ -13,6 +13,13 @@ export interface EnqueueEmbeddingBackfillOptions {
   backlogPollMs?: number;
   drainTimeoutMs?: number;
   maxQueueDepth?: number;
+  /**
+   * Called periodically during the drain phase with the number of items
+   * completed since the last call. The caller can use this to trigger
+   * maintenance operations (e.g., restarting the embedding host to release
+   * GPU memory) without coupling the backfill to host lifecycle management.
+   */
+  onDrainTick?: (completedSinceLastTick: number) => void | Promise<void>;
   progressIntervalBatches?: number;
   progressIntervalMs?: number;
   queueCapacityTimeoutMs?: number;
@@ -281,10 +288,12 @@ async function waitForEmbeddingSetDrain(
   backlogPollMs: number,
   timeoutMs: number,
   assertCanContinue?: () => void | Promise<void>,
-  updatedAfter?: string
+  updatedAfter?: string,
+  onDrainTick?: (completedSinceLastTick: number) => void | Promise<void>
 ): Promise<EmbeddingBackfillQueueCounts> {
   const startedAt = Date.now();
   let lastVacuumAt = Date.now();
+  let lastTickSucceeded = 0;
   while (true) {
     await assertCanContinue?.();
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
@@ -295,6 +304,16 @@ async function waitForEmbeddingSetDrain(
       throw new Error(
         `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`
       );
+    }
+    // Notify caller of drain progress for maintenance (e.g., host restart)
+    if (onDrainTick) {
+      const counts = await getEmbeddingSetQueueCounts(db, embeddingSetId, updatedAfter);
+      const currentSucceeded = counts.succeeded;
+      if (currentSucceeded > lastTickSucceeded) {
+        const delta = currentSucceeded - lastTickSucceeded;
+        lastTickSucceeded = currentSucceeded;
+        await onDrainTick(delta);
+      }
     }
     // Periodically VACUUM to reclaim dead tuples from embedding UPDATEs
     if (Date.now() - lastVacuumAt >= VACUUM_INTERVAL_MS) {
@@ -467,6 +486,7 @@ export async function enqueueEmbeddingBackfill(
     progressIntervalMs,
     queueCapacityTimeoutMs,
   } = resolveEnqueueEmbeddingBackfillOptions(options);
+  const onDrainTick = options?.onDrainTick;
 
   logger.info('Backfill requested', { embeddingSetId });
   const metadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
@@ -566,7 +586,8 @@ export async function enqueueEmbeddingBackfill(
     backlogPollMs,
     drainTimeoutMs,
     assertCanContinue,
-    runStartedAt
+    runStartedAt,
+    onDrainTick
   );
   if (drainedCounts.failed > 0) {
     throw new Error(

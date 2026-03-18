@@ -5774,4 +5774,148 @@ test.describe('Embedding Host Renderer', () => {
 
     await electronHarness.restart();
   });
+
+  test('diagnoses per-process memory growth during sustained backfill (crash repro test 7 — diagnostic)', async ({
+    electronApp,
+    electronHarness,
+    window,
+  }) => {
+    // This test runs a real backfill for 3+ minutes, sampling ALL process
+    // memory every 10s. It prints detailed per-process snapshots so we can
+    // see exactly which process (visible-ui, embedding-host, main) is growing.
+    // It intentionally DOES NOT assert — it's a diagnostic tool.
+    test.setTimeout(360_000);
+
+    const DIAG_FILE_COUNT = 500;
+    const DIAG_CHUNKS_PER_FILE = 20;
+    const DIAG_SAMPLE_COUNT = 18;
+    const DIAG_SAMPLE_INTERVAL_MS = 10_000;
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    // Use WebGPU to reproduce production memory growth. WASM shows no growth
+    // but WebGPU buffers (managed by Dawn/Metal) accumulate unboundedly.
+    // Falls back to WASM in CI where GPU is disabled.
+    const devicePref = process.env['CI'] ? 'wasm' : 'webgpu';
+    await setVectorDevicePreference(activeWindow, devicePref as 'wasm' | 'webgpu');
+    await reloadRendererInTest(activeWindow, 'crash-repro-memory-diagnostic');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    await ensureEmbeddingHostWarmed(activeWindow);
+
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: DIAG_FILE_COUNT,
+      chunksPerFile: DIAG_CHUNKS_PER_FILE,
+      persistActiveSet: false,
+    });
+    await reloadRendererInTest(activeWindow, 'crash-repro-memory-diagnostic-fixture');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    // Force GC everywhere before baseline
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+    const hostPage = await getEmbeddingHostPage(activeWindow);
+    await forceRendererGarbageCollection(hostPage);
+
+    // Use app.getAppMetrics() for real OS-level memory (V8 heap can't see WASM)
+    async function getAppMetricsSummary(): Promise<
+      Array<{ memoryKB: number; name: string; pid: number; type: string }>
+    > {
+      return await electronApp.app.evaluate(({ app }) => {
+        return app.getAppMetrics().map((metric) => ({
+          pid: metric.pid,
+          type: metric.type,
+          name: metric.name ?? '',
+          memoryKB: metric.memory?.workingSetSize ?? 0,
+        }));
+      });
+    }
+
+    const baseline = await getAppMetricsSummary();
+    console.log(JSON.stringify({ type: 'MEMORY_DIAGNOSTIC_BASELINE', processes: baseline }));
+
+    await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+    expect(outcome).toBe('running');
+
+    // Sample every 10s for 3 minutes
+    const startedAt = Date.now();
+    for (let index = 0; index < DIAG_SAMPLE_COUNT; index += 1) {
+      await activeWindow.waitForTimeout(DIAG_SAMPLE_INTERVAL_MS);
+
+      const metrics = await getAppMetricsSummary();
+      const queueStats = await getEmbeddingQueueStats(activeWindow);
+      const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+
+      console.log(
+        JSON.stringify({
+          type: 'MEMORY_DIAGNOSTIC_SAMPLE',
+          sample: index + 1,
+          elapsedSec,
+          processes: metrics.map((m) => ({
+            type: m.type,
+            pid: m.pid,
+            memoryMB: Math.round((m.memoryKB / 1024) * 10) / 10,
+          })),
+          totalMemoryMB:
+            Math.round((metrics.reduce((sum, m) => sum + m.memoryKB, 0) / 1024) * 10) / 10,
+          queueSucceeded: queueStats.succeeded,
+          queueRunning: queueStats.running,
+          queueQueued: queueStats.queued,
+        })
+      );
+    }
+
+    console.log(JSON.stringify({ type: 'MEMORY_DIAGNOSTIC_COMPLETE' }));
+
+    // Assert total memory growth stays bounded.
+    // With WebGPU, unbounded buffer accumulation can cause GB-scale growth.
+    // Assert GPU process memory is bounded. With unbounded WebGPU buffer
+    // accumulation, the GPU process grows monotonically (~2.5 MB every 10s).
+    // Extrapolated to 30K items this would be ~600MB+ of GPU growth alone.
+    // After the fix (periodic embedding host restart), the GPU memory should
+    // reset at each restart and stay bounded.
+    const finalMetrics = await getAppMetricsSummary();
+    const baselineGpuKB = baseline.find((p) => p.type === 'GPU')?.memoryKB ?? 0;
+    const finalGpuKB = finalMetrics.find((p) => p.type === 'GPU')?.memoryKB ?? 0;
+    const gpuGrowthMB = (finalGpuKB - baselineGpuKB) / 1024;
+
+    const baselineTotalKB = baseline.reduce((sum, p) => sum + p.memoryKB, 0);
+    const finalTotalKB = finalMetrics.reduce((sum, p) => sum + p.memoryKB, 0);
+    const totalGrowthMB = (finalTotalKB - baselineTotalKB) / 1024;
+
+    const queueStats = await getEmbeddingQueueStats(activeWindow);
+    const itemsProcessed = queueStats.succeeded;
+    const gpuGrowthPerItemKB =
+      itemsProcessed > 0 ? (finalGpuKB - baselineGpuKB) / itemsProcessed : 0;
+
+    console.log(
+      JSON.stringify({
+        type: 'MEMORY_DIAGNOSTIC_GROWTH',
+        itemsProcessed,
+        gpuGrowthMB: Math.round(gpuGrowthMB),
+        gpuGrowthPerItemKB: Math.round(gpuGrowthPerItemKB * 10) / 10,
+        totalGrowthMB: Math.round(totalGrowthMB),
+      })
+    );
+
+    // GPU growth should be < 15 KB per item. The periodic host restart reduces
+    // the rate from ~20 KB/item (unfixed) to ~11 KB/item by releasing per-renderer
+    // Dawn buffers. The shared GPU process retains some per-item growth that
+    // can only be reclaimed by restarting the entire GPU process.
+    // Without the fix, 30K items would grow ~600MB; with it, ~330MB.
+    expect(gpuGrowthPerItemKB).toBeLessThan(15);
+
+    await electronHarness.restart();
+  });
 });
