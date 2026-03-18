@@ -76,6 +76,7 @@ const logger = createLogger('DesktopIpcHandlers');
 // Focus: immediate flush — user sees up-to-date state on return
 // ---------------------------------------------------------------------------
 let isBackgrounded = false;
+let liveSubscriptionPauseDepth = 0;
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
@@ -215,33 +216,49 @@ export function setBackgrounded(value: boolean): void {
   const wasBackgrounded = isBackgrounded;
   isBackgrounded = value;
   if (value && !wasBackgrounded) {
-    pauseLiveSubscriptions();
+    acquireLiveSubscriptionPause();
   }
   if (!value && wasBackgrounded) {
-    resumeLiveSubscriptions();
+    releaseLiveSubscriptionPause();
     flushPendingLiveUpdates();
   }
 }
 
-function pauseLiveSubscriptions(): void {
-  for (const record of liveSubscriptions.values()) {
-    try {
-      void record.handle.unsubscribe(record.listener);
-    } catch {
-      // Ignore errors during pause — subscription may already be cleaned up
+// Reference-counted pause/resume for PGlite live query subscriptions.
+// Multiple callers (window blur, backfill) can pause independently;
+// subscriptions only resume when ALL callers have released.
+function acquireLiveSubscriptionPause(): void {
+  liveSubscriptionPauseDepth += 1;
+  if (liveSubscriptionPauseDepth === 1) {
+    for (const record of liveSubscriptions.values()) {
+      try {
+        void record.handle.unsubscribe(record.listener);
+      } catch {
+        // Ignore errors — subscription may already be cleaned up
+      }
     }
   }
 }
 
-function resumeLiveSubscriptions(): void {
-  for (const record of liveSubscriptions.values()) {
-    try {
-      record.handle.subscribe(record.listener);
-    } catch {
-      // Ignore errors during resume — subscription may have been cleaned up
+function releaseLiveSubscriptionPause(): void {
+  if (liveSubscriptionPauseDepth <= 0) {
+    return;
+  }
+  liveSubscriptionPauseDepth -= 1;
+  if (liveSubscriptionPauseDepth === 0) {
+    for (const record of liveSubscriptions.values()) {
+      try {
+        record.handle.subscribe(record.listener);
+      } catch {
+        // Ignore errors — subscription may have been cleaned up
+      }
     }
   }
 }
+
+// Convenience aliases for semantic call sites
+const pauseLiveSubscriptions = acquireLiveSubscriptionPause;
+const resumeLiveSubscriptions = releaseLiveSubscriptionPause;
 
 function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
   if (!error || typeof error !== 'object') {

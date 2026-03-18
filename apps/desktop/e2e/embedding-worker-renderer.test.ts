@@ -5094,7 +5094,7 @@ test.describe('Embedding Host Renderer', () => {
     await app.evaluate(({ BrowserWindow }, powerState) => {
       for (const win of BrowserWindow.getAllWindows()) {
         try {
-          win.webContents.send('app:power-state', { state: powerState });
+          win.webContents.send('app:power-state', powerState);
         } catch {
           // Window may be destroyed
         }
