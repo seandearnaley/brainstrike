@@ -787,9 +787,19 @@ function buildSemanticVisibleNodeIds(
   }
 
   for (const result of semanticResults) {
-    const node = nodeMap.get(result.nodeId);
+    // Try the chunk node first (available when chunks are loaded in the tree)
+    let node = nodeMap.get(result.nodeId);
+
+    // Chunks are loaded lazily — if the chunk node isn't in the tree yet,
+    // fall back to the parent file node so the file is still shown as a
+    // search match. Without this fallback, semantic search returns "no results"
+    // whenever the matching chunks haven't been expanded/loaded yet.
+    if (!node && result.fileRecordId) {
+      node = nodeMap.get(result.fileRecordId);
+    }
+
     if (node && filterFn(node)) {
-      visibleNodeIds.add(result.nodeId);
+      visibleNodeIds.add(node.id);
       matchingCount++;
 
       // Walk up the tree and mark all ancestors for visibility
