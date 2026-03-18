@@ -537,6 +537,11 @@ describe('database IPC handlers', () => {
     expect(result.initialResults).toEqual({ rows: [{ id: 1 }] });
 
     listener?.({ rows: [{ id: 2 }] });
+    // Live query updates are dedup+batched; flush to deliver pending sends.
+    const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+    const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
+    getAllWindowsMock.mockReturnValue([{ webContents: sender } as unknown as BrowserWindow]);
+    flushPendingLiveUpdates();
     expect(sender.send).toHaveBeenCalledWith('db:live-query:update', {
       id: result.id,
       results: { rows: [{ id: 2 }] },
@@ -1052,13 +1057,18 @@ describe('database IPC handlers', () => {
     });
 
     it('cleans up subscriptions when foreground sends fail because the render frame was disposed', async () => {
+      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
       const { listener, liveHandle, sender } = await setupLiveQuery();
+      const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
 
       sender.send.mockImplementation(() => {
         throw new Error('Render frame was disposed before WebFrameMain could be accessed');
       });
+      getAllWindowsMock.mockReturnValue([{ webContents: sender } as unknown as BrowserWindow]);
 
       listener({ rows: [{ id: 123 }] });
+      // Flush the batched update to trigger the disposed-frame error path
+      flushPendingLiveUpdates();
       await Promise.resolve();
 
       expect(liveHandle.unsubscribe).toHaveBeenCalled();
@@ -1089,6 +1099,7 @@ describe('database IPC handlers', () => {
     });
 
     it('keeps owner destroy-listener registration when disposed-frame cleanup runs before webContents destruction', async () => {
+      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
       const handler = handlers.get('db:live-query:start');
       if (!handler) {
         throw new Error('handler not registered');
@@ -1121,6 +1132,8 @@ describe('database IPC handlers', () => {
           .mockImplementation(() => undefined),
         once: vi.fn(),
       };
+      const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
+      getAllWindowsMock.mockReturnValue([{ webContents: sender } as unknown as BrowserWindow]);
 
       const firstResult = (await handler({ sender } as unknown, {
         query: 'SELECT 1',
@@ -1133,6 +1146,8 @@ describe('database IPC handlers', () => {
       }
 
       firstListener({ rows: [{ id: 1 }] });
+      // Flush the batched update to trigger the disposed-frame error path
+      flushPendingLiveUpdates();
       await Promise.resolve();
 
       expect(firstLiveHandle.unsubscribe).toHaveBeenCalled();

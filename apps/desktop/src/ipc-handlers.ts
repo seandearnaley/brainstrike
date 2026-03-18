@@ -208,6 +208,9 @@ function flushPendingLiveUpdates(): void {
   }
 }
 
+/** Flush any pending dedup+batch live query updates immediately. Exported for testing. */
+export { flushPendingLiveUpdates };
+
 export function setBackgrounded(value: boolean): void {
   const wasBackgrounded = isBackgrounded;
   isBackgrounded = value;
