@@ -227,6 +227,12 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       experimentalFeatures: false,
       safeDialogs: true,
       navigateOnDragDrop: false,
+      // Prevent Chromium from throttling the visible-ui renderer when the
+      // window loses focus or is occluded. The visible-ui creates its own
+      // WebGPU/ONNX session for semantic search; without this flag, that
+      // GPU device can be invalidated by Chromium's backgrounding, causing
+      // a SIGTRAP crash when the user returns to the app.
+      backgroundThrottling: false,
     },
     titleBarStyle: 'default',
     backgroundColor: '#0b1020',

@@ -1008,8 +1008,22 @@ if (singleInstanceLockAcquired) {
         }, 2000);
       });
 
-      powerMonitor.on('lock-screen', () => logger.info('power:lock-screen'));
-      powerMonitor.on('unlock-screen', () => logger.info('power:unlock-screen'));
+      // Lock-screen invalidates GPU contexts on macOS (WindowServer reclaims
+      // Metal contexts for the login window). Broadcast the same power state
+      // events as suspend/resume so renderers can pause GPU keep-alive timers
+      // and avoid submitting commands to stale devices.
+      powerMonitor.on('lock-screen', () => {
+        logger.info('power:lock-screen');
+        broadcastPowerState('suspend');
+      });
+      powerMonitor.on('unlock-screen', () => {
+        logger.info('power:unlock-screen');
+        // Delay to let GPU contexts re-initialize after WindowServer hands
+        // back the display, matching the resume delay.
+        setTimeout(() => {
+          broadcastPowerState('resume');
+        }, 2000);
+      });
 
       // Window focus/blur: throttle IPC traffic when backgrounded
       mainWindow.on('blur', () => {

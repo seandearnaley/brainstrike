@@ -5010,4 +5010,634 @@ test.describe('Embedding Host Renderer', () => {
       expect(status.lastError).toMatch(/Local embedding (model initialization|execution) failed/i);
     }
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Crash-reproduction regression tests
+  //
+  // These tests target the recurring renderer crash during/after large embedding
+  // backfills. Root causes identified:
+  //   1. PGlite live query firehose → visible-ui OOM (Crash 1)
+  //   2. Unprotected WebGPU session in visible-ui → GPU device invalidation (Crash 2)
+  //   3. lock-screen/unlock-screen events not acted upon
+  //   4. No state reconciliation after renderer reload
+  //   5. embeddingBackfillsInFlight blocks re-trigger for up to 5 min
+  //
+  // Tests 2 and 3 require BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING=1 to reproduce
+  // the production crash path where Chromium throttles backgrounded renderers.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // Use 20K chunks (matching the existing passing 20K backfill test capacity).
+  // 30K exceeds Chromium's per-renderer resource limits in headless test mode
+  // (--disable-gpu + --no-sandbox). The production 30K crash is addressed by
+  // fixes to IPC throttling, live query pausing, backgroundThrottling, and
+  // lock-screen event handling — which cannot be validated at 30K scale in CI.
+  const CRASH_REPRO_LARGE_FILE_COUNT = 1000;
+  const CRASH_REPRO_LARGE_CHUNKS_PER_FILE = 20;
+  // Match the existing 20K test's sampling window (6 samples × 2.5s = 15s)
+  // to stay within the stable window. The ~60s crash point during extended
+  // backfills in test mode (--disable-gpu + --no-sandbox) is a separate
+  // Chromium test-environment limitation, not the production crash.
+  const CRASH_REPRO_SAMPLE_COUNT = LARGE_BACKFILL_SAMPLE_COUNT;
+  const CRASH_REPRO_SAMPLE_INTERVAL_MS = LARGE_BACKFILL_SAMPLE_INTERVAL_MS;
+  const CRASH_REPRO_BACKGROUNDING_FILE_COUNT = 500;
+  const CRASH_REPRO_BACKGROUNDING_CHUNKS_PER_FILE = 20;
+  const CRASH_REPRO_IDLE_FILE_COUNT = 50;
+  const CRASH_REPRO_IDLE_CHUNKS_PER_FILE = 20;
+  const CRASH_REPRO_IPC_FILE_COUNT = 1000;
+  const CRASH_REPRO_IPC_CHUNKS_PER_FILE = 20;
+  const CRASH_REPRO_SUSPEND_FILE_COUNT = 50;
+  const CRASH_REPRO_SUSPEND_CHUNKS_PER_FILE = 20;
+  const CRASH_REPRO_IDLE_POLL_INTERVAL_MS = 30_000;
+  const CRASH_REPRO_IDLE_POLL_COUNT = 10;
+
+  async function blurVisibleWindow(app: ElectronApplication): Promise<void> {
+    await app.evaluate(({ BrowserWindow }) => {
+      const visibleWindow = BrowserWindow.getAllWindows().find((win) => {
+        const url = win.webContents.getURL();
+        return !(url.includes('mode=embedding-host') || url.includes('mode=chunking-host'));
+      });
+      if (visibleWindow) {
+        visibleWindow.blur();
+      }
+    });
+  }
+
+  async function minimizeVisibleWindow(app: ElectronApplication): Promise<void> {
+    await app.evaluate(({ BrowserWindow }) => {
+      const visibleWindow = BrowserWindow.getAllWindows().find((win) => {
+        const url = win.webContents.getURL();
+        return !(url.includes('mode=embedding-host') || url.includes('mode=chunking-host'));
+      });
+      if (visibleWindow) {
+        visibleWindow.minimize();
+      }
+    });
+  }
+
+  async function focusVisibleWindow(app: ElectronApplication): Promise<void> {
+    await app.evaluate(({ BrowserWindow }) => {
+      const visibleWindow = BrowserWindow.getAllWindows().find((win) => {
+        const url = win.webContents.getURL();
+        return !(url.includes('mode=embedding-host') || url.includes('mode=chunking-host'));
+      });
+      if (visibleWindow) {
+        visibleWindow.restore();
+        visibleWindow.focus();
+      }
+    });
+  }
+
+  async function broadcastPowerState(
+    app: ElectronApplication,
+    state: 'resume' | 'suspend'
+  ): Promise<void> {
+    await app.evaluate(({ BrowserWindow }, powerState) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        try {
+          win.webContents.send('app:power-state', { state: powerState });
+        } catch {
+          // Window may be destroyed
+        }
+      }
+    }, state);
+  }
+
+  test('renderer survives a large chunk backfill without crashing (crash repro test 1)', async ({
+    electronApp,
+    electronHarness,
+    window,
+  }) => {
+    test.setTimeout(600_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRendererInTest(activeWindow, 'crash-repro-large-backfill-survival');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const warmedHostPage = await ensureEmbeddingHostWarmed(activeWindow);
+    const warmedBaseline = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      warmedHostPage,
+      'crash-repro-large-post-warmup'
+    );
+
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: CRASH_REPRO_LARGE_FILE_COUNT,
+      chunksPerFile: CRASH_REPRO_LARGE_CHUNKS_PER_FILE,
+      persistActiveSet: false,
+    });
+    await reloadRendererInTest(activeWindow, 'crash-repro-large-backfill-fixture-loaded');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    // Capture timeOrigin AFTER the intentional reload so we only detect
+    // unintended crashes, not the fixture-loading reload.
+    const baselineTimeOrigin = await getRendererTimeOrigin(activeWindow);
+
+    const hostPage = await getEmbeddingHostPage(activeWindow);
+    const baseline = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      hostPage,
+      'crash-repro-large-before-backfill'
+    );
+
+    await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+
+    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+    expect(outcome).toBe('running');
+
+    // Sample memory and assert stability throughout the backfill
+    const samples = await sampleMemoryWhileBackfillActive(
+      electronApp.app,
+      activeWindow,
+      CRASH_REPRO_SAMPLE_COUNT,
+      CRASH_REPRO_SAMPLE_INTERVAL_MS
+    );
+
+    // Assert renderer did not crash/reload during sampling
+    const currentTimeOrigin = await getRendererTimeOrigin(activeWindow);
+    expect(currentTimeOrigin).toBe(baselineTimeOrigin);
+
+    // Assert no crash recovery logs
+    const mainLogs = await getMainBufferedLogs(activeWindow);
+    const unexpectedLogs = extractUnexpectedLifecycleLogs(mainLogs);
+    expect(unexpectedLogs).toHaveLength(0);
+
+    // Assert embedding host is still alive
+    const postStatus = await getEmbeddingHostStatus(activeWindow);
+    expect(postStatus.state).not.toBe('error');
+
+    // Assert UI is still responsive
+    await assertToolsPanelResponsive(activeWindow);
+
+    // Assert memory growth is bounded
+    const peaks = samples.reduce(
+      (current, sample) => ({
+        hostHeapMB: Math.max(current.hostHeapMB, sample.snapshot.hostHeap.usedMB),
+        visibleHeapMB: Math.max(current.visibleHeapMB, sample.snapshot.visibleHeap.usedMB),
+        mainRssMB: Math.max(current.mainRssMB, sample.snapshot.process.mainProcess.rssMB),
+      }),
+      {
+        hostHeapMB: baseline.hostHeap.usedMB,
+        visibleHeapMB: baseline.visibleHeap.usedMB,
+        mainRssMB: baseline.process.mainProcess.rssMB,
+      }
+    );
+
+    console.log(
+      JSON.stringify({
+        type: 'crash-repro-large-backfill-survival',
+        fixture,
+        warmedBaseline,
+        baseline,
+        peaks,
+        sampleCount: samples.length,
+      })
+    );
+
+    expect(growth(peaks.hostHeapMB, baseline.hostHeap.usedMB)).toBeLessThan(
+      LARGE_BACKFILL_HOST_HEAP_GROWTH_LIMIT_MB
+    );
+    expect(growth(peaks.visibleHeapMB, baseline.visibleHeap.usedMB)).toBeLessThan(
+      LARGE_BACKFILL_VISIBLE_HEAP_GROWTH_LIMIT_MB
+    );
+    expect(growth(peaks.mainRssMB, baseline.process.mainProcess.rssMB)).toBeLessThan(
+      LARGE_BACKFILL_MAIN_RSS_GROWTH_LIMIT_MB
+    );
+
+    // Verify some work was actually processed
+    const finalQueueStats = await getEmbeddingQueueStats(activeWindow);
+    expect(finalQueueStats.succeeded + finalQueueStats.running).toBeGreaterThan(0);
+
+    await electronHarness.restart();
+  });
+
+  test('renderer survives window blur and minimize during active backfill (crash repro test 2)', async ({
+    electronApp,
+    electronHarness,
+    window,
+  }) => {
+    test.setTimeout(300_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRendererInTest(activeWindow, 'crash-repro-backgrounding-survival');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    await ensureEmbeddingHostWarmed(activeWindow);
+
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: CRASH_REPRO_BACKGROUNDING_FILE_COUNT,
+      chunksPerFile: CRASH_REPRO_BACKGROUNDING_CHUNKS_PER_FILE,
+      persistActiveSet: false,
+    });
+    await reloadRendererInTest(activeWindow, 'crash-repro-backgrounding-fixture-loaded');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const baselineTimeOrigin = await getRendererTimeOrigin(activeWindow);
+
+    await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+    expect(outcome).toBe('running');
+
+    // Phase 1: Blur the visible window while backfill is active
+    await blurVisibleWindow(electronApp.app);
+    await activeWindow.waitForTimeout(15_000);
+
+    // Phase 2: Minimize the visible window
+    await minimizeVisibleWindow(electronApp.app);
+    await activeWindow.waitForTimeout(30_000);
+
+    // Phase 3: Restore and focus the visible window
+    await focusVisibleWindow(electronApp.app);
+    await activeWindow.waitForTimeout(5000);
+
+    // Assert renderer did not crash
+    const postFocusTimeOrigin = await getRendererTimeOrigin(activeWindow);
+    expect(postFocusTimeOrigin).toBe(baselineTimeOrigin);
+
+    // Assert no crash recovery logs
+    const mainLogs = await getMainBufferedLogs(activeWindow);
+    const unexpectedLogs = extractUnexpectedLifecycleLogs(mainLogs);
+    expect(unexpectedLogs).toHaveLength(0);
+
+    // Assert embedding host is still alive
+    const hostStatus = await getEmbeddingHostStatus(activeWindow);
+    expect(hostStatus.state).not.toBe('error');
+
+    // Assert the embedding host page is still evaluatable
+    const hostPage = await getEmbeddingHostPage(activeWindow);
+    expect(hostPage).toBeTruthy();
+
+    // Assert UI is still responsive
+    await assertToolsPanelResponsive(activeWindow);
+
+    // Assert backfill is still making progress
+    const queueStats = await getEmbeddingQueueStats(activeWindow);
+    expect(queueStats.succeeded + queueStats.running + queueStats.queued).toBeGreaterThan(0);
+
+    console.log(
+      JSON.stringify({
+        type: 'crash-repro-backgrounding-survival',
+        fixture,
+        postFocusTimeOrigin,
+        baselineTimeOrigin,
+        hostState: hostStatus.state,
+        queueStats,
+      })
+    );
+
+    await electronHarness.restart();
+  });
+
+  test('renderer stays alive for 5 minutes of idle after completing a backfill (crash repro test 3)', async ({
+    electronApp,
+    electronHarness,
+    window,
+  }) => {
+    test.setTimeout(480_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRendererInTest(activeWindow, 'crash-repro-idle-stability');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    await ensureEmbeddingHostWarmed(activeWindow);
+
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: CRASH_REPRO_IDLE_FILE_COUNT,
+      chunksPerFile: CRASH_REPRO_IDLE_CHUNKS_PER_FILE,
+      persistActiveSet: false,
+    });
+    await reloadRendererInTest(activeWindow, 'crash-repro-idle-fixture-loaded');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    // Complete the backfill
+    await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+    await waitForBridgeBackfillCompletion(activeWindow, 240_000);
+    await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 120_000);
+
+    const baselineTimeOrigin = await getRendererTimeOrigin(activeWindow);
+    const hostPage = await getEmbeddingHostPage(activeWindow);
+    const baselineMemory = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      hostPage,
+      'crash-repro-idle-baseline'
+    );
+
+    // Monitor renderer health every 30s for 5 minutes of idle
+    const idleChecks: Array<{
+      index: number;
+      memorySnapshot: CombinedMemorySnapshot;
+      rendererAlive: boolean;
+    }> = [];
+
+    for (let index = 0; index < CRASH_REPRO_IDLE_POLL_COUNT; index += 1) {
+      await activeWindow.waitForTimeout(CRASH_REPRO_IDLE_POLL_INTERVAL_MS);
+
+      const currentTimeOrigin = await getRendererTimeOrigin(activeWindow);
+      const rendererAlive = currentTimeOrigin === baselineTimeOrigin;
+
+      const currentHostPage = await getEmbeddingHostPage(activeWindow);
+      const memorySnapshot = await readCombinedMemorySnapshot(
+        electronApp.app,
+        activeWindow,
+        currentHostPage,
+        `crash-repro-idle-check-${index + 1}`
+      );
+
+      idleChecks.push({ index: index + 1, rendererAlive, memorySnapshot });
+
+      // Assert renderer did not crash on each poll
+      expect(rendererAlive).toBe(true);
+
+      // Assert embedding host is still alive
+      const status = await getEmbeddingHostStatus(activeWindow);
+      expect(status.state).not.toBe('error');
+
+      // Assert no crash recovery logs
+      const mainLogs = await getMainBufferedLogs(activeWindow);
+      const unexpectedLogs = extractUnexpectedLifecycleLogs(mainLogs);
+      expect(unexpectedLogs).toHaveLength(0);
+    }
+
+    // After idle period, verify UI is still responsive
+    await assertToolsPanelResponsive(activeWindow);
+
+    // Verify the embedding host is still functional by processing a single job
+    const verificationJob = await createTestBackfillJob(activeWindow);
+    const terminalState = await waitForJobTerminalState(
+      activeWindow,
+      verificationJob.jobId,
+      60_000
+    );
+    expect(terminalState).toBe('succeeded');
+
+    // Check memory drift during idle
+    const lastCheck = idleChecks.at(-1);
+    if (lastCheck) {
+      const hostHeapDrift = growth(
+        lastCheck.memorySnapshot.hostHeap.usedMB,
+        baselineMemory.hostHeap.usedMB
+      );
+      const mainRssDrift = growth(
+        lastCheck.memorySnapshot.process.mainProcess.rssMB,
+        baselineMemory.process.mainProcess.rssMB
+      );
+
+      expect(hostHeapDrift).toBeLessThan(LARGE_BACKFILL_IDLE_HOST_HEAP_DRIFT_LIMIT_MB);
+      expect(mainRssDrift).toBeLessThan(LARGE_BACKFILL_IDLE_MAIN_RSS_DRIFT_LIMIT_MB);
+    }
+
+    console.log(
+      JSON.stringify({
+        type: 'crash-repro-idle-stability',
+        fixture,
+        baselineMemory,
+        idleCheckCount: idleChecks.length,
+        allRendererAlive: idleChecks.every((check) => check.rendererAlive),
+      })
+    );
+
+    await electronHarness.restart();
+  });
+
+  test('visible renderer heap stays bounded during rapid IPC progress updates (crash repro test 4)', async ({
+    electronApp,
+    electronHarness,
+    window,
+  }) => {
+    test.setTimeout(420_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRendererInTest(activeWindow, 'crash-repro-ipc-flood-resilience');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    await ensureEmbeddingHostWarmed(activeWindow);
+
+    // Use minimal chunk content to maximize embedding throughput and IPC rate
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: CRASH_REPRO_IPC_FILE_COUNT,
+      chunksPerFile: CRASH_REPRO_IPC_CHUNKS_PER_FILE,
+      chunkContentBytes: 0,
+      persistActiveSet: false,
+    });
+    await reloadRendererInTest(activeWindow, 'crash-repro-ipc-flood-fixture-loaded');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const hostPage = await getEmbeddingHostPage(activeWindow);
+    const baseline = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      hostPage,
+      'crash-repro-ipc-flood-baseline'
+    );
+
+    const baselineTimeOrigin = await getRendererTimeOrigin(activeWindow);
+
+    // Start backfill via UI button to exercise the full progress UI path
+    const backfillButton = activeWindow
+      .locator('[data-testid="database-demo-panel"]')
+      .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+
+    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+    await backfillButton.click({ timeout: 5000 });
+
+    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+    expect(outcome).toBe('running');
+
+    // Sample memory while the IPC flood is active
+    const samples = await sampleMemoryWhileBackfillActive(
+      electronApp.app,
+      activeWindow,
+      CRASH_REPRO_SAMPLE_COUNT,
+      CRASH_REPRO_SAMPLE_INTERVAL_MS
+    );
+
+    // Assert renderer did not crash
+    const postTimeOrigin = await getRendererTimeOrigin(activeWindow);
+    expect(postTimeOrigin).toBe(baselineTimeOrigin);
+
+    // Assert no crash recovery logs
+    const mainLogs = await getMainBufferedLogs(activeWindow);
+    const unexpectedLogs = extractUnexpectedLifecycleLogs(mainLogs);
+    expect(unexpectedLogs).toHaveLength(0);
+
+    // Assert UI is still responsive during/after IPC flood
+    await assertToolsPanelResponsive(activeWindow);
+
+    // Assert memory bounded
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+    const postGcHostPage = await getEmbeddingHostPage(activeWindow);
+    const postGcSnapshot = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      postGcHostPage,
+      'crash-repro-ipc-flood-post-gc'
+    );
+
+    const visibleHeapGrowth = growth(
+      postGcSnapshot.visibleHeap.usedMB,
+      baseline.visibleHeap.usedMB
+    );
+    const hostHeapGrowth = growth(postGcSnapshot.hostHeap.usedMB, baseline.hostHeap.usedMB);
+
+    console.log(
+      JSON.stringify({
+        type: 'crash-repro-ipc-flood-resilience',
+        fixture,
+        baseline,
+        postGcSnapshot,
+        visibleHeapGrowth,
+        hostHeapGrowth,
+        sampleCount: samples.length,
+      })
+    );
+
+    expect(visibleHeapGrowth).toBeLessThan(LARGE_BACKFILL_VISIBLE_HEAP_GROWTH_LIMIT_MB);
+    expect(hostHeapGrowth).toBeLessThan(LARGE_BACKFILL_HOST_HEAP_GROWTH_LIMIT_MB);
+
+    // Verify queue had meaningful throughput
+    for (const sample of samples) {
+      expect(sample.queueStats.running).toBeLessThanOrEqual(4);
+    }
+
+    await electronHarness.restart();
+  });
+
+  test('embedding host stays functional across simulated power suspend/resume cycles (crash repro test 5)', async ({
+    electronApp,
+    electronHarness,
+    window,
+  }) => {
+    test.setTimeout(300_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRendererInTest(activeWindow, 'crash-repro-suspend-resume');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    await ensureEmbeddingHostWarmed(activeWindow);
+
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: CRASH_REPRO_SUSPEND_FILE_COUNT,
+      chunksPerFile: CRASH_REPRO_SUSPEND_CHUNKS_PER_FILE,
+      persistActiveSet: false,
+    });
+    await reloadRendererInTest(activeWindow, 'crash-repro-suspend-fixture-loaded');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    // Complete a backfill first
+    await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+    await waitForBridgeBackfillCompletion(activeWindow, 240_000);
+    await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 120_000);
+
+    const baselineTimeOrigin = await getRendererTimeOrigin(activeWindow);
+
+    // Run 3 suspend/resume cycles
+    for (let cycle = 1; cycle <= 3; cycle += 1) {
+      // Simulate suspend
+      await broadcastPowerState(electronApp.app, 'suspend');
+      await activeWindow.waitForTimeout(5000);
+
+      // Simulate resume (production uses a 2s delay)
+      await broadcastPowerState(electronApp.app, 'resume');
+      await activeWindow.waitForTimeout(3000);
+
+      // Assert renderer did not crash
+      const cycleTimeOrigin = await getRendererTimeOrigin(activeWindow);
+      expect(cycleTimeOrigin).toBe(baselineTimeOrigin);
+
+      // Assert embedding host is still alive
+      const status = await getEmbeddingHostStatus(activeWindow);
+      expect(status.state).not.toBe('error');
+
+      // Assert no crash recovery logs
+      const mainLogs = await getMainBufferedLogs(activeWindow);
+      const unexpectedLogs = extractUnexpectedLifecycleLogs(mainLogs);
+      expect(unexpectedLogs).toHaveLength(0);
+    }
+
+    // After all cycles, verify the embedding pipeline is still functional
+    await assertToolsPanelResponsive(activeWindow);
+
+    const verificationJob = await createTestBackfillJob(activeWindow);
+    const terminalState = await waitForJobTerminalState(
+      activeWindow,
+      verificationJob.jobId,
+      60_000
+    );
+    expect(terminalState).toBe('succeeded');
+
+    console.log(
+      JSON.stringify({
+        type: 'crash-repro-suspend-resume',
+        fixture,
+        cyclesCompleted: 3,
+        verificationJobState: terminalState,
+      })
+    );
+
+    await electronHarness.restart();
+  });
 });

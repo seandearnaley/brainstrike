@@ -322,8 +322,11 @@ function createLaunchOptions(
     '--disable-dev-shm-usage',
     // Additional flags to prevent debugger/inspector issues
     '--disable-extensions',
-    '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding',
+    // Allow backgrounding in specific crash-reproduction tests to test the
+    // production code path where Chromium throttles backgrounded renderers.
+    ...(process.env['BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING'] === '1'
+      ? []
+      : ['--disable-background-timer-throttling', '--disable-renderer-backgrounding']),
   ];
 
   // #region agent log - Hypothesis C: DISPLAY resolution logic

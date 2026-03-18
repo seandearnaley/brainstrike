@@ -64,17 +64,22 @@ let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
 
 // ---------------------------------------------------------------------------
-// Live query IPC throttling when window is backgrounded
+// Live query IPC throttling
 //
-// When the window loses focus, live query updates are queued in a Map
-// (deduplicating by subscription ID) and flushed every 2 seconds or
-// immediately on focus. This prevents unnecessary IPC traffic to an
-// invisible renderer and reduces event-loop pressure during idle.
+// Live query updates are always queued in a Map (deduplicating by subscription
+// ID) and flushed on a timer. This prevents IPC flooding during heavy database
+// mutations (e.g., 30K-chunk embedding backfills that generate ~90K job_queue
+// mutations, each triggering multiple live queries).
+//
+// Foreground: 200ms flush interval — responsive UI updates without flooding
+// Background: 2000ms flush interval — reduces idle IPC traffic
+// Focus: immediate flush — user sees up-to-date state on return
 // ---------------------------------------------------------------------------
 let isBackgrounded = false;
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
-const LIVE_FLUSH_INTERVAL_MS = 2000;
+const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
+const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
 const embeddingBackfillsInFlight = new Set<string>();
@@ -151,21 +156,15 @@ function sendLiveQueryUpdateToSender(
     void cleanupLiveSubscription(subscriptionId);
     return;
   }
-  if (isBackgrounded) {
-    pendingLiveUpdates.set(subscriptionId, { id: subscriptionId, results });
-    if (!liveFlushTimer) {
-      liveFlushTimer = setTimeout(flushPendingLiveUpdates, LIVE_FLUSH_INTERVAL_MS);
-    }
-    return;
-  }
-  try {
-    sender.send('db:live-query:update', { id: subscriptionId, results });
-  } catch (error) {
-    if (isDisposedRenderFrameSendError(error)) {
-      scheduleDisposedLiveSubscriptionOwnerCleanup(sender.id, 'disposed-frame-send');
-      return;
-    }
-    throw error;
+  // Always dedup+batch: the Map overwrites previous pending updates for the
+  // same subscription, so even thousands of mutations per flush window only
+  // produce one IPC send per subscription.
+  pendingLiveUpdates.set(subscriptionId, { id: subscriptionId, results });
+  if (!liveFlushTimer) {
+    const intervalMs = isBackgrounded
+      ? LIVE_FLUSH_BACKGROUND_INTERVAL_MS
+      : LIVE_FLUSH_FOREGROUND_INTERVAL_MS;
+    liveFlushTimer = setTimeout(flushPendingLiveUpdates, intervalMs);
   }
 }
 
@@ -800,6 +799,14 @@ export function registerIpcHandlers(
         let backfillProgressTargetUnavailable = false;
         embeddingBackfillsInFlight.add(normalizedEmbeddingSetId);
 
+        // Pause all PGlite live query subscriptions during backfill.
+        // The backfill generates ~3× total_chunks mutations in job_queue
+        // (insert + running + succeeded per chunk). Each mutation causes
+        // PGlite to re-evaluate ALL active live queries, consuming massive
+        // main-process CPU and flooding the renderer with IPC updates.
+        // Pausing subscriptions stops PGlite from evaluating queries entirely.
+        pauseLiveSubscriptions();
+
         try {
           const hostStatus = await embeddingHostManager.ensureStarted({ waitForRunning: true });
           if (hostStatus.state !== 'running') {
@@ -863,6 +870,13 @@ export function registerIpcHandlers(
           );
         } finally {
           embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
+          // Resume live query subscriptions now that the mutation storm is over.
+          // This re-subscribes to PGlite live queries so the renderer gets
+          // up-to-date counts on the next evaluation cycle.
+          if (!isBackgrounded) {
+            resumeLiveSubscriptions();
+            flushPendingLiveUpdates();
+          }
         }
       }, EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)
   );

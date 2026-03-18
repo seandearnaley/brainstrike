@@ -218,6 +218,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const controller = params.controller;
   const activeBackfill = useVectorStatusUIStore((s) => s.activeBackfill);
   const durableQueueStats = useVectorStatusUIStore((s) => s.durableQueueStats);
+  const isJobQueueActive = useVectorStatusUIStore((s) => s.isJobQueueActive);
   const setActiveBackfill = useVectorStatusUIStore((s) => s.setActiveBackfill);
   const setIsJobQueueActive = useVectorStatusUIStore((s) => s.setIsJobQueueActive);
 
@@ -243,9 +244,18 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
 
   // Pause live queries during import, active embedding, and local backfill submission.
   // These queries invalidate on every job_queue mutation and can cause visible renderer
-  // hitching while large backfills are being enqueued.
+  // OOM during large backfills (30K+ chunks generate ~90K mutations).
+  //
+  // isJobQueueActive is set synchronously by setIsJobQueueActive(true) in
+  // backfillActiveSet BEFORE the enqueue IPC starts, providing the earliest
+  // possible signal to suppress live queries. This closes the race window
+  // between the Zustand state update and React's async re-render cycle.
   const liveQueryEnabled =
-    Boolean(service) && !isImporting && !isEmbeddingActive && !isBackfillActive;
+    Boolean(service) &&
+    !isImporting &&
+    !isEmbeddingActive &&
+    !isBackfillActive &&
+    !isJobQueueActive;
 
   // Clear timeout on unmount.
   useEffect(
