@@ -256,10 +256,6 @@ function releaseLiveSubscriptionPause(): void {
   }
 }
 
-// Convenience aliases for semantic call sites
-const pauseLiveSubscriptions = acquireLiveSubscriptionPause;
-const resumeLiveSubscriptions = releaseLiveSubscriptionPause;
-
 function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
   if (!error || typeof error !== 'object') {
     return false;
@@ -825,7 +821,7 @@ export function registerIpcHandlers(
         // PGlite to re-evaluate ALL active live queries, consuming massive
         // main-process CPU and flooding the renderer with IPC updates.
         // Pausing subscriptions stops PGlite from evaluating queries entirely.
-        pauseLiveSubscriptions();
+        acquireLiveSubscriptionPause();
 
         try {
           const hostStatus = await embeddingHostManager.ensureStarted({ waitForRunning: true });
@@ -890,11 +886,12 @@ export function registerIpcHandlers(
           );
         } finally {
           embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
-          // Resume live query subscriptions now that the mutation storm is over.
-          // This re-subscribes to PGlite live queries so the renderer gets
-          // up-to-date counts on the next evaluation cycle.
+          // Always release the pause ref so the depth counter stays balanced.
+          // If the window is still backgrounded, depth remains ≥1 (from
+          // setBackgrounded) and subscriptions stay paused — which is correct.
+          // Only flush pending updates if we're in the foreground.
+          releaseLiveSubscriptionPause();
           if (!isBackgrounded) {
-            resumeLiveSubscriptions();
             flushPendingLiveUpdates();
           }
         }
