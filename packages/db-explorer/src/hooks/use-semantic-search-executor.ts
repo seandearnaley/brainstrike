@@ -379,7 +379,7 @@ export function useSemanticSearchExecutor({
   const previousAvailabilityRef = useRef<boolean | null>(null);
   const db = usePGliteDatabase();
   const { models } = useModelRegistryStore();
-  const devicePref = useVectorPreferencesStore((state) => state.devicePref);
+  const devicePref = useVectorPreferencesStore((state) => state.devicePref) ?? 'webgpu';
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
   // Track in-flight initialization to prevent race conditions (BST-175 fix)
