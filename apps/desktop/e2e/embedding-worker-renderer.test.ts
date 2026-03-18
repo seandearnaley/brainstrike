@@ -3368,7 +3368,7 @@ test.describe('Embedding Host Renderer', () => {
     expect(chunkedFixture.fileCount).toBe(2);
     expect(chunkedFixture.totalChunks).toBeGreaterThan(0);
 
-    // ── 3. Configure WASM device and reload to pick up preferences ────────
+    // ── 3. Configure device and reload to pick up preferences ──────────
     await setVectorDevicePreference(activeWindow, 'wasm');
     await reloadRendererInTest(activeWindow, 'embedding-worker-search-e2e');
     activeWindow = await showDatabaseDemoPanel(activeWindow);
