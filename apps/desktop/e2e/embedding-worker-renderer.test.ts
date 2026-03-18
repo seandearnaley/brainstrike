@@ -5640,4 +5640,138 @@ test.describe('Embedding Host Renderer', () => {
 
     await electronHarness.restart();
   });
+
+  test('tracks per-process memory growth rate during sustained backfill (crash repro test 6)', async ({
+    electronApp,
+    electronHarness,
+    window,
+  }) => {
+    test.setTimeout(300_000);
+
+    const GROWTH_SAMPLE_COUNT = 12;
+    const GROWTH_SAMPLE_INTERVAL_MS = 10_000;
+    // Acceptable per-minute growth rates (MB/min) after GC
+    const VISIBLE_HEAP_GROWTH_RATE_LIMIT_MB_PER_MIN = 5;
+    const MAIN_RSS_GROWTH_RATE_LIMIT_MB_PER_MIN = 15;
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRendererInTest(activeWindow, 'crash-repro-growth-rate');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    await ensureEmbeddingHostWarmed(activeWindow);
+
+    // Use a large fixture to keep the backfill running for the full sample window
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: CRASH_REPRO_LARGE_FILE_COUNT,
+      chunksPerFile: CRASH_REPRO_LARGE_CHUNKS_PER_FILE,
+      persistActiveSet: false,
+    });
+    await reloadRendererInTest(activeWindow, 'crash-repro-growth-rate-fixture-loaded');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const baselineTimeOrigin = await getRendererTimeOrigin(activeWindow);
+
+    // Force GC before baseline
+    await forceRendererGarbageCollection(activeWindow);
+    await forceRendererGarbageCollection(activeWindow);
+
+    const hostPage = await getEmbeddingHostPage(activeWindow);
+    await forceRendererGarbageCollection(hostPage);
+
+    const baseline = await readCombinedMemorySnapshot(
+      electronApp.app,
+      activeWindow,
+      hostPage,
+      'growth-rate-baseline'
+    );
+
+    await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+    expect(outcome).toBe('running');
+
+    // Sample every 10s for 2 minutes with forced GC at each point
+    const samples: Array<{
+      elapsedSec: number;
+      mainHeapMB: number;
+      mainRssMB: number;
+      visibleHeapMB: number;
+    }> = [];
+    const startedAt = Date.now();
+
+    for (let index = 0; index < GROWTH_SAMPLE_COUNT; index += 1) {
+      await activeWindow.waitForTimeout(GROWTH_SAMPLE_INTERVAL_MS);
+
+      // Force GC on both renderers to measure real retention, not GC lag
+      await forceRendererGarbageCollection(activeWindow);
+      await forceRendererGarbageCollection(activeWindow);
+      const currentHostPage = await getEmbeddingHostPage(activeWindow);
+      await forceRendererGarbageCollection(currentHostPage);
+
+      const snapshot = await readCombinedMemorySnapshot(
+        electronApp.app,
+        activeWindow,
+        currentHostPage,
+        `growth-rate-sample-${index + 1}`
+      );
+
+      samples.push({
+        elapsedSec: Math.round((Date.now() - startedAt) / 1000),
+        visibleHeapMB: snapshot.visibleHeap.usedMB,
+        mainRssMB: snapshot.process.mainProcess.rssMB,
+        mainHeapMB: snapshot.process.mainProcess.heapUsedMB,
+      });
+    }
+
+    // Verify renderer didn't crash
+    const postTimeOrigin = await getRendererTimeOrigin(activeWindow);
+    expect(postTimeOrigin).toBe(baselineTimeOrigin);
+
+    // Calculate growth rates (MB per minute) using linear regression
+    const elapsedMinutes = samples.at(-1)!.elapsedSec / 60;
+    const visibleHeapGrowth = growth(samples.at(-1)!.visibleHeapMB, baseline.visibleHeap.usedMB);
+    const mainRssGrowth = growth(samples.at(-1)!.mainRssMB, baseline.process.mainProcess.rssMB);
+    const visibleHeapRate = elapsedMinutes > 0 ? visibleHeapGrowth / elapsedMinutes : 0;
+    const mainRssRate = elapsedMinutes > 0 ? mainRssGrowth / elapsedMinutes : 0;
+
+    console.log(
+      JSON.stringify({
+        type: 'crash-repro-memory-growth-rate',
+        fixture,
+        baseline: {
+          visibleHeapMB: baseline.visibleHeap.usedMB,
+          mainRssMB: baseline.process.mainProcess.rssMB,
+          mainHeapMB: baseline.process.mainProcess.heapUsedMB,
+        },
+        samples,
+        elapsedMinutes: Math.round(elapsedMinutes * 10) / 10,
+        visibleHeapGrowthMB: visibleHeapGrowth,
+        visibleHeapRateMBPerMin: Math.round(visibleHeapRate * 10) / 10,
+        mainRssGrowthMB: mainRssGrowth,
+        mainRssRateMBPerMin: Math.round(mainRssRate * 10) / 10,
+      })
+    );
+
+    // Assert growth rates are within acceptable bounds
+    expect(visibleHeapRate).toBeLessThan(VISIBLE_HEAP_GROWTH_RATE_LIMIT_MB_PER_MIN);
+    expect(mainRssRate).toBeLessThan(MAIN_RSS_GROWTH_RATE_LIMIT_MB_PER_MIN);
+
+    // Assert no crash recovery logs
+    const mainLogs = await getMainBufferedLogs(activeWindow);
+    const unexpectedLogs = extractUnexpectedLifecycleLogs(mainLogs);
+    expect(unexpectedLogs).toHaveLength(0);
+
+    await electronHarness.restart();
+  });
 });

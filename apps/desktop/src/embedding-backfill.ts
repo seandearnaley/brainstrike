@@ -258,6 +258,23 @@ async function countPendingEmbeddingSetJobs(
   return Number(result.rows[0]?.count ?? 0);
 }
 
+// PGlite runs PostgreSQL in WASM without autovacuum. Each embedding UPDATE
+// creates MVCC dead tuples that accumulate in WASM memory (which can only
+// grow, never shrink). Periodic VACUUM reclaims dead tuple space, preventing
+// unbounded memory growth during large backfills.
+const VACUUM_INTERVAL_MS = 30_000;
+
+async function vacuumBackfillTables(db: Pick<IDatabase, 'query'>): Promise<void> {
+  try {
+    await db.query('VACUUM (PARALLEL 0) file_chunks');
+    await db.query('VACUUM (PARALLEL 0) job_queue');
+  } catch (error) {
+    logger.debug('Periodic VACUUM during backfill failed (non-fatal)', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 async function waitForEmbeddingSetDrain(
   db: Pick<IDatabase, 'query'>,
   embeddingSetId: string,
@@ -267,6 +284,7 @@ async function waitForEmbeddingSetDrain(
   updatedAfter?: string
 ): Promise<EmbeddingBackfillQueueCounts> {
   const startedAt = Date.now();
+  let lastVacuumAt = Date.now();
   while (true) {
     await assertCanContinue?.();
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
@@ -277,6 +295,11 @@ async function waitForEmbeddingSetDrain(
       throw new Error(
         `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`
       );
+    }
+    // Periodically VACUUM to reclaim dead tuples from embedding UPDATEs
+    if (Date.now() - lastVacuumAt >= VACUUM_INTERVAL_MS) {
+      await vacuumBackfillTables(db);
+      lastVacuumAt = Date.now();
     }
     await sleep(backlogPollMs);
   }
@@ -550,6 +573,9 @@ export async function enqueueEmbeddingBackfill(
       `Backfill failed for embedding set '${embeddingSetId}': ${drainedCounts.failed} job(s) failed.`
     );
   }
+  // Final VACUUM to reclaim all dead tuples from the completed backfill
+  await vacuumBackfillTables(db);
+  logger.info('Backfill complete', { embeddingSetId, total, done });
   reportProgress(total, total, { force: true });
   return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
 }
