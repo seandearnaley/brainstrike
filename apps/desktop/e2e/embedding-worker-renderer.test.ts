@@ -3675,7 +3675,7 @@ test.describe('Embedding Host Renderer', () => {
     // parent file node via "file-${result.fileRecordId}".
     const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
     const emptyResultsMessage = collectionTreeRegion.getByText(
-      'No matching results found. Try adjusting your query or threshold.'
+      'No matching results found. Try adjusting your search query or threshold.'
     );
     await expect(emptyResultsMessage).toHaveCount(0, { timeout: 5000 });
 
@@ -3834,10 +3834,10 @@ test.describe('Embedding Host Renderer', () => {
     // 1. Search returned results (backend works)
     expect(lastSnapshot!.resultCount).toBeGreaterThan(0);
 
-    // 2. Tree must NOT show the empty state (lazy-chunk fallback works)
+    // 2. Tree must NOT show the empty state
     const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
     const emptyMessage = collectionTreeRegion.getByText(
-      'No matching results found. Try adjusting your query or threshold.'
+      'No matching results found. Try adjusting your search query or threshold.'
     );
     await expect(emptyMessage).toHaveCount(0, { timeout: 5000 });
 
@@ -4003,7 +4003,7 @@ test.describe('Embedding Host Renderer', () => {
     // Verify tree renders results (no empty state from lazy-chunk nodeId mismatch)
     const collectionTreeRegion2 = activeWindow.getByTestId('collection-tree-region');
     const emptyMessage2 = collectionTreeRegion2.getByText(
-      'No matching results found. Try adjusting your query or threshold.'
+      'No matching results found. Try adjusting your search query or threshold.'
     );
     await expect(emptyMessage2).toHaveCount(0, { timeout: 5000 });
   });
@@ -4269,7 +4269,7 @@ test.describe('Embedding Host Renderer', () => {
       const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
       const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
       const emptySemanticSearchMessage = collectionTreeRegion.getByText(
-        'No matching results found. Try adjusting your query or threshold.'
+        'No matching results found. Try adjusting your search query or threshold.'
       );
       const searchingOverlay = collectionTreeRegion.getByText('Searching...');
       await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
@@ -4395,7 +4395,7 @@ test.describe('Embedding Host Renderer', () => {
 
       const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
       const emptySemanticSearchMessage = collectionTreeRegion.getByText(
-        'No matching results found. Try adjusting your query or threshold.'
+        'No matching results found. Try adjusting your search query or threshold.'
       );
       const searchingOverlay = collectionTreeRegion.getByText('Searching...');
       const mixedStateFailures: string[] = [];
@@ -4794,7 +4794,7 @@ test.describe('Embedding Host Renderer', () => {
 
       const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
       const emptySemanticSearchMessage = collectionTreeRegion.getByText(
-        'No matching results found. Try adjusting your query or threshold.'
+        'No matching results found. Try adjusting your search query or threshold.'
       );
       const searchingOverlay = collectionTreeRegion.getByText('Searching...');
 

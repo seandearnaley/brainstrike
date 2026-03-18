@@ -393,6 +393,27 @@ export function CollectionBrowserView({
     clearResults,
   } = useSemanticSearch();
 
+  // When search results arrive, load chunks for matching files so the tree
+  // can display chunk-level nodes. Chunks are loaded on-demand (lazy), so
+  // without this the tree has no chunk nodes and search results can't match.
+  const prevSearchResultsLengthRef = useRef(0);
+  useEffect(() => {
+    if (
+      !loadFileChunkSummaries ||
+      searchResults.length === 0 ||
+      searchResults.length === prevSearchResultsLengthRef.current
+    ) {
+      return;
+    }
+    prevSearchResultsLengthRef.current = searchResults.length;
+
+    // Deduplicate file record IDs from search results
+    const fileRecordIds = [...new Set(searchResults.map((r) => r.fileRecordId))];
+    for (const fileRecordId of fileRecordIds) {
+      void loadFileChunkSummaries(fileRecordId);
+    }
+  }, [searchResults, loadFileChunkSummaries]);
+
   // Convert expanded IDs array to Set for CollectionBrowser
   const expandedIdsSet = useMemo(() => new Set(expandedIds), [expandedIds]);
   const contextNodeIdsSet = useMemo(() => new Set(contextSelectedIds), [contextSelectedIds]);
