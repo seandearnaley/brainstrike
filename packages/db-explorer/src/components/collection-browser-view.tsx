@@ -393,32 +393,6 @@ export function CollectionBrowserView({
     clearResults,
   } = useSemanticSearch();
 
-  // When search results arrive, load chunks for matching files so the tree
-  // can display chunk-level nodes. Chunks are loaded on-demand (lazy), so
-  // without this the tree has no chunk nodes and search results can't match.
-  useEffect(() => {
-    if (!loadFileChunkSummaries || searchResults.length === 0) {
-      return;
-    }
-
-    // Deduplicate file record IDs from search results
-    const fileRecordIds = [...new Set(searchResults.map((r) => r.fileRecordId))];
-
-    // Load all matching file chunks — errors must not be swallowed
-    Promise.all(
-      fileRecordIds.map((id) =>
-        loadFileChunkSummaries(id).catch((err: unknown) => {
-          logger.error('Failed to load chunks for search result file', {
-            fileRecordId: id,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        })
-      )
-    ).catch(() => {
-      // Promise.all rejection already handled per-file above
-    });
-  }, [searchResults, loadFileChunkSummaries]);
-
   // Convert expanded IDs array to Set for CollectionBrowser
   const expandedIdsSet = useMemo(() => new Set(expandedIds), [expandedIds]);
   const contextNodeIdsSet = useMemo(() => new Set(contextSelectedIds), [contextSelectedIds]);
@@ -685,6 +659,7 @@ export function CollectionBrowserView({
           path: file.path,
           size: 0,
           chunksCount: file.chunks.length,
+          embeddedChunksCount: file.chunks.length,
           ...(activeCollectionId ? { embeddingSetId: activeCollectionId } : {}),
         })),
         chunks: searchResults.map((result, index) => ({
@@ -693,6 +668,7 @@ export function CollectionBrowserView({
           chunkIndex: index,
           content: result.content,
           tokenCount: 0,
+          hasEmbedding: true,
           ...(result.embeddingSetId ? { embeddingSetId: result.embeddingSetId } : {}),
         })),
       } satisfies CollectionTreeInput;

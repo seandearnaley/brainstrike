@@ -3838,9 +3838,13 @@ test.describe('Embedding Host Renderer', () => {
     );
     await expect(emptyMessage).toHaveCount(0, { timeout: 5000 });
 
-    // 3. firstResultNodeId should be a file- prefixed ID (fallback resolved correctly)
-    //    because chunks are not expanded in the tree
+    // 3. Search result nodes exist in the tree
     expect(lastSnapshot!.firstResultNodeId).not.toBeNull();
+
+    // 4. Search result chunks must show "Complete" embedding status (not "No Embedding")
+    //    since they came from an embedding search — they definitely have embeddings.
+    const noEmbeddingBadges = collectionTreeRegion.getByText('No Embedding');
+    await expect(noEmbeddingBadges).toHaveCount(0, { timeout: 5000 });
   });
 
   test('search works when vector-preferences store has no devicePref (stale migration)', async ({
