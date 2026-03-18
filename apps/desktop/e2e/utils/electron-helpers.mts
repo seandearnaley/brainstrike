@@ -1,18 +1,29 @@
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
-import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
+import * as playwrightEnvironment from '@brainstrike/config/playwright-environment';
 import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 
 declare const process: NodeJS.Process;
+const require = createRequire(import.meta.url);
+
+const { getCILaunchArgs } = playwrightEnvironment;
 
 export interface ElectronAppContext {
   app: ElectronApplication;
   window: Page;
 }
 
+interface ElectronOutputBuffer {
+  stderr: string[];
+  stdout: string[];
+}
+
 const intentionallyClosingApps = new WeakSet<ElectronApplication>();
+const electronOutputBuffers = new WeakMap<ElectronApplication, ElectronOutputBuffer>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 const ignoredElectronOutputPatterns = [
   'Electron Security Warning (Insecure Content-Security-Policy)',
@@ -117,6 +128,17 @@ function printElectronOutput(
   }
 }
 
+function appendElectronOutput(buffer: string[], output: string): void {
+  const lines = output
+    .split(/\r?\n/u)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+  buffer.push(...lines);
+  if (buffer.length > 500) {
+    buffer.splice(0, buffer.length - 500);
+  }
+}
+
 function verboseLog(...args: unknown[]): void {
   if (!isVerboseE2eLoggingEnabled) {
     return;
@@ -167,7 +189,10 @@ export async function launchElectronApp(
   userDataDir?: string
 ): Promise<ElectronAppContext> {
   const electronPath = require('electron');
-  const mainPath = path.join(process.cwd(), 'dist', 'main.js');
+  const mainPath = path.resolve(import.meta.dirname, '..', '..', 'dist', 'main.js');
+  if (!fs.existsSync(mainPath)) {
+    throw new Error(`Desktop E2E main entry is missing at ${mainPath}`);
+  }
 
   // Electron launches can fail transiently immediately after a forced
   // renderer/app reset while the OS releases resources. Keep one local retry
@@ -211,6 +236,16 @@ export async function launchElectronApp(
   }
 
   throw new Error(`Failed to launch Electron after ${maxAttempts} attempts: ${lastError?.message}`);
+}
+
+export async function getBufferedElectronOutput(
+  app: ElectronApplication
+): Promise<ElectronOutputBuffer> {
+  const buffer = electronOutputBuffers.get(app);
+  return {
+    stderr: [...(buffer?.stderr ?? [])],
+    stdout: [...(buffer?.stdout ?? [])],
+  };
 }
 
 // a Helper to kill lingering Electron processes that might be holding ports
@@ -448,6 +483,8 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     // Pipe stdout and stderr for debugging CI crashes
     const electronProcess = app.process();
     const pid = electronProcess.pid;
+    const outputBuffer: ElectronOutputBuffer = { stderr: [], stdout: [] };
+    electronOutputBuffers.set(app, outputBuffer);
     verboseLog(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
 
     // #region agent log - Hypothesis G: Verify stdio pipe status
@@ -476,6 +513,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
         stdoutReceived = true;
       }
       const str = data.toString();
+      appendElectronOutput(outputBuffer.stdout, str);
       printElectronOutput('[Electron Stdout]: ', str, console.log);
     });
     electronProcess.stderr?.on('data', (data) => {
@@ -488,6 +526,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
         stderrReceived = true;
       }
       const str = data.toString();
+      appendElectronOutput(outputBuffer.stderr, str);
       printElectronOutput('[Electron Stderr]: ', str, console.error);
     });
     // #endregion

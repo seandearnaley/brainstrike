@@ -367,6 +367,7 @@ describe('RendererHostLifecycle', () => {
     await lifecycle.ensureStarted({ waitForRunning: false });
     await Promise.resolve();
     await Promise.resolve();
+    await Promise.resolve();
     lifecycle.dispose();
 
     expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
@@ -840,5 +841,104 @@ describe('RendererHostLifecycle', () => {
     );
     expect(hostWindow.destroy).toHaveBeenCalledTimes(1);
     expect(getWindowRoleByWebContentsId(92)).toBeUndefined();
+  });
+
+  it('retries loadFile on transient failure and succeeds on second attempt', async () => {
+    vi.useFakeTimers();
+    const failWindow = createFakeWindow(101);
+    const successWindow = createFakeWindow(102);
+    failWindow.loadURL.mockRejectedValue(new Error('ERR_FAILED (-2)'));
+    successWindow.loadURL.mockResolvedValue(undefined);
+
+    const createdWindows = [failWindow, successWindow];
+    MockBrowserWindow.mockImplementation(function () {
+      const nextWindow = createdWindows.shift();
+      if (!nextWindow) {
+        throw new Error('No fake BrowserWindow left to create');
+      }
+      Object.assign(this, nextWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [successWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'chunking-host:stopped',
+        }),
+      mode: 'chunking-host',
+      role: 'chunking-host',
+      statusEventName: 'chunking-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    lifecycle.ensureStarted({ waitForRunning: false });
+
+    // Flush microtasks: first attempt starts and fails
+    await vi.advanceTimersByTimeAsync(0);
+    // Advance past the 300ms retry delay
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(failWindow.destroy).toHaveBeenCalledTimes(1);
+    expect(successWindow.loadURL).toHaveBeenCalledTimes(1);
+    expect(getWindowRoleByWebContentsId(101)).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it('gives up after 3 failed load attempts and sets error status', async () => {
+    vi.useFakeTimers();
+    const windows = [createFakeWindow(111), createFakeWindow(112), createFakeWindow(113)];
+    for (const w of windows) {
+      w.loadURL.mockRejectedValue(new Error('ERR_FAILED (-2)'));
+    }
+
+    const createdWindows = [...windows];
+    MockBrowserWindow.mockImplementation(function () {
+      const nextWindow = createdWindows.shift();
+      if (!nextWindow) {
+        throw new Error('No fake BrowserWindow left to create');
+      }
+      Object.assign(this, nextWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => []),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    lifecycle.ensureStarted({ waitForRunning: false });
+
+    // Flush microtasks: first attempt fails, 300ms delay pending
+    await vi.advanceTimersByTimeAsync(0);
+    // Advance past first retry delay; second attempt fails, another 300ms delay
+    await vi.advanceTimersByTimeAsync(300);
+    // Advance past second retry delay; third attempt fails, no more retries
+    await vi.advanceTimersByTimeAsync(300);
+
+    const finalStatus = lifecycle.getStatus();
+    expect(finalStatus.state).toBe('error');
+    expect(finalStatus.lastError).toContain('failed to load after 3 attempts');
+    for (const w of windows) {
+      expect(w.destroy).toHaveBeenCalledTimes(1);
+    }
+    vi.useRealTimers();
   });
 });

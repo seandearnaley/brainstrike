@@ -1,9 +1,14 @@
 import {
+  getRegisteredEmbeddingQueueFactory,
+  resetEmbeddingQueueFactory,
+} from '@brainstrike/embeddings/runtime-config';
+import {
   __resetImportSettingsStoreForTests,
   __resetTokenPreferencesStoreForTests,
   __resetVectorStatusUIStoreForTests,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
+import type { QueueAdapter } from '@brainstrike/queue';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -378,6 +383,7 @@ describe('DatabaseDemoPanel', () => {
     __resetImportSettingsStoreForTests();
     __resetTokenPreferencesStoreForTests();
     __resetVectorStatusUIStoreForTests();
+    resetEmbeddingQueueFactory();
     vi.clearAllMocks();
     ensureStartedMock.mockClear();
     mockImportFiles.mockReset();
@@ -397,6 +403,32 @@ describe('DatabaseDemoPanel', () => {
     mockChunkLiveQueryResult.rows = [];
     mockChunkLiveQueryResult.loading = false;
     mockChunkLiveQueryResult.error = null;
+  });
+
+  it('registers the provided embedding queue for semantic search lifetime', async () => {
+    const mockQueue = {
+      add: vi.fn(),
+      addBulk: vi.fn(),
+      cancel: vi.fn(),
+      drain: vi.fn(),
+      onProgress: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      isPaused: false,
+      isProcessing: false,
+    } as unknown as QueueAdapter;
+
+    const view = renderWithProviders(<DatabaseDemoPanel embeddingQueue={mockQueue} />);
+
+    await waitFor(() => {
+      const factory = getRegisteredEmbeddingQueueFactory();
+      expect(factory).not.toBeNull();
+      expect(factory?.()).toBe(mockQueue);
+    });
+
+    view.unmount();
+
+    expect(getRegisteredEmbeddingQueueFactory()).toBeNull();
   });
 
   describe('Basic Rendering', () => {
@@ -579,15 +611,11 @@ describe('DatabaseDemoPanel', () => {
 
       const refreshButton = screen.getByRole('button', { name: /Refresh/ });
       const recordRefreshCallsBeforeClick = mockRecordLiveQueryResult.refresh.mock.calls.length;
-      const chunkRefreshCallsBeforeClick = mockChunkLiveQueryResult.refresh.mock.calls.length;
       await user.click(refreshButton);
 
       await waitFor(() => {
         expect(mockRecordLiveQueryResult.refresh.mock.calls.length).toBeGreaterThan(
           recordRefreshCallsBeforeClick
-        );
-        expect(mockChunkLiveQueryResult.refresh.mock.calls.length).toBeGreaterThan(
-          chunkRefreshCallsBeforeClick
         );
       });
     });

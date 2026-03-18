@@ -124,7 +124,11 @@ export async function walkDirectoryParallel(
   // Clamp concurrency to valid range
   const effectiveConcurrency = Math.max(MIN_CONCURRENCY, Math.min(MAX_CONCURRENCY, concurrency));
 
-  const rootFolderId = rootHandle.name;
+  if (!rootHandle.path) {
+    throw new Error('Root directory handle is missing its canonical path');
+  }
+
+  const rootFolderId = rootHandle.path;
   const rootNodes: IFileNode[] = [];
 
   // Work queue for directories to process

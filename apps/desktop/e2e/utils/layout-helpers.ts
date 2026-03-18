@@ -1,5 +1,5 @@
 import type { BrowserContext, Locator, Page } from '@playwright/test';
-import { waitForAppReady } from './electron-helpers';
+import { loadElectronHelpers } from './load-electron-helpers';
 
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 
@@ -8,6 +8,11 @@ function verboseLog(...args: unknown[]): void {
     return;
   }
   console.log(...args);
+}
+
+async function waitForAppReadyInHelpers(page: Page): Promise<void> {
+  const { waitForAppReady } = await loadElectronHelpers();
+  await waitForAppReady(page);
 }
 
 /**
@@ -89,7 +94,7 @@ export async function showDatabaseDemoPanel(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     activePage = await resolveActivePage(activePage);
-    await waitForAppReady(activePage);
+    await waitForAppReadyInHelpers(activePage);
     // Use id selector for react-resizable-panels v4 compatibility
     await activePage
       .locator('#middle-panel')
@@ -226,7 +231,7 @@ export async function showDatabaseDemoPanel(
  */
 export async function waitForDatabaseReady(page: Page): Promise<Page> {
   const activePage = await resolveActivePage(page);
-  await waitForAppReady(activePage);
+  await waitForAppReadyInHelpers(activePage);
   const errorPanel = activePage.locator('[data-testid="db-init-error"]');
   const successPanel = activePage.locator('[data-testid="database-demo-panel"]');
   const loadingTabFallback = activePage.getByText(/Loading DB UI/i);

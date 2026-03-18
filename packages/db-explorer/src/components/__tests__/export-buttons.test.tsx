@@ -31,8 +31,11 @@ describe('ExportButtons', () => {
   };
 
   const createProps = (overrides: Partial<ExportButtonsProps> = {}): ExportButtonsProps => ({
-    records: [],
-    chunks: [],
+    counts: {
+      records: 0,
+      chunks: 0,
+      embeddings: 0,
+    },
     exportHandlers: mockExportHandlers,
     ...overrides,
   });
@@ -51,25 +54,15 @@ describe('ExportButtons', () => {
   });
 
   it('disables Files button when no records exist', () => {
-    render(<ExportButtons {...createProps({ records: [] })} />);
+    render(<ExportButtons {...createProps()} />);
 
     const filesButton = screen.getByText(/Files \(0\)/).closest('button');
     expect(filesButton).toBeDisabled();
   });
 
   it('enables Files button when records exist', () => {
-    const mockRecords = [
-      {
-        id: '1',
-        name: 'file1.txt',
-        path: '/path/file1.txt',
-        size: 100,
-        createdAt: '',
-        updatedAt: '',
-      },
-    ];
     render(
-      <ExportButtons {...createProps({ records: mockRecords as ExportButtonsProps['records'] })} />
+      <ExportButtons {...createProps({ counts: { records: 1, chunks: 0, embeddings: 0 } })} />
     );
 
     const filesButton = screen.getByText(/Files \(1\)/).closest('button');
@@ -77,25 +70,15 @@ describe('ExportButtons', () => {
   });
 
   it('disables Chunks button when no chunks exist', () => {
-    render(<ExportButtons {...createProps({ chunks: [] })} />);
+    render(<ExportButtons {...createProps()} />);
 
     const chunksButton = screen.getByText(/Chunks \(0\)/).closest('button');
     expect(chunksButton).toBeDisabled();
   });
 
   it('enables Chunks button when chunks exist', () => {
-    const mockChunks = [
-      {
-        id: '1',
-        fileRecordId: '1',
-        chunkIndex: 0,
-        content: 'test',
-        contentHash: 'hash',
-        tokenCount: 10,
-      },
-    ];
     render(
-      <ExportButtons {...createProps({ chunks: mockChunks as ExportButtonsProps['chunks'] })} />
+      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 0 } })} />
     );
 
     const chunksButton = screen.getByText(/Chunks \(1\)/).closest('button');
@@ -103,18 +86,8 @@ describe('ExportButtons', () => {
   });
 
   it('disables Embeddings button when no chunks with embeddings exist', () => {
-    const mockChunks = [
-      {
-        id: '1',
-        fileRecordId: '1',
-        chunkIndex: 0,
-        content: 'test',
-        contentHash: 'hash',
-        tokenCount: 10,
-      },
-    ];
     render(
-      <ExportButtons {...createProps({ chunks: mockChunks as ExportButtonsProps['chunks'] })} />
+      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 0 } })} />
     );
 
     const embeddingsButton = screen.getByText(/Embeddings \(0\)/).closest('button');
@@ -122,19 +95,8 @@ describe('ExportButtons', () => {
   });
 
   it('enables Embeddings button when chunks with embeddings exist', () => {
-    const mockChunks = [
-      {
-        id: '1',
-        fileRecordId: '1',
-        chunkIndex: 0,
-        content: 'test',
-        contentHash: 'hash',
-        tokenCount: 10,
-        embedding: [0.1, 0.2],
-      },
-    ];
     render(
-      <ExportButtons {...createProps({ chunks: mockChunks as ExportButtonsProps['chunks'] })} />
+      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 1 } })} />
     );
 
     const embeddingsButton = screen.getByText(/Embeddings \(1\)/).closest('button');
@@ -142,25 +104,15 @@ describe('ExportButtons', () => {
   });
 
   it('disables All (ZIP) button when no records and chunks exist', () => {
-    render(<ExportButtons {...createProps({ records: [], chunks: [] })} />);
+    render(<ExportButtons {...createProps()} />);
 
     const allButton = screen.getByText(/All \(ZIP\)/).closest('button');
     expect(allButton).toBeDisabled();
   });
 
   it('enables All (ZIP) button when records exist', () => {
-    const mockRecords = [
-      {
-        id: '1',
-        name: 'file1.txt',
-        path: '/path/file1.txt',
-        size: 100,
-        createdAt: '',
-        updatedAt: '',
-      },
-    ];
     render(
-      <ExportButtons {...createProps({ records: mockRecords as ExportButtonsProps['records'] })} />
+      <ExportButtons {...createProps({ counts: { records: 1, chunks: 0, embeddings: 0 } })} />
     );
 
     const allButton = screen.getByText(/All \(ZIP\)/).closest('button');
@@ -168,18 +120,8 @@ describe('ExportButtons', () => {
   });
 
   it('calls handleExportFiles when Files button is clicked', () => {
-    const mockRecords = [
-      {
-        id: '1',
-        name: 'file1.txt',
-        path: '/path/file1.txt',
-        size: 100,
-        createdAt: '',
-        updatedAt: '',
-      },
-    ];
     render(
-      <ExportButtons {...createProps({ records: mockRecords as ExportButtonsProps['records'] })} />
+      <ExportButtons {...createProps({ counts: { records: 1, chunks: 0, embeddings: 0 } })} />
     );
 
     const filesButton = screen.getByText(/Files \(1\)/).closest('button');
@@ -189,18 +131,8 @@ describe('ExportButtons', () => {
   });
 
   it('calls handleExportChunks when Chunks button is clicked', () => {
-    const mockChunks = [
-      {
-        id: '1',
-        fileRecordId: '1',
-        chunkIndex: 0,
-        content: 'test',
-        contentHash: 'hash',
-        tokenCount: 10,
-      },
-    ];
     render(
-      <ExportButtons {...createProps({ chunks: mockChunks as ExportButtonsProps['chunks'] })} />
+      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 0 } })} />
     );
 
     const chunksButton = screen.getByText(/Chunks \(1\)/).closest('button');
@@ -210,19 +142,8 @@ describe('ExportButtons', () => {
   });
 
   it('calls handleExportEmbeddings when Embeddings button is clicked', () => {
-    const mockChunks = [
-      {
-        id: '1',
-        fileRecordId: '1',
-        chunkIndex: 0,
-        content: 'test',
-        contentHash: 'hash',
-        tokenCount: 10,
-        embedding: [0.1, 0.2],
-      },
-    ];
     render(
-      <ExportButtons {...createProps({ chunks: mockChunks as ExportButtonsProps['chunks'] })} />
+      <ExportButtons {...createProps({ counts: { records: 0, chunks: 1, embeddings: 1 } })} />
     );
 
     const embeddingsButton = screen.getByText(/Embeddings \(1\)/).closest('button');
@@ -232,18 +153,8 @@ describe('ExportButtons', () => {
   });
 
   it('calls handleExportAll when All (ZIP) button is clicked', () => {
-    const mockRecords = [
-      {
-        id: '1',
-        name: 'file1.txt',
-        path: '/path/file1.txt',
-        size: 100,
-        createdAt: '',
-        updatedAt: '',
-      },
-    ];
     render(
-      <ExportButtons {...createProps({ records: mockRecords as ExportButtonsProps['records'] })} />
+      <ExportButtons {...createProps({ counts: { records: 1, chunks: 0, embeddings: 0 } })} />
     );
 
     const allButton = screen.getByText(/All \(ZIP\)/).closest('button');
@@ -253,60 +164,8 @@ describe('ExportButtons', () => {
   });
 
   it('displays correct counts for records and chunks', () => {
-    const mockRecords = [
-      {
-        id: '1',
-        name: 'file1.txt',
-        path: '/path/file1.txt',
-        size: 100,
-        createdAt: '',
-        updatedAt: '',
-      },
-      {
-        id: '2',
-        name: 'file2.txt',
-        path: '/path/file2.txt',
-        size: 200,
-        createdAt: '',
-        updatedAt: '',
-      },
-    ];
-    const mockChunks = [
-      {
-        id: '1',
-        fileRecordId: '1',
-        chunkIndex: 0,
-        content: 'test',
-        contentHash: 'hash',
-        tokenCount: 10,
-        embedding: [0.1],
-      },
-      {
-        id: '2',
-        fileRecordId: '1',
-        chunkIndex: 1,
-        content: 'test2',
-        contentHash: 'hash2',
-        tokenCount: 15,
-        embedding: [0.2],
-      },
-      {
-        id: '3',
-        fileRecordId: '2',
-        chunkIndex: 0,
-        content: 'test3',
-        contentHash: 'hash3',
-        tokenCount: 20,
-      },
-    ];
-
     render(
-      <ExportButtons
-        {...createProps({
-          records: mockRecords as ExportButtonsProps['records'],
-          chunks: mockChunks as ExportButtonsProps['chunks'],
-        })}
-      />
+      <ExportButtons {...createProps({ counts: { records: 2, chunks: 3, embeddings: 2 } })} />
     );
 
     expect(screen.getByText(/Files \(2\)/)).toBeInTheDocument();

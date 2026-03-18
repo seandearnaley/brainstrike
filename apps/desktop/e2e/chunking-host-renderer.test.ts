@@ -1,11 +1,16 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { waitForAppReady } from './utils/electron-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 interface ChunkingHostStatus {
   active: boolean;
   lastError: string | null;
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+}
+
+async function waitForAppReadyInTest(page: Page): Promise<void> {
+  const { waitForAppReady } = await loadElectronHelpers();
+  await waitForAppReady(page);
 }
 
 async function assertVisibleWindowResponsive(page: Page): Promise<void> {
@@ -78,7 +83,7 @@ test.describe('Chunking Host Renderer', () => {
     electronApp,
     window,
   }) => {
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     await window.evaluate(async () => {
@@ -127,7 +132,7 @@ test.describe('Chunking Host Renderer', () => {
   test('hidden chunking host logs are forwarded into the exported desktop log stream', async ({
     window,
   }) => {
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
 
     await window.evaluate(async () => {
       const api = (
@@ -156,7 +161,7 @@ test.describe('Chunking Host Renderer', () => {
   });
 
   test('large chunking requests do not reload the visible window', async ({ window }) => {
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     const requestOutcome = await window.evaluate(async () => {
@@ -222,7 +227,7 @@ test.describe('Chunking Host Renderer', () => {
   test('accepts non-legacy chunking strategies without reloading the visible window', async ({
     window,
   }) => {
-    await waitForAppReady(window);
+    await waitForAppReadyInTest(window);
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     const requestOutcome = await window.evaluate(async () => {
@@ -270,6 +275,84 @@ test.describe('Chunking Host Renderer', () => {
     });
 
     expect(requestOutcome).toBeGreaterThan(0);
+    await assertVisibleWindowResponsive(window);
+    const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+    expect(finalTimeOrigin).toBe(initialTimeOrigin);
+  });
+
+  test('supports accurate token sizing in the hidden chunking host without crashing the visible window', async ({
+    window,
+  }) => {
+    await waitForAppReadyInTest(window);
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+
+    const requestOutcome = await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            chunkFile?: (request: {
+              fileRecordId: string;
+              content: string;
+              fileName: string;
+              filePath: string;
+              kind: 'chunk-file';
+              options: {
+                forceStrategy: boolean;
+                strategy: 'sentence';
+                tokenTrueSizing: true;
+              };
+              requestId: string;
+            }) => Promise<{
+              chunks: Array<{ tokenCount: number }>;
+              totalTokens: number;
+            }>;
+          };
+        }
+      ).chunkingHost;
+      if (!api?.chunkFile) {
+        throw new Error('Chunking host bridge is not available');
+      }
+
+      try {
+        const result = await api.chunkFile({
+          kind: 'chunk-file',
+          requestId: crypto.randomUUID(),
+          fileRecordId: 'chunking-host-accurate-token-request',
+          fileName: 'accurate-token-host.txt',
+          filePath: '/tmp/accurate-token-host.txt',
+          content: Array.from(
+            { length: 128 },
+            (_, index) => `Deterministic accurate token sizing line ${index + 1}.`
+          ).join('\n'),
+          options: {
+            strategy: 'sentence',
+            forceStrategy: true,
+            tokenTrueSizing: true,
+          },
+        });
+        return {
+          ok: true as const,
+          chunkCount: result.chunks.length,
+          totalTokens: result.totalTokens,
+          minTokenCount:
+            result.chunks.length > 0
+              ? Math.min(...result.chunks.map((chunk) => chunk.tokenCount))
+              : 0,
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    expect(requestOutcome.ok).toBe(true);
+    if (requestOutcome.ok) {
+      expect(requestOutcome.chunkCount).toBeGreaterThan(0);
+      expect(requestOutcome.totalTokens).toBeGreaterThan(0);
+      expect(requestOutcome.minTokenCount).toBeGreaterThan(0);
+    }
     await assertVisibleWindowResponsive(window);
     const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
     expect(finalTimeOrigin).toBe(initialTimeOrigin);

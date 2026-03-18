@@ -23,6 +23,7 @@ import {
 } from '@brainstrike/embeddings/provider-core';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
@@ -112,12 +113,15 @@ async function createHostedEmbedder(
 /**
  * Create a local provider embedder
  */
-async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbedder> {
+async function createLocalEmbedder(
+  modelConfig: ModelConfig,
+  devicePreference: 'wasm' | 'webgpu'
+): Promise<SearchEmbedder> {
   logger.info('Creating local embedder (SimpleEmbeddingService)', { modelKey: modelConfig.id });
   const { SimpleEmbeddingService } = await import('@brainstrike/embeddings/service');
   const svc = new SimpleEmbeddingService();
   logger.info('Initializing local model...');
-  await svc.initializeWithModel(modelConfig);
+  await svc.initializeWithModel(modelConfig, undefined, devicePreference);
   logger.info('Local model initialized');
 
   return {
@@ -375,6 +379,7 @@ export function useSemanticSearchExecutor({
   const previousAvailabilityRef = useRef<boolean | null>(null);
   const db = usePGliteDatabase();
   const { models } = useModelRegistryStore();
+  const devicePref = useVectorPreferencesStore((state) => state.devicePref);
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
   // Track in-flight initialization to prevent race conditions (BST-175 fix)
@@ -518,7 +523,7 @@ export function useSemanticSearchExecutor({
                 'No local embedding model configured. Enable one in Settings > Models.'
               );
             }
-            embedder = await createLocalEmbedder(modelConfig);
+            embedder = await createLocalEmbedder(modelConfig, devicePref);
           }
 
           // Cache the result
@@ -543,7 +548,7 @@ export function useSemanticSearchExecutor({
         initializingPromiseRef.current = null;
       }
     },
-    [createHostedConfig]
+    [createHostedConfig, devicePref]
   );
 
   /**

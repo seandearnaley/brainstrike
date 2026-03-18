@@ -413,7 +413,7 @@ describe('database IPC handlers', () => {
     expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
   });
 
-  it('embedding-host:enqueue-backfill rejects concurrent submissions', async () => {
+  it('embedding-host:enqueue-backfill rejects concurrent submissions for the same set', async () => {
     const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {
       throw new Error('handler not registered');
@@ -435,11 +435,68 @@ describe('database IPC handlers', () => {
     };
 
     const first = handler({ sender } as unknown, 'set-a');
-    await expect(handler({ sender } as unknown, 'set-b')).rejects.toThrow(
+    await expect(handler({ sender } as unknown, 'set-a')).rejects.toThrow(
       'Embedding backfill is already running for set set-a.'
     );
     resolveBackfill?.();
     await first;
+  });
+
+  it('embedding-host:enqueue-backfill allows concurrent submissions for different sets', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    let markFirstBackfillStarted: (() => void) | null = null;
+    const firstBackfillStarted = new Promise<void>((resolve) => {
+      markFirstBackfillStarted = resolve;
+    });
+    let resolveFirstBackfill: (() => void) | null = null;
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async () =>
+        await new Promise((resolve) => {
+          markFirstBackfillStarted?.();
+          resolveFirstBackfill = () =>
+            resolve({
+              failed: 0,
+              queued: 450,
+              running: 0,
+              succeeded: 0,
+            });
+        })
+    );
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(async () => ({
+      failed: 0,
+      queued: 450,
+      running: 0,
+      succeeded: 0,
+    }));
+
+    const sender = {
+      id: 46,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    const first = handler({ sender } as unknown, 'set-a');
+    await firstBackfillStarted;
+    const second = handler({ sender } as unknown, 'set-b');
+
+    await expect(second).resolves.toEqual({
+      failed: 0,
+      queued: 450,
+      running: 0,
+      succeeded: 0,
+    });
+    resolveFirstBackfill?.();
+    await expect(first).resolves.toEqual({
+      failed: 0,
+      queued: 450,
+      running: 0,
+      succeeded: 0,
+    });
   });
 
   it('db:live-query:start subscribes and forwards updates', async () => {

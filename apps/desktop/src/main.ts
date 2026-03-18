@@ -42,6 +42,11 @@ import { getWindowRoleByWebContentsId } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
+
+function isElectronE2ETestMode(): boolean {
+  return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
+}
+
 // Defer getPath call until app is ready - calling at module load time fails
 let logFilePath: string | null = null;
 function getLogFilePath(): string | null {
@@ -641,10 +646,15 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 registerShutdownSignalHandlers();
 
-const singleInstanceLockAcquired =
-  typeof app.requestSingleInstanceLock === 'function' ? app.requestSingleInstanceLock() : true;
+const singleInstanceLockAcquired = isElectronE2ETestMode()
+  ? true
+  : typeof app.requestSingleInstanceLock === 'function'
+    ? app.requestSingleInstanceLock()
+    : true;
 
 if (singleInstanceLockAcquired) {
+  const e2eTestMode = isElectronE2ETestMode();
+
   // REMOVED: enable-gpu-rasterization + enable-zero-copy
   // These push rasterization onto the same GPU command queue that ONNX/Dawn
   // uses for WebGPU inference. Under sustained background embedding load,
@@ -655,27 +665,35 @@ if (singleInstanceLockAcquired) {
   // may starve WebGPU command submissions after ~4 minutes.
   app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
 
-  app.on('second-instance', () => {
-    const existingWindow =
-      BrowserWindow.getAllWindows().find(
-        (window) =>
-          !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
-      ) ?? null;
-    if (!existingWindow) {
-      return;
-    }
+  if (!e2eTestMode) {
+    app.on('second-instance', () => {
+      const existingWindow =
+        BrowserWindow.getAllWindows().find(
+          (window) =>
+            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+        ) ?? null;
+      if (!existingWindow) {
+        return;
+      }
 
-    if (typeof existingWindow.show === 'function') {
-      existingWindow.show();
-    }
-    if (typeof existingWindow.focus === 'function') {
-      existingWindow.focus();
-    }
-  });
+      if (typeof existingWindow.show === 'function') {
+        existingWindow.show();
+      }
+      if (typeof existingWindow.focus === 'function') {
+        existingWindow.focus();
+      }
+    });
+  }
 
   app.whenReady().then(async () => {
     try {
       logger.debug('App ready, starting initialization...');
+
+      // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
+      if (e2eTestMode && process.platform === 'darwin') {
+        app.setActivationPolicy?.('accessory');
+        app.dock?.hide();
+      }
 
       // Re-initialize file logging now that app.getPath() is available.
       // At module load time, app.isReady() is false so getLogFilePath()

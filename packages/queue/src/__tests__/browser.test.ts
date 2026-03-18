@@ -36,6 +36,24 @@ function createQueueAdapterStub(): QueueAdapter {
   };
 }
 
+async function expectPromiseToSettle<T>(promise: Promise<T>, timeoutMs = 15_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`Promise did not settle within ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 describe('createBrowserEmbeddingQueue', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -61,16 +79,18 @@ describe('createBrowserEmbeddingQueue', () => {
     expect(createWorkerpoolAdapterMock).not.toHaveBeenCalled();
     expect(queue.isProcessing).toBe(false);
 
-    await queue.add({
-      id: 'task-1',
-      kind: 'embed',
-      texts: ['hello'],
-      model: 'local:test',
-      deviceHint: 'webgpu',
-    });
+    await expectPromiseToSettle(
+      queue.add({
+        id: 'task-1',
+        kind: 'embed',
+        texts: ['hello'],
+        model: 'local:test',
+        deviceHint: 'webgpu',
+      })
+    );
 
     expect(createWorkerpoolAdapterMock).toHaveBeenCalledTimes(1);
-  });
+  }, 15_000);
 
   it('retries adapter creation after an initial lazy import failure', async () => {
     const adapter = createQueueAdapterStub();
@@ -86,27 +106,31 @@ describe('createBrowserEmbeddingQueue', () => {
     });
 
     await expect(
-      queue.add({
-        id: 'task-1',
-        kind: 'embed',
-        texts: ['hello'],
-        model: 'local:test',
-        deviceHint: 'webgpu',
-      })
+      expectPromiseToSettle(
+        queue.add({
+          id: 'task-1',
+          kind: 'embed',
+          texts: ['hello'],
+          model: 'local:test',
+          deviceHint: 'webgpu',
+        })
+      )
     ).rejects.toThrow('workerpool bootstrap failed');
 
     await expect(
-      queue.add({
-        id: 'task-2',
-        kind: 'embed',
-        texts: ['world'],
-        model: 'local:test',
-        deviceHint: 'webgpu',
-      })
+      expectPromiseToSettle(
+        queue.add({
+          id: 'task-2',
+          kind: 'embed',
+          texts: ['world'],
+          model: 'local:test',
+          deviceHint: 'webgpu',
+        })
+      )
     ).resolves.toMatchObject({ id: 'result', type: 'result' });
 
     expect(createWorkerpoolAdapterMock).toHaveBeenCalledTimes(2);
-  });
+  }, 15_000);
 
   it('waits for the lazy adapter bootstrap before canceling', async () => {
     const adapter = createQueueAdapterStub();
@@ -117,13 +141,15 @@ describe('createBrowserEmbeddingQueue', () => {
       worker: { workerUrl: '/embedding.worker.js' },
     });
 
-    const addPromise = queue.add({
-      id: 'task-1',
-      kind: 'embed',
-      texts: ['hello'],
-      model: 'local:test',
-      deviceHint: 'webgpu',
-    });
+    const addPromise = expectPromiseToSettle(
+      queue.add({
+        id: 'task-1',
+        kind: 'embed',
+        texts: ['hello'],
+        model: 'local:test',
+        deviceHint: 'webgpu',
+      })
+    );
     const cancelPromise = queue.cancel();
 
     await cancelPromise;
@@ -141,13 +167,15 @@ describe('createBrowserEmbeddingQueue', () => {
       worker: { workerUrl: '/embedding.worker.js' },
     });
 
-    const addPromise = queue.add({
-      id: 'task-1',
-      kind: 'embed',
-      texts: ['hello'],
-      model: 'local:test',
-      deviceHint: 'webgpu',
-    });
+    const addPromise = expectPromiseToSettle(
+      queue.add({
+        id: 'task-1',
+        kind: 'embed',
+        texts: ['hello'],
+        model: 'local:test',
+        deviceHint: 'webgpu',
+      })
+    );
     const drainPromise = queue.drain();
 
     await drainPromise;

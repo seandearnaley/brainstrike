@@ -12,7 +12,7 @@
  * - Semantic search mode and configuration
  */
 
-import type { FileChunk, FileRecord } from '@brainstrike/db';
+import type { FileChunk } from '@brainstrike/db';
 import {
   type BrowserNodeData,
   type BulkAction,
@@ -35,6 +35,7 @@ import {
   SearchConfigPanel,
   type SearchMode,
   SearchModeBar,
+  TablePagination,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
@@ -47,10 +48,14 @@ import {
   SquareCheck,
 } from 'lucide-react';
 import type * as React from 'react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
+import type {
+  DatabaseFileChunkSummary,
+  DatabaseFileRecordSummary,
+} from '../use-database-demo-data';
 
 const logger = createLogger('CollectionBrowserView');
 type NodeIdPrefix = Extract<CollectionNodeType, 'collection' | 'file' | 'chunk' | 'embedding'>;
@@ -61,13 +66,15 @@ const NODE_ID_PREFIXES = [
   'embedding',
 ] as const satisfies readonly NodeIdPrefix[];
 const NODE_ID_PREFIX_PATTERN = new RegExp(`^(${NODE_ID_PREFIXES.join('|')})-(.+)$`);
-// Collection browser is filter/search-heavy, so paged rendering is more stable than virtual rows.
 const EMBEDDING_TREE_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
-const EMBEDDING_TREE_PAGINATION = {
-  pageSizeOptions: EMBEDDING_TREE_PAGE_SIZE_OPTIONS,
-  showControls: true,
-  showItemRange: true,
-} as const;
+
+export interface CollectionBrowserPaginationState {
+  currentPage: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  pageSize: number;
+  totalRecords: number;
+}
 
 function isNodeIdPrefix(value: string): value is NodeIdPrefix {
   return NODE_ID_PREFIXES.some((prefix) => prefix === value);
@@ -95,27 +102,33 @@ export interface CollectionBrowserViewProps {
   /** Active collection ID */
   activeCollectionId: string | null;
   /** File chunks */
-  chunks: FileChunk[];
+  chunks: DatabaseFileChunkSummary[];
   /** Height of the browser */
   height?: number | string;
   /** Loading state */
   isLoading?: boolean;
+  /** Load full chunk content only for the selected inspector node. */
+  loadChunkDetail?: (chunkId: string) => Promise<FileChunk | null>;
+  /** Load chunk summaries only for a specific file when the user expands it. */
+  loadFileChunkSummaries?: (fileRecordId: string) => Promise<DatabaseFileChunkSummary[]>;
   /** Called when a chunk is selected */
   onChunkSelect?: (chunkId: string, chunk: FileChunk) => void;
   /** Called when a file is selected */
-  onFileSelect?: (fileId: string, file: FileRecord) => void;
+  onFileSelect?: (fileId: string, file: DatabaseFileRecordSummary) => void;
+  /** Source pagination for the active collection file list. */
+  pagination?: CollectionBrowserPaginationState;
   /** Pending chunk IDs (being embedded) */
   pendingChunkIds?: Set<string>;
   /** File records */
-  records: FileRecord[];
+  records: DatabaseFileRecordSummary[];
 }
 
 /**
  * Transform database data into CollectionTreeInput format
  */
 function transformToTreeInput(
-  records: FileRecord[],
-  chunks: FileChunk[],
+  records: DatabaseFileRecordSummary[],
+  chunks: DatabaseFileChunkSummary[],
   activeCollectionId: string | null,
   pendingChunkIds?: Set<string>
 ): CollectionTreeInput {
@@ -130,6 +143,7 @@ function transformToTreeInput(
   return {
     files: filteredRecords.map((record) => {
       const file: {
+        embeddedChunksCount?: number;
         id: string;
         name: string;
         path: string;
@@ -149,6 +163,9 @@ function transformToTreeInput(
       if (record.chunksCount !== undefined) {
         file.chunksCount = record.chunksCount;
       }
+      if (record.embeddedChunksCount !== undefined) {
+        file.embeddedChunksCount = record.embeddedChunksCount;
+      }
       if (record.processedAt) {
         file.processedAt = record.processedAt;
       }
@@ -159,19 +176,19 @@ function transformToTreeInput(
         id: string;
         fileRecordId: string;
         chunkIndex: number;
-        content: string;
         tokenCount: number;
-        embedding?: number[];
+        hasEmbedding: boolean;
+        embeddingDimensions?: number;
         embeddingSetId?: string;
       } = {
         id: chunk.id,
         fileRecordId: chunk.fileRecordId,
         chunkIndex: chunk.chunkIndex,
-        content: chunk.content,
         tokenCount: chunk.tokenCount,
+        hasEmbedding: chunk.hasEmbedding ?? false,
       };
-      if (chunk.embedding && chunk.embedding.length > 0) {
-        chunkItem.embedding = chunk.embedding;
+      if ((chunk.hasEmbedding ?? false) && (chunk.embeddingDimensions ?? 0) > 0) {
+        chunkItem.embeddingDimensions = chunk.embeddingDimensions ?? 0;
       }
       if (chunk.embeddingSetId) {
         chunkItem.embeddingSetId = chunk.embeddingSetId;
@@ -187,25 +204,27 @@ function transformToTreeInput(
  */
 function buildFileData(
   fileId: string,
-  records: FileRecord[],
-  chunks: FileChunk[]
+  records: DatabaseFileRecordSummary[],
+  chunks: DatabaseFileChunkSummary[]
 ): BrowserNodeData | null {
   const file = records.find((r) => r.id === fileId);
   if (!file) {
     return null;
   }
   const fileChunks = chunks.filter((c) => c.fileRecordId === file.id);
-  const embeddedChunks = fileChunks.filter((c) => c.embedding && c.embedding.length > 0);
-  const hasAllEmbeddings = embeddedChunks.length === fileChunks.length;
-  const hasSomeEmbeddings = embeddedChunks.length > 0;
+  const totalChunkCount = file.chunksCount ?? fileChunks.length;
+  const embeddedChunkCount =
+    file.embeddedChunksCount ?? fileChunks.filter((c) => c.hasEmbedding).length;
+  const hasAllEmbeddings = totalChunkCount > 0 && embeddedChunkCount >= totalChunkCount;
+  const hasSomeEmbeddings = embeddedChunkCount > 0;
   return {
     name: file.name,
     path: file.path,
     size: file.size,
-    chunkCount: fileChunks.length,
+    chunkCount: totalChunkCount,
     embeddingStatus: hasAllEmbeddings ? 'complete' : hasSomeEmbeddings ? 'pending' : 'none',
     embeddingProgress:
-      fileChunks.length > 0 ? Math.round((embeddedChunks.length / fileChunks.length) * 100) : 0,
+      totalChunkCount > 0 ? Math.round((embeddedChunkCount / totalChunkCount) * 100) : 0,
   };
 }
 
@@ -245,12 +264,9 @@ function buildEmbeddingData(chunkId: string, chunks: FileChunk[]): BrowserNodeDa
 function buildSelectedNodeData(
   nodeType: string,
   nodeId: string,
-  records: FileRecord[],
   chunks: FileChunk[]
 ): BrowserNodeData | null {
   switch (nodeType) {
-    case 'file':
-      return buildFileData(nodeId, records, chunks);
     case 'chunk':
       return buildChunkData(nodeId, chunks);
     case 'embedding':
@@ -263,6 +279,7 @@ function buildSelectedNodeData(
 /**
  * CollectionBrowserView - Connects CollectionBrowser to database data
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This adapter intentionally centralizes tree-grid wiring and inspector coordination.
 export function CollectionBrowserView({
   records,
   chunks,
@@ -272,6 +289,9 @@ export function CollectionBrowserView({
   height = 500,
   onFileSelect,
   onChunkSelect,
+  loadChunkDetail,
+  loadFileChunkSummaries,
+  pagination,
 }: CollectionBrowserViewProps) {
   // Use persistent store for all UI state
   const {
@@ -358,25 +378,6 @@ export function CollectionBrowserView({
     setEmbeddingStatus('all');
   }, [setSearchQuery, setNodeTypes, setEmbeddingStatus]);
 
-  // Handle expand all
-  const handleExpandAll = useCallback(() => {
-    const allExpandableIds = new Set<string>();
-    for (const record of records) {
-      const fileId = `file-${record.id}`;
-      allExpandableIds.add(fileId);
-
-      const fileChunks = chunks.filter((c) => c.fileRecordId === record.id);
-      for (const chunk of fileChunks) {
-        const chunkId = `chunk-${chunk.id}`;
-        // Chunks are expandable if they have embeddings
-        if (chunk.embedding && chunk.embedding.length > 0) {
-          allExpandableIds.add(chunkId);
-        }
-      }
-    }
-    setExpandedIds(Array.from(allExpandableIds));
-  }, [records, chunks, setExpandedIds]);
-
   // Handle collapse all
   const handleCollapseAll = useCallback(() => {
     setExpandedIds([]);
@@ -412,14 +413,97 @@ export function CollectionBrowserView({
     };
   }, [selectedId]);
 
+  const [selectedChunkDetail, setSelectedChunkDetail] = useState<FileChunk | null>(null);
+
+  const ensureFileChunksLoaded = useCallback(
+    async (fileRecordId: string): Promise<DatabaseFileChunkSummary[]> => {
+      if (!loadFileChunkSummaries) {
+        return [];
+      }
+      const loadedChunks = chunks.filter((chunk) => chunk.fileRecordId === fileRecordId);
+      if (loadedChunks.length > 0) {
+        return loadedChunks;
+      }
+      return loadFileChunkSummaries(fileRecordId);
+    },
+    [chunks, loadFileChunkSummaries]
+  );
+
+  useEffect(() => {
+    if (!(selectedNodeType === 'chunk' && selectedNodeId && loadChunkDetail)) {
+      setSelectedChunkDetail(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSelectedChunkDetail(null);
+
+    const loadSelectedChunk = async () => {
+      try {
+        const detail = await loadChunkDetail(selectedNodeId);
+        if (!cancelled) {
+          setSelectedChunkDetail(detail);
+        }
+      } catch (error: unknown) {
+        logger.warn('Failed to load selected chunk detail', {
+          error,
+          chunkId: selectedNodeId,
+        });
+      }
+    };
+
+    void loadSelectedChunk();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadChunkDetail, selectedNodeId, selectedNodeType]);
+
   // Build selected node data based on node type
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Selection inspection spans file, chunk, and embedding detail paths in one memoized branch.
   const actualSelectedNodeData = useMemo((): BrowserNodeData | null => {
     if (!(selectedId && selectedNodeType && selectedNodeId)) {
       return null;
     }
 
-    return buildSelectedNodeData(selectedNodeType, selectedNodeId, records, chunks);
-  }, [selectedId, selectedNodeType, selectedNodeId, records, chunks]);
+    if (selectedNodeType === 'chunk') {
+      if (!selectedChunkDetail) {
+        const selectedChunk = chunks.find((chunk) => chunk.id === selectedNodeId);
+        if (!selectedChunk) {
+          return null;
+        }
+        return {
+          index: selectedChunk.chunkIndex,
+          content: 'Loading chunk content...',
+          tokenCount: selectedChunk.tokenCount,
+          embeddingStatus: selectedChunk.hasEmbedding ? 'complete' : 'none',
+        };
+      }
+      return buildSelectedNodeData(selectedNodeType, selectedNodeId, [selectedChunkDetail]);
+    }
+
+    if (selectedNodeType === 'embedding') {
+      const selectedChunk = chunks.find((chunk) => chunk.id === selectedNodeId);
+      if (!selectedChunk) {
+        return null;
+      }
+      if (
+        !((selectedChunk.hasEmbedding ?? false) && (selectedChunk.embeddingDimensions ?? 0) > 0)
+      ) {
+        return null;
+      }
+      return {
+        vectorId: selectedNodeId,
+        dimensions: selectedChunk.embeddingDimensions ?? 0,
+      };
+    }
+
+    if (selectedNodeType === 'file') {
+      return buildFileData(selectedNodeId, records, chunks);
+    }
+
+    return null;
+  }, [selectedChunkDetail, selectedId, selectedNodeId, selectedNodeType, records, chunks]);
 
   const hasInspectableSelection = useMemo(
     () => selectedNodeType !== null && selectedNodeId !== null && actualSelectedNodeData !== null,
@@ -429,10 +513,33 @@ export function CollectionBrowserView({
   // Handle expansion state changes
   const handleExpandedIdsChange = useCallback(
     (ids: Set<string>) => {
+      const newlyExpandedFileIds: string[] = [];
+      for (const id of ids) {
+        if (expandedIdsSet.has(id)) {
+          continue;
+        }
+        const { nodeType, originalId } = parseNodeId(id);
+        if (nodeType === 'file') {
+          newlyExpandedFileIds.push(originalId);
+        }
+      }
+      for (const fileRecordId of newlyExpandedFileIds) {
+        void ensureFileChunksLoaded(fileRecordId);
+      }
       setExpandedIds(Array.from(ids));
     },
-    [setExpandedIds]
+    [ensureFileChunksLoaded, expandedIdsSet, setExpandedIds]
   );
+
+  const handleExpandAll = useCallback(() => {
+    const allExpandableIds = new Set<string>();
+    for (const record of records) {
+      if ((record.chunksCount ?? 0) > 0) {
+        allExpandableIds.add(`file-${record.id}`);
+      }
+    }
+    handleExpandedIdsChange(allExpandableIds);
+  }, [handleExpandedIdsChange, records]);
 
   // Handle selection changes
   const handleSelectedIdChange = useCallback(
@@ -517,14 +624,73 @@ export function CollectionBrowserView({
     }
   }, [semanticQuery, searchConfig, activeCollectionId, executeSearch, setSearchMode]);
 
-  // Transform data for CollectionBrowser
-  const treeData = useMemo(
-    () => transformToTreeInput(records, chunks, activeCollectionId, pendingChunkIds),
-    [records, chunks, activeCollectionId, pendingChunkIds]
-  );
+  // Transform data for CollectionBrowser.
+  // When semantic search results are present, build the tree from the search
+  // results themselves — search results span ALL pages but the paginated
+  // `records` only contains the current page. Without this, files on other
+  // pages have no tree nodes and the tree shows "No matching results".
+  const treeData = useMemo(() => {
+    if (searchMode === 'semantic' && hasSearched && searchResults.length > 0) {
+      // Build a minimal tree from search results — each result has enough
+      // data (fileRecordId, fileName, filePath, content, chunkId) to create
+      // both file and chunk nodes without querying the paginated records.
+      // Single pass: build both file and chunk arrays from search results
+      const fileMap = new Map<
+        string,
+        { id: string; name: string; path: string; chunkCount: number }
+      >();
+      const treeChunks: CollectionTreeInput['chunks'] = [];
 
+      for (const [i, result] of searchResults.entries()) {
+        const existing = fileMap.get(result.fileRecordId);
+        if (existing) {
+          existing.chunkCount++;
+        } else {
+          fileMap.set(result.fileRecordId, {
+            id: result.fileRecordId,
+            name: result.fileName,
+            path: result.filePath,
+            chunkCount: 1,
+          });
+        }
+        treeChunks.push({
+          id: result.chunkId,
+          fileRecordId: result.fileRecordId,
+          chunkIndex: i,
+          content: result.content,
+          tokenCount: 0,
+          hasEmbedding: true,
+          ...(result.embeddingSetId ? { embeddingSetId: result.embeddingSetId } : {}),
+        });
+      }
+
+      return {
+        files: Array.from(fileMap.values()).map((file) => ({
+          id: file.id,
+          name: file.name,
+          path: file.path,
+          size: 0,
+          chunksCount: file.chunkCount,
+          embeddedChunksCount: file.chunkCount,
+          ...(activeCollectionId ? { embeddingSetId: activeCollectionId } : {}),
+        })),
+        chunks: treeChunks,
+      } satisfies CollectionTreeInput;
+    }
+
+    return transformToTreeInput(records, chunks, activeCollectionId, pendingChunkIds);
+  }, [
+    records,
+    chunks,
+    activeCollectionId,
+    pendingChunkIds,
+    searchMode,
+    hasSearched,
+    searchResults,
+  ]);
   // Inspector panel ref for imperative control
   const inspectorPanelRef = useRef<PanelImperativeHandle>(null);
+  const isMountedRef = useRef(true);
 
   // Handle inspector toggle from within the component
   const handleInspectorCollapse = useCallback(
@@ -564,15 +730,29 @@ export function CollectionBrowserView({
         if (file) {
           onFileSelect(originalId, file);
         }
-      } else if (nodeType === 'chunk' && onChunkSelect) {
-        const chunk = chunks.find((c) => c.id === originalId);
-        if (chunk) {
-          onChunkSelect(originalId, chunk);
-        }
+      } else if (nodeType === 'chunk' && onChunkSelect && loadChunkDetail) {
+        void loadChunkDetail(originalId)
+          .then((chunk) => {
+            if (isMountedRef.current && chunk) {
+              onChunkSelect(originalId, chunk);
+            }
+          })
+          .catch((error: unknown) => {
+            logger.warn('Failed to load chunk detail for selection', {
+              error,
+              chunkId: originalId,
+            });
+          });
       }
     },
-    [setSelectedId, records, chunks, onFileSelect, onChunkSelect]
+    [setSelectedId, records, loadChunkDetail, onFileSelect, onChunkSelect]
   );
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Handle multi-select toggle — also toggles showCheckbox in sync
   const handleMultiSelectToggle = useCallback(
@@ -645,15 +825,14 @@ export function CollectionBrowserView({
                   activeCollectionId === null || record.embeddingSetId === activeCollectionId
               )
             : nodeType === 'file'
-              ? chunks.some(
-                  (chunk) =>
-                    chunk.fileRecordId === originalId &&
-                    (activeCollectionId === null || chunk.embeddingSetId === activeCollectionId)
+              ? records.some(
+                  (record) =>
+                    record.id === originalId &&
+                    (activeCollectionId === null || record.embeddingSetId === activeCollectionId) &&
+                    (record.chunksCount ?? 0) > 0
                 )
               : nodeType === 'chunk'
-                ? chunks.some(
-                    (chunk) => chunk.id === originalId && Boolean(chunk.embedding?.length)
-                  )
+                ? chunks.some((chunk) => chunk.id === originalId && chunk.hasEmbedding)
                 : false;
       setContextMenu({
         x: event.clientX,
@@ -684,24 +863,28 @@ export function CollectionBrowserView({
     if (!contextMenu) {
       return;
     }
-    // Find all child IDs based on node type
-    const childIds: string[] = [];
-    const { originalId } = parseNodeId(contextMenu.nodeId);
+    const run = async () => {
+      const childIds: string[] = [];
+      const { originalId } = parseNodeId(contextMenu.nodeId);
 
-    if (contextMenu.nodeType === 'file') {
-      const fileChunks = chunks.filter((c) => c.fileRecordId === originalId);
-      childIds.push(contextMenu.nodeId); // expand the file itself
-      for (const chunk of fileChunks) {
-        if (chunk.embedding && chunk.embedding.length > 0) {
-          childIds.push(`chunk-${chunk.id}`);
+      if (contextMenu.nodeType === 'file') {
+        const fileChunks = await ensureFileChunksLoaded(originalId);
+        childIds.push(contextMenu.nodeId);
+        for (const chunk of fileChunks) {
+          if (chunk.hasEmbedding) {
+            childIds.push(`chunk-${chunk.id}`);
+          }
         }
       }
-    }
-    if (childIds.length > 0) {
-      expandIds(childIds);
-    }
-    closeContextMenu();
-  }, [contextMenu, chunks, expandIds, closeContextMenu]);
+
+      if (childIds.length > 0) {
+        expandIds(childIds);
+      }
+      closeContextMenu();
+    };
+
+    void run();
+  }, [closeContextMenu, contextMenu, ensureFileChunksLoaded, expandIds]);
 
   // Context menu: inspect node (open inspector)
   const handleContextInspect = useCallback(() => {
@@ -796,7 +979,7 @@ export function CollectionBrowserView({
         onSemanticSearch={handleSearch}
         resultCount={searchResults.length}
         semanticQuery={semanticQuery}
-        totalCount={records.length}
+        totalCount={pagination?.totalRecords ?? records.length}
       />
 
       {/* Advanced Search Options Panel */}
@@ -899,8 +1082,7 @@ export function CollectionBrowserView({
               searchMode={searchMode}
               selectedId={selectedId}
               showCheckbox={showCheckbox && multiSelectEnabled}
-              treePagination={EMBEDDING_TREE_PAGINATION}
-              treeWindowingStrategy="paged"
+              treeWindowingStrategy="virtual"
               {...(sortState ? { sortState } : {})}
               {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
               {...(groupBy !== 'none' ? { groupBy } : {})}
@@ -937,73 +1119,93 @@ export function CollectionBrowserView({
             </>
           )}
         </Group>
-
-        {/* Context menu (positioned at right-click location) */}
-        {contextMenu && (
-          <DropdownMenu
-            onOpenChange={(open) => {
-              if (!open) {
-                closeContextMenu();
-              }
-            }}
-            open
-          >
-            <DropdownMenuTrigger asChild>
-              <div
-                className="pointer-events-none fixed h-px w-px"
-                style={{ left: contextMenu.x, top: contextMenu.y }}
-              />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="right">
-              {contextMenu.hasChildren && (
-                <>
-                  <DropdownMenuItem onClick={handleContextExpand}>
-                    {expandedIdsSet.has(contextMenu.nodeId) ? (
-                      <>
-                        <ChevronRight className="mr-2 h-4 w-4 rotate-90" />
-                        Collapse
-                      </>
-                    ) : (
-                      <>
-                        <ChevronRight className="mr-2 h-4 w-4" />
-                        Expand
-                      </>
-                    )}
-                  </DropdownMenuItem>
-                  {contextMenu.nodeType === 'file' && (
-                    <DropdownMenuItem onClick={handleContextExpandAllChildren}>
-                      <ChevronsUpDown className="mr-2 h-4 w-4" />
-                      Expand All Children
-                    </DropdownMenuItem>
-                  )}
-                </>
-              )}
-              <DropdownMenuItem onClick={handleContextInspect}>
-                <Eye className="mr-2 h-4 w-4" />
-                Inspect
-              </DropdownMenuItem>
-              {multiSelectEnabled && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    if (contextMenu) {
-                      setSelectedId(contextMenu.nodeId);
-                    }
-                    closeContextMenu();
-                  }}
-                >
-                  <SquareCheck className="mr-2 h-4 w-4" />
-                  Select
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleContextCopyId}>
-                <Copy className="mr-2 h-4 w-4" />
-                Copy ID
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
       </div>
+
+      {pagination && (
+        <div className="border-border border-t px-3 py-2">
+          <TablePagination
+            currentPage={pagination.currentPage}
+            onPageChange={pagination.onPageChange}
+            onPageSizeChange={pagination.onPageSizeChange}
+            pageInfo="files"
+            pageSize={pagination.pageSize}
+            pageSizeOptions={EMBEDDING_TREE_PAGE_SIZE_OPTIONS}
+            showItemRange
+            totalItems={pagination.totalRecords}
+            totalPages={
+              pagination
+                ? Math.max(1, Math.ceil(pagination.totalRecords / Math.max(1, pagination.pageSize)))
+                : 1
+            }
+          />
+        </div>
+      )}
+
+      {/* Context menu (positioned at right-click location) */}
+      {contextMenu && (
+        <DropdownMenu
+          onOpenChange={(open) => {
+            if (!open) {
+              closeContextMenu();
+            }
+          }}
+          open
+        >
+          <DropdownMenuTrigger asChild>
+            <div
+              className="pointer-events-none fixed h-px w-px"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="right">
+            {contextMenu.hasChildren && (
+              <>
+                <DropdownMenuItem onClick={handleContextExpand}>
+                  {expandedIdsSet.has(contextMenu.nodeId) ? (
+                    <>
+                      <ChevronRight className="mr-2 h-4 w-4 rotate-90" />
+                      Collapse
+                    </>
+                  ) : (
+                    <>
+                      <ChevronRight className="mr-2 h-4 w-4" />
+                      Expand
+                    </>
+                  )}
+                </DropdownMenuItem>
+                {contextMenu.nodeType === 'file' && (
+                  <DropdownMenuItem onClick={handleContextExpandAllChildren}>
+                    <ChevronsUpDown className="mr-2 h-4 w-4" />
+                    Expand All Children
+                  </DropdownMenuItem>
+                )}
+              </>
+            )}
+            <DropdownMenuItem onClick={handleContextInspect}>
+              <Eye className="mr-2 h-4 w-4" />
+              Inspect
+            </DropdownMenuItem>
+            {multiSelectEnabled && (
+              <DropdownMenuItem
+                onClick={() => {
+                  if (contextMenu) {
+                    setSelectedId(contextMenu.nodeId);
+                  }
+                  closeContextMenu();
+                }}
+              >
+                <SquareCheck className="mr-2 h-4 w-4" />
+                Select
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleContextCopyId}>
+              <Copy className="mr-2 h-4 w-4" />
+              Copy ID
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

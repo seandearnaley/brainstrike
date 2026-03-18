@@ -45,6 +45,7 @@ import { ToolbarPresetSelector } from './toolbar-preset-selector';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
+import { getRootFolderId } from './utils/get-root-folder-id';
 import { persistFileExplorerStateImmediately } from './utils/persist-file-explorer-state';
 import { computeScanningStatusProps } from './utils/scanning-status-props';
 
@@ -122,6 +123,38 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
 
 const EMPTY_DISPLAYED_FILES = new Set<string>();
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
+
+interface FileExplorerTestSnapshot {
+  currentFolderId: string | null;
+  materializedPathCount: number;
+  materializedPathSamples: string[];
+  rootDirectoryPath: string | null;
+  selectedFilePathCount: number;
+  selectedFilePathSamples: string[];
+  selectionMode: 'explicit' | 'rules';
+  treeRootCount: number;
+  treeSamples: Array<{
+    childCount: number;
+    path: string;
+    rootFolderId: string | null;
+    type: string;
+  }>;
+}
+
+declare global {
+  interface Window {
+    __brainstrikeFileExplorerTestHooks__?:
+      | {
+          getSnapshot: () => FileExplorerTestSnapshot;
+        }
+      | undefined;
+    desktopLifecycle?:
+      | {
+          isTestMode?: boolean;
+        }
+      | undefined;
+  }
+}
 
 /**
  * FileExplorerLeftPanel - Contains the file tree and toolbar
@@ -257,7 +290,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // This allows FileExplorerSidebar to call with just the node
   const handleSelectFolderRecursively = useCallback(
     async (node: IFileNode) => {
-      const folderId = rootDirectoryHandle?.name ?? currentFolderId ?? '';
+      const folderId = getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
       return selectFolderRecursively(
         node,
         folderId,
@@ -342,6 +375,42 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     }
     return selectedFilesList.length;
   }, [selectionModel.mode, selectionModel.materializedPaths, selectedFilesList]);
+
+  useEffect(() => {
+    if (!window.desktopLifecycle?.isTestMode) {
+      return;
+    }
+
+    window.__brainstrikeFileExplorerTestHooks__ = {
+      getSnapshot: () => ({
+        currentFolderId,
+        rootDirectoryPath: rootDirectoryHandle?.path ?? null,
+        selectionMode: selectionModel.mode,
+        selectedFilePathCount: selectedFilePaths.size,
+        selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
+        materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
+        materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
+        treeRootCount: stableFileTree.length,
+        treeSamples: stableFileTree.slice(0, 5).map((node) => ({
+          path: node.path,
+          type: node.type,
+          rootFolderId: node.rootFolderId ?? null,
+          childCount: node.children?.length ?? 0,
+        })),
+      }),
+    };
+
+    return () => {
+      window.__brainstrikeFileExplorerTestHooks__ = undefined;
+    };
+  }, [
+    currentFolderId,
+    rootDirectoryHandle,
+    selectionModel.mode,
+    selectionModel.materializedPaths,
+    selectedFilePaths,
+    stableFileTree,
+  ]);
 
   // Electron file reader - reads file content via IPC for the background worker
   // The worker cannot read files directly in Electron due to security restrictions
@@ -466,10 +535,17 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     [setFilters, setUseRegex]
   );
 
-  // biome-ignore lint/plugin: setCurrentFolderId is a stable Zustand action - syncing folder ID with handle is controlled state update
   useEffect(() => {
     if (rootDirectoryHandle) {
-      const id = rootDirectoryHandle.name;
+      const id = getRootFolderId(rootDirectoryHandle);
+      if (!id) {
+        // Throwing synchronously inside useEffect bypasses React error boundaries.
+        // Log the invariant violation and bail out instead of crashing the tree.
+        logger.error('Root directory handle is missing its canonical path', {
+          handleName: rootDirectoryHandle.name,
+        });
+        return;
+      }
       const currentState = store.getState();
       if (currentState.currentFolderId !== id) {
         // set id synchronously (no extra async)
@@ -685,7 +761,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             <ActionButtons
               addMultipleSelectedFiles={addMultipleSelectedFiles}
               cancelSelectAll={cancelSelectAll}
-              currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
+              currentFolderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId}
               displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
               filteredTree={quickFilteredTree ?? []}
@@ -715,7 +791,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
         {/* Selection Rules Editor Dialog */}
         <SelectionRulesEditor
-          folderId={(rootDirectoryHandle?.name ?? currentFolderId) || ''}
+          folderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? ''}
           isOpen={isRulesEditorOpen}
           onOpenChange={setIsRulesEditorOpen}
         />

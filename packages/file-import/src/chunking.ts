@@ -36,6 +36,12 @@ interface ChunkingOptions {
     fileRecordId: string
   ) => Promise<void>;
   forceStrategy?: boolean;
+  /**
+   * Keep inserted chunk rows on the returned result.
+   * Disable this when the caller only needs counts/side effects to avoid
+   * retaining large per-file chunk payloads after insert/enqueue completes.
+   */
+  retainInsertedChunks?: boolean;
   // Post-review: support transactional enqueue with chunk insert
   runInTransaction?: <T>(fn: (tx: IDatabase) => Promise<T>) => Promise<T>;
   streamBatchSize?: number;
@@ -55,6 +61,7 @@ interface ChunkingOptions {
 // but we also do not allow unbounded fan-out that would recreate the earlier crash.
 const MAX_HOST_PROXY_CHUNKING_CONCURRENCY = 4;
 const MAX_LOCAL_WORKER_CHUNKING_CONCURRENCY = 10;
+const LOCAL_WORKER_RECORD_PREFETCH_WINDOW_MULTIPLIER = 4;
 
 interface ChunkingProgressSnapshot {
   chunksCreated: number;
@@ -535,7 +542,7 @@ async function processFileChunkingHostProxyPath(
       chunkingStrategy: workerResult.strategyUsed,
     },
     chunksCreated: chunks.length,
-    chunks,
+    ...(options.retainInsertedChunks === false ? {} : { chunks }),
     strategyUsed: workerResult.strategyUsed,
   };
 }
@@ -636,7 +643,7 @@ async function processFileChunkingWorkerPath(
       chunkingStrategy: workerResult.strategyUsed,
     },
     chunksCreated: chunks.length,
-    chunks,
+    ...(options.retainInsertedChunks === false ? {} : { chunks }),
     strategyUsed: workerResult.strategyUsed,
   };
 }
@@ -678,6 +685,20 @@ async function parallelLimit<T, R>(
   return results;
 }
 
+function createChunkingProgressAccumulator(
+  schedule: (update: {
+    chunksCreatedDelta: number;
+    strategyUsed: ChunkingStrategy;
+  }) => Promise<void>
+): (update: { chunksCreatedDelta: number; strategyUsed: ChunkingStrategy }) => Promise<void> {
+  let chain = Promise.resolve();
+
+  return async (update) => {
+    chain = chain.then(() => schedule(update));
+    await chain;
+  };
+}
+
 export async function processChunking(
   importResults: FileImportResult[],
   deps: ChunkingDeps,
@@ -705,6 +726,11 @@ export async function processChunking(
   }
 
   const isHostProxyTransport = chunkingWorkerPort.transportKind === 'host-proxy';
+  const fileProcessingOptions: ChunkingOptions = {
+    ...options,
+    retainInsertedChunks:
+      options.retainInsertedChunks ?? Boolean(options.enableEmbedding && options.processEmbeddings),
+  };
 
   // Determine concurrency based on environment and file count
   const ChunkingConcurrency = Math.min(
@@ -723,69 +749,92 @@ export async function processChunking(
   let totalChunksCreated = 0;
   let filesProcessed = 0;
   const progressScheduler = createChunkingProgressScheduler(options.updateProgress);
-
-  // Avoid materializing every imported file's content in the visible renderer when
-  // chunking is proxied to the hidden desktop host. In that mode, on-demand lookup
-  // keeps renderer heap bounded even for large import sets.
-  let recordsMap: Map<string, FileRecord> | undefined;
-  const validResults = importResults.filter(
-    (r): r is FileImportResult => Boolean(r) && (r.imported || r.existed) && !r.error
-  );
-  const ids = validResults.map((r) => r.id);
-  if (!isHostProxyTransport && ids.length > 0) {
-    const batchFetchStart = Date.now();
-    const records = await repository.findByIds(ids);
-    const batchFetchDuration = Date.now() - batchFetchStart;
-    recordsMap = new Map(records.map((r) => [r.id, r]));
-    logger.debug('Batch fetched file records', {
-      count: records.length,
-      requested: ids.length,
-      durationMs: batchFetchDuration,
-    });
-  } else if (isHostProxyTransport && ids.length > 0) {
-    logger.debug('Skipped batch file-record prefetch for host-proxy chunking transport', {
-      requested: ids.length,
-      transportKind: chunkingWorkerPort.transportKind,
-    });
-  }
-
-  // CRITICAL: No per-file fallback. A single chunking failure means import state is inconsistent.
-  // Fail fast so we do not spam repeated worker/database errors across the whole selection.
-  // This guard prevents "degraded mode" behavior where thousands of files continue after root failure.
-  // Process files in parallel with concurrency limit
-  const allResults = await parallelLimit(importResults, ChunkingConcurrency, async (result, i) => {
-    if (!result) {
-      return null; // Mark for filtering
-    }
-    const preFetchedRecord = recordsMap?.get(result.id);
-    const { enhancedResult, chunksCreated, chunks, strategyUsed } = await processFileChunking(
-      result,
-      i,
-      importResults.length,
-      totalChunksCreated,
-      deps,
-      options,
-      preFetchedRecord
-    );
-
-    if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
-      await options.processEmbeddings(chunks, enhancedResult);
-    }
-
-    totalChunksCreated += chunksCreated;
-    filesProcessed++;
+  const recordProgress = createChunkingProgressAccumulator(async (update) => {
+    totalChunksCreated += update.chunksCreatedDelta;
+    filesProcessed += 1;
     progressScheduler.schedule({
       filesProcessed,
       totalFiles: importResults.length,
       chunksCreated: totalChunksCreated,
-      strategyUsed,
+      strategyUsed: update.strategyUsed,
     });
-
-    return enhancedResult;
   });
 
-  // Filter out null results (from undefined inputs)
-  const enhancedResults = allResults.filter((r): r is EnhancedImportResult => r !== null);
+  // CRITICAL: No per-file fallback. A single chunking failure means import state is inconsistent.
+  // Fail fast so we do not spam repeated worker/database errors across the whole selection.
+  // This guard prevents "degraded mode" behavior where thousands of files continue after root failure.
+  const enhancedResults: EnhancedImportResult[] = [];
+  const prefetchWindowSize = isHostProxyTransport
+    ? importResults.length
+    : Math.max(ChunkingConcurrency * LOCAL_WORKER_RECORD_PREFETCH_WINDOW_MULTIPLIER, 1);
+
+  for (
+    let sliceStart = 0;
+    sliceStart < importResults.length;
+    sliceStart += Math.max(prefetchWindowSize, 1)
+  ) {
+    const sliceEnd = Math.min(sliceStart + Math.max(prefetchWindowSize, 1), importResults.length);
+    const importResultsSlice = importResults.slice(sliceStart, sliceEnd);
+    let recordsMap: Map<string, FileRecord> | undefined;
+
+    if (!isHostProxyTransport) {
+      const validResults = importResultsSlice.filter(
+        (result): result is FileImportResult =>
+          Boolean(result) && (result.imported || result.existed) && !result.error
+      );
+      const ids = validResults.map((result) => result.id);
+      if (ids.length > 0) {
+        const batchFetchStart = Date.now();
+        const records = await repository.findByIds(ids);
+        const batchFetchDuration = Date.now() - batchFetchStart;
+        recordsMap = new Map(records.map((record) => [record.id, record]));
+        logger.debug('Window-fetched file records for chunking', {
+          count: records.length,
+          requested: ids.length,
+          durationMs: batchFetchDuration,
+          sliceStart,
+          sliceEnd,
+        });
+      }
+    }
+
+    const sliceResults = await parallelLimit(
+      importResultsSlice,
+      ChunkingConcurrency,
+      async (result, offset) => {
+        if (!result) {
+          return null;
+        }
+
+        const absoluteIndex = sliceStart + offset;
+        const preFetchedRecord = recordsMap?.get(result.id);
+        const { enhancedResult, chunksCreated, chunks, strategyUsed } = await processFileChunking(
+          result,
+          absoluteIndex,
+          importResults.length,
+          totalChunksCreated,
+          deps,
+          fileProcessingOptions,
+          preFetchedRecord
+        );
+
+        if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
+          await options.processEmbeddings(chunks, enhancedResult);
+        }
+
+        await recordProgress({
+          chunksCreatedDelta: chunksCreated,
+          strategyUsed,
+        });
+
+        return enhancedResult;
+      }
+    );
+
+    enhancedResults.push(
+      ...sliceResults.filter((result): result is EnhancedImportResult => result !== null)
+    );
+  }
 
   logger.info('Parallel chunking complete', {
     totalFiles: enhancedResults.length,

@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { mockFileSystemOperations } from './utils/electron-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 async function ensureLeftPanelVisible(window: Page): Promise<void> {
   const leftPanel = window.locator('#explorer-panel');
@@ -90,6 +90,7 @@ async function switchPreset(window: Page, currentName: RegExp, nextName: RegExp)
 
 test.describe('Desktop filter presets', () => {
   test.beforeEach(async ({ window }) => {
+    const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(window);
   });
 
@@ -138,6 +139,7 @@ test.describe('Desktop filter presets', () => {
 
     const relaunched = await electron.restart();
     const relaunchedWindow = relaunched.window;
+    const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(relaunchedWindow);
     await ensureLeftPanelVisible(relaunchedWindow);
 

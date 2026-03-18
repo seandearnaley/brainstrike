@@ -105,7 +105,14 @@ describe('vector-preferences-store', () => {
       throw new Error('persist migrate unavailable for test');
     }
 
-    expect(options.migrate(undefined, 1)).toBeUndefined();
+    // When persistedState is falsy, the migration returns explicit defaults
+    // so devicePref is never undefined during Zustand hydration.
+    expect(options.migrate(undefined, 1)).toEqual({
+      devicePref: 'webgpu',
+      devicePrefConfigured: false,
+      reinitEveryN: 200,
+      verboseOrtLogs: false,
+    });
     expect(options.migrate({ devicePref: 'wasm', reinitEveryN: 8 }, 1)).toEqual({
       devicePrefConfigured: false,
       devicePref: 'wasm',

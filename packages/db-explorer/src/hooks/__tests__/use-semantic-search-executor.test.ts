@@ -6,6 +6,7 @@ import type {
   FileRecord,
 } from '@brainstrike/db';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import type { SearchConfig } from '@brainstrike/ui';
 import {
   addLogListener,
@@ -181,6 +182,17 @@ describe('useSemanticSearchExecutor', () => {
       isLoading: false,
       error: null,
     });
+    useVectorPreferencesStore.setState({
+      hasHydrated: true,
+      devicePref: 'wasm',
+      devicePrefConfigured: true,
+      reinitEveryN: 200,
+      verboseOrtLogs: false,
+      setDetectedDevicePref: vi.fn(),
+      setDevicePref: vi.fn(),
+      setReinitEveryN: vi.fn(),
+      setVerboseOrtLogs: vi.fn(),
+    });
     MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
       Object.assign(this, {
         initializeWithModel: vi.fn().mockResolvedValue(undefined),
@@ -331,6 +343,15 @@ describe('useSemanticSearchExecutor', () => {
         filePath: '/path/to/file-file-1.txt',
         similarity: expect.any(Number),
       })
+    );
+    expect(MockSimpleEmbeddingService).toHaveBeenCalledTimes(1);
+    const serviceInstance = MockSimpleEmbeddingService.mock.instances[0] as {
+      initializeWithModel: ReturnType<typeof vi.fn>;
+    };
+    expect(serviceInstance.initializeWithModel).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'jinaai/jina-embeddings-v3' }),
+      undefined,
+      'wasm'
     );
   });
 

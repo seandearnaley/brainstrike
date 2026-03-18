@@ -198,6 +198,9 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     handle: DirectoryHandle,
     options?: DirectoryReadOptions
   ): Promise<IFileNode[]> {
+    if (!handle.path) {
+      throw new Error('Directory handle is missing its canonical path');
+    }
     const dirHandle = handle._internal;
     if (!isFileSystemDirectoryHandle(dirHandle)) {
       throw new AccessError('Invalid directory handle', handle.path, 'read');
@@ -217,7 +220,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
           depth: 0, // This should be calculated by the caller
           selectionState: 'unchecked',
           children: [], // Lazy loaded
-          rootFolderId: handle.name, // Use the handle name as root folder ID
+          rootFolderId: handle.path,
           isVisible: true,
         });
       } else {
@@ -234,7 +237,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
                   handle: fileHandle,
                   depth: 0, // This should be calculated by the caller
                   selectionState: 'unchecked',
-                  rootFolderId: handle.name, // Use the handle name as root folder ID
+                  rootFolderId: handle.path,
                   isVisible: true,
                   size: file.size,
                   lastModified: file.lastModified,
@@ -252,7 +255,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
             handle: fileHandle,
             depth: 0, // This should be calculated by the caller
             selectionState: 'unchecked',
-            rootFolderId: handle.name, // Use the handle name as root folder ID
+            rootFolderId: handle.path,
             isVisible: true,
           });
         }

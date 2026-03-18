@@ -350,6 +350,59 @@ describe('createChunkingWorkerPort', () => {
         })
       ).rejects.toThrow('terminal tokenizer failure state');
     });
+
+    it('keeps content-level tokenization failures file-scoped and reusable', async () => {
+      const port = createChunkingWorkerPort(mockWorker);
+      mockWorker.simulateMessage({ type: 'ready' });
+      mockWorker.clearPostedMessages();
+
+      const batchPromise = port.chunkBatch(
+        [
+          {
+            fileRecordId: 'file-1',
+            content: 'const marker = "<|endoftext|>";',
+            fileName: 'a.ts',
+            filePath: '/a.ts',
+          },
+        ],
+        { strategy: 'sentence', tokenTrueSizing: true }
+      );
+
+      mockWorker.simulateMessage({
+        type: 'error',
+        id: 'chunk-1',
+        fileRecordId: 'file-1',
+        error:
+          'Accurate token counting failed: The text contains a special token that is not allowed: <|endoftext|>',
+      } satisfies ChunkError);
+
+      await expect(batchPromise).rejects.toThrow(
+        'Chunking batch failed for file-1: Accurate token counting failed: The text contains a special token that is not allowed: <|endoftext|>'
+      );
+      expect(port.isReady()).toBe(true);
+      expect(mockWorker.terminate).not.toHaveBeenCalled();
+
+      const filePromise = port.chunkFile('file-2', 'const ok = true;', 'b.ts', '/b.ts', {
+        strategy: 'sentence',
+        tokenTrueSizing: true,
+      });
+      const nextRequest = mockWorker.getPostedMessages().at(-1) as { id: string };
+
+      mockWorker.simulateMessage({
+        type: 'result',
+        id: nextRequest.id,
+        fileRecordId: 'file-2',
+        chunks: [],
+        strategyUsed: 'sentence',
+        totalTokens: 4,
+        skipped: false,
+      } satisfies ChunkResult);
+
+      await expect(filePromise).resolves.toMatchObject({
+        fileRecordId: 'file-2',
+        totalTokens: 4,
+      });
+    });
   });
 
   describe('terminate', () => {
