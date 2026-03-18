@@ -772,6 +772,30 @@ function computeAggregatedScores(
 /**
  * Filter and build visible node IDs for semantic search results
  */
+/**
+ * Resolve the tree node ID for a semantic search result. Chunks are loaded
+ * lazily, so the chunk nodeId (e.g. "chunk-abc") may not exist in the tree.
+ * When that happens, fall back to the parent file node ("file-abc") so the
+ * file still appears as a search match.
+ */
+function resolveSemanticNodeId(
+  result: SemanticSearchResult,
+  nodeMap: Map<string, TreeNode<BrowserNodeData>>
+): string | null {
+  // Try chunk node first (available when the file is expanded)
+  if (nodeMap.has(result.nodeId)) {
+    return result.nodeId;
+  }
+  // Fall back to parent file node — tree IDs use "file-" prefix
+  if (result.fileRecordId) {
+    const fileNodeId = `file-${result.fileRecordId}`;
+    if (nodeMap.has(fileNodeId)) {
+      return fileNodeId;
+    }
+  }
+  return null;
+}
+
 function buildSemanticVisibleNodeIds(
   semanticResults: SemanticSearchResult[],
   allNodes: TreeNode<BrowserNodeData>[],
@@ -787,16 +811,8 @@ function buildSemanticVisibleNodeIds(
   }
 
   for (const result of semanticResults) {
-    // Try the chunk node first (available when chunks are loaded in the tree)
-    let node = nodeMap.get(result.nodeId);
-
-    // Chunks are loaded lazily — if the chunk node isn't in the tree yet,
-    // fall back to the parent file node so the file is still shown as a
-    // search match. Without this fallback, semantic search returns "no results"
-    // whenever the matching chunks haven't been expanded/loaded yet.
-    if (!node && result.fileRecordId) {
-      node = nodeMap.get(result.fileRecordId);
-    }
+    const resolvedId = resolveSemanticNodeId(result, nodeMap);
+    const node = resolvedId ? nodeMap.get(resolvedId) : undefined;
 
     if (node && filterFn(node)) {
       visibleNodeIds.add(node.id);
@@ -1153,18 +1169,25 @@ export function useCollectionTree({
       };
     }
 
-    // Build node ID to parent ID map for traversal
+    // Build node maps for traversal and lazy-chunk resolution
     const nodeParentMap = new Map<string, string | null>();
+    const nodeMap = new Map<string, TreeNode<BrowserNodeData>>();
     for (const node of allNodes) {
       nodeParentMap.set(node.id, node.parentId);
+      nodeMap.set(node.id, node);
     }
 
-    // Mark matching chunks and compute ancestors to expand
+    // Mark matching chunks (or their parent file nodes when chunks are lazy)
+    // and compute ancestors to expand
     for (const result of semanticResults) {
-      matchIds.add(result.nodeId);
+      const resolvedId = resolveSemanticNodeId(result, nodeMap);
+      if (!resolvedId) {
+        continue;
+      }
+      matchIds.add(resolvedId);
 
       // Walk up the tree and mark ancestors for expansion
-      let currentParentId = nodeParentMap.get(result.nodeId) ?? null;
+      let currentParentId = nodeParentMap.get(resolvedId) ?? null;
       while (currentParentId) {
         expandIds.add(currentParentId);
         currentParentId = nodeParentMap.get(currentParentId) ?? null;
@@ -1283,16 +1306,26 @@ export function useCollectionTree({
       return null;
     }
 
+    // Build node map so resolveSemanticNodeId can fall back to file nodes
+    // when chunk nodes haven't been loaded yet (lazy loading).
+    const nodeMap = new Map<string, TreeNode<BrowserNodeData>>();
+    for (const node of allNodes) {
+      nodeMap.set(node.id, node);
+    }
+
     const visibleNodeIds = new Set<string>();
     for (const result of semanticResults) {
-      visibleNodeIds.add(result.nodeId);
+      const resolvedId = resolveSemanticNodeId(result, nodeMap);
+      if (resolvedId) {
+        visibleNodeIds.add(resolvedId);
+      }
     }
     for (const id of semanticExpandIds) {
       visibleNodeIds.add(id);
     }
 
     return visibleNodeIds;
-  }, [semanticResults, semanticExpandIds, filterToSemanticResults]);
+  }, [semanticResults, semanticExpandIds, filterToSemanticResults, allNodes]);
 
   // Flatten visible nodes based on expansion state (use sorted children)
   // When semantic results are present, only show nodes that are in the match set or ancestors
