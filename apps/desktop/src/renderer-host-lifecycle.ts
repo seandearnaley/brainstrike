@@ -324,7 +324,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     const isTestMode = process.argv.includes('--test-mode') && !app.isPackaged;
     const enableSandbox = !isTestMode;
     const preloadPath = path.join(resolveDistRoot(), 'preload.js');
-    return new BrowserWindow({
+    const window = new BrowserWindow({
       width: 320,
       height: 240,
       show: false,
@@ -343,6 +343,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
         backgroundThrottling: false,
       },
     });
+
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+    return window;
   }
 
   private async loadWindow(window: BrowserWindow, runtimeId: string): Promise<void> {

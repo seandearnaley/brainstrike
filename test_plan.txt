@@ -1,0 +1,6 @@
+1. Read `.jules/sentinel.md` rule:
+   - "In `apps/desktop`, prevent unauthorized window creation by background renderer hosts by explicitly setting `window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))`."
+2. Open `apps/desktop/src/renderer-host-lifecycle.ts`.
+3. Add `window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));` inside the `buildWindow` method or right after `window` is created.
+4. Modify `apps/desktop/src/renderer-host-lifecycle.ts` using `replace_with_git_merge_diff`.
+5. Run tests for `apps/desktop`.

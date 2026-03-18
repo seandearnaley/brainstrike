@@ -42,6 +42,7 @@ interface FakeWindow {
     listeners: FakeListenerMap;
     on: ReturnType<typeof vi.fn>;
     send: ReturnType<typeof vi.fn>;
+    setWindowOpenHandler: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -86,6 +87,7 @@ function createFakeWindow(id: number): FakeWindow {
         }
       }),
       send: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
     },
   };
 }
