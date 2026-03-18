@@ -3667,6 +3667,23 @@ test.describe('Embedding Host Renderer', () => {
 
     expect(lastSnapshot!.resultCount).toBeGreaterThan(0);
     expect(lastSnapshot!.firstResultNodeId).not.toBeNull();
+
+    // ── 8. Verify tree renders results, not the empty state ─────────────
+    // This catches the lazy-chunk regression where semantic results referenced
+    // chunk nodeIds that weren't in the tree (chunks are loaded on-demand).
+    // The fix falls back to the parent file node via fileRecordId so the
+    // file appears as a search match even when its chunks aren't expanded.
+    const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
+    const emptyResultsMessage = collectionTreeRegion.getByText(
+      'No matching results found. Try adjusting your query or threshold.'
+    );
+    await expect(emptyResultsMessage).toHaveCount(0, { timeout: 5000 });
+
+    // The snapshot already proves resultCount > 0 and firstResultNodeId is set.
+    // The empty-state assertion above confirms the tree rendered content instead
+    // of the "no results" message. Together these verify the lazy-chunk fallback:
+    // search results that reference chunk nodeIds (not yet in the tree) correctly
+    // resolve to their parent file nodes so the tree has content to display.
   });
 
   test('search works when vector-preferences store has no devicePref (stale migration)', async ({
@@ -3822,6 +3839,13 @@ test.describe('Embedding Host Renderer', () => {
     }
 
     expect(lastSnapshot!.resultCount).toBeGreaterThan(0);
+
+    // Verify tree renders results (no empty state from lazy-chunk nodeId mismatch)
+    const collectionTreeRegion2 = activeWindow.getByTestId('collection-tree-region');
+    const emptyMessage2 = collectionTreeRegion2.getByText(
+      'No matching results found. Try adjusting your query or threshold.'
+    );
+    await expect(emptyMessage2).toHaveCount(0, { timeout: 5000 });
   });
 
   test('does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
