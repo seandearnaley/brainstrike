@@ -43,7 +43,7 @@ export function useSearchFunctionality(
   const [hasSearched, setHasSearched] = useState(false);
   const db = usePGliteDatabase();
   const { models } = useModelRegistryStore();
-  const devicePref = useVectorPreferencesStore((state) => state.devicePref) ?? 'webgpu';
+  const devicePref = useVectorPreferencesStore((state) => state.devicePref);
 
   // Maintain an internal service wrapper
   const embedderRef = useRef<SearchEmbedder | null>(null);

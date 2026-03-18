@@ -634,22 +634,34 @@ export function CollectionBrowserView({
       // Build a minimal tree from search results — each result has enough
       // data (fileRecordId, fileName, filePath, content, chunkId) to create
       // both file and chunk nodes without querying the paginated records.
+      // Single pass: build both file and chunk arrays from search results
       const fileMap = new Map<
         string,
-        { id: string; name: string; path: string; chunks: typeof searchResults }
+        { id: string; name: string; path: string; chunkCount: number }
       >();
-      for (const result of searchResults) {
-        let entry = fileMap.get(result.fileRecordId);
-        if (!entry) {
-          entry = {
+      const treeChunks: CollectionTreeInput['chunks'] = [];
+
+      for (const [i, result] of searchResults.entries()) {
+        const existing = fileMap.get(result.fileRecordId);
+        if (existing) {
+          existing.chunkCount++;
+        } else {
+          fileMap.set(result.fileRecordId, {
             id: result.fileRecordId,
             name: result.fileName,
             path: result.filePath,
-            chunks: [],
-          };
-          fileMap.set(result.fileRecordId, entry);
+            chunkCount: 1,
+          });
         }
-        entry.chunks.push(result);
+        treeChunks.push({
+          id: result.chunkId,
+          fileRecordId: result.fileRecordId,
+          chunkIndex: i,
+          content: result.content,
+          tokenCount: 0,
+          hasEmbedding: true,
+          ...(result.embeddingSetId ? { embeddingSetId: result.embeddingSetId } : {}),
+        });
       }
 
       return {
@@ -658,19 +670,11 @@ export function CollectionBrowserView({
           name: file.name,
           path: file.path,
           size: 0,
-          chunksCount: file.chunks.length,
-          embeddedChunksCount: file.chunks.length,
+          chunksCount: file.chunkCount,
+          embeddedChunksCount: file.chunkCount,
           ...(activeCollectionId ? { embeddingSetId: activeCollectionId } : {}),
         })),
-        chunks: searchResults.map((result, index) => ({
-          id: result.chunkId,
-          fileRecordId: result.fileRecordId,
-          chunkIndex: index,
-          content: result.content,
-          tokenCount: 0,
-          hasEmbedding: true,
-          ...(result.embeddingSetId ? { embeddingSetId: result.embeddingSetId } : {}),
-        })),
+        chunks: treeChunks,
       } satisfies CollectionTreeInput;
     }
 
@@ -684,13 +688,6 @@ export function CollectionBrowserView({
     hasSearched,
     searchResults,
   ]);
-  const totalRecordPages = useMemo(() => {
-    if (!pagination) {
-      return 1;
-    }
-    return Math.max(1, Math.ceil(pagination.totalRecords / Math.max(1, pagination.pageSize)));
-  }, [pagination]);
-
   // Inspector panel ref for imperative control
   const inspectorPanelRef = useRef<PanelImperativeHandle>(null);
   const isMountedRef = useRef(true);
@@ -1135,7 +1132,11 @@ export function CollectionBrowserView({
             pageSizeOptions={EMBEDDING_TREE_PAGE_SIZE_OPTIONS}
             showItemRange
             totalItems={pagination.totalRecords}
-            totalPages={totalRecordPages}
+            totalPages={
+              pagination
+                ? Math.max(1, Math.ceil(pagination.totalRecords / Math.max(1, pagination.pageSize)))
+                : 1
+            }
           />
         </div>
       )}

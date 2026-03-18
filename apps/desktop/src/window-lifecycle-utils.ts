@@ -33,7 +33,7 @@ export function waitForWindowClosed(window: BrowserWindow, timeoutMs: number): P
     const onClosed = () => settle();
     const timer = setTimeout(settle, timeoutMs);
     try {
-      window.once('closed', onClosed);
+      window.on('closed', onClosed);
     } catch {
       // Window was destroyed between the isDestroyed() check and listener registration.
       settle();

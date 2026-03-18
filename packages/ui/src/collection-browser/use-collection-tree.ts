@@ -145,6 +145,16 @@ function getFileEmbeddingStatus(
     return 'none';
   }
 
+  // Check live pending state before the embeddedChunksCount fast-path —
+  // otherwise actively-embedding files show 'pending' instead of 'processing'.
+  if (pendingChunkIds) {
+    for (const c of fileChunks) {
+      if (pendingChunkIds.has(c.id)) {
+        return 'processing';
+      }
+    }
+  }
+
   if (file.embeddedChunksCount !== undefined) {
     if (file.embeddedChunksCount >= totalChunkCount) {
       return 'complete';
@@ -155,19 +165,12 @@ function getFileEmbeddingStatus(
   }
 
   let embeddedCount = 0;
-  let pendingCount = 0;
   for (const c of fileChunks) {
-    if (pendingChunkIds?.has(c.id)) {
-      pendingCount++;
-    }
     if ((c.embedding && c.embedding.length > 0) || c.hasEmbedding) {
       embeddedCount++;
     }
   }
 
-  if (pendingCount > 0) {
-    return 'processing';
-  }
   if (embeddedCount === totalChunkCount) {
     return 'complete';
   }
