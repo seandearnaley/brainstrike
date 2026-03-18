@@ -2,6 +2,8 @@ import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
+const defaultCollator = new Intl.Collator(undefined);
+
 /**
  * Cached collection data - persists across component unmounts during imports
  */
@@ -217,7 +219,9 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
           next.unshift(collection);
           next.sort(
             (left, right) =>
-              right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+              // Pre-compiled Intl.Collator is significantly faster than inline localeCompare inside hot paths like array .sort().
+              defaultCollator.compare(right.createdAt, left.createdAt) ||
+              defaultCollator.compare(right.id, left.id)
           );
           return { cachedCollections: next };
         }),

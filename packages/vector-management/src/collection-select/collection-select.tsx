@@ -5,6 +5,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type { EmbeddingSetUpdatedEventDetail } from './embedding-set-events';
 
+const defaultCollator = new Intl.Collator(undefined);
+
 /**
  * Row shape returned by the collections query
  */
@@ -250,7 +252,9 @@ function mergeCollections(
   }
   return Array.from(merged.values()).sort(
     (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      // Pre-compiled Intl.Collator is significantly faster than inline localeCompare inside hot paths like array .sort().
+      defaultCollator.compare(right.createdAt, left.createdAt) ||
+      defaultCollator.compare(right.id, left.id)
   );
 }
 
@@ -262,7 +266,8 @@ function upsertCollectionSnapshot(
   next.unshift(collection);
   next.sort(
     (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      defaultCollator.compare(right.createdAt, left.createdAt) ||
+      defaultCollator.compare(right.id, left.id)
   );
   return next;
 }
@@ -291,7 +296,8 @@ function applyPendingCollectionMutations(
 
   return Array.from(merged.values()).sort(
     (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      defaultCollator.compare(right.createdAt, left.createdAt) ||
+      defaultCollator.compare(right.id, left.id)
   );
 }
 
