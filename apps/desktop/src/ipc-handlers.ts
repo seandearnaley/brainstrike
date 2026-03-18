@@ -18,6 +18,7 @@ import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
   EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
   EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
+  EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL,
 } from './embedding-host-shared';
 import { createFileReadErrorPayload } from './file-read-errors';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -896,6 +897,12 @@ export function registerIpcHandlers(
           }
         }
       }, EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)
+  );
+
+  // Expose in-flight backfill state so the renderer can re-attach to progress
+  // after a crash recovery reload.
+  registerHandler(EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL, async () =>
+    Array.from(embeddingBackfillsInFlight)
   );
 
   registerHandler(

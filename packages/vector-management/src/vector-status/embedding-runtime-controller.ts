@@ -23,6 +23,7 @@ export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<'embedding-host' | 
 export interface EmbeddingRuntimeController {
   enqueueBackfill: (embeddingSetId: string) => Promise<void>;
   ensureStarted: () => Promise<EmbeddingRuntimeStatus>;
+  getBackfillsInFlight: () => Promise<string[]>;
   getStatus: () => Promise<EmbeddingRuntimeStatus>;
   onBackfillProgress: (
     callback: (progress: EmbeddingRuntimeBackfillProgress) => void
@@ -44,6 +45,7 @@ interface EmbeddingHostStatus {
 interface EmbeddingHostApi {
   readonly enqueueBackfill?: (embeddingSetId: string) => Promise<unknown>;
   readonly ensureStarted: () => Promise<EmbeddingHostStatus>;
+  readonly getBackfillsInFlight?: () => Promise<string[]>;
   readonly getStatus: () => Promise<EmbeddingHostStatus>;
   readonly onBackfillProgress?: (
     callback: (progress: EmbeddingRuntimeBackfillProgress) => void
@@ -275,6 +277,12 @@ export function useEmbeddingRuntimeController(
           return ensureDesktopHostConfigured();
         }
         return ensureLocalStarted();
+      },
+      getBackfillsInFlight: async () => {
+        if (desktopHost?.getBackfillsInFlight) {
+          return desktopHost.getBackfillsInFlight();
+        }
+        return [];
       },
       getStatus: async () => {
         if (desktopHost) {

@@ -229,6 +229,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backfillRequestIdRef = useRef<string | null>(null);
   const backfillInvocationIdRef = useRef(0);
+  const cleanupRecoveryRef = useRef<(() => void) | null>(null);
 
   const clearBackfillTimeout = useCallback(() => {
     if (backfillTimeoutRef.current) {
@@ -264,6 +265,58 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     },
     [clearBackfillTimeout]
   );
+
+  // Reconcile backfill state after renderer reload (e.g., crash recovery).
+  // If the main process has a backfill in flight for the active embedding set,
+  // re-attach to the progress stream so the UI shows the progress indicator.
+  useEffect(() => {
+    if (!activeEmbeddingSetId || isBackfillActive) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const inFlight = await controller.getBackfillsInFlight();
+        if (cancelled || !inFlight.includes(activeEmbeddingSetId)) {
+          return;
+        }
+        // A backfill is running for this set — restore the progress indicator
+        setIsJobQueueActive(true);
+        setActiveBackfill({
+          embeddingSetId: activeEmbeddingSetId,
+          requestId: `recovered:${activeEmbeddingSetId}:${Date.now()}`,
+          progress: null,
+        });
+        // Subscribe to progress updates so the indicator updates in real time
+        const unsubscribe = controller.onBackfillProgress((progress) => {
+          if (cancelled || progress.embeddingSetId !== activeEmbeddingSetId) {
+            return;
+          }
+          setActiveBackfill({
+            embeddingSetId: progress.embeddingSetId,
+            requestId: progress.requestId,
+            progress: { done: progress.current, total: progress.total },
+          });
+        });
+        // Clean up subscription when this effect is torn down
+        const cleanup = () => {
+          cancelled = true;
+          unsubscribe();
+        };
+        // Store cleanup so the unmount path can call it
+        cleanupRecoveryRef.current = cleanup;
+      } catch {
+        // Non-critical — if the query fails, user can re-trigger manually
+      }
+    })();
+    return () => {
+      cancelled = true;
+      cleanupRecoveryRef.current?.();
+      cleanupRecoveryRef.current = null;
+    };
+    // Only run on mount and when activeEmbeddingSetId changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEmbeddingSetId, controller]);
 
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
     cacheKey: makeLiveQueryKey('queue-counts', EMBEDDINGS_QUEUE),

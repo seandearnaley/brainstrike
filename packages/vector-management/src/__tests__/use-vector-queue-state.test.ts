@@ -197,6 +197,7 @@ function createMockController(): MockController {
     controller: {
       enqueueBackfill: enqueueBackfillMock,
       ensureStarted: vi.fn(async () => createRuntimeStatus('running')),
+      getBackfillsInFlight: vi.fn(async () => []),
       getStatus: vi.fn(async () => createRuntimeStatus('stopped')),
       onBackfillProgress: (callback) => {
         progressListeners.add(callback);

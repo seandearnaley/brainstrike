@@ -195,6 +195,7 @@ describe('useEmbeddingControls', () => {
     vi.mocked(useEmbeddingRuntimeController).mockReturnValue({
       enqueueBackfill: vi.fn(async () => {}),
       ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      getBackfillsInFlight: vi.fn(async () => []),
       getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
       onBackfillProgress: vi.fn(() => () => {}),
       onStatus: vi.fn(() => () => {}),

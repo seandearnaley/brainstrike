@@ -26,6 +26,8 @@ export const EMBEDDING_HOST_RESET_CHANNEL = EMBEDDING_HOST_LIFECYCLE_CHANNELS.re
 export const EMBEDDING_HOST_GET_STATUS_CHANNEL = EMBEDDING_HOST_LIFECYCLE_CHANNELS.getStatus;
 export const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.enqueueBackfill;
 export const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = EMBEDDING_HOST_CHANNELS.backfillProgress;
+export const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
+  'embedding-host:get-backfills-in-flight' as const;
 
 export type EmbeddingHostCommandAction = 'reset' | 'stop';
 
