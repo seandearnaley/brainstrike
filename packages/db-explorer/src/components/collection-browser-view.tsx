@@ -396,22 +396,27 @@ export function CollectionBrowserView({
   // When search results arrive, load chunks for matching files so the tree
   // can display chunk-level nodes. Chunks are loaded on-demand (lazy), so
   // without this the tree has no chunk nodes and search results can't match.
-  const prevSearchResultsLengthRef = useRef(0);
   useEffect(() => {
-    if (
-      !loadFileChunkSummaries ||
-      searchResults.length === 0 ||
-      searchResults.length === prevSearchResultsLengthRef.current
-    ) {
+    if (!loadFileChunkSummaries || searchResults.length === 0) {
       return;
     }
-    prevSearchResultsLengthRef.current = searchResults.length;
 
     // Deduplicate file record IDs from search results
     const fileRecordIds = [...new Set(searchResults.map((r) => r.fileRecordId))];
-    for (const fileRecordId of fileRecordIds) {
-      void loadFileChunkSummaries(fileRecordId);
-    }
+
+    // Load all matching file chunks — errors must not be swallowed
+    Promise.all(
+      fileRecordIds.map((id) =>
+        loadFileChunkSummaries(id).catch((err: unknown) => {
+          logger.error('Failed to load chunks for search result file', {
+            fileRecordId: id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        })
+      )
+    ).catch(() => {
+      // Promise.all rejection already handled per-file above
+    });
   }, [searchResults, loadFileChunkSummaries]);
 
   // Convert expanded IDs array to Set for CollectionBrowser
@@ -645,11 +650,64 @@ export function CollectionBrowserView({
     }
   }, [semanticQuery, searchConfig, activeCollectionId, executeSearch, setSearchMode]);
 
-  // Transform data for CollectionBrowser
-  const treeData = useMemo(
-    () => transformToTreeInput(records, chunks, activeCollectionId, pendingChunkIds),
-    [records, chunks, activeCollectionId, pendingChunkIds]
-  );
+  // Transform data for CollectionBrowser.
+  // When semantic search results are present, build the tree from the search
+  // results themselves — search results span ALL pages but the paginated
+  // `records` only contains the current page. Without this, files on other
+  // pages have no tree nodes and the tree shows "No matching results".
+  const treeData = useMemo(() => {
+    if (searchMode === 'semantic' && hasSearched && searchResults.length > 0) {
+      // Build a minimal tree from search results — each result has enough
+      // data (fileRecordId, fileName, filePath, content, chunkId) to create
+      // both file and chunk nodes without querying the paginated records.
+      const fileMap = new Map<
+        string,
+        { id: string; name: string; path: string; chunks: typeof searchResults }
+      >();
+      for (const result of searchResults) {
+        let entry = fileMap.get(result.fileRecordId);
+        if (!entry) {
+          entry = {
+            id: result.fileRecordId,
+            name: result.fileName,
+            path: result.filePath,
+            chunks: [],
+          };
+          fileMap.set(result.fileRecordId, entry);
+        }
+        entry.chunks.push(result);
+      }
+
+      return {
+        files: Array.from(fileMap.values()).map((file) => ({
+          id: file.id,
+          name: file.name,
+          path: file.path,
+          size: 0,
+          chunksCount: file.chunks.length,
+          ...(activeCollectionId ? { embeddingSetId: activeCollectionId } : {}),
+        })),
+        chunks: searchResults.map((result, index) => ({
+          id: result.chunkId,
+          fileRecordId: result.fileRecordId,
+          chunkIndex: index,
+          content: result.content,
+          tokenCount: 0,
+          ...(result.embeddingSetId ? { embeddingSetId: result.embeddingSetId } : {}),
+        })),
+      } satisfies CollectionTreeInput;
+    }
+
+    return transformToTreeInput(records, chunks, activeCollectionId, pendingChunkIds);
+  }, [
+    records,
+    chunks,
+    activeCollectionId,
+    pendingChunkIds,
+    searchMode,
+    hasSearched,
+    searchResults,
+  ]);
   const totalRecordPages = useMemo(() => {
     if (!pagination) {
       return 1;

@@ -3689,12 +3689,12 @@ test.describe('Embedding Host Renderer', () => {
   }) => {
     test.setTimeout(300_000);
 
-    // This test reproduces the exact bug: with many files, the collection tree
-    // lazy-loads chunks (they only appear when a file is expanded). Semantic
-    // search returns chunk-level nodeIds ("chunk-<id>") that don't exist in the
-    // tree. Without the fileRecordId fallback, buildSemanticVisibleNodeIds finds
-    // zero matches and the tree shows "No matching results found" despite the
-    // search returning valid results.
+    // This test reproduces the exact production bug: with many files, the
+    // collection tree is PAGINATED (e.g. 50 files per page). Search results
+    // reference files on OTHER pages — those file nodes don't exist in the
+    // tree. Without building the tree from search results directly, the tree
+    // shows "No matching results found" despite the search returning results.
+    // We use 100 files (> default page size of 50) to guarantee pagination.
 
     let activeWindow = await showDatabaseDemoPanel(window);
     if (await isDatabaseError(activeWindow)) {
@@ -3705,8 +3705,10 @@ test.describe('Embedding Host Renderer', () => {
     const collectionName = `Lazy Chunk Search ${Date.now()}`;
     const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
 
-    // Create 20 files with 2 chunks each — enough to trigger lazy chunk loading
-    const LAZY_FILE_COUNT = 20;
+    // Create 100 files with 1 chunk each — exceeds the default page size (50)
+    // to guarantee pagination. Search results will reference files on page 2+
+    // that don't exist as tree nodes in the paginated view.
+    const LAZY_FILE_COUNT = 100;
     await activeWindow.evaluate(
       async ({ id, fileCount }) => {
         const api = (
@@ -3744,29 +3746,24 @@ test.describe('Embedding Host Renderer', () => {
               now,
             ]
           );
-          for (let c = 0; c < 2; c++) {
-            const chunkContent =
-              c === 0
-                ? `export function handler${i}() { return "lazy-chunk-search-fixture-${i}"; }`
-                : `// Chunk ${c} of lazy-${i}.ts with unique searchable content lazy-chunk-search-fixture`;
-            await api.db.query(
-              `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
-              [
-                `${fileId}-chunk-${c}`,
-                fileId,
-                c,
-                chunkContent,
-                `chunk-hash-${fileId}-${c}`,
-                15,
-                'code',
-                chunkContent.length,
-                now,
-              ]
-            );
-          }
+          const chunkContent = `export function handler${i}() { return "lazy-chunk-search-fixture-${i}"; }`;
           await api.db.query(
-            `UPDATE file_records SET chunks_processed_at = $2, chunks_count = 2, chunking_strategy = 'recursive', updated_at = $2 WHERE id = $1`,
+            `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+            [
+              `${fileId}-chunk-0`,
+              fileId,
+              0,
+              chunkContent,
+              `chunk-hash-${fileId}-0`,
+              15,
+              'code',
+              chunkContent.length,
+              now,
+            ]
+          );
+          await api.db.query(
+            `UPDATE file_records SET chunks_processed_at = $2, chunks_count = 1, chunking_strategy = 'recursive', updated_at = $2 WHERE id = $1`,
             [fileId, now]
           );
         }
@@ -3788,7 +3785,7 @@ test.describe('Embedding Host Renderer', () => {
       .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
         timeout: 30_000,
       })
-      .toMatchObject({ totalChunks: LAZY_FILE_COUNT * 2 });
+      .toMatchObject({ totalChunks: LAZY_FILE_COUNT });
 
     const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
     const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
@@ -3806,7 +3803,7 @@ test.describe('Embedding Host Renderer', () => {
       .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
         timeout: 120_000,
       })
-      .toMatchObject({ embeddedChunks: LAZY_FILE_COUNT * 2 });
+      .toMatchObject({ embeddedChunks: LAZY_FILE_COUNT });
 
     // ── Search: chunks are NOT expanded in the tree (lazy loaded) ──
     const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
