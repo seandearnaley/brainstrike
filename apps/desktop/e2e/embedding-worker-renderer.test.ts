@@ -3669,6 +3669,161 @@ test.describe('Embedding Host Renderer', () => {
     expect(lastSnapshot!.firstResultNodeId).not.toBeNull();
   });
 
+  test('search works when vector-preferences store has no devicePref (stale migration)', async ({
+    window,
+  }) => {
+    test.setTimeout(300_000);
+
+    // This test reproduces a crash where a stale persisted vector-preferences
+    // store (missing devicePref field) caused the search embedder to receive
+    // undefined as the device preference, crashing the visible renderer.
+
+    // ── Phase 1: Standard setup with WASM (needed for CI/headless backfill) ──
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      throw new Error('Database initialization failed');
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+
+    const collectionName = `Stale Prefs Search ${Date.now()}`;
+    const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
+    const chunkedFixture = await createChunkedImportFixture(activeWindow, embeddingSetId);
+
+    // Use WASM for backfill (works in headless CI)
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-stale-prefs-backfill');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
+    await collectionOption.click({ timeout: 5000 });
+    await waitForImportedChunks(activeWindow, embeddingSetId);
+
+    const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
+    const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
+    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+    await backfillButton.click({ timeout: 5000 });
+
+    const outcome = await waitForBackfillQueueMovementOrFatalError(activeWindow, embeddingSetId);
+    if (outcome === 'error') {
+      const status = await getEmbeddingHostStatus(activeWindow);
+      throw new Error(
+        `Backfill failed with stale prefs: ${status.lastError ?? 'unknown host error'}`
+      );
+    }
+
+    await expect
+      .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
+        timeout: 120_000,
+      })
+      .toMatchObject({
+        embeddedChunks: chunkedFixture.totalChunks,
+      });
+
+    // ── Phase 2: Simulate stale store AFTER backfill, then search ──
+    // Write a version-1 store WITHOUT devicePref to simulate old persisted data.
+    // The migration should promote this to a valid state. Previously this caused
+    // the search embedder to receive undefined devicePref, crashing the renderer.
+    await activeWindow.evaluate(() => {
+      const storageBridge = (
+        window as unknown as {
+          electronAPI?: {
+            storage?: {
+              setItem?: (key: string, value: string) => Promise<void>;
+            };
+          };
+        }
+      ).electronAPI?.storage;
+
+      if (!storageBridge?.setItem) {
+        throw new Error('Electron storage bridge is not available');
+      }
+
+      return storageBridge.setItem(
+        'vector-preferences.v1',
+        JSON.stringify({
+          state: {
+            reinitEveryN: 200,
+            verboseOrtLogs: false,
+          },
+          version: 1,
+        })
+      );
+    });
+
+    // Reload with stale prefs — the migration runs and should produce valid state.
+    // The renderer must NOT crash during this reload (the original bug).
+    await reloadRendererInTest(activeWindow, 'embedding-worker-stale-prefs-migration');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    // Verify the renderer survived the stale-prefs migration without crashing
+    const timeOriginAfterStaleMigration = await getRendererTimeOrigin(activeWindow);
+    expect(timeOriginAfterStaleMigration).toBeGreaterThan(0);
+
+    // In CI/headless, WebGPU lacks fp16 support. The migration correctly set
+    // devicePref to 'webgpu', proving it's no longer undefined. Now switch to
+    // WASM so the search embedder can actually run in the test environment.
+    await setVectorDevicePreference(activeWindow, 'wasm');
+    await reloadRendererInTest(activeWindow, 'embedding-worker-stale-prefs-search');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    // Re-select collection after reload
+    const collectionOption2 = activeWindow.locator(`#collection-option-${embeddingSetId}`);
+    await expect(collectionOption2).toBeVisible({ timeout: 15_000 });
+    await collectionOption2.click({ timeout: 5000 });
+
+    // ── The critical assertion: search must not crash the renderer ──
+    const timeOriginBeforeSearch = await getRendererTimeOrigin(activeWindow);
+
+    const semanticSearchBox = activeWindow.getByLabel('Semantic search query');
+    await expect(semanticSearchBox).toBeVisible({ timeout: 15_000 });
+    await semanticSearchBox.fill('desktop chunking backfill');
+    await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
+
+    // Wait briefly then verify the renderer did NOT crash/reload
+    await activeWindow.waitForTimeout(3000);
+    const timeOriginAfterSearch = await getRendererTimeOrigin(activeWindow);
+    expect(timeOriginAfterSearch).toBe(timeOriginBeforeSearch);
+
+    // Poll for search results
+    const searchStartedAt = Date.now();
+    let lastSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
+    while (Date.now() - searchStartedAt < 60_000) {
+      const snapshot = await getDatabaseDemoSemanticSearchSnapshot(activeWindow);
+      lastSnapshot = snapshot;
+
+      if (snapshot?.error) {
+        throw new Error(`Search failed with stale prefs: ${snapshot.error}`);
+      }
+
+      if (
+        snapshot?.hasSearched &&
+        !snapshot.isSearching &&
+        snapshot.resultCount > 0 &&
+        snapshot.firstResultNodeId !== null
+      ) {
+        break;
+      }
+
+      await activeWindow.waitForTimeout(250);
+    }
+
+    if (!(lastSnapshot?.hasSearched && !lastSnapshot.isSearching && lastSnapshot.resultCount > 0)) {
+      const alertTexts = await getVisibleAlertTexts(activeWindow);
+      throw new Error(
+        'Search returned no results with stale vector-preferences store.\n' +
+          `snapshot=${JSON.stringify(lastSnapshot)}\n` +
+          `alerts=${JSON.stringify(alertTexts)}`
+      );
+    }
+
+    expect(lastSnapshot!.resultCount).toBeGreaterThan(0);
+  });
+
   test('does not reload the visible renderer or churn hidden runtimes during a real 1k-file import and backfill', async ({
     electronApp,
     window,
