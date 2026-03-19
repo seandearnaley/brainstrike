@@ -237,6 +237,24 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       backfillTimeoutRef.current = null;
     }
   }, []);
+  const clearTransientBackfillState = useCallback(
+    (expectedEmbeddingSetId?: string | null) => {
+      const currentBackfill = useVectorStatusUIStore.getState().activeBackfill;
+      if (
+        expectedEmbeddingSetId &&
+        currentBackfill &&
+        currentBackfill.embeddingSetId !== expectedEmbeddingSetId
+      ) {
+        return;
+      }
+
+      clearBackfillTimeout();
+      backfillRequestIdRef.current = null;
+      setActiveBackfill(null);
+      setIsJobQueueActive(false);
+    },
+    [clearBackfillTimeout, setActiveBackfill, setIsJobQueueActive]
+  );
   const isBackfillActive = activeBackfill !== null;
   const backfillProgress = activeBackfill?.progress ?? null;
   const isActiveSetBackfill =
@@ -257,6 +275,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     !isEmbeddingActive &&
     !isBackfillActive &&
     !isJobQueueActive;
+  const isDesktopRenderer =
+    typeof window !== 'undefined' &&
+    (window as Window & { electronAPI?: unknown }).electronAPI !== undefined;
 
   // Clear timeout on unmount.
   useEffect(
@@ -270,14 +291,32 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   // If the main process has a backfill in flight for the active embedding set,
   // re-attach to the progress stream so the UI shows the progress indicator.
   useEffect(() => {
-    if (!activeEmbeddingSetId || isBackfillActive) {
+    if (!(activeEmbeddingSetId && isDesktopRenderer)) {
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
         const inFlight = await controller.getBackfillsInFlight();
-        if (cancelled || !inFlight.includes(activeEmbeddingSetId)) {
+        if (cancelled) {
+          return;
+        }
+        if (!inFlight.includes(activeEmbeddingSetId)) {
+          const currentState = useVectorStatusUIStore.getState();
+          const currentBackfill = currentState.activeBackfill;
+          const shouldClearRecoveredState =
+            currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
+            (currentState.isJobQueueActive || currentBackfill.requestId.startsWith('recovered:'));
+          if (shouldClearRecoveredState) {
+            clearTransientBackfillState(activeEmbeddingSetId);
+          }
+          return;
+        }
+        const currentBackfill = useVectorStatusUIStore.getState().activeBackfill;
+        if (
+          currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
+          !currentBackfill.requestId.startsWith('recovered:')
+        ) {
           return;
         }
         // A backfill is running for this set — restore the progress indicator
@@ -314,9 +353,14 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       cleanupRecoveryRef.current?.();
       cleanupRecoveryRef.current = null;
     };
-    // Only run on mount and when activeEmbeddingSetId changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeEmbeddingSetId, controller]);
+  }, [
+    activeEmbeddingSetId,
+    clearTransientBackfillState,
+    controller,
+    isDesktopRenderer,
+    setActiveBackfill,
+    setIsJobQueueActive,
+  ]);
 
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
     cacheKey: makeLiveQueryKey('queue-counts', EMBEDDINGS_QUEUE),
@@ -665,10 +709,11 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
     try {
       await service.wipeQueue();
+      clearTransientBackfillState();
     } catch {
       // ignore errors when wiping queue
     }
-  }, [service]);
+  }, [clearTransientBackfillState, service]);
 
   return useMemo(
     () => ({

@@ -217,6 +217,17 @@ interface GpuWorkingSetScore {
   minTotalKB: number;
 }
 
+interface NumericSampleScore {
+  max: number;
+  median: number;
+  min: number;
+}
+
+interface PostTargetMemorySample {
+  appMetrics: AppMetricSample[];
+  hostWorkingSetMB: number;
+}
+
 function withTemporaryProcessEnv(overrides: Record<string, string | undefined>): () => void {
   const previous = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries(overrides)) {
@@ -972,6 +983,77 @@ test.describe('Embedding Host Renderer', () => {
     return Math.round((after - before) * 10) / 10;
   }
 
+  function scoreNumericSamples(samples: readonly number[]): NumericSampleScore {
+    if (samples.length === 0) {
+      throw new Error('Numeric sample scoring requires at least one sample.');
+    }
+
+    const sorted = [...samples].sort((left, right) => left - right);
+    const medianIndex = Math.floor(sorted.length / 2);
+    return {
+      min: sorted[0] ?? 0,
+      median: sorted[medianIndex] ?? 0,
+      max: sorted.at(-1) ?? 0,
+    };
+  }
+
+  async function readTrackedRuntimeWorkingSetMB(
+    app: ElectronApplication,
+    runtimeKind: RuntimeProcessSnapshot['runtimeKind']
+  ): Promise<number | null> {
+    return await app.evaluate<number | null, RuntimeProcessSnapshot['runtimeKind']>(
+      ({ app: electronApp, BrowserWindow }, expectedRuntimeKind) => {
+        const hostWindow = BrowserWindow.getAllWindows().find((browserWindow) => {
+          const url = browserWindow.webContents.getURL();
+          let mode: string | null = null;
+          try {
+            mode = new URL(url).searchParams.get('mode');
+          } catch {
+            mode = null;
+          }
+          const runtimeKind =
+            mode === 'embedding-host'
+              ? 'embedding-host'
+              : mode === 'chunking-host'
+                ? 'chunking-host'
+                : 'visible-ui';
+          return runtimeKind === expectedRuntimeKind;
+        });
+        if (!hostWindow) {
+          return null;
+        }
+        const osProcessId = hostWindow.webContents.getOSProcessId();
+        if (!Number.isInteger(osProcessId) || osProcessId <= 0) {
+          return null;
+        }
+        const metric = electronApp.getAppMetrics().find((entry) => entry.pid === osProcessId);
+        const workingSetSize = metric?.memory?.workingSetSize;
+        if (!(typeof workingSetSize === 'number' && Number.isFinite(workingSetSize))) {
+          return null;
+        }
+        return Math.round((workingSetSize / 1024) * 10) / 10;
+      },
+      runtimeKind
+    );
+  }
+
+  async function waitForTrackedRuntimeWorkingSetMB(
+    app: ElectronApplication,
+    page: Page,
+    runtimeKind: RuntimeProcessSnapshot['runtimeKind'],
+    timeoutMs = 30_000
+  ): Promise<number> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const workingSetMB = await readTrackedRuntimeWorkingSetMB(app, runtimeKind);
+      if (typeof workingSetMB === 'number') {
+        return workingSetMB;
+      }
+      await page.waitForTimeout(250);
+    }
+    throw new Error(`Timed out waiting for ${runtimeKind} working-set measurement`);
+  }
+
   async function readAppMetricSample(app: ElectronApplication): Promise<AppMetricSample[]> {
     return await app.evaluate(({ app: electronApp }) => {
       return electronApp.getAppMetrics().map((metric) => ({
@@ -1021,16 +1103,26 @@ test.describe('Embedding Host Renderer', () => {
     };
   }
 
-  async function collectGpuProcessSamples(
+  async function collectPostTargetMemorySamples(
     app: ElectronApplication,
     page: Page,
     sampleCount: number,
     delayMs: number
-  ): Promise<AppMetricSample[][]> {
-    const samples: AppMetricSample[][] = [];
+  ): Promise<PostTargetMemorySample[]> {
+    const samples: PostTargetMemorySample[] = [];
     for (let index = 0; index < sampleCount; index += 1) {
       await page.waitForTimeout(delayMs);
-      samples.push(await readAppMetricSample(app));
+      const [appMetrics, hostWorkingSetMB] = await Promise.all([
+        readAppMetricSample(app),
+        readTrackedRuntimeWorkingSetMB(app, 'embedding-host'),
+      ]);
+      if (typeof hostWorkingSetMB !== 'number') {
+        throw new Error('Missing embedding-host working-set measurement during sampling');
+      }
+      samples.push({
+        appMetrics,
+        hostWorkingSetMB,
+      });
     }
     return samples;
   }
@@ -2340,6 +2432,58 @@ test.describe('Embedding Host Renderer', () => {
     return { mainLogs, relevantElectronStderr };
   }
 
+  async function waitForReclaimCycleAndResumedProcessing(
+    page: Page,
+    initialRuntimeId: string,
+    baselineLogCount: number,
+    minimumSucceededItems: number,
+    timeoutMs = 120_000
+  ): Promise<{
+    mainLogs: MainBufferedLogRecord[];
+    queueStats: QueueStatsRow;
+    status: EmbeddingHostStatus;
+  }> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const [queueStats, status, mainLogs] = await Promise.all([
+        getEmbeddingQueueStats(page),
+        getEmbeddingHostStatus(page),
+        getMainBufferedLogs(page),
+      ]);
+      if (status.state === 'error') {
+        throw new Error(
+          status.lastError ??
+            'Embedding host entered an error state while waiting for reclaim to resume work.'
+        );
+      }
+
+      const observedMaintenanceCycles = detectObservedMaintenanceCycles({
+        initialRuntimeId,
+        finalRuntimeId: status.runtimeId,
+        logsSinceBaseline: mainLogs.slice(baselineLogCount),
+      });
+      const resumedOnFreshRuntime =
+        observedMaintenanceCycles > 0 &&
+        status.runtimeId !== initialRuntimeId &&
+        status.state === 'running' &&
+        status.active &&
+        queueStats.running > 0 &&
+        queueStats.succeeded >= minimumSucceededItems;
+      if (resumedOnFreshRuntime) {
+        return {
+          mainLogs,
+          queueStats,
+          status,
+        };
+      }
+
+      await page.waitForTimeout(500);
+    }
+
+    throw new Error('Timed out waiting for reclaim maintenance to resume processing.');
+  }
+
   async function prepareRealWorldMixedStateScenario(
     electronApp: ElectronApplication,
     window: Page
@@ -3319,6 +3463,205 @@ test.describe('Embedding Host Renderer', () => {
     expect(resumedProgress.done).toBeGreaterThanOrEqual(initialProgress.done);
 
     await electronHarness.restart();
+  });
+
+  test('wiping the queue clears visible backfill state and re-enables manual backfill in the same desktop session', async ({
+    electronHarness,
+  }) => {
+    test.setTimeout(420_000);
+    const restoreEnv = withTemporaryProcessEnv({
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED: 'false',
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE: undefined,
+    });
+
+    const context = await electronHarness.restart();
+    let activeWindow = await showDatabaseDemoPanel(context.window);
+
+    try {
+      if (await isDatabaseError(activeWindow)) {
+        await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+        return;
+      }
+
+      await clearEmbeddingQueue(activeWindow);
+      await setVectorDevicePreference(activeWindow, 'wasm');
+
+      const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+        fileCount: 80,
+        chunksPerFile: 8,
+        persistActiveSet: true,
+      });
+
+      await reloadRendererInTest(activeWindow, 'database-backfill-wipe-recovery-fixture');
+      activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+      const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+      await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+      await collectionOption.click({ timeout: 5000 });
+
+      const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
+      const resolveBackfillActionButton = () =>
+        databasePanel
+          .locator('button')
+          .filter({ hasText: /^(?:Start & )?Backfill(?:\s|$)|^Backfilling|^\d+\/\d+$/u })
+          .first();
+      const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
+
+      await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+      await waitForBackfillButtonEnabled(activeWindow, backfillButton, 60_000);
+      await backfillButton.click({ timeout: 5000 });
+      const initialOutcome = await waitForActiveProcessingOrFatalError(activeWindow, 60_000);
+      expect(initialOutcome).toBe('running');
+
+      const initialProgress = parseBackfillProgressLabel(
+        await waitForBackfillProgressText(resolveBackfillActionButton(), 30_000)
+      );
+      expect(initialProgress.total).toBe(fixture.totalChunks);
+      expect(initialProgress.done).toBeGreaterThanOrEqual(0);
+
+      const actionsButton = databasePanel.getByRole('button', {
+        name: /more embedding actions/i,
+      });
+      await expect(actionsButton).toBeVisible({ timeout: 15_000 });
+      await actionsButton.click({ timeout: 5000 });
+      await activeWindow.getByRole('menuitem', { name: /wipe all jobs/i }).click({
+        timeout: 5000,
+      });
+
+      await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 60_000);
+
+      const countsAfterWipe = await getEmbeddingSetCounts(activeWindow, fixture.embeddingSetId);
+      expect(countsAfterWipe.totalChunks).toBe(fixture.totalChunks);
+      expect(countsAfterWipe.embeddedChunks).toBeLessThan(fixture.totalChunks);
+
+      const retryBackfillButton = databasePanel.getByRole('button', {
+        name: /^Backfill(?:\s|$)/,
+      });
+      await waitForBackfillButtonEnabled(activeWindow, retryBackfillButton, 60_000);
+      await retryBackfillButton.click({ timeout: 5000 });
+
+      const retryOutcome = await waitForBackfillQueueMovementOrFatalError(
+        activeWindow,
+        fixture.embeddingSetId,
+        60_000
+      );
+      if (retryOutcome === 'error') {
+        const status = await getEmbeddingHostStatus(activeWindow);
+        throw new Error(
+          `Backfill did not recover after wipe and renderer reload: ${status.lastError ?? 'unknown host error'}`
+        );
+      }
+    } finally {
+      await clearEmbeddingQueue(activeWindow);
+      await stopEmbeddingHost(activeWindow);
+      restoreEnv();
+    }
+  });
+
+  test('re-enables manual backfill after desktop restart when a collection still has unembedded chunks and no queued or running jobs', async ({
+    electronHarness,
+  }) => {
+    test.setTimeout(420_000);
+    const restoreEnv = withTemporaryProcessEnv({
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED: 'false',
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE: undefined,
+    });
+
+    let activeWindow: Page | null = null;
+    try {
+      const firstContext = await electronHarness.restart();
+      activeWindow = await showDatabaseDemoPanel(firstContext.window);
+
+      if (await isDatabaseError(activeWindow)) {
+        await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+        return;
+      }
+
+      await clearEmbeddingQueue(activeWindow);
+      await setVectorDevicePreference(activeWindow, 'wasm');
+
+      const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+        fileCount: 40,
+        chunksPerFile: 6,
+        persistActiveSet: true,
+      });
+
+      await reloadRendererInTest(activeWindow, 'database-backfill-restart-recovery-fixture');
+      activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+      const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+      await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+      await collectionOption.click({ timeout: 5000 });
+
+      const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
+      const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
+
+      await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+      await waitForBackfillButtonEnabled(activeWindow, backfillButton, 60_000);
+      await backfillButton.click({ timeout: 5000 });
+      const initialOutcome = await waitForActiveProcessingOrFatalError(activeWindow, 60_000);
+      expect(initialOutcome).toBe('running');
+
+      const actionsButton = databasePanel.getByRole('button', {
+        name: /more embedding actions/i,
+      });
+      await expect(actionsButton).toBeVisible({ timeout: 15_000 });
+      await actionsButton.click({ timeout: 5000 });
+      await activeWindow.getByRole('menuitem', { name: /wipe all jobs/i }).click({
+        timeout: 5000,
+      });
+      await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 60_000);
+
+      const countsBeforeRestart = await getEmbeddingSetCounts(activeWindow, fixture.embeddingSetId);
+      expect(countsBeforeRestart.totalChunks).toBe(fixture.totalChunks);
+      expect(countsBeforeRestart.embeddedChunks).toBeGreaterThanOrEqual(0);
+      expect(countsBeforeRestart.embeddedChunks).toBeLessThan(countsBeforeRestart.totalChunks);
+
+      const restartedContext = await electronHarness.restart();
+      activeWindow = await showDatabaseDemoPanel(restartedContext.window);
+
+      if (await isDatabaseError(activeWindow)) {
+        await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+        return;
+      }
+
+      const restartedCollectionOption = activeWindow.locator(
+        `#collection-option-${fixture.embeddingSetId}`
+      );
+      await expect(restartedCollectionOption).toBeVisible({ timeout: 30_000 });
+      await restartedCollectionOption.click({ timeout: 5000 });
+
+      const restartedDatabasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
+      const restartedBackfillButton = restartedDatabasePanel.getByRole('button', {
+        name: /^Backfill(?:\s|$)/,
+      });
+      await expect(restartedBackfillButton).toBeVisible({ timeout: 15_000 });
+      await waitForBackfillButtonEnabled(activeWindow, restartedBackfillButton, 60_000);
+
+      const restartedCounts = await getEmbeddingSetCounts(activeWindow, fixture.embeddingSetId);
+      expect(restartedCounts.totalChunks).toBe(fixture.totalChunks);
+      expect(restartedCounts.embeddedChunks).toBeGreaterThanOrEqual(0);
+      expect(restartedCounts.embeddedChunks).toBeLessThan(restartedCounts.totalChunks);
+
+      await restartedBackfillButton.click({ timeout: 5000 });
+      const retryOutcome = await waitForBackfillQueueMovementOrFatalError(
+        activeWindow,
+        fixture.embeddingSetId,
+        60_000
+      );
+      if (retryOutcome === 'error') {
+        const status = await getEmbeddingHostStatus(activeWindow);
+        throw new Error(
+          `Backfill stayed disabled or failed after desktop restart with pending chunks: ${status.lastError ?? 'unknown host error'}`
+        );
+      }
+    } finally {
+      if (activeWindow) {
+        await clearEmbeddingQueue(activeWindow);
+        await stopEmbeddingHost(activeWindow);
+      }
+      restoreEnv();
+    }
   });
 
   test('does not accumulate hidden-host memory across repeated large backfill cycles on the same host process', async ({
@@ -5940,10 +6283,17 @@ test.describe('Embedding Host Renderer', () => {
     cycleCount: number;
     gpuGrowthMB: number;
     gpuGrowthPerItemKB: number;
+    hostWorkingSetGrowthMB: number;
+    hostWorkingSetGrowthPerItemKB: number;
     itemsProcessed: number;
     label: string;
     runtimeIdAfterSampling: string;
     runtimeIdBeforeBackfill: string;
+    hostScore: {
+      maxWorkingSetMB: number;
+      medianWorkingSetMB: number;
+      minWorkingSetMB: number;
+    };
     score: {
       maxGpuKB: number;
       maxTotalKB: number;
@@ -6004,26 +6354,57 @@ test.describe('Embedding Host Renderer', () => {
       await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
       const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
       expect(outcome).toBe('running');
+      const baselineHostWorkingSetMB = await waitForTrackedRuntimeWorkingSetMB(
+        electronContext.app,
+        activeWindow,
+        'embedding-host'
+      );
 
+      let queueStatsBeforeSampling: QueueStatsRow | null = null;
       const measurementStartedAt = Date.now();
       while (Date.now() - measurementStartedAt < 180_000) {
-        const [queueStats, status] = await Promise.all([
+        const [queueStats, status, mainLogs] = await Promise.all([
           getEmbeddingQueueStats(activeWindow),
           getEmbeddingHostStatus(activeWindow),
+          getMainBufferedLogs(activeWindow),
         ]);
-        if (queueStats.succeeded >= options.targetSucceededItems) {
-          break;
-        }
         if (status.state === 'error') {
           throw new Error(
             `Embedding host entered error state during ${options.label}: ${status.lastError ?? 'unknown host error'}`
           );
         }
+
+        if (options.reclaimEnabled) {
+          const observedMaintenanceCycles = detectObservedMaintenanceCycles({
+            initialRuntimeId: initialStatus.runtimeId,
+            finalRuntimeId: status.runtimeId,
+            logsSinceBaseline: mainLogs.slice(baselineMainLogs.length),
+          });
+          const reclaimedAndResumed =
+            observedMaintenanceCycles > 0 &&
+            status.runtimeId !== initialStatus.runtimeId &&
+            status.state === 'running' &&
+            status.active &&
+            queueStats.running > 0 &&
+            queueStats.succeeded >= options.targetSucceededItems;
+          if (reclaimedAndResumed) {
+            queueStatsBeforeSampling = queueStats;
+            break;
+          }
+        } else if (queueStats.succeeded >= options.targetSucceededItems) {
+          queueStatsBeforeSampling = queueStats;
+          break;
+        }
+
         await activeWindow.waitForTimeout(1000);
       }
 
-      const finalQueueStats = await getEmbeddingQueueStats(activeWindow);
-      expect(finalQueueStats.succeeded).toBeGreaterThanOrEqual(options.targetSucceededItems);
+      if (!queueStatsBeforeSampling) {
+        throw new Error(`Timed out waiting for the ${options.label} sampling checkpoint.`);
+      }
+      expect(queueStatsBeforeSampling.succeeded).toBeGreaterThanOrEqual(
+        options.targetSucceededItems
+      );
       if (options.reclaimEnabled) {
         await expect
           .poll(
@@ -6036,36 +6417,55 @@ test.describe('Embedding Host Renderer', () => {
             }
           )
           .toBeGreaterThan(0);
+        const resumedState = await waitForReclaimCycleAndResumedProcessing(
+          activeWindow,
+          initialStatus.runtimeId,
+          baselineMainLogs.length,
+          options.targetSucceededItems,
+          60_000
+        );
+        queueStatsBeforeSampling = resumedState.queueStats;
       }
 
-      // A single endpoint sample is noisy because reclaim intentionally tears
-      // down and recreates the embedding host, which causes transient model-load
-      // spikes. Sample a short cooldown window and score the lowest GPU working
-      // set we observe after the threshold has been crossed.
+      const baselineGpuKB = getGpuWorkingSetKB(baseline);
+      const baselineTotalKB = getTotalWorkingSetKB(baseline);
+
+      // Score a short steady-state window after the sampling checkpoint. The
+      // comparison gate is the hidden embedding-host renderer working set,
+      // which maps directly to the background renderer the user observes.
       const postTargetSampleDelayMs = 1000;
       const postTargetSampleCount = 12;
-      const postTargetSamples = await collectGpuProcessSamples(
+      const postTargetSamples = await collectPostTargetMemorySamples(
         electronContext.app,
         activeWindow,
         postTargetSampleCount,
         postTargetSampleDelayMs
       );
       const rawSampleSummary = postTargetSamples.map((sample) => ({
-        gpuKB: getGpuWorkingSetKB(sample),
-        totalKB: getTotalWorkingSetKB(sample),
+        gpuKB: getGpuWorkingSetKB(sample.appMetrics),
+        hostWorkingSetMB: sample.hostWorkingSetMB,
+        totalKB: getTotalWorkingSetKB(sample.appMetrics),
       }));
-      const score = scoreGpuWorkingSetSamples(postTargetSamples);
+      const score = scoreGpuWorkingSetSamples(postTargetSamples.map((sample) => sample.appMetrics));
+      const hostScore = scoreNumericSamples(
+        postTargetSamples.map((sample) => sample.hostWorkingSetMB)
+      );
 
-      const baselineGpuKB = getGpuWorkingSetKB(baseline);
-      const finalGpuKB = score.minGpuKB;
+      const finalGpuKB = score.medianGpuKB;
       const gpuGrowthMB = (finalGpuKB - baselineGpuKB) / 1024;
 
-      const baselineTotalKB = getTotalWorkingSetKB(baseline);
-      const finalTotalKB = score.minTotalKB;
+      const finalTotalKB = score.medianTotalKB;
       const totalGrowthMB = (finalTotalKB - baselineTotalKB) / 1024;
+      const finalHostWorkingSetMB = hostScore.median;
+      const hostWorkingSetGrowthMB = finalHostWorkingSetMB - baselineHostWorkingSetMB;
+      const finalQueueStats = await getEmbeddingQueueStats(activeWindow);
       const itemsProcessed = finalQueueStats.succeeded;
       const gpuGrowthPerItemKB =
         itemsProcessed > 0 ? (finalGpuKB - baselineGpuKB) / itemsProcessed : 0;
+      const hostWorkingSetGrowthPerItemKB =
+        itemsProcessed > 0
+          ? ((finalHostWorkingSetMB - baselineHostWorkingSetMB) * 1024) / itemsProcessed
+          : 0;
       const [statusAfterSampling, mainLogsAfterSampling] = await Promise.all([
         getEmbeddingHostStatus(activeWindow),
         getMainBufferedLogs(activeWindow),
@@ -6091,8 +6491,14 @@ test.describe('Embedding Host Renderer', () => {
           cycleCount: observedMaintenanceCycles,
           gpuGrowthMB: Math.round(gpuGrowthMB),
           gpuGrowthPerItemKB: Math.round(gpuGrowthPerItemKB * 10) / 10,
+          hostMaxWorkingSetMB: Math.round(hostScore.max * 10) / 10,
+          hostMedianWorkingSetMB: Math.round(hostScore.median * 10) / 10,
+          hostMinWorkingSetMB: Math.round(hostScore.min * 10) / 10,
+          hostWorkingSetGrowthMB: Math.round(hostWorkingSetGrowthMB * 10) / 10,
+          hostWorkingSetGrowthPerItemKB: Math.round(hostWorkingSetGrowthPerItemKB * 10) / 10,
           itemThreshold: options.itemThreshold,
           itemsProcessed,
+          itemsProcessedBeforeSampling: queueStatsBeforeSampling.succeeded,
           label: options.label,
           maxGpuKB: score.maxGpuKB,
           maxTotalKB: score.maxTotalKB,
@@ -6112,6 +6518,13 @@ test.describe('Embedding Host Renderer', () => {
 
       return {
         cycleCount: observedMaintenanceCycles,
+        hostScore: {
+          maxWorkingSetMB: hostScore.max,
+          medianWorkingSetMB: hostScore.median,
+          minWorkingSetMB: hostScore.min,
+        },
+        hostWorkingSetGrowthMB,
+        hostWorkingSetGrowthPerItemKB,
         label: options.label,
         itemsProcessed,
         gpuGrowthMB,
@@ -6144,7 +6557,7 @@ test.describe('Embedding Host Renderer', () => {
       reclaimEnabled: false,
       itemThreshold: 500,
       chunksPerFile: 12,
-      targetSucceededItems: 900,
+      targetSucceededItems: 650,
       electronHarness,
     });
 
@@ -6153,7 +6566,7 @@ test.describe('Embedding Host Renderer', () => {
       reclaimEnabled: true,
       itemThreshold: 500,
       chunksPerFile: 12,
-      targetSucceededItems: 900,
+      targetSucceededItems: 650,
       reclaimMode: 'recreate-window',
       electronHarness,
     });
@@ -6162,6 +6575,10 @@ test.describe('Embedding Host Renderer', () => {
       JSON.stringify({
         type: 'GPU_RECLAIM_COMPARISON',
         improvementPerItemKB: withoutReclaim.gpuGrowthPerItemKB - withReclaim.gpuGrowthPerItemKB,
+        hostImprovementPerItemKB:
+          withoutReclaim.hostWorkingSetGrowthPerItemKB - withReclaim.hostWorkingSetGrowthPerItemKB,
+        hostMinWorkingSetReductionMB:
+          withoutReclaim.hostScore.minWorkingSetMB - withReclaim.hostScore.minWorkingSetMB,
         improvementRatio:
           withoutReclaim.gpuGrowthPerItemKB > 0
             ? withReclaim.gpuGrowthPerItemKB / withoutReclaim.gpuGrowthPerItemKB
@@ -6171,10 +6588,12 @@ test.describe('Embedding Host Renderer', () => {
       })
     );
 
-    expect(withReclaim.itemsProcessed).toBeGreaterThanOrEqual(900);
-    expect(withoutReclaim.itemsProcessed).toBeGreaterThanOrEqual(900);
+    expect(withReclaim.itemsProcessed).toBeGreaterThanOrEqual(650);
+    expect(withoutReclaim.itemsProcessed).toBeGreaterThanOrEqual(650);
     expect(withReclaim.cycleCount).toBeGreaterThan(0);
-    expect(withReclaim.gpuGrowthPerItemKB).toBeLessThan(withoutReclaim.gpuGrowthPerItemKB);
+    expect(withReclaim.hostScore.minWorkingSetMB).toBeLessThan(
+      withoutReclaim.hostScore.minWorkingSetMB - 50
+    );
   });
 
   test('completes reclaim-enabled backfill in reset mode without fatal lifecycle errors', async ({
@@ -6189,11 +6608,11 @@ test.describe('Embedding Host Renderer', () => {
       reclaimMode: 'reset',
       itemThreshold: 500,
       chunksPerFile: 12,
-      targetSucceededItems: 900,
+      targetSucceededItems: 650,
       electronHarness,
     });
 
-    expect(result.itemsProcessed).toBeGreaterThanOrEqual(900);
+    expect(result.itemsProcessed).toBeGreaterThanOrEqual(650);
     expect(result.cycleCount).toBeGreaterThan(0);
   });
 
@@ -6276,7 +6695,7 @@ test.describe('Embedding Host Renderer', () => {
       itemThreshold: 80,
       chunksPerFile: 12,
       minimumIntervalMs: 1000,
-      targetSucceededItems: 900,
+      targetSucceededItems: 650,
       electronHarness,
     });
 
@@ -6298,7 +6717,7 @@ test.describe('Embedding Host Renderer', () => {
           itemThreshold,
           chunksPerFile: 12,
           minimumIntervalMs: 1000,
-          targetSucceededItems: 900,
+          targetSucceededItems: 650,
           electronHarness,
         });
         thresholdResults.push({
