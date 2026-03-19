@@ -5809,9 +5809,13 @@ test.describe('Embedding Host Renderer', () => {
 
     await ensureEmbeddingHostWarmed(activeWindow);
 
+    // Use realistic chunk content (1KB) to match production where chunks
+    // contain actual code/text. Empty content underestimates GPU buffer
+    // allocations because tokenizer and inference inputs are smaller.
     const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
       fileCount: DIAG_FILE_COUNT,
       chunksPerFile: DIAG_CHUNKS_PER_FILE,
+      chunkContentBytes: 1024,
       persistActiveSet: false,
     });
     await reloadRendererInTest(activeWindow, 'crash-repro-memory-diagnostic-fixture');

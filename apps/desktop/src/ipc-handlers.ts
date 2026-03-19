@@ -294,14 +294,18 @@ function startGpuMemoryReclaimTimer(
       }
       succeededAtLastRestart = currentSucceeded;
       setReclaimInProgress(true);
-      logger.info('Destroying embedding host renderer to reclaim GPU memory', {
+      logger.info('Stopping embedding host for GPU memory reclaim', {
         embeddingSetId,
         succeededSoFar: currentSucceeded,
       });
       try {
+        // Stop gracefully first — lets running jobs finish before killing.
+        // stop() sends a 'stop' command and waits for the worker to drain.
+        // Then destroyAndRestart kills the window process and creates fresh.
+        await hostManager.stop();
         const restartStatus = await hostManager.destroyAndRestart();
         if (restartStatus.state !== 'running') {
-          logger.warn('Embedding host destroy+restart for GPU reclaim failed', {
+          logger.warn('Embedding host restart for GPU reclaim failed', {
             state: restartStatus.state,
           });
         }
@@ -309,7 +313,7 @@ function startGpuMemoryReclaimTimer(
         setReclaimInProgress(false);
       }
     } catch (error) {
-      logger.debug('GPU memory reclaim check failed (non-fatal)', {
+      logger.warn('GPU memory reclaim check failed (non-fatal)', {
         error: error instanceof Error ? error.message : String(error),
       });
     }
