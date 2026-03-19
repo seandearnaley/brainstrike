@@ -66,17 +66,8 @@ export function createEmbeddingHostCommand(
   if (normalizedRuntimeId.length === 0) {
     throw new Error('Embedding host command runtimeId must be a non-empty string.');
   }
-  if (
-    action === 'reset' &&
-    !(typeof nextRuntimeId === 'string' && nextRuntimeId.trim().length > 0)
-  ) {
-    throw new Error('Embedding host reset commands require a non-empty nextRuntimeId.');
-  }
-  if (action === 'stop' && nextRuntimeId !== undefined) {
-    throw new Error('Embedding host stop commands must not include nextRuntimeId.');
-  }
   if (action === 'reset') {
-    if (nextRuntimeId === undefined) {
+    if (!(typeof nextRuntimeId === 'string' && nextRuntimeId.trim().length > 0)) {
       throw new Error('Embedding host reset commands require a non-empty nextRuntimeId.');
     }
     const normalizedNextRuntimeId = nextRuntimeId.trim();
@@ -87,6 +78,9 @@ export function createEmbeddingHostCommand(
       runtimeId: normalizedRuntimeId,
       payload: { action, nextRuntimeId: normalizedNextRuntimeId },
     };
+  }
+  if (nextRuntimeId !== undefined) {
+    throw new Error('Embedding host stop commands must not include nextRuntimeId.');
   }
   return {
     type: 'request',

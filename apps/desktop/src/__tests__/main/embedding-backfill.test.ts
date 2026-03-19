@@ -537,6 +537,67 @@ describe('embedding-backfill', () => {
     ).toBe(3);
   });
 
+  it('treats an already-drained queue as complete before failing host-health checks', async () => {
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 2 }],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 2 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: Array.from({ length: 2 }, (_, index) => ({
+              id: String(index + 1),
+              fileRecordId: String(index + 100),
+              contentHash: `hash-${index + 1}`,
+            })),
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 0 }] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 2 },
+      ]),
+    };
+
+    await expect(
+      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        assertCanContinue: () => {
+          if (vi.mocked(jobQueue.enqueueBatch).mock.calls.length >= 1) {
+            throw new Error('Embedding host stopped while backfill was in progress.');
+          }
+        },
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+      })
+    ).resolves.toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
+  });
+
   it('reports only succeeded deltas to drain maintenance callbacks', async () => {
     const pendingCounts = [3, 2, 1, 0];
     const succeededCounts = [1, 1, 3];

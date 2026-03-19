@@ -305,6 +305,8 @@ function createLaunchOptions(
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
+  const shouldDisableGpuForE2e =
+    process.env['CI'] === 'true' && process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] !== '1';
   const baseArgs = [
     mainPath,
     '--test-mode',
@@ -316,9 +318,9 @@ function createLaunchOptions(
     ...(userDataDir ? [`--user-data-dir=${userDataDir}`] : []),
     // Disable GPU features to prevent crashes/hangs in CI.
     // Allow GPU in specific tests (e.g., WebGPU memory diagnostics) via env var.
-    ...(process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] === '1'
-      ? []
-      : ['--disable-gpu', '--disable-gpu-sandbox', '--disable-software-rasterizer']),
+    ...(shouldDisableGpuForE2e
+      ? ['--disable-gpu', '--disable-gpu-sandbox', '--disable-software-rasterizer']
+      : []),
     '--no-sandbox',
     '--disable-dev-shm-usage',
     // Additional flags to prevent debugger/inspector issues
@@ -363,9 +365,13 @@ function createLaunchOptions(
       NODE_OPTIONS: '', // Clear any inherited NODE_OPTIONS that might enable --inspect
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_ENABLE_STACK_DUMPING: 'false',
-      // Disable GPU acceleration in CI (can cause renderer process hangs)
-      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-      ELECTRON_DISABLE_GPU: '1',
+      ...(shouldDisableGpuForE2e
+        ? {
+            // Disable GPU acceleration in CI where Chromium GPU startup is unstable.
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            ELECTRON_DISABLE_GPU: '1',
+          }
+        : {}),
       // Ensure DISPLAY in Linux CI if not provided by runner
       ...(needsDisplayFallback
         ? // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -375,12 +381,6 @@ function createLaunchOptions(
     // Let Playwright manage the CDP connection - don't override
     timeout: launchTimeoutMs ?? 150_000, // Increased to 150s for CI stability
   };
-  if (!process.env['CI']) {
-    options.recordVideo = {
-      dir: 'test-results/videos',
-      size: { width: 1280, height: 720 },
-    };
-  }
   return options;
 }
 

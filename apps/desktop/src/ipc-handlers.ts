@@ -324,7 +324,9 @@ function acquireLiveSubscriptionPause(): void {
   if (liveSubscriptionPauseDepth === 1) {
     for (const record of liveSubscriptions.values()) {
       try {
-        void record.handle.unsubscribe(record.listener);
+        record.handle.unsubscribe(record.listener).catch(() => {
+          // Ignore async errors — subscription may already be cleaned up
+        });
       } catch {
         // Ignore errors — subscription may already be cleaned up
       }

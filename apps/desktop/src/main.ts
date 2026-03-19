@@ -880,6 +880,21 @@ if (singleInstanceLockAcquired) {
           window.webContents.send('app:power-state', state);
         }
       };
+      let pendingPowerResumeTimer: ReturnType<typeof setTimeout> | null = null;
+      const clearPendingPowerResume = () => {
+        if (pendingPowerResumeTimer === null) {
+          return;
+        }
+        clearTimeout(pendingPowerResumeTimer);
+        pendingPowerResumeTimer = null;
+      };
+      const schedulePowerResume = () => {
+        clearPendingPowerResume();
+        pendingPowerResumeTimer = setTimeout(() => {
+          pendingPowerResumeTimer = null;
+          broadcastPowerState('resume');
+        }, 2000);
+      };
 
       logger.debug('Creating main window...');
       const mainWindow = await createMainWindow();
@@ -997,15 +1012,14 @@ if (singleInstanceLockAcquired) {
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
         logger.info('power:suspend');
+        clearPendingPowerResume();
         broadcastPowerState('suspend');
       });
 
       powerMonitor.on('resume', () => {
         logger.info('power:resume');
         // Delay to let OS settle (GPU re-init, network reconnect)
-        setTimeout(() => {
-          broadcastPowerState('resume');
-        }, 2000);
+        schedulePowerResume();
       });
 
       // Lock-screen invalidates GPU contexts on macOS (WindowServer reclaims
@@ -1014,15 +1028,14 @@ if (singleInstanceLockAcquired) {
       // and avoid submitting commands to stale devices.
       powerMonitor.on('lock-screen', () => {
         logger.info('power:lock-screen');
+        clearPendingPowerResume();
         broadcastPowerState('suspend');
       });
       powerMonitor.on('unlock-screen', () => {
         logger.info('power:unlock-screen');
         // Delay to let GPU contexts re-initialize after WindowServer hands
         // back the display, matching the resume delay.
-        setTimeout(() => {
-          broadcastPowerState('resume');
-        }, 2000);
+        schedulePowerResume();
       });
 
       // Window focus/blur: throttle IPC traffic when backgrounded

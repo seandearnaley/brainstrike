@@ -276,15 +276,21 @@ async function countPendingEmbeddingSetJobs(
 // grow, never shrink). Periodic VACUUM reclaims dead tuple space, preventing
 // unbounded memory growth during large backfills.
 const VACUUM_INTERVAL_MS = 30_000;
+let hasLoggedVacuumFailure = false;
 
 async function vacuumBackfillTables(db: Pick<IDatabase, 'query'>): Promise<void> {
   try {
-    await db.query('VACUUM (PARALLEL 0) file_chunks');
-    await db.query('VACUUM (PARALLEL 0) job_queue');
+    await db.query('VACUUM file_chunks');
+    await db.query('VACUUM job_queue');
+    hasLoggedVacuumFailure = false;
   } catch (error) {
-    logger.debug('Periodic VACUUM during backfill failed (non-fatal)', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const message = error instanceof Error ? error.message : String(error);
+    if (!hasLoggedVacuumFailure) {
+      hasLoggedVacuumFailure = true;
+      logger.warn('Periodic VACUUM during backfill failed (non-fatal)', { error: message });
+      return;
+    }
+    logger.debug('Periodic VACUUM during backfill failed (non-fatal)', { error: message });
   }
 }
 
@@ -300,11 +306,11 @@ async function waitForEmbeddingSetDrain(
   const startedAt = Date.now();
   let lastVacuumAt = Date.now();
   while (true) {
-    await assertCanContinue?.();
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
     if (pending === 0) {
       return await getEmbeddingSetQueueCounts(db, embeddingSetId, updatedAfter);
     }
+    await assertCanContinue?.();
     if (Date.now() - startedAt >= timeoutMs) {
       throw new Error(
         `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`

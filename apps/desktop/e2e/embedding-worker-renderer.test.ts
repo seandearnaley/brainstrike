@@ -3506,6 +3506,7 @@ test.describe('Embedding Host Renderer', () => {
           .filter({ hasText: /^(?:Start & )?Backfill(?:\s|$)|^Backfilling|^\d+\/\d+$/u })
           .first();
       const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
+      const initialElectronStderrCount = (await getRelevantElectronStderr(context.app)).length;
 
       await expect(backfillButton).toBeVisible({ timeout: 15_000 });
       await waitForBackfillButtonEnabled(activeWindow, backfillButton, 60_000);
@@ -3529,6 +3530,10 @@ test.describe('Embedding Host Renderer', () => {
       });
 
       await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 60_000);
+      await activeWindow.waitForTimeout(1000);
+      expect(await getRelevantElectronStderrSince(context.app, initialElectronStderrCount)).toEqual(
+        []
+      );
 
       const countsAfterWipe = await getEmbeddingSetCounts(activeWindow, fixture.embeddingSetId);
       expect(countsAfterWipe.totalChunks).toBe(fixture.totalChunks);
@@ -6756,7 +6761,8 @@ test.describe('Embedding Host Renderer', () => {
     // This test runs a real backfill for 3+ minutes, sampling ALL process
     // memory every 10s. It prints detailed per-process snapshots so we can
     // see exactly which process (visible-ui, embedding-host, main) is growing.
-    // It intentionally DOES NOT assert — it's a diagnostic tool.
+    // It is primarily diagnostic, but it still includes a guard rail on the
+    // observed GPU growth rate so regressions fail loudly.
     test.setTimeout(360_000);
 
     const DIAG_FILE_COUNT = 500;

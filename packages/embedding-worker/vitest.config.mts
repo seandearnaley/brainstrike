@@ -14,6 +14,12 @@ export default defineConfig({
           exclude: ['dist', 'node_modules', '**/*.browser.test.*'],
           restoreMocks: true,
           clearMocks: true,
+          coverage: {
+            enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
+            provider: 'v8',
+            include: ['src/**/*.ts'],
+            exclude: ['**/*.test.*', '**/__tests__/**', '**/dist/**', '**/node_modules/**'],
+          },
         },
       },
       {
@@ -25,7 +31,7 @@ export default defineConfig({
             enabled: true,
             provider: playwright(),
             instances: [{ browser: 'chromium' }],
-            headless: false, // Need real GPU for WebGPU tests
+            headless: process.env['CI'] === 'true',
             screenshotFailures: true,
           },
         },

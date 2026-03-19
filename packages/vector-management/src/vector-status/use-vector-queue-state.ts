@@ -344,8 +344,10 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         };
         // Store cleanup so the unmount path can call it
         cleanupRecoveryRef.current = cleanup;
-      } catch {
-        // Non-critical — if the query fails, user can re-trigger manually
+      } catch (error) {
+        logger.warn('Failed to reconcile backfill state after reload', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     })();
     return () => {
