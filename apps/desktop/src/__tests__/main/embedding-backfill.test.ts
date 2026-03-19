@@ -537,6 +537,135 @@ describe('embedding-backfill', () => {
     ).toBe(3);
   });
 
+  it('reports only succeeded deltas to drain maintenance callbacks', async () => {
+    const pendingCounts = [3, 2, 1, 0];
+    const succeededCounts = [1, 1, 3];
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [
+              {
+                queued: 0,
+                running: pendingCounts[0] ?? 0,
+                failed: 0,
+                succeeded: succeededCounts.shift() ?? 3,
+              },
+            ],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 3 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: Array.from({ length: 3 }, (_, index) => ({
+              id: String(index + 1),
+              fileRecordId: String(index + 100),
+              contentHash: `hash-${index + 1}`,
+            })),
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: pendingCounts.shift() ?? 0 }] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 3 },
+      ]),
+    };
+
+    const drainTicks: number[] = [];
+    await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      backlogPollMs: 1,
+      maxQueueDepth: 64,
+      onDrainTick: async (completedSinceLastTick) => {
+        drainTicks.push(completedSinceLastTick);
+      },
+    });
+
+    expect(drainTicks).toEqual([1, 2]);
+  });
+
+  it('surfaces drain maintenance failures immediately', async () => {
+    const pendingCounts = [2, 1, 0];
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return {
+            rows: [{ queued: 0, running: 1, failed: 0, succeeded: 1 }],
+          };
+        }
+        if (sql.includes('COUNT(*)::int AS count') && !sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: 2 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: Array.from({ length: 2 }, (_, index) => ({
+              id: String(index + 1),
+              fileRecordId: String(index + 100),
+              contentHash: `hash-${index + 1}`,
+            })),
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          return { rows: [{ count: pendingCounts.shift() ?? 0 }] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 2 },
+      ]),
+    };
+
+    await expect(
+      enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        onDrainTick: async () => {
+          throw new Error('maintenance failed');
+        },
+      })
+    ).rejects.toThrow('maintenance failed');
+  });
+
   it('fails when the embedding set drain completes with failed jobs', async () => {
     const db = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
@@ -753,5 +882,159 @@ describe('embedding-backfill', () => {
     await rejection;
     expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
+  });
+
+  it('reports drain progress deltas from completed items only at drain checkpoints', async () => {
+    let pendingCountCalls = 0;
+    let drainSucceededIndex = 0;
+    const drainSucceededCounts = [2, 3];
+
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          const succeeded =
+            drainSucceededCounts[Math.min(drainSucceededIndex, drainSucceededCounts.length - 1)];
+          drainSucceededIndex += 1;
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          pendingCountCalls += 1;
+          if (pendingCountCalls === 1) {
+            return { rows: [{ count: 2 }] };
+          }
+          if (pendingCountCalls === 2) {
+            return { rows: [{ count: 1 }] };
+          }
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 3 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: Array.from({ length: 3 }, (_, index) => ({
+              id: String(index + 1),
+              fileRecordId: String(index + 100),
+              contentHash: `hash-${index + 1}`,
+            })),
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+    };
+
+    const drainDeltas: number[] = [];
+    const result = await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      backlogPollMs: 1,
+      maxQueueDepth: 64,
+      onDrainTick: async (completedSinceLastTick) => {
+        drainDeltas.push(completedSinceLastTick);
+      },
+      progressIntervalBatches: 1,
+      progressIntervalMs: 1,
+    });
+
+    expect(drainDeltas).toEqual([2, 1]);
+    expect(result).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 3 });
+  });
+
+  it('reports drain progress while waiting for queue capacity between enqueue passes', async () => {
+    let pendingCountCalls = 0;
+    let succeededCountCalls = 0;
+
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::Xenova/all-MiniLM-L6-v2', dimensions: 384 }],
+          };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          succeededCountCalls += 1;
+          if (succeededCountCalls === 1) {
+            return {
+              rows: [{ queued: 1, running: 0, failed: 0, succeeded: 1 }],
+            };
+          }
+          return {
+            rows: [{ queued: 0, running: 0, failed: 0, succeeded: 2 }],
+          };
+        }
+        if (sql.includes("payload->>'embeddingSetId'")) {
+          pendingCountCalls += 1;
+          return { rows: [{ count: pendingCountCalls === 1 ? 0 : 0 }] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 2 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId === '1') {
+            return {
+              rows: [{ id: '2', fileRecordId: '102', contentHash: 'hash-2' }],
+            };
+          }
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return {
+            rows: [{ id: '1', fileRecordId: '101', contentHash: 'hash-1' }],
+          };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+
+    const queueStats = [
+      { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      { queue: 'embeddings', queued: 1, running: 0, failed: 0, succeeded: 0 },
+      { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 1 },
+    ];
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({
+          id: `job-${index}`,
+          ...job,
+        }))
+      ),
+      getQueueStats: vi.fn(async () => [queueStats.shift() ?? queueStats.at(-1)!]),
+    };
+
+    const drainDeltas: number[] = [];
+    const result = await enqueueEmbeddingBackfill(db, jobQueue, 'set-123', () => undefined, {
+      backlogPollMs: 1,
+      maxQueueDepth: 1,
+      onDrainTick: async (completedSinceLastTick) => {
+        drainDeltas.push(completedSinceLastTick);
+      },
+      progressIntervalBatches: 1,
+      progressIntervalMs: 1,
+    });
+
+    expect(drainDeltas).toEqual([1]);
+    expect(result).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 2 });
   });
 });

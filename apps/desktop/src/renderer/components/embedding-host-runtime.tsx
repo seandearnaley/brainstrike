@@ -88,6 +88,17 @@ function reportEmbeddingHostRuntimeStatus(
   reportStatus(createEmbeddingHostStatus(runtimeIdRef.current, state, options));
 }
 
+function reportEmbeddingHostRuntimeStatusForRuntimeId(
+  runtimeId: string,
+  state: EmbeddingHostStatus['state'],
+  options?: {
+    active?: boolean;
+    lastError?: string | null;
+  }
+): void {
+  reportStatus(createEmbeddingHostStatus(runtimeId, state, options));
+}
+
 function createFatalErrorHandler(
   runtimeIdRef: MutableRefObject<string>,
   fatalErrorRef: MutableRefObject<string | null>,
@@ -261,7 +272,7 @@ export function EmbeddingHostRuntime(): null {
         stopPromiseRef,
       });
 
-    const stopWorker = (): Promise<void> => {
+    const stopWorker = (reportRuntimeId: string = runtimeIdRef.current): Promise<void> => {
       if (stopPromiseRef.current) {
         return stopPromiseRef.current;
       }
@@ -277,7 +288,7 @@ export function EmbeddingHostRuntime(): null {
         if (disposed) {
           return;
         }
-        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'stopped');
+        reportEmbeddingHostRuntimeStatusForRuntimeId(reportRuntimeId, 'stopped');
       })();
 
       const trackedStopPromise = stopPromise.finally(() => {
@@ -289,19 +300,32 @@ export function EmbeddingHostRuntime(): null {
       return trackedStopPromise;
     };
 
-    const resetWorker = async (): Promise<void> => {
-      await stopWorker();
+    const resetWorker = async (nextRuntimeId: string): Promise<void> => {
+      const previousRuntimeId = runtimeIdRef.current;
+      await stopWorker(previousRuntimeId);
+      runtimeIdRef.current = nextRuntimeId;
       await startWorker();
     };
 
     const unsubscribeCommand = getEmbeddingHostBridge()?.onCommand?.((command) => {
       const nextCommand = assertEmbeddingHostCommand(command);
+      if (nextCommand.runtimeId !== runtimeIdRef.current) {
+        logger.warn('Ignored embedding host command for stale runtime', {
+          action: nextCommand.payload.action,
+          commandRuntimeId: nextCommand.runtimeId,
+          runtimeId: runtimeIdRef.current,
+        });
+        return;
+      }
       if (nextCommand.payload.action === 'stop') {
         void stopWorker();
         return;
       }
       if (nextCommand.payload.action === 'reset') {
-        void resetWorker();
+        if (nextCommand.payload.nextRuntimeId === runtimeIdRef.current) {
+          throw new Error('Embedding host reset requires a fresh nextRuntimeId.');
+        }
+        void resetWorker(nextCommand.payload.nextRuntimeId);
       }
     });
 

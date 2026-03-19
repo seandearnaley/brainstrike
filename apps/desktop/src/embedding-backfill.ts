@@ -9,15 +9,19 @@ export interface EmbeddingBackfillQueueCounts {
 }
 
 export interface EnqueueEmbeddingBackfillOptions {
+  /**
+   * Called before queue-capacity waits and drain checkpoints. The caller must
+   * throw on unexpected host/runtime failures and may only tolerate stops that
+   * are part of planned maintenance coordinated outside the backfill.
+   */
   assertCanContinue?: () => void | Promise<void>;
   backlogPollMs?: number;
   drainTimeoutMs?: number;
   maxQueueDepth?: number;
   /**
-   * Called periodically during the drain phase with the number of items
-   * completed since the last call. The caller can use this to trigger
-   * maintenance operations (e.g., restarting the embedding host to release
-   * GPU memory) without coupling the backfill to host lifecycle management.
+   * Called during drain-safe checkpoints with the number of items completed
+   * since the last call. Use this to trigger planned maintenance without
+   * interrupting an active batch enqueue loop.
    */
   onDrainTick?: (completedSinceLastTick: number) => void | Promise<void>;
   progressIntervalBatches?: number;
@@ -124,7 +128,8 @@ async function waitForQueueCapacity(
   maxQueueDepth: number,
   backlogPollMs: number,
   timeoutMs: number,
-  assertCanContinue?: () => void | Promise<void>
+  assertCanContinue?: () => void | Promise<void>,
+  observeDrainProgress?: () => void | Promise<void>
 ): Promise<number> {
   const startedAt = Date.now();
   while (true) {
@@ -139,6 +144,7 @@ async function waitForQueueCapacity(
         `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs.`
       );
     }
+    await observeDrainProgress?.();
     await sleep(backlogPollMs);
   }
 }
@@ -289,11 +295,10 @@ async function waitForEmbeddingSetDrain(
   timeoutMs: number,
   assertCanContinue?: () => void | Promise<void>,
   updatedAfter?: string,
-  onDrainTick?: (completedSinceLastTick: number) => void | Promise<void>
+  observeDrainProgress?: () => void | Promise<void>
 ): Promise<EmbeddingBackfillQueueCounts> {
   const startedAt = Date.now();
   let lastVacuumAt = Date.now();
-  let lastTickSucceeded = 0;
   while (true) {
     await assertCanContinue?.();
     const pending = await countPendingEmbeddingSetJobs(db, embeddingSetId);
@@ -305,16 +310,7 @@ async function waitForEmbeddingSetDrain(
         `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`
       );
     }
-    // Notify caller of drain progress for maintenance (e.g., host restart)
-    if (onDrainTick) {
-      const counts = await getEmbeddingSetQueueCounts(db, embeddingSetId, updatedAfter);
-      const currentSucceeded = counts.succeeded;
-      if (currentSucceeded > lastTickSucceeded) {
-        const delta = currentSucceeded - lastTickSucceeded;
-        lastTickSucceeded = currentSucceeded;
-        await onDrainTick(delta);
-      }
-    }
+    await observeDrainProgress?.();
     // Periodically VACUUM to reclaim dead tuples from embedding UPDATEs
     if (Date.now() - lastVacuumAt >= VACUUM_INTERVAL_MS) {
       await vacuumBackfillTables(db);
@@ -466,6 +462,30 @@ async function enqueueEmbeddingChunkJobsBatch(
   };
 }
 
+function createDrainProgressObserver(
+  db: Pick<IDatabase, 'query'>,
+  embeddingSetId: string,
+  updatedAfter: string,
+  onDrainTick?: (completedSinceLastTick: number) => void | Promise<void>
+): (() => Promise<void>) | undefined {
+  if (!onDrainTick) {
+    return;
+  }
+
+  let lastObservedSucceeded = 0;
+  return async () => {
+    const counts = await getEmbeddingSetQueueCounts(db, embeddingSetId, updatedAfter);
+    const nextSucceeded = counts.succeeded;
+    if (nextSucceeded <= lastObservedSucceeded) {
+      return;
+    }
+
+    const completedSinceLastTick = nextSucceeded - lastObservedSucceeded;
+    lastObservedSucceeded = nextSucceeded;
+    await onDrainTick(completedSinceLastTick);
+  };
+}
+
 export async function enqueueEmbeddingBackfill(
   db: Pick<IDatabase, 'query'>,
   jobQueue: Pick<JobQueue, 'enqueueBatch' | 'getQueueStats'>,
@@ -506,6 +526,12 @@ export async function enqueueEmbeddingBackfill(
   let lastReportedDone = -1;
   let availableCapacity = 0;
   let lastReportedAt = Number.NEGATIVE_INFINITY;
+  const observeDrainProgress = createDrainProgressObserver(
+    db,
+    embeddingSetId,
+    runStartedAt,
+    onDrainTick
+  );
 
   const reportProgress = (
     nextDone: number,
@@ -536,7 +562,8 @@ export async function enqueueEmbeddingBackfill(
         maxQueueDepth,
         backlogPollMs,
         queueCapacityTimeoutMs,
-        assertCanContinue
+        assertCanContinue,
+        observeDrainProgress
       );
     }
     const batchLimit = Math.min(
@@ -587,7 +614,7 @@ export async function enqueueEmbeddingBackfill(
     drainTimeoutMs,
     assertCanContinue,
     runStartedAt,
-    onDrainTick
+    observeDrainProgress
   );
   if (drainedCounts.failed > 0) {
     throw new Error(

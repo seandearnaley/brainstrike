@@ -13,6 +13,11 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
+import {
+  BackfillMaintenanceCoordinator,
+  type GpuMemoryReclaimConfig,
+  type GpuMemoryReclaimMode,
+} from './backfill-maintenance-coordinator';
 import { enqueueEmbeddingBackfill } from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
@@ -85,6 +90,92 @@ const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
 const embeddingBackfillsInFlight = new Set<string>();
+const GPU_MEMORY_RECLAIM_DEFAULT_ENABLED = true;
+const GPU_MEMORY_RECLAIM_DEFAULT_ITEM_THRESHOLD = 500;
+const GPU_MEMORY_RECLAIM_DEFAULT_MINIMUM_INTERVAL_MS = 15_000;
+const GPU_MEMORY_RECLAIM_DEFAULT_MODE: GpuMemoryReclaimMode = 'recreate-window';
+
+interface EmbeddingBackfillRequest {
+  gpuMemoryReclaimConfig: GpuMemoryReclaimConfig;
+  hostManager: EmbeddingHostManager;
+  normalizedEmbeddingSetId: string;
+}
+
+function parseStrictBooleanEnv(name: string): boolean | undefined {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return;
+  }
+  if (raw === 'true' || raw === '1') {
+    return true;
+  }
+  if (raw === 'false' || raw === '0') {
+    return false;
+  }
+  throw new Error(`${name} must be set to one of: "true", "false", "1", or "0" when configured.`);
+}
+
+function parseStrictPositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (!/^[1-9]\d*$/u.test(raw)) {
+    throw new Error(`${name} must be a positive integer when configured.`);
+  }
+  return Number.parseInt(raw, 10);
+}
+
+function parseStrictGpuMemoryReclaimModeEnv(
+  name: string,
+  fallback: GpuMemoryReclaimMode
+): GpuMemoryReclaimMode {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (raw === 'reset' || raw === 'recreate-window') {
+    return raw;
+  }
+  throw new Error(`${name} must be set to "reset" or "recreate-window" when configured.`);
+}
+
+function resolveGpuMemoryReclaimConfig(): GpuMemoryReclaimConfig {
+  return {
+    enabled:
+      parseStrictBooleanEnv('BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED') ??
+      GPU_MEMORY_RECLAIM_DEFAULT_ENABLED,
+    itemThreshold: parseStrictPositiveIntegerEnv(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD',
+      GPU_MEMORY_RECLAIM_DEFAULT_ITEM_THRESHOLD
+    ),
+    minimumIntervalMs: parseStrictPositiveIntegerEnv(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS',
+      GPU_MEMORY_RECLAIM_DEFAULT_MINIMUM_INTERVAL_MS
+    ),
+    mode: parseStrictGpuMemoryReclaimModeEnv(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE',
+      GPU_MEMORY_RECLAIM_DEFAULT_MODE
+    ),
+  };
+}
+
+function resolveEmbeddingBackfillRequest(
+  embeddingSetId: unknown,
+  embeddingHostManager: EmbeddingHostManager | null | undefined
+): EmbeddingBackfillRequest {
+  if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
+    throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
+  }
+  if (!embeddingHostManager) {
+    throw new Error('Embedding host manager is required for desktop backfill.');
+  }
+  return {
+    hostManager: embeddingHostManager,
+    normalizedEmbeddingSetId: embeddingSetId.trim(),
+    gpuMemoryReclaimConfig: resolveGpuMemoryReclaimConfig(),
+  };
+}
 
 function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
   const fixture = (
@@ -255,69 +346,6 @@ function releaseLiveSubscriptionPause(): void {
       }
     }
   }
-}
-
-// ---------------------------------------------------------------------------
-// GPU memory reclaim: periodically destroy and restart the embedding host
-// renderer process during backfill. Chromium's GPU process retains all
-// Metal/Dawn buffer allocations for the lifetime of the renderer that
-// created them — neither tensor.dispose() nor session.release() frees them.
-// Killing the renderer is the only reliable release mechanism.
-// ---------------------------------------------------------------------------
-const GPU_MEMORY_RECLAIM_ITEM_THRESHOLD = 500;
-const GPU_MEMORY_CHECK_INTERVAL_MS = 15_000;
-
-function startGpuMemoryReclaimTimer(
-  embeddingSetId: string,
-  hostManager: EmbeddingHostManager,
-  isReclaimInProgress: () => boolean,
-  setReclaimInProgress: (value: boolean) => void
-): ReturnType<typeof setInterval> {
-  let succeededAtLastRestart = 0;
-  return setInterval(async () => {
-    if (isReclaimInProgress()) {
-      return;
-    }
-    try {
-      const { getDatabase } = await import('./db-main');
-      const db = await getDatabase();
-      const result = await db.query(
-        `SELECT COUNT(*)::int AS count FROM job_queue
-         WHERE queue = 'embeddings' AND state = 'succeeded'
-           AND payload->>'embeddingSetId' = $1`,
-        [embeddingSetId]
-      );
-      const row = result.rows[0] as { count?: number | string | null } | undefined;
-      const currentSucceeded = Number(row?.count ?? 0);
-      if (currentSucceeded - succeededAtLastRestart < GPU_MEMORY_RECLAIM_ITEM_THRESHOLD) {
-        return;
-      }
-      succeededAtLastRestart = currentSucceeded;
-      setReclaimInProgress(true);
-      logger.info('Stopping embedding host for GPU memory reclaim', {
-        embeddingSetId,
-        succeededSoFar: currentSucceeded,
-      });
-      try {
-        // Stop gracefully first — lets running jobs finish before killing.
-        // stop() sends a 'stop' command and waits for the worker to drain.
-        // Then destroyAndRestart kills the window process and creates fresh.
-        await hostManager.stop();
-        const restartStatus = await hostManager.destroyAndRestart();
-        if (restartStatus.state !== 'running') {
-          logger.warn('Embedding host restart for GPU reclaim failed', {
-            state: restartStatus.state,
-          });
-        }
-      } finally {
-        setReclaimInProgress(false);
-      }
-    } catch (error) {
-      logger.warn('GPU memory reclaim check failed (non-fatal)', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }, GPU_MEMORY_CHECK_INTERVAL_MS);
 }
 
 function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
@@ -863,13 +891,8 @@ export function registerIpcHandlers(
     EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
     async (event: IpcMainInvokeEvent, embeddingSetId: unknown) =>
       withCorruptionRecovery(async () => {
-        if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
-          throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
-        }
-        if (!embeddingHostManager) {
-          throw new Error('Embedding host manager is required for desktop backfill.');
-        }
-        const normalizedEmbeddingSetId = embeddingSetId.trim();
+        const { gpuMemoryReclaimConfig, hostManager, normalizedEmbeddingSetId } =
+          resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager);
         if (embeddingBackfillsInFlight.has(normalizedEmbeddingSetId)) {
           throw new Error(
             `Embedding backfill is already running for set ${normalizedEmbeddingSetId}.`
@@ -877,25 +900,18 @@ export function registerIpcHandlers(
         }
         const backfillRequestId = createRequestId('embedding-backfill');
         let backfillProgressTargetUnavailable = false;
-        let gpuMemoryReclaimInProgress = false;
+        const maintenanceCoordinator = new BackfillMaintenanceCoordinator(
+          gpuMemoryReclaimConfig,
+          normalizedEmbeddingSetId,
+          hostManager
+        );
         embeddingBackfillsInFlight.add(normalizedEmbeddingSetId);
 
         // Pause all PGlite live query subscriptions during backfill.
         acquireLiveSubscriptionPause();
 
-        // Periodically destroy and restart the embedding host renderer to
-        // release WebGPU/Dawn GPU buffers from the Chromium GPU process.
-        const gpuReclaimTimer = startGpuMemoryReclaimTimer(
-          normalizedEmbeddingSetId,
-          embeddingHostManager,
-          () => gpuMemoryReclaimInProgress,
-          (v) => {
-            gpuMemoryReclaimInProgress = v;
-          }
-        );
-
         try {
-          const hostStatus = await embeddingHostManager.ensureStarted({ waitForRunning: true });
+          const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
           if (hostStatus.state !== 'running') {
             throw new Error(
               hostStatus.lastError ?? 'Embedding host failed to reach the running state.'
@@ -938,28 +954,17 @@ export function registerIpcHandlers(
             },
             {
               assertCanContinue: () => {
-                if (gpuMemoryReclaimInProgress) {
-                  return;
-                }
-                const status = embeddingHostManager?.getStatus();
-                if (!status) {
-                  return;
-                }
-                if (status.state === 'error') {
-                  throw new Error(
-                    status.lastError ?? 'Embedding host entered an error state during backfill.'
-                  );
-                }
-                if (status.state === 'stopped' || status.state === 'stopping') {
-                  throw new Error('Embedding host stopped while backfill was in progress.');
-                }
+                maintenanceCoordinator.assertCanContinue(hostManager.getStatus());
+              },
+              onDrainTick: async (completedSinceLastTick: number) => {
+                maintenanceCoordinator.noteCompletedItems(completedSinceLastTick);
+                await maintenanceCoordinator.runRequestedMaintenance();
               },
               progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
               progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
             }
           );
         } finally {
-          clearInterval(gpuReclaimTimer);
           embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
           releaseLiveSubscriptionPause();
           if (!isBackgrounded) {

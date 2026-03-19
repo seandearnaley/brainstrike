@@ -181,6 +181,85 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.setStatus).toHaveBeenCalled();
   });
 
+  it('reset returns to running without destroying the host window when the renderer restarts cleanly', async () => {
+    lifecycleState.waitForStatus.mockResolvedValueOnce({
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:next-runtime',
+      state: 'running',
+    });
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('next-runtime');
+    const manager = new EmbeddingHostManager();
+
+    await expect(manager.reset()).resolves.toMatchObject({
+      runtimeId: 'embedding-host:next-runtime',
+      state: 'running',
+    });
+
+    expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({
+        payload: { action: 'reset', nextRuntimeId: 'embedding-host:next-runtime' },
+        runtimeId: 'embedding-host-runtime',
+      })
+    );
+    expect(lifecycleState.destroyHostWindow).not.toHaveBeenCalled();
+  });
+
+  it('ignores stale status reports from the superseded runtime after reset assigns a fresh runtime id', () => {
+    const manager = new EmbeddingHostManager();
+
+    lifecycleState.setStatus({
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host:next-runtime',
+      state: 'starting',
+    });
+
+    manager.acceptStatusReport(91, {
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host-runtime',
+      state: 'stopped',
+      active: false,
+      lastError: null,
+    });
+
+    expect(lifecycleState.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeId: 'embedding-host-runtime',
+        state: 'stopped',
+      })
+    );
+
+    manager.acceptStatusReport(91, {
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host:next-runtime',
+      state: 'running',
+      active: false,
+      lastError: null,
+    });
+
+    expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        runtimeId: 'embedding-host:next-runtime',
+        state: 'running',
+      })
+    );
+  });
+
+  it('destroyAndRestart recreates the host window and waits for a fresh running status', async () => {
+    const manager = new EmbeddingHostManager();
+
+    await expect(manager.destroyAndRestart()).resolves.toMatchObject({
+      runtimeId: 'embedding-host-runtime',
+      state: 'running',
+    });
+
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalledTimes(1);
+    expect(lifecycleState.clearHostWindow).toHaveBeenCalledTimes(1);
+    expect(lifecycleState.ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
+  });
+
   it('debounces inactive status reports across short embedding idle gaps', () => {
     const manager = new EmbeddingHostManager();
 

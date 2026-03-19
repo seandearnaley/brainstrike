@@ -200,6 +200,45 @@ interface MemorySample {
   snapshot: CombinedMemorySnapshot;
 }
 
+interface AppMetricSample {
+  memoryKB: number;
+  name: string;
+  pid: number;
+  type: string;
+}
+
+interface GpuWorkingSetScore {
+  maxGpuKB: number;
+  maxTotalKB: number;
+  medianGpuKB: number;
+  medianTotalKB: number;
+  minGpuKB: number;
+  minSample: AppMetricSample[];
+  minTotalKB: number;
+}
+
+function withTemporaryProcessEnv(overrides: Record<string, string | undefined>): () => void {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(overrides)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  return () => {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  };
+}
+
 const LARGE_BACKFILL_FILE_COUNT = 1000;
 const LARGE_BACKFILL_CHUNKS_PER_FILE = 20;
 const LARGE_COLLECTION_LIST_FILE_COUNT = 50_000;
@@ -331,6 +370,18 @@ test.describe('Embedding Host Renderer', () => {
         throw new Error('Embedding host stop bridge is not available');
       }
       return await host.stop();
+    });
+  }
+
+  async function destroyEmbeddingHostWindow(app: ElectronApplication): Promise<void> {
+    await app.evaluate(({ BrowserWindow }) => {
+      const hostWindow = BrowserWindow.getAllWindows().find((browserWindow) =>
+        browserWindow.webContents.getURL().includes('mode=embedding-host')
+      );
+      if (!hostWindow) {
+        throw new Error('Embedding host window not found.');
+      }
+      hostWindow.destroy();
     });
   }
 
@@ -919,6 +970,69 @@ test.describe('Embedding Host Renderer', () => {
 
   function growth(after: number, before: number): number {
     return Math.round((after - before) * 10) / 10;
+  }
+
+  async function readAppMetricSample(app: ElectronApplication): Promise<AppMetricSample[]> {
+    return await app.evaluate(({ app: electronApp }) => {
+      return electronApp.getAppMetrics().map((metric) => ({
+        memoryKB: metric.memory?.workingSetSize ?? 0,
+        name: metric.name ?? '',
+        pid: metric.pid,
+        type: metric.type,
+      }));
+    });
+  }
+
+  function getGpuWorkingSetKB(metrics: readonly AppMetricSample[]): number {
+    return metrics.find((metric) => metric.type === 'GPU')?.memoryKB ?? 0;
+  }
+
+  function getTotalWorkingSetKB(metrics: readonly AppMetricSample[]): number {
+    return metrics.reduce((sum, metric) => sum + metric.memoryKB, 0);
+  }
+
+  function scoreGpuWorkingSetSamples(samples: readonly AppMetricSample[][]): GpuWorkingSetScore {
+    if (samples.length === 0) {
+      throw new Error('GPU working-set scoring requires at least one sample.');
+    }
+
+    const withTotals = samples.map((sample) => ({
+      gpuKB: getGpuWorkingSetKB(sample),
+      sample,
+      totalKB: getTotalWorkingSetKB(sample),
+    }));
+    const gpuValues = withTotals.map((entry) => entry.gpuKB).sort((left, right) => left - right);
+    const totalValues = withTotals
+      .map((entry) => entry.totalKB)
+      .sort((left, right) => left - right);
+    const minEntry = withTotals.reduce((best, candidate) =>
+      candidate.gpuKB < best.gpuKB ? candidate : best
+    );
+    const medianIndex = Math.floor(withTotals.length / 2);
+
+    return {
+      minGpuKB: gpuValues[0] ?? 0,
+      medianGpuKB: gpuValues[medianIndex] ?? 0,
+      maxGpuKB: gpuValues.at(-1) ?? 0,
+      minTotalKB: totalValues[0] ?? 0,
+      medianTotalKB: totalValues[medianIndex] ?? 0,
+      maxTotalKB: totalValues.at(-1) ?? 0,
+      minSample: minEntry.sample,
+    };
+  }
+
+  async function collectGpuProcessSamples(
+    app: ElectronApplication,
+    page: Page,
+    sampleCount: number,
+    delayMs: number
+  ): Promise<AppMetricSample[][]> {
+    const samples: AppMetricSample[][] = [];
+    for (let index = 0; index < sampleCount; index += 1) {
+      await page.waitForTimeout(delayMs);
+      samples.push(await readAppMetricSample(app));
+    }
+    return samples;
   }
 
   async function readCombinedMemorySnapshot(
@@ -2188,6 +2302,42 @@ test.describe('Embedding Host Renderer', () => {
   ): Promise<string[]> {
     const lines = await getRelevantElectronStderr(app);
     return lines.slice(baselineCount);
+  }
+
+  function countPlannedMaintenanceLogs(records: readonly MainBufferedLogRecord[]): number {
+    return records.filter((record) =>
+      (record.message ?? '').includes('Completed embedding host GPU reclaim maintenance')
+    ).length;
+  }
+
+  function detectObservedMaintenanceCycles(options: {
+    finalRuntimeId: string;
+    initialRuntimeId: string;
+    logsSinceBaseline: readonly MainBufferedLogRecord[];
+  }): number {
+    const logCount = countPlannedMaintenanceLogs(options.logsSinceBaseline);
+    const runtimeRestartCycles = options.finalRuntimeId !== options.initialRuntimeId ? 1 : 0;
+    return Math.max(logCount, runtimeRestartCycles);
+  }
+
+  async function assertCleanBackfillMeasurementScenario(
+    activeWindow: Page,
+    app: ElectronApplication,
+    baselineLogCount: number,
+    baselineStderrCount: number
+  ): Promise<{
+    mainLogs: MainBufferedLogRecord[];
+    relevantElectronStderr: string[];
+  }> {
+    const [mainLogs, relevantElectronStderr] = await Promise.all([
+      getMainBufferedLogs(activeWindow),
+      getRelevantElectronStderrSince(app, baselineStderrCount),
+    ]);
+    const scenarioLogs = mainLogs.slice(baselineLogCount);
+    const unexpectedLifecycleLogs = extractUnexpectedLifecycleLogs(scenarioLogs);
+    expect(unexpectedLifecycleLogs).toEqual([]);
+    expect(relevantElectronStderr).toEqual([]);
+    return { mainLogs, relevantElectronStderr };
   }
 
   async function prepareRealWorldMixedStateScenario(
@@ -5773,6 +5923,410 @@ test.describe('Embedding Host Renderer', () => {
     expect(unexpectedLogs).toHaveLength(0);
 
     await electronHarness.restart();
+  });
+
+  async function runGpuReclaimMeasurementScenario(options: {
+    chunksPerFile: number;
+    electronHarness: {
+      restart: () => Promise<{ app: ElectronApplication; window: Page }>;
+    };
+    itemThreshold: number;
+    label: string;
+    minimumIntervalMs?: number;
+    reclaimEnabled: boolean;
+    reclaimMode?: 'recreate-window' | 'reset';
+    targetSucceededItems: number;
+  }): Promise<{
+    cycleCount: number;
+    gpuGrowthMB: number;
+    gpuGrowthPerItemKB: number;
+    itemsProcessed: number;
+    label: string;
+    runtimeIdAfterSampling: string;
+    runtimeIdBeforeBackfill: string;
+    score: {
+      maxGpuKB: number;
+      maxTotalKB: number;
+      medianGpuKB: number;
+      medianTotalKB: number;
+      minGpuKB: number;
+      minTotalKB: number;
+    };
+    totalGrowthMB: number;
+  }> {
+    const restoreEnv = withTemporaryProcessEnv({
+      BRAINSTRIKE_E2E_ALLOW_GPU: '1',
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED: options.reclaimEnabled ? 'true' : 'false',
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS:
+        options.minimumIntervalMs === undefined ? undefined : String(options.minimumIntervalMs),
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD: String(options.itemThreshold),
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE: options.reclaimMode,
+    });
+
+    try {
+      const electronContext = await options.electronHarness.restart();
+      let activeWindow = await showDatabaseDemoPanel(electronContext.window);
+
+      if (await isDatabaseError(activeWindow)) {
+        await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+        throw new Error(`Database failed to initialize for ${options.label}.`);
+      }
+
+      await clearEmbeddingQueue(activeWindow);
+      await setVectorDevicePreference(activeWindow, 'webgpu');
+      await reloadRendererInTest(activeWindow, `${options.label}-memory-measurement`);
+      activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+      await ensureEmbeddingHostWarmed(activeWindow);
+
+      const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+        fileCount: 180,
+        chunksPerFile: options.chunksPerFile,
+        chunkContentBytes: 1024,
+        persistActiveSet: false,
+      });
+      await reloadRendererInTest(activeWindow, `${options.label}-memory-measurement-fixture`);
+      activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+      const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+      await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+      await collectionOption.click({ timeout: 5000 });
+
+      const [baseline, initialStatus, baselineMainLogs, baselineElectronStderr] = await Promise.all(
+        [
+          readAppMetricSample(electronContext.app),
+          getEmbeddingHostStatus(activeWindow),
+          getMainBufferedLogs(activeWindow),
+          getRelevantElectronStderr(electronContext.app),
+        ]
+      );
+
+      await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+      const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+      expect(outcome).toBe('running');
+
+      const measurementStartedAt = Date.now();
+      while (Date.now() - measurementStartedAt < 180_000) {
+        const [queueStats, status] = await Promise.all([
+          getEmbeddingQueueStats(activeWindow),
+          getEmbeddingHostStatus(activeWindow),
+        ]);
+        if (queueStats.succeeded >= options.targetSucceededItems) {
+          break;
+        }
+        if (status.state === 'error') {
+          throw new Error(
+            `Embedding host entered error state during ${options.label}: ${status.lastError ?? 'unknown host error'}`
+          );
+        }
+        await activeWindow.waitForTimeout(1000);
+      }
+
+      const finalQueueStats = await getEmbeddingQueueStats(activeWindow);
+      expect(finalQueueStats.succeeded).toBeGreaterThanOrEqual(options.targetSucceededItems);
+      if (options.reclaimEnabled) {
+        await expect
+          .poll(
+            async () =>
+              countPlannedMaintenanceLogs(
+                (await getMainBufferedLogs(activeWindow)).slice(baselineMainLogs.length)
+              ),
+            {
+              timeout: 60_000,
+            }
+          )
+          .toBeGreaterThan(0);
+      }
+
+      // A single endpoint sample is noisy because reclaim intentionally tears
+      // down and recreates the embedding host, which causes transient model-load
+      // spikes. Sample a short cooldown window and score the lowest GPU working
+      // set we observe after the threshold has been crossed.
+      const postTargetSampleDelayMs = 1000;
+      const postTargetSampleCount = 12;
+      const postTargetSamples = await collectGpuProcessSamples(
+        electronContext.app,
+        activeWindow,
+        postTargetSampleCount,
+        postTargetSampleDelayMs
+      );
+      const rawSampleSummary = postTargetSamples.map((sample) => ({
+        gpuKB: getGpuWorkingSetKB(sample),
+        totalKB: getTotalWorkingSetKB(sample),
+      }));
+      const score = scoreGpuWorkingSetSamples(postTargetSamples);
+
+      const baselineGpuKB = getGpuWorkingSetKB(baseline);
+      const finalGpuKB = score.minGpuKB;
+      const gpuGrowthMB = (finalGpuKB - baselineGpuKB) / 1024;
+
+      const baselineTotalKB = getTotalWorkingSetKB(baseline);
+      const finalTotalKB = score.minTotalKB;
+      const totalGrowthMB = (finalTotalKB - baselineTotalKB) / 1024;
+      const itemsProcessed = finalQueueStats.succeeded;
+      const gpuGrowthPerItemKB =
+        itemsProcessed > 0 ? (finalGpuKB - baselineGpuKB) / itemsProcessed : 0;
+      const [statusAfterSampling, mainLogsAfterSampling] = await Promise.all([
+        getEmbeddingHostStatus(activeWindow),
+        getMainBufferedLogs(activeWindow),
+      ]);
+      const observedMaintenanceCycles = detectObservedMaintenanceCycles({
+        initialRuntimeId: initialStatus.runtimeId,
+        finalRuntimeId: statusAfterSampling.runtimeId,
+        logsSinceBaseline: mainLogsAfterSampling.slice(baselineMainLogs.length),
+      });
+
+      await waitForBridgeBackfillCompletion(activeWindow, 240_000);
+      await waitForEmbeddingHostIdleAndQueueDrain(activeWindow, 120_000);
+      await assertCleanBackfillMeasurementScenario(
+        activeWindow,
+        electronContext.app,
+        baselineMainLogs.length,
+        baselineElectronStderr.length
+      );
+
+      console.log(
+        JSON.stringify({
+          type: 'GPU_RECLAIM_MEASUREMENT',
+          cycleCount: observedMaintenanceCycles,
+          gpuGrowthMB: Math.round(gpuGrowthMB),
+          gpuGrowthPerItemKB: Math.round(gpuGrowthPerItemKB * 10) / 10,
+          itemThreshold: options.itemThreshold,
+          itemsProcessed,
+          label: options.label,
+          maxGpuKB: score.maxGpuKB,
+          maxTotalKB: score.maxTotalKB,
+          medianGpuKB: score.medianGpuKB,
+          medianTotalKB: score.medianTotalKB,
+          minGpuKB: score.minGpuKB,
+          minTotalKB: score.minTotalKB,
+          postTargetSampleCount,
+          rawSampleSummary,
+          reclaimEnabled: options.reclaimEnabled,
+          reclaimMode: options.reclaimMode ?? null,
+          runtimeIdAfterSampling: statusAfterSampling.runtimeId,
+          runtimeIdBeforeBackfill: initialStatus.runtimeId,
+          totalGrowthMB: Math.round(totalGrowthMB),
+        })
+      );
+
+      return {
+        cycleCount: observedMaintenanceCycles,
+        label: options.label,
+        itemsProcessed,
+        gpuGrowthMB,
+        gpuGrowthPerItemKB,
+        runtimeIdAfterSampling: statusAfterSampling.runtimeId,
+        runtimeIdBeforeBackfill: initialStatus.runtimeId,
+        score: {
+          maxGpuKB: score.maxGpuKB,
+          maxTotalKB: score.maxTotalKB,
+          medianGpuKB: score.medianGpuKB,
+          medianTotalKB: score.medianTotalKB,
+          minGpuKB: score.minGpuKB,
+          minTotalKB: score.minTotalKB,
+        },
+        totalGrowthMB,
+      };
+    } finally {
+      restoreEnv();
+    }
+  }
+
+  test('measures recreate-window reclaim against the disabled control without lifecycle regressions', async ({
+    electronHarness,
+  }) => {
+    test.skip(!!process.env['CI'], 'Requires a real GPU-backed desktop session.');
+    test.setTimeout(420_000);
+
+    const withoutReclaim = await runGpuReclaimMeasurementScenario({
+      label: 'gpu-reclaim-disabled',
+      reclaimEnabled: false,
+      itemThreshold: 500,
+      chunksPerFile: 12,
+      targetSucceededItems: 900,
+      electronHarness,
+    });
+
+    const withReclaim = await runGpuReclaimMeasurementScenario({
+      label: 'gpu-reclaim-recreate-window',
+      reclaimEnabled: true,
+      itemThreshold: 500,
+      chunksPerFile: 12,
+      targetSucceededItems: 900,
+      reclaimMode: 'recreate-window',
+      electronHarness,
+    });
+
+    console.log(
+      JSON.stringify({
+        type: 'GPU_RECLAIM_COMPARISON',
+        improvementPerItemKB: withoutReclaim.gpuGrowthPerItemKB - withReclaim.gpuGrowthPerItemKB,
+        improvementRatio:
+          withoutReclaim.gpuGrowthPerItemKB > 0
+            ? withReclaim.gpuGrowthPerItemKB / withoutReclaim.gpuGrowthPerItemKB
+            : null,
+        withoutReclaim,
+        withReclaim,
+      })
+    );
+
+    expect(withReclaim.itemsProcessed).toBeGreaterThanOrEqual(900);
+    expect(withoutReclaim.itemsProcessed).toBeGreaterThanOrEqual(900);
+    expect(withReclaim.cycleCount).toBeGreaterThan(0);
+    expect(withReclaim.gpuGrowthPerItemKB).toBeLessThan(withoutReclaim.gpuGrowthPerItemKB);
+  });
+
+  test('completes reclaim-enabled backfill in reset mode without fatal lifecycle errors', async ({
+    electronHarness,
+  }) => {
+    test.skip(!!process.env['CI'], 'Requires a real GPU-backed desktop session.');
+    test.setTimeout(420_000);
+
+    const result = await runGpuReclaimMeasurementScenario({
+      label: 'gpu-reclaim-reset-correctness',
+      reclaimEnabled: true,
+      reclaimMode: 'reset',
+      itemThreshold: 500,
+      chunksPerFile: 12,
+      targetSucceededItems: 900,
+      electronHarness,
+    });
+
+    expect(result.itemsProcessed).toBeGreaterThanOrEqual(900);
+    expect(result.cycleCount).toBeGreaterThan(0);
+  });
+
+  test('fails backfill explicitly when the embedding host stops unexpectedly during processing', async ({
+    electronApp,
+    electronHarness,
+    window,
+  }) => {
+    test.skip(
+      process.env['BRAINSTRIKE_E2E_EMBEDDING_HOST_FAILURE_TEST'] !== '1',
+      'Opt-in because forced host teardown is still unstable in headless GPU mode.'
+    );
+    test.setTimeout(240_000);
+
+    let activeWindow = await showDatabaseDemoPanel(window);
+
+    if (await isDatabaseError(activeWindow)) {
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      return;
+    }
+
+    await clearEmbeddingQueue(activeWindow);
+    await setVectorDevicePreference(activeWindow, process.env['CI'] ? 'wasm' : 'webgpu');
+    await reloadRendererInTest(activeWindow, 'unexpected-embedding-host-stop');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      fileCount: 80,
+      chunksPerFile: 8,
+      chunkContentBytes: 1024,
+      persistActiveSet: false,
+    });
+    await reloadRendererInTest(activeWindow, 'unexpected-embedding-host-stop-fixture');
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+    const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+    await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+    await collectionOption.click({ timeout: 5000 });
+
+    const electronStderrBaselineCount = (await getRelevantElectronStderr(electronApp.app)).length;
+
+    await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+    const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+    expect(outcome).toBe('running');
+
+    await destroyEmbeddingHostWindow(electronApp.app);
+
+    await expect(waitForBridgeBackfillCompletion(activeWindow, 60_000)).rejects.toThrow(
+      'Embedding host stopped while backfill was in progress.'
+    );
+
+    await expect
+      .poll(
+        async () =>
+          await getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+        {
+          timeout: 30_000,
+        }
+      )
+      .toContainEqual(
+        expect.stringContaining('Embedding host stopped while backfill was in progress.')
+      );
+
+    await electronHarness.restart();
+  });
+
+  test('benchmarks reclaim thresholds against the same GPU-growth workload', async ({
+    electronHarness,
+  }) => {
+    test.skip(!!process.env['CI'], 'Requires a real GPU-backed desktop session.');
+    test.skip(
+      process.env['BRAINSTRIKE_E2E_GPU_RECLAIM_BENCHMARK'] !== '1',
+      'Opt-in benchmark for tuning reclaim defaults.'
+    );
+    test.setTimeout(1_200_000);
+
+    const baseline = await runGpuReclaimMeasurementScenario({
+      label: 'gpu-reclaim-benchmark-disabled',
+      reclaimEnabled: false,
+      itemThreshold: 80,
+      chunksPerFile: 12,
+      minimumIntervalMs: 1000,
+      targetSucceededItems: 900,
+      electronHarness,
+    });
+
+    const thresholdResults = [] as Array<{
+      gpuGrowthPerItemKB: number;
+      improvementPerItemKB: number;
+      improvementRatio: number;
+      itemThreshold: number;
+      itemsProcessed: number;
+      reclaimMode: 'recreate-window' | 'reset';
+    }>;
+
+    for (const reclaimMode of ['reset', 'recreate-window'] as const) {
+      for (const itemThreshold of [40, 80, 160, 320, 500]) {
+        const result = await runGpuReclaimMeasurementScenario({
+          label: `gpu-reclaim-${reclaimMode}-threshold-${itemThreshold}`,
+          reclaimEnabled: true,
+          reclaimMode,
+          itemThreshold,
+          chunksPerFile: 12,
+          minimumIntervalMs: 1000,
+          targetSucceededItems: 900,
+          electronHarness,
+        });
+        thresholdResults.push({
+          itemThreshold,
+          reclaimMode,
+          itemsProcessed: result.itemsProcessed,
+          gpuGrowthPerItemKB: result.gpuGrowthPerItemKB,
+          improvementPerItemKB: baseline.gpuGrowthPerItemKB - result.gpuGrowthPerItemKB,
+          improvementRatio:
+            baseline.gpuGrowthPerItemKB > 0
+              ? result.gpuGrowthPerItemKB / baseline.gpuGrowthPerItemKB
+              : Number.NaN,
+        });
+      }
+    }
+
+    console.log(
+      JSON.stringify({
+        type: 'GPU_RECLAIM_THRESHOLD_BENCHMARK',
+        baseline,
+        thresholdResults,
+      })
+    );
+
+    expect(thresholdResults).toHaveLength(10);
+    for (const result of thresholdResults) {
+      expect(result.itemsProcessed).toBeGreaterThanOrEqual(900);
+    }
   });
 
   test('diagnoses per-process memory growth during sustained backfill (crash repro test 7 — diagnostic)', async ({

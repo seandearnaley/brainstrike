@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/utils/logger';
+import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import {
   createEmbeddingHostCommand,
@@ -6,6 +7,7 @@ import {
   EMBEDDING_HOST_COMMAND_EVENT,
   EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STATUS_EVENT,
+  EMBEDDING_HOST_STOPPED_RUNTIME_ID,
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
@@ -135,24 +137,28 @@ export class EmbeddingHostManager {
     if (!window || window.isDestroyed()) {
       return this.ensureStarted();
     }
+    const currentRuntimeId = this.getStatus().runtimeId;
+    const nextRuntimeId = createRuntimeId('embedding-host');
 
     this.lifecycle.setStatus(
       EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
         state: 'starting',
         active: false,
         lastError: null,
-        runtimeId: this.getStatus().runtimeId,
+        runtimeId: nextRuntimeId,
       })
     );
     this.clearPendingInactiveStatus();
 
     window.webContents.send(
       EMBEDDING_HOST_COMMAND_EVENT,
-      createEmbeddingHostCommand('reset', this.getStatus().runtimeId)
+      createEmbeddingHostCommand('reset', currentRuntimeId, nextRuntimeId)
     );
     try {
       return await this.lifecycle.waitForStatus(
-        (status) => status.state === 'running' || status.state === 'error',
+        (status) =>
+          status.runtimeId === nextRuntimeId &&
+          (status.state === 'running' || status.state === 'error'),
         HOST_READY_TIMEOUT_MS
       );
     } catch (error) {
@@ -162,7 +168,7 @@ export class EmbeddingHostManager {
           state: 'error',
           active: false,
           lastError: message,
-          runtimeId: this.getStatus().runtimeId,
+          runtimeId: nextRuntimeId,
         })
       );
       return this.getStatus();
@@ -214,6 +220,18 @@ export class EmbeddingHostManager {
       lastError: report.lastError,
       runtimeId: report.runtimeId,
     });
+    if (
+      currentStatus.runtimeId !== EMBEDDING_HOST_STOPPED_RUNTIME_ID &&
+      currentStatus.runtimeId !== nextStatus.runtimeId
+    ) {
+      logger.debug('Ignored stale embedding host status report from superseded runtime', {
+        currentRuntimeId: currentStatus.runtimeId,
+        reportRuntimeId: nextStatus.runtimeId,
+        senderId,
+        state: nextStatus.state,
+      });
+      return;
+    }
 
     if (nextStatus.state !== 'running' || nextStatus.active) {
       this.clearPendingInactiveStatus();
