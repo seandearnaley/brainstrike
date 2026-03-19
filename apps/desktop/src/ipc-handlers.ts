@@ -258,11 +258,14 @@ function releaseLiveSubscriptionPause(): void {
 }
 
 // ---------------------------------------------------------------------------
-// GPU memory reclaim: periodically restart the embedding host during backfill
-// to release WebGPU/Dawn Metal buffer pool memory that accumulates unboundedly.
+// GPU memory reclaim: periodically destroy and restart the embedding host
+// renderer process during backfill. Chromium's GPU process retains all
+// Metal/Dawn buffer allocations for the lifetime of the renderer that
+// created them — neither tensor.dispose() nor session.release() frees them.
+// Killing the renderer is the only reliable release mechanism.
 // ---------------------------------------------------------------------------
-const GPU_MEMORY_RECLAIM_INTERVAL = 500;
-const GPU_MEMORY_CHECK_MS = 15_000;
+const GPU_MEMORY_RECLAIM_ITEM_THRESHOLD = 500;
+const GPU_MEMORY_CHECK_INTERVAL_MS = 15_000;
 
 function startGpuMemoryReclaimTimer(
   embeddingSetId: string,
@@ -286,20 +289,19 @@ function startGpuMemoryReclaimTimer(
       );
       const row = result.rows[0] as { count?: number | string | null } | undefined;
       const currentSucceeded = Number(row?.count ?? 0);
-      if (currentSucceeded - succeededAtLastRestart < GPU_MEMORY_RECLAIM_INTERVAL) {
+      if (currentSucceeded - succeededAtLastRestart < GPU_MEMORY_RECLAIM_ITEM_THRESHOLD) {
         return;
       }
       succeededAtLastRestart = currentSucceeded;
       setReclaimInProgress(true);
-      logger.info('Restarting embedding host to reclaim GPU memory', {
+      logger.info('Destroying embedding host renderer to reclaim GPU memory', {
         embeddingSetId,
         succeededSoFar: currentSucceeded,
       });
       try {
-        await hostManager.stop();
-        const restartStatus = await hostManager.ensureStarted({ waitForRunning: true });
+        const restartStatus = await hostManager.destroyAndRestart();
         if (restartStatus.state !== 'running') {
-          logger.warn('Embedding host restart for GPU reclaim failed', {
+          logger.warn('Embedding host destroy+restart for GPU reclaim failed', {
             state: restartStatus.state,
           });
         }
@@ -311,7 +313,7 @@ function startGpuMemoryReclaimTimer(
         error: error instanceof Error ? error.message : String(error),
       });
     }
-  }, GPU_MEMORY_CHECK_MS);
+  }, GPU_MEMORY_CHECK_INTERVAL_MS);
 }
 
 function hasTooLargeCode(error: unknown): error is { code: 'TOO_LARGE'; message?: unknown } {
@@ -877,8 +879,8 @@ export function registerIpcHandlers(
         // Pause all PGlite live query subscriptions during backfill.
         acquireLiveSubscriptionPause();
 
-        // Periodically restart the embedding host to release WebGPU/Dawn
-        // GPU buffers that accumulate during sustained inference.
+        // Periodically destroy and restart the embedding host renderer to
+        // release WebGPU/Dawn GPU buffers from the Chromium GPU process.
         const gpuReclaimTimer = startGpuMemoryReclaimTimer(
           normalizedEmbeddingSetId,
           embeddingHostManager,
@@ -933,7 +935,7 @@ export function registerIpcHandlers(
             {
               assertCanContinue: () => {
                 if (gpuMemoryReclaimInProgress) {
-                  return; // Host is restarting for GPU memory reclaim — don't abort
+                  return;
                 }
                 const status = embeddingHostManager?.getStatus();
                 if (!status) {

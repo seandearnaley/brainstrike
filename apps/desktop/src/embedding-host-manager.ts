@@ -169,6 +169,22 @@ export class EmbeddingHostManager {
     }
   }
 
+  /**
+   * Destroy the embedding host renderer process and restart it fresh.
+   * This is the only reliable way to release WebGPU/Dawn GPU buffers,
+   * which are tied to the Chromium renderer process lifetime — neither
+   * tensor.dispose() nor session.release() releases them from the shared
+   * GPU process. Used during large backfills to cap GPU memory growth.
+   */
+  async destroyAndRestart(): Promise<EmbeddingHostStatus> {
+    this.assertNotDisposed('destroyAndRestart');
+    this.clearPendingInactiveStatus();
+    this.lifecycle.destroyHostWindow();
+    this.lifecycle.clearHostWindow();
+    this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
+    return this.ensureStarted({ waitForRunning: true });
+  }
+
   async dispose(): Promise<void> {
     try {
       await this.stop();
@@ -305,7 +321,9 @@ export class EmbeddingHostManager {
     this.powerSaveBlockerId = null;
   }
 
-  private assertNotDisposed(methodName: 'ensureStarted' | 'reset' | 'stop'): void {
+  private assertNotDisposed(
+    methodName: 'destroyAndRestart' | 'ensureStarted' | 'reset' | 'stop'
+  ): void {
     if (this.disposed) {
       throw new Error(`EmbeddingHostManager.${methodName} cannot be called after dispose().`);
     }

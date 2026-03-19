@@ -855,7 +855,6 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
   const runtime = await getTransformersRuntime();
   let batchIndex = 0;
   let dimensions = context.truncateDim ?? 0;
-
   for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
     const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
@@ -866,6 +865,10 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
+    // Dispose the output tensor to release its GPU buffer reference.
+    if (isTransformersTensor(rawOutput, runtime) && typeof rawOutput.dispose === 'function') {
+      rawOutput.dispose();
+    }
     if (vectorsFromBatch.length === 0) {
       throw new Error('Embedding pipeline returned no tensors');
     }
@@ -932,6 +935,10 @@ async function runBatches(
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
+    // Dispose the output tensor to release the underlying WebGPU/GPU buffer.
+    if (isTransformersTensor(rawOutput, runtime) && typeof rawOutput.dispose === 'function') {
+      rawOutput.dispose();
+    }
     if (vectorsFromBatch.length === 0) {
       throw new Error('Embedding pipeline returned no tensors');
     }
