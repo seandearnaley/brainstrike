@@ -14,8 +14,8 @@ import { useFileFilters } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { getPathDepth } from '@brainstrike/utils/tree-operations';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useOptionalFileTreeContext } from './file-tree-provider';
 import { useFileSystem } from './use-file-system-context';
@@ -42,14 +42,6 @@ const restorationLock = {
 export function __resetRestorationLock(): void {
   restorationLock.inProgress = false;
   restorationLock.folderId = null;
-}
-
-/**
- * Helper to get the depth of a path (number of path segments).
- * Used for sorting paths by depth (shallowest first) when restoring expanded directories.
- */
-function getPathDepth(path: string): number {
-  return path.split('/').filter(Boolean).length;
 }
 
 /**
