@@ -276,17 +276,23 @@ async function countPendingEmbeddingSetJobs(
 // grow, never shrink). Periodic VACUUM reclaims dead tuple space, preventing
 // unbounded memory growth during large backfills.
 const VACUUM_INTERVAL_MS = 30_000;
-let hasLoggedVacuumFailure = false;
 
-async function vacuumBackfillTables(db: Pick<IDatabase, 'query'>): Promise<void> {
+interface VacuumLogState {
+  hasLoggedVacuumFailure: boolean;
+}
+
+async function vacuumBackfillTables(
+  db: Pick<IDatabase, 'query'>,
+  logState: VacuumLogState
+): Promise<void> {
   try {
     await db.query('VACUUM file_chunks');
     await db.query('VACUUM job_queue');
-    hasLoggedVacuumFailure = false;
+    logState.hasLoggedVacuumFailure = false;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (!hasLoggedVacuumFailure) {
-      hasLoggedVacuumFailure = true;
+    if (!logState.hasLoggedVacuumFailure) {
+      logState.hasLoggedVacuumFailure = true;
       logger.warn('Periodic VACUUM during backfill failed (non-fatal)', { error: message });
       return;
     }
@@ -301,7 +307,8 @@ async function waitForEmbeddingSetDrain(
   timeoutMs: number,
   assertCanContinue?: () => void | Promise<void>,
   updatedAfter?: string,
-  observeDrainProgress?: () => void | Promise<void>
+  observeDrainProgress?: () => void | Promise<void>,
+  vacuumLogState: VacuumLogState = { hasLoggedVacuumFailure: false }
 ): Promise<EmbeddingBackfillQueueCounts> {
   const startedAt = Date.now();
   let lastVacuumAt = Date.now();
@@ -319,7 +326,7 @@ async function waitForEmbeddingSetDrain(
     await observeDrainProgress?.();
     // Periodically VACUUM to reclaim dead tuples from embedding UPDATEs
     if (Date.now() - lastVacuumAt >= VACUUM_INTERVAL_MS) {
-      await vacuumBackfillTables(db);
+      await vacuumBackfillTables(db, vacuumLogState);
       lastVacuumAt = Date.now();
     }
     await sleep(backlogPollMs);
@@ -532,6 +539,7 @@ export async function enqueueEmbeddingBackfill(
   let lastReportedDone = -1;
   let availableCapacity = 0;
   let lastReportedAt = Number.NEGATIVE_INFINITY;
+  const vacuumLogState: VacuumLogState = { hasLoggedVacuumFailure: false };
   const observeDrainProgress = createDrainProgressObserver(
     db,
     embeddingSetId,
@@ -620,7 +628,8 @@ export async function enqueueEmbeddingBackfill(
     drainTimeoutMs,
     assertCanContinue,
     runStartedAt,
-    observeDrainProgress
+    observeDrainProgress,
+    vacuumLogState
   );
   if (drainedCounts.failed > 0) {
     throw new Error(
@@ -628,7 +637,7 @@ export async function enqueueEmbeddingBackfill(
     );
   }
   // Final VACUUM to reclaim all dead tuples from the completed backfill
-  await vacuumBackfillTables(db);
+  await vacuumBackfillTables(db, vacuumLogState);
   logger.info('Backfill complete', { embeddingSetId, total, done });
   reportProgress(total, total, { force: true });
   return finalizeBackfillCounts(embeddingSetId, total, done, drainedCounts);
