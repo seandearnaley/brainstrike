@@ -1,6 +1,6 @@
+import type { ElectronAPI } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ElectronAPI } from '@brainstrike/types';
 import type {
   EmbeddingRuntimeBackfillProgress,
   EmbeddingRuntimeController,
@@ -154,6 +154,7 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => {
 });
 
 interface MockController {
+  readonly cancelAllBackfillsMock: ReturnType<typeof vi.fn>;
   readonly controller: EmbeddingRuntimeController;
   readonly emitBackfillProgress: (progress: EmbeddingRuntimeBackfillProgress) => void;
   readonly enqueueBackfillMock: ReturnType<typeof vi.fn>;
@@ -195,10 +196,13 @@ function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQ
 
 function createMockController(): MockController {
   const progressListeners = new Set<(progress: EmbeddingRuntimeBackfillProgress) => void>();
+  const cancelAllBackfillsMock = vi.fn(async () => {});
   const enqueueBackfillMock = vi.fn(async (_embeddingSetId: string) => {});
 
   return {
+    cancelAllBackfillsMock,
     controller: {
+      cancelAllBackfills: cancelAllBackfillsMock,
       enqueueBackfill: enqueueBackfillMock,
       ensureStarted: vi.fn(async () => createRuntimeStatus('running')),
       getBackfillsInFlight: vi.fn(async () => []),
@@ -593,7 +597,16 @@ describe('useVectorQueueState', () => {
   });
 
   it('clears transient backfill UI state when the queue is wiped', async () => {
-    const service = createMockService();
+    const callOrder: string[] = [];
+    const service = createMockService({
+      wipeQueue: vi.fn(async () => {
+        callOrder.push('wipe');
+      }),
+    });
+    const controller = createMockController();
+    controller.cancelAllBackfillsMock.mockImplementation(async () => {
+      callOrder.push('cancel');
+    });
     vectorStatusUiStoreState.activeBackfill = {
       embeddingSetId: 'set-1',
       requestId: 'embedding-backfill:wipe-me',
@@ -604,7 +617,7 @@ describe('useVectorQueueState', () => {
     const { result } = renderHook(() =>
       useVectorQueueState({
         service,
-        controller: createMockController().controller,
+        controller: controller.controller,
         activeEmbeddingSetId: 'set-1',
         shouldAutoBackfill: false,
       })
@@ -614,7 +627,9 @@ describe('useVectorQueueState', () => {
       await result.current.wipeQueue();
     });
 
+    expect(controller.cancelAllBackfillsMock).toHaveBeenCalledTimes(1);
     expect(service.wipeQueue).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(['cancel', 'wipe']);
     expect(vectorStatusUiStoreState.activeBackfill).toBeNull();
     expect(vectorStatusUiStoreState.isJobQueueActive).toBe(false);
     expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenCalledWith(false);

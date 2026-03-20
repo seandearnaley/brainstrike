@@ -212,6 +212,12 @@ async function startEmbeddingHostWorkerRuntime({
       streamingWorkerUrl: resolveEmbeddingWorkerUrlHref(),
     });
     if (isDisposed()) {
+      logger.info(
+        'Stopping embedding host worker immediately after start because runtime is disposed',
+        {
+          runtimeId: runtimeIdRef.current,
+        }
+      );
       await controller.stop();
       return;
     }
@@ -272,12 +278,20 @@ export function EmbeddingHostRuntime(): null {
         stopPromiseRef,
       });
 
-    const stopWorker = (reportRuntimeId: string = runtimeIdRef.current): Promise<void> => {
+    const stopWorker = (
+      reason: 'command-reset' | 'command-stop' | 'dispose' | 'post-start-dispose',
+      reportRuntimeId: string = runtimeIdRef.current
+    ): Promise<void> => {
       if (stopPromiseRef.current) {
         return stopPromiseRef.current;
       }
 
       const stopPromise = (async () => {
+        logger.info('Stopping embedding host worker', {
+          reason,
+          reportRuntimeId,
+          runtimeId: runtimeIdRef.current,
+        });
         const controller = controllerRef.current;
         controllerRef.current = null;
         fatalErrorRef.current = null;
@@ -302,7 +316,11 @@ export function EmbeddingHostRuntime(): null {
 
     const resetWorker = async (nextRuntimeId: string): Promise<void> => {
       const previousRuntimeId = runtimeIdRef.current;
-      await stopWorker(previousRuntimeId);
+      logger.info('Resetting embedding host worker runtime', {
+        nextRuntimeId,
+        previousRuntimeId,
+      });
+      await stopWorker('command-reset', previousRuntimeId);
       runtimeIdRef.current = nextRuntimeId;
       await startWorker();
     };
@@ -318,7 +336,7 @@ export function EmbeddingHostRuntime(): null {
         return;
       }
       if (nextCommand.payload.action === 'stop') {
-        void stopWorker();
+        void stopWorker('command-stop');
         return;
       }
       if (nextCommand.payload.action === 'reset') {
@@ -342,6 +360,9 @@ export function EmbeddingHostRuntime(): null {
 
     return () => {
       disposed = true;
+      logger.info('Disposing embedding host runtime effect', {
+        runtimeId: runtimeIdRef.current,
+      });
       runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host power cleanup failed', () => {
         cleanupPower?.();
       });
@@ -355,7 +376,7 @@ export function EmbeddingHostRuntime(): null {
           channel?.close();
         }
       );
-      void stopWorker();
+      void stopWorker('dispose');
     };
   }, [db]);
 

@@ -21,7 +21,9 @@ import {
 import { enqueueEmbeddingBackfill } from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
+  EMBEDDING_BACKFILL_CANCELED_MESSAGE,
   EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+  EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL,
   EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
   EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL,
 } from './embedding-host-shared';
@@ -89,16 +91,28 @@ const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
 const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
+const EMBEDDINGS_QUEUE = 'embeddings';
 const embeddingBackfillsInFlight = new Set<string>();
-const GPU_MEMORY_RECLAIM_DEFAULT_ENABLED = true;
+const embeddingBackfillsCanceled = new Set<string>();
+// Automatic embedding-host reclaim remains opt-in. The real 12k-chunk desktop
+// backfill path is stable without it, while automatic reclaim still introduces
+// host lifecycle churn under load that can interrupt backfill.
+const GPU_MEMORY_RECLAIM_DEFAULT_ENABLED = false;
 const GPU_MEMORY_RECLAIM_DEFAULT_ITEM_THRESHOLD = 500;
 const GPU_MEMORY_RECLAIM_DEFAULT_MINIMUM_INTERVAL_MS = 15_000;
-const GPU_MEMORY_RECLAIM_DEFAULT_MODE: GpuMemoryReclaimMode = 'recreate-window';
+// When reclaim is explicitly enabled, only in-renderer reset is supported.
+// Full BrowserWindow recreation introduced host lifecycle churn and renderer
+// instability under real backfill load.
+const GPU_MEMORY_RECLAIM_DEFAULT_MODE: GpuMemoryReclaimMode = 'reset';
 
 interface EmbeddingBackfillRequest {
   gpuMemoryReclaimConfig: GpuMemoryReclaimConfig;
   hostManager: EmbeddingHostManager;
   normalizedEmbeddingSetId: string;
+}
+
+function isEmbeddingBackfillCanceledError(error: unknown): boolean {
+  return error instanceof Error && error.message === EMBEDDING_BACKFILL_CANCELED_MESSAGE;
 }
 
 function parseStrictBooleanEnv(name: string): boolean | undefined {
@@ -134,10 +148,10 @@ function parseStrictGpuMemoryReclaimModeEnv(
   if (raw === undefined) {
     return fallback;
   }
-  if (raw === 'reset' || raw === 'recreate-window') {
+  if (raw === 'reset') {
     return raw;
   }
-  throw new Error(`${name} must be set to "reset" or "recreate-window" when configured.`);
+  throw new Error(`${name} must be set to "reset" when configured.`);
 }
 
 function resolveGpuMemoryReclaimConfig(): GpuMemoryReclaimConfig {
@@ -193,6 +207,142 @@ function isDisposedRenderFrameSendError(error: unknown): boolean {
   // Electron does not currently expose a stable error code for this path, so
   // we have to match the message text and update this check if Electron changes it.
   return error.message.toLowerCase().includes('frame was disposed');
+}
+
+async function getEmbeddingQueueCounts(jobQueue: JobQueue): Promise<{
+  failed: number;
+  queued: number;
+  running: number;
+  succeeded: number;
+}> {
+  const [queueStats] = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE);
+  return {
+    failed: queueStats?.failed ?? 0,
+    queued: queueStats?.queued ?? 0,
+    running: queueStats?.running ?? 0,
+    succeeded: queueStats?.succeeded ?? 0,
+  };
+}
+
+function createDesktopBackfillProgressReporter(params: {
+  backfillProgressTargetUnavailableRef: { current: boolean };
+  backfillRequestId: string;
+  event: IpcMainInvokeEvent;
+  normalizedEmbeddingSetId: string;
+}): (done: number, total: number) => void {
+  const {
+    backfillProgressTargetUnavailableRef,
+    backfillRequestId,
+    event,
+    normalizedEmbeddingSetId,
+  } = params;
+
+  return (done: number, total: number) => {
+    if (backfillProgressTargetUnavailableRef.current || event.sender.isDestroyed()) {
+      backfillProgressTargetUnavailableRef.current = true;
+      return;
+    }
+    try {
+      event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+        embeddingSetId: normalizedEmbeddingSetId,
+        requestId: backfillRequestId,
+        stage: 'backfill',
+        current: done,
+        total,
+      });
+    } catch (error) {
+      if (isDisposedRenderFrameSendError(error)) {
+        backfillProgressTargetUnavailableRef.current = true;
+        logger.debug('Stopped desktop backfill progress sends after renderer frame disposal', {
+          embeddingSetId: normalizedEmbeddingSetId,
+          requestId: backfillRequestId,
+        });
+        return;
+      }
+      throw error;
+    }
+  };
+}
+
+async function runDesktopEmbeddingBackfill(params: {
+  event: IpcMainInvokeEvent;
+  gpuMemoryReclaimConfig: GpuMemoryReclaimConfig;
+  hostManager: EmbeddingHostManager;
+  normalizedEmbeddingSetId: string;
+}): Promise<{
+  failed: number;
+  queued: number;
+  running: number;
+  succeeded: number;
+}> {
+  const { event, gpuMemoryReclaimConfig, hostManager, normalizedEmbeddingSetId } = params;
+  if (embeddingBackfillsInFlight.has(normalizedEmbeddingSetId)) {
+    throw new Error(`Embedding backfill is already running for set ${normalizedEmbeddingSetId}.`);
+  }
+
+  const backfillRequestId = createRequestId('embedding-backfill');
+  const backfillProgressTargetUnavailableRef = { current: false };
+  const maintenanceCoordinator = new BackfillMaintenanceCoordinator(
+    gpuMemoryReclaimConfig,
+    normalizedEmbeddingSetId,
+    hostManager
+  );
+  embeddingBackfillsInFlight.add(normalizedEmbeddingSetId);
+  acquireLiveSubscriptionPause();
+
+  try {
+    const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
+    if (hostStatus.state !== 'running') {
+      throw new Error(hostStatus.lastError ?? 'Embedding host failed to reach the running state.');
+    }
+
+    const { getDatabase } = await import('./db-main');
+    const db = await getDatabase();
+    const jobQueue = new JobQueue(db);
+
+    try {
+      return await enqueueEmbeddingBackfill(
+        db,
+        jobQueue,
+        normalizedEmbeddingSetId,
+        createDesktopBackfillProgressReporter({
+          backfillProgressTargetUnavailableRef,
+          backfillRequestId,
+          event,
+          normalizedEmbeddingSetId,
+        }),
+        {
+          assertCanContinue: () => {
+            if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
+              throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+            }
+            maintenanceCoordinator.assertCanContinue(hostManager.getStatus());
+          },
+          onDrainTick: async (completedSinceLastTick: number) => {
+            maintenanceCoordinator.noteCompletedItems(completedSinceLastTick);
+            await maintenanceCoordinator.runRequestedMaintenance();
+          },
+          progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
+          progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
+        }
+      );
+    } catch (error) {
+      if (!isEmbeddingBackfillCanceledError(error)) {
+        throw error;
+      }
+      logger.info('Embedding backfill canceled before completion', {
+        embeddingSetId: normalizedEmbeddingSetId,
+      });
+      return await getEmbeddingQueueCounts(jobQueue);
+    }
+  } finally {
+    embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
+    embeddingBackfillsCanceled.delete(normalizedEmbeddingSetId);
+    releaseLiveSubscriptionPause();
+    if (!isBackgrounded) {
+      flushPendingLiveUpdates();
+    }
+  }
 }
 
 async function cleanupLiveSubscriptionsForOwner(
@@ -889,90 +1039,20 @@ export function registerIpcHandlers(
     }, 'db:exec')
   );
 
+  registerHandler(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL, async () => {
+    for (const embeddingSetId of embeddingBackfillsInFlight) {
+      embeddingBackfillsCanceled.add(embeddingSetId);
+    }
+  });
+
   registerHandler(
     EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
     async (event: IpcMainInvokeEvent, embeddingSetId: unknown) =>
       withCorruptionRecovery(async () => {
-        const { gpuMemoryReclaimConfig, hostManager, normalizedEmbeddingSetId } =
-          resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager);
-        if (embeddingBackfillsInFlight.has(normalizedEmbeddingSetId)) {
-          throw new Error(
-            `Embedding backfill is already running for set ${normalizedEmbeddingSetId}.`
-          );
-        }
-        const backfillRequestId = createRequestId('embedding-backfill');
-        let backfillProgressTargetUnavailable = false;
-        const maintenanceCoordinator = new BackfillMaintenanceCoordinator(
-          gpuMemoryReclaimConfig,
-          normalizedEmbeddingSetId,
-          hostManager
-        );
-        embeddingBackfillsInFlight.add(normalizedEmbeddingSetId);
-
-        // Pause all PGlite live query subscriptions during backfill.
-        acquireLiveSubscriptionPause();
-
-        try {
-          const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
-          if (hostStatus.state !== 'running') {
-            throw new Error(
-              hostStatus.lastError ?? 'Embedding host failed to reach the running state.'
-            );
-          }
-          const { getDatabase } = await import('./db-main');
-          const db = await getDatabase();
-          const jobQueue = new JobQueue(db);
-          return await enqueueEmbeddingBackfill(
-            db,
-            jobQueue,
-            normalizedEmbeddingSetId,
-            (done: number, total: number) => {
-              if (backfillProgressTargetUnavailable || event.sender.isDestroyed()) {
-                backfillProgressTargetUnavailable = true;
-                return;
-              }
-              try {
-                event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
-                  embeddingSetId: normalizedEmbeddingSetId,
-                  requestId: backfillRequestId,
-                  stage: 'backfill',
-                  current: done,
-                  total,
-                });
-              } catch (error) {
-                if (isDisposedRenderFrameSendError(error)) {
-                  backfillProgressTargetUnavailable = true;
-                  logger.debug(
-                    'Stopped desktop backfill progress sends after renderer frame disposal',
-                    {
-                      embeddingSetId: normalizedEmbeddingSetId,
-                      requestId: backfillRequestId,
-                    }
-                  );
-                  return;
-                }
-                throw error;
-              }
-            },
-            {
-              assertCanContinue: () => {
-                maintenanceCoordinator.assertCanContinue(hostManager.getStatus());
-              },
-              onDrainTick: async (completedSinceLastTick: number) => {
-                maintenanceCoordinator.noteCompletedItems(completedSinceLastTick);
-                await maintenanceCoordinator.runRequestedMaintenance();
-              },
-              progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
-              progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
-            }
-          );
-        } finally {
-          embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
-          releaseLiveSubscriptionPause();
-          if (!isBackgrounded) {
-            flushPendingLiveUpdates();
-          }
-        }
+        return await runDesktopEmbeddingBackfill({
+          event,
+          ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
+        });
       }, EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)
   );
 

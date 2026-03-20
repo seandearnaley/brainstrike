@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+  EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL,
   EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
 } from '../../embedding-host-shared';
 
@@ -498,7 +499,7 @@ describe('database IPC handlers', () => {
     };
 
     await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
-      'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE must be set to "reset" or "recreate-window" when configured.'
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE must be set to "reset" when configured.'
     );
     expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
     expect(embeddingHostEnsureStartedMock).not.toHaveBeenCalled();
@@ -544,6 +545,7 @@ describe('database IPC handlers', () => {
       throw new Error('handler not registered');
     }
 
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED'] = 'true';
     process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD'] = '2';
     process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE'] = 'reset';
 
@@ -584,13 +586,11 @@ describe('database IPC handlers', () => {
     expect(embeddingHostDestroyAndRestartMock).not.toHaveBeenCalled();
   });
 
-  it('embedding-host:enqueue-backfill defaults to recreate-window mode when no mode env is provided', async () => {
+  it('embedding-host:enqueue-backfill defaults to reclaim disabled when no env is provided', async () => {
     const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {
       throw new Error('handler not registered');
     }
-
-    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD'] = '1';
 
     const sender = {
       id: 44,
@@ -623,9 +623,54 @@ describe('database IPC handlers', () => {
       failed: 0,
       succeeded: 1,
     });
-    expect(embeddingHostStopMock).toHaveBeenCalledTimes(1);
-    expect(embeddingHostDestroyAndRestartMock).toHaveBeenCalledTimes(1);
     expect(embeddingHostResetMock).not.toHaveBeenCalled();
+    expect(embeddingHostStopMock).not.toHaveBeenCalled();
+    expect(embeddingHostDestroyAndRestartMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill resolves cleanly after an explicit cancel-all request', async () => {
+    const backfillHandler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    const cancelHandler = handlers.get(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL);
+    if (!(backfillHandler && cancelHandler)) {
+      throw new Error('required handlers not registered');
+    }
+
+    mockDb.query.mockResolvedValue({ rows: [] });
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        _onProgress: (done: number, total: number) => void,
+        options: {
+          assertCanContinue?: () => void | Promise<void>;
+        }
+      ) => {
+        await cancelHandler({} as unknown);
+        await options.assertCanContinue?.();
+        return {
+          queued: 99,
+          running: 99,
+          failed: 99,
+          succeeded: 99,
+        };
+      }
+    );
+
+    await expect(backfillHandler({ sender } as unknown, 'set-123')).resolves.toEqual({
+      queued: 0,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    });
   });
 
   it('embedding-host:enqueue-backfill treats reset maintenance interruption as planned', async () => {
@@ -634,6 +679,7 @@ describe('database IPC handlers', () => {
       throw new Error('handler not registered');
     }
 
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED'] = 'true';
     process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD'] = '2';
     process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE'] = 'reset';
 
@@ -706,51 +752,6 @@ describe('database IPC handlers', () => {
       succeeded: 2,
     });
     expect(embeddingHostResetMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('embedding-host:enqueue-backfill uses recreate-window mode when configured', async () => {
-    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
-    if (!handler) {
-      throw new Error('handler not registered');
-    }
-
-    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD'] = '1';
-    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE'] = 'recreate-window';
-
-    const sender = {
-      id: 44,
-      isDestroyed: vi.fn(() => false),
-      send: vi.fn(),
-      once: vi.fn(),
-    };
-
-    enqueueEmbeddingBackfillMock.mockImplementationOnce(
-      async (
-        _db: unknown,
-        _jobQueue: unknown,
-        _embeddingSetId: string,
-        _onProgress: (done: number, total: number) => void,
-        options: { onDrainTick?: (completedSinceLastTick: number) => Promise<void> }
-      ) => {
-        await options.onDrainTick?.(1);
-        return {
-          queued: 1,
-          running: 0,
-          failed: 0,
-          succeeded: 1,
-        };
-      }
-    );
-
-    await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 1,
-      running: 0,
-      failed: 0,
-      succeeded: 1,
-    });
-    expect(embeddingHostStopMock).toHaveBeenCalledTimes(1);
-    expect(embeddingHostDestroyAndRestartMock).toHaveBeenCalledTimes(1);
-    expect(embeddingHostResetMock).not.toHaveBeenCalled();
   });
 
   it('embedding-host:enqueue-backfill still fails fast on unexpected host stop', async () => {

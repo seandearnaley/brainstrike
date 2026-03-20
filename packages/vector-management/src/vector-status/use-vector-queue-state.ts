@@ -1,5 +1,8 @@
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import {
+  type ActiveBackfillState,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
@@ -203,6 +206,104 @@ function subscribeBackfillProgress(
   });
 }
 
+function shouldClearRecoveredBackfillState(
+  currentBackfill: ActiveBackfillState | null,
+  activeEmbeddingSetId: string,
+  isJobQueueActive: boolean
+): boolean {
+  return (
+    currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
+    (isJobQueueActive || currentBackfill.requestId.startsWith('recovered:'))
+  );
+}
+
+function shouldSkipRecoveredBackfillRestore(
+  currentBackfill: ActiveBackfillState | null,
+  activeEmbeddingSetId: string
+): boolean {
+  return (
+    currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
+    !currentBackfill.requestId.startsWith('recovered:')
+  );
+}
+
+function createRecoveredBackfillState(activeEmbeddingSetId: string): ActiveBackfillState {
+  return {
+    embeddingSetId: activeEmbeddingSetId,
+    requestId: `recovered:${activeEmbeddingSetId}:${Date.now()}`,
+    progress: null,
+  };
+}
+
+interface ReconcileBackfillStateAfterReloadParams {
+  activeEmbeddingSetId: string;
+  cleanupRecoveryRef: React.MutableRefObject<(() => void) | null>;
+  clearTransientBackfillState: (expectedEmbeddingSetId?: string | null) => void;
+  controller: EmbeddingRuntimeController;
+  isCancelled: () => boolean;
+  markCancelled: () => void;
+  setActiveBackfill: (backfill: ActiveBackfillState | null) => void;
+  setIsJobQueueActive: (active: boolean) => void;
+}
+
+async function reconcileBackfillStateAfterReload({
+  activeEmbeddingSetId,
+  clearTransientBackfillState,
+  cleanupRecoveryRef,
+  controller,
+  isCancelled,
+  markCancelled,
+  setActiveBackfill,
+  setIsJobQueueActive,
+}: ReconcileBackfillStateAfterReloadParams): Promise<void> {
+  const inFlight = await controller.getBackfillsInFlight();
+  if (isCancelled()) {
+    return;
+  }
+
+  if (!inFlight.includes(activeEmbeddingSetId)) {
+    const currentState = useVectorStatusUIStore.getState();
+    if (
+      shouldClearRecoveredBackfillState(
+        currentState.activeBackfill,
+        activeEmbeddingSetId,
+        currentState.isJobQueueActive
+      )
+    ) {
+      clearTransientBackfillState(activeEmbeddingSetId);
+    }
+    return;
+  }
+
+  const currentBackfill = useVectorStatusUIStore.getState().activeBackfill;
+  if (shouldSkipRecoveredBackfillRestore(currentBackfill, activeEmbeddingSetId)) {
+    return;
+  }
+
+  setIsJobQueueActive(true);
+  setActiveBackfill(createRecoveredBackfillState(activeEmbeddingSetId));
+
+  const unsubscribe = subscribeBackfillProgress(
+    controller,
+    activeEmbeddingSetId,
+    (backfill: {
+      embeddingSetId: string;
+      progress: NonNullable<BackfillProgress>;
+      requestId: string;
+    }) => {
+      if (isCancelled()) {
+        return;
+      }
+      setActiveBackfill(backfill);
+    }
+  );
+
+  cleanupRecoveryRef.current = () => {
+    markCancelled();
+    unsubscribe();
+  };
+}
+
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {
   // shouldAutoBackfill is retained in the API for future use but currently has no effect
   const {
@@ -297,53 +398,18 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     let cancelled = false;
     void (async () => {
       try {
-        const inFlight = await controller.getBackfillsInFlight();
-        if (cancelled) {
-          return;
-        }
-        if (!inFlight.includes(activeEmbeddingSetId)) {
-          const currentState = useVectorStatusUIStore.getState();
-          const currentBackfill = currentState.activeBackfill;
-          const shouldClearRecoveredState =
-            currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
-            (currentState.isJobQueueActive || currentBackfill.requestId.startsWith('recovered:'));
-          if (shouldClearRecoveredState) {
-            clearTransientBackfillState(activeEmbeddingSetId);
-          }
-          return;
-        }
-        const currentBackfill = useVectorStatusUIStore.getState().activeBackfill;
-        if (
-          currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
-          !currentBackfill.requestId.startsWith('recovered:')
-        ) {
-          return;
-        }
-        // A backfill is running for this set — restore the progress indicator
-        setIsJobQueueActive(true);
-        setActiveBackfill({
-          embeddingSetId: activeEmbeddingSetId,
-          requestId: `recovered:${activeEmbeddingSetId}:${Date.now()}`,
-          progress: null,
+        await reconcileBackfillStateAfterReload({
+          activeEmbeddingSetId,
+          clearTransientBackfillState,
+          cleanupRecoveryRef,
+          controller,
+          isCancelled: () => cancelled,
+          markCancelled: () => {
+            cancelled = true;
+          },
+          setActiveBackfill,
+          setIsJobQueueActive,
         });
-        // Subscribe to progress updates so the indicator updates in real time
-        const unsubscribe = controller.onBackfillProgress((progress) => {
-          if (cancelled || progress.embeddingSetId !== activeEmbeddingSetId) {
-            return;
-          }
-          setActiveBackfill({
-            embeddingSetId: progress.embeddingSetId,
-            requestId: progress.requestId,
-            progress: { done: progress.current, total: progress.total },
-          });
-        });
-        // Clean up subscription when this effect is torn down
-        const cleanup = () => {
-          cancelled = true;
-          unsubscribe();
-        };
-        // Store cleanup so the unmount path can call it
-        cleanupRecoveryRef.current = cleanup;
       } catch (error) {
         logger.warn('Failed to reconcile backfill state after reload', {
           error: error instanceof Error ? error.message : String(error),
@@ -710,12 +776,13 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       return;
     }
     try {
+      await controller.cancelAllBackfills();
       await service.wipeQueue();
       clearTransientBackfillState();
     } catch {
       // ignore errors when wiping queue
     }
-  }, [clearTransientBackfillState, service]);
+  }, [clearTransientBackfillState, controller, service]);
 
   return useMemo(
     () => ({

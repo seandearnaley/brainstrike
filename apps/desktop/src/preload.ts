@@ -29,6 +29,7 @@ const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill
 const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress' as const;
 const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
   'embedding-host:get-backfills-in-flight' as const;
+const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL = 'embedding-host:cancel-all-backfills' as const;
 const CHUNKING_HOST_STATUS_EVENT = 'chunking-host:status' as const;
 const CHUNKING_HOST_REQUEST_EVENT = 'chunking-host:request' as const;
 const CHUNKING_HOST_PROGRESS_EVENT = 'chunking-host:progress' as const;
@@ -353,6 +354,8 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     ipcRenderer.invoke(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL),
   enqueueBackfill: (embeddingSetId: string) =>
     ipcRenderer.invoke(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL, embeddingSetId),
+  cancelAllBackfills: (): Promise<void> =>
+    ipcRenderer.invoke(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL),
   getBackfillsInFlight: (): Promise<string[]> =>
     ipcRenderer.invoke(EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL),
   stop: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_STOP_CHANNEL),

@@ -28,6 +28,9 @@ export const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.e
 export const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = EMBEDDING_HOST_CHANNELS.backfillProgress;
 export const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
   'embedding-host:get-backfills-in-flight' as const;
+export const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL =
+  'embedding-host:cancel-all-backfills' as const;
+export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.' as const;
 
 export type EmbeddingHostCommandAction = 'reset' | 'stop';
 

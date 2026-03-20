@@ -118,6 +118,7 @@ declare global {
     embeddingHost: {
       ensureStarted: () => Promise<EmbeddingHostStatus>;
       enqueueBackfill: (embeddingSetId: string) => Promise<unknown>;
+      cancelAllBackfills: () => Promise<void>;
       stop: () => Promise<EmbeddingHostStatus>;
       reset: () => Promise<EmbeddingHostStatus>;
       getStatus: () => Promise<EmbeddingHostStatus>;

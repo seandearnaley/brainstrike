@@ -7,37 +7,17 @@ import {
 function createCoordinator(
   config: GpuMemoryReclaimConfig,
   overrides?: Partial<{
-    destroyAndRestart: ReturnType<typeof vi.fn>;
     reset: ReturnType<typeof vi.fn>;
-    stop: ReturnType<typeof vi.fn>;
   }>
 ): {
   coordinator: BackfillMaintenanceCoordinator;
   hostManager: {
-    destroyAndRestart: ReturnType<typeof vi.fn>;
     reset: ReturnType<typeof vi.fn>;
-    stop: ReturnType<typeof vi.fn>;
   };
 } {
   const hostManager = {
     reset:
       overrides?.reset ??
-      vi.fn(async () => ({
-        state: 'running' as const,
-        lastError: null,
-        active: false,
-        runtimeId: 'embedding-host-runtime',
-      })),
-    stop:
-      overrides?.stop ??
-      vi.fn(async () => ({
-        state: 'stopped' as const,
-        lastError: null,
-        active: false,
-        runtimeId: 'embedding-host-runtime',
-      })),
-    destroyAndRestart:
-      overrides?.destroyAndRestart ??
       vi.fn(async () => ({
         state: 'running' as const,
         lastError: null,
@@ -162,22 +142,6 @@ describe('BackfillMaintenanceCoordinator', () => {
         lastError: null,
       })
     ).toThrow('Embedding host GPU reclaim maintenance failed: reset failed');
-  });
-
-  it('uses recreate-window mode by stopping before destroyAndRestart', async () => {
-    const { coordinator, hostManager } = createCoordinator({
-      enabled: true,
-      itemThreshold: 1,
-      minimumIntervalMs: 0,
-      mode: 'recreate-window',
-    });
-
-    coordinator.noteCompletedItems(1);
-    await coordinator.runRequestedMaintenance();
-
-    expect(hostManager.stop).toHaveBeenCalledTimes(1);
-    expect(hostManager.destroyAndRestart).toHaveBeenCalledTimes(1);
-    expect(hostManager.reset).not.toHaveBeenCalled();
   });
 
   it('keeps maintenance requested until the minimum interval has elapsed', async () => {

@@ -3,7 +3,7 @@ import type { EmbeddingHostStatus } from './embedding-host-shared';
 
 const logger = createLogger('BackfillMaintenanceCoordinator');
 
-export type GpuMemoryReclaimMode = 'recreate-window' | 'reset';
+export type GpuMemoryReclaimMode = 'reset';
 
 export interface GpuMemoryReclaimConfig {
   enabled: boolean;
@@ -13,9 +13,7 @@ export interface GpuMemoryReclaimConfig {
 }
 
 interface EmbeddingHostMaintenanceControl {
-  destroyAndRestart(): Promise<EmbeddingHostStatus>;
   reset(): Promise<EmbeddingHostStatus>;
-  stop(): Promise<EmbeddingHostStatus>;
 }
 
 type BackfillMaintenanceState = 'failed' | 'idle' | 'requested' | 'running';
@@ -42,7 +40,7 @@ function toError(error: unknown): Error {
  *
  * Invariants:
  * - Maintenance requests are accumulated from completed-item deltas, never wall-clock polling.
- * - Host stop/reset transitions are only tolerated while planned maintenance is actively running.
+ * - Host reset transitions are only tolerated while planned maintenance is actively running.
  * - Once maintenance fails, the backfill must fail fast with the recorded maintenance error.
  */
 export class BackfillMaintenanceCoordinator {
@@ -138,8 +136,7 @@ export class BackfillMaintenanceCoordinator {
     });
 
     try {
-      const status =
-        this.config.mode === 'reset' ? await this.hostManager.reset() : await this.recreateWindow();
+      const status = await this.hostManager.reset();
       if (status.state !== 'running') {
         throw new Error(
           status.lastError ??
@@ -179,17 +176,5 @@ export class BackfillMaintenanceCoordinator {
       return true;
     }
     return Date.now() - this.lastMaintenanceCompletedAt >= this.config.minimumIntervalMs;
-  }
-
-  private async recreateWindow(): Promise<EmbeddingHostStatus> {
-    const stopStatus = await this.hostManager.stop();
-    if (stopStatus.state === 'error') {
-      logger.warn('Embedding host stop returned error during GPU reclaim maintenance', {
-        embeddingSetId: this.embeddingSetId,
-        lastError: stopStatus.lastError,
-        mode: this.config.mode,
-      });
-    }
-    return await this.hostManager.destroyAndRestart();
   }
 }
