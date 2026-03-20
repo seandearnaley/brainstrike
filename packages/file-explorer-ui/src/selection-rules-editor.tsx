@@ -301,10 +301,12 @@ const RulesEditorContent: React.FC<{
                       value={p.pattern}
                     />
                     <Button
+                      aria-label="Remove include pattern"
                       className="h-8 w-8 p-0"
                       data-testid={`remove-include-${p.id}`}
                       onClick={() => removeIncludePattern(p.id)}
                       size="sm"
+                      title="Remove include pattern"
                       variant="ghost"
                     >
                       <X className="h-4 w-4" />
@@ -356,10 +358,12 @@ const RulesEditorContent: React.FC<{
                       value={r.pattern}
                     />
                     <Button
+                      aria-label="Remove exclude directory"
                       className="h-5 w-5 p-0 hover:bg-destructive/20"
                       data-testid={`remove-root-${r.id}`}
                       onClick={() => removeExcludeRoot(r.id)}
                       size="sm"
+                      title="Remove exclude directory"
                       variant="ghost"
                     >
                       <X className="h-3 w-3" />
@@ -407,10 +411,12 @@ const RulesEditorContent: React.FC<{
                       value={p.pattern}
                     />
                     <Button
+                      aria-label="Remove exclude pattern"
                       className="h-8 w-8 p-0"
                       data-testid={`remove-exclude-${p.id}`}
                       onClick={() => removeExcludePattern(p.id)}
                       size="sm"
+                      title="Remove exclude pattern"
                       variant="ghost"
                     >
                       <X className="h-4 w-4" />
