@@ -2,6 +2,7 @@ import type { usePGliteDatabase } from '@brainstrike/db';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
+import { defaultCollator } from '@brainstrike/utils/collator';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type { EmbeddingSetUpdatedEventDetail } from './embedding-set-events';
 
@@ -250,7 +251,8 @@ function mergeCollections(
   }
   return Array.from(merged.values()).sort(
     (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      defaultCollator.compare(right.createdAt, left.createdAt) ||
+      defaultCollator.compare(right.id, left.id)
   );
 }
 
@@ -262,7 +264,8 @@ function upsertCollectionSnapshot(
   next.unshift(collection);
   next.sort(
     (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      defaultCollator.compare(right.createdAt, left.createdAt) ||
+      defaultCollator.compare(right.id, left.id)
   );
   return next;
 }
@@ -291,7 +294,8 @@ function applyPendingCollectionMutations(
 
   return Array.from(merged.values()).sort(
     (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      defaultCollator.compare(right.createdAt, left.createdAt) ||
+      defaultCollator.compare(right.id, left.id)
   );
 }
 

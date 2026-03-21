@@ -1,3 +1,4 @@
+import { defaultCollator } from '@brainstrike/utils/collator';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -217,7 +218,8 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
           next.unshift(collection);
           next.sort(
             (left, right) =>
-              right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+              defaultCollator.compare(right.createdAt, left.createdAt) ||
+              defaultCollator.compare(right.id, left.id)
           );
           return { cachedCollections: next };
         }),
