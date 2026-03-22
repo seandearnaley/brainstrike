@@ -50,4 +50,16 @@ describe('embedding host shared command helpers', () => {
       })
     ).toThrow('Embedding host reset commands require a non-empty payload.nextRuntimeId.');
   });
+
+  it('fails fast when command creation receives a blank runtime id', () => {
+    expect(() => createEmbeddingHostCommand('stop', '   ')).toThrow(
+      'Embedding host command runtimeId must be a non-empty string.'
+    );
+  });
+
+  it('fails fast when reset command creation receives a blank next runtime id', () => {
+    expect(() => createEmbeddingHostCommand('reset', 'embedding-host:runtime-1', '   ')).toThrow(
+      'Embedding host reset commands require a non-empty nextRuntimeId.'
+    );
+  });
 });

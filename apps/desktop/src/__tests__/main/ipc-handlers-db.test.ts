@@ -394,6 +394,64 @@ describe('database IPC handlers', () => {
     });
   });
 
+  it('embedding-host:enqueue-backfill rejects blank embedding set ids', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await expect(handler({ sender } as unknown, '   ')).rejects.toThrow(
+      'Embedding backfill requires a non-empty embeddingSetId.'
+    );
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill stops progress sends after the renderer is destroyed', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => true),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        onProgress: (done: number, total: number) => void
+      ) => {
+        onProgress(32, 450);
+        return {
+          queued: 450,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
+      queued: 450,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+  });
+
   it('embedding-host:enqueue-backfill does not run maintenance when reclaim is disabled', async () => {
     const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
     if (!handler) {

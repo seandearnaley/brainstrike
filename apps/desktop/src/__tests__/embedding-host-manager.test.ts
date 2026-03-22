@@ -206,6 +206,41 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.destroyHostWindow).not.toHaveBeenCalled();
   });
 
+  it('reset waits for the freshly assigned runtime id before resolving', async () => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('next-runtime');
+    lifecycleState.waitForStatus.mockImplementationOnce(async (predicate) => {
+      expect(
+        predicate({
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host-runtime',
+          state: 'running',
+        })
+      ).toBe(false);
+      expect(
+        predicate({
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:next-runtime',
+          state: 'running',
+        })
+      ).toBe(true);
+      return {
+        active: false,
+        lastError: null,
+        runtimeId: 'embedding-host:next-runtime',
+        state: 'running' as const,
+      };
+    });
+
+    const manager = new EmbeddingHostManager();
+
+    await expect(manager.reset()).resolves.toMatchObject({
+      runtimeId: 'embedding-host:next-runtime',
+      state: 'running',
+    });
+  });
+
   it('ignores stale status reports from the superseded runtime after reset assigns a fresh runtime id', () => {
     const manager = new EmbeddingHostManager();
 
