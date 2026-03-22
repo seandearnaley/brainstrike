@@ -10,8 +10,15 @@ export type McpServer =
       command: string;
       args?: string[];
       env?: Record<string, string>;
+      enabledTools?: string[];
     }
-  | { transport: 'sse'; name: string; url: string; headers?: Record<string, string> };
+  | {
+      transport: 'sse';
+      name: string;
+      url: string;
+      headers?: Record<string, string>;
+      enabledTools?: string[];
+    };
 export interface McpConfig {
   servers: McpServer[];
 }
@@ -264,6 +271,11 @@ function parseStdioServer(s: unknown): McpServer | null {
   if (server['env'] && typeof server['env'] === 'object') {
     result.env = server['env'] as Record<string, string>;
   }
+  if (Array.isArray(server['enabledTools'])) {
+    result.enabledTools = (server['enabledTools'] as unknown[]).filter(
+      (value): value is string => typeof value === 'string'
+    );
+  }
 
   return result;
 }
@@ -290,6 +302,11 @@ function parseSseServer(s: unknown): McpServer | null {
 
   if (server['headers'] && typeof server['headers'] === 'object') {
     result.headers = server['headers'] as Record<string, string>;
+  }
+  if (Array.isArray(server['enabledTools'])) {
+    result.enabledTools = (server['enabledTools'] as unknown[]).filter(
+      (value): value is string => typeof value === 'string'
+    );
   }
 
   return result;

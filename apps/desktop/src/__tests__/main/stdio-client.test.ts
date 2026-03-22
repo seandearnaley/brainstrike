@@ -1,70 +1,135 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const fsToolsMocks = vi.hoisted(() => ({
-  handleFilesystemList: vi.fn(async () => ({ ok: 'list' })),
-  handleFilesystemRead: vi.fn(async () => ({ ok: 'read' })),
-  handleFilesystemSearch: vi.fn(async () => ({ ok: 'search' })),
+const {
+  clientConnectMock,
+  clientListToolsMock,
+  clientCallToolMock,
+  clientCloseMock,
+  transportCloseMock,
+  clientCtorMock,
+  transportCtorMock,
+} = vi.hoisted(() => {
+  const connect = vi.fn(async () => {});
+  const listTools = vi.fn(async () => ({
+    tools: [
+      {
+        name: 'read_file',
+        description: 'Read a file',
+        inputSchema: { type: 'object' },
+      },
+      {
+        name: 'list_directory',
+        description: 'List a directory',
+        inputSchema: { type: 'object' },
+      },
+    ],
+  }));
+  const callTool = vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] }));
+  const closeClient = vi.fn(async () => {});
+  const closeTransport = vi.fn(async () => {});
+  function MockClient(this: Record<string, unknown>) {
+    this.connect = connect;
+    this.listTools = listTools;
+    this.callTool = callTool;
+    this.close = closeClient;
+  }
+  function MockTransport(this: Record<string, unknown>) {
+    this.close = closeTransport;
+  }
+
+  return {
+    clientConnectMock: connect,
+    clientListToolsMock: listTools,
+    clientCallToolMock: callTool,
+    clientCloseMock: closeClient,
+    transportCloseMock: closeTransport,
+    clientCtorMock: vi.fn(MockClient),
+    transportCtorMock: vi.fn(MockTransport),
+  };
+});
+
+vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
+  Client: clientCtorMock,
 }));
-const pathMocks = vi.hoisted(() => ({
-  resolveBaseDirFromArgs: vi.fn(() => '/root'),
-  normalizeRootDir: vi.fn((value: string) => value),
+
+vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
+  StdioClientTransport: transportCtorMock,
 }));
 
-const { handleFilesystemList, handleFilesystemRead, handleFilesystemSearch } = fsToolsMocks;
-
-vi.mock('../../mcp/fs-tools', () => fsToolsMocks);
-
-vi.mock('../../mcp/paths', () => pathMocks);
-
-import { createFilesystemClientFromStdio } from '../../mcp/stdio-client';
+import { createStdioClient } from '../../mcp/stdio-client';
 
 describe('stdio client', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('routes filesystem tools to the fs handlers', async () => {
-    const client = createFilesystemClientFromStdio({
+  it('discovers real MCP tools and namespaces them by server', async () => {
+    const client = createStdioClient({
       name: 'filesystem',
       transport: 'stdio',
       command: 'node',
       args: ['/root'],
     });
 
-    await expect(client.callTool('filesystem.list', { path: '.' })).resolves.toEqual({
-      ok: 'list',
+    await expect(client.listTools()).resolves.toEqual({
+      'filesystem.read_file': {
+        description: 'Read a file',
+        inputSchema: { type: 'object' },
+      },
+      'filesystem.list_directory': {
+        description: 'List a directory',
+        inputSchema: { type: 'object' },
+      },
     });
-    await expect(client.callTool('filesystem.read', { path: 'file.txt' })).resolves.toEqual({
-      ok: 'read',
-    });
-    await expect(client.callTool('filesystem.search', { query: 'q' })).resolves.toEqual({
-      ok: 'search',
+    expect(clientConnectMock).toHaveBeenCalledTimes(1);
+    expect(clientListToolsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls tools using the raw MCP tool name discovered from tools/list', async () => {
+    const client = createStdioClient({
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'node',
+      args: ['/root'],
     });
 
-    expect(handleFilesystemList).toHaveBeenCalledWith({ path: '.' }, '/root');
-    expect(handleFilesystemRead).toHaveBeenCalledWith({ path: 'file.txt' }, '/root');
-    expect(handleFilesystemSearch).toHaveBeenCalledWith({ query: 'q' }, '/root');
+    await expect(client.callTool('filesystem.list_directory', { path: '/root' })).resolves.toEqual({
+      content: [{ type: 'text', text: 'ok' }],
+    });
+    expect(clientCallToolMock).toHaveBeenCalledWith(
+      {
+        name: 'list_directory',
+        arguments: { path: '/root' },
+      },
+      undefined,
+      expect.objectContaining({
+        resetTimeoutOnProgress: true,
+      })
+    );
   });
 
   it('throws for unsupported tools', async () => {
-    const client = createFilesystemClientFromStdio({
+    const client = createStdioClient({
       name: 'filesystem',
       transport: 'stdio',
       command: 'node',
       args: ['/root'],
     });
 
-    await expect(client.callTool('unknown.tool')).rejects.toThrow('Unsupported tool');
+    await expect(client.callTool('unknown.tool')).rejects.toThrow('Unsupported MCP tool');
   });
 
-  it('disposes safely without spawning a child process', async () => {
-    const client = createFilesystemClientFromStdio({
+  it('disposes the SDK client and transport safely', async () => {
+    const client = createStdioClient({
       name: 'filesystem',
       transport: 'stdio',
       command: 'node',
       args: ['/root'],
     });
 
+    await client.listTools();
     await expect(client.dispose()).resolves.toBeUndefined();
+    expect(clientCloseMock).toHaveBeenCalledTimes(1);
+    expect(transportCloseMock).toHaveBeenCalledTimes(1);
   });
 });

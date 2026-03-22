@@ -42,6 +42,8 @@ import { getWindowRoleByWebContentsId } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
+const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
+const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
@@ -221,6 +223,29 @@ function isWritableLogDestination(destination: string): boolean {
   }
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+interface FileStatSnapshot {
+  mtimeMs: number;
+  size: number;
+}
+
+async function readFileStatSnapshot(filePath: string): Promise<FileStatSnapshot | null> {
+  try {
+    const stats = await fs.promises.stat(filePath);
+    return {
+      size: stats.size,
+      mtimeMs: stats.mtimeMs,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function isWritableLogDestinationAsync(destination: string): Promise<boolean> {
   try {
     const resolved = path.resolve(destination);
@@ -361,6 +386,69 @@ function getLoggingSettingsPayload(): LoggingSettingsPayload {
   });
 }
 
+async function verifyActiveLogFile(reason: string): Promise<void> {
+  const { enabled, destination } = currentLoggingPreferences.file;
+  const defaultDestination = getLoggingCapabilities().defaultDestination;
+
+  logger.info('Desktop file logging configuration resolved', {
+    reason,
+    fileLoggingEnabled: enabled,
+    configuredDestination: destination,
+    defaultDestination,
+    appReady: app.isReady(),
+  });
+
+  if (!(enabled && destination)) {
+    logger.warn('Desktop file logging is not active', {
+      reason,
+      fileLoggingEnabled: enabled,
+      configuredDestination: destination,
+      defaultDestination,
+    });
+    return;
+  }
+
+  const before = await readFileStatSnapshot(destination);
+  logger.info('Desktop file logging verification marker', {
+    reason,
+    logFile: destination,
+    previousSizeBytes: before?.size ?? null,
+    previousMtimeMs: before?.mtimeMs ?? null,
+  });
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < LOG_FILE_VERIFICATION_TIMEOUT_MS) {
+    await sleep(LOG_FILE_VERIFICATION_POLL_INTERVAL_MS);
+    const after = await readFileStatSnapshot(destination);
+    if (!after) {
+      continue;
+    }
+    if (!before || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+      logger.info('Desktop file logging verified on disk', {
+        reason,
+        logFile: destination,
+        sizeBytes: after.size,
+        mtimeMs: after.mtimeMs,
+        previousSizeBytes: before?.size ?? null,
+        previousMtimeMs: before?.mtimeMs ?? null,
+      });
+      return;
+    }
+  }
+
+  const finalStats = await readFileStatSnapshot(destination);
+  logger.error('Desktop file logging did not advance on disk after verification marker', {
+    reason,
+    logFile: destination,
+    existsOnDisk: finalStats !== null,
+    sizeBytes: finalStats?.size ?? null,
+    mtimeMs: finalStats?.mtimeMs ?? null,
+    previousSizeBytes: before?.size ?? null,
+    previousMtimeMs: before?.mtimeMs ?? null,
+    defaultDestination,
+  });
+}
+
 async function selectLogDestination(): Promise<string | null> {
   if (!getLoggingCapabilities().canSelectDestination) {
     return null;
@@ -398,6 +486,7 @@ async function applyAndPersistLoggingPreferences(
           : null,
     },
   });
+  void verifyActiveLogFile('logging-preferences-updated');
   return getLoggingSettingsPayload();
 }
 
@@ -721,6 +810,7 @@ if (singleInstanceLockAcquired) {
           logger.debug('File logging enabled after app.ready', { logFile: resolvedLogPath });
         }
       }
+      void verifyActiveLogFile('app-ready');
 
       logger.debug('Setting up IPC handlers that require app readiness...');
       registerSecretsIpcHandlers(createSecretsService());

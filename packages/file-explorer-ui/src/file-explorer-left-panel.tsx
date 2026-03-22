@@ -123,6 +123,7 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
 
 const EMPTY_DISPLAYED_FILES = new Set<string>();
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
+const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
 interface FileExplorerTestSnapshot {
   currentFolderId: string | null;
@@ -376,6 +377,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     return selectedFilesList.length;
   }, [selectionModel.mode, selectionModel.materializedPaths, selectedFilesList]);
 
+  const largeSelectionDiagnosticSignatureRef = React.useRef<string | null>(null);
+
   useEffect(() => {
     if (!window.desktopLifecycle?.isTestMode) {
       return;
@@ -481,6 +484,70 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     }
     return Array.from(displayedFiles);
   }, [displayedFiles, useFallbackDisplayedFiles]);
+
+  useEffect(() => {
+    const materializedPathCount = selectionModel.materializedPaths?.size ?? 0;
+    const treeRootCount = stableFileTree.length;
+    const shouldLog =
+      selectedCount >= LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD ||
+      materializedPathCount >= LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD ||
+      treeRootCount >= LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD;
+    if (!shouldLog) {
+      largeSelectionDiagnosticSignatureRef.current = null;
+      return;
+    }
+
+    const diagnosticSignature = [
+      selectionModel.mode,
+      currentFolderId ?? 'none',
+      selectedCount,
+      selectedFilesSet.size,
+      selectedFilePaths.size,
+      materializedPathCount,
+      treeRootCount,
+      quickFilteredTree?.length ?? 0,
+      useFallbackDisplayedFiles ? displayedFileList.length : -1,
+    ].join('|');
+    if (largeSelectionDiagnosticSignatureRef.current === diagnosticSignature) {
+      return;
+    }
+    largeSelectionDiagnosticSignatureRef.current = diagnosticSignature;
+
+    logger.info('Large file explorer selection rendered', {
+      selectionMode: selectionModel.mode,
+      currentFolderId,
+      selectedCount,
+      selectedFilesSetCount: selectedFilesSet.size,
+      selectedFilePathsCount: selectedFilePaths.size,
+      materializedPathCount,
+      treeRootCount,
+      quickFilteredTreeRootCount: quickFilteredTree?.length ?? 0,
+      fallbackDisplayedFileCount: useFallbackDisplayedFiles ? displayedFileList.length : null,
+      expandAllInProgress: isExpandingAll,
+      loadingPathCount: loadingPaths.size,
+      isLoading,
+      isLoadingForSelection,
+      isLoadingForSelectAll,
+      isQuickFiltering,
+    });
+  }, [
+    currentFolderId,
+    displayedFileList.length,
+    isExpandingAll,
+    isLoading,
+    isLoadingForSelectAll,
+    isLoadingForSelection,
+    isQuickFiltering,
+    loadingPaths.size,
+    quickFilteredTree,
+    selectedCount,
+    selectedFilePaths,
+    selectedFilesSet,
+    selectionModel.materializedPaths,
+    selectionModel.mode,
+    stableFileTree.length,
+    useFallbackDisplayedFiles,
+  ]);
 
   const handleRefresh = useCallback(async () => {
     if (!rootDirectoryHandle) {

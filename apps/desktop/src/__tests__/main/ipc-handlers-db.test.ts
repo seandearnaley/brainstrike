@@ -6,6 +6,15 @@ import {
   EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
 } from '../../embedding-host-shared';
 
+function createWindowWithWebContents(sender: {
+  send: (...args: unknown[]) => unknown;
+}): BrowserWindow {
+  return {
+    isDestroyed: () => false,
+    webContents: sender,
+  } as unknown as BrowserWindow;
+}
+
 // Hoist Electron and db mocks safely
 const {
   handlers,
@@ -994,7 +1003,7 @@ describe('database IPC handlers', () => {
     // Live query updates are dedup+batched; flush to deliver pending sends.
     const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
     const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
-    getAllWindowsMock.mockReturnValue([{ webContents: sender } as unknown as BrowserWindow]);
+    getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
     flushPendingLiveUpdates();
     expect(sender.send).toHaveBeenCalledWith('db:live-query:update', {
       id: result.id,
@@ -1518,7 +1527,7 @@ describe('database IPC handlers', () => {
       sender.send.mockImplementation(() => {
         throw new Error('Render frame was disposed before WebFrameMain could be accessed');
       });
-      getAllWindowsMock.mockReturnValue([{ webContents: sender } as unknown as BrowserWindow]);
+      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
 
       listener({ rows: [{ id: 123 }] });
       // Flush the batched update to trigger the disposed-frame error path
@@ -1526,6 +1535,34 @@ describe('database IPC handlers', () => {
       await Promise.resolve();
 
       expect(liveHandle.unsubscribe).toHaveBeenCalled();
+    });
+
+    it('does not retry disposed-frame sends while owner cleanup is still in flight', async () => {
+      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      const { listener, liveHandle, sender } = await setupLiveQuery();
+      const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
+
+      let resolveCleanup: (() => void) | null = null;
+      const cleanupInFlight = new Promise<void>((resolve) => {
+        resolveCleanup = resolve;
+      });
+      liveHandle.unsubscribe.mockReturnValue(cleanupInFlight);
+      sender.send.mockImplementation(() => {
+        throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+      });
+      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
+
+      listener({ rows: [{ id: 1 }] });
+      flushPendingLiveUpdates();
+
+      listener({ rows: [{ id: 2 }] });
+      flushPendingLiveUpdates();
+
+      expect(sender.send).toHaveBeenCalledTimes(1);
+
+      resolveCleanup?.();
+      await cleanupInFlight;
+      await Promise.resolve();
     });
 
     it('clears pending updates when flush fails with an unexpected send error', async () => {
@@ -1539,11 +1576,7 @@ describe('database IPC handlers', () => {
       sender.send.mockImplementation(() => {
         throw new Error('boom');
       });
-      getAllWindowsMock.mockReturnValue([
-        {
-          webContents: sender,
-        } as unknown as BrowserWindow,
-      ]);
+      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
 
       expect(() => setBackgrounded(false)).toThrow('boom');
       expect(sender.send).toHaveBeenCalledTimes(1);
@@ -1587,7 +1620,7 @@ describe('database IPC handlers', () => {
         once: vi.fn(),
       };
       const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
-      getAllWindowsMock.mockReturnValue([{ webContents: sender } as unknown as BrowserWindow]);
+      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
 
       const firstResult = (await handler({ sender } as unknown, {
         query: 'SELECT 1',

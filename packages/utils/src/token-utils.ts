@@ -9,7 +9,7 @@
  * The lite versions are intentionally duplicated (not shared) because each worker
  * package needs to control its own tiktoken/WASM bundling via tsup.
  */
-import { createLogger } from './logger';
+import { createLogger } from '@brainstrike/utils/logger';
 
 type EncodeFn = (text: string) => Uint32Array;
 

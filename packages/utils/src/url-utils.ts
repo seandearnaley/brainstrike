@@ -1,4 +1,4 @@
-import { createLogger } from './logger';
+import { createLogger } from '@brainstrike/utils/logger';
 
 /**
  * Utility functions for URL handling and manipulation

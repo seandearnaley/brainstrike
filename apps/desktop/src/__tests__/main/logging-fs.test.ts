@@ -5,13 +5,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   const statSync = vi.fn(() => ({ isDirectory: () => true }));
-  const statAsync = vi.fn(async () => ({ isDirectory: () => true }));
+  const statAsync = vi.fn(async () => ({
+    isDirectory: () => true,
+    size: 128,
+    mtimeMs: Date.now(),
+  }));
+  const accessAsync = vi.fn(async () => undefined);
 
   const mockedFs = {
     ...actual,
     statSync,
     promises: {
       ...actual.promises,
+      access: accessAsync,
       stat: statAsync,
     },
   };
@@ -181,5 +187,39 @@ describe('logging IPC handler performance', () => {
     expect(fs.statSync).not.toHaveBeenCalled();
     // Async version SHOULD be called
     expect(fs.promises.stat).toHaveBeenCalled();
+  });
+
+  it('uses async destination checks when applying file logging preferences', async () => {
+    const statMock = vi.mocked(fs.promises.stat);
+    statMock
+      .mockResolvedValueOnce({
+        isDirectory: () => true,
+        size: 100,
+        mtimeMs: 1000,
+      } as unknown as Awaited<ReturnType<typeof fs.promises.stat>>)
+      .mockResolvedValueOnce({
+        isDirectory: () => true,
+        size: 220,
+        mtimeMs: 2000,
+      } as unknown as Awaited<ReturnType<typeof fs.promises.stat>>);
+
+    const newPreferences: LoggingPreferences = {
+      level: LogLevel.INFO,
+      consoleLevel: LogLevel.INFO,
+      includeTimestamp: true,
+      redactPaths: [],
+      file: {
+        enabled: true,
+        destination: '/mock/userData/logs/test.log',
+        level: LogLevel.DEBUG,
+        append: true,
+        mkdir: true,
+      },
+    };
+
+    await ipcRenderer.invoke('logging:set-preferences', newPreferences);
+
+    expect(statMock.mock.calls.some(([target]) => target === '/mock/userData/logs')).toBe(true);
+    expect(statMock).not.toHaveBeenCalledWith('/mock/userData/logs/test.log');
   });
 });

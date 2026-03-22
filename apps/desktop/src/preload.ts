@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, clipboard } = require('electron');
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
+const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
@@ -287,6 +288,40 @@ contextBridge.exposeInMainWorld('mcp', {
     ipcRenderer.invoke('mcp:tools:disableServer', serverName),
   resetTools: () => ipcRenderer.invoke('mcp:tools:reset'),
   getToolStats: () => ipcRenderer.invoke('mcp:tools:getStats'),
+  onToolsUpdated: (
+    callback: (
+      tools: Record<
+        string,
+        Array<{
+          id: string;
+          serverName: string;
+          description?: string;
+          inputSchema?: unknown;
+          enabled: boolean;
+          discoveredAt: number;
+        }>
+      >
+    ) => void
+  ) => {
+    const listener = (
+      _event: unknown,
+      tools: Record<
+        string,
+        Array<{
+          id: string;
+          serverName: string;
+          description?: string;
+          inputSchema?: unknown;
+          enabled: boolean;
+          discoveredAt: number;
+        }>
+      >
+    ) => callback(tools);
+    ipcRenderer.on(MCP_TOOLS_UPDATED_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(MCP_TOOLS_UPDATED_EVENT, listener);
+    };
+  },
 });
 
 // Tool execution API (for playground testing)

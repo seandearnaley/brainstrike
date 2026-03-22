@@ -203,8 +203,9 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
 //   the entire renderer process.
 //
 // Fix (three layers):
-//   Layer 1 (root cause) — create-window.ts sets `backgroundThrottling: false`
-//     on the BrowserWindow so Chromium never freezes this renderer's timers.
+//   Layer 1 (root cause) — the hidden desktop embedding-host renderer uses
+//     `backgroundThrottling: false` so Chromium never freezes that worker
+//     host's timers while local embeddings are running.
 //   Layer 2 (defence-in-depth) — this file's keep-alive submits a real GPU
 //     command buffer every 15 s to register activity with the driver.
 //   Layer 3 (recovery) — device-loss watcher terminates this worker cleanly

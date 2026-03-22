@@ -187,6 +187,18 @@ declare global {
         disabled: number;
         servers: number;
       }>;
+      onToolsUpdated: (
+        callback: (tools: {
+          [serverName: string]: Array<{
+            id: string;
+            serverName: string;
+            description?: string;
+            inputSchema?: unknown;
+            enabled: boolean;
+            discoveredAt: number;
+          }>;
+        }) => void
+      ) => () => void;
     };
     power: {
       onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
