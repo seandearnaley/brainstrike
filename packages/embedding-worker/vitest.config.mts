@@ -1,5 +1,31 @@
-import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
+import { createBrowserProject } from '../config/src/vitest-browser';
+
+const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+const runWebGpuMemory = process.env['VITEST_RUN_WEBGPU_MEMORY'] === 'true';
+const WEBGPU_CI_LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-setuid-sandbox',
+  '--disable-features=VizDisplayCompositor',
+  '--headless=new',
+  '--use-angle=vulkan',
+  '--enable-features=Vulkan',
+  '--disable-vulkan-surface',
+  '--enable-unsafe-webgpu',
+] as const;
+
+const browserProject = createBrowserProject({
+  isCI,
+  headless: isCI,
+  testPattern: 'test/**/*.browser.test.{ts,tsx}',
+  launchArgs: isCI ? [...WEBGPU_CI_LAUNCH_ARGS] : undefined,
+});
+
+browserProject.test.globals = true;
+if (!runWebGpuMemory) {
+  browserProject.test.exclude = ['test/webgpu-memory-growth.browser.test.ts'];
+}
 
 export default defineConfig({
   test: {
@@ -22,20 +48,7 @@ export default defineConfig({
           },
         },
       },
-      {
-        test: {
-          name: 'browser',
-          globals: true,
-          include: ['test/**/*.browser.test.{ts,tsx}'],
-          browser: {
-            enabled: true,
-            provider: playwright(),
-            instances: [{ browser: 'chromium' }],
-            headless: process.env['CI'] === 'true',
-            screenshotFailures: true,
-          },
-        },
-      },
+      browserProject,
     ],
   },
 });
