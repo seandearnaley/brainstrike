@@ -1,3 +1,6 @@
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
@@ -68,6 +71,25 @@ async function getBufferedElectronOutputInTest(
 ): Promise<{ stderr: string[]; stdout: string[] }> {
   const { getBufferedElectronOutput } = await loadElectronHelpers();
   return await getBufferedElectronOutput(app);
+}
+
+async function launchElectronDevAppInTest(userDataDir: string): Promise<{
+  app: ElectronApplication;
+  window: Page;
+}> {
+  const { launchElectronAppWithOptions } = await loadElectronHelpers();
+  return await launchElectronAppWithOptions({
+    launchMode: 'dev-server',
+    userDataDir,
+  });
+}
+
+async function closeElectronAppInTest(app: {
+  app: ElectronApplication;
+  window: Page;
+}): Promise<void> {
+  const { closeElectronApp } = await loadElectronHelpers();
+  await closeElectronApp(app);
 }
 
 async function reloadRendererInTest(page: Page, reason: string): Promise<void> {
@@ -265,6 +287,36 @@ function withTemporaryProcessEnv(overrides: Record<string, string | undefined>):
       }
     }
   };
+}
+
+async function waitForTcpPortOpen(port: number, timeoutMs: number): Promise<void> {
+  const startedAt = Date.now();
+  const hosts = ['127.0.0.1', '::1'] as const;
+  while (Date.now() - startedAt < timeoutMs) {
+    const connected = await Promise.any(
+      hosts.map(
+        (host) =>
+          new Promise<boolean>((resolve, reject) => {
+            const socket = net.createConnection({ host, port }, () => {
+              socket.destroy();
+              resolve(true);
+            });
+            socket.on('error', () => {
+              socket.destroy();
+              reject(new Error(`connect failed for ${host}:${port}`));
+            });
+          })
+      )
+    )
+      .then(() => true)
+      .catch(() => false);
+    if (connected) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(`Timed out waiting for localhost:${port} to accept connections.`);
 }
 
 const LARGE_BACKFILL_FILE_COUNT = 1000;
@@ -1116,41 +1168,62 @@ test.describe('Embedding Host Renderer', () => {
 
   async function readTrackedRuntimeWorkingSetMB(
     app: ElectronApplication,
-    runtimeKind: RuntimeProcessSnapshot['runtimeKind']
+    page: Page,
+    runtimeKind: RuntimeProcessSnapshot['runtimeKind'],
+    timeoutMs = 15_000
   ): Promise<number | null> {
-    return await app.evaluate<number | null, RuntimeProcessSnapshot['runtimeKind']>(
-      ({ app: electronApp, BrowserWindow }, expectedRuntimeKind) => {
-        const hostWindow = BrowserWindow.getAllWindows().find((browserWindow) => {
-          const url = browserWindow.webContents.getURL();
-          let mode: string | null = null;
-          try {
-            mode = new URL(url).searchParams.get('mode');
-          } catch {
-            mode = null;
-          }
-          const runtimeKind =
-            mode === 'embedding-host'
-              ? 'embedding-host'
-              : mode === 'chunking-host'
-                ? 'chunking-host'
-                : 'visible-ui';
-          return runtimeKind === expectedRuntimeKind;
-        });
-        if (!hostWindow) {
-          return null;
+    const startedAt = Date.now();
+    let lastDisposedError: Error | null = null;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      try {
+        return await app.evaluate<number | null, RuntimeProcessSnapshot['runtimeKind']>(
+          ({ app: electronApp, BrowserWindow }, expectedRuntimeKind) => {
+            const hostWindow = BrowserWindow.getAllWindows().find((browserWindow) => {
+              const url = browserWindow.webContents.getURL();
+              let mode: string | null = null;
+              try {
+                mode = new URL(url).searchParams.get('mode');
+              } catch {
+                mode = null;
+              }
+              const runtimeKind =
+                mode === 'embedding-host'
+                  ? 'embedding-host'
+                  : mode === 'chunking-host'
+                    ? 'chunking-host'
+                    : 'visible-ui';
+              return runtimeKind === expectedRuntimeKind;
+            });
+            if (!hostWindow) {
+              return null;
+            }
+            const osProcessId = hostWindow.webContents.getOSProcessId();
+            if (!Number.isInteger(osProcessId) || osProcessId <= 0) {
+              return null;
+            }
+            const metric = electronApp.getAppMetrics().find((entry) => entry.pid === osProcessId);
+            const workingSetSize = metric?.memory?.workingSetSize;
+            if (!(typeof workingSetSize === 'number' && Number.isFinite(workingSetSize))) {
+              return null;
+            }
+            return Math.round((workingSetSize / 1024) * 10) / 10;
+          },
+          runtimeKind
+        );
+      } catch (error) {
+        if (!isDisposedElectronEvaluateError(error)) {
+          throw error;
         }
-        const osProcessId = hostWindow.webContents.getOSProcessId();
-        if (!Number.isInteger(osProcessId) || osProcessId <= 0) {
-          return null;
-        }
-        const metric = electronApp.getAppMetrics().find((entry) => entry.pid === osProcessId);
-        const workingSetSize = metric?.memory?.workingSetSize;
-        if (!(typeof workingSetSize === 'number' && Number.isFinite(workingSetSize))) {
-          return null;
-        }
-        return Math.round((workingSetSize / 1024) * 10) / 10;
-      },
-      runtimeKind
+        lastDisposedError = error;
+        await page.waitForTimeout(250);
+      }
+    }
+
+    throw new Error(
+      `Timed out waiting for ${runtimeKind} working-set measurement after navigation churn: ${
+        lastDisposedError?.message ?? 'unknown disposed execution context error'
+      }`
     );
   }
 
@@ -1162,7 +1235,7 @@ test.describe('Embedding Host Renderer', () => {
   ): Promise<number> {
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
-      const workingSetMB = await readTrackedRuntimeWorkingSetMB(app, runtimeKind);
+      const workingSetMB = await readTrackedRuntimeWorkingSetMB(app, page, runtimeKind);
       if (typeof workingSetMB === 'number') {
         return workingSetMB;
       }
@@ -1261,7 +1334,7 @@ test.describe('Embedding Host Renderer', () => {
       await page.waitForTimeout(delayMs);
       const [appMetrics, hostWorkingSetMB] = await Promise.all([
         readElectronAppMetricsWithRetry(app, page),
-        readTrackedRuntimeWorkingSetMB(app, 'embedding-host'),
+        readTrackedRuntimeWorkingSetMB(app, page, 'embedding-host'),
       ]);
       if (typeof hostWorkingSetMB !== 'number') {
         throw new Error('Missing embedding-host working-set measurement during sampling');
@@ -5602,6 +5675,332 @@ test.describe('Embedding Host Renderer', () => {
       await clearEmbeddingQueue(activeWindow);
       await stopEmbeddingHost(activeWindow);
       await stopChunkingHost(activeWindow);
+    }
+  });
+
+  test('reproduces the desktop:dev mixed-state visible renderer crash path under real import and backfill load', async () => {
+    test.skip(!!process.env['CI'], 'Requires a local desktop dev session.');
+    test.skip(
+      process.env['BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO'] !== '1',
+      'Opt-in repro harness. Set BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO=1 to run.'
+    );
+    test.setTimeout(900_000);
+
+    await waitForTcpPortOpen(8081, 5000).catch((error) => {
+      throw new Error(
+        'Desktop dev renderer must already be running on http://localhost:8081 before this repro test starts.\n' +
+          'Start it with `pnpm --filter @brainstrike/desktop dev:renderer` in a separate terminal.\n' +
+          `error=${error instanceof Error ? error.message : String(error)}`
+      );
+    });
+    const userDataDir = path.join(
+      os.tmpdir(),
+      `brainstrike-desktop-dev-repro-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    );
+    const electronContext = await launchElectronDevAppInTest(userDataDir);
+    let activeWindow = electronContext.window;
+    let electronStderrBaselineCount = 0;
+
+    try {
+      await waitForAppReadyInTest(activeWindow);
+      electronStderrBaselineCount = (await getRelevantElectronStderr(electronContext.app)).length;
+      const scenario = await prepareRealWorldMixedStateScenario(electronContext.app, activeWindow);
+      activeWindow = scenario.activeWindow;
+
+      const baselineTimeOrigin = scenario.initialTimeOrigin;
+      const baselineMainLogs = await getMainBufferedLogs(activeWindow);
+      const samples: Array<{
+        elapsedMs: number;
+        importPhase: string | null;
+        queued: number;
+        running: number;
+        visibleWorkingSetMB: number | null;
+      }> = [];
+
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 420_000) {
+        try {
+          const [
+            timeOrigin,
+            processSnapshot,
+            queueStats,
+            importSnapshot,
+            mainLogs,
+            electronStderr,
+          ] = await Promise.all([
+            getRendererTimeOrigin(activeWindow),
+            readDesktopProcessSnapshot(electronContext.app),
+            getEmbeddingQueueStats(activeWindow),
+            getDatabaseDemoImportSnapshot(activeWindow),
+            getMainBufferedLogs(activeWindow),
+            getRelevantElectronStderrSince(electronContext.app, electronStderrBaselineCount),
+          ]);
+
+          const visibleWorkingSetMB = getRuntimeSnapshot(
+            processSnapshot,
+            'visible-ui'
+          ).workingSetMB;
+          samples.push({
+            elapsedMs: Date.now() - startedAt,
+            importPhase: importSnapshot?.progress?.phase ?? null,
+            queued: queueStats.queued,
+            running: queueStats.running,
+            visibleWorkingSetMB,
+          });
+
+          if (timeOrigin !== baselineTimeOrigin) {
+            throw new Error(
+              'Visible renderer reloaded during desktop:dev mixed-state repro.\n' +
+                `baselineTimeOrigin=${baselineTimeOrigin}\n` +
+                `currentTimeOrigin=${timeOrigin}\n` +
+                `queueStats=${JSON.stringify(queueStats)}\n` +
+                `samples=${JSON.stringify(samples.slice(-20))}\n` +
+                `electronStderr=${JSON.stringify(electronStderr)}`
+            );
+          }
+
+          const crashLifecycleLogs = extractUnexpectedLifecycleLogs(
+            mainLogs.slice(baselineMainLogs.length)
+          );
+          if (crashLifecycleLogs.length > 0) {
+            throw new Error(
+              'Detected visible-renderer crash/reload lifecycle logs during desktop:dev mixed-state repro.\n' +
+                `crashLifecycleLogs=${JSON.stringify(crashLifecycleLogs)}\n` +
+                `queueStats=${JSON.stringify(queueStats)}\n` +
+                `samples=${JSON.stringify(samples.slice(-20))}\n` +
+                `electronStderr=${JSON.stringify(electronStderr)}`
+            );
+          }
+
+          if (
+            electronStderr.some(
+              (line) =>
+                line.includes('Renderer crashed; deferring recovery') ||
+                line.includes('Render frame was disposed before WebFrameMain could be accessed')
+            )
+          ) {
+            throw new Error(
+              'Detected renderer-crash aftermath on desktop:dev mixed-state repro.\n' +
+                `queueStats=${JSON.stringify(queueStats)}\n` +
+                `samples=${JSON.stringify(samples.slice(-20))}\n` +
+                `electronStderr=${JSON.stringify(electronStderr)}`
+            );
+          }
+
+          await activeWindow.waitForTimeout(1000);
+        } catch (error) {
+          throw new Error(
+            'Desktop:dev mixed-state repro triggered a renderer failure path.\n' +
+              `error=${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+
+      throw new Error(
+        'Desktop:dev mixed-state repro did not trigger the renderer failure path within 420s.\n' +
+          `samples=${JSON.stringify(samples.slice(-40))}`
+      );
+    } finally {
+      await clearLargeImportFileSystemMock(electronContext.app).catch(() => undefined);
+      await closeElectronAppInTest(electronContext).catch(() => undefined);
+    }
+  });
+
+  test('keeps desktop:dev 12k visible-ui working-set growth bounded during active backfill', async () => {
+    test.skip(!!process.env['CI'], 'Requires a local desktop dev session.');
+    test.skip(
+      process.env['BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO'] !== '1',
+      'Opt-in repro harness. Set BRAINSTRIKE_E2E_DESKTOP_DEV_REPRO=1 to run.'
+    );
+    test.setTimeout(900_000);
+
+    await waitForTcpPortOpen(8081, 5000).catch((error) => {
+      throw new Error(
+        'Desktop dev renderer must already be running on http://localhost:8081 before this repro test starts.\n' +
+          'Start it with `pnpm --filter @brainstrike/desktop dev:renderer` in a separate terminal.\n' +
+          `error=${error instanceof Error ? error.message : String(error)}`
+      );
+    });
+
+    const restoreEnv = withTemporaryProcessEnv({
+      BRAINSTRIKE_E2E_ALLOW_GPU: '1',
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED: undefined,
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD: undefined,
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS: undefined,
+      BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE: undefined,
+    });
+    const userDataDir = path.join(
+      os.tmpdir(),
+      `brainstrike-desktop-dev-12k-repro-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    );
+    const electronContext = await launchElectronDevAppInTest(userDataDir);
+
+    try {
+      let activeWindow = await showDatabaseDemoPanel(electronContext.window);
+
+      if (await isDatabaseError(activeWindow)) {
+        await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+        throw new Error('Database failed to initialize for the desktop:dev 12k repro.');
+      }
+
+      await clearEmbeddingQueue(activeWindow);
+      await setVectorDevicePreference(activeWindow, 'webgpu');
+      await reloadRendererInTest(activeWindow, 'desktop-dev-visible-growth-12k');
+      activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+      await ensureEmbeddingHostWarmed(activeWindow);
+
+      const fixture = await createLargeBackfillCorpusFixture(activeWindow, {
+        fileCount: 623,
+        chunksPerFile: 20,
+        chunkContentBytes: 1024,
+        persistActiveSet: false,
+      });
+      await reloadRendererInTest(activeWindow, 'desktop-dev-visible-growth-12k-fixture');
+      activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+      const collectionOption = activeWindow.locator(`#collection-option-${fixture.embeddingSetId}`);
+      await expect(collectionOption).toBeVisible({ timeout: 30_000 });
+      await collectionOption.click({ timeout: 5000 });
+
+      const initialTimeOrigin = await getRendererTimeOrigin(activeWindow);
+      const baselineMainLogs = await getMainBufferedLogs(activeWindow);
+      const baselineStderrCount = (await getRelevantElectronStderr(electronContext.app)).length;
+
+      await startBackfillViaBridge(activeWindow, fixture.embeddingSetId);
+      const outcome = await waitForActiveProcessingOrFatalError(activeWindow, 120_000);
+      expect(outcome).toBe('running');
+
+      let lastQueueStats: QueueStatsRow | null = null;
+      let lastBackfillState: Awaited<ReturnType<typeof getBridgeBackfillState>> = null;
+      let mainProcessHealthSamples: MainProcessHealthSample[] = [];
+      let sampledWhileRunning = false;
+
+      const sampleStartedAt = Date.now();
+      while (Date.now() - sampleStartedAt < 420_000) {
+        const [timeOrigin, queueStats, mainLogs, electronStderr, backfillState] = await Promise.all(
+          [
+            getRendererTimeOrigin(activeWindow),
+            getEmbeddingQueueStats(activeWindow),
+            getMainBufferedLogs(activeWindow),
+            getRelevantElectronStderrSince(electronContext.app, baselineStderrCount),
+            getBridgeBackfillState(activeWindow),
+          ]
+        );
+
+        if (timeOrigin !== initialTimeOrigin) {
+          throw new Error(
+            'Visible renderer reloaded during the desktop:dev 12k repro.\n' +
+              `baselineTimeOrigin=${initialTimeOrigin}\n` +
+              `currentTimeOrigin=${timeOrigin}\n` +
+              `queueStats=${JSON.stringify(queueStats)}\n` +
+              `backfillState=${JSON.stringify(backfillState)}`
+          );
+        }
+
+        const crashLifecycleLogs = extractUnexpectedLifecycleLogs(
+          mainLogs.slice(baselineMainLogs.length)
+        );
+        if (crashLifecycleLogs.length > 0) {
+          throw new Error(
+            'Detected renderer crash/reload lifecycle logs during the desktop:dev 12k repro.\n' +
+              `crashLifecycleLogs=${JSON.stringify(crashLifecycleLogs)}\n` +
+              `queueStats=${JSON.stringify(queueStats)}\n` +
+              `backfillState=${JSON.stringify(backfillState)}`
+          );
+        }
+
+        if (
+          electronStderr.some(
+            (line) =>
+              line.includes('Renderer crashed; deferring recovery') ||
+              line.includes('Render frame was disposed before WebFrameMain could be accessed')
+          )
+        ) {
+          throw new Error(
+            'Detected renderer crash aftermath on stderr during the desktop:dev 12k repro.\n' +
+              `queueStats=${JSON.stringify(queueStats)}\n` +
+              `backfillState=${JSON.stringify(backfillState)}\n` +
+              `electronStderr=${JSON.stringify(electronStderr)}`
+          );
+        }
+
+        lastQueueStats = queueStats;
+        lastBackfillState = backfillState;
+        mainProcessHealthSamples = parseMainProcessHealthSamples(
+          mainLogs.slice(baselineMainLogs.length)
+        );
+        if (queueStats.running > 0 || queueStats.succeeded > 0) {
+          sampledWhileRunning = true;
+        }
+
+        const visibleWorkingSetSamplesKB = mainProcessHealthSamples
+          .map((sample) => sample.visibleUiWorkingSetKB)
+          .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+        const baselineVisibleWorkingSetFromHealthMB =
+          visibleWorkingSetSamplesKB.length > 0 ? visibleWorkingSetSamplesKB[0]! / 1024 : 0;
+        const peakVisibleWorkingSetMB =
+          visibleWorkingSetSamplesKB.length > 0
+            ? Math.max(...visibleWorkingSetSamplesKB) / 1024
+            : 0;
+        const visibleWorkingSetGrowthFromHealthMB = growth(
+          peakVisibleWorkingSetMB,
+          baselineVisibleWorkingSetFromHealthMB
+        );
+
+        if (
+          sampledWhileRunning &&
+          visibleWorkingSetSamplesKB.length >= DEFAULT_12K_MIN_HEALTH_SAMPLE_COUNT &&
+          visibleWorkingSetGrowthFromHealthMB < DEFAULT_12K_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB
+        ) {
+          console.log(
+            JSON.stringify({
+              type: 'desktop-dev-visible-growth-12k-bounded',
+              fixture,
+              lastQueueStats,
+              lastBackfillState,
+              baselineVisibleWorkingSetFromHealthMB:
+                Math.round(baselineVisibleWorkingSetFromHealthMB * 10) / 10,
+              peakVisibleWorkingSetMB: Math.round(peakVisibleWorkingSetMB * 10) / 10,
+              visibleWorkingSetGrowthFromHealthMB:
+                Math.round(visibleWorkingSetGrowthFromHealthMB * 10) / 10,
+              mainProcessHealthSamples,
+            })
+          );
+          return;
+        }
+
+        await activeWindow.waitForTimeout(1000);
+      }
+
+      const visibleWorkingSetSamplesKB = mainProcessHealthSamples
+        .map((sample) => sample.visibleUiWorkingSetKB)
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+      const baselineVisibleWorkingSetFromHealthMB =
+        visibleWorkingSetSamplesKB.length > 0 ? visibleWorkingSetSamplesKB[0]! / 1024 : null;
+      const peakVisibleWorkingSetMB =
+        visibleWorkingSetSamplesKB.length > 0
+          ? Math.max(...visibleWorkingSetSamplesKB) / 1024
+          : null;
+      const visibleWorkingSetGrowthFromHealthMB =
+        peakVisibleWorkingSetMB !== null && baselineVisibleWorkingSetFromHealthMB !== null
+          ? growth(peakVisibleWorkingSetMB, baselineVisibleWorkingSetFromHealthMB)
+          : null;
+
+      throw new Error(
+        'Desktop:dev 12k bounded-memory regression did not reach a stable active-backfill sample within 420s.\n' +
+          `lastQueueStats=${JSON.stringify(lastQueueStats)}\n` +
+          `lastBackfillState=${JSON.stringify(lastBackfillState)}\n` +
+          `sampledWhileRunning=${JSON.stringify(sampledWhileRunning)}\n` +
+          `healthSampleCount=${mainProcessHealthSamples.length}\n` +
+          `baselineVisibleWorkingSetMB=${JSON.stringify(baselineVisibleWorkingSetFromHealthMB)}\n` +
+          `peakVisibleWorkingSetMB=${JSON.stringify(peakVisibleWorkingSetMB)}\n` +
+          `visibleWorkingSetGrowthFromHealthMB=${JSON.stringify(visibleWorkingSetGrowthFromHealthMB)}\n` +
+          `mainProcessHealthSamples=${JSON.stringify(mainProcessHealthSamples)}`
+      );
+    } finally {
+      restoreEnv();
+      await closeElectronAppInTest(electronContext).catch(() => undefined);
     }
   });
 
