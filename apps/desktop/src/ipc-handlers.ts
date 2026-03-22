@@ -440,13 +440,17 @@ function flushPendingLiveUpdates(): void {
           scheduleDisposedLiveSubscriptionOwnerCleanup(record.webContentsId, 'disposed-frame-send');
           continue;
         }
-        throw error;
+        logger.warn('Failed to deliver live query update to renderer', {
+          subscriptionId: subId,
+          webContentsId: record.webContentsId,
+          error,
+        });
       }
     }
   } finally {
-    // Intentional: if this flush hits an unexpected send failure, we surface that
-    // error and drop the queued updates rather than retrying stale payloads against
-    // a renderer/window state that may already be invalid.
+    // Intentional: each flush drops the queued batch after either delivering it or
+    // logging an unrecoverable send failure. Subsequent live-query emissions enqueue
+    // fresh state instead of retrying stale payloads.
     pendingLiveUpdates.clear();
   }
 }

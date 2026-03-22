@@ -1430,7 +1430,21 @@ describe('database IPC handlers', () => {
     // pause/resume subscription lifecycle. The flush path is covered by the module
     // being exercised in integration.
 
-    async function setupLiveQuery() {
+    function createLiveQuerySender(id: number): {
+      id: number;
+      isDestroyed: ReturnType<typeof vi.fn>;
+      send: ReturnType<typeof vi.fn>;
+      once: ReturnType<typeof vi.fn>;
+    } {
+      return {
+        id,
+        isDestroyed: vi.fn(() => false),
+        send: vi.fn(),
+        once: vi.fn(),
+      };
+    }
+
+    async function setupLiveQuery(sender = createLiveQuerySender(50)) {
       const handler = handlers.get('db:live-query:start');
       if (!handler) {
         throw new Error('handler not registered');
@@ -1446,13 +1460,6 @@ describe('database IPC handlers', () => {
         refresh: vi.fn(),
       };
       mockDb.live.query.mockResolvedValue(liveHandle);
-
-      const sender = {
-        id: 50,
-        isDestroyed: vi.fn(() => false),
-        send: vi.fn(),
-        once: vi.fn(),
-      };
 
       const result = (await handler({ sender } as unknown, {
         query: 'SELECT 1',
@@ -1565,24 +1572,45 @@ describe('database IPC handlers', () => {
       await Promise.resolve();
     });
 
-    it('clears pending updates when flush fails with an unexpected send error', async () => {
-      const { setBackgrounded } = await import('../../ipc-handlers');
-      const { listener, sender } = await setupLiveQuery();
+    it('logs unexpected send errors and continues flushing healthy subscriptions', async () => {
+      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      const failingSender = createLiveQuerySender(60);
+      const healthySender = createLiveQuerySender(61);
+      const failingSubscription = await setupLiveQuery(failingSender);
+      const healthySubscription = await setupLiveQuery(healthySender);
       const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
 
-      setBackgrounded(true);
-      listener({ rows: [{ id: 456 }] });
-
-      sender.send.mockImplementation(() => {
+      failingSender.send.mockImplementation(() => {
         throw new Error('boom');
       });
-      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
+      getAllWindowsMock.mockReturnValue([
+        createWindowWithWebContents(failingSender),
+        createWindowWithWebContents(healthySender),
+      ]);
 
-      expect(() => setBackgrounded(false)).toThrow('boom');
-      expect(sender.send).toHaveBeenCalledTimes(1);
+      failingSubscription.listener({ rows: [{ id: 456 }] });
+      healthySubscription.listener({ rows: [{ id: 789 }] });
 
-      expect(() => setBackgrounded(false)).not.toThrow();
-      expect(sender.send).toHaveBeenCalledTimes(1);
+      expect(() => flushPendingLiveUpdates()).not.toThrow();
+      expect(failingSender.send).toHaveBeenCalledTimes(1);
+      expect(healthySender.send).toHaveBeenCalledWith('db:live-query:update', {
+        id: healthySubscription.result.id,
+        results: { rows: [{ id: 789 }] },
+      });
+      expect(loggerWarn).toHaveBeenCalledWith('Failed to deliver live query update to renderer', {
+        subscriptionId: failingSubscription.result.id,
+        webContentsId: failingSender.id,
+        error: expect.any(Error),
+      });
+
+      healthySubscription.sender.send.mockClear();
+      healthySubscription.listener({ rows: [{ id: 790 }] });
+      flushPendingLiveUpdates();
+
+      expect(healthySender.send).toHaveBeenCalledWith('db:live-query:update', {
+        id: healthySubscription.result.id,
+        results: { rows: [{ id: 790 }] },
+      });
     });
 
     it('keeps owner destroy-listener registration when disposed-frame cleanup runs before webContents destruction', async () => {
