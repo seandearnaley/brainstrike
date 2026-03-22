@@ -140,19 +140,23 @@ function countUniqueLines(content: string): { totalLines: number; uniqueLines: n
   let totalLines = 0;
   let lineStart = 0;
 
-  for (let index = 0; index <= content.length; index += 1) {
-    const isLineBreak = index === content.length || content.charCodeAt(index) === 10;
-    if (!isLineBreak) {
-      continue;
+  while (lineStart <= content.length) {
+    // ⚡ Bolt Optimization: Use native V8 optimized string search (`indexOf`)
+    // instead of character-by-character iteration (`charCodeAt(index) === 10`)
+    let nextNewline = content.indexOf('\n', lineStart);
+    if (nextNewline === -1) {
+      nextNewline = content.length;
     }
 
-    let line = content.slice(lineStart, index);
-    if (line.endsWith('\r')) {
-      line = line.slice(0, -1);
+    let lineEnd = nextNewline;
+    // ⚡ Bolt Optimization: Avoid intermediate string allocations from `.endsWith('\r')`
+    if (lineEnd > lineStart && content.charCodeAt(lineEnd - 1) === 13 /* \r */) {
+      lineEnd -= 1;
     }
-    uniqueLines.add(line);
+
+    uniqueLines.add(content.slice(lineStart, lineEnd));
     totalLines += 1;
-    lineStart = index + 1;
+    lineStart = nextNewline + 1;
   }
 
   return { totalLines, uniqueLines: uniqueLines.size };
