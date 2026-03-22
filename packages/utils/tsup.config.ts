@@ -8,5 +8,12 @@ export default defineConfig({
   sourcemap: true,
   target: 'es2020',
   outDir: 'dist',
-  external: ['@brainstrike/types'],
+  external: [
+    '@brainstrike/types',
+    '@brainstrike/utils',
+    '@brainstrike/utils/logger',
+    '@brainstrike/utils/log-buffer',
+    '@brainstrike/utils/logging-initializer',
+    '@brainstrike/utils/logging-preferences',
+  ],
 });

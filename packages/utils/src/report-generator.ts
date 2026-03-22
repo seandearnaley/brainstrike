@@ -1,6 +1,6 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils/logger';
 import { readFullFileTree } from './file-system-utils';
-import { createLogger } from './logger';
 import { generateProjectTreeText } from './tree-generator';
 
 const logger = createLogger('ContextGenerator');

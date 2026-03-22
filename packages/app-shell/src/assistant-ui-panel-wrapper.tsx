@@ -891,6 +891,16 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     void loadMcpTools();
   }, [loadMcpTools]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.mcp?.onToolsUpdated) {
+      return;
+    }
+
+    return window.mcp.onToolsUpdated((toolsByServer: McpToolMap) => {
+      dispatchMcpIfMounted({ type: 'LOADED', tools: buildMcpMenuItems(toolsByServer) });
+    });
+  }, [dispatchMcpIfMounted]);
+
   const toolMenuItems = useMemo(
     () => [...nativeToolItems, ...mcpTools],
     [nativeToolItems, mcpTools]

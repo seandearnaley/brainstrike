@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsup';
 
-export default defineConfig({
+export default defineConfig((options) => ({
   entry: ['src/index.ts', 'src/client.ts'],
   format: ['esm', 'cjs'],
   dts: {
@@ -10,8 +10,10 @@ export default defineConfig({
     },
   },
   outDir: 'dist',
-  clean: true,
+  // Keep previous declarations available during watch rebuilds so project-reference
+  // consumers do not observe transient missing exports from @brainstrike/agent/client.
+  clean: !options.watch,
   sourcemap: false,
   splitting: false,
   external: ['@brainstrike/types', '@mastra/core', '@mastra/mcp'],
-});
+}));

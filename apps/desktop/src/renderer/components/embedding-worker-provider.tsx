@@ -39,8 +39,8 @@ function logWorkerStartError(error: unknown): void {
  *
  * The worker uses WebGPU for inference by default (see SimpleEmbeddingService).
  * A keep-alive guard in embedding.worker.ts prevents the GPU device from idling
- * out. The BrowserWindow must have `backgroundThrottling: false` to ensure the
- * keep-alive timer fires reliably when the window is unfocused.
+ * out. In desktop mode this requirement applies to the hidden embedding-host
+ * window, not the visible UI window.
  * See: docs/debug-handoff-renderer-crash.md
  */
 // Helper to create worker config

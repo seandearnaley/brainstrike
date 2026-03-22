@@ -1,3 +1,7 @@
+import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
@@ -140,10 +144,56 @@ const advanceTimers = (ms: number): void => {
   });
 };
 
+interface DeferredValue<T> {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T | PromiseLike<T>) => void;
+}
+
+function createDeferredValue<T>(): DeferredValue<T> {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function createElectronTree(fileCount: number): {
+  keys: string[];
+  tree: IFileNode[];
+} {
+  const tree: IFileNode[] = [];
+  const keys: string[] = [];
+
+  for (let index = 0; index < fileCount; index += 1) {
+    const path = `file-${index}.ts`;
+    keys.push(encodeFileSelection('root', path));
+    tree.push({
+      name: `file-${index}.ts`,
+      path,
+      type: 'file',
+      handle: {
+        kind: 'file',
+        name: `file-${index}.ts`,
+        path: `/repo/${path}`,
+        platform: 'electron',
+      } as unknown as FileSystemFileHandle,
+      depth: 0,
+      selectionState: 'unchecked' as const,
+      rootFolderId: 'root',
+    });
+  }
+
+  return { tree, keys };
+}
+
 describe('useBackgroundTokenIndexerIntegration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    __resetVectorStatusUIStoreForTests();
     mockBackgroundIndexer.isIndexing = false;
   });
 
@@ -505,6 +555,80 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         useBackgroundTokenIndexerIntegration({
           fileTree: treeWithTraversalPath,
           selectedFiles: new Set([traversalKey]),
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      flushTimers();
+
+      expect(indexFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('streams Electron file batches instead of retaining the entire selection before first dispatch', async () => {
+      const { tree, keys } = createElectronTree(21);
+      const deferredReads = new Map<string, DeferredValue<string>>();
+      const electronFileReader = vi.fn((handle: { path: string }) => {
+        const deferred = createDeferredValue<string>();
+        deferredReads.set(handle.path, deferred);
+        return deferred.promise;
+      });
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: tree,
+          selectedFiles: new Set(keys),
+          electronFileReader,
+          onTokenResolved: vi.fn(),
+        })
+      );
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+      expect(result.current.diagnostics.fileHandleMapSize).toBe(21);
+
+      electronFileReader.mockClear();
+      indexFilesMock.mockClear();
+      act(() => {
+        result.current.diagnostics.clearIndexedCache();
+      });
+
+      await act(async () => {
+        void result.current.triggerIndexing(keys);
+        await Promise.resolve();
+      });
+
+      expect(electronFileReader).toHaveBeenCalledTimes(20);
+      expect(indexFilesMock).not.toHaveBeenCalled();
+
+      for (let index = 0; index < 20; index += 1) {
+        deferredReads.get(`/repo/file-${index}.ts`)?.resolve(`content-${index}`);
+      }
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(indexFilesMock).toHaveBeenCalledTimes(1);
+      expect(indexFilesMock.mock.calls[0]?.[0]).toHaveLength(20);
+
+      deferredReads.get('/repo/file-20.ts')?.resolve('content-20');
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(indexFilesMock).toHaveBeenCalledTimes(2);
+      expect(indexFilesMock.mock.calls[1]?.[0]).toHaveLength(1);
+    });
+
+    it('does not start visible-renderer background indexing while embedding is active', () => {
+      useVectorStatusUIStore.setState({ isEmbeddingActive: true });
+
+      renderHook(() =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: fileTreeRootA,
+          selectedFiles: new Set([fileAKey]),
           onTokenResolved: vi.fn(),
         })
       );

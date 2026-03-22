@@ -97,6 +97,7 @@ describe('RendererHostLifecycle', () => {
     vi.clearAllMocks();
     process.argv = [...baseArgv];
     Reflect.deleteProperty(process.env, 'CI');
+    app.isPackaged = false;
   });
 
   it('assigns the host role before beginning renderer load', async () => {
@@ -170,6 +171,47 @@ describe('RendererHostLifecycle', () => {
     expect(hostWindow.loadURL).toHaveBeenCalledWith(
       expect.stringMatching(/runtimeId=embedding-host%3A/)
     );
+  });
+
+  it('loads packaged host windows from the renderer file with strict query params', async () => {
+    const hostWindow = createFakeWindow(142);
+    hostWindow.loadFile.mockResolvedValue(undefined);
+    app.isPackaged = true;
+
+    MockBrowserWindow.mockImplementation(function () {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, {
+      getAllWindows: vi.fn(() => [hostWindow]),
+    });
+
+    const lifecycle = new RendererHostLifecycle({
+      createStatus,
+      createStoppedStatus: () =>
+        createStatus({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:stopped',
+        }),
+      mode: 'embedding-host',
+      role: 'embedding-host',
+      statusEventName: 'embedding-host:status',
+      timeoutMessage: 'timeout',
+    });
+
+    await lifecycle.ensureStarted({ waitForRunning: false });
+
+    expect(hostWindow.loadFile).toHaveBeenCalledWith(
+      '/tmp/brainstrike/dist/renderer/index.html',
+      expect.objectContaining({
+        query: expect.objectContaining({
+          mode: 'embedding-host',
+          runtimeId: expect.stringContaining('embedding-host:'),
+        }),
+      })
+    );
+    expect(hostWindow.loadURL).not.toHaveBeenCalled();
   });
 
   it('keeps sandbox enabled when only CI=true is present without --test-mode', async () => {

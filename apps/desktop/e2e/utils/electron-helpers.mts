@@ -17,6 +17,11 @@ export interface ElectronAppContext {
   window: Page;
 }
 
+interface LaunchElectronAppOptions {
+  readonly launchMode?: 'dev-server' | 'test-built';
+  readonly userDataDir?: string;
+}
+
 interface ElectronOutputBuffer {
   stderr: string[];
   stdout: string[];
@@ -188,11 +193,23 @@ export async function launchElectronApp(
   _debugPort?: number,
   userDataDir?: string
 ): Promise<ElectronAppContext> {
+  return await launchElectronAppWithOptions({
+    launchMode: 'test-built',
+    userDataDir,
+  });
+}
+
+export async function launchElectronAppWithOptions(
+  options: LaunchElectronAppOptions = {}
+): Promise<ElectronAppContext> {
   const electronPath = require('electron');
   const mainPath = path.resolve(import.meta.dirname, '..', '..', 'dist', 'main.js');
   if (!fs.existsSync(mainPath)) {
     throw new Error(`Desktop E2E main entry is missing at ${mainPath}`);
   }
+
+  const launchMode = options.launchMode ?? 'test-built';
+  const userDataDir = options.userDataDir;
 
   // Electron launches can fail transiently immediately after a forced
   // renderer/app reset while the OS releases resources. Keep one local retry
@@ -218,7 +235,8 @@ export async function launchElectronApp(
       mainPath,
       undefined,
       userDataDir,
-      launchTimeoutMs
+      launchTimeoutMs,
+      launchMode
     );
 
     try {
@@ -254,30 +272,24 @@ async function killLingeringElectronProcesses(userDataDir?: string): Promise<voi
     const escapedUserDataDir = userDataDir?.replace(/'/gu, `'\\''`);
     if (process.platform === 'darwin') {
       if (escapedUserDataDir) {
-        execSync(
-          `pkill -9 -f "Electron.*--test-mode.*--user-data-dir=${escapedUserDataDir}" || true`,
-          {
-            stdio: 'ignore',
-          }
-        );
+        execSync(`pkill -9 -f "Electron.*--user-data-dir=${escapedUserDataDir}" || true`, {
+          stdio: 'ignore',
+        });
       } else {
         execSync("pkill -9 -f 'Electron.*--test-mode' || true", { stdio: 'ignore' });
       }
     } else if (process.platform === 'linux') {
       if (escapedUserDataDir) {
-        execSync(
-          `pkill -9 -f "electron.*--test-mode.*--user-data-dir=${escapedUserDataDir}" || true`,
-          {
-            stdio: 'ignore',
-          }
-        );
+        execSync(`pkill -9 -f "electron.*--user-data-dir=${escapedUserDataDir}" || true`, {
+          stdio: 'ignore',
+        });
       } else {
         execSync("pkill -9 -f 'electron.*--test-mode' || true", { stdio: 'ignore' });
       }
     } else if (process.platform === 'win32') {
       if (userDataDir) {
         execSync(
-          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.CommandLine -like '*--test-mode*' -and $_.CommandLine -like '*--user-data-dir=${userDataDir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`,
+          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.CommandLine -like '*--user-data-dir=${userDataDir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`,
           { stdio: 'ignore' }
         );
       } else {
@@ -301,29 +313,37 @@ function createLaunchOptions(
   mainPath: string,
   _debugPort?: number,
   userDataDir?: string,
-  launchTimeoutMs?: number
+  launchTimeoutMs?: number,
+  launchMode: 'dev-server' | 'test-built' = 'test-built'
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
+  const shouldDisableGpuForE2e =
+    process.env['CI'] === 'true' && process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] !== '1';
   const baseArgs = [
     mainPath,
-    '--test-mode',
+    ...(launchMode === 'test-built' ? ['--test-mode'] : []),
+    `--brainstrike-e2e-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.
     // Playwright manages its own CDP connection via electron.launch().
     // Specifying an explicit port can cause "Waiting for debugger to disconnect" hangs.
     // Explicitly set user data dir to avoid collisions in shared environments
     ...(userDataDir ? [`--user-data-dir=${userDataDir}`] : []),
-    // Disable GPU features to prevent crashes/hangs in CI
-    '--disable-gpu',
-    '--disable-gpu-sandbox',
-    '--disable-software-rasterizer',
+    // Disable GPU features to prevent crashes/hangs in CI.
+    // Allow GPU in specific tests (e.g., WebGPU memory diagnostics) via env var.
+    ...(shouldDisableGpuForE2e
+      ? ['--disable-gpu', '--disable-gpu-sandbox', '--disable-software-rasterizer']
+      : []),
     '--no-sandbox',
     '--disable-dev-shm-usage',
     // Additional flags to prevent debugger/inspector issues
     '--disable-extensions',
-    '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding',
+    // Allow backgrounding in specific crash-reproduction tests to test the
+    // production code path where Chromium throttles backgrounded renderers.
+    ...(process.env['BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING'] === '1'
+      ? []
+      : ['--disable-background-timer-throttling', '--disable-renderer-backgrounding']),
   ];
 
   // #region agent log - Hypothesis C: DISPLAY resolution logic
@@ -354,14 +374,26 @@ function createLaunchOptions(
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_IS_E2E_TEST: 'true',
+      ...(launchMode === 'dev-server'
+        ? {
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            CI: 'false',
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            NODE_ENV: 'test',
+          }
+        : {}),
       // Prevent V8 inspector issues that cause "Waiting for debugger to disconnect" hangs
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       NODE_OPTIONS: '', // Clear any inherited NODE_OPTIONS that might enable --inspect
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_ENABLE_STACK_DUMPING: 'false',
-      // Disable GPU acceleration in CI (can cause renderer process hangs)
-      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-      ELECTRON_DISABLE_GPU: '1',
+      ...(shouldDisableGpuForE2e
+        ? {
+            // Disable GPU acceleration in CI where Chromium GPU startup is unstable.
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            ELECTRON_DISABLE_GPU: '1',
+          }
+        : {}),
       // Ensure DISPLAY in Linux CI if not provided by runner
       ...(needsDisplayFallback
         ? // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -371,12 +403,6 @@ function createLaunchOptions(
     // Let Playwright manage the CDP connection - don't override
     timeout: launchTimeoutMs ?? 150_000, // Increased to 150s for CI stability
   };
-  if (!process.env['CI']) {
-    options.recordVideo = {
-      dir: 'test-results/videos',
-      size: { width: 1280, height: 720 },
-    };
-  }
   return options;
 }
 

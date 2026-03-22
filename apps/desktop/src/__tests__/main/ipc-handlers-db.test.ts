@@ -2,8 +2,18 @@ import { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+  EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL,
   EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
 } from '../../embedding-host-shared';
+
+function createWindowWithWebContents(sender: {
+  send: (...args: unknown[]) => unknown;
+}): BrowserWindow {
+  return {
+    isDestroyed: () => false,
+    webContents: sender,
+  } as unknown as BrowserWindow;
+}
 
 // Hoist Electron and db mocks safely
 const {
@@ -18,6 +28,9 @@ const {
   enqueueEmbeddingBackfillMock,
   embeddingHostEnsureStartedMock,
   embeddingHostGetStatusMock,
+  embeddingHostResetMock,
+  embeddingHostStopMock,
+  embeddingHostDestroyAndRestartMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockDb = {
@@ -44,6 +57,25 @@ const {
     state: 'running' as const,
     active: false,
     lastError: null,
+    runtimeId: 'embedding-host-runtime',
+  }));
+  const embeddingHostResetMock = vi.fn(async () => ({
+    state: 'running' as const,
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host-runtime',
+  }));
+  const embeddingHostStopMock = vi.fn(async () => ({
+    state: 'stopped' as const,
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host-runtime',
+  }));
+  const embeddingHostDestroyAndRestartMock = vi.fn(async () => ({
+    state: 'running' as const,
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host-runtime',
   }));
   const getDatabaseDiagnosticsMock = vi.fn(() => ({
     databaseProfile: 'test',
@@ -74,6 +106,9 @@ const {
     enqueueEmbeddingBackfillMock,
     embeddingHostEnsureStartedMock,
     embeddingHostGetStatusMock,
+    embeddingHostResetMock,
+    embeddingHostStopMock,
+    embeddingHostDestroyAndRestartMock,
   };
 });
 
@@ -161,16 +196,9 @@ vi.mock('../../embedding-host-manager', () => ({
     ensureStarted = embeddingHostEnsureStartedMock;
     getStatus = embeddingHostGetStatusMock;
     isHostWindow = vi.fn(() => false);
-    reset = vi.fn(async () => ({
-      state: 'running' as const,
-      active: false,
-      lastError: null,
-    }));
-    stop = vi.fn(async () => ({
-      state: 'stopped' as const,
-      active: false,
-      lastError: null,
-    }));
+    reset = embeddingHostResetMock;
+    stop = embeddingHostStopMock;
+    destroyAndRestart = embeddingHostDestroyAndRestartMock;
   },
 }));
 
@@ -220,15 +248,39 @@ import '../../main';
 describe('database IPC handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD');
     embeddingHostEnsureStartedMock.mockResolvedValue({
       state: 'running',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host-runtime',
     });
     embeddingHostGetStatusMock.mockReturnValue({
       state: 'running',
       active: false,
       lastError: null,
+      runtimeId: 'embedding-host-runtime',
+    });
+    embeddingHostResetMock.mockResolvedValue({
+      state: 'running',
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host-runtime',
+    });
+    embeddingHostStopMock.mockResolvedValue({
+      state: 'stopped',
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host-runtime',
+    });
+    embeddingHostDestroyAndRestartMock.mockResolvedValue({
+      state: 'running',
+      active: false,
+      lastError: null,
+      runtimeId: 'embedding-host-runtime',
     });
   });
 
@@ -340,6 +392,475 @@ describe('database IPC handlers', () => {
       failed: 0,
       succeeded: 0,
     });
+  });
+
+  it('embedding-host:enqueue-backfill rejects blank embedding set ids', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await expect(handler({ sender } as unknown, '   ')).rejects.toThrow(
+      'Embedding backfill requires a non-empty embeddingSetId.'
+    );
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill stops progress sends after the renderer is destroyed', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => true),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        onProgress: (done: number, total: number) => void
+      ) => {
+        onProgress(32, 450);
+        return {
+          queued: 450,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
+      queued: 450,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill does not run maintenance when reclaim is disabled', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED'] = 'false';
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockResolvedValueOnce({
+      queued: 8,
+      running: 0,
+      failed: 0,
+      succeeded: 8,
+    });
+
+    const result = await handler({ sender } as unknown, 'set-123');
+
+    expect(embeddingHostResetMock).not.toHaveBeenCalled();
+    expect(embeddingHostStopMock).not.toHaveBeenCalled();
+    expect(embeddingHostDestroyAndRestartMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      queued: 8,
+      running: 0,
+      failed: 0,
+      succeeded: 8,
+    });
+  });
+
+  it('embedding-host:enqueue-backfill rejects invalid GPU reclaim enabled env values', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED'] = 'maybe';
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED must be set to one of: "true", "false", "1", or "0" when configured.'
+    );
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill rejects invalid GPU reclaim threshold env values', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD'] = '0';
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD must be a positive integer when configured.'
+    );
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill rejects invalid GPU reclaim interval env values', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS'] = '0';
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS must be a positive integer when configured.'
+    );
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill rejects invalid GPU reclaim mode env values', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE'] = 'maybe';
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE must be set to "reset" when configured.'
+    );
+    expect(enqueueEmbeddingBackfillMock).not.toHaveBeenCalled();
+    expect(embeddingHostEnsureStartedMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill leaves no in-flight state after invalid reclaim config', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD'] = '0';
+    await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD must be a positive integer when configured.'
+    );
+
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD');
+    enqueueEmbeddingBackfillMock.mockResolvedValueOnce({
+      queued: 1,
+      running: 0,
+      failed: 0,
+      succeeded: 1,
+    });
+
+    await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
+      queued: 1,
+      running: 0,
+      failed: 0,
+      succeeded: 1,
+    });
+  });
+
+  it('embedding-host:enqueue-backfill runs planned maintenance from drain ticks using reset mode', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED'] = 'true';
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD'] = '2';
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE'] = 'reset';
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        _onProgress: (done: number, total: number) => void,
+        options: { onDrainTick?: (completedSinceLastTick: number) => Promise<void> }
+      ) => {
+        await options.onDrainTick?.(1);
+        await options.onDrainTick?.(1);
+        return {
+          queued: 2,
+          running: 0,
+          failed: 0,
+          succeeded: 2,
+        };
+      }
+    );
+
+    await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
+      queued: 2,
+      running: 0,
+      failed: 0,
+      succeeded: 2,
+    });
+    expect(embeddingHostResetMock).toHaveBeenCalledTimes(1);
+    expect(embeddingHostStopMock).not.toHaveBeenCalled();
+    expect(embeddingHostDestroyAndRestartMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill defaults to reclaim disabled when no env is provided', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        _onProgress: (done: number, total: number) => void,
+        options: { onDrainTick?: (completedSinceLastTick: number) => Promise<void> }
+      ) => {
+        await options.onDrainTick?.(1);
+        return {
+          queued: 1,
+          running: 0,
+          failed: 0,
+          succeeded: 1,
+        };
+      }
+    );
+
+    await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
+      queued: 1,
+      running: 0,
+      failed: 0,
+      succeeded: 1,
+    });
+    expect(embeddingHostResetMock).not.toHaveBeenCalled();
+    expect(embeddingHostStopMock).not.toHaveBeenCalled();
+    expect(embeddingHostDestroyAndRestartMock).not.toHaveBeenCalled();
+  });
+
+  it('embedding-host:enqueue-backfill resolves cleanly after an explicit cancel-all request', async () => {
+    const backfillHandler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    const cancelHandler = handlers.get(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL);
+    if (!(backfillHandler && cancelHandler)) {
+      throw new Error('required handlers not registered');
+    }
+
+    mockDb.query.mockResolvedValue({ rows: [] });
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        _onProgress: (done: number, total: number) => void,
+        options: {
+          assertCanContinue?: () => void | Promise<void>;
+        }
+      ) => {
+        await cancelHandler({} as unknown);
+        await options.assertCanContinue?.();
+        return {
+          queued: 99,
+          running: 99,
+          failed: 99,
+          succeeded: 99,
+        };
+      }
+    );
+
+    await expect(backfillHandler({ sender } as unknown, 'set-123')).resolves.toEqual({
+      queued: 0,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+    });
+  });
+
+  it('embedding-host:enqueue-backfill treats reset maintenance interruption as planned', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED'] = 'true';
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD'] = '2';
+    process.env['BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE'] = 'reset';
+
+    let resolveReset: (() => void) | null = null;
+    embeddingHostResetMock.mockImplementationOnce(
+      async () =>
+        await new Promise((resolve) => {
+          resolveReset = () =>
+            resolve({
+              state: 'running' as const,
+              active: false,
+              lastError: null,
+              runtimeId: 'embedding-host-runtime',
+            });
+        })
+    );
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        _onProgress: (done: number, total: number) => void,
+        options: {
+          assertCanContinue?: () => void | Promise<void>;
+          onDrainTick?: (completedSinceLastTick: number) => Promise<void>;
+        }
+      ) => {
+        if (!(options.assertCanContinue && options.onDrainTick)) {
+          throw new Error('Missing maintenance callbacks');
+        }
+        embeddingHostGetStatusMock.mockReturnValue({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host-runtime',
+        });
+        const maintenancePromise = options.onDrainTick(2);
+        expect(() => {
+          void options.assertCanContinue();
+        }).not.toThrow();
+        resolveReset?.();
+        await maintenancePromise;
+        embeddingHostGetStatusMock.mockReturnValue({
+          state: 'running',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host-runtime',
+        });
+        return {
+          queued: 2,
+          running: 0,
+          failed: 0,
+          succeeded: 2,
+        };
+      }
+    );
+
+    await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
+      queued: 2,
+      running: 0,
+      failed: 0,
+      succeeded: 2,
+    });
+    expect(embeddingHostResetMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('embedding-host:enqueue-backfill still fails fast on unexpected host stop', async () => {
+    const handler = handlers.get(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL);
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const sender = {
+      id: 44,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    enqueueEmbeddingBackfillMock.mockImplementationOnce(
+      async (
+        _db: unknown,
+        _jobQueue: unknown,
+        _embeddingSetId: string,
+        _onProgress: (done: number, total: number) => void,
+        options: { assertCanContinue?: () => void | Promise<void> }
+      ) => {
+        embeddingHostGetStatusMock.mockReturnValue({
+          state: 'stopped',
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host-runtime',
+        });
+        await options.assertCanContinue?.();
+        return {
+          queued: 0,
+          running: 0,
+          failed: 0,
+          succeeded: 0,
+        };
+      }
+    );
+
+    await expect(handler({ sender } as unknown, 'set-123')).rejects.toThrow(
+      'Embedding host stopped while backfill was in progress.'
+    );
   });
 
   it('embedding-host:enqueue-backfill stops progress sends after the renderer frame is disposed', async () => {
@@ -537,6 +1058,11 @@ describe('database IPC handlers', () => {
     expect(result.initialResults).toEqual({ rows: [{ id: 1 }] });
 
     listener?.({ rows: [{ id: 2 }] });
+    // Live query updates are dedup+batched; flush to deliver pending sends.
+    const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+    const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
+    getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
+    flushPendingLiveUpdates();
     expect(sender.send).toHaveBeenCalledWith('db:live-query:update', {
       id: result.id,
       results: { rows: [{ id: 2 }] },
@@ -962,7 +1488,21 @@ describe('database IPC handlers', () => {
     // pause/resume subscription lifecycle. The flush path is covered by the module
     // being exercised in integration.
 
-    async function setupLiveQuery() {
+    function createLiveQuerySender(id: number): {
+      id: number;
+      isDestroyed: ReturnType<typeof vi.fn>;
+      send: ReturnType<typeof vi.fn>;
+      once: ReturnType<typeof vi.fn>;
+    } {
+      return {
+        id,
+        isDestroyed: vi.fn(() => false),
+        send: vi.fn(),
+        once: vi.fn(),
+      };
+    }
+
+    async function setupLiveQuery(sender = createLiveQuerySender(50)) {
       const handler = handlers.get('db:live-query:start');
       if (!handler) {
         throw new Error('handler not registered');
@@ -978,13 +1518,6 @@ describe('database IPC handlers', () => {
         refresh: vi.fn(),
       };
       mockDb.live.query.mockResolvedValue(liveHandle);
-
-      const sender = {
-        id: 50,
-        isDestroyed: vi.fn(() => false),
-        send: vi.fn(),
-        once: vi.fn(),
-      };
 
       const result = (await handler({ sender } as unknown, {
         query: 'SELECT 1',
@@ -1052,43 +1585,94 @@ describe('database IPC handlers', () => {
     });
 
     it('cleans up subscriptions when foreground sends fail because the render frame was disposed', async () => {
+      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
       const { listener, liveHandle, sender } = await setupLiveQuery();
+      const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
 
       sender.send.mockImplementation(() => {
         throw new Error('Render frame was disposed before WebFrameMain could be accessed');
       });
+      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
 
       listener({ rows: [{ id: 123 }] });
+      // Flush the batched update to trigger the disposed-frame error path
+      flushPendingLiveUpdates();
       await Promise.resolve();
 
       expect(liveHandle.unsubscribe).toHaveBeenCalled();
     });
 
-    it('clears pending updates when flush fails with an unexpected send error', async () => {
-      const { setBackgrounded } = await import('../../ipc-handlers');
-      const { listener, sender } = await setupLiveQuery();
+    it('does not retry disposed-frame sends while owner cleanup is still in flight', async () => {
+      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      const { listener, liveHandle, sender } = await setupLiveQuery();
       const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
 
-      setBackgrounded(true);
-      listener({ rows: [{ id: 456 }] });
-
+      let resolveCleanup: (() => void) | null = null;
+      const cleanupInFlight = new Promise<void>((resolve) => {
+        resolveCleanup = resolve;
+      });
+      liveHandle.unsubscribe.mockReturnValue(cleanupInFlight);
       sender.send.mockImplementation(() => {
+        throw new Error('Render frame was disposed before WebFrameMain could be accessed');
+      });
+      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
+
+      listener({ rows: [{ id: 1 }] });
+      flushPendingLiveUpdates();
+
+      listener({ rows: [{ id: 2 }] });
+      flushPendingLiveUpdates();
+
+      expect(sender.send).toHaveBeenCalledTimes(1);
+
+      resolveCleanup?.();
+      await cleanupInFlight;
+      await Promise.resolve();
+    });
+
+    it('logs unexpected send errors and continues flushing healthy subscriptions', async () => {
+      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
+      const failingSender = createLiveQuerySender(60);
+      const healthySender = createLiveQuerySender(61);
+      const failingSubscription = await setupLiveQuery(failingSender);
+      const healthySubscription = await setupLiveQuery(healthySender);
+      const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
+
+      failingSender.send.mockImplementation(() => {
         throw new Error('boom');
       });
       getAllWindowsMock.mockReturnValue([
-        {
-          webContents: sender,
-        } as unknown as BrowserWindow,
+        createWindowWithWebContents(failingSender),
+        createWindowWithWebContents(healthySender),
       ]);
 
-      expect(() => setBackgrounded(false)).toThrow('boom');
-      expect(sender.send).toHaveBeenCalledTimes(1);
+      failingSubscription.listener({ rows: [{ id: 456 }] });
+      healthySubscription.listener({ rows: [{ id: 789 }] });
 
-      expect(() => setBackgrounded(false)).not.toThrow();
-      expect(sender.send).toHaveBeenCalledTimes(1);
+      expect(() => flushPendingLiveUpdates()).not.toThrow();
+      expect(failingSender.send).toHaveBeenCalledTimes(1);
+      expect(healthySender.send).toHaveBeenCalledWith('db:live-query:update', {
+        id: healthySubscription.result.id,
+        results: { rows: [{ id: 789 }] },
+      });
+      expect(loggerWarn).toHaveBeenCalledWith('Failed to deliver live query update to renderer', {
+        subscriptionId: failingSubscription.result.id,
+        webContentsId: failingSender.id,
+        error: expect.any(Error),
+      });
+
+      healthySubscription.sender.send.mockClear();
+      healthySubscription.listener({ rows: [{ id: 790 }] });
+      flushPendingLiveUpdates();
+
+      expect(healthySender.send).toHaveBeenCalledWith('db:live-query:update', {
+        id: healthySubscription.result.id,
+        results: { rows: [{ id: 790 }] },
+      });
     });
 
     it('keeps owner destroy-listener registration when disposed-frame cleanup runs before webContents destruction', async () => {
+      const { flushPendingLiveUpdates } = await import('../../ipc-handlers');
       const handler = handlers.get('db:live-query:start');
       if (!handler) {
         throw new Error('handler not registered');
@@ -1121,6 +1705,8 @@ describe('database IPC handlers', () => {
           .mockImplementation(() => undefined),
         once: vi.fn(),
       };
+      const getAllWindowsMock = vi.mocked(BrowserWindow.getAllWindows);
+      getAllWindowsMock.mockReturnValue([createWindowWithWebContents(sender)]);
 
       const firstResult = (await handler({ sender } as unknown, {
         query: 'SELECT 1',
@@ -1133,6 +1719,8 @@ describe('database IPC handlers', () => {
       }
 
       firstListener({ rows: [{ id: 1 }] });
+      // Flush the batched update to trigger the disposed-frame error path
+      flushPendingLiveUpdates();
       await Promise.resolve();
 
       expect(firstLiveHandle.unsubscribe).toHaveBeenCalled();
