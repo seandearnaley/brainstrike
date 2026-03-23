@@ -201,8 +201,9 @@ It sets `BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING=1`, which removes the default
 Electron launch flags that otherwise disable renderer backgrounding in test mode.
 This regression is intentionally kept off the default PR workflow because it is
 materially slower than the desktop smoke suite. Run it locally when debugging or
-via the manual GitHub Actions workflow `Desktop Backgrounding Regression` when
-you want Linux CI coverage on demand.
+via a manual dispatch of the GitHub Actions `Test` workflow when you want Linux
+CI coverage on demand. On manual dispatch, the workflow runs only the desktop
+backgrounding regression lane instead of the normal PR matrix.
 
 Note on file naming (2025): We standardize on `.test.ts` across unit, integration, and E2E to keep naming runner-agnostic and consistent. Playwright recognizes both `.spec` and `.test`, but `.test` aligns with our Vitest conventions and simplifies TypeScript include/exclude globs.
 
