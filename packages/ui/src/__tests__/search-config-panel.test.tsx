@@ -111,6 +111,12 @@ describe('SearchConfigPanel', () => {
     expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ threshold: 0.8 }));
   });
 
+  it('uses the visible threshold label for the slider', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+
+    expect(screen.getByLabelText('Threshold')).toBeInTheDocument();
+  });
+
   it('ignores invalid threshold values', () => {
     const onConfigChange = vi.fn();
     renderWithProviders(
@@ -207,6 +213,7 @@ describe('SearchConfigPanel', () => {
     renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
     expect(screen.getByText('Mode')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Mode' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /vector/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /hybrid/i })).toBeInTheDocument();
   });

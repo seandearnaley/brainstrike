@@ -167,8 +167,17 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
         <div className="space-y-2 p-3 pt-1.5">
           {/* Row 1: Retrieval Mode Toggle */}
           <div className="flex items-center gap-2">
-            <span className="min-w-[52px] text-[10px] text-muted-foreground">Mode</span>
-            <div className="flex flex-1 gap-1">
+            <span
+              className="min-w-[52px] text-[10px] text-muted-foreground"
+              id="retrieval-mode-label"
+            >
+              Mode
+            </span>
+            <div
+              aria-labelledby="retrieval-mode-label"
+              className="flex flex-1 gap-1"
+              role="group"
+            >
               {RETRIEVAL_MODES.map((mode) => {
                 const Icon = mode.icon === 'Zap' ? Zap : Sparkles;
                 const isActive = retrievalMode === mode.value;
@@ -247,7 +256,6 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
               Threshold
             </label>
             <input
-              aria-label="Similarity threshold"
               className="h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-muted accent-primary"
               id="threshold"
               max="1"
