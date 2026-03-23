@@ -141,16 +141,14 @@ function countUniqueLines(content: string): { totalLines: number; uniqueLines: n
   let lineStart = 0;
 
   while (lineStart <= content.length) {
-    // ⚡ Bolt Optimization: Use native V8 optimized string search (`indexOf`)
-    // instead of character-by-character iteration (`charCodeAt(index) === 10`)
+    // Use `indexOf` to find the next newline without manual character scanning.
     let nextNewline = content.indexOf('\n', lineStart);
     if (nextNewline === -1) {
       nextNewline = content.length;
     }
 
     let lineEnd = nextNewline;
-    // ⚡ Bolt Optimization: Avoid intermediate string allocations from `.endsWith('\r')`
-    if (lineEnd > lineStart && content.charCodeAt(lineEnd - 1) === 13 /* \r */) {
+    if (lineEnd > lineStart && content.charCodeAt(lineEnd - 1) === 13) {
       lineEnd -= 1;
     }
 
