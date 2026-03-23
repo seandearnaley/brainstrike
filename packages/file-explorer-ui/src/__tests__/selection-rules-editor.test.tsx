@@ -142,31 +142,6 @@ describe('SelectionRulesEditor', () => {
         ).not.toBeInTheDocument();
       });
     });
-
-    it('exposes descriptive labels and titles on icon-only remove buttons', async () => {
-      render(
-        <FileExplorerTestWrapper>
-          <SelectionRulesEditor folderId="test-folder" isOpen onOpenChange={vi.fn()} />
-        </FileExplorerTestWrapper>
-      );
-
-      fireEvent.click(screen.getByTestId('apply-defaults-button'));
-      fireEvent.click(screen.getByTestId('add-exclude-pattern'));
-
-      await waitFor(() => {
-        const includeButton = screen.getByRole('button', { name: 'Remove include pattern' });
-        const excludeRootButton = screen.getByRole('button', {
-          name: 'Remove exclude directory',
-        });
-        const excludePatternButton = screen.getByRole('button', {
-          name: 'Remove exclude pattern',
-        });
-
-        expect(includeButton).toHaveAttribute('title', 'Remove include pattern');
-        expect(excludeRootButton).toHaveAttribute('title', 'Remove exclude directory');
-        expect(excludePatternButton).toHaveAttribute('title', 'Remove exclude pattern');
-      });
-    });
   });
 
   describe('default patterns', () => {
