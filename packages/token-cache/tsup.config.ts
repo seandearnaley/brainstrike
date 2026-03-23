@@ -1,6 +1,6 @@
 import { defineConfig } from 'tsup';
 
-export default defineConfig({
+export default defineConfig((options) => ({
   entry: [
     'src/index.ts',
     'src/cache-runtime.ts',
@@ -13,7 +13,7 @@ export default defineConfig({
   sourcemap: false,
   dts: true,
   outDir: 'dist',
-  clean: true,
+  clean: !options.watch,
   target: 'es2020',
   platform: 'browser',
   // Keep these browser-only dependencies bundled so tsup can emit shared split
@@ -32,4 +32,4 @@ export default defineConfig({
     options.mainFields = ['browser', 'module', 'main'];
     options.conditions = ['browser', 'import', 'default'];
   },
-});
+}));

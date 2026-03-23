@@ -57,6 +57,9 @@ class ElectronHarness {
       try {
         const { closeElectronApp } = await loadElectronHelpers();
         await closeElectronApp(this.context);
+        await new Promise((resolve) => {
+          setTimeout(resolve, 250);
+        });
       } catch (error) {
         console.warn('Failed to close Electron app during restart:', error);
       }

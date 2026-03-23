@@ -11,7 +11,6 @@ const {
   enableServerToolsMock,
   disableServerToolsMock,
   resetToolsMock,
-  createMastraAgentRuntimeMock,
   loadToolPreferencesMock,
   saveToolPreferencesMock,
   loadMcpConfigMock,
@@ -19,13 +18,11 @@ const {
   getMcpConfigPathMock,
   setCustomMcpConfigPathMock,
   initClientsMock,
+  getClientMock,
   disposeClientsMock,
   ipcHandleMock,
   showOpenDialogMock,
   getPathMock,
-  secretsServiceMock,
-  getSecretsServiceMock,
-  readOpenAIApiKeyMock,
 } = vi.hoisted(() => {
   const order: string[] = [];
 
@@ -55,23 +52,6 @@ const {
   const enableServerTools = vi.fn();
   const disableServerTools = vi.fn();
   const reset = vi.fn();
-
-  const runtimeDispose = vi.fn(async () => {
-    order.push('dispose-runtime');
-  });
-
-  const createRuntime = vi.fn(async () => {
-    order.push('create-runtime');
-    register('mock-server', {
-      'server.tool.enable': {} as never,
-      'server.tool.disable': {} as never,
-    });
-    return {
-      agent: {} as never,
-      toolNameMap: new Map<string, string>(),
-      dispose: runtimeDispose,
-    };
-  });
 
   const loadPreferences = vi.fn(async () => {
     order.push('load-preferences');
@@ -103,22 +83,37 @@ const {
   const getConfigPath = vi.fn(async () => '/mock/path');
   const setCustomConfigPath = vi.fn(async () => {});
 
-  const initClients = vi.fn();
+  const listTools = vi.fn(async () => {
+    order.push('list-tools');
+    return {
+      'server.tool.enable': { description: 'Enabled tool' },
+      'server.tool.disable': { description: 'Disabled tool' },
+    };
+  });
+
+  const discoveryClient = {
+    name: 'mock-server',
+    transport: 'stdio' as const,
+    dispose: vi.fn(),
+    listTools,
+    supportsTool: vi.fn(() => false),
+    callTool: vi.fn(),
+  };
+
+  const initClients = vi.fn(() => {
+    order.push('init-clients');
+  });
+  const getClient = vi.fn((serverName: string) => {
+    if (serverName === 'mock-server') {
+      return discoveryClient;
+    }
+    return undefined;
+  });
   const disposeClients = vi.fn();
 
   const ipcHandle = vi.fn();
   const showOpenDialog = vi.fn();
   const getPath = vi.fn(() => 'mock-user-data');
-
-  const secretsService = {
-    saveKey: vi.fn(),
-    getKey: vi.fn(async () => 'test-api-key'),
-    deleteKey: vi.fn(),
-    listProviders: vi.fn(async () => ['openai']),
-  };
-
-  const getSecretsService = vi.fn(() => secretsService);
-  const readOpenAIApiKey = vi.fn(async () => {});
 
   return {
     callOrder: order,
@@ -131,7 +126,6 @@ const {
     enableServerToolsMock: enableServerTools,
     disableServerToolsMock: disableServerTools,
     resetToolsMock: reset,
-    createMastraAgentRuntimeMock: createRuntime,
     loadToolPreferencesMock: loadPreferences,
     saveToolPreferencesMock: savePreferences,
     loadMcpConfigMock: loadConfig,
@@ -139,23 +133,19 @@ const {
     getMcpConfigPathMock: getConfigPath,
     setCustomMcpConfigPathMock: setCustomConfigPath,
     initClientsMock: initClients,
+    getClientMock: getClient,
+    listToolsMock: listTools,
     disposeClientsMock: disposeClients,
     ipcHandleMock: ipcHandle,
     showOpenDialogMock: showOpenDialog,
     getPathMock: getPath,
-    secretsServiceMock: secretsService,
-    getSecretsServiceMock: getSecretsService,
-    readOpenAIApiKeyMock: readOpenAIApiKey,
   };
 });
 
 vi.mock('@brainstrike/agent', () => ({
   __esModule: true,
-  createMastraAgentRuntime: createMastraAgentRuntimeMock,
   loadToolPreferences: loadToolPreferencesMock,
   saveToolPreferences: saveToolPreferencesMock,
-  isSupportedProvider: (provider: string) =>
-    ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
   mcpToolRegistry: {
     register: registerToolsMock,
     getStats: getStatsMock,
@@ -184,6 +174,7 @@ vi.mock('../../mcp-loader', () => ({
 vi.mock('../../mcp', () => ({
   __esModule: true,
   initClients: initClientsMock,
+  getClient: getClientMock,
   disposeClients: disposeClientsMock,
 }));
 
@@ -191,17 +182,8 @@ vi.mock('electron', () => ({
   __esModule: true,
   ipcMain: { handle: ipcHandleMock },
   dialog: { showOpenDialog: showOpenDialogMock },
+  BrowserWindow: { getAllWindows: vi.fn(() => []) },
   app: { getPath: getPathMock },
-}));
-
-vi.mock('../../secrets', () => ({
-  __esModule: true,
-  getSecretsService: getSecretsServiceMock,
-}));
-
-vi.mock('../../openai-api-key', () => ({
-  __esModule: true,
-  readOpenAIApiKey: readOpenAIApiKeyMock,
 }));
 
 import { loadToolPreferences, mcpToolRegistry } from '@brainstrike/agent';
@@ -221,9 +203,6 @@ describe('ipc-mcp tool preference loading', () => {
   beforeEach(() => {
     callOrder.length = 0;
     vi.clearAllMocks();
-    secretsServiceMock.getKey.mockResolvedValue('test-api-key');
-    secretsServiceMock.listProviders.mockResolvedValue(['openai']);
-    readOpenAIApiKeyMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -240,15 +219,16 @@ describe('ipc-mcp tool preference loading', () => {
     expect(mcpToolRegistry.enableTools).toHaveBeenCalledWith(['server.tool.enable']);
 
     const registerIndex = callOrder.indexOf('register-tools');
-    const createIndex = callOrder.indexOf('create-runtime');
-    const disposeIndex = callOrder.indexOf('dispose-runtime');
+    const initIndex = callOrder.indexOf('init-clients');
+    const listIndex = callOrder.indexOf('list-tools');
     const loadIndex = callOrder.indexOf('load-preferences');
 
     expect(registerIndex).toBeGreaterThanOrEqual(0);
-    expect(createIndex).toBeGreaterThanOrEqual(0);
-    expect(registerIndex).toBeGreaterThanOrEqual(createIndex);
-    expect(disposeIndex).toBeGreaterThan(registerIndex);
-    expect(loadIndex).toBeGreaterThan(disposeIndex);
+    expect(initIndex).toBeGreaterThanOrEqual(0);
+    expect(listIndex).toBeGreaterThanOrEqual(0);
+    expect(registerIndex).toBeGreaterThanOrEqual(listIndex);
+    expect(listIndex).toBeGreaterThanOrEqual(initIndex);
+    expect(loadIndex).toBeGreaterThan(registerIndex);
 
     expect(callOrder).toContain('disable-tools');
     expect(callOrder).toContain('enable-tools');
@@ -269,12 +249,50 @@ describe('ipc-mcp tool preference loading', () => {
         ],
       },
     });
+    getClientMock.mockReturnValueOnce({
+      name: 'filesystem',
+      transport: 'stdio',
+      dispose: vi.fn(),
+      supportsTool: vi.fn(() => false),
+      callTool: vi.fn(),
+      listTools: vi.fn(async () => ({
+        'filesystem.list_directory': {
+          description: 'Get a detailed listing of files and directories.',
+          inputSchema: { type: 'filesystem.list_directory.schema' },
+        },
+        'filesystem.read_file': {
+          description: 'Read the complete contents of a file from the file system.',
+          inputSchema: { type: 'filesystem.read_file.schema' },
+        },
+        'filesystem.search_files': {
+          description: 'Recursively search for files in a directory.',
+          inputSchema: { type: 'filesystem.search_files.schema' },
+        },
+      })),
+    });
 
     registerMcpIpcHandlers();
 
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-    expect(createMastraAgentRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(registerToolsMock).toHaveBeenCalledWith(
+      'filesystem',
+      expect.objectContaining({
+        'filesystem.list_directory': expect.objectContaining({
+          description: expect.stringContaining('listing'),
+          inputSchema: { type: 'filesystem.list_directory.schema' },
+        }),
+        'filesystem.read_file': expect.objectContaining({
+          description: expect.stringContaining('Read the complete contents'),
+          inputSchema: { type: 'filesystem.read_file.schema' },
+        }),
+        'filesystem.search_files': expect.objectContaining({
+          description: expect.stringContaining('search for files'),
+          inputSchema: { type: 'filesystem.search_files.schema' },
+        }),
+      }),
+      undefined
+    );
     expect(loadToolPreferencesMock).toHaveBeenCalledTimes(1);
   });
 });

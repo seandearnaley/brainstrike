@@ -5,11 +5,17 @@ This directory contains comprehensive end-to-end tests for the Brainstrike deskt
 ## 🚀 Quick Start
 
 ```bash
-# Run tests in UI mode (recommended for development)
+# Run the full desktop E2E suite
 pnpm test:e2e
 
-# Run tests headlessly (for CI)
-pnpm test:e2e:headless
+# Run the non-persistence desktop regression suite
+pnpm test:e2e:main
+
+# Run the persistence-only desktop regression suite
+pnpm test:e2e:persistence
+
+# Run the real-backgrounding crash-repro regression path
+pnpm test:e2e:backgrounding
 
 # Debug tests with inspector
 pnpm test:e2e:debug
@@ -152,7 +158,7 @@ pnpm test:e2e:debug
 
 ### Headless with Artifacts
 ```bash
-pnpm test:e2e:headless
+pnpm test:e2e:main
 pnpm exec playwright show-report
 ```
 
@@ -177,7 +183,7 @@ Example GitHub Actions integration:
   working-directory: apps/desktop
 
 - name: Run E2E tests
-  run: pnpm test:e2e:headless
+  run: pnpm test:e2e:main
   working-directory: apps/desktop
 
 - name: Upload test artifacts
@@ -187,6 +193,17 @@ Example GitHub Actions integration:
     name: playwright-report
     path: apps/desktop/test-results/
 ```
+
+### Real Backgrounding Regression Coverage
+`pnpm test:e2e:backgrounding` is the explicit production-path regression run for
+the crash-repro tests that require Chromium to throttle a backgrounded renderer.
+It sets `BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING=1`, which removes the default
+Electron launch flags that otherwise disable renderer backgrounding in test mode.
+This regression is intentionally kept off the default PR workflow because it is
+materially slower than the desktop smoke suite. Run it locally when debugging or
+via a manual dispatch of the GitHub Actions `Test` workflow when you want Linux
+CI coverage on demand. On manual dispatch, the workflow runs only the desktop
+backgrounding regression lane instead of the normal PR matrix.
 
 Note on file naming (2025): We standardize on `.test.ts` across unit, integration, and E2E to keep naming runner-agnostic and consistent. Playwright recognizes both `.spec` and `.test`, but `.test` aligns with our Vitest conventions and simplifies TypeScript include/exclude globs.
 

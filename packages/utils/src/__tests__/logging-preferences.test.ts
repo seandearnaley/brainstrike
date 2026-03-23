@@ -1,6 +1,6 @@
+import * as loggerModule from '@brainstrike/utils/logger';
+import { LogLevel } from '@brainstrike/utils/logger';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as loggerModule from '../logger';
-import { LogLevel } from '../logger';
 import { applyLoggingPreferences, createDefaultLoggingPreferences } from '../logging-preferences';
 
 describe('logging-preferences', () => {

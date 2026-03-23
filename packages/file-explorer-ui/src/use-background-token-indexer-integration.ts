@@ -33,6 +33,8 @@ const logger = createLogger('BackgroundTokenIndexerIntegration');
  * Files larger than this are skipped to prevent memory issues and processing delays.
  */
 const MAX_INDEXABLE_FILE_SIZE = DEFAULT_MAX_FILE_SIZE;
+const LARGE_SELECTION_DIAGNOSTIC_FILE_THRESHOLD = 250;
+const LARGE_SELECTION_DIAGNOSTIC_BYTES_THRESHOLD = 25 * 1024 * 1024;
 
 /**
  * Helper hook to check if file import is in progress.
@@ -40,6 +42,10 @@ const MAX_INDEXABLE_FILE_SIZE = DEFAULT_MAX_FILE_SIZE;
  */
 function useFileImportingState(): boolean {
   return useVectorStatusUIStore((s) => s.isImporting);
+}
+
+function useEmbeddingActiveState(): boolean {
+  return useVectorStatusUIStore((s) => s.isEmbeddingActive);
 }
 
 /**
@@ -139,6 +145,18 @@ interface HandleInfo {
   webHandle?: FileSystemFileHandle;
 }
 
+function shouldEmitLargeSelectionDiagnostics(params: {
+  electronFileCount: number;
+  estimatedElectronBytes: number;
+  totalFileCount: number;
+}): boolean {
+  return (
+    params.totalFileCount >= LARGE_SELECTION_DIAGNOSTIC_FILE_THRESHOLD ||
+    params.electronFileCount >= LARGE_SELECTION_DIAGNOSTIC_FILE_THRESHOLD ||
+    params.estimatedElectronBytes >= LARGE_SELECTION_DIAGNOSTIC_BYTES_THRESHOLD
+  );
+}
+
 /**
  * Log debug info for first file node encountered
  */
@@ -199,6 +217,36 @@ function buildFileHandleMap(
   }
 }
 
+function getSelectionSkipState(params: {
+  hasHandleSource: boolean;
+  isEmbeddingActive: boolean;
+  isFileImporting: boolean;
+  selectedCount: number;
+}): {
+  reason: 'embedding-active' | 'file-import' | 'no-files' | 'no-handles' | null;
+  message: string | null;
+} {
+  if (params.isFileImporting) {
+    return {
+      reason: 'file-import',
+      message: 'Selection effect skipped - file import in progress',
+    };
+  }
+  if (params.isEmbeddingActive) {
+    return {
+      reason: 'embedding-active',
+      message: 'Selection effect skipped - embedding active',
+    };
+  }
+  if (params.selectedCount === 0) {
+    return { reason: 'no-files', message: null };
+  }
+  if (!params.hasHandleSource) {
+    return { reason: 'no-handles', message: null };
+  }
+  return { reason: null, message: null };
+}
+
 /**
  * Hook that integrates selected files with background token indexing.
  *
@@ -223,6 +271,7 @@ export function useBackgroundTokenIndexerIntegration({
   // Check if file import is in progress - skip background indexing to avoid database contention
   // Import the store dynamically to get isImporting state
   const isFileImporting = useFileImportingState();
+  const isEmbeddingActive = useEmbeddingActiveState();
 
   // Track which files we've already queued for indexing
   const indexedFilesRef = useRef<Set<string>>(new Set());
@@ -449,6 +498,8 @@ export function useBackgroundTokenIndexerIntegration({
   // Stable ref for onTokenResolved to avoid callback instability
   const onTokenResolvedRef = useRef(onTokenResolved);
   onTokenResolvedRef.current = onTokenResolved;
+  const isEmbeddingActiveRef = useRef(isEmbeddingActive);
+  isEmbeddingActiveRef.current = isEmbeddingActive;
 
   /**
    * Callback when background indexer resolves a token count.
@@ -528,17 +579,28 @@ export function useBackgroundTokenIndexerIntegration({
 
       logger.debug('triggerIndexing started', { fileCount: compositeKeys.length });
 
-      const filesToIndex: FileToIndex[] = [];
+      const webFilesToIndex: FileToIndex[] = [];
       const electronFilesToRead: Array<{
         compositeKey: string;
         folderId: string;
         filePath: string;
+        fileSize: number | undefined;
         handle: ElectronFileHandle;
       }> = [];
       let skippedNoHandle = 0;
       let skippedBinary = 0;
       let skippedTooLarge = 0;
       let skippedInvalidPath = 0;
+      let estimatedElectronBytes = 0;
+
+      if (isEmbeddingActiveRef.current) {
+        logger.info('Background token indexing blocked because embedding is active', {
+          requestedFiles: compositeKeys.length,
+          indexedCount: indexedFilesRef.current.size,
+          inFlightCount: inFlightRef.current.size,
+        });
+        return;
+      }
 
       /** Mark a file as in-flight and bump the pulse counter when transitioning from empty. */
       const markInFlight = (key: string): void => {
@@ -546,6 +608,16 @@ export function useBackgroundTokenIndexerIntegration({
         inFlightRef.current.add(key);
         if (wasEmpty) {
           bumpInFlightPulse((value) => value + 1);
+        }
+      };
+
+      const dispatchBatches = async (files: FileToIndex[]): Promise<void> => {
+        if (files.length === 0) {
+          return;
+        }
+        for (let i = 0; i < files.length; i += INDEX_BATCH_SIZE) {
+          const batch = files.slice(i, i + INDEX_BATCH_SIZE);
+          await indexer.indexFiles(batch);
         }
       };
 
@@ -613,7 +685,7 @@ export function useBackgroundTokenIndexerIntegration({
 
         if (handleInfo.webHandle) {
           markInFlight(compositeKey);
-          filesToIndex.push({
+          webFilesToIndex.push({
             compositeKey,
             folderId,
             filePath: normalizedFilePath,
@@ -621,13 +693,44 @@ export function useBackgroundTokenIndexerIntegration({
           });
         } else if (handleInfo.electronHandle) {
           // Electron files: need to read content first
+          estimatedElectronBytes += handleInfo.fileSize ?? 0;
           electronFilesToRead.push({
             compositeKey,
             folderId,
             filePath: normalizedFilePath,
+            fileSize: handleInfo.fileSize,
             handle: handleInfo.electronHandle,
           });
         }
+      }
+
+      const emitLargeSelectionDiagnostics = shouldEmitLargeSelectionDiagnostics({
+        totalFileCount: compositeKeys.length,
+        electronFileCount: electronFilesToRead.length,
+        estimatedElectronBytes,
+      });
+
+      if (emitLargeSelectionDiagnostics) {
+        logger.info('Background token indexing prepared large selection', {
+          requestedFiles: compositeKeys.length,
+          webFiles: webFilesToIndex.length,
+          electronFiles: electronFilesToRead.length,
+          estimatedElectronBytes,
+          indexedCount: indexedFilesRef.current.size,
+          inFlightCount: inFlightRef.current.size,
+          skippedBinary,
+          skippedInvalidPath,
+          skippedNoHandle,
+          skippedTooLarge,
+        });
+      }
+
+      try {
+        await dispatchBatches(webFilesToIndex);
+      } catch (error) {
+        logger.error('triggerIndexing web batch dispatch failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
 
       // Read Electron file contents via IPC (async, non-blocking)
@@ -642,20 +745,39 @@ export function useBackgroundTokenIndexerIntegration({
 
         // Read files in parallel batches to avoid overwhelming IPC
         const electronBatchSize = 20;
+        let electronFilesRead = 0;
+        let electronBytesRead = 0;
         for (let i = 0; i < electronFilesToRead.length; i += electronBatchSize) {
+          if (isEmbeddingActiveRef.current) {
+            logger.info('Stopped Electron token indexing because embedding became active mid-run', {
+              electronBytesRead,
+              electronFilesRead,
+              remainingFiles: electronFilesToRead.length - i,
+            });
+            return;
+          }
+
           const batch = electronFilesToRead.slice(i, i + electronBatchSize);
           const results = await Promise.all(
-            batch.map(async ({ compositeKey, folderId, filePath, handle }) => {
+            batch.map(async ({ compositeKey, folderId, filePath, fileSize, handle }) => {
               try {
                 const content = await fileReader(handle);
-                return { compositeKey, folderId, filePath, content, error: null };
+                return { compositeKey, folderId, filePath, fileSize, content, error: null };
               } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                return { compositeKey, folderId, filePath, content: null, error: message };
+                return {
+                  compositeKey,
+                  folderId,
+                  filePath,
+                  fileSize,
+                  content: null,
+                  error: message,
+                };
               }
             })
           );
 
+          const electronFilesReady: FileToIndex[] = [];
           for (const result of results) {
             if (result.error || result.content === null) {
               logger.error('Failed to read Electron file', {
@@ -667,25 +789,46 @@ export function useBackgroundTokenIndexerIntegration({
             }
 
             markInFlight(result.compositeKey);
-            filesToIndex.push({
+            electronFilesRead += 1;
+            electronBytesRead += result.fileSize ?? new Blob([result.content]).size;
+            electronFilesReady.push({
               compositeKey: result.compositeKey,
               folderId: result.folderId,
               filePath: result.filePath,
               content: result.content,
-              fileSize: new Blob([result.content]).size,
+              fileSize: result.fileSize ?? new Blob([result.content]).size,
+            });
+          }
+
+          if (emitLargeSelectionDiagnostics) {
+            logger.info('Background token indexing dispatched Electron batch', {
+              batchFilesReady: electronFilesReady.length,
+              electronBatchSize,
+              electronBytesRead,
+              electronFilesRead,
+              estimatedElectronBytes,
+              remainingFiles: Math.max(electronFilesToRead.length - (i + batch.length), 0),
+            });
+          }
+
+          try {
+            await dispatchBatches(electronFilesReady);
+          } catch (error) {
+            logger.error('triggerIndexing electron batch dispatch failed', {
+              error: error instanceof Error ? error.message : String(error),
             });
           }
         }
       }
 
       logger.debug('triggerIndexing prepared', {
-        toIndex: filesToIndex.length,
+        toIndex: webFilesToIndex.length + electronFilesToRead.length,
         skippedNoHandle,
         skippedBinary,
         skippedTooLarge,
         skippedInvalidPath,
         electronFiles: electronFilesToRead.length,
-        webFiles: filesToIndex.filter((f) => f.fileHandle).length,
+        webFiles: webFilesToIndex.length,
       });
 
       // Log upfront filtering summary at info level when files are skipped
@@ -694,23 +837,7 @@ export function useBackgroundTokenIndexerIntegration({
           skippedBinary,
           skippedTooLarge,
           totalSkipped: skippedBinary + skippedTooLarge,
-          remaining: filesToIndex.length,
-        });
-      }
-
-      if (filesToIndex.length === 0) {
-        return;
-      }
-
-      // Queue files for background indexing in manageable batches
-      try {
-        for (let i = 0; i < filesToIndex.length; i += INDEX_BATCH_SIZE) {
-          const batch = filesToIndex.slice(i, i + INDEX_BATCH_SIZE);
-          await indexer.indexFiles(batch);
-        }
-      } catch (error) {
-        logger.error('triggerIndexing batch dispatch failed', {
-          error: error instanceof Error ? error.message : String(error),
+          remaining: webFilesToIndex.length + electronFilesToRead.length,
         });
       }
     },
@@ -723,19 +850,9 @@ export function useBackgroundTokenIndexerIntegration({
   const tokenCacheIsPersisted = tokenCache?.isPersisted ?? false;
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
-
-    // Skip background indexing during file import to avoid database contention
-    // File import writes many records; concurrent token cache reads/writes cause PGlite serialization delays
-    if (isFileImporting) {
-      if (selectionSkipReasonRef.current !== 'file-import') {
-        selectionSkipReasonRef.current = 'file-import';
-        logger.debug('Selection effect skipped - file import in progress');
-      }
-      return;
-    }
-
     const previousSize = previousSelectionSizeRef.current;
     previousSelectionSizeRef.current = selectedFiles.size;
+
     if (selectedFiles.size < previousSize && inFlightRef.current.size > 0) {
       indexer.cancelIndexing();
       inFlightRef.current.clear();
@@ -756,9 +873,29 @@ export function useBackgroundTokenIndexerIntegration({
     // During startup, selection may be restored from storage before file tree has handles.
     // When FileTreeIndex is available, skip the local map size check since we use index lookups.
     const hasHandleSource = indexGetHandleRef.current || fileHandleMapRef.current.size > 0;
-    if (selectedFiles.size === 0 || !hasHandleSource) {
-      const skipReason = selectedFiles.size === 0 ? 'no-files' : 'no-handles';
-      selectionSkipReasonRef.current = skipReason;
+    const skipState = getSelectionSkipState({
+      isFileImporting,
+      isEmbeddingActive,
+      selectedCount: selectedFiles.size,
+      hasHandleSource: Boolean(hasHandleSource),
+    });
+    if (skipState.reason) {
+      if (selectionSkipReasonRef.current !== skipState.reason) {
+        selectionSkipReasonRef.current = skipState.reason;
+        if (skipState.message) {
+          logger.debug(skipState.message);
+        }
+        if (
+          skipState.reason === 'embedding-active' &&
+          selectedFiles.size >= LARGE_SELECTION_DIAGNOSTIC_FILE_THRESHOLD
+        ) {
+          logger.info('Selection effect skipped while embedding is active', {
+            indexedCount: indexedFilesRef.current.size,
+            inFlightCount: inFlightRef.current.size,
+            selectedCount: selectedFiles.size,
+          });
+        }
+      }
       return;
     }
 
@@ -795,6 +932,7 @@ export function useBackgroundTokenIndexerIntegration({
     tokenCacheIsOperational,
     fileHandleMapSize,
     isFileImporting,
+    isEmbeddingActive,
     indexGetHandle,
   ]);
 

@@ -11,14 +11,35 @@ import {
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
-import { lazy, type ReactElement, type ReactNode, Suspense, useCallback, useRef } from 'react';
+import { createLogger } from '@brainstrike/utils/logger';
+import {
+  lazy,
+  type ReactElement,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+} from 'react';
 import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
+
+const logger = createLogger('DesktopRootLayoutContent');
+const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
+const RENDERER_HEAP_DIAGNOSTIC_DELTA_BYTES = 128 * 1024 * 1024;
 
 const LazyEmbeddingJobQueueTracker = lazy(async () => {
   const module = await import('@brainstrike/vector-management');
   return { default: module.EmbeddingJobQueueTracker };
 });
+
+interface RendererMemoryPerformance extends Performance {
+  memory?: {
+    jsHeapSizeLimit: number;
+    totalJSHeapSize: number;
+    usedJSHeapSize: number;
+  };
+}
 
 /**
  * Wrapper component that provides TokenCacheProvider.
@@ -52,6 +73,8 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  */
 export default function RootLayoutContent() {
   const activeToolsTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
+  const activeToolsTabRef = useRef(activeToolsTab);
+  activeToolsTabRef.current = activeToolsTab;
   // Keep the queue tracker mounted after first DB visit so queue status/backfill
   // state stays warm across tab switches instead of tearing down and restarting.
   const queueTrackerMountedRef = useRef(activeToolsTab === 'database');
@@ -79,6 +102,47 @@ export default function RootLayoutContent() {
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
+
+  useEffect(() => {
+    logger.info('Desktop visible renderer tab changed', {
+      activeToolsTab,
+      queueTrackerMounted: queueTrackerMountedRef.current,
+    });
+  }, [activeToolsTab]);
+
+  useEffect(() => {
+    const performanceWithMemory = globalThis.performance as RendererMemoryPerformance | undefined;
+    if (!performanceWithMemory?.memory) {
+      return;
+    }
+
+    let previousUsedHeapSize = performanceWithMemory.memory.usedJSHeapSize;
+    const intervalId = window.setInterval(() => {
+      const currentMemory = performanceWithMemory.memory;
+      if (!currentMemory) {
+        return;
+      }
+
+      const usedHeapDelta = currentMemory.usedJSHeapSize - previousUsedHeapSize;
+      if (Math.abs(usedHeapDelta) < RENDERER_HEAP_DIAGNOSTIC_DELTA_BYTES) {
+        return;
+      }
+      previousUsedHeapSize = currentMemory.usedJSHeapSize;
+
+      logger.info('Desktop visible renderer heap changed materially', {
+        activeToolsTab: activeToolsTabRef.current,
+        usedJSHeapBytes: currentMemory.usedJSHeapSize,
+        totalJSHeapBytes: currentMemory.totalJSHeapSize,
+        jsHeapSizeLimitBytes: currentMemory.jsHeapSizeLimit,
+        deltaBytes: usedHeapDelta,
+        queueTrackerMounted: queueTrackerMountedRef.current,
+      });
+    }, RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   return (
     <TokenCacheWrapper>
