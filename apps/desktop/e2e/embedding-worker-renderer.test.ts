@@ -6380,7 +6380,11 @@ test.describe('Embedding Host Renderer', () => {
     electronHarness,
     window,
   }) => {
-    test.setTimeout(480_000);
+    // This test intentionally includes up to 4 minutes for backfill completion,
+    // 2 minutes for queue drain, and a 5 minute idle observation window.
+    // Keep the timeout above that combined budget so slower Linux CI does not
+    // fail before the actual renderer-idle assertions run.
+    test.setTimeout(780_000);
 
     let activeWindow = await showDatabaseDemoPanel(window);
 
