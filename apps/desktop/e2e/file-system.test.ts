@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
-import { mockFileSystemOperations } from './utils/electron-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('File System Integration', () => {
   async function ensureLeftPanelVisible(window: Page): Promise<void> {
@@ -31,6 +31,7 @@ test.describe('File System Integration', () => {
 
   test.beforeEach(async ({ window }) => {
     // Mock file system operations to prevent native dialogs for every test
+    const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(window);
   });
 
@@ -206,6 +207,7 @@ test.describe('File System Integration', () => {
 
     await electron.restart();
     const restartedWindow = await electron.ensureWindow();
+    const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(restartedWindow);
 
     const restartedHome = new HomePage(restartedWindow);

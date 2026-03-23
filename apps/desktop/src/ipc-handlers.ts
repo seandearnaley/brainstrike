@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { JobQueue } from '@brainstrike/db';
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
 import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
@@ -13,11 +13,19 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { BrowserWindow, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
+import {
+  BackfillMaintenanceCoordinator,
+  type GpuMemoryReclaimConfig,
+  type GpuMemoryReclaimMode,
+} from './backfill-maintenance-coordinator';
 import { enqueueEmbeddingBackfill } from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
+  EMBEDDING_BACKFILL_CANCELED_MESSAGE,
   EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT,
+  EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL,
   EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
+  EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL,
 } from './embedding-host-shared';
 import { createFileReadErrorPayload } from './file-read-errors';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -27,6 +35,7 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 // Storage keys for persistent data
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
 const MOCK_PATH_PREFIX = '/mock/' as const;
+const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 
 /**
  * Register all IPC handlers used by the desktop application.
@@ -44,26 +53,153 @@ interface LiveSubscriptionRecord {
   webContentsId: number;
 }
 
+interface ElectronE2eFileSystemFixture {
+  directoriesByPath: Record<string, SerializableFileNode[]>;
+  fileContentsByPath: Record<string, string>;
+  readDirectoryCalls: string[];
+  readFileByPathCalls: string[];
+  readFileCalls: string[];
+  requestDirectoryAccessCount: number;
+  rootHandle: DirectoryHandle & {
+    id: string;
+    type: 'directory';
+  };
+}
+
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 const liveSubscriptionOwnerListeners = new Set<number>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
 
 // ---------------------------------------------------------------------------
-// Live query IPC throttling when window is backgrounded
+// Live query IPC throttling
 //
-// When the window loses focus, live query updates are queued in a Map
-// (deduplicating by subscription ID) and flushed every 2 seconds or
-// immediately on focus. This prevents unnecessary IPC traffic to an
-// invisible renderer and reduces event-loop pressure during idle.
+// Live query updates are always queued in a Map (deduplicating by subscription
+// ID) and flushed on a timer. This prevents IPC flooding during heavy database
+// mutations (e.g., 30K-chunk embedding backfills that generate ~90K job_queue
+// mutations, each triggering multiple live queries).
+//
+// Foreground: 200ms flush interval — responsive UI updates without flooding
+// Background: subscriptions are fully paused, so the 2s interval is only a
+// defensive fallback for any queued updates that exist before pause takes effect
+// Focus: immediate flush — user sees up-to-date state on return
 // ---------------------------------------------------------------------------
 let isBackgrounded = false;
+let liveSubscriptionPauseDepth = 0;
 const pendingLiveUpdates = new Map<number, { id: number; results: unknown }>();
 let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
-const LIVE_FLUSH_INTERVAL_MS = 2000;
+const LIVE_FLUSH_BACKGROUND_INTERVAL_MS = 2000;
+const LIVE_FLUSH_FOREGROUND_INTERVAL_MS = 200;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES = 4;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
-let embeddingBackfillInFlight: { embeddingSetId: string } | null = null;
+const EMBEDDINGS_QUEUE = 'embeddings';
+const embeddingBackfillsInFlight = new Set<string>();
+const embeddingBackfillsCanceled = new Set<string>();
+// Automatic embedding-host reclaim remains opt-in. The real 12k-chunk desktop
+// backfill path is stable without it, while automatic reclaim still introduces
+// host lifecycle churn under load that can interrupt backfill.
+const GPU_MEMORY_RECLAIM_DEFAULT_ENABLED = false;
+const GPU_MEMORY_RECLAIM_DEFAULT_ITEM_THRESHOLD = 500;
+const GPU_MEMORY_RECLAIM_DEFAULT_MINIMUM_INTERVAL_MS = 15_000;
+// When reclaim is explicitly enabled, only in-renderer reset is supported.
+// Full BrowserWindow recreation introduced host lifecycle churn and renderer
+// instability under real backfill load.
+const GPU_MEMORY_RECLAIM_DEFAULT_MODE: GpuMemoryReclaimMode = 'reset';
+
+interface EmbeddingBackfillRequest {
+  gpuMemoryReclaimConfig: GpuMemoryReclaimConfig;
+  hostManager: EmbeddingHostManager;
+  normalizedEmbeddingSetId: string;
+}
+
+function isEmbeddingBackfillCanceledError(error: unknown): boolean {
+  return error instanceof Error && error.message === EMBEDDING_BACKFILL_CANCELED_MESSAGE;
+}
+
+function parseStrictBooleanEnv(name: string): boolean | undefined {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return;
+  }
+  if (raw === 'true' || raw === '1') {
+    return true;
+  }
+  if (raw === 'false' || raw === '0') {
+    return false;
+  }
+  throw new Error(`${name} must be set to one of: "true", "false", "1", or "0" when configured.`);
+}
+
+function parseStrictPositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (!/^[1-9]\d*$/u.test(raw)) {
+    throw new Error(`${name} must be a positive integer when configured.`);
+  }
+  return Number.parseInt(raw, 10);
+}
+
+function parseStrictGpuMemoryReclaimModeEnv(
+  name: string,
+  fallback: GpuMemoryReclaimMode
+): GpuMemoryReclaimMode {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (raw === 'reset') {
+    return raw;
+  }
+  throw new Error(`${name} must be set to "reset" when configured.`);
+}
+
+function resolveGpuMemoryReclaimConfig(): GpuMemoryReclaimConfig {
+  return {
+    enabled:
+      parseStrictBooleanEnv('BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED') ??
+      GPU_MEMORY_RECLAIM_DEFAULT_ENABLED,
+    itemThreshold: parseStrictPositiveIntegerEnv(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_ITEM_THRESHOLD',
+      GPU_MEMORY_RECLAIM_DEFAULT_ITEM_THRESHOLD
+    ),
+    minimumIntervalMs: parseStrictPositiveIntegerEnv(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS',
+      GPU_MEMORY_RECLAIM_DEFAULT_MINIMUM_INTERVAL_MS
+    ),
+    mode: parseStrictGpuMemoryReclaimModeEnv(
+      'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE',
+      GPU_MEMORY_RECLAIM_DEFAULT_MODE
+    ),
+  };
+}
+
+function resolveEmbeddingBackfillRequest(
+  embeddingSetId: unknown,
+  embeddingHostManager: EmbeddingHostManager | null | undefined
+): EmbeddingBackfillRequest {
+  if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
+    throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
+  }
+  if (!embeddingHostManager) {
+    throw new Error('Embedding host manager is required for desktop backfill.');
+  }
+  return {
+    hostManager: embeddingHostManager,
+    normalizedEmbeddingSetId: embeddingSetId.trim(),
+    gpuMemoryReclaimConfig: resolveGpuMemoryReclaimConfig(),
+  };
+}
+
+function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
+  const fixture = (
+    globalThis as typeof globalThis & {
+      [E2E_FILE_SYSTEM_FIXTURE_KEY]?: ElectronE2eFileSystemFixture;
+    }
+  )[E2E_FILE_SYSTEM_FIXTURE_KEY];
+  return fixture ?? null;
+}
 
 function isDisposedRenderFrameSendError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -72,6 +208,142 @@ function isDisposedRenderFrameSendError(error: unknown): boolean {
   // Electron does not currently expose a stable error code for this path, so
   // we have to match the message text and update this check if Electron changes it.
   return error.message.toLowerCase().includes('frame was disposed');
+}
+
+async function getEmbeddingQueueCounts(jobQueue: JobQueue): Promise<{
+  failed: number;
+  queued: number;
+  running: number;
+  succeeded: number;
+}> {
+  const [queueStats] = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE);
+  return {
+    failed: queueStats?.failed ?? 0,
+    queued: queueStats?.queued ?? 0,
+    running: queueStats?.running ?? 0,
+    succeeded: queueStats?.succeeded ?? 0,
+  };
+}
+
+function createDesktopBackfillProgressReporter(params: {
+  backfillProgressTargetUnavailableRef: { current: boolean };
+  backfillRequestId: string;
+  event: IpcMainInvokeEvent;
+  normalizedEmbeddingSetId: string;
+}): (done: number, total: number) => void {
+  const {
+    backfillProgressTargetUnavailableRef,
+    backfillRequestId,
+    event,
+    normalizedEmbeddingSetId,
+  } = params;
+
+  return (done: number, total: number) => {
+    if (backfillProgressTargetUnavailableRef.current || event.sender.isDestroyed()) {
+      backfillProgressTargetUnavailableRef.current = true;
+      return;
+    }
+    try {
+      event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
+        embeddingSetId: normalizedEmbeddingSetId,
+        requestId: backfillRequestId,
+        stage: 'backfill',
+        current: done,
+        total,
+      });
+    } catch (error) {
+      if (isDisposedRenderFrameSendError(error)) {
+        backfillProgressTargetUnavailableRef.current = true;
+        logger.debug('Stopped desktop backfill progress sends after renderer frame disposal', {
+          embeddingSetId: normalizedEmbeddingSetId,
+          requestId: backfillRequestId,
+        });
+        return;
+      }
+      throw error;
+    }
+  };
+}
+
+async function runDesktopEmbeddingBackfill(params: {
+  event: IpcMainInvokeEvent;
+  gpuMemoryReclaimConfig: GpuMemoryReclaimConfig;
+  hostManager: EmbeddingHostManager;
+  normalizedEmbeddingSetId: string;
+}): Promise<{
+  failed: number;
+  queued: number;
+  running: number;
+  succeeded: number;
+}> {
+  const { event, gpuMemoryReclaimConfig, hostManager, normalizedEmbeddingSetId } = params;
+  if (embeddingBackfillsInFlight.has(normalizedEmbeddingSetId)) {
+    throw new Error(`Embedding backfill is already running for set ${normalizedEmbeddingSetId}.`);
+  }
+
+  const backfillRequestId = createRequestId('embedding-backfill');
+  const backfillProgressTargetUnavailableRef = { current: false };
+  const maintenanceCoordinator = new BackfillMaintenanceCoordinator(
+    gpuMemoryReclaimConfig,
+    normalizedEmbeddingSetId,
+    hostManager
+  );
+  embeddingBackfillsInFlight.add(normalizedEmbeddingSetId);
+  acquireLiveSubscriptionPause();
+
+  try {
+    const hostStatus = await hostManager.ensureStarted({ waitForRunning: true });
+    if (hostStatus.state !== 'running') {
+      throw new Error(hostStatus.lastError ?? 'Embedding host failed to reach the running state.');
+    }
+
+    const { getDatabase } = await import('./db-main');
+    const db = await getDatabase();
+    const jobQueue = new JobQueue(db);
+
+    try {
+      return await enqueueEmbeddingBackfill(
+        db,
+        jobQueue,
+        normalizedEmbeddingSetId,
+        createDesktopBackfillProgressReporter({
+          backfillProgressTargetUnavailableRef,
+          backfillRequestId,
+          event,
+          normalizedEmbeddingSetId,
+        }),
+        {
+          assertCanContinue: () => {
+            if (embeddingBackfillsCanceled.has(normalizedEmbeddingSetId)) {
+              throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
+            }
+            maintenanceCoordinator.assertCanContinue(hostManager.getStatus());
+          },
+          onDrainTick: async (completedSinceLastTick: number) => {
+            maintenanceCoordinator.noteCompletedItems(completedSinceLastTick);
+            await maintenanceCoordinator.runRequestedMaintenance();
+          },
+          progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
+          progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
+        }
+      );
+    } catch (error) {
+      if (!isEmbeddingBackfillCanceledError(error)) {
+        throw error;
+      }
+      logger.info('Embedding backfill canceled before completion', {
+        embeddingSetId: normalizedEmbeddingSetId,
+      });
+      return await getEmbeddingQueueCounts(jobQueue);
+    }
+  } finally {
+    embeddingBackfillsInFlight.delete(normalizedEmbeddingSetId);
+    embeddingBackfillsCanceled.delete(normalizedEmbeddingSetId);
+    releaseLiveSubscriptionPause();
+    if (!isBackgrounded) {
+      flushPendingLiveUpdates();
+    }
+  }
 }
 
 async function cleanupLiveSubscriptionsForOwner(
@@ -128,21 +400,15 @@ function sendLiveQueryUpdateToSender(
     void cleanupLiveSubscription(subscriptionId);
     return;
   }
-  if (isBackgrounded) {
-    pendingLiveUpdates.set(subscriptionId, { id: subscriptionId, results });
-    if (!liveFlushTimer) {
-      liveFlushTimer = setTimeout(flushPendingLiveUpdates, LIVE_FLUSH_INTERVAL_MS);
-    }
-    return;
-  }
-  try {
-    sender.send('db:live-query:update', { id: subscriptionId, results });
-  } catch (error) {
-    if (isDisposedRenderFrameSendError(error)) {
-      scheduleDisposedLiveSubscriptionOwnerCleanup(sender.id, 'disposed-frame-send');
-      return;
-    }
-    throw error;
+  // Always dedup+batch: the Map overwrites previous pending updates for the
+  // same subscription, so even thousands of mutations per flush window only
+  // produce one IPC send per subscription.
+  pendingLiveUpdates.set(subscriptionId, { id: subscriptionId, results });
+  if (!liveFlushTimer) {
+    const intervalMs = isBackgrounded
+      ? LIVE_FLUSH_BACKGROUND_INTERVAL_MS
+      : LIVE_FLUSH_FOREGROUND_INTERVAL_MS;
+    liveFlushTimer = setTimeout(flushPendingLiveUpdates, intervalMs);
   }
 }
 
@@ -175,45 +441,97 @@ function flushPendingLiveUpdates(): void {
           scheduleDisposedLiveSubscriptionOwnerCleanup(record.webContentsId, 'disposed-frame-send');
           continue;
         }
-        throw error;
+        logger.warn('Failed to deliver live query update to renderer', {
+          subscriptionId: subId,
+          webContentsId: record.webContentsId,
+          error,
+        });
       }
     }
   } finally {
-    // Intentional: if this flush hits an unexpected send failure, we surface that
-    // error and drop the queued updates rather than retrying stale payloads against
-    // a renderer/window state that may already be invalid.
+    // Intentional: each flush drops the queued batch after either delivering it or
+    // logging an unrecoverable send failure. Subsequent live-query emissions enqueue
+    // fresh state instead of retrying stale payloads.
     pendingLiveUpdates.clear();
   }
 }
+
+/** Flush any pending dedup+batch live query updates immediately. Exported for testing. */
+export { flushPendingLiveUpdates };
 
 export function setBackgrounded(value: boolean): void {
   const wasBackgrounded = isBackgrounded;
   isBackgrounded = value;
   if (value && !wasBackgrounded) {
-    pauseLiveSubscriptions();
+    acquireLiveSubscriptionPause();
   }
   if (!value && wasBackgrounded) {
-    resumeLiveSubscriptions();
+    releaseLiveSubscriptionPause();
     flushPendingLiveUpdates();
   }
 }
 
-function pauseLiveSubscriptions(): void {
-  for (const record of liveSubscriptions.values()) {
-    try {
-      void record.handle.unsubscribe(record.listener);
-    } catch {
-      // Ignore errors during pause — subscription may already be cleaned up
+// Reference-counted pause/resume for PGlite live query subscriptions.
+// Multiple callers (window blur, backfill) can pause independently;
+// subscriptions only resume when ALL callers have released.
+function acquireLiveSubscriptionPause(): void {
+  liveSubscriptionPauseDepth += 1;
+  if (liveSubscriptionPauseDepth === 1) {
+    // Intentional fire-and-forget: PGlite unsubscribe may resolve asynchronously,
+    // so callbacks can race briefly with the pause transition. Those callbacks
+    // only enqueue fresh state and are flushed once subscriptions resume.
+    for (const record of liveSubscriptions.values()) {
+      try {
+        record.handle.unsubscribe(record.listener).catch((error: unknown) => {
+          logger.debug('Failed to unsubscribe live query during pause', {
+            subscriptionId: record.id,
+            webContentsId: record.webContentsId,
+            error,
+          });
+        });
+      } catch (error) {
+        logger.debug('Failed to unsubscribe live query during pause', {
+          subscriptionId: record.id,
+          webContentsId: record.webContentsId,
+          error,
+        });
+      }
     }
   }
 }
 
-function resumeLiveSubscriptions(): void {
-  for (const record of liveSubscriptions.values()) {
-    try {
-      record.handle.subscribe(record.listener);
-    } catch {
-      // Ignore errors during resume — subscription may have been cleaned up
+function releaseLiveSubscriptionPause(): void {
+  if (liveSubscriptionPauseDepth <= 0) {
+    return;
+  }
+  liveSubscriptionPauseDepth -= 1;
+  if (liveSubscriptionPauseDepth === 0) {
+    // Intentional fire-and-forget: subscriptions may already have been cleaned
+    // up concurrently, and live query reattachment should not block foregrounding.
+    for (const record of liveSubscriptions.values()) {
+      try {
+        const subscribeResult = record.handle.subscribe(record.listener) as unknown;
+        if (
+          subscribeResult &&
+          typeof subscribeResult === 'object' &&
+          'catch' in subscribeResult &&
+          typeof subscribeResult.catch === 'function'
+        ) {
+          void subscribeResult.catch((error: unknown) => {
+            logger.debug('Failed to resubscribe live query after pause release', {
+              subscriptionId: record.id,
+              webContentsId: record.webContentsId,
+              error,
+            });
+          });
+        }
+      } catch (error) {
+        logger.debug('Failed to resubscribe live query after pause release', {
+          subscriptionId: record.id,
+          webContentsId: record.webContentsId,
+          error,
+        });
+      }
     }
   }
 }
@@ -449,6 +767,11 @@ export function registerIpcHandlers(
       process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
 
     if (isTestMode) {
+      const fixture = getElectronE2eFileSystemFixture();
+      if (fixture) {
+        fixture.requestDirectoryAccessCount += 1;
+        return fixture.rootHandle;
+      }
       // Return a mock directory handle for testing
       return {
         id: 'mock-directory-handle',
@@ -463,6 +786,20 @@ export function registerIpcHandlers(
     return fileSystem.requestDirectoryAccess();
   });
   registerHandler('fs:readDirectory', async (_e: IpcMainInvokeEvent, handle: DirectoryHandle) => {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      fixture.readDirectoryCalls.push(handle.path);
+      const entries = fixture.directoriesByPath[handle.path];
+      if (!entries) {
+        throw new AccessError(
+          `Failed to read directory: no E2E fixture registered for ${handle.path}`,
+          handle.path,
+          'read'
+        );
+      }
+      return entries;
+    }
+
     // Check if this is a mock handle for testing
     if (
       handle &&
@@ -478,6 +815,20 @@ export function registerIpcHandlers(
   });
 
   registerHandler('fs:readFile', async (_e: IpcMainInvokeEvent, handle: FileHandle) => {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      fixture.readFileCalls.push(handle.path);
+      const content = fixture.fileContentsByPath[handle.path];
+      if (content === undefined) {
+        throw new AccessError(
+          `Failed to read file: no E2E fixture registered for ${handle.path}`,
+          handle.path,
+          'read'
+        );
+      }
+      return content;
+    }
+
     // Check if this is a mock handle for testing
     if (
       handle &&
@@ -504,6 +855,20 @@ export function registerIpcHandlers(
 
   // BST-307: Direct path-based file reading for persisted tab restoration
   registerHandler('fs:readFileByPath', async (_e: IpcMainInvokeEvent, absolutePath: string) => {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      fixture.readFileByPathCalls.push(absolutePath);
+      const content = fixture.fileContentsByPath[absolutePath];
+      if (content === undefined) {
+        throw new AccessError(
+          `Failed to read file by path: no E2E fixture registered for ${absolutePath}`,
+          absolutePath,
+          'read'
+        );
+      }
+      return content;
+    }
+
     // Check for mock paths in test mode
     if (absolutePath.startsWith(MOCK_PATH_PREFIX)) {
       return 'Mock file content for testing purposes\nThis is a test file.\n';
@@ -531,6 +896,15 @@ export function registerIpcHandlers(
   });
 
   registerHandler('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
+    const fixture = getElectronE2eFileSystemFixture();
+    if (fixture) {
+      return (
+        p === fixture.rootHandle.path ||
+        p in fixture.directoriesByPath ||
+        p in fixture.fileContentsByPath
+      );
+    }
+
     // Check for mock paths in test mode
     if (p.startsWith(MOCK_PATH_PREFIX)) {
       return true;
@@ -701,94 +1075,27 @@ export function registerIpcHandlers(
     }, 'db:exec')
   );
 
+  registerHandler(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL, async () => {
+    for (const embeddingSetId of embeddingBackfillsInFlight) {
+      embeddingBackfillsCanceled.add(embeddingSetId);
+    }
+  });
+
   registerHandler(
     EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL,
     async (event: IpcMainInvokeEvent, embeddingSetId: unknown) =>
       withCorruptionRecovery(async () => {
-        if (typeof embeddingSetId !== 'string' || embeddingSetId.trim().length === 0) {
-          throw new Error('Embedding backfill requires a non-empty embeddingSetId.');
-        }
-        if (!embeddingHostManager) {
-          throw new Error('Embedding host manager is required for desktop backfill.');
-        }
-        if (embeddingBackfillInFlight) {
-          throw new Error(
-            `Embedding backfill is already running for set ${embeddingBackfillInFlight.embeddingSetId}.`
-          );
-        }
-
-        const normalizedEmbeddingSetId = embeddingSetId.trim();
-        const backfillRequestId = createRequestId('embedding-backfill');
-        let backfillProgressTargetUnavailable = false;
-        embeddingBackfillInFlight = {
-          embeddingSetId: normalizedEmbeddingSetId,
-        };
-
-        try {
-          const hostStatus = await embeddingHostManager.ensureStarted({ waitForRunning: true });
-          if (hostStatus.state !== 'running') {
-            throw new Error(
-              hostStatus.lastError ?? 'Embedding host failed to reach the running state.'
-            );
-          }
-          const { getDatabase } = await import('./db-main');
-          const db = await getDatabase();
-          const jobQueue = new JobQueue(db);
-          return await enqueueEmbeddingBackfill(
-            db,
-            jobQueue,
-            normalizedEmbeddingSetId,
-            (done: number, total: number) => {
-              if (backfillProgressTargetUnavailable || event.sender.isDestroyed()) {
-                backfillProgressTargetUnavailable = true;
-                return;
-              }
-              try {
-                event.sender.send(EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT, {
-                  embeddingSetId: normalizedEmbeddingSetId,
-                  requestId: backfillRequestId,
-                  stage: 'backfill',
-                  current: done,
-                  total,
-                });
-              } catch (error) {
-                if (isDisposedRenderFrameSendError(error)) {
-                  backfillProgressTargetUnavailable = true;
-                  logger.debug(
-                    'Stopped desktop backfill progress sends after renderer frame disposal',
-                    {
-                      embeddingSetId: normalizedEmbeddingSetId,
-                      requestId: backfillRequestId,
-                    }
-                  );
-                  return;
-                }
-                throw error;
-              }
-            },
-            {
-              assertCanContinue: () => {
-                const status = embeddingHostManager?.getStatus();
-                if (!status) {
-                  return;
-                }
-                if (status.state === 'error') {
-                  throw new Error(
-                    status.lastError ?? 'Embedding host entered an error state during backfill.'
-                  );
-                }
-                if (status.state === 'stopped' || status.state === 'stopping') {
-                  throw new Error('Embedding host stopped while backfill was in progress.');
-                }
-              },
-              progressIntervalBatches: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_BATCHES,
-              progressIntervalMs: EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS,
-            }
-          );
-        } finally {
-          embeddingBackfillInFlight = null;
-        }
+        return await runDesktopEmbeddingBackfill({
+          event,
+          ...resolveEmbeddingBackfillRequest(embeddingSetId, embeddingHostManager),
+        });
       }, EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL)
+  );
+
+  // Expose in-flight backfill state so the renderer can re-attach to progress
+  // after a crash recovery reload.
+  registerHandler(EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL, async () =>
+    Array.from(embeddingBackfillsInFlight)
   );
 
   registerHandler(

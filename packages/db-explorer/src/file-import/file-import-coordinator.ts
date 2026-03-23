@@ -23,6 +23,7 @@ interface ErrorEntry {
 
 const IMPORT_PROCESS_LABEL = 'Import Process';
 const BINARY_FILE_ERROR_MESSAGE = 'Binary file - only text files are supported';
+const IMPORT_REQUEST_BATCH_SIZE = 50;
 
 function isContentAccessible(content: string): boolean {
   return !(
@@ -175,6 +176,66 @@ async function loadMissingFileContents(
   return requests;
 }
 
+async function importRequestBatch(
+  repository: NonNullable<FileImportDependencies['repository']>,
+  requests: FileImportRequest[],
+  tracker: ImportProgressTracker,
+  processedRequestCount: number,
+  processedResultErrorCount: number
+): Promise<{ resultErrorCount: number; results: FileImportResult[] }> {
+  if (!repository.bulkImport) {
+    throw new FileImportError('unsupported-operation', 'Bulk import not supported by repository', {
+      progress: tracker.snapshot(),
+    });
+  }
+
+  const requestMap = createRequestMap(requests);
+  const nonRequestErrorCount = tracker.errorCount - processedResultErrorCount;
+  if (nonRequestErrorCount < 0) {
+    throw new FileImportError(
+      'unknown',
+      'Import progress tracker entered an invalid error-count state.',
+      {
+        progress: tracker.snapshot(),
+      }
+    );
+  }
+
+  let results: FileImportResult[] | null;
+  try {
+    results = await repository.bulkImport(requests, (completed, _total, current) => {
+      tracker.update(nonRequestErrorCount + processedRequestCount + completed, current);
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error during bulk import';
+    throw new FileImportError('repository-error', message, {
+      cause: error,
+      progress: tracker.snapshot(),
+    });
+  }
+
+  if (!results) {
+    throw new FileImportError('unsupported-operation', 'Bulk import not supported by repository', {
+      progress: tracker.snapshot(),
+    });
+  }
+
+  const resultErrors = mapResultErrors(results, requestMap);
+  tracker.addErrors(resultErrors);
+  return {
+    resultErrorCount: resultErrors.length,
+    results,
+  };
+}
+
+function splitIntoBatches<T>(items: readonly T[], batchSize: number): T[][] {
+  const batches: T[][] = [];
+  for (let start = 0; start < items.length; start += batchSize) {
+    batches.push(items.slice(start, start + batchSize));
+  }
+  return batches;
+}
+
 function createRequestMap(requests: FileImportRequest[]): Map<number, FileImportRequest> {
   return requests.reduce((map, request, index) => {
     map.set(index, request);
@@ -222,51 +283,50 @@ export async function runFileImport(
   tracker.emitInitial();
 
   const { requests: cachedRequests, pending } = prepareRequestsFromCache(context, tracker);
+  const results: FileImportResult[] = [];
+  let processedRequestCount = 0;
+  let processedResultErrorCount = 0;
 
-  const loadedRequests = await loadMissingFileContents(
-    pending,
-    dependencies,
-    tracker,
-    context.embeddingSetId
-  );
-  const requests = [...cachedRequests, ...loadedRequests];
+  for (const batch of splitIntoBatches(cachedRequests, IMPORT_REQUEST_BATCH_SIZE)) {
+    const batchOutcome = await importRequestBatch(
+      repository,
+      batch,
+      tracker,
+      processedRequestCount,
+      processedResultErrorCount
+    );
+    results.push(...batchOutcome.results);
+    processedRequestCount += batch.length;
+    processedResultErrorCount += batchOutcome.resultErrorCount;
+  }
 
-  if (requests.length === 0) {
+  for (const pendingBatch of splitIntoBatches(pending, IMPORT_REQUEST_BATCH_SIZE)) {
+    const loadedRequests = await loadMissingFileContents(
+      pendingBatch,
+      dependencies,
+      tracker,
+      context.embeddingSetId
+    );
+    if (loadedRequests.length === 0) {
+      continue;
+    }
+    const batchOutcome = await importRequestBatch(
+      repository,
+      loadedRequests,
+      tracker,
+      processedRequestCount,
+      processedResultErrorCount
+    );
+    results.push(...batchOutcome.results);
+    processedRequestCount += loadedRequests.length;
+    processedResultErrorCount += batchOutcome.resultErrorCount;
+  }
+
+  if (results.length === 0) {
     throw new FileImportError('no-valid-files', 'No valid files to import', {
       progress: tracker.snapshot(),
     });
   }
-
-  if (!repository.bulkImport) {
-    throw new FileImportError('unsupported-operation', 'Bulk import not supported by repository', {
-      progress: tracker.snapshot(),
-    });
-  }
-
-  const requestMap = createRequestMap(requests);
-  const initialErrorCount = tracker.errorCount;
-
-  let results: FileImportResult[] | null;
-  try {
-    results = await repository.bulkImport(requests, (completed, _total, current) => {
-      tracker.update(initialErrorCount + completed, current);
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error during bulk import';
-    throw new FileImportError('repository-error', message, {
-      cause: error,
-      progress: tracker.snapshot(),
-    });
-  }
-
-  if (!results) {
-    throw new FileImportError('unsupported-operation', 'Bulk import not supported by repository', {
-      progress: tracker.snapshot(),
-    });
-  }
-
-  const resultErrors = mapResultErrors(results, requestMap);
-  tracker.addErrors(resultErrors);
 
   const finalProgress = tracker.complete();
 

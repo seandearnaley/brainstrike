@@ -29,7 +29,7 @@ export default defineConfig({
         import.meta.dirname,
         '../utils/src/safe-storage.ts'
       ),
-      '@brainstrike/utils': resolve(import.meta.dirname, '../utils/src/index.ts'),
+      '@brainstrike/utils': resolve(import.meta.dirname, '../utils/src'),
     },
   },
 });

@@ -756,7 +756,7 @@ describe('FileExplorerLeftPanel', () => {
       ...fileExplorerReturnValue,
       rootDirectoryHandle: {
         path: '/new-root',
-        name: 'new-root',
+        name: 'shared-name',
         kind: 'directory',
         platform: 'web' as const,
         _internal: {} as FileSystemDirectoryHandle,
@@ -765,7 +765,7 @@ describe('FileExplorerLeftPanel', () => {
 
     renderWithProviders(<FileExplorerLeftPanel />);
 
-    expect(setCurrentFolderId).toHaveBeenCalledWith('new-root');
+    expect(setCurrentFolderId).toHaveBeenCalledWith('/new-root');
   });
 
   it('handles inline fixture toggling', async () => {

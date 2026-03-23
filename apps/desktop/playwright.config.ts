@@ -17,6 +17,7 @@ validateEnvironmentConfig(config);
 
 const playwrightConfig: PlaywrightTestConfig = {
   testDir: './e2e',
+  tsconfig: './tsconfig.e2e.json',
 
   // Global timeout based on environment
   globalTimeout: config.globalTimeout,

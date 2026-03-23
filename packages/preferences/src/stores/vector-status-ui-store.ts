@@ -25,12 +25,18 @@ export interface CachedCollection {
  * Minimal file record for caching - excludes large fields like content/embedding
  */
 export interface CachedFileRecord {
+  chunkingStrategy: string | undefined;
   chunksCount: number | undefined;
+  chunksProcessedAt: string | undefined;
+  contentHash: string | undefined;
   createdAt: string;
+  embeddedChunksCount: number | undefined;
   embeddingSetId: string | undefined;
+  hasEmbedding: boolean;
   id: string;
   name: string;
   path: string;
+  processedAt: string | undefined;
   size: number;
   tokenCount: number | undefined;
   updatedAt: string;
@@ -41,11 +47,19 @@ export interface CachedFileRecord {
  */
 export interface CachedFileChunk {
   chunkIndex: number;
+  chunkSize: number;
   chunkType: 'text' | 'sentence' | 'recursive' | 'code';
+  contentHash: string;
+  createdAt: string;
+  embeddingDimensions: number;
+  embeddingHash: string | undefined;
   embeddingSetId: string | undefined;
+  embeddingUpdatedAt: string | undefined;
   fileRecordId: string;
+  hasEmbedding: boolean;
   id: string;
   tokenCount: number;
+  updatedAt: string;
 }
 
 /**
@@ -53,8 +67,16 @@ export interface CachedFileChunk {
  */
 interface CollectionDataCache {
   chunks: CachedFileChunk[];
+  collectionCounts: {
+    chunks: number;
+    embeddings: number;
+    records: number;
+  };
   collectionId: string;
+  page: number;
+  pageSize: number;
   records: CachedFileRecord[];
+  totalRecords: number;
 }
 
 /**
@@ -69,7 +91,20 @@ export interface QueueStatsSnapshot {
   succeeded: number;
 }
 
+export interface BackfillProgressSnapshot {
+  done: number;
+  total: number;
+}
+
+export interface ActiveBackfillState {
+  embeddingSetId: string;
+  progress: BackfillProgressSnapshot | null;
+  requestId: string;
+}
+
 interface VectorStatusUIData {
+  /** Active backfill state shared across tab switches and remounts. */
+  activeBackfill: ActiveBackfillState | null;
   activeEmbeddingSetId: string | null;
   /** Cached collections data - persists across component unmounts during bulk operations */
   cachedCollections: CachedCollection[];
@@ -95,6 +130,7 @@ interface VectorStatusUIActions {
    * Uses functional state update to avoid stale closure bugs in async handlers.
    */
   removeCachedCollection: (collectionId: string) => void;
+  setActiveBackfill: (backfill: ActiveBackfillState | null) => void;
   setActiveEmbeddingSetId: (id: string | null) => void;
   setCachedCollections: (collections: CachedCollection[]) => void;
   setCachedFileData: (data: CollectionDataCache | null) => void;
@@ -104,6 +140,7 @@ interface VectorStatusUIActions {
   setIsImporting: (importing: boolean) => void;
   setIsJobQueueActive: (active: boolean) => void;
   setSchemaVerified: (verified: boolean) => void;
+  upsertCachedCollection: (collection: CachedCollection) => void;
 }
 
 export type VectorStatusUIStore = VectorStatusUIData & VectorStatusUIActions;
@@ -139,6 +176,7 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
   persist(
     (set) => ({
       activeEmbeddingSetId: null,
+      activeBackfill: null,
       isImporting: false,
       isEmbeddingActive: false,
       isEmbeddingQueueActive: false,
@@ -148,6 +186,7 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
       cachedFileData: null,
       schemaVerified: false,
       setActiveEmbeddingSetId: (id) => set({ activeEmbeddingSetId: id }),
+      setActiveBackfill: (backfill) => set({ activeBackfill: backfill }),
       setIsImporting: (importing) => set({ isImporting: importing }),
       setDurableQueueStats: (stats) =>
         set((state) =>
@@ -170,6 +209,18 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
         set((state) => ({
           cachedCollections: state.cachedCollections.filter((c) => c.id !== collectionId),
         })),
+      upsertCachedCollection: (collection) =>
+        set((state) => {
+          const next = state.cachedCollections.filter(
+            (candidate) => candidate.id !== collection.id
+          );
+          next.unshift(collection);
+          next.sort(
+            (left, right) =>
+              right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+          );
+          return { cachedCollections: next };
+        }),
       setCachedFileData: (data) => set({ cachedFileData: data }),
       setSchemaVerified: (verified) => set({ schemaVerified: verified }),
     }),
@@ -185,6 +236,7 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
 
 export const vectorStatusUISelectors = {
   activeSet: (s: VectorStatusUIStore) => s.activeEmbeddingSetId,
+  activeBackfill: (s: VectorStatusUIStore) => s.activeBackfill,
   isImporting: (s: VectorStatusUIStore) => s.isImporting,
   isEmbeddingActive: (s: VectorStatusUIStore) => s.isEmbeddingActive,
   isEmbeddingQueueActive: (s: VectorStatusUIStore) => s.isEmbeddingQueueActive,
@@ -208,6 +260,7 @@ export function __resetVectorStatusUIStoreForTests() {
   }
   useVectorStatusUIStore.setState({
     activeEmbeddingSetId: null,
+    activeBackfill: null,
     isImporting: false,
     isEmbeddingActive: false,
     isEmbeddingQueueActive: false,

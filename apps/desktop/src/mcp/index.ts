@@ -1,33 +1,24 @@
 import type { McpConfig, McpServer } from '../mcp-loader';
 import { createSseClient } from './sse-client';
-import { createFilesystemClientFromStdio } from './stdio-client';
+import { createStdioClient } from './stdio-client';
 import type { McpClient } from './types';
 
 type ClientMap = Map<string, McpClient>;
 let clients: ClientMap = new Map();
 
 export function initClients(config: McpConfig | { servers: McpServer[] }): void {
+  // Intentional fire-and-forget: client disposal can outlive config replacement,
+  // and stale shutdown errors should not block installing the new registry.
   void disposeClients();
   const next: ClientMap = new Map();
   for (const s of config.servers) {
-    if (s.transport === 'stdio' && s.name.toLowerCase().includes('filesystem')) {
-      next.set(s.name, createFilesystemClientFromStdio(s));
+    if (s.transport === 'stdio') {
+      next.set(s.name, createStdioClient(s));
       continue;
     }
     if (s.transport === 'sse') {
       next.set(s.name, createSseClient(s));
-      continue;
     }
-    next.set(s.name, {
-      name: s.name,
-      transport: s.transport,
-      dispose: async () => {},
-      async callTool(tool: string): Promise<unknown> {
-        throw new Error(
-          `MCP ${s.transport} client for '${s.name}' not implemented for tool '${tool}'.`
-        );
-      },
-    });
   }
   clients = next;
 }
@@ -47,12 +38,21 @@ export async function callTool(
   params?: Record<string, unknown>,
   opts?: { onProgress?: (payload: unknown, meta?: { id?: string }) => void }
 ): Promise<unknown> {
-  const clientName = tool.includes('.') ? tool.slice(0, tool.indexOf('.')) : tool;
-  const client = clients.get(clientName) || clients.get(clientName.toLowerCase());
-  if (!client) {
-    throw new Error(`No MCP client registered for '${clientName}'`);
+  const clientName = tool.includes('.') ? tool.slice(0, tool.indexOf('.')) : undefined;
+  if (clientName) {
+    const scopedClient = clients.get(clientName) || clients.get(clientName.toLowerCase());
+    if (scopedClient) {
+      return scopedClient.callTool(tool, params, opts);
+    }
   }
-  return client.callTool(tool, params, opts);
+
+  for (const client of clients.values()) {
+    if (client.supportsTool(tool)) {
+      return client.callTool(tool, params, opts);
+    }
+  }
+
+  throw new Error(`No MCP client registered for tool '${tool}'`);
 }
 
 export type { McpClient } from './types';

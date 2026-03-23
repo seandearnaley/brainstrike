@@ -24,6 +24,9 @@ describe('useExportHandlers', () => {
   let mockLink: HTMLAnchorElement;
   let originalCreateElement: typeof document.createElement;
 
+  const createLoadExportData = (records: FileRecord[], chunks: FileChunk[]) =>
+    vi.fn().mockResolvedValue({ records, chunks });
+
   beforeEach(() => {
     vi.resetAllMocks();
     // Restore default mock implementations after resetAllMocks clears them
@@ -63,7 +66,7 @@ describe('useExportHandlers', () => {
   });
 
   describe('handleExportFiles', () => {
-    it('exports files successfully', () => {
+    it('exports files successfully', async () => {
       const records: FileRecord[] = [
         {
           id: '1',
@@ -86,9 +89,11 @@ describe('useExportHandlers', () => {
       ];
       const chunks: FileChunk[] = [];
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportFiles();
+      await result.current.handleExportFiles();
 
       expect(csvExportUtils.generateFilesWithChunksCSV).toHaveBeenCalledWith(records);
       expect(csvExportUtils.createCSVBlob).toHaveBeenCalled();
@@ -100,13 +105,15 @@ describe('useExportHandlers', () => {
       });
     });
 
-    it('shows error when no records to export', () => {
+    it('shows error when no records to export', async () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [];
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportFiles();
+      await result.current.handleExportFiles();
 
       expect(mockToast).toHaveBeenCalledWith({
         title: 'No Data to Export',
@@ -116,7 +123,7 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateFilesWithChunksCSV).not.toHaveBeenCalled();
     });
 
-    it('handles export errors', () => {
+    it('handles export errors', async () => {
       const records: FileRecord[] = [
         {
           id: '1',
@@ -133,9 +140,11 @@ describe('useExportHandlers', () => {
         throw new Error('Export generation failed');
       });
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportFiles();
+      await result.current.handleExportFiles();
 
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Export Failed',
@@ -146,7 +155,7 @@ describe('useExportHandlers', () => {
   });
 
   describe('handleExportChunks', () => {
-    it('exports chunks successfully', () => {
+    it('exports chunks successfully', async () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
@@ -175,9 +184,11 @@ describe('useExportHandlers', () => {
         },
       ];
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportChunks();
+      await result.current.handleExportChunks();
 
       expect(csvExportUtils.generateChunksCSV).toHaveBeenCalledWith(chunks);
       expect(csvExportUtils.createCSVBlob).toHaveBeenCalled();
@@ -189,13 +200,15 @@ describe('useExportHandlers', () => {
       });
     });
 
-    it('shows error when no chunks to export', () => {
+    it('shows error when no chunks to export', async () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [];
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportChunks();
+      await result.current.handleExportChunks();
 
       expect(mockToast).toHaveBeenCalledWith({
         title: 'No Chunks to Export',
@@ -205,7 +218,7 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateChunksCSV).not.toHaveBeenCalled();
     });
 
-    it('handles export errors', () => {
+    it('handles export errors', async () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
@@ -226,9 +239,11 @@ describe('useExportHandlers', () => {
         throw new Error('Chunk export failed');
       });
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportChunks();
+      await result.current.handleExportChunks();
 
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Export Failed',
@@ -239,7 +254,7 @@ describe('useExportHandlers', () => {
   });
 
   describe('handleExportEmbeddings', () => {
-    it('exports embeddings successfully', () => {
+    it('exports embeddings successfully', async () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
@@ -270,9 +285,11 @@ describe('useExportHandlers', () => {
         },
       ];
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportEmbeddings();
+      await result.current.handleExportEmbeddings();
 
       expect(csvExportUtils.generateEmbeddingsCSV).toHaveBeenCalledWith(chunks);
       expect(csvExportUtils.createCSVBlob).toHaveBeenCalled();
@@ -284,7 +301,7 @@ describe('useExportHandlers', () => {
       });
     });
 
-    it('shows error when no embeddings to export', () => {
+    it('shows error when no embeddings to export', async () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
@@ -301,9 +318,11 @@ describe('useExportHandlers', () => {
         },
       ];
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportEmbeddings();
+      await result.current.handleExportEmbeddings();
 
       expect(mockToast).toHaveBeenCalledWith({
         title: 'No Embeddings to Export',
@@ -313,7 +332,7 @@ describe('useExportHandlers', () => {
       expect(csvExportUtils.generateEmbeddingsCSV).not.toHaveBeenCalled();
     });
 
-    it('handles export errors', () => {
+    it('handles export errors', async () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
@@ -335,9 +354,11 @@ describe('useExportHandlers', () => {
         throw new Error('Embedding export failed');
       });
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportEmbeddings();
+      await result.current.handleExportEmbeddings();
 
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Export Failed',
@@ -346,7 +367,7 @@ describe('useExportHandlers', () => {
       });
     });
 
-    it('filters chunks without embeddings', () => {
+    it('filters chunks without embeddings', async () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
         {
@@ -376,10 +397,13 @@ describe('useExportHandlers', () => {
         },
       ];
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
-      result.current.handleExportEmbeddings();
+      await result.current.handleExportEmbeddings();
 
+      expect(csvExportUtils.generateEmbeddingsCSV).toHaveBeenCalledWith([chunks[1]]);
       // Should export only the chunk with embedding
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Export Successful',
@@ -417,7 +441,9 @@ describe('useExportHandlers', () => {
 
       vi.mocked(csvExportUtils.exportAllDataAsZip).mockResolvedValue(undefined);
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
       await result.current.handleExportAll();
 
@@ -432,7 +458,9 @@ describe('useExportHandlers', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [];
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
       await result.current.handleExportAll();
 
@@ -461,7 +489,9 @@ describe('useExportHandlers', () => {
         new Error('ZIP export failed')
       );
 
-      const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
 
       await result.current.handleExportAll();
 

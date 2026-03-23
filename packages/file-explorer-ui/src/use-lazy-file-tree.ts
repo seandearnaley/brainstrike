@@ -26,6 +26,7 @@ import {
   useRecursiveFolderSelect,
   useRecursiveSelectAll,
 } from './hooks';
+import { getRootFolderId } from './utils/get-root-folder-id';
 import {
   needsLoading as checkNeedsLoading,
   findNodeByPath,
@@ -221,7 +222,7 @@ function isActiveLoadRootRun(
  * @param portRef - Worker port ref for initialization
  * @param setState - State setter
  * @param initializedRootRef - Ref to mark as initialized
- * @param rootName - Name of root directory for worker init
+ * @param rootFolderId - Canonical root folder id for worker init
  * @param onNodesIndexedRef - Optional callback ref for indexing nodes
  */
 function handleLoadRootSuccess(
@@ -231,7 +232,7 @@ function handleLoadRootSuccess(
   portRef: React.RefObject<FileTreeWorkerPort | null>,
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
   initializedRootRef: React.RefObject<string | null>,
-  rootName: string,
+  rootFolderId: string,
   onNodesIndexedRef?: React.RefObject<
     ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
   >
@@ -242,7 +243,7 @@ function handleLoadRootSuccess(
   // Initialize worker with root nodes
   if (portRef.current) {
     const workerNodes = toWorkerFileNodes(children);
-    portRef.current.init(workerNodes, rootName);
+    portRef.current.init(workerNodes, rootFolderId);
   }
 
   setState({
@@ -572,7 +573,7 @@ export function useLazyFileTree(
     isExpandingAllRef,
   } = useExpandAll({
     ...sharedHookOptions,
-    rootFolderId: rootDirectoryHandle?.name ?? '',
+    rootFolderId: getRootFolderId(rootDirectoryHandle) ?? '',
   });
 
   const filterTreeOption = filterTreeFn ? { filterTreeFn } : {};
@@ -662,7 +663,7 @@ export function useLazyFileTree(
           portRef,
           setState,
           initializedRootRef,
-          rootDirectoryHandle.name,
+          rootPath,
           onNodesIndexedRef
         );
       }

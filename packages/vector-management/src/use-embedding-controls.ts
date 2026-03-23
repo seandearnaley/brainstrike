@@ -241,9 +241,9 @@ export function useEmbeddingControls({
   const { disabled: backfillDisabled, title: disabledReason } = getBackfillDisabledState({
     activeId,
     hasDb: Boolean(db),
-    backfilling: queueState.backfilling,
+    backfilling: queueState.activeSetBackfilling,
     coverage: queueState.coverage,
-    queueCounts: queueState.queueCounts,
+    queueCounts: queueState.activeSetQueueCounts,
   });
 
   // Worker status for status bar
@@ -259,8 +259,8 @@ export function useEmbeddingControls({
 
   // Props for the actions dropdown
   const dropdownProps: EmbeddingActionsDropdownProps = {
-    backfilling: queueState.backfilling,
-    backfillProgress: queueState.backfillProgress,
+    backfilling: queueState.activeSetBackfilling,
+    backfillProgress: queueState.activeSetBackfillProgress,
     coverage: queueState.coverage,
     disabled: backfillDisabled,
     disabledReason,

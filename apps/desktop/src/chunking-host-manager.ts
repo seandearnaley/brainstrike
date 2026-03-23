@@ -16,9 +16,11 @@ import {
   createStoppedChunkingHostStatus,
 } from './chunking-host-shared';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
+import { waitForWindowClosed } from './window-lifecycle-utils';
 
 const logger = createLogger('ChunkingHostManager');
 const CHUNKING_HOST_REQUEST_TIMEOUT_MS = 30_000;
+const CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 
 type PendingChunkingRequest =
   | {
@@ -119,7 +121,12 @@ export class ChunkingHostManager {
 
     const window = this.lifecycle.getHostWindow();
     if (window && !window.isDestroyed()) {
+      // Register the closed listener BEFORE destroy() — Electron's destroy()
+      // synchronously sets isDestroyed()=true, so waitForWindowClosed must be
+      // called while the window is still alive to capture the 'closed' event.
+      const closedPromise = waitForWindowClosed(window, CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS);
       this.lifecycle.destroyHostWindow();
+      await closedPromise;
     }
 
     this.lifecycle.clearHostWindow();

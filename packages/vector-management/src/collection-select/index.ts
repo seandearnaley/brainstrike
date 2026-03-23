@@ -7,3 +7,8 @@ export {
   formatCollectionLabel,
   useCollections,
 } from './collection-select.js';
+export {
+  dispatchEmbeddingSetUpdated,
+  type EmbeddingSetEventCollection,
+  type EmbeddingSetUpdatedEventDetail,
+} from './embedding-set-events.js';

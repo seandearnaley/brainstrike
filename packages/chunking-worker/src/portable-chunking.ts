@@ -132,6 +132,12 @@ function shouldSkipChunking(
     }
   }
 
+  // Zero-byte files are valid repository inputs. Skip them explicitly so the
+  // worker never treats an empty accurate token count as a chunking failure.
+  if (content.length === 0) {
+    return { skip: true, reason: 'Empty file content' };
+  }
+
   // Skip binary-like content early (NUL bytes in the first few KB)
   const probeWindow = content.slice(0, 4096);
   if (probeWindow.includes('\u0000')) {

@@ -11,7 +11,15 @@ interface CollectionSummaryCounts {
   totalChunks: number;
 }
 
+interface HeapSnapshot {
+  label: string;
+  limitMB: number;
+  totalMB: number;
+  usedMB: number;
+}
+
 const ROOT_NAME = 'database-import-backfill-root';
+const IMPORT_MEMORY_FIXTURE_FILE_COUNT = 160;
 const CODE_FILE_TREE: FileTree = {
   'alpha.ts': 'export const alpha = "database import backfill";\nexport const beta = "web flow";',
   'notes.ts':
@@ -22,6 +30,40 @@ const DOCS_FILE_TREE: FileTree = {
     '# Database import backfill\n\n## Workflow\n\nUse this fixture to validate semantic markdown chunking.',
   'runbook.md': '# Runbook\n\n## Recovery\n\nDocument chunking should preserve heading families.',
 };
+
+function createLargeCodeFixtureTree(fileCount: number): FileTree {
+  const tree: FileTree = {};
+
+  for (let index = 0; index < fileCount; index += 1) {
+    const folderName = `pkg-${Math.floor(index / 40) + 1}`;
+    const folderValue = tree[folderName];
+    if (!(folderValue && typeof folderValue === 'object')) {
+      tree[folderName] = {};
+    }
+
+    const folder = tree[folderName];
+    if (!(folder && typeof folder === 'object')) {
+      throw new Error(`Expected directory fixture bucket for ${folderName}`);
+    }
+
+    folder[`module-${index + 1}.ts`] = [
+      `export const moduleId${index} = "module-${index + 1}";`,
+      `export function computeValue${index}(input: number): string {`,
+      '  const tokens = [',
+      `    "module-${index + 1}",`,
+      `    "import-memory-diagnostic-${index}",`,
+      '    "bounded-batch-processing",',
+      '    "chunking-should-not-leak",',
+      '    "deterministic-import-flow",',
+      '  ];',
+      `  return tokens.map((token, tokenIndex) => \`\${token}:\${input + tokenIndex}\`).join("\\n");`,
+      '}',
+      `export const summary${index} = Array.from({ length: 24 }, (_, itemIndex) => computeValue${index}(itemIndex)).join("\\n");`,
+    ].join('\n');
+  }
+
+  return tree;
+}
 
 function parseCollectionSummaryCounts(summaryText: string): CollectionSummaryCounts {
   const normalized = summaryText.replace(/\s+/g, ' ').trim();
@@ -204,7 +246,7 @@ async function createCollection(page: Page, collectionName: string): Promise<voi
   });
 }
 
-async function selectFilesForImport(page: Page): Promise<void> {
+async function selectFilesForImport(page: Page, expectedSelectedCount: number): Promise<void> {
   const explorer = new FileExplorerPage(page);
   const showExplorerButton = page
     .locator('button[aria-label="Show explorer panel"]')
@@ -250,9 +292,26 @@ async function selectFilesForImport(page: Page): Promise<void> {
   }
 
   await expect(explorer.fileTree).toBeVisible({ timeout: 30_000 });
+  if (expectedSelectedCount > 10) {
+    const counterButton = page.getByRole('button', {
+      name: /Click to edit maximum selection count/i,
+    });
+    await expect(counterButton).toBeVisible({ timeout: 15_000 });
+    await counterButton.click();
+
+    const input = page.getByLabel('Maximum selection count input');
+    await expect(input).toBeVisible({ timeout: 15_000 });
+    await input.fill(String(expectedSelectedCount));
+    await page.getByRole('button', { name: 'Apply selection count' }).click();
+    await expect(input).toBeHidden({ timeout: 15_000 });
+  }
   await expect(explorer.selectAllButton).toBeEnabled({ timeout: 15_000 });
   await explorer.selectAllButton.click();
-  await expect(page.getByText('2/10')).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByTestId('database-demo-panel').getByRole('button', { name: /^Import \(\d+\)$/ })
+  ).toContainText(`(${expectedSelectedCount})`, {
+    timeout: 15_000,
+  });
 }
 
 async function waitForCollectionSummary(
@@ -272,6 +331,50 @@ async function waitForCollectionSummary(
   }
 
   throw new Error(`Timed out waiting for collection summary for '${collectionName}'`);
+}
+
+async function forceGarbageCollection(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const globalWindow = window as Window & { gc?: () => void };
+    globalWindow.gc?.();
+  });
+  await page.waitForTimeout(500);
+}
+
+async function readHeapSnapshot(page: Page, label: string): Promise<HeapSnapshot> {
+  return await page.evaluate<HeapSnapshot, string>((snapshotLabel) => {
+    const memory = (
+      performance as Performance & {
+        memory?: {
+          usedJSHeapSize: number;
+          totalJSHeapSize: number;
+          jsHeapSizeLimit: number;
+        };
+      }
+    ).memory;
+    if (!memory) {
+      throw new Error('performance.memory is unavailable in this browser runtime');
+    }
+
+    return {
+      label: snapshotLabel,
+      usedMB: Math.round((memory.usedJSHeapSize / 1024 / 1024) * 10) / 10,
+      totalMB: Math.round((memory.totalJSHeapSize / 1024 / 1024) * 10) / 10,
+      limitMB: Math.round((memory.jsHeapSizeLimit / 1024 / 1024) * 10) / 10,
+    };
+  }, label);
+}
+
+async function releaseImportedAppState(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  // Navigate away from the app so browser-level workers and large in-memory graphs
+  // are eligible for reclamation before the next Playwright file reuses this worker.
+  await page.goto('about:blank');
+  await page.waitForTimeout(500);
 }
 
 test.describe('Database import and backfill (web)', () => {
@@ -299,7 +402,7 @@ test.describe('Database import and backfill (web)', () => {
     await ensureDatabasePanelVisible(page);
     await createCollection(page, collectionName);
 
-    await selectFilesForImport(page);
+    await selectFilesForImport(page, 2);
 
     await ensureDatabasePanelVisible(page);
     await openImportSettings(page);
@@ -354,6 +457,79 @@ test.describe('Database import and backfill (web)', () => {
 
     const timeOriginAfterBackfill = await page.evaluate(() => window.performance.timeOrigin);
     expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
+  });
+
+  test('keeps retained renderer heap bounded while importing a large chunked codebase', async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+
+    await mockBrowserApis(
+      page,
+      `${ROOT_NAME}-import-memory`,
+      createLargeCodeFixtureTree(IMPORT_MEMORY_FIXTURE_FILE_COUNT)
+    );
+    await page.goto('/');
+    await waitForAppLoad(page);
+
+    await resetAppState(page);
+    await page.reload();
+    await waitForAppLoad(page);
+
+    const collectionName = `Web Import Memory ${Date.now()}`;
+    await ensureDatabasePanelVisible(page);
+    await createCollection(page, collectionName);
+    await selectFilesForImport(page, IMPORT_MEMORY_FIXTURE_FILE_COUNT);
+    await ensureDatabasePanelVisible(page);
+
+    await openImportSettings(page);
+    await page.getByTestId('chunking-preset-balanced').click();
+    await expect(page.getByText('Preset linked')).toBeVisible({ timeout: 15_000 });
+    await page.keyboard.press('Escape');
+    await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
+
+    try {
+      const baseline = await readHeapSnapshot(page, 'before-import');
+
+      const databasePanel = page.getByTestId('database-demo-panel');
+      const importButton = databasePanel.getByRole('button', { name: /^Import \(\d+\)$/ });
+      await expect(importButton).toContainText(`(${IMPORT_MEMORY_FIXTURE_FILE_COUNT})`, {
+        timeout: 15_000,
+      });
+      await importButton.click();
+
+      const importedCounts = await waitForCollectionSummary(
+        page,
+        collectionName,
+        (counts) =>
+          counts.fileCount === IMPORT_MEMORY_FIXTURE_FILE_COUNT &&
+          counts.totalChunks >= IMPORT_MEMORY_FIXTURE_FILE_COUNT &&
+          counts.embeddedChunks === 0
+      );
+
+      await forceGarbageCollection(page);
+      await forceGarbageCollection(page);
+      const retained = await readHeapSnapshot(page, 'after-import');
+      const retainedGrowthMB = retained.usedMB - baseline.usedMB;
+
+      console.log(
+        JSON.stringify({
+          type: 'web-import-memory-diagnostic',
+          collectionName,
+          baseline,
+          retained,
+          retainedGrowthMB,
+          importedCounts,
+        })
+      );
+
+      expect(importedCounts.fileCount).toBe(IMPORT_MEMORY_FIXTURE_FILE_COUNT);
+      expect(importedCounts.totalChunks).toBeGreaterThanOrEqual(IMPORT_MEMORY_FIXTURE_FILE_COUNT);
+      expect(importedCounts.embeddedChunks).toBe(0);
+      expect(retainedGrowthMB).toBeLessThan(180);
+    } finally {
+      await releaseImportedAppState(page);
+    }
   });
 
   test('shows adaptive codebase routing and persists the auto strategy', async ({ page }) => {
@@ -419,7 +595,7 @@ test.describe('Database import and backfill (web)', () => {
     const collectionName = `Web Docs Preset ${Date.now()}`;
     await ensureDatabasePanelVisible(page);
     await createCollection(page, collectionName);
-    await selectFilesForImport(page);
+    await selectFilesForImport(page, 2);
     await ensureDatabasePanelVisible(page);
     await openImportSettings(page);
 

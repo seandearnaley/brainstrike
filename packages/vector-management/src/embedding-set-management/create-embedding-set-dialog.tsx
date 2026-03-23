@@ -16,6 +16,7 @@ import {
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useReducer } from 'react';
+import { dispatchEmbeddingSetUpdated } from '../collection-select/embedding-set-events';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
 /**
@@ -266,14 +267,25 @@ export function CreateEmbeddingSetDialog({
       newSetId = newSet.id;
       setActiveEmbeddingSetId(newSet.id);
 
-      // Emit event to notify other components (triggers live query refresh)
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
-            detail: { id: newSet.id },
-          })
-        );
-      }
+      dispatchEmbeddingSetUpdated({
+        id: newSet.id,
+        reason: 'created',
+        collection: {
+          id: newSet.id,
+          modelKey: newSet.modelKey,
+          modelId: newSet.modelId,
+          dimensions: newSet.dimensions,
+          distance: newSet.distance,
+          createdAt: newSet.createdAt,
+          name: newSet.name ?? null,
+          description: newSet.description ?? null,
+          tags: newSet.tags ?? null,
+          category: newSet.category ?? null,
+          fileCount: 0,
+          chunkCount: 0,
+          embeddingCount: 0,
+        },
+      });
 
       toast({
         title: 'Success',

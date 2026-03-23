@@ -54,6 +54,9 @@ export interface ElectronAdapterOptions {
 
 // Helpers to build nodes
 function toDirectoryNode(root: DirectoryHandle, entryName: string, fullPath: string): IFileNode {
+  if (!root.path) {
+    throw new Error('Root directory handle is missing its canonical path');
+  }
   return {
     name: entryName,
     path: fullPath,
@@ -61,7 +64,7 @@ function toDirectoryNode(root: DirectoryHandle, entryName: string, fullPath: str
     depth: 0,
     selectionState: 'unchecked',
     children: [],
-    rootFolderId: root.name,
+    rootFolderId: root.path,
     isVisible: true,
     handle: {
       path: fullPath,
@@ -73,13 +76,16 @@ function toDirectoryNode(root: DirectoryHandle, entryName: string, fullPath: str
 }
 
 function toBasicFileNode(root: DirectoryHandle, entryName: string, fullPath: string): IFileNode {
+  if (!root.path) {
+    throw new Error('Root directory handle is missing its canonical path');
+  }
   return {
     name: entryName,
     path: fullPath,
     type: 'file',
     depth: 0,
     selectionState: 'unchecked',
-    rootFolderId: root.name,
+    rootFolderId: root.path,
     isVisible: true,
     handle: {
       path: fullPath,
@@ -97,13 +103,16 @@ function toFileNodeWithMetadata(
   size: number,
   mtimeMs: number
 ): IFileNode {
+  if (!root.path) {
+    throw new Error('Root directory handle is missing its canonical path');
+  }
   return {
     name: entryName,
     path: fullPath,
     type: 'file',
     depth: 0,
     selectionState: 'unchecked',
-    rootFolderId: root.name,
+    rootFolderId: root.path,
     isVisible: true,
     size,
     lastModified: mtimeMs,
