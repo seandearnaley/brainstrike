@@ -55,8 +55,10 @@ function createMockController(
 
   return {
     controller: {
+      cancelAllBackfills: vi.fn(async () => {}),
       enqueueBackfill: vi.fn(async () => {}),
       ensureStarted: startMock,
+      getBackfillsInFlight: vi.fn(async () => []),
       getStatus: getStatusMock,
       onBackfillProgress: () => () => {},
       onStatus: (callback) => {

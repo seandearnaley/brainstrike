@@ -55,7 +55,7 @@ export default defineConfig({
       ),
       '@brainstrike/utils/logger': resolve(__dirname, '../utils/src/logger.ts'),
       '@brainstrike/utils/safe-storage': resolve(__dirname, '../utils/src/safe-storage.ts'),
-      '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
+      '@brainstrike/utils': resolve(__dirname, '../utils/src'),
     },
   },
 });

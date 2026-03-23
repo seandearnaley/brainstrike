@@ -1,8 +1,8 @@
 import type { IFileNode } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils/logger';
 import { Minimatch } from 'minimatch';
 import { fileNodeCollator } from './collator';
 import { processFilter } from './filter-utils';
-import { createLogger } from './logger';
 
 const logger = createLogger('TreeGenerator');
 

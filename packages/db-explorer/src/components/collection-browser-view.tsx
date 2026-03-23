@@ -67,6 +67,8 @@ const NODE_ID_PREFIXES = [
 ] as const satisfies readonly NodeIdPrefix[];
 const NODE_ID_PREFIX_PATTERN = new RegExp(`^(${NODE_ID_PREFIXES.join('|')})-(.+)$`);
 const EMBEDDING_TREE_PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
+const LARGE_COLLECTION_BROWSER_RECORD_THRESHOLD = 250;
+const LARGE_COLLECTION_BROWSER_CHUNK_THRESHOLD = 1000;
 
 export interface CollectionBrowserPaginationState {
   currentPage: number;
@@ -414,6 +416,7 @@ export function CollectionBrowserView({
   }, [selectedId]);
 
   const [selectedChunkDetail, setSelectedChunkDetail] = useState<FileChunk | null>(null);
+  const treeDiagnosticSignatureRef = useRef<string | null>(null);
 
   const ensureFileChunksLoaded = useCallback(
     async (fileRecordId: string): Promise<DatabaseFileChunkSummary[]> => {
@@ -538,8 +541,27 @@ export function CollectionBrowserView({
         allExpandableIds.add(`file-${record.id}`);
       }
     }
+    logger.info('Collection browser expand-all requested', {
+      activeCollectionId,
+      recordCount: records.length,
+      loadedChunkCount: chunks.length,
+      expandableFileCount: allExpandableIds.size,
+      page: pagination?.currentPage ?? null,
+      pageSize: pagination?.pageSize ?? null,
+      totalRecords: pagination?.totalRecords ?? records.length,
+      searchMode,
+      semanticResultCount: searchResults.length,
+    });
     handleExpandedIdsChange(allExpandableIds);
-  }, [handleExpandedIdsChange, records]);
+  }, [
+    activeCollectionId,
+    chunks.length,
+    handleExpandedIdsChange,
+    pagination,
+    records,
+    searchMode,
+    searchResults.length,
+  ]);
 
   // Handle selection changes
   const handleSelectedIdChange = useCallback(
@@ -687,6 +709,76 @@ export function CollectionBrowserView({
     searchMode,
     hasSearched,
     searchResults,
+  ]);
+
+  useEffect(() => {
+    const treeFileCount = treeData.files.length;
+    const treeChunkCount = treeData.chunks.length;
+    const shouldLog =
+      records.length >= LARGE_COLLECTION_BROWSER_RECORD_THRESHOLD ||
+      chunks.length >= LARGE_COLLECTION_BROWSER_CHUNK_THRESHOLD ||
+      treeFileCount >= LARGE_COLLECTION_BROWSER_RECORD_THRESHOLD ||
+      treeChunkCount >= LARGE_COLLECTION_BROWSER_CHUNK_THRESHOLD ||
+      searchResults.length >= LARGE_COLLECTION_BROWSER_RECORD_THRESHOLD;
+    if (!shouldLog) {
+      treeDiagnosticSignatureRef.current = null;
+      return;
+    }
+
+    const diagnosticSignature = [
+      activeCollectionId ?? 'none',
+      searchMode,
+      hasSearched ? 'searched' : 'idle',
+      records.length,
+      chunks.length,
+      treeFileCount,
+      treeChunkCount,
+      searchResults.length,
+      expandedIds.length,
+      selectedId ?? 'none',
+      pagination?.currentPage ?? -1,
+      pagination?.pageSize ?? -1,
+      pagination?.totalRecords ?? -1,
+    ].join('|');
+    if (treeDiagnosticSignatureRef.current === diagnosticSignature) {
+      return;
+    }
+    treeDiagnosticSignatureRef.current = diagnosticSignature;
+
+    logger.info('Large collection browser tree materialized', {
+      activeCollectionId,
+      searchMode,
+      hasSearched,
+      semanticResultCount: searchResults.length,
+      sourceRecordCount: records.length,
+      sourceChunkCount: chunks.length,
+      treeFileCount,
+      treeChunkCount,
+      expandedIdCount: expandedIds.length,
+      selectedId,
+      pendingChunkCount: pendingChunkIds?.size ?? 0,
+      page: pagination?.currentPage ?? null,
+      pageSize: pagination?.pageSize ?? null,
+      totalRecords: pagination?.totalRecords ?? null,
+      groupBy,
+      isLoading,
+      isSearching,
+    });
+  }, [
+    activeCollectionId,
+    chunks.length,
+    expandedIds.length,
+    groupBy,
+    hasSearched,
+    isLoading,
+    isSearching,
+    pagination,
+    pendingChunkIds,
+    records.length,
+    searchMode,
+    searchResults.length,
+    selectedId,
+    treeData,
   ]);
   // Inspector panel ref for imperative control
   const inspectorPanelRef = useRef<PanelImperativeHandle>(null);

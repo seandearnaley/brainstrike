@@ -21,14 +21,31 @@ declare global {
           string,
           Array<{
             id: string;
+            serverName?: string;
             description?: string;
             inputSchema?: unknown;
             enabled: boolean;
+            discoveredAt?: number;
           }>
         >
       >;
       enableTools?: (toolIds: string[]) => Promise<void>;
       disableTools?: (toolIds: string[]) => Promise<void>;
+      onToolsUpdated?: (
+        callback: (
+          tools: Record<
+            string,
+            Array<{
+              id: string;
+              serverName?: string;
+              description?: string;
+              inputSchema?: unknown;
+              enabled: boolean;
+              discoveredAt?: number;
+            }>
+          >
+        ) => void
+      ) => (() => void) | undefined;
     };
     tools?: {
       execute?: (

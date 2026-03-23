@@ -1,7 +1,7 @@
 /**
  * Cross-platform crypto utilities with fallbacks for non-secure contexts
  */
-import { createLogger } from './logger';
+import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('CryptoUtils');
 

@@ -354,7 +354,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     const isTestMode = process.argv.includes('--test-mode') && !app.isPackaged;
     if (app.isPackaged || isTestMode) {
       await window.loadFile(path.join(resolveDistRoot(), 'renderer/index.html'), {
-        query: { mode: this.options.mode, runtimeId },
+        query: {
+          mode: this.options.mode,
+          runtimeId,
+        },
       });
       return;
     }
@@ -377,7 +380,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         logger.warn(
-          `${this.options.role} loadFile failed (attempt ${attempt + 1}/${HOST_LOAD_RETRY_ATTEMPTS})`,
+          `${this.options.role} failed to load (attempt ${attempt + 1}/${HOST_LOAD_RETRY_ATTEMPTS})`,
           {
             attempt: attempt + 1,
             errorMessage: lastError.message,
