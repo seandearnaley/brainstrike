@@ -197,44 +197,6 @@ export const UpdatePreviewContextFilesInputSchema = z
 
 export type UpdatePreviewContextFilesInput = z.infer<typeof UpdatePreviewContextFilesInputSchema>;
 
-// ============================================================================
-// Existing Schemas (Filesystem, Retrieval)
-// ============================================================================
-
-const FilesystemListInput = z
-  .object({
-    path: z.string().min(1).optional(),
-  })
-  .strict();
-
-export type FilesystemListInput = z.infer<typeof FilesystemListInput>;
-
-const FilesystemReadInput = z
-  .object({
-    path: z.string().min(1),
-    encoding: z.enum(['utf8', 'base64']).optional(),
-    maxBytes: z
-      .number()
-      .int()
-      .positive()
-      .max(10 * 1024 * 1024)
-      .optional(),
-  })
-  .strict();
-
-export type FilesystemReadInput = z.infer<typeof FilesystemReadInput>;
-
-const FilesystemSearchInput = z
-  .object({
-    query: z.string().min(1),
-    path: z.string().min(1).optional(),
-    maxResults: z.number().int().positive().max(5000).optional(),
-    maxDepth: z.number().int().positive().max(10).optional(),
-  })
-  .strict();
-
-export type FilesystemSearchInput = z.infer<typeof FilesystemSearchInput>;
-
 const EchoInput = z.object({ text: z.string().min(1) }).strict();
 
 export const RetrievalContextInputSchema = z
@@ -253,10 +215,6 @@ export const RetrievalContextInputSchema = z
 export type RetrievalContextInput = z.infer<typeof RetrievalContextInputSchema>;
 
 const schemaMap: Record<string, z.ZodSchema> = {
-  // Filesystem tools
-  'filesystem.list': FilesystemListInput,
-  'filesystem.read': FilesystemReadInput,
-  'filesystem.search': FilesystemSearchInput,
   // Web tools
   'web.echo': EchoInput,
   // Minimal BrainStrike native tools
@@ -295,7 +253,9 @@ export function validateToolInput(
     if (schema) {
       return parseWithSchema(schema, params);
     }
-    // Unknown tool: accept pass-through to let host handle or fail later
+    // Only canonical BrainStrike-native tool IDs are validated here.
+    // Runtime-discovered MCP tools must keep their server-provided names and are
+    // forwarded without local aliasing or fallback validation.
     return { ok: true, data: params ?? {} };
   } catch (err) {
     return { ok: false, issues: [err instanceof Error ? err.message : String(err)] };

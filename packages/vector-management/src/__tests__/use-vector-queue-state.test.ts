@@ -1,3 +1,4 @@
+import type { ElectronAPI } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -21,6 +22,7 @@ const vectorStatusUiStoreState = {
     running: number;
     succeeded: number;
   },
+  isJobQueueActive: false,
   setActiveBackfill: vi.fn(
     (
       backfill: null | {
@@ -32,7 +34,9 @@ const vectorStatusUiStoreState = {
       vectorStatusUiStoreState.activeBackfill = backfill;
     }
   ),
-  setIsJobQueueActive: vi.fn(),
+  setIsJobQueueActive: vi.fn((active: boolean) => {
+    vectorStatusUiStoreState.isJobQueueActive = active;
+  }),
 };
 
 interface LiveQueryShape {
@@ -150,6 +154,7 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => {
 });
 
 interface MockController {
+  readonly cancelAllBackfillsMock: ReturnType<typeof vi.fn>;
   readonly controller: EmbeddingRuntimeController;
   readonly emitBackfillProgress: (progress: EmbeddingRuntimeBackfillProgress) => void;
   readonly enqueueBackfillMock: ReturnType<typeof vi.fn>;
@@ -191,12 +196,16 @@ function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQ
 
 function createMockController(): MockController {
   const progressListeners = new Set<(progress: EmbeddingRuntimeBackfillProgress) => void>();
+  const cancelAllBackfillsMock = vi.fn(async () => {});
   const enqueueBackfillMock = vi.fn(async (_embeddingSetId: string) => {});
 
   return {
+    cancelAllBackfillsMock,
     controller: {
+      cancelAllBackfills: cancelAllBackfillsMock,
       enqueueBackfill: enqueueBackfillMock,
       ensureStarted: vi.fn(async () => createRuntimeStatus('running')),
+      getBackfillsInFlight: vi.fn(async () => []),
       getStatus: vi.fn(async () => createRuntimeStatus('stopped')),
       onBackfillProgress: (callback) => {
         progressListeners.add(callback);
@@ -233,6 +242,15 @@ function createDeferred(): {
   return { promise, reject, resolve };
 }
 
+function createDesktopElectronApiStub(): ElectronAPI {
+  return {
+    fileSystem: {} as ElectronAPI['fileSystem'],
+    loadLayout: async () => ({ success: true }),
+    saveLayout: async () => ({ success: true }),
+    storage: {} as ElectronAPI['storage'],
+  };
+}
+
 function resetLiveQueryData(): void {
   liveQueryState.activeSetQueueCounts.rows = [{ queued: 0, running: 0, failed: 0, succeeded: 0 }];
   liveQueryState.queueCounts.rows = [{ queued: 0, running: 0, failed: 0, succeeded: 0 }];
@@ -255,6 +273,7 @@ describe('useVectorQueueState', () => {
     resetMockQueueMetrics();
     vectorStatusUiStoreState.activeBackfill = null;
     vectorStatusUiStoreState.durableQueueStats = null;
+    vectorStatusUiStoreState.isJobQueueActive = false;
     vectorStatusUiStoreState.setActiveBackfill.mockReset();
     vectorStatusUiStoreState.setIsJobQueueActive.mockReset();
     const testWindow = window as Window & {
@@ -424,6 +443,66 @@ describe('useVectorQueueState', () => {
     expect(result.current.activeSetBackfillProgress).toBeNull();
   });
 
+  it('clears stale active-set backfill state when the desktop host reports no in-flight backfills', async () => {
+    window.electronAPI = createDesktopElectronApiStub();
+    vectorStatusUiStoreState.activeBackfill = {
+      embeddingSetId: 'set-1',
+      requestId: 'embedding-backfill:stale',
+      progress: { done: 7, total: 10 },
+    };
+    vectorStatusUiStoreState.isJobQueueActive = true;
+
+    const controller = createMockController();
+    vi.mocked(controller.controller.getBackfillsInFlight).mockResolvedValueOnce([]);
+
+    renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(vectorStatusUiStoreState.activeBackfill).toBeNull();
+    });
+    expect(vectorStatusUiStoreState.isJobQueueActive).toBe(false);
+    expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenCalledWith(false);
+  });
+
+  it('does not clear another collection backfill while reconciling the active set after reload', async () => {
+    window.electronAPI = createDesktopElectronApiStub();
+    vectorStatusUiStoreState.activeBackfill = {
+      embeddingSetId: 'set-2',
+      requestId: 'embedding-backfill:other-set',
+      progress: { done: 4, total: 10 },
+    };
+    vectorStatusUiStoreState.isJobQueueActive = true;
+
+    const controller = createMockController();
+    vi.mocked(controller.controller.getBackfillsInFlight).mockResolvedValueOnce([]);
+
+    renderHook(() =>
+      useVectorQueueState({
+        service: createMockService(),
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await waitFor(() => {
+      expect(controller.controller.getBackfillsInFlight).toHaveBeenCalledTimes(1);
+    });
+    expect(vectorStatusUiStoreState.activeBackfill).toEqual({
+      embeddingSetId: 'set-2',
+      requestId: 'embedding-backfill:other-set',
+      progress: { done: 4, total: 10 },
+    });
+    expect(vectorStatusUiStoreState.isJobQueueActive).toBe(true);
+  });
+
   it('clears transient backfill state when controller backfill fails', async () => {
     const controller = createMockController();
     controller.enqueueBackfillMock.mockRejectedValueOnce(
@@ -515,6 +594,45 @@ describe('useVectorQueueState', () => {
     expect(vectorStatusUiStoreState.activeBackfill).toBeNull();
     expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenLastCalledWith(false);
     vi.useRealTimers();
+  });
+
+  it('clears transient backfill UI state when the queue is wiped', async () => {
+    const callOrder: string[] = [];
+    const service = createMockService({
+      wipeQueue: vi.fn(async () => {
+        callOrder.push('wipe');
+      }),
+    });
+    const controller = createMockController();
+    controller.cancelAllBackfillsMock.mockImplementation(async () => {
+      callOrder.push('cancel');
+    });
+    vectorStatusUiStoreState.activeBackfill = {
+      embeddingSetId: 'set-1',
+      requestId: 'embedding-backfill:wipe-me',
+      progress: { done: 2, total: 10 },
+    };
+    vectorStatusUiStoreState.isJobQueueActive = true;
+
+    const { result } = renderHook(() =>
+      useVectorQueueState({
+        service,
+        controller: controller.controller,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: false,
+      })
+    );
+
+    await act(async () => {
+      await result.current.wipeQueue();
+    });
+
+    expect(controller.cancelAllBackfillsMock).toHaveBeenCalledTimes(1);
+    expect(service.wipeQueue).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(['cancel', 'wipe']);
+    expect(vectorStatusUiStoreState.activeBackfill).toBeNull();
+    expect(vectorStatusUiStoreState.isJobQueueActive).toBe(false);
+    expect(vectorStatusUiStoreState.setIsJobQueueActive).toHaveBeenCalledWith(false);
   });
 
   it('refreshes live queries when the queue drained event targets the active embedding set', async () => {

@@ -107,8 +107,12 @@ export default defineConfig({
         replacement: resolve(__dirname, '../utils/src/safe-storage.ts'),
       },
       {
+        find: /^@brainstrike\/utils\/(.*)$/,
+        replacement: resolve(__dirname, '../utils/src/$1.ts'),
+      },
+      {
         find: '@brainstrike/utils',
-        replacement: resolve(__dirname, '../utils/src/index.ts'),
+        replacement: resolve(__dirname, '../utils/src'),
       },
       {
         find: '@brainstrike/embeddings/runtime-config',

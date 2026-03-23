@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, clipboard } = require('electron');
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
+const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
@@ -27,6 +28,9 @@ const EMBEDDING_HOST_RESET_CHANNEL = 'embedding-host:reset' as const;
 const EMBEDDING_HOST_GET_STATUS_CHANNEL = 'embedding-host:get-status' as const;
 const EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL = 'embedding-host:enqueue-backfill' as const;
 const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress' as const;
+const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
+  'embedding-host:get-backfills-in-flight' as const;
+const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL = 'embedding-host:cancel-all-backfills' as const;
 const CHUNKING_HOST_STATUS_EVENT = 'chunking-host:status' as const;
 const CHUNKING_HOST_REQUEST_EVENT = 'chunking-host:request' as const;
 const CHUNKING_HOST_PROGRESS_EVENT = 'chunking-host:progress' as const;
@@ -284,6 +288,40 @@ contextBridge.exposeInMainWorld('mcp', {
     ipcRenderer.invoke('mcp:tools:disableServer', serverName),
   resetTools: () => ipcRenderer.invoke('mcp:tools:reset'),
   getToolStats: () => ipcRenderer.invoke('mcp:tools:getStats'),
+  onToolsUpdated: (
+    callback: (
+      tools: Record<
+        string,
+        Array<{
+          id: string;
+          serverName: string;
+          description?: string;
+          inputSchema?: unknown;
+          enabled: boolean;
+          discoveredAt: number;
+        }>
+      >
+    ) => void
+  ) => {
+    const listener = (
+      _event: unknown,
+      tools: Record<
+        string,
+        Array<{
+          id: string;
+          serverName: string;
+          description?: string;
+          inputSchema?: unknown;
+          enabled: boolean;
+          discoveredAt: number;
+        }>
+      >
+    ) => callback(tools);
+    ipcRenderer.on(MCP_TOOLS_UPDATED_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(MCP_TOOLS_UPDATED_EVENT, listener);
+    };
+  },
 });
 
 // Tool execution API (for playground testing)
@@ -351,6 +389,10 @@ contextBridge.exposeInMainWorld('embeddingHost', {
     ipcRenderer.invoke(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL),
   enqueueBackfill: (embeddingSetId: string) =>
     ipcRenderer.invoke(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL, embeddingSetId),
+  cancelAllBackfills: (): Promise<void> =>
+    ipcRenderer.invoke(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL),
+  getBackfillsInFlight: (): Promise<string[]> =>
+    ipcRenderer.invoke(EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL),
   stop: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_STOP_CHANNEL),
   reset: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_RESET_CHANNEL),
   getStatus: (): Promise<EmbeddingHostStatus> =>

@@ -4,13 +4,19 @@ const sseClient = {
   name: 'remote',
   transport: 'sse',
   dispose: vi.fn(),
+  listTools: vi.fn(async () => ({})),
+  supportsTool: vi.fn((toolId: string) => toolId.startsWith('remote.')),
   callTool: vi.fn(async () => 'sse-result'),
 };
-const fsClient = {
+const stdioClient = {
   name: 'filesystem',
   transport: 'stdio',
   dispose: vi.fn(),
-  callTool: vi.fn(async () => 'fs-result'),
+  listTools: vi.fn(async () => ({
+    'filesystem.list_directory': { description: 'List files' },
+  })),
+  supportsTool: vi.fn((toolId: string) => toolId === 'filesystem.list_directory'),
+  callTool: vi.fn(async () => 'stdio-result'),
 };
 
 vi.mock('../../mcp/sse-client', () => ({
@@ -18,7 +24,7 @@ vi.mock('../../mcp/sse-client', () => ({
 }));
 
 vi.mock('../../mcp/stdio-client', () => ({
-  createFilesystemClientFromStdio: vi.fn(() => fsClient),
+  createStdioClient: vi.fn(() => stdioClient),
 }));
 
 import { callTool, disposeClients, getClient, initClients } from '../../mcp';
@@ -28,7 +34,7 @@ describe('mcp index', () => {
     vi.clearAllMocks();
   });
 
-  it('initializes clients for stdio filesystem, sse, and unsupported transports', async () => {
+  it('initializes clients for stdio, sse, and unsupported transports', async () => {
     initClients({
       servers: [
         { name: 'filesystem', transport: 'stdio', command: 'node', args: ['/tmp'] },
@@ -37,7 +43,7 @@ describe('mcp index', () => {
       ],
     });
 
-    expect(getClient('filesystem')).toBe(fsClient);
+    expect(getClient('filesystem')).toBe(stdioClient);
     expect(getClient('remote')).toBe(sseClient);
     expect(getClient('custom')).toBeDefined();
   });
@@ -50,10 +56,10 @@ describe('mcp index', () => {
       ],
     });
 
-    await expect(callTool('filesystem.list')).resolves.toBe('fs-result');
+    await expect(callTool('filesystem.list_directory')).resolves.toBe('stdio-result');
     await expect(callTool('remote.search')).resolves.toBe('sse-result');
     await expect(callTool('unknown.tool')).rejects.toThrow(
-      "No MCP client registered for 'unknown'"
+      "No MCP client registered for tool 'unknown.tool'"
     );
   });
 
@@ -67,7 +73,7 @@ describe('mcp index', () => {
 
     await disposeClients();
 
-    expect(fsClient.dispose).toHaveBeenCalled();
+    expect(stdioClient.dispose).toHaveBeenCalled();
     expect(sseClient.dispose).toHaveBeenCalled();
     expect(getClient('filesystem')).toBeUndefined();
   });

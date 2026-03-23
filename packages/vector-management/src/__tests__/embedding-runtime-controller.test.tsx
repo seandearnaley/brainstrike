@@ -7,14 +7,21 @@ const { getRegisteredEmbeddingRuntimeConfigMock, startEmbeddingWorkerMock } = vi
   startEmbeddingWorkerMock: vi.fn(),
 }));
 
-const { enqueueBackfillMock, ensureStartedMock, getStatusMock, onStatusMock, stopMock } =
-  vi.hoisted(() => ({
-    enqueueBackfillMock: vi.fn(),
-    ensureStartedMock: vi.fn(),
-    getStatusMock: vi.fn(),
-    onStatusMock: vi.fn(() => () => {}),
-    stopMock: vi.fn(),
-  }));
+const {
+  cancelAllBackfillsMock,
+  enqueueBackfillMock,
+  ensureStartedMock,
+  getStatusMock,
+  onStatusMock,
+  stopMock,
+} = vi.hoisted(() => ({
+  cancelAllBackfillsMock: vi.fn(async () => {}),
+  enqueueBackfillMock: vi.fn(),
+  ensureStartedMock: vi.fn(),
+  getStatusMock: vi.fn(),
+  onStatusMock: vi.fn(() => () => {}),
+  stopMock: vi.fn(),
+}));
 
 vi.mock('@brainstrike/embeddings/runtime-config', () => ({
   getRegisteredEmbeddingRuntimeConfig: getRegisteredEmbeddingRuntimeConfigMock,
@@ -55,6 +62,7 @@ describe('useEmbeddingRuntimeController', () => {
     Object.defineProperty(window, 'embeddingHost', {
       configurable: true,
       value: {
+        cancelAllBackfills: cancelAllBackfillsMock,
         enqueueBackfill: enqueueBackfillMock,
         ensureStarted: ensureStartedMock,
         getStatus: getStatusMock,
@@ -70,7 +78,7 @@ describe('useEmbeddingRuntimeController', () => {
     Reflect.deleteProperty(window, 'embeddingHost');
   }
 
-  it('resets the desktop host before backfill when runtime settings have not been synced', async () => {
+  it('starts the desktop host without resetting it before desktop backfill', async () => {
     const { result } = renderHook(() =>
       useEmbeddingRuntimeController({
         db: null,
@@ -84,13 +92,30 @@ describe('useEmbeddingRuntimeController', () => {
       await result.current.enqueueBackfill('set-1');
     });
 
-    expect(getStatusMock).toHaveBeenCalled();
-    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(getStatusMock).toHaveBeenCalledTimes(1);
+    expect(stopMock).not.toHaveBeenCalled();
     expect(ensureStartedMock).toHaveBeenCalledTimes(1);
     expect(enqueueBackfillMock).toHaveBeenCalledWith('set-1');
   });
 
-  it('does not keep resetting the desktop host when the settings are unchanged', async () => {
+  it('forwards desktop backfill cancellation requests through the host bridge', async () => {
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await result.current.cancelAllBackfills();
+    });
+
+    expect(cancelAllBackfillsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reset the desktop host across repeated backfills when the settings are unchanged', async () => {
     const { result } = renderHook(() =>
       useEmbeddingRuntimeController({
         db: null,
@@ -105,13 +130,47 @@ describe('useEmbeddingRuntimeController', () => {
       await result.current.enqueueBackfill('set-2');
     });
 
-    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(stopMock).not.toHaveBeenCalled();
     expect(ensureStartedMock).toHaveBeenCalledTimes(2);
     expect(enqueueBackfillMock).toHaveBeenNthCalledWith(1, 'set-1');
     expect(enqueueBackfillMock).toHaveBeenNthCalledWith(2, 'set-2');
   });
 
-  it('resets the desktop host again when the desired device preference changes', async () => {
+  it('does not stop the desktop host when the hook remounts mid-session', async () => {
+    const firstRender = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await firstRender.result.current.enqueueBackfill('set-1');
+    });
+
+    firstRender.unmount();
+
+    const secondRender = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: null,
+      })
+    );
+
+    await act(async () => {
+      await secondRender.result.current.enqueueBackfill('set-2');
+    });
+
+    expect(stopMock).not.toHaveBeenCalled();
+    expect(ensureStartedMock).toHaveBeenCalledTimes(2);
+    expect(enqueueBackfillMock).toHaveBeenNthCalledWith(2, 'set-2');
+  });
+
+  it('does not stop the desktop host automatically when the visible preference changes', async () => {
     const initialProps: { devicePreference: 'wasm' | 'webgpu' } = {
       devicePreference: 'wasm',
     };
@@ -138,7 +197,7 @@ describe('useEmbeddingRuntimeController', () => {
       await result.current.enqueueBackfill('set-2');
     });
 
-    expect(stopMock).toHaveBeenCalledTimes(2);
+    expect(stopMock).not.toHaveBeenCalled();
     expect(ensureStartedMock).toHaveBeenCalledTimes(2);
     expect(enqueueBackfillMock).toHaveBeenNthCalledWith(2, 'set-2');
   });

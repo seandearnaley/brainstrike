@@ -124,6 +124,7 @@ vi.mock('../vector-status/backfill-utils', () => ({
 
 vi.mock('../vector-status/embedding-runtime-controller', () => ({
   useEmbeddingRuntimeController: vi.fn(() => ({
+    cancelAllBackfills: vi.fn(async () => {}),
     enqueueBackfill: vi.fn(async () => {}),
     ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
     getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
@@ -193,8 +194,10 @@ describe('useEmbeddingControls', () => {
 
     vi.mocked(getBackfillDisabledState).mockReturnValue({ disabled: false, title: '' });
     vi.mocked(useEmbeddingRuntimeController).mockReturnValue({
+      cancelAllBackfills: vi.fn(async () => {}),
       enqueueBackfill: vi.fn(async () => {}),
       ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      getBackfillsInFlight: vi.fn(async () => []),
       getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
       onBackfillProgress: vi.fn(() => () => {}),
       onStatus: vi.fn(() => () => {}),

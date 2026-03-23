@@ -136,6 +136,9 @@ const DEFAULT_DB_INFO: DatabaseInfo = {
 };
 
 const EXPORT_LOAD_BATCH_SIZE = 50;
+const LARGE_DATABASE_PAGE_DIAGNOSTIC_RECORD_THRESHOLD = 250;
+const LARGE_DATABASE_PAGE_DIAGNOSTIC_CHUNK_THRESHOLD = 1000;
+const LARGE_DATABASE_PAGE_DIAGNOSTIC_TOTAL_THRESHOLD = 1000;
 
 async function mapInBatches<T, R>(
   items: readonly T[],
@@ -541,6 +544,28 @@ function normalizeCount(value: number | string | null | undefined): number {
     return 0;
   }
   return Number(value);
+}
+
+function countLoadedChunkGroups(
+  loadedChunksByPage: Map<string, Map<string, DatabaseFileChunkSummary[]>>
+): number {
+  let total = 0;
+  for (const perPage of loadedChunksByPage.values()) {
+    total += perPage.size;
+  }
+  return total;
+}
+
+function countLoadedChunks(
+  loadedChunksByPage: Map<string, Map<string, DatabaseFileChunkSummary[]>>
+): number {
+  let total = 0;
+  for (const perPage of loadedChunksByPage.values()) {
+    for (const summaries of perPage.values()) {
+      total += summaries.length;
+    }
+  }
+  return total;
 }
 
 function extractErrorMessage(error: unknown): string | null {
@@ -971,6 +996,7 @@ export function useDatabaseDemoData({
   const resolvedRecords = liveQueryEnabled ? records : cachedRecords;
   const resolvedTotalRecords = liveQueryEnabled ? liveTotalRecords : cachedTotalRecords;
   const resolvedCollectionCounts = liveQueryEnabled ? liveCollectionCounts : cachedCollectionCounts;
+  const pageDataDiagnosticSignatureRef = useRef<string | null>(null);
 
   const loadFileChunkSummaries = useCallback(
     async (fileRecordId: string): Promise<DatabaseFileChunkSummary[]> => {
@@ -1215,6 +1241,85 @@ export function useDatabaseDemoData({
   ]);
 
   const previousLiveQueryEnabledRef = useRef(liveQueryEnabled);
+
+  useEffect(() => {
+    if (!activeCollectionId) {
+      pageDataDiagnosticSignatureRef.current = null;
+      return;
+    }
+
+    const loadedChunkGroups = countLoadedChunkGroups(cachedLoadedChunksRef.current);
+    const totalLoadedChunks = countLoadedChunks(cachedLoadedChunksRef.current);
+    const shouldLog =
+      resolvedRecords.length >= LARGE_DATABASE_PAGE_DIAGNOSTIC_RECORD_THRESHOLD ||
+      cachedChunks.length >= LARGE_DATABASE_PAGE_DIAGNOSTIC_CHUNK_THRESHOLD ||
+      resolvedTotalRecords >= LARGE_DATABASE_PAGE_DIAGNOSTIC_TOTAL_THRESHOLD ||
+      resolvedCollectionCounts.chunks >= LARGE_DATABASE_PAGE_DIAGNOSTIC_TOTAL_THRESHOLD ||
+      loadedChunkGroups >= LARGE_DATABASE_PAGE_DIAGNOSTIC_RECORD_THRESHOLD;
+    if (!shouldLog) {
+      pageDataDiagnosticSignatureRef.current = null;
+      return;
+    }
+
+    const diagnosticSignature = [
+      activeCollectionId,
+      liveQueryEnabled ? 'live' : 'snapshot',
+      normalizedRecordPage,
+      normalizedRecordPageSize,
+      resolvedRecords.length,
+      cachedChunks.length,
+      resolvedTotalRecords,
+      resolvedCollectionCounts.records,
+      resolvedCollectionCounts.chunks,
+      resolvedCollectionCounts.embeddings,
+      loadedRecordPagesRef.current.size,
+      loadedChunkGroups,
+      totalLoadedChunks,
+      fallbackLoading ? 'loading' : 'idle',
+      manualRefreshing ? 'refreshing' : 'steady',
+    ].join('|');
+    if (pageDataDiagnosticSignatureRef.current === diagnosticSignature) {
+      return;
+    }
+    pageDataDiagnosticSignatureRef.current = diagnosticSignature;
+
+    logger.info('Large database page state resolved', {
+      activeCollectionId,
+      dataSource: liveQueryEnabled ? 'live-query' : 'snapshot-cache',
+      page: normalizedRecordPage,
+      pageSize: normalizedRecordPageSize,
+      resolvedRecordCount: resolvedRecords.length,
+      cachedChunkCount: cachedChunks.length,
+      resolvedTotalRecords,
+      collectionRecordCount: resolvedCollectionCounts.records,
+      collectionChunkCount: resolvedCollectionCounts.chunks,
+      collectionEmbeddingCount: resolvedCollectionCounts.embeddings,
+      loadedRecordPageCount: loadedRecordPagesRef.current.size,
+      loadedChunkGroupCount: loadedChunkGroups,
+      loadedChunkCount: totalLoadedChunks,
+      recordCachePageCount: cachedRecordsRef.current.size,
+      totalCacheEntryCount: cachedRecordTotalsRef.current.size,
+      collectionCountCacheEntryCount: cachedCollectionCountsRef.current.size,
+      chunkPageCacheEntryCount: cachedLoadedChunksRef.current.size,
+      fallbackLoading,
+      manualRefreshing,
+      isImporting,
+      isEmbeddingActive,
+    });
+  }, [
+    activeCollectionId,
+    cachedChunks.length,
+    fallbackLoading,
+    isEmbeddingActive,
+    isImporting,
+    liveQueryEnabled,
+    manualRefreshing,
+    normalizedRecordPage,
+    normalizedRecordPageSize,
+    resolvedCollectionCounts,
+    resolvedRecords.length,
+    resolvedTotalRecords,
+  ]);
 
   useEffect(() => {
     const wasEnabled = previousLiveQueryEnabledRef.current;

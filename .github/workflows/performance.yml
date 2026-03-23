@@ -47,10 +47,10 @@ jobs:
       TURBO_CACHE_DIR: .turbo
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
 
@@ -58,7 +58,7 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Cache Turborepo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .turbo
           key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
@@ -76,7 +76,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload blob report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: perf-blob-report
           path: apps/web/blob-report

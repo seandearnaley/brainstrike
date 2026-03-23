@@ -3,7 +3,7 @@ import {
   configureLogger,
   type LoggerConfig,
   LogLevel,
-} from './logger';
+} from '@brainstrike/utils/logger';
 import type { LoggerRuntime } from './logging-initializer';
 
 export interface FileLoggingPreferences {

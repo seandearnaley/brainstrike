@@ -14,7 +14,7 @@ export default defineConfig({
       },
       {
         find: '@brainstrike/utils',
-        replacement: resolve(import.meta.dirname, '../utils/src/index.ts'),
+        replacement: resolve(import.meta.dirname, '../utils/src'),
       },
       {
         find: '@brainstrike/text-splitter',
