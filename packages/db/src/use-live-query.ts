@@ -14,6 +14,11 @@ interface BaseLiveQueryOptions {
    * to detect when the query should re-subscribe. Build with `makeLiveQueryKey()`.
    */
   readonly cacheKey?: string;
+  /**
+   * When true, drops the last delivered rows when the live query is disabled.
+   * Use this for memory-sensitive views that already maintain a separate snapshot.
+   */
+  readonly clearOnDisable?: boolean;
   readonly compareParams?: 'json' | 'deep';
   readonly enabled?: boolean;
   readonly limit?: number;
@@ -391,8 +396,9 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     let subscription: LiveSubscription<T> | null = null;
 
     if (!enabled) {
-      // Keep existing rows cached when disabled - don't clear to avoid UI flicker
-      // Only stop the subscription and mark as not loading
+      if (options.clearOnDisable) {
+        setRawRows([]);
+      }
       setError(null);
       setLoading(false);
       refreshRef.current = noopAsync;

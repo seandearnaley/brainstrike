@@ -1,4 +1,5 @@
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { dispatchEmbeddingSetUpdated } from './collection-select/embedding-set-events';
 
 export const ACTIVE_EMBEDDING_SET_KEY = 'brainstrike.activeEmbeddingSetId';
 
@@ -38,15 +39,12 @@ export function setActiveEmbeddingSetId(id: string | null): void {
     // ignore
   }
 
-  if (typeof window !== 'undefined') {
-    try {
-      window.dispatchEvent(
-        new CustomEvent('brainstrike:embedding-set-updated', {
-          detail: { id },
-        })
-      );
-    } catch {
-      // ignore dispatch issues – consumers still get store/localStorage updates
-    }
+  try {
+    dispatchEmbeddingSetUpdated({
+      id,
+      reason: 'selected',
+    });
+  } catch {
+    // ignore dispatch issues – consumers still get store/localStorage updates
   }
 }

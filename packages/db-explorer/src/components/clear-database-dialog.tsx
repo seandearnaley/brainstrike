@@ -1,4 +1,3 @@
-import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   Button,
   Dialog,
@@ -10,10 +9,10 @@ import {
 } from '@brainstrike/ui';
 
 interface ClearDatabaseDialogProps {
-  chunks: FileChunk[];
+  chunksCount: number;
   clearing: boolean;
   onClear: () => Promise<void>;
-  records: FileRecord[];
+  recordsCount: number;
   setShowClearDialog: (show: boolean) => void;
   showClearDialog: boolean;
 }
@@ -23,8 +22,8 @@ interface ClearDatabaseDialogProps {
  * The trigger button is in SettingsPanel (Import Settings > Danger Zone).
  */
 export function ClearDatabaseDialog({
-  records,
-  chunks,
+  recordsCount,
+  chunksCount,
   clearing,
   showClearDialog,
   setShowClearDialog,
@@ -36,8 +35,8 @@ export function ClearDatabaseDialog({
         <DialogHeader>
           <DialogTitle>Clear Database</DialogTitle>
           <DialogDescription>
-            This will permanently delete all imported files ({records.length}) and chunks (
-            {chunks.length}) from the database. This action cannot be undone.
+            This will permanently delete all imported files ({recordsCount}) and chunks (
+            {chunksCount}) from the database. This action cannot be undone.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

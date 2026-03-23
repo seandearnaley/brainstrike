@@ -121,9 +121,22 @@ export default defineConfig({
         find: '@brainstrike/file-explorer-ui',
         replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/src'),
       },
-      // NOTE: @brainstrike/token-cache intentionally NOT aliased to src.
-      // It uses dist to get the pre-built worker JavaScript file.
-      // This matches the @brainstrike/embedding-worker pattern.
+      // Resolve dev/runtime imports from source so Vite never depends on workspace dist churn.
+      {
+        find: '@brainstrike/token-cache/cache-runtime',
+        replacement: path.resolve(__dirname, '../../packages/token-cache/src/cache-runtime.ts'),
+      },
+      {
+        find: '@brainstrike/token-cache/background-indexer',
+        replacement: path.resolve(
+          __dirname,
+          '../../packages/token-cache/src/background-indexer.ts'
+        ),
+      },
+      {
+        find: '@brainstrike/selection-rules',
+        replacement: path.resolve(__dirname, '../../packages/selection-rules/src/index.ts'),
+      },
       {
         find: '@brainstrike/file-explorer-hooks',
         replacement: path.resolve(__dirname, '../../packages/file-explorer-hooks/src'),
@@ -322,7 +335,7 @@ export default defineConfig({
       '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
       '@brainstrike/db-explorer', // Uses file-import which has worker
       '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
-      '@brainstrike/token-cache', // Worker must resolve via package exports (dist)
+      '@brainstrike/token-cache',
       '@brainstrike/token-cache/cache-runtime',
       '@brainstrike/token-cache/background-indexer',
       '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)

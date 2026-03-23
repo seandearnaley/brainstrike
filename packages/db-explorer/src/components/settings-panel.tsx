@@ -1,4 +1,3 @@
-import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
@@ -28,8 +27,8 @@ interface ExtendedSettingsPanelProps extends SettingsPanelProps {
   /** Clear database dialog controls - optional for backwards compatibility */
   clearDatabaseProps?: {
     clearAllData: (() => Promise<unknown>) | null;
-    records: FileRecord[];
-    chunks: FileChunk[];
+    recordsCount: number;
+    chunksCount: number;
     clearing: boolean;
     showClearDialog: boolean;
     setShowClearDialog: (show: boolean) => void;
@@ -544,7 +543,7 @@ export function SettingsPanel({
               disabled={
                 clearDatabaseProps.clearing ||
                 !clearDatabaseProps.clearAllData ||
-                (clearDatabaseProps.records.length === 0 && clearDatabaseProps.chunks.length === 0)
+                (clearDatabaseProps.recordsCount === 0 && clearDatabaseProps.chunksCount === 0)
               }
               onClick={() => clearDatabaseProps.setShowClearDialog(true)}
               size="sm"

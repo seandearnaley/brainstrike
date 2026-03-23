@@ -191,6 +191,8 @@ test.describe('File Explorer', () => {
       const presetTrigger = await getPresetTrigger(page);
       await presetTrigger.click();
 
+      await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+
       const documentationOption = page.getByRole('button', { name: /documentation/i }).first();
       await expect(documentationOption).toBeVisible({ timeout: 10_000 });
       await documentationOption.click();
@@ -199,6 +201,18 @@ test.describe('File Explorer', () => {
         page.locator('#explorer-panel').getByRole('button', { name: /documentation/i })
       ).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText('Select filter...')).toHaveCount(0);
+    });
+
+    test('does not stay stuck on loading presets after opening the dropdown', async ({ page }) => {
+      await openViewFilters(page);
+
+      const presetTrigger = await getPresetTrigger(page);
+      await presetTrigger.click();
+
+      await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+      await expect(page.getByRole('button', { name: /documentation/i }).first()).toBeVisible({
+        timeout: 10_000,
+      });
     });
 
     const scenarios: FilterScenario[] = [

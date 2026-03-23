@@ -58,7 +58,20 @@ const mockStoreState = {
   setIsEmbeddingQueueActive: vi.fn(),
   setIsJobQueueActive: vi.fn(),
   setActiveEmbeddingSetId: vi.fn(),
-  setCachedCollections: vi.fn(),
+  setCachedCollections: vi.fn((collections) => {
+    mockStoreState.cachedCollections = collections;
+  }),
+  upsertCachedCollection: vi.fn((collection) => {
+    mockStoreState.cachedCollections = [
+      collection,
+      ...mockStoreState.cachedCollections.filter((candidate) => candidate.id !== collection.id),
+    ];
+  }),
+  removeCachedCollection: vi.fn((collectionId: string) => {
+    mockStoreState.cachedCollections = mockStoreState.cachedCollections.filter(
+      (collection) => collection.id !== collectionId
+    );
+  }),
   setCachedFileData: vi.fn(),
   setSchemaVerified: vi.fn(),
 };
@@ -202,6 +215,42 @@ describe('useCollections', () => {
       expect(result.current.loading).toBe(true);
     });
 
+    it('prefers live collections over stale cached collections while loading', () => {
+      mockStoreState.cachedCollections = [
+        {
+          id: 'set-1',
+          modelKey: 'openai',
+          modelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          distance: 'cosine',
+          createdAt: '2024-01-01T00:00:00Z',
+          name: 'Stale Cached Name',
+          description: 'stale',
+          tags: null,
+          category: null,
+          fileCount: 1,
+          chunkCount: 2,
+          embeddingCount: 3,
+        },
+      ];
+      vi.mocked(usePGliteLiveQuery).mockReturnValue({
+        ...mockLiveQueryResult,
+        loading: true,
+      });
+
+      const { result } = renderHook(() => useCollections(mockDb as any));
+
+      expect(result.current.collections).toEqual([
+        expect.objectContaining({
+          id: 'set-1',
+          name: 'Test Collection',
+          fileCount: 10,
+          chunkCount: 100,
+          embeddingCount: 50,
+        }),
+      ]);
+    });
+
     it('should return error state from live query when enabled', () => {
       const testError = new Error('Test error');
       vi.mocked(usePGliteLiveQuery).mockReturnValue({
@@ -221,6 +270,32 @@ describe('useCollections', () => {
 
       await waitFor(() => {
         expect(mockStoreState.setCachedCollections).toHaveBeenCalled();
+      });
+    });
+
+    it('does not rewrite the cached collection snapshot when the live rows already match', async () => {
+      mockStoreState.cachedCollections = [
+        {
+          id: 'set-1',
+          modelKey: 'openai',
+          modelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          distance: 'cosine',
+          createdAt: '2024-01-01T00:00:00Z',
+          name: 'Test Collection',
+          description: null,
+          tags: null,
+          category: null,
+          fileCount: 10,
+          chunkCount: 100,
+          embeddingCount: 50,
+        },
+      ];
+
+      renderHook(() => useCollections(mockDb as any));
+
+      await waitFor(() => {
+        expect(mockStoreState.setCachedCollections).not.toHaveBeenCalled();
       });
     });
 
@@ -285,7 +360,25 @@ describe('useCollections', () => {
       await act(async () => {
         window.dispatchEvent(
           new CustomEvent('brainstrike:embedding-set-updated', {
-            detail: { id: 'set-2' },
+            detail: {
+              id: 'set-2',
+              reason: 'created',
+              collection: {
+                id: 'set-2',
+                modelKey: 'openai',
+                modelId: 'text-embedding-3-small',
+                dimensions: 1536,
+                distance: 'cosine',
+                createdAt: '2024-01-02T00:00:00Z',
+                name: 'Created Collection',
+                description: null,
+                tags: null,
+                category: null,
+                fileCount: 0,
+                chunkCount: 0,
+                embeddingCount: 0,
+              },
+            },
           })
         );
         await Promise.resolve();
@@ -301,7 +394,7 @@ describe('useCollections', () => {
       );
     });
 
-    it('clears loading when a paused live-query refresh succeeds after an embedding set update', async () => {
+    it('refreshes the paused collections snapshot when an embedding set update event arrives', async () => {
       mockStoreState.isEmbeddingActive = true;
       let resolveInitialQuery: ((value: { rows: typeof mockCollectionRows }) => void) | undefined;
       const initialQuery = new Promise<{ rows: typeof mockCollectionRows }>((resolve) => {
@@ -317,24 +410,172 @@ describe('useCollections', () => {
       await waitFor(() => {
         expect(result.current.loading).toBe(true);
       });
+      await waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalledTimes(1);
+      });
 
       await act(async () => {
         window.dispatchEvent(
           new CustomEvent('brainstrike:embedding-set-updated', {
-            detail: { id: 'set-1' },
+            detail: { id: 'set-1', reason: 'updated' },
           })
         );
         await Promise.resolve();
       });
 
       await waitFor(() => {
-        expect(result.current.loading).toBe(false);
+        expect(mockDb.query.mock.calls.length).toBeGreaterThanOrEqual(2);
+        expect(mockStoreState.setCachedCollections).toHaveBeenCalledWith(
+          expect.arrayContaining([expect.objectContaining({ id: 'set-1' })])
+        );
       });
 
       expect(resolveInitialQuery).toBeDefined();
       await act(async () => {
         resolveInitialQuery?.({ rows: mockCollectionRows });
       });
+    });
+
+    it('shows a newly created collection immediately before the refresh query resolves', async () => {
+      mockStoreState.isEmbeddingActive = true;
+      let resolveQuery: ((value: { rows: typeof mockCollectionRows }) => void) | undefined;
+      const delayedQuery = new Promise<{ rows: typeof mockCollectionRows }>((resolve) => {
+        resolveQuery = resolve;
+      });
+      mockDb.query.mockImplementation(() => delayedQuery);
+
+      const { result, rerender } = renderHook(() => useCollections(mockDb as never));
+      await waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalledTimes(1);
+      });
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:embedding-set-updated', {
+            detail: {
+              id: 'set-optimistic',
+              reason: 'created',
+              collection: {
+                id: 'set-optimistic',
+                modelKey: 'openai',
+                modelId: 'text-embedding-3-small',
+                dimensions: 1536,
+                distance: 'cosine',
+                createdAt: '2024-01-03T00:00:00Z',
+                name: 'Optimistic Collection',
+                description: null,
+                tags: null,
+                category: null,
+                fileCount: 0,
+                chunkCount: 0,
+                embeddingCount: 0,
+              },
+            },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      rerender();
+
+      expect(result.current.collections).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'set-optimistic', name: 'Optimistic Collection' }),
+        ])
+      );
+
+      await act(async () => {
+        resolveQuery?.({ rows: mockCollectionRows });
+      });
+    });
+
+    it('does not let stale live-query rows erase a newly created collection before refresh catches up', async () => {
+      mockStoreState.cachedCollections = [];
+      mockDb.query.mockResolvedValue({ rows: mockCollectionRows });
+
+      renderHook(() => useCollections(mockDb as never));
+      await waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalled();
+      });
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:embedding-set-updated', {
+            detail: {
+              id: 'set-created',
+              reason: 'created',
+              collection: {
+                id: 'set-created',
+                modelKey: 'openai',
+                modelId: 'text-embedding-3-small',
+                dimensions: 1536,
+                distance: 'cosine',
+                createdAt: '2024-01-05T00:00:00Z',
+                name: 'Created Without Tab Switch',
+                description: null,
+                tags: null,
+                category: null,
+                fileCount: 0,
+                chunkCount: 0,
+                embeddingCount: 0,
+              },
+            },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(mockStoreState.cachedCollections).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ id: 'set-created', name: 'Created Without Tab Switch' }),
+          ])
+        );
+      });
+    });
+
+    it('does not resurface a deleted collection from stale live-query rows before refresh catches up', async () => {
+      mockStoreState.cachedCollections = [
+        {
+          id: 'set-1',
+          modelKey: 'openai',
+          modelId: 'text-embedding-3-small',
+          dimensions: 1536,
+          distance: 'cosine',
+          createdAt: '2024-01-01T00:00:00Z',
+          name: 'Test Collection',
+          description: null,
+          tags: null,
+          category: null,
+          fileCount: 10,
+          chunkCount: 100,
+          embeddingCount: 50,
+        },
+      ];
+      mockDb.query.mockResolvedValue({ rows: mockCollectionRows });
+
+      const { result, rerender } = renderHook(() => useCollections(mockDb as never));
+      await waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalled();
+      });
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:embedding-set-updated', {
+            detail: { id: 'set-1', reason: 'deleted' },
+          })
+        );
+        await Promise.resolve();
+      });
+
+      rerender();
+
+      expect(
+        result.current.collections.find((collection) => collection.id === 'set-1')
+      ).toBeUndefined();
+      expect(
+        mockStoreState.cachedCollections.find((collection) => collection.id === 'set-1')
+      ).toBeUndefined();
     });
   });
 

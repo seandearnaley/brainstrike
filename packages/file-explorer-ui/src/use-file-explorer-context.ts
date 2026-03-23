@@ -21,6 +21,7 @@ import { useOptionalFileTreeContext } from './file-tree-provider';
 import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
+import { getRootFolderId } from './utils/get-root-folder-id';
 
 const logger = createLogger('FileExplorerContext');
 
@@ -441,7 +442,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   // Initial load is when we have a root but tree is still loading
   const isInitialLoad = !rootDirectoryHandle && isTreeLoading;
-  const currentRootFolderId = rootDirectoryHandle?.name ?? null;
+  const currentRootFolderId = getRootFolderId(rootDirectoryHandle);
 
   // Track which folder we've already restored expanded paths for
   const restoredForFolderRef = useRef<string | null>(null);

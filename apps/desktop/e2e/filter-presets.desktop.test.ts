@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { mockFileSystemOperations } from './utils/electron-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 async function ensureLeftPanelVisible(window: Page): Promise<void> {
   const leftPanel = window.locator('#explorer-panel');
@@ -62,6 +62,8 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
   const presetTrigger = await resolvePresetTrigger(window);
   await presetTrigger.click();
 
+  await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+
   const documentationOption = window.getByRole('button', { name: /documentation/i }).first();
   await expect(documentationOption).toBeVisible({ timeout: 10_000 });
   await documentationOption.click();
@@ -88,6 +90,7 @@ async function switchPreset(window: Page, currentName: RegExp, nextName: RegExp)
 
 test.describe('Desktop filter presets', () => {
   test.beforeEach(async ({ window }) => {
+    const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(window);
   });
 
@@ -110,6 +113,22 @@ test.describe('Desktop filter presets', () => {
     await resolvePresetTrigger(window);
   });
 
+  test('loads presets without getting stuck on the loading state', async ({ window }) => {
+    test.setTimeout(45_000);
+
+    await ensureLeftPanelVisible(window);
+    await selectMockRoot(window);
+    await ensureViewFiltersExpanded(window);
+
+    const presetTrigger = await resolvePresetTrigger(window);
+    await presetTrigger.click();
+
+    await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+    await expect(window.getByRole('button', { name: /documentation/i }).first()).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
   test('keeps the selected preset after app restart', async ({ electron, window }) => {
     test.setTimeout(90_000);
 
@@ -120,6 +139,7 @@ test.describe('Desktop filter presets', () => {
 
     const relaunched = await electron.restart();
     const relaunchedWindow = relaunched.window;
+    const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(relaunchedWindow);
     await ensureLeftPanelVisible(relaunchedWindow);
 

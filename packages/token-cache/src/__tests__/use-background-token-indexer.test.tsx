@@ -237,6 +237,61 @@ describe('useBackgroundTokenIndexer', () => {
     await waitFor(() => expect(result.current.isIndexing).toBe(false));
   });
 
+  it('keeps content-level tokenization failures file-scoped', async () => {
+    const onFileError = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    await markWorkerReady();
+
+    let indexPromise!: Promise<void>;
+    act(() => {
+      indexPromise = result.current.indexFiles([
+        {
+          compositeKey: 'folder|@|special.ts',
+          folderId: 'folder',
+          filePath: 'special.ts',
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      const worker = mockWorkers[0]!;
+      expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      worker.emitEvent('message', {
+        data: {
+          type: 'error',
+          compositeKey: 'folder|@|special.ts',
+          error:
+            'Accurate token counting failed: The text contains a special token that is not allowed: <|endoftext|>',
+          id: '1',
+        },
+      } as MessageEvent);
+    });
+
+    await expect(indexPromise).resolves.toBeUndefined();
+    expect(onFileError).toHaveBeenCalledWith(
+      'folder|@|special.ts',
+      'Accurate token counting failed: The text contains a special token that is not allowed: <|endoftext|>'
+    );
+    expect(onFileError).not.toHaveBeenCalledWith(
+      '__worker__',
+      expect.stringContaining('failed state')
+    );
+    expect(result.current.isReady).toBe(true);
+    expect(result.current.isIndexing).toBe(false);
+  });
+
   it('routes worker.onerror through the terminal fail path', async () => {
     const onFileError = vi.fn();
 

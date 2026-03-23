@@ -150,12 +150,20 @@ describe('EmbeddingHostRuntime', () => {
       throw new Error('Expected embedding host command listener to be registered.');
     }
 
-    commandListener(createEmbeddingHostCommand('reset', 'test-runtime'));
+    commandListener(
+      createEmbeddingHostCommand('reset', 'test-runtime', 'embedding-host:next-runtime')
+    );
 
     await waitFor(() => {
       expect(stopMock).toHaveBeenCalledTimes(1);
       expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(initialStartCount + 1);
     });
+    expect(reportStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeId: 'embedding-host:next-runtime',
+        state: 'running',
+      })
+    );
   });
 
   it('does not report stopped status again after unmount cleanup finishes', async () => {

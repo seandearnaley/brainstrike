@@ -11,10 +11,16 @@ describe('ChunkingService', () => {
   });
 
   describe('chunkContent', () => {
-    it('should throw error for missing content', async () => {
-      await expect(
-        chunkingService.chunkContent('', 'file1', { strategy: 'sentence' })
-      ).rejects.toThrow('Content and fileRecordId are required for chunking');
+    it('should skip zero-byte content explicitly', async () => {
+      const result = await chunkingService.chunkContent('', 'file1', {
+        strategy: 'sentence',
+        fileName: 'empty.txt',
+      });
+
+      expect(result.skipped).toBe(true);
+      expect(result.skipReason).toBe('Empty file content');
+      expect(result.chunks).toHaveLength(0);
+      expect(result.totalTokens).toBe(0);
     });
 
     it('should throw error for missing fileRecordId', async () => {
@@ -94,6 +100,17 @@ describe('ChunkingService', () => {
       expect(result.skipped).toBe(true);
       expect(result.skipReason).toBe('Highly repetitive content (likely generated file)');
       expect(result.strategyUsed).toBe('sentence');
+    });
+
+    it('skips zero-byte content before token counting', async () => {
+      const result = await chunkingService.chunkContent('', 'file-empty', {
+        strategy: 'recursive',
+        fileName: 'empty.ts',
+      });
+
+      expect(result.skipped).toBe(true);
+      expect(result.skipReason).toBe('Empty file content');
+      expect(result.strategyUsed).toBe('recursive');
     });
   });
 

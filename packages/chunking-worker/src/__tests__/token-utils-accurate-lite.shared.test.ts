@@ -13,6 +13,7 @@ const retryTiktokenFactory = vi.hoisted(() => {
       }
       return {
         encode: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
+        encode_ordinary: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
       };
     },
     get_encoding: vi.fn(),
@@ -37,13 +38,26 @@ describe('token-utils-accurate-lite shared behavior', () => {
     vi.doMock('tiktoken', () => ({
       encoding_for_model: () => {
         encoderInstanceCount += 1;
-        return {
-          encode: (text: string) => new Uint32Array(Math.ceil(text.length / 5)),
-          free: encoderInstanceCount === 1 ? freeChunkingEncoder : freeTokenCacheEncoder,
-        };
+        return new (class {
+          private readonly divisor = 5;
+          public readonly free =
+            encoderInstanceCount === 1 ? freeChunkingEncoder : freeTokenCacheEncoder;
+
+          public encode(text: string): Uint32Array {
+            return new Uint32Array(Math.ceil(text.length / this.divisor));
+          }
+
+          public encode_ordinary(text: string): Uint32Array {
+            if (this.divisor !== 5) {
+              throw new Error('encode_ordinary lost encoder binding');
+            }
+            return new Uint32Array(Math.ceil(text.length / this.divisor));
+          }
+        })();
       },
       get_encoding: () => ({
         encode: (text: string) => new Uint32Array(Math.ceil(text.length / 4)),
+        encode_ordinary: (text: string) => new Uint32Array(Math.ceil(text.length / 4)),
       }),
     }));
 

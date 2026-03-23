@@ -231,6 +231,12 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     titleBarStyle: 'default',
     backgroundColor: '#0b1020',
     show: false,
+    ...(isTestMode
+      ? {
+          focusable: false,
+          skipTaskbar: true,
+        }
+      : {}),
   });
   assignWindowRole(win, 'visible-ui');
 
@@ -428,7 +434,13 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   );
 
   if (isMaximized) {
-    win.maximize();
+    if (isTestMode) {
+      startupLogger.info(
+        'Skipping maximize in desktop E2E mode because Electron shows hidden windows when maximizing'
+      );
+    } else {
+      win.maximize();
+    }
   }
 
   // Log the lifecycle event for startup diagnostics, but do not show the window here.

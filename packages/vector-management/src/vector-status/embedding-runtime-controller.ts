@@ -21,8 +21,10 @@ export interface EmbeddingRuntimeBackfillProgress extends BackgroundRuntimeProgr
 export type EmbeddingRuntimeStatus = BackgroundRuntimeStatus<'embedding-host' | 'embedding-worker'>;
 
 export interface EmbeddingRuntimeController {
+  cancelAllBackfills: () => Promise<void>;
   enqueueBackfill: (embeddingSetId: string) => Promise<void>;
   ensureStarted: () => Promise<EmbeddingRuntimeStatus>;
+  getBackfillsInFlight: () => Promise<string[]>;
   getStatus: () => Promise<EmbeddingRuntimeStatus>;
   onBackfillProgress: (
     callback: (progress: EmbeddingRuntimeBackfillProgress) => void
@@ -42,8 +44,10 @@ interface EmbeddingHostStatus {
 }
 
 interface EmbeddingHostApi {
+  readonly cancelAllBackfills?: () => Promise<void>;
   readonly enqueueBackfill?: (embeddingSetId: string) => Promise<unknown>;
   readonly ensureStarted: () => Promise<EmbeddingHostStatus>;
+  readonly getBackfillsInFlight?: () => Promise<string[]>;
   readonly getStatus: () => Promise<EmbeddingHostStatus>;
   readonly onBackfillProgress?: (
     callback: (progress: EmbeddingRuntimeBackfillProgress) => void
@@ -100,10 +104,8 @@ export function useEmbeddingRuntimeController(
 ): EmbeddingRuntimeController {
   const { db, devicePreference, reinitEveryN, service } = params;
   const desktopHost = getEmbeddingHostApi();
-  const desktopConfigKey = `${devicePreference}:${reinitEveryN}`;
   const localRuntimeIdRef = useRef<string>(createRuntimeId('embedding-worker'));
   const localWorkerControllerRef = useRef<EmbeddingWorkerController | null>(null);
-  const syncedDesktopConfigKeyRef = useRef<string | null>(null);
   const statusStoreRef = useRef(
     createRuntimeStatusStore<EmbeddingRuntimeStatus>(
       desktopHost
@@ -161,28 +163,12 @@ export function useEmbeddingRuntimeController(
     const updateLocalStatus = (status: EmbeddingRuntimeStatus): EmbeddingRuntimeStatus =>
       statusStoreRef.current.setStatus(status);
 
-    const ensureDesktopHostConfigured = async (): Promise<EmbeddingRuntimeStatus> => {
+    const ensureDesktopHostStarted = async (): Promise<EmbeddingRuntimeStatus> => {
       if (!desktopHost) {
         throw new Error('Desktop embedding host bridge is unavailable.');
       }
-
-      if (syncedDesktopConfigKeyRef.current === desktopConfigKey) {
-        const status = await desktopHost.ensureStarted();
-        return statusStoreRef.current.setStatus(status);
-      }
-
-      const currentStatus = await desktopHost.getStatus();
-      if (currentStatus.state !== 'stopped') {
-        const stoppedStatus = await desktopHost.stop();
-        statusStoreRef.current.setStatus(stoppedStatus);
-      }
-      const nextStatus = await desktopHost.ensureStarted();
-
-      if (nextStatus.state !== 'error') {
-        syncedDesktopConfigKeyRef.current = desktopConfigKey;
-      }
-
-      return statusStoreRef.current.setStatus(nextStatus);
+      const status = await desktopHost.ensureStarted();
+      return statusStoreRef.current.setStatus(status);
     };
 
     const ensureLocalStarted = async (): Promise<EmbeddingRuntimeStatus> => {
@@ -247,9 +233,14 @@ export function useEmbeddingRuntimeController(
     };
 
     return {
+      cancelAllBackfills: async () => {
+        if (desktopHost?.cancelAllBackfills) {
+          await desktopHost.cancelAllBackfills();
+        }
+      },
       enqueueBackfill: async (embeddingSetId: string): Promise<void> => {
         if (desktopHost?.enqueueBackfill) {
-          const status = await ensureDesktopHostConfigured();
+          const status = await ensureDesktopHostStarted();
           if (status.state === 'error') {
             throw new Error(status.lastError ?? 'Embedding runtime failed to apply host settings.');
           }
@@ -272,9 +263,15 @@ export function useEmbeddingRuntimeController(
       },
       ensureStarted: async () => {
         if (desktopHost) {
-          return ensureDesktopHostConfigured();
+          return ensureDesktopHostStarted();
         }
         return ensureLocalStarted();
+      },
+      getBackfillsInFlight: async () => {
+        if (desktopHost?.getBackfillsInFlight) {
+          return desktopHost.getBackfillsInFlight();
+        }
+        return [];
       },
       getStatus: async () => {
         if (desktopHost) {
@@ -293,9 +290,6 @@ export function useEmbeddingRuntimeController(
       reset: async () => {
         if (desktopHost) {
           const status = await desktopHost.reset();
-          if (status.state !== 'error') {
-            syncedDesktopConfigKeyRef.current = desktopConfigKey;
-          }
           return statusStoreRef.current.setStatus(status);
         }
         if (localWorkerControllerRef.current) {
@@ -308,14 +302,13 @@ export function useEmbeddingRuntimeController(
       },
       start: async () => {
         if (desktopHost) {
-          return ensureDesktopHostConfigured();
+          return ensureDesktopHostStarted();
         }
         return ensureLocalStarted();
       },
       stop: async () => {
         if (desktopHost) {
           const status = await desktopHost.stop();
-          syncedDesktopConfigKeyRef.current = null;
           return statusStoreRef.current.setStatus(status);
         }
         if (localWorkerControllerRef.current) {
@@ -325,7 +318,7 @@ export function useEmbeddingRuntimeController(
         return updateLocalStatus(createStoppedLocalStatus(localRuntimeIdRef.current));
       },
     };
-  }, [db, desktopConfigKey, desktopHost, devicePreference, reinitEveryN, service]);
+  }, [db, desktopHost, devicePreference, reinitEveryN, service]);
 
   return controller;
 }

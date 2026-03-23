@@ -25,12 +25,16 @@ vi.mock('@brainstrike/utils/log-buffer', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils/logger', () => ({
-  addLogListener: vi.fn((listener: (record: unknown) => void) => {
-    listener({ level: 'info', msg: 'test' });
-    return vi.fn();
-  }),
-}));
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    addLogListener: vi.fn((listener: (record: unknown) => void) => {
+      listener({ level: 'info', msg: 'test' });
+      return vi.fn();
+    }),
+  };
+});
 
 describe('renderer log-buffer', () => {
   beforeEach(() => {

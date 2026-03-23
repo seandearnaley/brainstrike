@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - '**'
+  workflow_dispatch:
 
 # Cancel in-progress runs when new commits are pushed to the same PR
 # Uses head repo + head_ref for PRs to avoid fork collisions (different forks can use the same branch name)
@@ -23,6 +24,7 @@ permissions:
 # Skip ONNX Runtime CUDA binary download in CI to avoid flaky external fetches.
 env:
   ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # CI environment variable is already set by GitHub Actions
 
@@ -30,6 +32,7 @@ jobs:
   # Fast-fail checks that run in parallel
   checks:
     name: Lint, Type Check & Unit Tests
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -38,7 +41,7 @@ jobs:
       TURBO_CACHE_DIR: .turbo
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -142,7 +145,7 @@ jobs:
 
       - name: Comment PR with Coverage Summary
         if: steps.unit-tests.outputs.has_coverage == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -251,7 +254,7 @@ jobs:
           echo "Bundled $(find coverage-bundle -name '*.json' 2>/dev/null | wc -l) coverage files"
 
       - name: Upload coverage bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-coverage
           path: coverage-bundle.tar
@@ -266,6 +269,7 @@ jobs:
   # Dynamic matrix: fewer shards on PRs, full shards on main
   determine-matrix:
     name: Determine E2E Matrix
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -292,6 +296,7 @@ jobs:
   # Build web app and upload as artifact for E2E jobs
   prepare-web:
     name: Build Web App
+    if: github.event_name != 'workflow_dispatch'
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -301,7 +306,7 @@ jobs:
       TURBO_CACHE_DIR: .turbo
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
@@ -310,7 +315,7 @@ jobs:
         run: pnpm run build --filter @brainstrike/web
 
       - name: Upload web dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-dist
           path: apps/web/dist/
@@ -319,6 +324,7 @@ jobs:
   # Build desktop app and upload as artifact for E2E jobs
   prepare-desktop:
     name: Build Desktop App
+    if: github.event_name != 'workflow_dispatch'
     needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -328,7 +334,7 @@ jobs:
       TURBO_CACHE_DIR: .turbo
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
@@ -339,7 +345,7 @@ jobs:
         run: pnpm run build --filter @brainstrike/desktop
 
       - name: Upload desktop dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-dist
           path: apps/desktop/dist/
@@ -348,6 +354,7 @@ jobs:
   # Vitest 4 Browser Mode tests (WASM/IndexedDB validation)
   browser-tests:
     name: Browser Tests (Vitest 4)
+    if: github.event_name != 'workflow_dispatch'
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -357,7 +364,7 @@ jobs:
       TURBO_CACHE_DIR: .turbo
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
@@ -370,7 +377,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-vitest-${{ steps.playwright-version.outputs.version }}
@@ -398,7 +405,7 @@ jobs:
 
       - name: Upload browser test traces on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: browser-test-traces
           path: |
@@ -410,6 +417,7 @@ jobs:
   # E2E tests run in parallel with sharding
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    if: github.event_name != 'workflow_dispatch'
     needs: [prepare-web, determine-matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -424,7 +432,7 @@ jobs:
         shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.web-shard-total) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
@@ -433,7 +441,7 @@ jobs:
         run: pnpm run build --filter @brainstrike/web
 
       - name: Download web dist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: apps/web/dist/
@@ -446,7 +454,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
@@ -491,7 +499,7 @@ jobs:
 
       - name: Upload blob report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: blob-report-${{ matrix.shardIndex }}
           path: apps/web/blob-report-${{ matrix.shardIndex }}.tar
@@ -517,7 +525,7 @@ jobs:
         shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shard-total) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
@@ -586,7 +594,7 @@ jobs:
 
       - name: Upload blob report (desktop shard)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-blob-report-${{ matrix.shardIndex }}
           path: apps/desktop/desktop-blob-report-${{ matrix.shardIndex }}.tar
@@ -614,7 +622,7 @@ jobs:
         shardTotal: ${{ fromJSON(needs.determine-matrix.outputs.desktop-shard-total) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
@@ -683,10 +691,106 @@ jobs:
 
       - name: Upload blob report (desktop shard)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-blob-report-${{ matrix.shardIndex }}
           path: apps/desktop/desktop-blob-report-${{ matrix.shardIndex }}.tar
+          retention-days: 1
+          if-no-files-found: warn
+
+  desktop-e2e-backgrounding:
+    name: Desktop E2E Backgrounding Regression
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Install system dependencies for Electron
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Install Playwright system dependencies
+        run: pnpm exec playwright install-deps
+
+      - name: Build desktop application
+        run: pnpm run build --filter @brainstrike/desktop
+
+      - name: Run desktop backgrounding regression tests
+        timeout-minutes: 30
+        working-directory: apps/desktop
+        run: |
+          unset NO_COLOR
+          export DISPLAY=":95"
+          XVFB_STDOUT_LOG="/tmp/brainstrike-xvfb-stdout.log"
+          XVFB_STDERR_LOG="/tmp/brainstrike-xvfb-stderr.log"
+
+          LOCK_FILE="/tmp/.X95-lock"
+          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+
+          echo "Starting Xvfb on display ${DISPLAY} for backgrounding regression"
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX >"$XVFB_STDOUT_LOG" 2>"$XVFB_STDERR_LOG" &
+          XVFB_PID=$!
+
+          echo "Waiting for Xvfb to initialize..."
+          sleep 3
+
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            [ -s "$XVFB_STDOUT_LOG" ] && cat "$XVFB_STDOUT_LOG"
+            [ -s "$XVFB_STDERR_LOG" ] && cat "$XVFB_STDERR_LOG"
+            exit 1
+          fi
+          echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
+
+          echo "Starting Playwright backgrounding regression tests..."
+          pnpm test:e2e:backgrounding
+          TEST_EXIT_CODE=$?
+
+          kill $XVFB_PID 2>/dev/null || true
+          if [ "$TEST_EXIT_CODE" -ne 0 ]; then
+            [ -s "$XVFB_STDOUT_LOG" ] && cat "$XVFB_STDOUT_LOG"
+            [ -s "$XVFB_STDERR_LOG" ] && cat "$XVFB_STDERR_LOG"
+          fi
+          exit $TEST_EXIT_CODE
+        env:
+          NODE_ENV: "test"
+          CI: "true"
+          LOG_LEVEL: "warn"
+          RUN_SALT: ${{ github.run_id }}
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          ELECTRON_DISABLE_GPU: "1"
+
+      - name: Bundle blob report (desktop backgrounding)
+        if: always()
+        run: |
+          set -e
+          cd apps/desktop
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf desktop-backgrounding-blob-report.tar blob-report/
+            ls -lh desktop-backgrounding-blob-report.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "No blob report found for desktop backgrounding regression"
+          fi
+
+      - name: Upload blob report (desktop backgrounding)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-backgrounding-blob-report
+          path: apps/desktop/desktop-backgrounding-blob-report.tar
           retention-days: 1
           if-no-files-found: warn
 
@@ -695,20 +799,20 @@ jobs:
   # (PR runs -pr, main/push runs -main). The OR condition handles this correctly.
   merge-reports:
     name: Merge Test Reports
+    if: github.event_name != 'workflow_dispatch' && always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
     needs: [checks, e2e, desktop-e2e-pr, desktop-e2e-main]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
 
       - name: Download blob reports
         id: download-reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: all-blob-reports
           pattern: '*blob-report*'
@@ -782,7 +886,7 @@ jobs:
           pnpm exec playwright merge-reports --config playwright-merge.config.js merged-blob-reports
 
       - name: Download unit test coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: unit-coverage
           path: .
@@ -828,7 +932,7 @@ jobs:
 
       - name: Upload final test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: all-test-results
           path: |
@@ -840,6 +944,7 @@ jobs:
   # Optional checks that don't block merging
   code-quality:
     name: Code Quality Checks
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
@@ -850,7 +955,7 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo
@@ -859,8 +964,17 @@ jobs:
         run: pnpm turbo run build --filter=@brainstrike/build-utils --filter=@brainstrike/server-config --summarize --log-order=grouped --cache-dir=.turbo
 
       - name: Audit production dependencies
-        run: pnpm audit --prod --audit-level high
-        continue-on-error: true
+        id: production-audit
+        run: |
+          set +e
+          pnpm audit --prod --audit-level high
+          audit_exit_code=$?
+          set -e
+
+          echo "exit_code=${audit_exit_code}" >> "$GITHUB_OUTPUT"
+          if [ "$audit_exit_code" -ne 0 ]; then
+            echo "Production dependency audit reported findings." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Run Knip analysis
         id: knip-analysis
@@ -881,7 +995,7 @@ jobs:
 
       - name: Comment PR with Knip Results
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

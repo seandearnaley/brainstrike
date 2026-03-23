@@ -52,7 +52,7 @@ export function useImportFlow({
 }: UseImportFlowOptions): UseImportFlowResult {
   const [showImportProgress, setShowImportProgress] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
-  const { fileContents, fileTree } = useFileExplorer();
+  const { fileContents, fileTree, unfilteredFileTree } = useFileExplorer();
   const { selectedFilePaths } = useSelectionManager({
     onSelectionLimitExceeded: () => {
       toast({
@@ -144,7 +144,7 @@ export function useImportFlow({
     }
 
     try {
-      await importFiles(selectedFilePaths, fileTree, fileContents);
+      await importFiles(selectedFilePaths, unfilteredFileTree ?? fileTree, fileContents);
     } finally {
       setIsCancelling(false);
     }
@@ -153,6 +153,7 @@ export function useImportFlow({
     ensureCollectionSelected,
     fileContents,
     fileTree,
+    unfilteredFileTree,
     importFiles,
     selectedFilePaths,
   ]);

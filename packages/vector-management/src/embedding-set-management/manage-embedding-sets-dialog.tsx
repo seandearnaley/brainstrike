@@ -27,6 +27,8 @@ import { RenameEmbeddingSetDialog } from './rename-embedding-set-dialog';
 
 type EmbeddingSetWithStats = EmbeddingSet & {
   chunkCount: number;
+  embeddingCount: number;
+  fileCount: number;
   lastEmbeddedAt: string | null;
 };
 
@@ -51,6 +53,8 @@ function mapRowToSet(row: {
   tags: string | null;
   category: string | null;
   chunkCount: string | number;
+  embeddingCount: string | number;
+  fileCount: string | number;
   lastEmbeddedAt: string | null;
 }): EmbeddingSetWithStats {
   const base = {
@@ -61,10 +65,11 @@ function mapRowToSet(row: {
     distance: String(row.distance) as EmbeddingSet['distance'],
     createdAt: String(row.createdAt),
     chunkCount: Number(row.chunkCount ?? 0),
+    embeddingCount: Number(row.embeddingCount ?? 0),
+    fileCount: Number(row.fileCount ?? 0),
     lastEmbeddedAt: row.lastEmbeddedAt ? String(row.lastEmbeddedAt) : null,
   };
 
-  // Only add optional properties if they have values
   return {
     ...base,
     ...(row.name ? { name: String(row.name) } : {}),
@@ -198,6 +203,8 @@ export function ManageEmbeddingSetsDialog({
         tags: string | null;
         category: string | null;
         chunkCount: string | number;
+        embeddingCount: string | number;
+        fileCount: string | number;
         lastEmbeddedAt: string | null;
       }>(
         `SELECT s.id,
@@ -210,10 +217,13 @@ export function ManageEmbeddingSetsDialog({
                 s.description,
                 s.tags,
                 s.category,
+                COUNT(DISTINCT fr.id) AS "fileCount",
                 COUNT(c.id) AS "chunkCount",
+                COUNT(c.id) FILTER (WHERE c.embedding IS NOT NULL) AS "embeddingCount",
                 MAX(c.updated_at) AS "lastEmbeddedAt"
            FROM embedding_sets s
            LEFT JOIN file_chunks c ON c.embedding_set_id = s.id
+           LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
        GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
        ORDER BY s.created_at DESC`
       );

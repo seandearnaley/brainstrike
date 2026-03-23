@@ -6,9 +6,12 @@ export type {
   CollectionSelectProps,
   CollectionSelectSize,
   CollectionWithDocCount,
+  EmbeddingSetEventCollection,
+  EmbeddingSetUpdatedEventDetail,
 } from './collection-select/index.js';
 export {
   CollectionSelect,
+  dispatchEmbeddingSetUpdated,
   formatCollectionLabel,
   useCollections,
 } from './collection-select/index.js';

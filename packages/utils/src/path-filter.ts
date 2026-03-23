@@ -1,6 +1,6 @@
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils/logger';
 import { Minimatch } from 'minimatch';
-import { createLogger } from './logger';
 
 /**
  * Common file patterns to ignore

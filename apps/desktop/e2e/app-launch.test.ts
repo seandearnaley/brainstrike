@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
-import { getAppPath, getAppVersion, waitForAppReady } from './utils/electron-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Electron App Launch', () => {
   test(
@@ -22,6 +22,8 @@ test.describe('Electron App Launch', () => {
   test.setTimeout(90_000);
 
   test('should have correct app metadata', { tag: '@smoke' }, async ({ electronApp }) => {
+    const { getAppPath, getAppVersion } = await loadElectronHelpers();
+
     // Check app version
     const version = await getAppVersion(electronApp.app);
     expect(version).toBeTruthy();
@@ -65,6 +67,8 @@ test.describe('Electron App Launch', () => {
   });
 
   test('should persist window state', async ({ electron, electronApp }) => {
+    const { waitForAppReady } = await loadElectronHelpers();
+
     // Test window state persistence
     const initialBounds = await electronApp.app.evaluate(async ({ BrowserWindow }) => {
       const windows = BrowserWindow.getAllWindows();

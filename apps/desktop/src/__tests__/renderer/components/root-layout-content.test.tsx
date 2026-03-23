@@ -1,10 +1,14 @@
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
 import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let RootLayoutContent: React.ComponentType;
 let activeToolsTab: 'assistant' | 'database' = 'assistant';
+
+const { loggerInfoMock } = vi.hoisted(() => ({
+  loggerInfoMock: vi.fn(),
+}));
 
 const createQueueStub = (): QueueAdapter => {
   const result = {
@@ -154,6 +158,21 @@ vi.mock('@brainstrike/embeddings', () => ({
   startEmbeddingWorker: vi.fn(async () => ({ stop: vi.fn(async () => {}) })),
 }));
 
+vi.mock('@brainstrike/utils/logger', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
+    '@brainstrike/utils/logger'
+  );
+  return {
+    ...actual,
+    createLogger: () => ({
+      info: loggerInfoMock,
+      debug: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    }),
+  };
+});
+
 // Mock preferences to avoid store initialization
 vi.mock('@brainstrike/preferences', () => ({
   useModelRegistryStore: {
@@ -165,6 +184,11 @@ vi.mock('@brainstrike/preferences', () => ({
 }));
 
 describe('RootLayoutContent', () => {
+  const originalPerformanceMemoryDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis.performance,
+    'memory'
+  );
+
   beforeAll(async () => {
     RootLayoutContent = (await import('../../../renderer/components/root-layout-content')).default;
   });
@@ -174,6 +198,15 @@ describe('RootLayoutContent', () => {
     homeMountCount = 0;
     activeToolsTab = 'assistant';
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalPerformanceMemoryDescriptor) {
+      Object.defineProperty(globalThis.performance, 'memory', originalPerformanceMemoryDescriptor);
+      return;
+    }
+    Reflect.deleteProperty(globalThis.performance, 'memory');
   });
 
   it('should render without crashing', () => {
@@ -221,5 +254,50 @@ describe('RootLayoutContent', () => {
     await waitFor(() =>
       expect(screen.getByTestId('embedding-job-queue-tracker')).toBeInTheDocument()
     );
+  });
+
+  it('keeps heap diagnostics interval stable across tab switches while logging the latest tab', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis.performance, 'memory', {
+      configurable: true,
+      value: {
+        usedJSHeapSize: 1,
+        totalJSHeapSize: 2,
+        jsHeapSizeLimit: 3,
+      },
+    });
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval');
+
+    const { rerender, unmount } = render(<RootLayoutContent />);
+
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+
+    activeToolsTab = 'database';
+    (
+      globalThis.performance as typeof globalThis.performance & {
+        memory: {
+          jsHeapSizeLimit: number;
+          totalJSHeapSize: number;
+          usedJSHeapSize: number;
+        };
+      }
+    ).memory.usedJSHeapSize = 129 * 1024 * 1024;
+
+    rerender(<RootLayoutContent />);
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    expect(clearIntervalSpy).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(15_000);
+
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      'Desktop visible renderer heap changed materially',
+      expect.objectContaining({
+        activeToolsTab: 'database',
+      })
+    );
+
+    unmount();
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
   });
 });
