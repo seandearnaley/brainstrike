@@ -24,6 +24,7 @@ permissions:
 # Skip ONNX Runtime CUDA binary download in CI to avoid flaky external fetches.
 env:
   ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # CI environment variable is already set by GitHub Actions
 

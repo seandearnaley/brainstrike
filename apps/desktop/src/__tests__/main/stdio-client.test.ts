@@ -61,15 +61,24 @@ import { createStdioClient } from '../../mcp/stdio-client';
 describe('stdio client', () => {
   const originalConnectFailureCooldown = process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'];
 
+  const restoreConnectFailureCooldownEnv = (): void => {
+    if (originalConnectFailureCooldown === undefined) {
+      Reflect.deleteProperty(process.env, 'MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS');
+      return;
+    }
+
+    process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'] = originalConnectFailureCooldown;
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
-    process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'] = originalConnectFailureCooldown;
+    restoreConnectFailureCooldownEnv();
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'] = originalConnectFailureCooldown;
+    restoreConnectFailureCooldownEnv();
   });
 
   it('discovers real MCP tools and namespaces them by server', async () => {
