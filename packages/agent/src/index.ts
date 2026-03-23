@@ -304,9 +304,6 @@ export {
   SAFE_ERROR_MESSAGES,
 } from './tools/retrieval-tool';
 export {
-  type FilesystemListInput,
-  type FilesystemReadInput,
-  type FilesystemSearchInput,
   type ReadWorkspaceDirectoryInput,
   ReadWorkspaceDirectoryInputSchema,
   type ReadWorkspaceFileInput,

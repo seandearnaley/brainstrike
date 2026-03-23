@@ -1,7 +1,6 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {
-  isSupportedProvider,
   loadToolPreferences,
   mcpToolRegistry,
   saveToolPreferences,
@@ -9,22 +8,19 @@ import {
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { IpcMainInvokeEvent } from 'electron';
-import { app, dialog, ipcMain } from 'electron';
-import { disposeClients, initClients } from './mcp';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { disposeClients, getClient, initClients } from './mcp';
 import {
   getDefaultMcpConfigTemplate,
   getMcpConfigPath,
   type LoadedMcpConfig,
   loadMcpConfig,
-  type McpConfig,
   type McpServer,
   readMcpConfigText,
   setCustomMcpConfigPath,
   watchMcpConfig,
   writeMcpConfigText,
 } from './mcp-loader';
-import { readOpenAIApiKey } from './openai-api-key';
-import { getSecretsService } from './secrets';
 
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
@@ -32,6 +28,7 @@ const logger = createLogger('DesktopMcpIpc');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
+export const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
 
 function normalizeUrl(url: string | undefined): string {
   return (url ?? '').trim().replace(/\/+$/u, '');
@@ -57,6 +54,7 @@ function isPlaceholderServer(server: McpServer): boolean {
 function handleConfigChange(cfg: LoadedMcpConfig): void {
   last = cfg;
   mcpToolRegistry.clear();
+  notifyMcpToolsUpdated();
   if (cfg.error) {
     logger.error('MCP config could not be loaded', {
       path: cfg.path,
@@ -72,6 +70,22 @@ function handleConfigChange(cfg: LoadedMcpConfig): void {
     });
   } else {
     void disposeClients();
+  }
+}
+
+function getSerializableTools(): ReturnType<typeof mcpToolRegistry.getAllTools> {
+  return JSON.parse(JSON.stringify(mcpToolRegistry.getAllTools())) as ReturnType<
+    typeof mcpToolRegistry.getAllTools
+  >;
+}
+
+function notifyMcpToolsUpdated(): void {
+  const payload = getSerializableTools();
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue;
+    }
+    window.webContents.send(MCP_TOOLS_UPDATED_EVENT, payload);
   }
 }
 
@@ -215,9 +229,7 @@ export function registerMcpIpcHandlers(): void {
   ipcMain.handle(
     'mcp:tools:list',
     async (): Promise<ReturnType<typeof mcpToolRegistry.getAllTools>> => {
-      const tools = mcpToolRegistry.getAllTools();
-      // Serialize to JSON and parse back to ensure all data is cloneable for IPC
-      return JSON.parse(JSON.stringify(tools));
+      return getSerializableTools();
     }
   );
 
@@ -225,6 +237,7 @@ export function registerMcpIpcHandlers(): void {
     'mcp:tools:enable',
     async (_e: IpcMainInvokeEvent, toolIds: string[]): Promise<void> => {
       mcpToolRegistry.enableTools(toolIds);
+      notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
     }
   );
@@ -233,6 +246,7 @@ export function registerMcpIpcHandlers(): void {
     'mcp:tools:disable',
     async (_e: IpcMainInvokeEvent, toolIds: string[]): Promise<void> => {
       mcpToolRegistry.disableTools(toolIds);
+      notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
     }
   );
@@ -241,6 +255,7 @@ export function registerMcpIpcHandlers(): void {
     'mcp:tools:enableServer',
     async (_e: IpcMainInvokeEvent, serverName: string): Promise<void> => {
       mcpToolRegistry.enableServerTools(serverName);
+      notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
     }
   );
@@ -249,12 +264,14 @@ export function registerMcpIpcHandlers(): void {
     'mcp:tools:disableServer',
     async (_e: IpcMainInvokeEvent, serverName: string): Promise<void> => {
       mcpToolRegistry.disableServerTools(serverName);
+      notifyMcpToolsUpdated();
       await saveToolPreferencesIfNeeded();
     }
   );
 
   ipcMain.handle('mcp:tools:reset', async (): Promise<void> => {
     mcpToolRegistry.reset();
+    notifyMcpToolsUpdated();
     await saveToolPreferencesIfNeeded();
   });
 
@@ -311,6 +328,7 @@ async function discoverMcpToolsOnStartup(): Promise<void> {
 
     if (!(loaded.exists && loaded.config)) {
       mcpToolRegistry.clear();
+      notifyMcpToolsUpdated();
       if (loaded.exists && loaded.error) {
         logger.error('MCP config invalid, cleared tool registry', {
           path: loaded.path,
@@ -322,10 +340,12 @@ async function discoverMcpToolsOnStartup(): Promise<void> {
       return;
     }
 
+    initClients(loaded.config);
     await discoverToolsFromConfig(loaded.config);
   } catch (error) {
     // On error, clear registry to ensure no stale state
     mcpToolRegistry.clear();
+    notifyMcpToolsUpdated();
     logger.error('Failed to discover MCP tools on startup, cleared registry', { error });
   }
 }
@@ -354,102 +374,35 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
 
   logger.info('Starting tool discovery', {
     serverCount: actionableServers.length,
-    servers: actionableServers.map((s) => s.name),
+    servers: actionableServers.map((server) => server.name),
   });
 
-  const credentials = await resolveDiscoveryCredentials();
-  if (!credentials) {
-    logger.warn('Skipping tool discovery - no provider credentials configured');
-    return;
-  }
+  for (const server of actionableServers) {
+    const client = getClient(server.name);
+    if (!client) {
+      logger.warn('MCP server discovery failed; client not initialized', { server: server.name });
+      continue;
+    }
 
-  // We need to use Mastra's MCPClient to discover tools
-  // Import it dynamically to avoid circular dependencies
-  const { createMastraAgentRuntime } = await import('@brainstrike/agent');
-
-  const baseDiscoveryConfig = { servers: actionableServers };
-  try {
-    await runDiscoveryForConfig(createMastraAgentRuntime, baseDiscoveryConfig, credentials);
-  } catch (error) {
-    logger.warn('Bulk MCP discovery failed; retrying per server', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-
-    // Keep retries sequential to avoid spawning many MCP transports at once
-    // when startup is already in a degraded state.
-    for (const server of actionableServers) {
-      try {
-        await runDiscoveryForConfig(createMastraAgentRuntime, { servers: [server] }, credentials);
-      } catch (serverError) {
-        logger.warn('MCP server discovery failed; skipping server', {
-          server: server.name,
-          error: serverError instanceof Error ? serverError.message : String(serverError),
-        });
-      }
+    try {
+      const tools = await client.listTools();
+      mcpToolRegistry.register(
+        server.name,
+        tools,
+        server.enabledTools ? { enabledTools: server.enabledTools } : undefined
+      );
+    } catch (error) {
+      logger.warn('MCP server discovery failed; skipping server', {
+        server: server.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
   const stats = mcpToolRegistry.getStats();
   logger.info('Tool discovery complete', stats);
   await loadToolPreferencesOnStartup();
-}
-
-async function runDiscoveryForConfig(
-  createMastraAgentRuntime: typeof import('@brainstrike/agent').createMastraAgentRuntime,
-  config: McpConfig,
-  credentials: { provider: ProviderId; apiKey: string }
-): Promise<void> {
-  let runtime: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
-
-  try {
-    runtime = await createMastraAgentRuntime({
-      runtime: {
-        provider: credentials.provider,
-        apiKey: credentials.apiKey,
-      },
-      mcpConfig: config,
-      mcpTimeoutMs: 10_000,
-    });
-    // Discovery and registry population happen during runtime construction.
-  } finally {
-    await runtime?.dispose();
-  }
-}
-
-type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'local';
-
-async function resolveDiscoveryCredentials(): Promise<
-  { provider: ProviderId; apiKey: string } | undefined
-> {
-  // First, try to find hosted provider credentials
-  try {
-    const secrets = getSecretsService();
-    const providers = await secrets.listProviders();
-    const candidates = providers.filter((p) => p && isSupportedProvider(p));
-
-    // Fetch all keys in parallel to avoid serial latency
-    const keys = await Promise.all(candidates.map((p) => secrets.getKey(p)));
-
-    for (let i = 0; i < candidates.length; i++) {
-      const key = keys[i];
-      if (key && key.trim().length > 0) {
-        const resolvedProvider = candidates[i] as ProviderId;
-        return { provider: resolvedProvider, apiKey: key };
-      }
-    }
-  } catch (error) {
-    logger.error('Unable to read stored provider credentials', { error });
-  }
-
-  const envKey = await readOpenAIApiKey();
-  if (envKey) {
-    return { provider: 'openai', apiKey: envKey };
-  }
-
-  // Fall back to local provider - runs entirely in-browser via Transformers.js
-  // No API key needed for local inference
-  logger.info('No hosted provider credentials found, using local provider');
-  return { provider: 'local', apiKey: '' };
+  notifyMcpToolsUpdated();
 }
 
 /**
@@ -512,6 +465,7 @@ async function loadToolPreferencesOnStartup(): Promise<void> {
     if (validEnabled.length > 0) {
       mcpToolRegistry.enableTools(validEnabled);
     }
+    notifyMcpToolsUpdated();
   } catch (error) {
     logger.error('Failed to load tool preferences', { error });
   }
