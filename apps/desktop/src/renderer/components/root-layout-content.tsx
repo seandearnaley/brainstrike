@@ -73,6 +73,8 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  */
 export default function RootLayoutContent() {
   const activeToolsTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
+  const activeToolsTabRef = useRef(activeToolsTab);
+  activeToolsTabRef.current = activeToolsTab;
   // Keep the queue tracker mounted after first DB visit so queue status/backfill
   // state stays warm across tab switches instead of tearing down and restarting.
   const queueTrackerMountedRef = useRef(activeToolsTab === 'database');
@@ -128,7 +130,7 @@ export default function RootLayoutContent() {
       previousUsedHeapSize = currentMemory.usedJSHeapSize;
 
       logger.info('Desktop visible renderer heap changed materially', {
-        activeToolsTab,
+        activeToolsTab: activeToolsTabRef.current,
         usedJSHeapBytes: currentMemory.usedJSHeapSize,
         totalJSHeapBytes: currentMemory.totalJSHeapSize,
         jsHeapSizeLimitBytes: currentMemory.jsHeapSizeLimit,
@@ -140,7 +142,7 @@ export default function RootLayoutContent() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [activeToolsTab]);
+  }, []);
 
   return (
     <TokenCacheWrapper>
