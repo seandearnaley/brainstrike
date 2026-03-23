@@ -84,6 +84,30 @@ describe('useFileSystem', () => {
   });
 
   describe('selectRootDirectory', () => {
+    it('uses the canonical path as the folder id when name and path differ', async () => {
+      const originalRequestDirectoryAccess = MockFileSystemAdapter.prototype.requestDirectoryAccess;
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = vi.fn().mockResolvedValue({
+        path: '/projects/shared-name',
+        name: 'shared-name',
+        kind: 'directory',
+        platform: 'web',
+      } satisfies DirectoryHandle);
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+      expect(result.current).toBeDefined();
+
+      await act(async () => {
+        await result.current?.selectRootDirectory();
+      });
+
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/projects/shared-name');
+
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
+    });
+
     it('sets root directory handle and updates folder state when selection is successful', async () => {
       const { result } = renderHook(
         () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
@@ -341,7 +365,7 @@ describe('useFileSystem', () => {
         kind: 'directory',
         platform: 'web',
       });
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('path');
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/test/restored/path');
     });
 
     it('should not restore when no last folder is available', async () => {
@@ -464,7 +488,7 @@ describe('useFileSystem', () => {
           })
         );
 
-        expect(mockSetCurrentFolderId).toHaveBeenCalledWith('path');
+        expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/test/restored/path');
       } finally {
         MockFileSystemAdapter.prototype.restoreLastFolder = originalRestoreLastFolder;
       }
@@ -529,7 +553,7 @@ describe('useFileSystem', () => {
         expect(result.current?.rootDirectoryHandle).toEqual(restoredHandle);
       });
 
-      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('path');
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('/test/restored/path');
     });
 
     it('does not update folder state after unmount while restore is in-flight', async () => {

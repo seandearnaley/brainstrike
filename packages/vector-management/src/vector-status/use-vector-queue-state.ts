@@ -1,5 +1,8 @@
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import {
+  type ActiveBackfillState,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
@@ -39,6 +42,9 @@ export interface TelemetryTrendPoint {
 export type ApiKeyValidationResult = { valid: true } | { valid: false; message: string };
 
 export interface UseVectorQueueStateResult {
+  activeSetBackfilling: boolean;
+  activeSetBackfillProgress: BackfillProgress;
+  activeSetQueueCounts: QueueCounts;
   backfillActiveSet: () => Promise<void>;
   backfilling: boolean;
   backfillProgress: BackfillProgress;
@@ -71,6 +77,18 @@ const QUEUE_COUNTS_QUERY = `
     COUNT(*) FILTER (WHERE state = 'succeeded')::int AS "succeeded"
   FROM job_queue
   WHERE queue = $1
+`.trim();
+
+const ACTIVE_SET_QUEUE_COUNTS_QUERY = `
+  SELECT
+    COUNT(*) FILTER (WHERE state = 'queued')::int    AS "queued",
+    COUNT(*) FILTER (WHERE state = 'running')::int   AS "running",
+    COUNT(*) FILTER (WHERE state = 'failed')::int    AS "failed",
+    COUNT(*) FILTER (WHERE state = 'succeeded')::int AS "succeeded"
+  FROM job_queue
+  WHERE queue = $1
+    AND job_type = 'embed_chunk'
+    AND payload->>'embeddingSetId' = $2
 `.trim();
 
 const ISO_UTC_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"' as const;
@@ -170,14 +188,120 @@ const DEFAULT_METRICS = {
 function subscribeBackfillProgress(
   controller: EmbeddingRuntimeController,
   activeEmbeddingSetId: string,
-  setBackfillProgress: (progress: BackfillProgress) => void
+  setActiveBackfill: (backfill: {
+    embeddingSetId: string;
+    progress: NonNullable<BackfillProgress>;
+    requestId: string;
+  }) => void
 ): () => void {
   return controller.onBackfillProgress((progress) => {
     if (progress.embeddingSetId !== activeEmbeddingSetId) {
       return;
     }
-    setBackfillProgress({ done: progress.current, total: progress.total });
+    setActiveBackfill({
+      embeddingSetId: progress.embeddingSetId,
+      requestId: progress.requestId,
+      progress: { done: progress.current, total: progress.total },
+    });
   });
+}
+
+function shouldClearRecoveredBackfillState(
+  currentBackfill: ActiveBackfillState | null,
+  activeEmbeddingSetId: string,
+  isJobQueueActive: boolean
+): boolean {
+  return (
+    currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
+    (isJobQueueActive || currentBackfill.requestId.startsWith('recovered:'))
+  );
+}
+
+function shouldSkipRecoveredBackfillRestore(
+  currentBackfill: ActiveBackfillState | null,
+  activeEmbeddingSetId: string
+): boolean {
+  return (
+    currentBackfill?.embeddingSetId === activeEmbeddingSetId &&
+    !currentBackfill.requestId.startsWith('recovered:')
+  );
+}
+
+function createRecoveredBackfillState(activeEmbeddingSetId: string): ActiveBackfillState {
+  return {
+    embeddingSetId: activeEmbeddingSetId,
+    requestId: `recovered:${activeEmbeddingSetId}:${Date.now()}`,
+    progress: null,
+  };
+}
+
+interface ReconcileBackfillStateAfterReloadParams {
+  activeEmbeddingSetId: string;
+  cleanupRecoveryRef: React.MutableRefObject<(() => void) | null>;
+  clearTransientBackfillState: (expectedEmbeddingSetId?: string | null) => void;
+  controller: EmbeddingRuntimeController;
+  isCancelled: () => boolean;
+  markCancelled: () => void;
+  setActiveBackfill: (backfill: ActiveBackfillState | null) => void;
+  setIsJobQueueActive: (active: boolean) => void;
+}
+
+async function reconcileBackfillStateAfterReload({
+  activeEmbeddingSetId,
+  clearTransientBackfillState,
+  cleanupRecoveryRef,
+  controller,
+  isCancelled,
+  markCancelled,
+  setActiveBackfill,
+  setIsJobQueueActive,
+}: ReconcileBackfillStateAfterReloadParams): Promise<void> {
+  const inFlight = await controller.getBackfillsInFlight();
+  if (isCancelled()) {
+    return;
+  }
+
+  if (!inFlight.includes(activeEmbeddingSetId)) {
+    const currentState = useVectorStatusUIStore.getState();
+    if (
+      shouldClearRecoveredBackfillState(
+        currentState.activeBackfill,
+        activeEmbeddingSetId,
+        currentState.isJobQueueActive
+      )
+    ) {
+      clearTransientBackfillState(activeEmbeddingSetId);
+    }
+    return;
+  }
+
+  const currentBackfill = useVectorStatusUIStore.getState().activeBackfill;
+  if (shouldSkipRecoveredBackfillRestore(currentBackfill, activeEmbeddingSetId)) {
+    return;
+  }
+
+  setIsJobQueueActive(true);
+  setActiveBackfill(createRecoveredBackfillState(activeEmbeddingSetId));
+
+  const unsubscribe = subscribeBackfillProgress(
+    controller,
+    activeEmbeddingSetId,
+    (backfill: {
+      embeddingSetId: string;
+      progress: NonNullable<BackfillProgress>;
+      requestId: string;
+    }) => {
+      if (isCancelled()) {
+        return;
+      }
+      setActiveBackfill(backfill);
+    }
+  );
+
+  cleanupRecoveryRef.current = () => {
+    markCancelled();
+    unsubscribe();
+  };
 }
 
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {
@@ -193,32 +317,118 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const metrics = embeddingQueueContext?.metrics ?? DEFAULT_METRICS;
   const service = params.service;
   const controller = params.controller;
+  const activeBackfill = useVectorStatusUIStore((s) => s.activeBackfill);
   const durableQueueStats = useVectorStatusUIStore((s) => s.durableQueueStats);
+  const isJobQueueActive = useVectorStatusUIStore((s) => s.isJobQueueActive);
+  const setActiveBackfill = useVectorStatusUIStore((s) => s.setActiveBackfill);
   const setIsJobQueueActive = useVectorStatusUIStore((s) => s.setIsJobQueueActive);
 
-  const [backfilling, setBackfilling] = useState(false);
-  const [backfillProgress, setBackfillProgress] = useState<BackfillProgress>(null);
   const [telemetryTrend, setTelemetryTrend] = useState<readonly TelemetryTrendPoint[]>([]);
   const [recentErrorCount, setRecentErrorCount] = useState(0);
   const autoBackfillRef = useRef<string | null>(null);
   const lastEmbeddingSetIdRef = useRef<string | null>(null);
   const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backfillRequestIdRef = useRef<string | null>(null);
+  const backfillInvocationIdRef = useRef(0);
+  const cleanupRecoveryRef = useRef<(() => void) | null>(null);
+
+  const clearBackfillTimeout = useCallback(() => {
+    if (backfillTimeoutRef.current) {
+      clearTimeout(backfillTimeoutRef.current);
+      backfillTimeoutRef.current = null;
+    }
+  }, []);
+  const clearTransientBackfillState = useCallback(
+    (expectedEmbeddingSetId?: string | null) => {
+      const currentBackfill = useVectorStatusUIStore.getState().activeBackfill;
+      if (
+        expectedEmbeddingSetId &&
+        currentBackfill &&
+        currentBackfill.embeddingSetId !== expectedEmbeddingSetId
+      ) {
+        return;
+      }
+
+      clearBackfillTimeout();
+      backfillRequestIdRef.current = null;
+      setActiveBackfill(null);
+      setIsJobQueueActive(false);
+    },
+    [clearBackfillTimeout, setActiveBackfill, setIsJobQueueActive]
+  );
+  const isBackfillActive = activeBackfill !== null;
+  const backfillProgress = activeBackfill?.progress ?? null;
+  const isActiveSetBackfill =
+    activeBackfill !== null && activeBackfill.embeddingSetId === activeEmbeddingSetId;
+  const activeSetBackfillProgress = isActiveSetBackfill ? (activeBackfill?.progress ?? null) : null;
 
   // Pause live queries during import, active embedding, and local backfill submission.
   // These queries invalidate on every job_queue mutation and can cause visible renderer
-  // hitching while large backfills are being enqueued.
-  const liveQueryEnabled = Boolean(service) && !isImporting && !isEmbeddingActive && !backfilling;
+  // OOM during large backfills (30K+ chunks generate ~90K mutations).
+  //
+  // isJobQueueActive is set synchronously by setIsJobQueueActive(true) in
+  // backfillActiveSet BEFORE the enqueue IPC starts, providing the earliest
+  // possible signal to suppress live queries. This closes the race window
+  // between the Zustand state update and React's async re-render cycle.
+  const liveQueryEnabled =
+    Boolean(service) &&
+    !isImporting &&
+    !isEmbeddingActive &&
+    !isBackfillActive &&
+    !isJobQueueActive;
+  const isDesktopRenderer =
+    typeof window !== 'undefined' &&
+    (window as Window & { electronAPI?: unknown }).electronAPI !== undefined;
 
-  // Clear timeout on unmount
-  // biome-ignore lint/plugin: Cleanup timeout on unmount - standard cleanup pattern
+  // Clear timeout on unmount.
   useEffect(
     () => () => {
-      if (backfillTimeoutRef.current) {
-        clearTimeout(backfillTimeoutRef.current);
-      }
+      clearBackfillTimeout();
     },
-    []
+    [clearBackfillTimeout]
   );
+
+  // Reconcile backfill state after renderer reload (e.g., crash recovery).
+  // If the main process has a backfill in flight for the active embedding set,
+  // re-attach to the progress stream so the UI shows the progress indicator.
+  useEffect(() => {
+    if (!(activeEmbeddingSetId && isDesktopRenderer)) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        await reconcileBackfillStateAfterReload({
+          activeEmbeddingSetId,
+          clearTransientBackfillState,
+          cleanupRecoveryRef,
+          controller,
+          isCancelled: () => cancelled,
+          markCancelled: () => {
+            cancelled = true;
+          },
+          setActiveBackfill,
+          setIsJobQueueActive,
+        });
+      } catch (error) {
+        logger.warn('Failed to reconcile backfill state after reload', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+      cleanupRecoveryRef.current?.();
+      cleanupRecoveryRef.current = null;
+    };
+  }, [
+    activeEmbeddingSetId,
+    clearTransientBackfillState,
+    controller,
+    isDesktopRenderer,
+    setActiveBackfill,
+    setIsJobQueueActive,
+  ]);
 
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
     cacheKey: makeLiveQueryKey('queue-counts', EMBEDDINGS_QUEUE),
@@ -247,6 +457,31 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
     return DEFAULT_QUEUE_COUNTS;
   }, [durableQueueStats, queueCountsResult.rows]);
+
+  const activeSetQueueCountsParams = useMemo<readonly [string, string] | undefined>(
+    () => (activeEmbeddingSetId ? ([EMBEDDINGS_QUEUE, activeEmbeddingSetId] as const) : undefined),
+    [activeEmbeddingSetId]
+  );
+
+  const activeSetQueueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
+    cacheKey: makeLiveQueryKey('active-set-queue-counts', activeEmbeddingSetId),
+    query: ACTIVE_SET_QUEUE_COUNTS_QUERY,
+    ...(activeSetQueueCountsParams ? { params: activeSetQueueCountsParams } : {}),
+    enabled: liveQueryEnabled && Boolean(activeEmbeddingSetId),
+  });
+
+  const activeSetQueueCounts = useMemo<QueueCounts>(() => {
+    const row = activeSetQueueCountsResult.rows[0];
+    if (!row) {
+      return DEFAULT_QUEUE_COUNTS;
+    }
+    return {
+      queued: Number(row.queued ?? 0),
+      running: Number(row.running ?? 0),
+      failed: Number(row.failed ?? 0),
+      succeeded: Number(row.succeeded ?? 0),
+    };
+  }, [activeSetQueueCountsResult.rows]);
 
   const throughputResult = usePGliteLiveQuery<ThroughputRow>({
     cacheKey: makeLiveQueryKey('throughput', EMBEDDINGS_QUEUE),
@@ -331,6 +566,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
     await Promise.all([
       queueCountsResult.refresh(),
+      activeSetQueueCountsResult.refresh(),
       throughputResult.refresh(),
       lastErrorResult.refresh(),
       latencyRowsResult.refresh(),
@@ -339,6 +575,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [
     activeEmbeddingSetId,
     coverageResult,
+    activeSetQueueCountsResult,
     lastErrorResult,
     latencyRowsResult,
     queueCountsResult,
@@ -430,13 +667,29 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     if (!activeEmbeddingSetId) {
       throw new Error('No active embedding set selected.');
     }
-    setBackfilling(true);
+    const invocationId = backfillInvocationIdRef.current + 1;
+    backfillInvocationIdRef.current = invocationId;
+    clearBackfillTimeout();
     setIsJobQueueActive(true);
-    setBackfillProgress(null);
+    const pendingRequestId = `pending:${activeEmbeddingSetId}:${Date.now()}`;
+    let invocationRequestId = pendingRequestId;
+    backfillRequestIdRef.current = pendingRequestId;
+    setActiveBackfill({
+      embeddingSetId: activeEmbeddingSetId,
+      requestId: pendingRequestId,
+      progress: null,
+    });
     const unsubscribeProgress = subscribeBackfillProgress(
       controller,
       activeEmbeddingSetId,
-      setBackfillProgress
+      (backfill) => {
+        if (backfillInvocationIdRef.current !== invocationId) {
+          return;
+        }
+        invocationRequestId = backfill.requestId;
+        backfillRequestIdRef.current = backfill.requestId;
+        setActiveBackfill(backfill);
+      }
     );
     try {
       logger.info('backfillActiveSet: starting backfill', { activeEmbeddingSetId });
@@ -452,17 +705,34 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       throw error;
     } finally {
       unsubscribeProgress();
-      setBackfilling(false);
-      setIsJobQueueActive(false);
-      if (backfillTimeoutRef.current) {
-        clearTimeout(backfillTimeoutRef.current);
+      if (backfillInvocationIdRef.current === invocationId) {
+        setIsJobQueueActive(false);
+        clearBackfillTimeout();
+        const completedRequestId = invocationRequestId;
+        backfillTimeoutRef.current = setTimeout(() => {
+          // Only the still-current invocation is allowed to clear visible backfill state.
+          // A newer backfill increments backfillInvocationIdRef and invalidates this timeout.
+          if (
+            backfillInvocationIdRef.current === invocationId &&
+            completedRequestId &&
+            useVectorStatusUIStore.getState().activeBackfill?.requestId === completedRequestId
+          ) {
+            setActiveBackfill(null);
+            if (backfillRequestIdRef.current === completedRequestId) {
+              backfillRequestIdRef.current = null;
+            }
+          }
+          backfillTimeoutRef.current = null;
+        }, 1000);
       }
-      backfillTimeoutRef.current = setTimeout(() => {
-        setBackfillProgress(null);
-        backfillTimeoutRef.current = null;
-      }, 1000);
     }
-  }, [activeEmbeddingSetId, controller, setIsJobQueueActive]);
+  }, [
+    activeEmbeddingSetId,
+    clearBackfillTimeout,
+    controller,
+    setActiveBackfill,
+    setIsJobQueueActive,
+  ]);
 
   const validateApiKey = useCallback(async (): Promise<ApiKeyValidationResult> => {
     if (!(service && activeEmbeddingSetId)) {
@@ -506,21 +776,26 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       return;
     }
     try {
+      await controller.cancelAllBackfills();
       await service.wipeQueue();
+      clearTransientBackfillState();
     } catch {
       // ignore errors when wiping queue
     }
-  }, [service]);
+  }, [clearTransientBackfillState, controller, service]);
 
   return useMemo(
     () => ({
       coverage,
+      activeSetBackfilling: isActiveSetBackfill,
+      activeSetBackfillProgress,
+      activeSetQueueCounts,
       queueCounts,
       throughput,
       latencyStats,
       lastError,
       recentErrorCount,
-      backfilling,
+      backfilling: isBackfillActive,
       backfillProgress,
       telemetryTrend,
       validateApiKey,
@@ -531,12 +806,15 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }),
     [
       coverage,
+      isActiveSetBackfill,
+      activeSetBackfillProgress,
+      activeSetQueueCounts,
       queueCounts,
       throughput,
       latencyStats,
       lastError,
       recentErrorCount,
-      backfilling,
+      isBackfillActive,
       backfillProgress,
       telemetryTrend,
       validateApiKey,

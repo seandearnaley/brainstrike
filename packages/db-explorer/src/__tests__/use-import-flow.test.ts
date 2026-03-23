@@ -27,9 +27,14 @@ vi.mock('../enhanced-file-import-service', () => ({
   },
 }));
 
-const mockExplorer = {
+const mockExplorer: {
+  fileContents: Record<string, string>;
+  fileTree: Record<string, unknown>[];
+  unfilteredFileTree: Record<string, unknown>[] | null;
+} = {
   fileContents: { '/file.txt': 'contents' },
   fileTree: [],
+  unfilteredFileTree: null,
 };
 
 vi.mock('@brainstrike/file-explorer-ui', () => ({
@@ -57,6 +62,8 @@ beforeEach(() => {
   importServiceReturn.chunkRepository = { findAll: vi.fn() };
   importServiceReturn.progress = null;
   latestOptions = {};
+  mockExplorer.fileTree = [];
+  mockExplorer.unfilteredFileTree = null;
 });
 
 describe('useImportFlow', () => {
@@ -82,6 +89,7 @@ describe('useImportFlow', () => {
   it('imports selected files when available', async () => {
     const toast = vi.fn();
     selectionPaths = new Set(['/file.txt']);
+    mockExplorer.fileTree = [{ id: 'filtered-file-node' }];
 
     const { result } = renderHook(() =>
       useImportFlow({
@@ -99,6 +107,33 @@ describe('useImportFlow', () => {
     expect(importServiceReturn.importFiles).toHaveBeenCalledWith(
       selectionPaths,
       mockExplorer.fileTree,
+      mockExplorer.fileContents
+    );
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('uses the unfiltered file tree for import resolution when available', async () => {
+    const toast = vi.fn();
+    selectionPaths = new Set(['/file.txt']);
+    mockExplorer.fileTree = [];
+    mockExplorer.unfilteredFileTree = [{ id: 'canonical-file-node', path: '/file.txt' }];
+
+    const { result } = renderHook(() =>
+      useImportFlow({
+        importSettings: baseSettings,
+        toast,
+        resolveActiveCollectionId: () => 'set-1',
+      })
+    );
+
+    await act(async () => {
+      result.current.handleImportClick();
+      await Promise.resolve();
+    });
+
+    expect(importServiceReturn.importFiles).toHaveBeenCalledWith(
+      selectionPaths,
+      mockExplorer.unfilteredFileTree,
       mockExplorer.fileContents
     );
     expect(toast).not.toHaveBeenCalled();

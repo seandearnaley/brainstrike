@@ -52,7 +52,7 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
 function buildNodeFromPath(
   path: string,
   rootPath: string,
-  rootName: string,
+  rootFolderId: string,
   handle: FileSystemHandle
 ): IFileNode {
   const pathSegments = path.replace(rootPath, '').split('/').filter(Boolean);
@@ -64,7 +64,7 @@ function buildNodeFromPath(
     path,
     type: 'directory',
     depth,
-    rootFolderId: rootName,
+    rootFolderId,
     handle: handle as FileSystemDirectoryHandle,
     selectionState: 'unchecked',
   };
@@ -76,7 +76,7 @@ function buildNodeFromPath(
 async function loadSingleDirectory(
   path: string,
   rootPath: string,
-  rootName: string,
+  rootFolderId: string,
   handleMap: Map<string, FileSystemHandle>,
   fileSystemAdapter: FileSystemAdapter,
   abortSignal: AbortSignal
@@ -86,7 +86,7 @@ async function loadSingleDirectory(
     return { path, error: 'Handle not found' };
   }
 
-  const node = buildNodeFromPath(path, rootPath, rootName, handle);
+  const node = buildNodeFromPath(path, rootPath, rootFolderId, handle);
 
   try {
     const children = await loadDirectoryChildren(fileSystemAdapter, node, {
@@ -205,8 +205,13 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
         const abortController = new AbortController();
 
         // Get root info for building nodes
-        const rootPath = rootHandleRef.current?.path ?? '';
-        const rootName = rootHandleRef.current?.name ?? '';
+        const rootPath = rootHandleRef.current?.path;
+        if (!rootPath) {
+          return paths.map((path) => ({
+            path,
+            error: 'Root directory handle is missing its canonical path',
+          }));
+        }
 
         // Load directories with concurrency limit to prevent overwhelming the browser
         const results = await runWithConcurrency(
@@ -217,7 +222,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
               return await loadSingleDirectory(
                 path,
                 rootPath,
-                rootName,
+                rootPath,
                 handleMapRef.current,
                 fileSystemAdapter,
                 abortController.signal

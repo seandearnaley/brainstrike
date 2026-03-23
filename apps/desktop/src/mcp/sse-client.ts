@@ -247,6 +247,12 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
   return {
     name: server.name,
     transport: 'sse',
+    supportsTool(toolId: string): boolean {
+      return toolId.startsWith(`${server.name}.`);
+    },
+    async listTools(): Promise<Record<string, never>> {
+      throw new Error(`MCP SSE tool discovery is not implemented for server '${server.name}'.`);
+    },
     dispose: async () => {
       try {
         ctrl.abort();

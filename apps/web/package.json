@@ -97,7 +97,7 @@
     "format": "biome format --write .",
     "lint": "pnpm run --filter brainstrike lint",
     "prebuild": "pnpm turbo build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils",
-    "predev": "[ -d ../../packages/file-explorer/dist ] && [ -f ../../packages/build-utils/dist/index.mjs ] || pnpm turbo build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils",
+    "predev": "[ -f ../../packages/file-explorer/dist/index.mjs ] && [ -f ../../packages/build-utils/dist/index.mjs ] && [ -f ../../packages/agent/dist/index.mjs ] || pnpm turbo build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent",
     "serve-static": "serve dist -p 8080",
     "start": "vite preview --port 8080 --host",
     "test": "vitest run",

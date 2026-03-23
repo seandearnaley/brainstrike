@@ -66,7 +66,14 @@ const mockStoreState = {
     embeddingCount: number;
   }>,
   cachedFileData: null as null | {
+    collectionCounts: {
+      chunks: number;
+      embeddings: number;
+      records: number;
+    };
     collectionId: string;
+    page: number;
+    pageSize: number;
     records: Array<{
       id: string;
       name: string;
@@ -86,6 +93,7 @@ const mockStoreState = {
       chunkType: 'text' | 'sentence' | 'recursive' | 'code';
       embeddingSetId: string | undefined;
     }>;
+    totalRecords: number;
   },
   schemaVerified: true,
   setActiveEmbeddingSetId: vi.fn(),

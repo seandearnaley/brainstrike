@@ -30,6 +30,9 @@ let singletonError: Error | null = null;
 let singletonInitPromise: Promise<void> | null = null;
 const singletonListeners: Set<() => void> = new Set();
 let singletonVersion = 0;
+// Guard async worker callbacks against reinitialize() races so stale workers
+// cannot overwrite the singleton state after a newer generation has started.
+let singletonGeneration = 0;
 
 function notifyListeners() {
   singletonVersion += 1;
@@ -46,6 +49,7 @@ async function initializeSingleton(): Promise<void> {
 
   // CRITICAL: Create and store the promise synchronously to prevent race conditions.
   // Any concurrent calls will see this promise and return it immediately.
+  const generation = ++singletonGeneration;
   singletonInitPromise = (async () => {
     try {
       const workerUrl = await resolveChunkingWorkerUrl();
@@ -54,6 +58,9 @@ async function initializeSingleton(): Promise<void> {
 
       // Handle ready signal
       const handleMessage = (event: MessageEvent) => {
+        if (generation !== singletonGeneration) {
+          return;
+        }
         if (event.data.type === 'ready') {
           logger.debug('Chunking worker ready');
           singletonReady = true;
@@ -65,11 +72,15 @@ async function initializeSingleton(): Promise<void> {
           logger.error('Chunking worker init error', { error: errorMsg });
           singletonError = new Error(errorMsg);
           worker.removeEventListener('message', handleMessage);
+          worker.removeEventListener('error', handleError);
           notifyListeners();
         }
       };
 
       const handleError = (event: ErrorEvent) => {
+        if (generation !== singletonGeneration) {
+          return;
+        }
         const errorDetails = {
           message: event.message || 'Unknown worker error (script may have failed to load)',
           filename: event.filename || 'unknown',
@@ -85,6 +96,8 @@ async function initializeSingleton(): Promise<void> {
           `(file: ${errorDetails.filename}:${errorDetails.lineno}:${errorDetails.colno})`;
         singletonError = new Error(detailedMessage);
         singletonReady = false;
+        worker.removeEventListener('error', handleError);
+        worker.removeEventListener('message', handleMessage);
         // CRITICAL: Hard-stop on worker runtime errors to avoid degraded behavior.
         if (singletonPort) {
           singletonPort.terminate();

@@ -4,11 +4,7 @@
  * with transformers.js (ONNX models via WebGPU/WASM).
  */
 import type { ChatModelAdapter, ChatModelRunOptions } from '@assistant-ui/react';
-import type {
-  LocalLlmBackend as LocalLlmBackendType,
-  LocalLlmGenerationResult,
-  LocalLlmMessage,
-} from '@brainstrike/agent/client';
+import type { LocalLlmGenerationResult, LocalLlmMessage } from '@brainstrike/agent';
 
 /**
  * JSON types compatible with assistant-ui's ReadonlyJSONObject.
@@ -45,8 +41,12 @@ function isJsonObject(value: unknown): value is JsonObject {
 }
 
 // Singleton backend instance - persists across renders to avoid reloading model
-let backendInstance: LocalLlmBackendType | null = null;
-let backendInstancePromise: Promise<LocalLlmBackendType> | null = null;
+type LocalLlmBackendInstance = InstanceType<
+  typeof import('@brainstrike/agent/client').LocalLlmBackend
+>;
+
+let backendInstance: LocalLlmBackendInstance | null = null;
+let backendInstancePromise: Promise<LocalLlmBackendInstance> | null = null;
 let currentModelId: string | null = null;
 // Track disposal lifecycle to prevent race conditions
 // - requested: disposal has been requested (blocks new inits from returning soon-to-be-disposed instances)
@@ -67,7 +67,7 @@ const disposalState: {
  * - disposeLocalBackend() called during initialization: checks flag and disposes new instance
  * - getBackend() called during disposal: waits for disposal to complete first
  */
-async function getBackend(): Promise<LocalLlmBackendType> {
+async function getBackend(): Promise<LocalLlmBackendInstance> {
   // If disposal is in progress, wait for it to complete before creating new instance
   // This prevents returning an instance that's about to be disposed
   if (disposalState.inProgress && disposalState.promise) {

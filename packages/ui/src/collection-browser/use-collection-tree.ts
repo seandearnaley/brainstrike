@@ -36,16 +36,19 @@ const MAX_WARNED_FILTER_CYCLE_NODE_IDS = 1000;
 export interface CollectionTreeInput {
   /** File chunks */
   chunks: Array<{
+    content?: string;
+    embeddingDimensions?: number;
+    embeddingSetId?: string;
+    hasEmbedding?: boolean;
     id: string;
     fileRecordId: string;
     chunkIndex: number;
-    content: string;
     tokenCount: number;
     embedding?: number[];
-    embeddingSetId?: string;
   }>;
   /** File records */
   files: Array<{
+    embeddedChunksCount?: number;
     id: string;
     name: string;
     path: string;
@@ -133,28 +136,42 @@ export interface UseCollectionTreeResult {
  * Determine embedding status for a file based on its chunks
  */
 function getFileEmbeddingStatus(
+  file: CollectionTreeInput['files'][0],
   fileChunks: CollectionTreeInput['chunks'],
   pendingChunkIds?: Set<string>
 ): EmbeddingStatus {
-  if (fileChunks.length === 0) {
+  const totalChunkCount = file.chunksCount ?? fileChunks.length;
+  if (totalChunkCount === 0) {
     return 'none';
   }
 
-  let embeddedCount = 0;
-  let pendingCount = 0;
-  for (const c of fileChunks) {
-    if (pendingChunkIds?.has(c.id)) {
-      pendingCount++;
+  // Check live pending state before the embeddedChunksCount fast-path —
+  // otherwise actively-embedding files show 'pending' instead of 'processing'.
+  if (pendingChunkIds) {
+    for (const c of fileChunks) {
+      if (pendingChunkIds.has(c.id)) {
+        return 'processing';
+      }
     }
-    if (c.embedding && c.embedding.length > 0) {
+  }
+
+  if (file.embeddedChunksCount !== undefined) {
+    if (file.embeddedChunksCount >= totalChunkCount) {
+      return 'complete';
+    }
+    if (file.embeddedChunksCount > 0) {
+      return 'pending';
+    }
+  }
+
+  let embeddedCount = 0;
+  for (const c of fileChunks) {
+    if ((c.embedding && c.embedding.length > 0) || c.hasEmbedding) {
       embeddedCount++;
     }
   }
 
-  if (pendingCount > 0) {
-    return 'processing';
-  }
-  if (embeddedCount === fileChunks.length) {
+  if (embeddedCount === totalChunkCount) {
     return 'complete';
   }
   if (embeddedCount > 0) {
@@ -191,10 +208,17 @@ function getChunkEmbeddingStatus(
   if (pendingChunkIds?.has(chunk.id)) {
     return 'processing';
   }
-  if (chunk.embedding && chunk.embedding.length > 0) {
+  if ((chunk.embedding && chunk.embedding.length > 0) || chunk.hasEmbedding) {
     return 'complete';
   }
   return 'none';
+}
+
+function resolveEmbeddingDimensions(chunk: CollectionTreeInput['chunks'][0]): number {
+  if (chunk.embedding && chunk.embedding.length > 0) {
+    return chunk.embedding.length;
+  }
+  return chunk.embeddingDimensions ?? 0;
 }
 
 /**
@@ -403,7 +427,7 @@ function createEmbeddingNode(
 ): TreeNode<BrowserNodeData> {
   const embeddingData: EmbeddingData = {
     vectorId: chunk.id,
-    dimensions: chunk.embedding?.length ?? 0,
+    dimensions: resolveEmbeddingDimensions(chunk),
   };
   return {
     id: `embedding-${chunk.id}`,
@@ -426,11 +450,13 @@ function createChunkNode(
   fileName?: string
 ): TreeNode<BrowserNodeData> {
   const chunkStatus = getChunkEmbeddingStatus(chunk, pendingChunkIds);
-  const hasEmbedding = Boolean(chunk.embedding && chunk.embedding.length > 0);
+  const hasEmbedding = Boolean(
+    (chunk.embedding && chunk.embedding.length > 0) || chunk.hasEmbedding
+  );
 
   const chunkData: ChunkData = {
     index: chunk.chunkIndex,
-    content: chunk.content,
+    content: chunk.content ?? '',
     tokenCount: chunk.tokenCount,
     embeddingStatus: chunkStatus,
   };
@@ -470,21 +496,23 @@ function createFileNode(
   chunksByFile: Map<string, CollectionTreeInput['chunks']>
 ): TreeNode<BrowserNodeData> {
   const fileChunks = chunksByFile.get(file.id) ?? [];
-  const embeddingStatus = getFileEmbeddingStatus(fileChunks, data.pendingChunkIds);
-  let embeddedChunks = 0;
-  for (const c of fileChunks) {
-    if (c.embedding && c.embedding.length > 0) {
-      embeddedChunks++;
+  const totalChunkCount = file.chunksCount ?? fileChunks.length;
+  const embeddingStatus = getFileEmbeddingStatus(file, fileChunks, data.pendingChunkIds);
+  let embeddedChunks = file.embeddedChunksCount ?? 0;
+  if (file.embeddedChunksCount === undefined) {
+    for (const c of fileChunks) {
+      if ((c.embedding && c.embedding.length > 0) || c.hasEmbedding) {
+        embeddedChunks++;
+      }
     }
   }
-  const progress =
-    fileChunks.length > 0 ? Math.round((embeddedChunks / fileChunks.length) * 100) : 0;
+  const progress = totalChunkCount > 0 ? Math.round((embeddedChunks / totalChunkCount) * 100) : 0;
 
   const fileData: FileData = {
     name: file.name,
     path: file.path,
     size: file.size,
-    chunkCount: fileChunks.length,
+    chunkCount: totalChunkCount,
     embeddingStatus,
     embeddingProgress: progress,
   };
@@ -498,7 +526,7 @@ function createFileNode(
     depth: 0,
     data: fileData,
     parentId,
-    hasChildren: fileChunks.length > 0,
+    hasChildren: totalChunkCount > 0,
   };
 
   ctx.all.push(fileNode);

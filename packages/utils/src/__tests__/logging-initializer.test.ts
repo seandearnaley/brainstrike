@@ -1,16 +1,20 @@
+import {
+  type ConsoleTransportConfig,
+  type LoggerConfig,
+  LogLevel,
+} from '@brainstrike/utils/logger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type ConsoleTransportConfig, type LoggerConfig, LogLevel } from '../logger';
 import { initializeLogging } from '../logging-initializer';
 
-vi.mock('../logger', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../logger')>();
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
   return {
     ...actual,
     configureLogger: vi.fn(),
   };
 });
 
-const { configureLogger } = await import('../logger');
+const { configureLogger } = await import('@brainstrike/utils/logger');
 
 describe('initializeLogging', () => {
   afterEach(() => {

@@ -118,6 +118,7 @@ declare global {
     embeddingHost: {
       ensureStarted: () => Promise<EmbeddingHostStatus>;
       enqueueBackfill: (embeddingSetId: string) => Promise<unknown>;
+      cancelAllBackfills: () => Promise<void>;
       stop: () => Promise<EmbeddingHostStatus>;
       reset: () => Promise<EmbeddingHostStatus>;
       getStatus: () => Promise<EmbeddingHostStatus>;
@@ -186,6 +187,18 @@ declare global {
         disabled: number;
         servers: number;
       }>;
+      onToolsUpdated: (
+        callback: (tools: {
+          [serverName: string]: Array<{
+            id: string;
+            serverName: string;
+            description?: string;
+            inputSchema?: unknown;
+            enabled: boolean;
+            discoveredAt: number;
+          }>;
+        }) => void
+      ) => () => void;
     };
     power: {
       onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;

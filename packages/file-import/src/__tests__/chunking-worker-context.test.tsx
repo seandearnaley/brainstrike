@@ -277,6 +277,67 @@ describe('ChunkingWorkerProvider', () => {
     unmount();
   });
 
+  it('removes worker lifecycle listeners during reinitialize and unmount cleanup', async () => {
+    const { ChunkingWorkerProvider, useChunkingWorkerContext } = await import(
+      '../chunking-worker-context'
+    );
+    const { result, unmount } = renderHookHarness(
+      () => useChunkingWorkerContext(),
+      (children) => <ChunkingWorkerProvider>{children}</ChunkingWorkerProvider>
+    );
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const initialWorker = workers[0];
+    if (!initialWorker) {
+      throw new Error('Expected initial worker');
+    }
+
+    await waitForExpect(() =>
+      expect(initialWorker.addEventListener).toHaveBeenCalledWith('message', expect.any(Function))
+    );
+    await waitForExpect(() =>
+      expect(initialWorker.addEventListener).toHaveBeenCalledWith('error', expect.any(Function))
+    );
+
+    await act(async () => {
+      result.current.reinitialize();
+      await Promise.resolve();
+    });
+
+    expect(initialWorker.removeEventListener).toHaveBeenCalledWith('message', expect.any(Function));
+    expect(initialWorker.removeEventListener).toHaveBeenCalledWith('error', expect.any(Function));
+
+    await waitForExpect(() => expect(workers).toHaveLength(2));
+    const reinitializedWorker = workers[1];
+    if (!reinitializedWorker) {
+      throw new Error('Expected reinitialized worker');
+    }
+
+    await waitForExpect(() =>
+      expect(reinitializedWorker.addEventListener).toHaveBeenCalledWith(
+        'message',
+        expect.any(Function)
+      )
+    );
+    await waitForExpect(() =>
+      expect(reinitializedWorker.addEventListener).toHaveBeenCalledWith(
+        'error',
+        expect.any(Function)
+      )
+    );
+
+    unmount();
+
+    expect(reinitializedWorker.removeEventListener).toHaveBeenCalledWith(
+      'message',
+      expect.any(Function)
+    );
+    expect(reinitializedWorker.removeEventListener).toHaveBeenCalledWith(
+      'error',
+      expect.any(Function)
+    );
+  });
+
   it('proxies chunking work through the desktop chunking host bridge', async () => {
     const onStatus = vi.fn();
     const onProgress = vi.fn();

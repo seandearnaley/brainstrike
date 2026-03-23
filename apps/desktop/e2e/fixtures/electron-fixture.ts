@@ -7,14 +7,8 @@ import {
 import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
-import type { ElectronAppContext } from '../utils/electron-helpers';
-import {
-  closeElectronApp,
-  launchElectronApp,
-  reloadRenderer,
-  resetAppState,
-  waitForAppReady,
-} from '../utils/electron-helpers';
+import type { ElectronAppContext } from '../utils/electron-helpers.mts';
+import { loadElectronHelpers } from '../utils/load-electron-helpers';
 import { resetToAppHome } from '../utils/test-reset';
 
 interface ElectronHarnessOptions {
@@ -32,6 +26,7 @@ class ElectronHarness {
 
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
+      const { launchElectronApp } = await loadElectronHelpers();
       this.context = await launchElectronApp(this.debugPort, this.userDataDir);
       return this.context;
     }
@@ -60,12 +55,17 @@ class ElectronHarness {
   async restart(): Promise<ElectronAppContext> {
     if (this.context) {
       try {
+        const { closeElectronApp } = await loadElectronHelpers();
         await closeElectronApp(this.context);
+        await new Promise((resolve) => {
+          setTimeout(resolve, 250);
+        });
       } catch (error) {
         console.warn('Failed to close Electron app during restart:', error);
       }
     }
 
+    const { launchElectronApp } = await loadElectronHelpers();
     this.context = await launchElectronApp(this.debugPort, this.userDataDir);
     return this.context;
   }
@@ -76,6 +76,7 @@ class ElectronHarness {
     }
 
     try {
+      const { closeElectronApp } = await loadElectronHelpers();
       await closeElectronApp(this.context);
     } finally {
       this.context = null;
@@ -91,6 +92,7 @@ class ElectronHarness {
       return this.restartAndResetRenderer(recoveryAttempt, 'Renderer page was already closed.');
     }
 
+    const { reloadRenderer, resetAppState, waitForAppReady } = await loadElectronHelpers();
     await waitForAppReady(page);
 
     let resetTriggeredNavigation = false;

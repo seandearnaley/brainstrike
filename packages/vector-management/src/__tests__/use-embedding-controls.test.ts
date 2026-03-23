@@ -27,6 +27,9 @@ const STOPPED_EMBEDDING_WORKER_STATUS: EmbeddingRuntimeStatus = {
 /** Helper to create default queue state mock with required properties */
 function createQueueStateMock(
   overrides: Partial<{
+    activeSetBackfilling: boolean;
+    activeSetBackfillProgress: { done: number; total: number } | null;
+    activeSetQueueCounts: { queued: number; running: number; failed: number; succeeded: number };
     backfilling: boolean;
     backfillProgress: { done: number; total: number } | null;
     coverage: { total: number; withSet: number };
@@ -44,6 +47,9 @@ function createQueueStateMock(
   }> = {}
 ) {
   return {
+    activeSetBackfilling: false,
+    activeSetBackfillProgress: null,
+    activeSetQueueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
     backfilling: false,
     backfillProgress: null,
     coverage: { total: 100, withSet: 50 },
@@ -118,6 +124,7 @@ vi.mock('../vector-status/backfill-utils', () => ({
 
 vi.mock('../vector-status/embedding-runtime-controller', () => ({
   useEmbeddingRuntimeController: vi.fn(() => ({
+    cancelAllBackfills: vi.fn(async () => {}),
     enqueueBackfill: vi.fn(async () => {}),
     ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
     getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
@@ -187,8 +194,10 @@ describe('useEmbeddingControls', () => {
 
     vi.mocked(getBackfillDisabledState).mockReturnValue({ disabled: false, title: '' });
     vi.mocked(useEmbeddingRuntimeController).mockReturnValue({
+      cancelAllBackfills: vi.fn(async () => {}),
       enqueueBackfill: vi.fn(async () => {}),
       ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      getBackfillsInFlight: vi.fn(async () => []),
       getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
       onBackfillProgress: vi.fn(() => () => {}),
       onStatus: vi.fn(() => () => {}),
@@ -266,11 +275,25 @@ describe('useEmbeddingControls', () => {
         disabled: true,
         title: 'No collection selected',
       });
+      vi.mocked(useVectorQueueState).mockReturnValue(
+        createQueueStateMock({
+          activeSetBackfilling: true,
+          activeSetQueueCounts: { queued: 4, running: 1, failed: 0, succeeded: 3 },
+          backfilling: true,
+          backfillProgress: { done: 40, total: 100 },
+        })
+      );
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 
       expect(result.current.dropdownProps.disabled).toBe(true);
       expect(result.current.dropdownProps.disabledReason).toBe('No collection selected');
+      expect(vi.mocked(getBackfillDisabledState)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          backfilling: true,
+          queueCounts: { queued: 4, running: 1, failed: 0, succeeded: 3 },
+        })
+      );
     });
 
     it('sets willAutoStartWorker to true on web when worker not running', () => {
@@ -351,14 +374,17 @@ describe('useEmbeddingControls', () => {
       });
       vi.mocked(useVectorQueueState).mockReturnValue(
         createQueueStateMock({
+          activeSetBackfilling: true,
+          activeSetBackfillProgress: { done: 5, total: 10 },
           backfilling: true,
-          backfillProgress: { done: 5, total: 10 },
+          backfillProgress: { done: 50, total: 100 },
         })
       );
 
       const { result } = renderHook(() => useEmbeddingControls(defaultOptions));
 
       expect(result.current.dropdownProps.startingWorker).toBe(false);
+      expect(result.current.dropdownProps.backfilling).toBe(true);
       expect(result.current.dropdownProps.backfillProgress).toEqual({ done: 5, total: 10 });
     });
   });

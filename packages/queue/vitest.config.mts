@@ -30,7 +30,7 @@ export default defineConfig({
         __dirname,
         '../../packages/utils/src/safe-storage.ts'
       ),
-      '@brainstrike/utils': resolve(__dirname, '../../packages/utils/src/index.ts'),
+      '@brainstrike/utils': resolve(__dirname, '../../packages/utils/src'),
     },
   },
 });

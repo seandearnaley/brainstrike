@@ -111,9 +111,9 @@ describe('types module', () => {
 
   it('ExportHandlers type has all required methods', () => {
     const handlers: ExportHandlers = {
-      handleExportFiles: () => {},
-      handleExportChunks: () => {},
-      handleExportEmbeddings: () => {},
+      handleExportFiles: async () => {},
+      handleExportChunks: async () => {},
+      handleExportEmbeddings: async () => {},
       handleExportAll: async () => {},
     };
     expect(typeof handlers.handleExportFiles).toBe('function');

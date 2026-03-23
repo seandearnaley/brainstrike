@@ -39,6 +39,7 @@
     "dev": "tsup --config ./tsup.config.ts --watch",
     "lint": "pnpm -w lint --filter @brainstrike/embedding-worker",
     "test": "vitest run",
+    "test:webgpu-memory": "VITEST_RUN_WEBGPU_MEMORY=true vitest run --project browser test/webgpu-memory-growth.browser.test.ts",
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit"
   },

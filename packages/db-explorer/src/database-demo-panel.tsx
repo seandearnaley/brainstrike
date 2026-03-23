@@ -1,5 +1,4 @@
 import {
-  type EmbeddingSet,
   useClearAllData,
   useDbProviderError,
   useEmbeddingSetsRepository,
@@ -7,6 +6,11 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
+import {
+  getRegisteredEmbeddingQueueFactory,
+  registerEmbeddingQueueFactory,
+  resetEmbeddingQueueFactory,
+} from '@brainstrike/embeddings/runtime-config';
 import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/preferences/hooks/use-local-runtime-embedding-model-catalog';
 import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
@@ -39,7 +43,7 @@ import {
   useEmbeddingControls,
 } from '@brainstrike/vector-management';
 import { Database, FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import {
   ClearDatabaseDialog,
@@ -49,7 +53,7 @@ import {
   SearchCollectionSelector,
   SettingsPanel,
 } from './components';
-import { SemanticSearchProvider } from './contexts/semantic-search-context';
+import { SemanticSearchProvider, useSemanticSearch } from './contexts/semantic-search-context';
 import {
   createImportCompletionHandler,
   useAvailableModels,
@@ -70,7 +74,74 @@ interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
 }
 
+interface DatabaseDemoImportTestSnapshot {
+  activeCollectionId: string | null;
+  isImporting: boolean;
+  progress: {
+    completed: number;
+    current: string;
+    errors: Array<{ error: string; file: string }>;
+    phase: EnhancedImportProgress['phase'];
+    total: number;
+  } | null;
+  selectedFileCount: number;
+}
+
+interface DatabaseDemoSemanticSearchTestSnapshot {
+  error: string | null;
+  firstResultNodeId: string | null;
+  hasSearched: boolean;
+  isSearching: boolean;
+  resultCount: number;
+}
+
+declare global {
+  interface Window {
+    __brainstrikeDatabaseDemoSemanticSearchTestHooks__?:
+      | {
+          getSnapshot: () => DatabaseDemoSemanticSearchTestSnapshot;
+        }
+      | undefined;
+    __brainstrikeDatabaseDemoTestHooks__?:
+      | {
+          getImportSnapshot: () => DatabaseDemoImportTestSnapshot;
+        }
+      | undefined;
+    desktopLifecycle?:
+      | {
+          isTestMode?: boolean;
+        }
+      | undefined;
+  }
+}
+
 const logger = createLogger('DatabaseDemoPanel');
+
+function DatabaseDemoSemanticSearchTestHookBridge() {
+  const { error, hasSearched, isSearching, searchResults } = useSemanticSearch();
+
+  useEffect(() => {
+    if (!window.desktopLifecycle?.isTestMode) {
+      return;
+    }
+
+    window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__ = {
+      getSnapshot: () => ({
+        error,
+        firstResultNodeId: searchResults[0]?.nodeId ?? null,
+        hasSearched,
+        isSearching,
+        resultCount: searchResults.length,
+      }),
+    };
+
+    return () => {
+      window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__ = undefined;
+    };
+  }, [error, hasSearched, isSearching, searchResults]);
+
+  return null;
+}
 
 // Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Legacy component with complex UI state - refactor tracked separately
@@ -116,6 +187,11 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const availableProviders = useAvailableProviders(providers, runtimeEmbeddingCatalog);
 
   const showSettings = useDatabaseDemoStore((s) => s.showSettings);
+  const recordPage = useDatabaseDemoStore((s) => s.recordPage);
+  const recordPageSize = useDatabaseDemoStore((s) => s.recordPageSize);
+  const resetRecordPagination = useDatabaseDemoStore((s) => s.resetRecordPagination);
+  const setRecordPage = useDatabaseDemoStore((s) => s.setRecordPage);
+  const setRecordPageSize = useDatabaseDemoStore((s) => s.setRecordPageSize);
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
 
   const importSettings = useImportSettings();
@@ -135,24 +211,41 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     activeCollectionId,
     isImporting: isImportActive,
     isEmbeddingActive,
+    recordPage,
+    recordPageSize,
   });
-  const { records, chunks, refreshing, loadRecords, loadChunks } = data;
+  const {
+    collectionCounts,
+    records,
+    chunks,
+    refreshing,
+    loadRecords,
+    loadChunks,
+    loadChunkDetail,
+    loadFileChunkSummaries,
+    loadCollectionExportData,
+    recordPagination,
+  } = data;
+  const activeCollectionCounts = collectionCounts;
+  const previousCollectionIdRef = useRef<string | null>(activeCollectionId);
 
-  const filteredRecords = useMemo(() => {
-    if (!activeCollectionId) {
-      return [];
+  useEffect(() => {
+    if (previousCollectionIdRef.current === activeCollectionId) {
+      return;
     }
-    return records.filter((record) => record.embeddingSetId === activeCollectionId);
-  }, [records, activeCollectionId]);
+    previousCollectionIdRef.current = activeCollectionId;
+    resetRecordPagination();
+  }, [activeCollectionId, resetRecordPagination]);
 
-  const filteredChunks = useMemo(() => {
-    if (!activeCollectionId) {
-      return [];
+  // biome-ignore lint/plugin: Persisted pagination must clamp after collection totals change.
+  useEffect(() => {
+    const maxPage = Math.max(0, recordPagination.totalPages - 1);
+    if (recordPage > maxPage) {
+      setRecordPage(maxPage);
     }
-    return chunks.filter((chunk) => chunk.embeddingSetId === activeCollectionId);
-  }, [chunks, activeCollectionId]);
+  }, [recordPage, recordPagination.totalPages, setRecordPage]);
 
-  const exportHandlers = useExportHandlers(filteredRecords, filteredChunks, toast);
+  const exportHandlers = useExportHandlers(loadCollectionExportData, toast);
 
   // Create semantic search executor for the collection browser
   // Use dbChunkRepository (from hook) which is always available when DB is ready,
@@ -212,6 +305,56 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   useEffect(() => {
     setIsImporting(importFlow.isImporting);
   }, [importFlow.isImporting, setIsImporting]);
+
+  useEffect(() => {
+    if (!embeddingQueue) {
+      return;
+    }
+
+    const queueFactory = () => embeddingQueue;
+    registerEmbeddingQueueFactory(queueFactory);
+
+    return () => {
+      if (getRegisteredEmbeddingQueueFactory() === queueFactory) {
+        resetEmbeddingQueueFactory();
+      }
+    };
+  }, [embeddingQueue]);
+
+  useEffect(() => {
+    if (!window.desktopLifecycle?.isTestMode) {
+      return;
+    }
+
+    window.__brainstrikeDatabaseDemoTestHooks__ = {
+      getImportSnapshot: () => ({
+        activeCollectionId,
+        isImporting: importFlow.isImporting,
+        selectedFileCount: importFlow.selectedFileCount,
+        progress: importFlow.progress
+          ? {
+              phase: importFlow.progress.phase,
+              total: importFlow.progress.total,
+              completed: importFlow.progress.completed,
+              current: importFlow.progress.current ?? '',
+              errors: importFlow.progress.errors.map((entry) => ({
+                file: entry.file,
+                error: entry.error,
+              })),
+            }
+          : null,
+      }),
+    };
+
+    return () => {
+      window.__brainstrikeDatabaseDemoTestHooks__ = undefined;
+    };
+  }, [
+    activeCollectionId,
+    importFlow.isImporting,
+    importFlow.progress,
+    importFlow.selectedFileCount,
+  ]);
 
   const handleClearDatabase = useCallback(async () => {
     if (!clearAllData) {
@@ -388,8 +531,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                       className="mt-0 border-none bg-transparent"
                       clearDatabaseProps={{
                         clearAllData,
-                        records,
-                        chunks,
+                        recordsCount: activeCollectionCounts.records,
+                        chunksCount: activeCollectionCounts.chunks,
                         clearing,
                         showClearDialog,
                         setShowClearDialog,
@@ -419,11 +562,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                     <TooltipContent side="top">Refresh database records</TooltipContent>
                   </Tooltip>
 
-                  <ExportDropdown
-                    chunks={filteredChunks}
-                    exportHandlers={exportHandlers}
-                    records={filteredRecords}
-                  />
+                  <ExportDropdown counts={activeCollectionCounts} exportHandlers={exportHandlers} />
 
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -489,11 +628,21 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             <SemanticSearchProvider
               {...(semanticSearchExecutor ? { searchExecutor: semanticSearchExecutor } : {})}
             >
+              <DatabaseDemoSemanticSearchTestHookBridge />
               <CollectionBrowserView
                 activeCollectionId={activeCollectionId}
                 chunks={chunks}
                 height="100%"
                 isLoading={refreshing}
+                loadChunkDetail={loadChunkDetail}
+                loadFileChunkSummaries={loadFileChunkSummaries}
+                pagination={{
+                  currentPage: recordPagination.currentPage,
+                  onPageChange: setRecordPage,
+                  onPageSizeChange: setRecordPageSize,
+                  pageSize: recordPagination.pageSize,
+                  totalRecords: recordPagination.totalRecords,
+                }}
                 records={records}
               />
             </SemanticSearchProvider>
@@ -514,10 +663,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
       {/* Clear Database Dialog - triggered from Import Settings */}
       <ClearDatabaseDialog
-        chunks={chunks}
+        chunksCount={activeCollectionCounts.chunks}
         clearing={clearing}
         onClear={handleClearDatabase}
-        records={records}
+        recordsCount={activeCollectionCounts.records}
         setShowClearDialog={setShowClearDialog}
         showClearDialog={showClearDialog}
       />
@@ -548,28 +697,29 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {/* Rename Collection Dialog */}
       {collectionDialogs.renameDialogOpen && collectionDialogs.selectedCollection && (
         <RenameEmbeddingSetDialog
-          embeddingSet={
-            {
-              id: collectionDialogs.selectedCollection.id,
-              modelKey: collectionDialogs.selectedCollection.modelKey,
-              modelId: collectionDialogs.selectedCollection.modelId,
-              dimensions: collectionDialogs.selectedCollection.dimensions,
-              distance: collectionDialogs.selectedCollection.distance,
-              createdAt: collectionDialogs.selectedCollection.createdAt,
-              ...(collectionDialogs.selectedCollection.name && {
-                name: collectionDialogs.selectedCollection.name,
-              }),
-              ...(collectionDialogs.selectedCollection.description && {
-                description: collectionDialogs.selectedCollection.description,
-              }),
-              ...(collectionDialogs.selectedCollection.tags && {
-                tags: collectionDialogs.selectedCollection.tags,
-              }),
-              ...(collectionDialogs.selectedCollection.category && {
-                category: collectionDialogs.selectedCollection.category,
-              }),
-            } satisfies EmbeddingSet
-          }
+          embeddingSet={{
+            id: collectionDialogs.selectedCollection.id,
+            modelKey: collectionDialogs.selectedCollection.modelKey,
+            modelId: collectionDialogs.selectedCollection.modelId,
+            dimensions: collectionDialogs.selectedCollection.dimensions,
+            distance: collectionDialogs.selectedCollection.distance,
+            createdAt: collectionDialogs.selectedCollection.createdAt,
+            fileCount: collectionDialogs.selectedCollection.fileCount,
+            chunkCount: collectionDialogs.selectedCollection.chunkCount,
+            embeddingCount: collectionDialogs.selectedCollection.embeddingCount,
+            ...(collectionDialogs.selectedCollection.name && {
+              name: collectionDialogs.selectedCollection.name,
+            }),
+            ...(collectionDialogs.selectedCollection.description && {
+              description: collectionDialogs.selectedCollection.description,
+            }),
+            ...(collectionDialogs.selectedCollection.tags && {
+              tags: collectionDialogs.selectedCollection.tags,
+            }),
+            ...(collectionDialogs.selectedCollection.category && {
+              category: collectionDialogs.selectedCollection.category,
+            }),
+          }}
           onOpenChange={(open: boolean) => {
             if (!open) {
               collectionDialogs.closeRenameDialog();
@@ -606,9 +756,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             ...(collectionDialogs.selectedCollection.category && {
               category: collectionDialogs.selectedCollection.category,
             }),
-            chunkCount: chunks.filter(
-              (c) => c.embeddingSetId === collectionDialogs.selectedCollection?.id
-            ).length,
+            chunkCount: collectionDialogs.selectedCollection.chunkCount,
           }}
           onOpenChange={(open: boolean) => {
             if (!open) {

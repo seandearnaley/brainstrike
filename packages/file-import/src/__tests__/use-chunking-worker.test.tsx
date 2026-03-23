@@ -222,6 +222,44 @@ describe('useChunkingWorker', () => {
     unmount();
   }, 15_000);
 
+  it('ignores stale worker events after reinitialize creates a new generation', async () => {
+    const { useChunkingWorker } = await import('../use-chunking-worker');
+    const { result, unmount } = renderHookHarness(() => useChunkingWorker());
+
+    await waitForExpect(() => expect(workers).toHaveLength(1));
+    const firstWorker = workers[0];
+    if (!firstWorker) {
+      throw new Error('Expected initial worker instance');
+    }
+
+    await act(async () => {
+      result.current.reinitialize();
+      await Promise.resolve();
+    });
+
+    await waitForExpect(() => expect(workers).toHaveLength(2));
+    const secondWorker = workers[1];
+    if (!secondWorker) {
+      throw new Error('Expected replacement worker instance');
+    }
+
+    await emitWorkerMessage(secondWorker, { type: 'ready' });
+    await waitForExpect(() => {
+      expect(result.current.isReady).toBe(true);
+      expect(result.current.error).toBeNull();
+    });
+
+    await emitWorkerRuntimeError(firstWorker, 'stale worker failed');
+    await emitWorkerMessage(firstWorker, { type: 'ready' });
+
+    await waitForExpect(() => {
+      expect(result.current.isReady).toBe(true);
+      expect(result.current.error).toBeNull();
+    });
+
+    unmount();
+  });
+
   it('creates a standalone worker that resolves ready and supports terminate', async () => {
     const { createStandaloneChunkingWorker } = await import('../use-chunking-worker');
 

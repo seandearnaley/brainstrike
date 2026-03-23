@@ -91,6 +91,10 @@ export async function loadRootDirectory(
     throw new DOMException('Operation was cancelled', 'AbortError');
   }
 
+  if (!rootHandle.path) {
+    throw new Error('Root directory handle is missing its canonical path');
+  }
+
   // Read immediate children only
   const children = await adapter.readDirectory(rootHandle, {
     includeMetadata,
@@ -112,7 +116,7 @@ export async function loadRootDirectory(
         return {
           ...rest,
           depth: 0,
-          rootFolderId: rootHandle.name,
+          rootFolderId: rootHandle.path,
           loadState: 'unloaded' as const,
         };
       }
@@ -120,7 +124,7 @@ export async function loadRootDirectory(
       return {
         ...child,
         depth: 0,
-        rootFolderId: rootHandle.name,
+        rootFolderId: rootHandle.path,
       };
     });
 
@@ -380,6 +384,10 @@ export async function loadRootDirectoryStreaming(
   onBatch: StreamingLoadCallback,
   options: StreamingLoadOptions = {}
 ): Promise<void> {
+  if (!rootHandle.path) {
+    throw new Error('Root directory handle is missing its canonical path');
+  }
+
   const {
     abortSignal,
     includeMetadata = false,
@@ -401,7 +409,7 @@ export async function loadRootDirectoryStreaming(
       rootHandle,
       (nodes, meta) => {
         // Transform nodes for lazy loading (depth 0, rootFolderId from handle)
-        const transformed = transformNodesForLazyLoading(nodes, 0, rootHandle.name);
+        const transformed = transformNodesForLazyLoading(nodes, 0, rootHandle.path);
 
         // In-place accumulation avoids per-batch array reallocation
         for (const node of transformed) {

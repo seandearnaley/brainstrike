@@ -596,11 +596,16 @@ async function buildContextReport(
     return;
   }
 
-  const selection = Array.isArray(runtimeData.selectionFilePaths)
-    ? runtimeData.selectionFilePaths.map((path) => String(path))
+  const selectionSource = runtimeData.selectionFilePaths;
+  const selection: string[] = selectionSource
+    ? Array.from(selectionSource, (filePath: string) => String(filePath))
     : [];
   const normalizedSelection = Array.from(
-    new Set(selection.map((filePath) => normalizeWorkspaceLookupPath(filePath)).filter(Boolean))
+    new Set(
+      selection
+        .map((filePath: string) => normalizeWorkspaceLookupPath(filePath))
+        .filter((filePath): filePath is string => filePath.length > 0)
+    )
   );
   if (normalizedSelection.length === 0) {
     return;

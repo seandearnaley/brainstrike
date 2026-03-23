@@ -32,6 +32,7 @@ describe('token-utils-accurate-lite', () => {
     vi.doMock(NODE_TIKTOKEN_SPECIFIER, () => ({
       encoding_for_model: () => ({
         encode: (text: string) => new Uint32Array(Math.ceil(text.length / 3)),
+        encode_ordinary: (text: string) => new Uint32Array(Math.ceil(text.length / 3)),
         free,
       }),
       get_encoding: vi.fn(),
@@ -57,6 +58,7 @@ describe('token-utils-accurate-lite', () => {
       },
       get_encoding: () => ({
         encode: (text: string) => new Uint32Array(text.length),
+        encode_ordinary: (text: string) => new Uint32Array(text.length),
       }),
     }));
 
@@ -103,6 +105,10 @@ describe('token-utils-accurate-lite', () => {
         public encode(text: string): Uint32Array {
           return new Uint32Array(Math.ceil(text.length / 2));
         }
+
+        public encode_ordinary(text: string): Uint32Array {
+          return new Uint32Array(Math.ceil(text.length / 2));
+        }
       },
     }));
     vi.doMock(BROWSER_WASM_SPECIFIER, () => ({
@@ -146,6 +152,10 @@ describe('token-utils-accurate-lite', () => {
         public encode(text: string): Uint32Array {
           return new Uint32Array(text.length);
         }
+
+        public encode_ordinary(text: string): Uint32Array {
+          return new Uint32Array(text.length);
+        }
       },
     }));
     vi.doMock(BROWSER_WASM_SPECIFIER, () => ({
@@ -175,6 +185,10 @@ describe('token-utils-accurate-lite', () => {
       init: async () => {},
       Tiktoken: class {
         public encode(text: string): Uint32Array {
+          return new Uint32Array(text.length);
+        }
+
+        public encode_ordinary(text: string): Uint32Array {
           return new Uint32Array(text.length);
         }
       },
@@ -207,7 +221,8 @@ describe('token-utils-accurate-lite', () => {
 
     vi.doMock(NODE_TIKTOKEN_SPECIFIER, () => ({
       encoding_for_model: () => ({
-        encode: () => {
+        encode: () => new Uint32Array(1),
+        encode_ordinary: () => {
           throw new Error('encoder exploded');
         },
       }),
@@ -223,5 +238,50 @@ describe('token-utils-accurate-lite', () => {
       'tiktoken encode failed: encoder exploded'
     );
     expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats special-token text as ordinary file content instead of prompt syntax', async () => {
+    const encode = vi.fn(() => new Uint32Array([1, 2, 3]));
+    const encodeOrdinary = vi.fn(() => new Uint32Array([11, 12]));
+
+    vi.doMock(NODE_TIKTOKEN_SPECIFIER, () => ({
+      encoding_for_model: () => ({
+        encode,
+        encode_ordinary: encodeOrdinary,
+      }),
+      get_encoding: vi.fn(),
+    }));
+
+    const module = await importModule();
+
+    await expect(module.countTokensAccurate('const marker = "<|endoftext|>";')).resolves.toBe(2);
+    expect(encodeOrdinary).toHaveBeenCalledWith('const marker = "<|endoftext|>";');
+    expect(encode).not.toHaveBeenCalled();
+  });
+
+  it('binds encode_ordinary to the encoder instance for wasm-style methods', async () => {
+    vi.doMock(NODE_TIKTOKEN_SPECIFIER, () => ({
+      encoding_for_model: () =>
+        new (class {
+          private readonly tokenScale = 7;
+
+          public encode(_text: string): Uint32Array {
+            return new Uint32Array([this.tokenScale]);
+          }
+
+          public encode_ordinary(text: string): Uint32Array {
+            if (this.tokenScale !== 7) {
+              throw new Error('encode_ordinary lost encoder binding');
+            }
+            return new Uint32Array(Math.ceil(text.length / this.tokenScale));
+          }
+        })(),
+      get_encoding: vi.fn(),
+    }));
+
+    const module = await importModule();
+
+    await expect(module.supportsAccurateTokenCounting()).resolves.toBe(true);
+    await expect(module.countTokensAccurate('binding-check-content')).resolves.toBe(3);
   });
 });
