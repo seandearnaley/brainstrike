@@ -90,6 +90,19 @@ describe('CollectionPicker', () => {
     render(<CollectionPicker {...defaultProps} collections={[]} />);
 
     expect(screen.getByText(/No collections yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create First Collection' })).toHaveAttribute(
+      'title',
+      'Create new collection'
+    );
+  });
+
+  it('keeps the visible create label as the accessible name', () => {
+    render(<CollectionPicker {...defaultProps} />);
+
+    expect(screen.getByRole('button', { name: 'Create' })).toHaveAttribute(
+      'title',
+      'Create new collection'
+    );
   });
 
   it('calls onSelect when an item is clicked', () => {

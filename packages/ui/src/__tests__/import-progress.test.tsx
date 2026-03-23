@@ -146,6 +146,10 @@ describe('ImportProgress', () => {
     render(<ImportProgress progress={createProgress({ errors })} />);
 
     expect(screen.getByText('View 1 error')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View 1 error' })).toHaveAttribute(
+      'title',
+      'Show errors'
+    );
   });
 
   it('displays correct plural errors text', () => {

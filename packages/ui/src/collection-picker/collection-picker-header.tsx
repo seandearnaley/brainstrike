@@ -17,7 +17,6 @@ export function CollectionPickerHeader({
     <div className="mb-2 flex items-center justify-between">
       {showLabel && <Label className="font-medium text-sm">{label}</Label>}
       <Button
-        aria-label="Create new collection"
         className="ml-auto h-7 gap-1 px-2 text-xs"
         onClick={onCreate}
         size="sm"

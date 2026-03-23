@@ -14,7 +14,6 @@ export function CollectionPickerEmpty({ onCreate }: CollectionPickerEmptyProps) 
         No collections yet. Create your first collection to start searching files.
       </p>
       <Button
-        aria-label="Create new collection"
         className="gap-2"
         onClick={onCreate}
         size="sm"

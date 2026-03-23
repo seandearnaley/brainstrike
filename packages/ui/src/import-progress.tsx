@@ -82,7 +82,6 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
         <CardContent className="pt-0">
           <Button
             aria-expanded={showErrors}
-            aria-label={showErrors ? 'Hide errors' : 'Show errors'}
             className="h-auto w-full justify-start p-2"
             onClick={() => setShowErrors(!showErrors)}
             size="sm"
