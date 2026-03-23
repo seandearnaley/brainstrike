@@ -213,7 +213,7 @@ describe('SearchConfigPanel', () => {
     renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
     expect(screen.getByText('Mode')).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Mode' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /retrieval mode/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /vector/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /hybrid/i })).toBeInTheDocument();
   });
