@@ -125,13 +125,13 @@ describe('ImportProgress', () => {
     const errors = [{ file: 'error.txt', error: 'Failed to import' }];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
-    // Initially errors should be hidden
-    expect(screen.queryByText('Failed to import')).not.toBeInTheDocument();
     const viewErrorsButton = screen.getByRole('button', { name: /view 1 error/i });
     const errorListId = viewErrorsButton.getAttribute('aria-controls');
+    const errorMessage = screen.getByText('Failed to import');
 
     expect(errorListId).toBeTruthy();
     expect(document.getElementById(errorListId ?? '')).toHaveAttribute('hidden');
+    expect(errorMessage).not.toBeVisible();
 
     // Click to show errors
     fireEvent.click(viewErrorsButton);
@@ -144,7 +144,7 @@ describe('ImportProgress', () => {
     // Click again to hide
     fireEvent.click(viewErrorsButton);
     expect(document.getElementById(errorListId ?? '')).toHaveAttribute('hidden');
-    expect(screen.queryByText('Failed to import')).not.toBeInTheDocument();
+    expect(errorMessage).not.toBeVisible();
   });
 
   it('uses a unique error list id per component instance', () => {
