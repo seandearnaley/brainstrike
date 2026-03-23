@@ -38,7 +38,14 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
             Import Progress
           </CardTitle>
           {onClose && (
-            <Button className="h-6 w-6 p-0" onClick={onClose} size="sm" variant="ghost">
+            <Button
+              aria-label="Close"
+              className="h-6 w-6 p-0"
+              onClick={onClose}
+              size="sm"
+              title="Close"
+              variant="ghost"
+            >
               <X className="h-3 w-3" />
             </Button>
           )}
@@ -74,9 +81,12 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
       {hasErrors && (
         <CardContent className="pt-0">
           <Button
+            aria-expanded={showErrors}
+            aria-label={showErrors ? 'Hide errors' : 'Show errors'}
             className="h-auto w-full justify-start p-2"
             onClick={() => setShowErrors(!showErrors)}
             size="sm"
+            title={showErrors ? 'Hide errors' : 'Show errors'}
             variant="ghost"
           >
             {showErrors ? (

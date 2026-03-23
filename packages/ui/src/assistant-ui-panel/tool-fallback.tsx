@@ -134,6 +134,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
             className="size-8"
             onClick={() => setIsCollapsed((prev) => !prev)}
             size="icon"
+            title={isCollapsed ? 'Expand details' : 'Collapse details'}
             variant="ghost"
           >
             {isCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
