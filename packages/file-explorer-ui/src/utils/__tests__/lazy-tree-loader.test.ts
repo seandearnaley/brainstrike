@@ -168,14 +168,14 @@ describe('lazy-tree-loader', () => {
       expect(result[0]!.name).toBe('src');
     });
 
-    it('sets rootFolderId from handle name', async () => {
+    it('sets rootFolderId from the canonical handle path', async () => {
       const mockChildren = [createFileNode({ name: 'file.ts', path: '/my-project/file.ts' })];
       const adapter = createMockAdapter(mockChildren);
-      const handle = createDirectoryHandle({ name: 'my-project', path: '/my-project' });
+      const handle = createDirectoryHandle({ name: 'display-name', path: '/my-project' });
 
       const result = await loadRootDirectory(adapter, handle);
 
-      expect(result[0]!.rootFolderId).toBe('my-project');
+      expect(result[0]!.rootFolderId).toBe('/my-project');
     });
 
     it('throws on abort signal', async () => {

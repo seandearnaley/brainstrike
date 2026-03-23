@@ -97,7 +97,7 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
 
   const loadFileContentCb = useCallback(
     async (path: string) => {
-      const folderId = rootDirectoryHandle?.name;
+      const folderId = rootDirectoryHandle?.path;
       if (!folderId) {
         return;
       }

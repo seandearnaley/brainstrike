@@ -253,6 +253,29 @@ describe('createWindow', () => {
       process.argv = originalArgv;
     });
 
+    it('keeps desktop E2E windows hidden even when stored state is maximized', async () => {
+      existsSyncMock.mockReturnValue(true);
+      process.argv = [...process.argv, '--test-mode'];
+
+      const storedState: DesktopWindowState = {
+        bounds: { width: 1024, height: 768, x: 120, y: 80 },
+        isFullScreen: false,
+        isMaximized: true,
+      };
+
+      await createWindow({ windowState: storedState });
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          focusable: false,
+          skipTaskbar: true,
+          show: false,
+        })
+      );
+      expect(mockBrowserWindow.maximize).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.show).not.toHaveBeenCalled();
+    });
+
     it('limits renderer crash recovery reloads to avoid crash loops', async () => {
       vi.useFakeTimers();
       existsSyncMock.mockReturnValue(true);

@@ -119,7 +119,7 @@ describe('useFileExplorer', () => {
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({
-      fileContents: { [encodeFileSelection('mock-root', '/file1.ts')]: 'content1' },
+      fileContents: { [encodeFileSelection(mockRootHandle.path, '/file1.ts')]: 'content1' },
       isLoading: false,
       error: null,
       handleFileContentLoading: mockHandleFileContentLoading,
@@ -147,7 +147,7 @@ describe('useFileExplorer', () => {
       await result.current.actions.loadFileContent('/file1.ts');
     });
 
-    const key = encodeFileSelection('mock-root', '/file1.ts');
+    const key = encodeFileSelection(mockRootHandle.path, '/file1.ts');
     expect(mockHandleFileContentLoading).toHaveBeenCalledWith([key]);
     expect(result.current.fileContents[key]).toBe('content1');
   });

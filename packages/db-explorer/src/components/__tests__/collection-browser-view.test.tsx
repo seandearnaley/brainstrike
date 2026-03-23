@@ -1,5 +1,5 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -48,12 +48,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     showCheckbox?: boolean;
     contextNodeIds?: Set<string>;
     treeWindowingStrategy?: string;
-    treePagination?: {
-      pageSize?: number;
-      pageSizeOptions?: readonly number[];
-      showControls?: boolean;
-      showItemRange?: boolean;
-    };
   }) => {
     collectionBrowserPropsSpy(props as Record<string, unknown>);
     const {
@@ -128,17 +122,32 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const NodeInspector = ({ nodeId, nodeType }: { nodeId?: string; nodeType: string | null }) => (
     <div data-testid="node-inspector">{`${nodeType ?? 'none'}:${nodeId ?? ''}`}</div>
   );
+  const TablePagination = ({
+    currentPage,
+    pageSize,
+    totalItems,
+    totalPages,
+  }: {
+    currentPage: number;
+    pageSize?: number;
+    totalItems: number;
+    totalPages: number;
+  }) => (
+    <div data-testid="table-pagination">{`${currentPage}:${pageSize ?? 0}:${totalItems}:${totalPages}`}</div>
+  );
 
   const SearchModeBar = ({
     multiSelectEnabled,
     onMultiSelectToggle,
     groupBy,
     onGroupByChange,
+    onExpandAll,
   }: {
     multiSelectEnabled?: boolean;
     onMultiSelectToggle?: (enabled: boolean) => void;
     groupBy?: string;
     onGroupByChange?: (key: string) => void;
+    onExpandAll?: () => void;
   }) => (
     <div data-testid="search-mode-bar">
       {onMultiSelectToggle && (
@@ -157,6 +166,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
           type="button"
         >
           Group by status
+        </button>
+      )}
+      {onExpandAll && (
+        <button aria-label="Expand all" onClick={onExpandAll} type="button">
+          Expand all
         </button>
       )}
       {groupBy && groupBy !== 'none' && <span data-testid="active-group-by">{groupBy}</span>}
@@ -204,6 +218,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     NodeInspector,
     SearchConfigPanel,
     SearchModeBar,
+    TablePagination,
   };
 });
 
@@ -329,25 +344,28 @@ describe('CollectionBrowserView', () => {
     expect(screen.getByTestId('bulk-actions-count')).toHaveTextContent('3');
   });
 
-  it('uses paged tree windowing with explicit pagination defaults', () => {
+  it('renders source pagination controls without double-paging the tree', () => {
     render(
       <CollectionBrowserView
         activeCollectionId={null}
         chunks={TEST_CHUNKS}
         height={500}
+        pagination={{
+          currentPage: 1,
+          onPageChange: vi.fn(),
+          onPageSizeChange: vi.fn(),
+          pageSize: 50,
+          totalRecords: 120,
+        }}
         records={TEST_RECORDS}
       />
     );
 
     const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0];
     expect(latestProps).toMatchObject({
-      treeWindowingStrategy: 'paged',
-      treePagination: {
-        pageSizeOptions: [25, 50, 100, 250],
-        showControls: true,
-        showItemRange: true,
-      },
+      treeWindowingStrategy: 'virtual',
     });
+    expect(screen.getByTestId('table-pagination')).toHaveTextContent('1:50:120:3');
   });
 
   it('handles double-click by toggling expansion for file nodes', async () => {
@@ -393,6 +411,106 @@ describe('CollectionBrowserView', () => {
 
     // Context menu should appear
     expect(screen.getByTestId('context-menu')).toBeInTheDocument();
+  });
+
+  it('expands freshly loaded chunk children from the context menu', async () => {
+    const user = userEvent.setup();
+    const loadFileChunkSummaries = vi.fn().mockResolvedValue([
+      {
+        id: 'loaded-chunk-1',
+        fileRecordId: '1',
+        chunkIndex: 0,
+        tokenCount: 12,
+        hasEmbedding: true,
+        contentPreview: 'const one = 1;',
+        embeddingSetId: 'collection-1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'loaded-chunk-2',
+        fileRecordId: '1',
+        chunkIndex: 1,
+        tokenCount: 10,
+        hasEmbedding: false,
+        contentPreview: 'const two = 2;',
+        embeddingSetId: 'collection-1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={[]}
+        height={500}
+        loadFileChunkSummaries={loadFileChunkSummaries}
+        records={[
+          {
+            id: '1',
+            name: 'one.ts',
+            path: '/one.ts',
+            size: 100,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            chunksCount: 2,
+            embeddingSetId: 'collection-1',
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Right-click first file' }));
+    await user.click(screen.getByRole('button', { name: 'Expand All Children' }));
+
+    expect(loadFileChunkSummaries).toHaveBeenCalledWith('1');
+    expect(useCollectionBrowserStore.getState().expandedIds).toEqual([
+      'file-1',
+      'chunk-loaded-chunk-1',
+    ]);
+  });
+
+  it('loads file chunk summaries when expanding all files from the toolbar', async () => {
+    const user = userEvent.setup();
+    const loadFileChunkSummaries = vi.fn().mockResolvedValue([
+      {
+        id: 'loaded-chunk-1',
+        fileRecordId: '1',
+        chunkIndex: 0,
+        tokenCount: 12,
+        hasEmbedding: true,
+        embeddingSetId: 'collection-1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={[]}
+        height={500}
+        loadFileChunkSummaries={loadFileChunkSummaries}
+        records={[
+          {
+            id: '1',
+            name: 'one.ts',
+            path: '/one.ts',
+            size: 100,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            chunksCount: 1,
+            embeddingSetId: 'collection-1',
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Expand all' }));
+
+    expect(loadFileChunkSummaries).toHaveBeenCalledWith('1');
+    expect(useCollectionBrowserStore.getState().expandedIds).toEqual(['file-1']);
   });
 
   it('updates groupBy via toolbar', async () => {
@@ -453,5 +571,78 @@ describe('CollectionBrowserView', () => {
     expect(
       screen.queryByRole('button', { name: /add selected to context/i })
     ).not.toBeInTheDocument();
+  });
+
+  it('does not call onChunkSelect after unmount if chunk detail resolves late', async () => {
+    let resolveChunkDetail!: (chunk: FileChunk | null) => void;
+    const loadChunkDetail = vi.fn(
+      () =>
+        new Promise<FileChunk | null>((resolve) => {
+          resolveChunkDetail = resolve;
+        })
+    );
+    const onChunkSelect = vi.fn();
+
+    const { unmount } = render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        loadChunkDetail={loadChunkDetail}
+        onChunkSelect={onChunkSelect}
+        records={TEST_RECORDS}
+      />
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0] as
+      | {
+          onSelect?: (nodeId: string, nodeType: string, nodeData: unknown) => void;
+        }
+      | undefined;
+
+    expect(latestProps?.onSelect).toBeDefined();
+
+    act(() => {
+      latestProps?.onSelect?.('chunk-chunk-1', 'chunk', {});
+    });
+
+    unmount();
+
+    await act(async () => {
+      resolveChunkDetail(TEST_CHUNKS[0] ?? null);
+      await Promise.resolve();
+    });
+
+    expect(onChunkSelect).not.toHaveBeenCalled();
+  });
+
+  it('handles chunk detail selection failures without unhandled rejections', async () => {
+    const loadChunkDetail = vi.fn().mockRejectedValue(new Error('chunk detail failed'));
+    const onChunkSelect = vi.fn();
+
+    render(
+      <CollectionBrowserView
+        activeCollectionId={null}
+        chunks={TEST_CHUNKS}
+        height={500}
+        loadChunkDetail={loadChunkDetail}
+        onChunkSelect={onChunkSelect}
+        records={TEST_RECORDS}
+      />
+    );
+
+    const latestProps = collectionBrowserPropsSpy.mock.calls.at(-1)?.[0] as
+      | {
+          onSelect?: (nodeId: string, nodeType: string, nodeData: unknown) => void;
+        }
+      | undefined;
+
+    await act(async () => {
+      latestProps?.onSelect?.('chunk-chunk-1', 'chunk', {});
+      await Promise.resolve();
+    });
+
+    expect(loadChunkDetail).toHaveBeenCalledWith('chunk-1');
+    expect(onChunkSelect).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain } from 'electron';
+import { dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMcpIpcHandlers } from '../../ipc-mcp';
 import { disposeClients, initClients } from '../../mcp';
@@ -36,6 +36,9 @@ vi.mock('electron', () => ({
   },
   dialog: {
     showOpenDialog: vi.fn(),
+  },
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => []),
   },
   app: {
     getPath: vi.fn(() => '/tmp'),
@@ -169,11 +172,13 @@ describe('ipc-mcp handlers', () => {
       if (!handler) {
         throw new Error('handler not registered');
       }
+      const initCallsBefore = vi.mocked(initClients).mock.calls.length;
+      const disposeCallsBefore = vi.mocked(disposeClients).mock.calls.length;
       const result = await handler();
 
       expect(loadMcpConfig).toHaveBeenCalled();
-      expect(initClients).not.toHaveBeenCalled();
-      expect(disposeClients).toHaveBeenCalled();
+      expect(vi.mocked(initClients).mock.calls.length).toBe(initCallsBefore);
+      expect(vi.mocked(disposeClients).mock.calls.length).toBeGreaterThan(disposeCallsBefore);
       expect(result).toEqual(mockConfig);
     });
 
@@ -502,6 +507,7 @@ describe('ipc-mcp handlers', () => {
         throw new Error('handlers not registered');
       }
 
+      const initCallsBefore = vi.mocked(initClients).mock.calls.length;
       const result1 = await getHandler();
       expect(result1).toEqual(mockConfig);
 
@@ -510,7 +516,7 @@ describe('ipc-mcp handlers', () => {
       const result2 = await getHandler();
       expect(result2).toEqual(mockConfig);
 
-      expect(initClients).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(initClients).mock.calls.length - initCallsBefore).toBe(2);
     });
   });
 
@@ -719,7 +725,7 @@ describe('ipc-mcp handlers', () => {
       expect(result).toEqual({ success: true, path: samplePath });
       const content = await fsp.readFile(samplePath, 'utf8');
       expect(content).toContain('"servers"');
-      expect(app.getPath).toHaveBeenCalled();
+      expect(getMcpConfigPath).toHaveBeenCalled();
 
       await fsp.rm(tempDir, { recursive: true, force: true });
     });

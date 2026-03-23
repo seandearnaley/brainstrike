@@ -22,7 +22,7 @@ export default defineConfig({
       },
       {
         find: '@brainstrike/utils',
-        replacement: path.resolve(import.meta.dirname, '../utils/src/index.ts'),
+        replacement: path.resolve(import.meta.dirname, '../utils/src'),
       },
       {
         find: /^@brainstrike\/file-system\/(.*)$/,

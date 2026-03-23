@@ -116,7 +116,9 @@ export function CollectionPicker({
   }, []);
 
   // Loading state
-  if (loading) {
+  // Keep already-known collections visible while a refresh is in flight so optimistic
+  // collection updates do not disappear behind a spinner.
+  if (loading && collections.length === 0) {
     return (
       <div className={cn('py-8 text-center text-muted-foreground text-sm', className)}>
         Loading collections...

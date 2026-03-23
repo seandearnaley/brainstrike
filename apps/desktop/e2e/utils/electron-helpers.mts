@@ -1,18 +1,34 @@
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
-import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
+import * as playwrightEnvironment from '@brainstrike/config/playwright-environment';
 import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 
 declare const process: NodeJS.Process;
+const require = createRequire(import.meta.url);
+
+const { getCILaunchArgs } = playwrightEnvironment;
 
 export interface ElectronAppContext {
   app: ElectronApplication;
   window: Page;
 }
 
+interface LaunchElectronAppOptions {
+  readonly launchMode?: 'dev-server' | 'test-built';
+  readonly userDataDir?: string;
+}
+
+interface ElectronOutputBuffer {
+  stderr: string[];
+  stdout: string[];
+}
+
 const intentionallyClosingApps = new WeakSet<ElectronApplication>();
+const electronOutputBuffers = new WeakMap<ElectronApplication, ElectronOutputBuffer>();
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 const ignoredElectronOutputPatterns = [
   'Electron Security Warning (Insecure Content-Security-Policy)',
@@ -72,19 +88,27 @@ const ignoredElectronOutputPatterns = [
   '"msg":"App ready, starting initialization..."',
   '"msg":"Setting up IPC handlers that require app readiness..."',
   '"msg":"Ready-dependent IPC handlers registered successfully"',
+  '"msg":"Desktop file logging configuration resolved"',
+  '"msg":"Desktop file logging is not active"',
   '"msg":"Security setup complete"',
   '"msg":"CSP configured"',
+  '"msg":"Assistant server started at http://',
   '"msg":"Creating main window..."',
   '"msg":"Main window created successfully"',
   '"msg":"main-thread watchdog started"',
   '"msg":"main-process-health"',
+  '"msg":"Skipping maximize in desktop E2E mode because Electron shows hidden windows when maximizing"',
+  '"msg":"Window startup: did-start-loading"',
   '"msg":"powerSaveBlocker started for active embedding host work"',
   '"msg":"powerSaveBlocker stopped for idle embedding host"',
+  '"msg":"Failed to resubscribe live query after pause release"',
   '"msg":"Using environment API key for provider"',
   '"msg":"mastra runtime initialized"',
   '"msg":"mastra stream started"',
   '"msg":"mastra stream finished"',
   '"msg":"registry cleared"',
+  '[ERROR:dbus/bus.cc:406] Failed to connect to the bus:',
+  '[ERROR:dbus/object_proxy.cc:573] Failed to call method: org.freedesktop.DBus.NameHasOwner:',
   'Debugger ending on ws://',
   'For help, see: https://nodejs.org/en/docs/inspector',
   'SharedImageManager::ProduceMemory: Trying to Produce a Memory representation from a non-existent mailbox.',
@@ -114,6 +138,17 @@ function printElectronOutput(
     }
 
     printer(`${prefix}${line}`);
+  }
+}
+
+function appendElectronOutput(buffer: string[], output: string): void {
+  const lines = output
+    .split(/\r?\n/u)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+  buffer.push(...lines);
+  if (buffer.length > 500) {
+    buffer.splice(0, buffer.length - 500);
   }
 }
 
@@ -166,8 +201,23 @@ export async function launchElectronApp(
   _debugPort?: number,
   userDataDir?: string
 ): Promise<ElectronAppContext> {
+  return await launchElectronAppWithOptions({
+    launchMode: 'test-built',
+    userDataDir,
+  });
+}
+
+export async function launchElectronAppWithOptions(
+  options: LaunchElectronAppOptions = {}
+): Promise<ElectronAppContext> {
   const electronPath = require('electron');
-  const mainPath = path.join(process.cwd(), 'dist', 'main.js');
+  const mainPath = path.resolve(import.meta.dirname, '..', '..', 'dist', 'main.js');
+  if (!fs.existsSync(mainPath)) {
+    throw new Error(`Desktop E2E main entry is missing at ${mainPath}`);
+  }
+
+  const launchMode = options.launchMode ?? 'test-built';
+  const userDataDir = options.userDataDir;
 
   // Electron launches can fail transiently immediately after a forced
   // renderer/app reset while the OS releases resources. Keep one local retry
@@ -193,7 +243,8 @@ export async function launchElectronApp(
       mainPath,
       undefined,
       userDataDir,
-      launchTimeoutMs
+      launchTimeoutMs,
+      launchMode
     );
 
     try {
@@ -213,36 +264,40 @@ export async function launchElectronApp(
   throw new Error(`Failed to launch Electron after ${maxAttempts} attempts: ${lastError?.message}`);
 }
 
+export async function getBufferedElectronOutput(
+  app: ElectronApplication
+): Promise<ElectronOutputBuffer> {
+  const buffer = electronOutputBuffers.get(app);
+  return {
+    stderr: [...(buffer?.stderr ?? [])],
+    stdout: [...(buffer?.stdout ?? [])],
+  };
+}
+
 // a Helper to kill lingering Electron processes that might be holding ports
 async function killLingeringElectronProcesses(userDataDir?: string): Promise<void> {
   try {
     const escapedUserDataDir = userDataDir?.replace(/'/gu, `'\\''`);
     if (process.platform === 'darwin') {
       if (escapedUserDataDir) {
-        execSync(
-          `pkill -9 -f "Electron.*--test-mode.*--user-data-dir=${escapedUserDataDir}" || true`,
-          {
-            stdio: 'ignore',
-          }
-        );
+        execSync(`pkill -9 -f "Electron.*--user-data-dir=${escapedUserDataDir}" || true`, {
+          stdio: 'ignore',
+        });
       } else {
         execSync("pkill -9 -f 'Electron.*--test-mode' || true", { stdio: 'ignore' });
       }
     } else if (process.platform === 'linux') {
       if (escapedUserDataDir) {
-        execSync(
-          `pkill -9 -f "electron.*--test-mode.*--user-data-dir=${escapedUserDataDir}" || true`,
-          {
-            stdio: 'ignore',
-          }
-        );
+        execSync(`pkill -9 -f "electron.*--user-data-dir=${escapedUserDataDir}" || true`, {
+          stdio: 'ignore',
+        });
       } else {
         execSync("pkill -9 -f 'electron.*--test-mode' || true", { stdio: 'ignore' });
       }
     } else if (process.platform === 'win32') {
       if (userDataDir) {
         execSync(
-          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.CommandLine -like '*--test-mode*' -and $_.CommandLine -like '*--user-data-dir=${userDataDir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`,
+          `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' -and $_.CommandLine -like '*--user-data-dir=${userDataDir}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`,
           { stdio: 'ignore' }
         );
       } else {
@@ -266,29 +321,37 @@ function createLaunchOptions(
   mainPath: string,
   _debugPort?: number,
   userDataDir?: string,
-  launchTimeoutMs?: number
+  launchTimeoutMs?: number,
+  launchMode: 'dev-server' | 'test-built' = 'test-built'
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
+  const shouldDisableGpuForE2e =
+    process.env['CI'] === 'true' && process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] !== '1';
   const baseArgs = [
     mainPath,
-    '--test-mode',
+    ...(launchMode === 'test-built' ? ['--test-mode'] : []),
+    `--brainstrike-e2e-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.
     // Playwright manages its own CDP connection via electron.launch().
     // Specifying an explicit port can cause "Waiting for debugger to disconnect" hangs.
     // Explicitly set user data dir to avoid collisions in shared environments
     ...(userDataDir ? [`--user-data-dir=${userDataDir}`] : []),
-    // Disable GPU features to prevent crashes/hangs in CI
-    '--disable-gpu',
-    '--disable-gpu-sandbox',
-    '--disable-software-rasterizer',
+    // Disable GPU features to prevent crashes/hangs in CI.
+    // Allow GPU in specific tests (e.g., WebGPU memory diagnostics) via env var.
+    ...(shouldDisableGpuForE2e
+      ? ['--disable-gpu', '--disable-gpu-sandbox', '--disable-software-rasterizer']
+      : []),
     '--no-sandbox',
     '--disable-dev-shm-usage',
     // Additional flags to prevent debugger/inspector issues
     '--disable-extensions',
-    '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding',
+    // Allow backgrounding in specific crash-reproduction tests to test the
+    // production code path where Chromium throttles backgrounded renderers.
+    ...(process.env['BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING'] === '1'
+      ? []
+      : ['--disable-background-timer-throttling', '--disable-renderer-backgrounding']),
   ];
 
   // #region agent log - Hypothesis C: DISPLAY resolution logic
@@ -319,14 +382,26 @@ function createLaunchOptions(
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_IS_E2E_TEST: 'true',
+      ...(launchMode === 'dev-server'
+        ? {
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            CI: 'false',
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            NODE_ENV: 'test',
+          }
+        : {}),
       // Prevent V8 inspector issues that cause "Waiting for debugger to disconnect" hangs
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       NODE_OPTIONS: '', // Clear any inherited NODE_OPTIONS that might enable --inspect
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_ENABLE_STACK_DUMPING: 'false',
-      // Disable GPU acceleration in CI (can cause renderer process hangs)
-      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-      ELECTRON_DISABLE_GPU: '1',
+      ...(shouldDisableGpuForE2e
+        ? {
+            // Disable GPU acceleration in CI where Chromium GPU startup is unstable.
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            ELECTRON_DISABLE_GPU: '1',
+          }
+        : {}),
       // Ensure DISPLAY in Linux CI if not provided by runner
       ...(needsDisplayFallback
         ? // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -336,12 +411,6 @@ function createLaunchOptions(
     // Let Playwright manage the CDP connection - don't override
     timeout: launchTimeoutMs ?? 150_000, // Increased to 150s for CI stability
   };
-  if (!process.env['CI']) {
-    options.recordVideo = {
-      dir: 'test-results/videos',
-      size: { width: 1280, height: 720 },
-    };
-  }
   return options;
 }
 
@@ -448,6 +517,8 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     // Pipe stdout and stderr for debugging CI crashes
     const electronProcess = app.process();
     const pid = electronProcess.pid;
+    const outputBuffer: ElectronOutputBuffer = { stderr: [], stdout: [] };
+    electronOutputBuffers.set(app, outputBuffer);
     verboseLog(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
 
     // #region agent log - Hypothesis G: Verify stdio pipe status
@@ -476,6 +547,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
         stdoutReceived = true;
       }
       const str = data.toString();
+      appendElectronOutput(outputBuffer.stdout, str);
       printElectronOutput('[Electron Stdout]: ', str, console.log);
     });
     electronProcess.stderr?.on('data', (data) => {
@@ -488,6 +560,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
         stderrReceived = true;
       }
       const str = data.toString();
+      appendElectronOutput(outputBuffer.stderr, str);
       printElectronOutput('[Electron Stderr]: ', str, console.error);
     });
     // #endregion

@@ -42,6 +42,13 @@ import { getWindowRoleByWebContentsId } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
+const LOG_FILE_VERIFICATION_POLL_INTERVAL_MS = 250;
+const LOG_FILE_VERIFICATION_TIMEOUT_MS = 5000;
+
+function isElectronE2ETestMode(): boolean {
+  return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
+}
+
 // Defer getPath call until app is ready - calling at module load time fails
 let logFilePath: string | null = null;
 function getLogFilePath(): string | null {
@@ -216,6 +223,29 @@ function isWritableLogDestination(destination: string): boolean {
   }
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+interface FileStatSnapshot {
+  mtimeMs: number;
+  size: number;
+}
+
+async function readFileStatSnapshot(filePath: string): Promise<FileStatSnapshot | null> {
+  try {
+    const stats = await fs.promises.stat(filePath);
+    return {
+      size: stats.size,
+      mtimeMs: stats.mtimeMs,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function isWritableLogDestinationAsync(destination: string): Promise<boolean> {
   try {
     const resolved = path.resolve(destination);
@@ -356,6 +386,69 @@ function getLoggingSettingsPayload(): LoggingSettingsPayload {
   });
 }
 
+async function verifyActiveLogFile(reason: string): Promise<void> {
+  const { enabled, destination } = currentLoggingPreferences.file;
+  const defaultDestination = getLoggingCapabilities().defaultDestination;
+
+  logger.info('Desktop file logging configuration resolved', {
+    reason,
+    fileLoggingEnabled: enabled,
+    configuredDestination: destination,
+    defaultDestination,
+    appReady: app.isReady(),
+  });
+
+  if (!(enabled && destination)) {
+    logger.warn('Desktop file logging is not active', {
+      reason,
+      fileLoggingEnabled: enabled,
+      configuredDestination: destination,
+      defaultDestination,
+    });
+    return;
+  }
+
+  const before = await readFileStatSnapshot(destination);
+  logger.info('Desktop file logging verification marker', {
+    reason,
+    logFile: destination,
+    previousSizeBytes: before?.size ?? null,
+    previousMtimeMs: before?.mtimeMs ?? null,
+  });
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < LOG_FILE_VERIFICATION_TIMEOUT_MS) {
+    await sleep(LOG_FILE_VERIFICATION_POLL_INTERVAL_MS);
+    const after = await readFileStatSnapshot(destination);
+    if (!after) {
+      continue;
+    }
+    if (!before || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+      logger.info('Desktop file logging verified on disk', {
+        reason,
+        logFile: destination,
+        sizeBytes: after.size,
+        mtimeMs: after.mtimeMs,
+        previousSizeBytes: before?.size ?? null,
+        previousMtimeMs: before?.mtimeMs ?? null,
+      });
+      return;
+    }
+  }
+
+  const finalStats = await readFileStatSnapshot(destination);
+  logger.error('Desktop file logging did not advance on disk after verification marker', {
+    reason,
+    logFile: destination,
+    existsOnDisk: finalStats !== null,
+    sizeBytes: finalStats?.size ?? null,
+    mtimeMs: finalStats?.mtimeMs ?? null,
+    previousSizeBytes: before?.size ?? null,
+    previousMtimeMs: before?.mtimeMs ?? null,
+    defaultDestination,
+  });
+}
+
 async function selectLogDestination(): Promise<string | null> {
   if (!getLoggingCapabilities().canSelectDestination) {
     return null;
@@ -393,6 +486,7 @@ async function applyAndPersistLoggingPreferences(
           : null,
     },
   });
+  void verifyActiveLogFile('logging-preferences-updated');
   return getLoggingSettingsPayload();
 }
 
@@ -641,10 +735,15 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 registerShutdownSignalHandlers();
 
-const singleInstanceLockAcquired =
-  typeof app.requestSingleInstanceLock === 'function' ? app.requestSingleInstanceLock() : true;
+const singleInstanceLockAcquired = isElectronE2ETestMode()
+  ? true
+  : typeof app.requestSingleInstanceLock === 'function'
+    ? app.requestSingleInstanceLock()
+    : true;
 
 if (singleInstanceLockAcquired) {
+  const e2eTestMode = isElectronE2ETestMode();
+
   // REMOVED: enable-gpu-rasterization + enable-zero-copy
   // These push rasterization onto the same GPU command queue that ONNX/Dawn
   // uses for WebGPU inference. Under sustained background embedding load,
@@ -655,27 +754,35 @@ if (singleInstanceLockAcquired) {
   // may starve WebGPU command submissions after ~4 minutes.
   app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
 
-  app.on('second-instance', () => {
-    const existingWindow =
-      BrowserWindow.getAllWindows().find(
-        (window) =>
-          !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
-      ) ?? null;
-    if (!existingWindow) {
-      return;
-    }
+  if (!e2eTestMode) {
+    app.on('second-instance', () => {
+      const existingWindow =
+        BrowserWindow.getAllWindows().find(
+          (window) =>
+            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+        ) ?? null;
+      if (!existingWindow) {
+        return;
+      }
 
-    if (typeof existingWindow.show === 'function') {
-      existingWindow.show();
-    }
-    if (typeof existingWindow.focus === 'function') {
-      existingWindow.focus();
-    }
-  });
+      if (typeof existingWindow.show === 'function') {
+        existingWindow.show();
+      }
+      if (typeof existingWindow.focus === 'function') {
+        existingWindow.focus();
+      }
+    });
+  }
 
   app.whenReady().then(async () => {
     try {
       logger.debug('App ready, starting initialization...');
+
+      // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
+      if (e2eTestMode && process.platform === 'darwin') {
+        app.setActivationPolicy?.('accessory');
+        app.dock?.hide();
+      }
 
       // Re-initialize file logging now that app.getPath() is available.
       // At module load time, app.isReady() is false so getLogFilePath()
@@ -703,6 +810,7 @@ if (singleInstanceLockAcquired) {
           logger.debug('File logging enabled after app.ready', { logFile: resolvedLogPath });
         }
       }
+      void verifyActiveLogFile('app-ready');
 
       logger.debug('Setting up IPC handlers that require app readiness...');
       registerSecretsIpcHandlers(createSecretsService());
@@ -862,6 +970,21 @@ if (singleInstanceLockAcquired) {
           window.webContents.send('app:power-state', state);
         }
       };
+      let pendingPowerResumeTimer: ReturnType<typeof setTimeout> | null = null;
+      const clearPendingPowerResume = () => {
+        if (pendingPowerResumeTimer === null) {
+          return;
+        }
+        clearTimeout(pendingPowerResumeTimer);
+        pendingPowerResumeTimer = null;
+      };
+      const schedulePowerResume = () => {
+        clearPendingPowerResume();
+        pendingPowerResumeTimer = setTimeout(() => {
+          pendingPowerResumeTimer = null;
+          broadcastPowerState('resume');
+        }, 2000);
+      };
 
       logger.debug('Creating main window...');
       const mainWindow = await createMainWindow();
@@ -979,19 +1102,31 @@ if (singleInstanceLockAcquired) {
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
         logger.info('power:suspend');
+        clearPendingPowerResume();
         broadcastPowerState('suspend');
       });
 
       powerMonitor.on('resume', () => {
         logger.info('power:resume');
         // Delay to let OS settle (GPU re-init, network reconnect)
-        setTimeout(() => {
-          broadcastPowerState('resume');
-        }, 2000);
+        schedulePowerResume();
       });
 
-      powerMonitor.on('lock-screen', () => logger.info('power:lock-screen'));
-      powerMonitor.on('unlock-screen', () => logger.info('power:unlock-screen'));
+      // Lock-screen invalidates GPU contexts on macOS (WindowServer reclaims
+      // Metal contexts for the login window). Broadcast the same power state
+      // events as suspend/resume so renderers can pause GPU keep-alive timers
+      // and avoid submitting commands to stale devices.
+      powerMonitor.on('lock-screen', () => {
+        logger.info('power:lock-screen');
+        clearPendingPowerResume();
+        broadcastPowerState('suspend');
+      });
+      powerMonitor.on('unlock-screen', () => {
+        logger.info('power:unlock-screen');
+        // Delay to let GPU contexts re-initialize after WindowServer hands
+        // back the display, matching the resume delay.
+        schedulePowerResume();
+      });
 
       // Window focus/blur: throttle IPC traffic when backgrounded
       mainWindow.on('blur', () => {

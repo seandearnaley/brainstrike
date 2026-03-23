@@ -2031,10 +2031,18 @@ export async function startEmbeddingWorker(
     if (reinitEveryN <= 0 || processedSinceInit < reinitEveryN || scheduledReinitPending) {
       return;
     }
-    scheduledReinitPending = true;
+    // Reinitialize inline instead of deferring to idle. During large backfills
+    // the queue is never idle, so the deferred reinit never runs. This causes
+    // the ONNX WASM heap to grow unboundedly (WASM memory can only grow, not
+    // shrink). Inline reinit caps memory by creating a fresh WASM instance.
     workerLogger.info(
-      `Processed ${processedSinceInit} jobs; scheduling reinitialization for next idle window.`
+      `Processed ${processedSinceInit} jobs; reinitializing embedding service to reclaim WASM memory.`
     );
+    try {
+      await resetService();
+    } catch (error) {
+      workerLogger.error('Inline embedding service reinitialization failed', { error });
+    }
   }
 
   async function resolveJobModelOrFail(

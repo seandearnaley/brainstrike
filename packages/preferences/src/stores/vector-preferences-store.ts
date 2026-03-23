@@ -99,7 +99,15 @@ export const useVectorPreferencesStore = create<VectorPreferencesStore>()(
       },
       migrate: (persistedState, version) => {
         if (!persistedState) {
-          return;
+          // Return explicit defaults so Zustand never sees undefined fields
+          // during hydration — hooks read state.devicePref synchronously and
+          // an undefined value would propagate to WebGPU initialization.
+          return {
+            devicePref: 'webgpu' as DevicePref,
+            devicePrefConfigured: false,
+            reinitEveryN: 200,
+            verboseOrtLogs: false,
+          } satisfies Partial<VectorPreferencesStore>;
         }
         if (version >= 3) {
           return persistedState as Partial<VectorPreferencesStore>;

@@ -12,7 +12,7 @@ interface EncoderInstance {
 }
 interface ResolvedEncoder {
   dispose?: () => void;
-  encode: EncodeFn;
+  encodeContent: EncodeFn;
 }
 type EncoderFactory = (input: string) => EncoderInstance;
 type BrowserInitFn = (
@@ -47,8 +47,16 @@ function normalizeErrorMessage(error: unknown): string {
 }
 
 function toResolvedEncoder(encoder: EncoderInstance): ResolvedEncoder {
+  const encodeOrdinary = (encoder as unknown as Record<string, unknown>)['encode_ordinary'];
+  if (typeof encodeOrdinary !== 'function') {
+    throw new Error('tiktoken encoder missing encode_ordinary');
+  }
   const resolvedEncoder: ResolvedEncoder = {
-    encode: (text: string) => encoder.encode(text),
+    // File contents must be tokenized as ordinary text. Special-token aware
+    // prompt encoding is not valid for arbitrary source files.
+    // wasm-bindgen encoder methods require the original instance as `this`.
+    encodeContent: (text: string) =>
+      (encodeOrdinary as (this: EncoderInstance, text: string) => Uint32Array).call(encoder, text),
   };
   if (typeof encoder.free === 'function') {
     resolvedEncoder.dispose = () => encoder.free?.();
@@ -364,7 +372,7 @@ export async function countTokensAccurate(text: string): Promise<number> {
   }
 
   try {
-    return encoder.encode(text).length;
+    return encoder.encodeContent(text).length;
   } catch (error) {
     logOnce('tiktoken encode failed', error);
     const message = error instanceof Error ? error.message : String(error);

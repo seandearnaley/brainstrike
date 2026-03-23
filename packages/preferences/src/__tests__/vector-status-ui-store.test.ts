@@ -206,6 +206,28 @@ describe('vector-status-ui-store', () => {
     });
   });
 
+  describe('activeBackfill', () => {
+    it('stores and clears active backfill progress across remount-safe state updates', () => {
+      const store = useVectorStatusUIStore;
+
+      store.getState().setActiveBackfill({
+        embeddingSetId: 'set-1',
+        requestId: 'backfill-1',
+        progress: { done: 12, total: 48 },
+      });
+
+      expect(store.getState().activeBackfill).toEqual({
+        embeddingSetId: 'set-1',
+        requestId: 'backfill-1',
+        progress: { done: 12, total: 48 },
+      });
+
+      store.getState().setActiveBackfill(null);
+
+      expect(store.getState().activeBackfill).toBeNull();
+    });
+  });
+
   describe('setDurableQueueStats', () => {
     it('preserves store identity when queue stats are unchanged', () => {
       const store = useVectorStatusUIStore;

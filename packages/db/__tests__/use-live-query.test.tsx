@@ -170,6 +170,77 @@ describe('Error Handling', () => {
   });
 });
 
+describe('usePGliteLiveQuery clearOnDisable', () => {
+  let mockSubscribe: ReturnType<typeof vi.fn>;
+  let mockUnsubscribe: ReturnType<typeof vi.fn>;
+  let mockQuery: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockSubscribe = vi.fn();
+    mockUnsubscribe = vi.fn();
+    mockQuery = vi.fn().mockReturnValue({
+      initialResults: { rows: [{ id: 1 }, { id: 2 }] },
+      subscribe: mockSubscribe,
+      unsubscribe: mockUnsubscribe,
+      refresh: vi.fn(),
+    });
+
+    (usePGliteDatabase as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      raw: {
+        live: {
+          query: mockQuery,
+          incrementalQuery: mockQuery,
+        },
+      },
+    });
+  });
+
+  function ToggleEnabledComponent({
+    clearOnDisable,
+    enabled,
+  }: {
+    clearOnDisable?: boolean;
+    enabled: boolean;
+  }) {
+    const { rows } = usePGliteLiveQuery({
+      query: 'SELECT * FROM test',
+      enabled,
+      clearOnDisable,
+    });
+    return <div>{rows.length}</div>;
+  }
+
+  it('retains the last rows when disabled by default', async () => {
+    const { rerender, container } = render(<ToggleEnabledComponent enabled={true} />);
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toBe('2');
+    });
+
+    rerender(<ToggleEnabledComponent enabled={false} />);
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toBe('2');
+    });
+  });
+
+  it('clears retained rows when disabled and clearOnDisable is true', async () => {
+    const { rerender, container } = render(
+      <ToggleEnabledComponent clearOnDisable={true} enabled={true} />
+    );
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toBe('2');
+    });
+
+    rerender(<ToggleEnabledComponent clearOnDisable={true} enabled={false} />);
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toBe('0');
+    });
+  });
+});
+
 describe('useStableParams (JSON strategy - default)', () => {
   let mockSubscribe: ReturnType<typeof vi.fn>;
   let mockUnsubscribe: ReturnType<typeof vi.fn>;

@@ -10,11 +10,10 @@ import {
 import { Archive, Brain, ChevronDown, Download, FileDown } from 'lucide-react';
 import type { ExportButtonsProps } from '../types';
 
-export function ExportDropdown({ records, chunks, exportHandlers }: ExportButtonsProps) {
-  const embeddings = chunks.filter((c) => c.embedding);
-  const hasFiles = records.length > 0;
-  const hasChunks = chunks.length > 0;
-  const hasEmbeddings = embeddings.length > 0;
+export function ExportDropdown({ counts, exportHandlers }: ExportButtonsProps) {
+  const hasFiles = counts.records > 0;
+  const hasChunks = counts.chunks > 0;
+  const hasEmbeddings = counts.embeddings > 0;
   const hasAnyData = hasFiles || hasChunks;
 
   return (
@@ -42,7 +41,7 @@ export function ExportDropdown({ records, chunks, exportHandlers }: ExportButton
         >
           <Download className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">Files</span>
-          <span className="text-muted-foreground text-xs">{records.length}</span>
+          <span className="text-muted-foreground text-xs">{counts.records}</span>
         </DropdownMenuItem>
 
         <DropdownMenuItem
@@ -52,7 +51,7 @@ export function ExportDropdown({ records, chunks, exportHandlers }: ExportButton
         >
           <Download className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">Chunks</span>
-          <span className="text-muted-foreground text-xs">{chunks.length}</span>
+          <span className="text-muted-foreground text-xs">{counts.chunks}</span>
         </DropdownMenuItem>
 
         <DropdownMenuItem
@@ -62,7 +61,7 @@ export function ExportDropdown({ records, chunks, exportHandlers }: ExportButton
         >
           <Brain className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">Embeddings</span>
-          <span className="text-muted-foreground text-xs">{embeddings.length}</span>
+          <span className="text-muted-foreground text-xs">{counts.embeddings}</span>
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />

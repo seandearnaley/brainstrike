@@ -222,26 +222,22 @@ export function CollectionBrowser({
     };
   }, [treePagination, shouldUseSearchWindowingContext]);
 
-  if (isLoading) {
-    return (
-      <div
-        className={cn('flex items-center justify-center bg-background', className)}
-        style={{ height }}
-      >
-        <div className="text-muted-foreground text-sm">Loading...</div>
-      </div>
-    );
-  }
-
   return (
     <div
       className={cn('relative flex min-h-0 min-w-0 flex-col bg-background', className)}
       style={{ height }}
     >
       <div
+        aria-busy={isLoading}
         className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
         data-testid="collection-tree-region"
       >
+        {isLoading && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/70">
+            <div className="text-muted-foreground text-sm">Loading...</div>
+          </div>
+        )}
+
         {isSearching && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
             <div className="text-muted-foreground text-sm">Searching...</div>

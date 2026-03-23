@@ -36,7 +36,7 @@ describe('vector-preferences', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     const event = spy.mock.calls[0]?.[0] as CustomEvent;
     expect(event.type).toBe('brainstrike:embedding-set-updated');
-    expect(event.detail).toEqual({ id: 'set-456' });
+    expect(event.detail).toEqual({ id: 'set-456', reason: 'selected' });
 
     spy.mockRestore();
   });
@@ -49,7 +49,19 @@ describe('vector-preferences', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     const event = spy.mock.calls[0]?.[0] as CustomEvent;
     expect(event.type).toBe('brainstrike:embedding-set-updated');
-    expect(event.detail).toEqual({ id: null });
+    expect(event.detail).toEqual({ id: null, reason: 'selected' });
+
+    spy.mockRestore();
+  });
+
+  it('keeps store and localStorage updated when dispatch throws', () => {
+    const spy = vi.spyOn(window, 'dispatchEvent').mockImplementation(() => {
+      throw new Error('dispatch failed');
+    });
+
+    expect(() => setActiveEmbeddingSetId('set-789')).not.toThrow();
+    expect(localStorage.getItem(ACTIVE_EMBEDDING_SET_KEY)).toBe('set-789');
+    expect(getActiveEmbeddingSetId()).toBe('set-789');
 
     spy.mockRestore();
   });

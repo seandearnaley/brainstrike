@@ -4,6 +4,9 @@ const { getAllWindowsMock, lifecycleState, mockHostWindow } = vi.hoisted(() => {
   const hostWindow = {
     id: 71,
     isDestroyed: vi.fn(() => false),
+    on: vi.fn(),
+    once: vi.fn(),
+    removeListener: vi.fn(),
     webContents: {
       id: 71,
       send: vi.fn(),
@@ -84,6 +87,13 @@ describe('ChunkingHostManager', () => {
       state: 'running',
     });
     mockHostWindow.isDestroyed.mockReturnValue(false);
+    mockHostWindow.on.mockImplementation((_event: string, listener: () => void) => {
+      // Default: simulate synchronous window close so waitForWindowClosed resolves immediately
+      listener();
+    });
+    mockHostWindow.once.mockImplementation((_event: string, listener: () => void) => {
+      listener();
+    });
     mockHostWindow.webContents.send.mockReset();
   });
 
@@ -314,5 +324,56 @@ describe('ChunkingHostManager', () => {
     });
 
     await expect(requestPromise).resolves.toEqual({ chunks: [] });
+  });
+
+  it('stop waits for the closed event before resolving', async () => {
+    vi.useRealTimers();
+    let closedListener: (() => void) | null = null;
+    mockHostWindow.on.mockImplementation((event: string, listener: () => void) => {
+      if (event === 'closed') {
+        closedListener = listener;
+      }
+    });
+
+    const manager = new ChunkingHostManager();
+    const stopPromise = manager.stop();
+
+    // The stop should not resolve until the closed event fires
+    await Promise.resolve();
+    expect(closedListener).not.toBeNull();
+
+    closedListener!();
+    await stopPromise;
+
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
+    expect(lifecycleState.clearHostWindow).toHaveBeenCalled();
+  });
+
+  it('stop resolves within timeout if closed event never fires', async () => {
+    vi.useFakeTimers();
+    mockHostWindow.once.mockImplementation(() => {
+      // Never call the listener — simulating a window that never fires 'closed'
+    });
+
+    const manager = new ChunkingHostManager();
+    const stopPromise = manager.stop();
+
+    await vi.advanceTimersByTimeAsync(500);
+    await stopPromise;
+
+    expect(lifecycleState.destroyHostWindow).toHaveBeenCalled();
+    expect(lifecycleState.clearHostWindow).toHaveBeenCalled();
+  });
+
+  it('stop resolves immediately if window is already destroyed', async () => {
+    vi.useRealTimers();
+    mockHostWindow.isDestroyed.mockReturnValue(true);
+
+    const manager = new ChunkingHostManager();
+    await manager.stop();
+
+    // destroyHostWindow should NOT be called because the window is already destroyed
+    expect(lifecycleState.destroyHostWindow).not.toHaveBeenCalled();
+    expect(lifecycleState.clearHostWindow).toHaveBeenCalled();
   });
 });

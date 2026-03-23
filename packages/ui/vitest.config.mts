@@ -5,6 +5,10 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: /^@brainstrike\/utils\/(.*)$/,
+        replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
+      },
+      {
         find: '@brainstrike/utils/create-debounce',
         replacement: resolve(import.meta.dirname, '../utils/src/create-debounce.ts'),
       },
@@ -45,8 +49,12 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../hooks/src/index.ts'),
       },
       {
+        find: '@brainstrike/ui',
+        replacement: resolve(import.meta.dirname, './src/index.ts'),
+      },
+      {
         find: '@brainstrike/utils',
-        replacement: resolve(import.meta.dirname, '../utils/src/index.ts'),
+        replacement: resolve(import.meta.dirname, '../utils/src'),
       },
     ],
   },

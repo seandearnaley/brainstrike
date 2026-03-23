@@ -735,6 +735,7 @@ interface McpApi {
   disableTools?: (toolIds: string[]) => Promise<void>;
   enableTools?: (toolIds: string[]) => Promise<void>;
   listTools: () => Promise<Record<string, McpToolDescriptor[]>>;
+  onToolsUpdated?: (callback: (tools: Record<string, McpToolDescriptor[]>) => void) => () => void;
 }
 
 const setMcpApi = (overrides: Partial<McpApi> = {}) => {
@@ -742,6 +743,7 @@ const setMcpApi = (overrides: Partial<McpApi> = {}) => {
     listTools: vi.fn().mockResolvedValue({}),
     enableTools: vi.fn().mockResolvedValue(undefined),
     disableTools: vi.fn().mockResolvedValue(undefined),
+    onToolsUpdated: vi.fn().mockReturnValue(() => undefined),
     ...overrides,
   };
   (window as typeof window & { mcp?: McpApi }).mcp = api;
@@ -1318,6 +1320,40 @@ describe('AssistantUiPanelWrapper', () => {
 
     await waitFor(() => {
       expect(mcpApi.listTools).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  test('updates MCP tools when the desktop bridge publishes a tool change event', async () => {
+    let handleToolsUpdated: ((tools: Record<string, McpToolDescriptor[]>) => void) | undefined;
+
+    setMcpApi({
+      listTools: vi.fn().mockResolvedValue({}),
+      onToolsUpdated: vi.fn().mockImplementation((callback) => {
+        handleToolsUpdated = callback;
+        return () => undefined;
+      }),
+    });
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('tool-menu-count')).toHaveTextContent('0');
+      })
+    );
+
+    expect(handleToolsUpdated).toBeTypeOf('function');
+
+    handleToolsUpdated?.({
+      filesystem: [
+        {
+          id: 'filesystem.list_directory',
+          description: 'List directory contents',
+          enabled: true,
+        },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tool-menu-item-filesystem.list_directory')).toBeInTheDocument();
     });
   });
 

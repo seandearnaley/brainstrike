@@ -60,9 +60,12 @@ export interface SettingsPanelProps {
 }
 
 export interface ExportButtonsProps {
-  chunks: FileChunk[];
+  counts: {
+    chunks: number;
+    embeddings: number;
+    records: number;
+  };
   exportHandlers: ExportHandlers;
-  records: FileRecord[];
 }
 
 export interface ImportSettings {
@@ -85,9 +88,9 @@ export interface ImportSettings {
 
 export interface ExportHandlers {
   handleExportAll: () => Promise<void>;
-  handleExportChunks: () => void;
-  handleExportEmbeddings: () => void;
-  handleExportFiles: () => void;
+  handleExportChunks: () => Promise<void>;
+  handleExportEmbeddings: () => Promise<void>;
+  handleExportFiles: () => Promise<void>;
 }
 
 export interface SearchFunctionality {
