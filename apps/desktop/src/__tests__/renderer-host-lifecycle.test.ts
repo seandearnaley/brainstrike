@@ -46,6 +46,11 @@ interface FakeWindow {
   };
 }
 
+function getWindowOpenHandler(fakeWindow: FakeWindow): () => { action: 'deny' } {
+  const [handler] = fakeWindow.webContents.setWindowOpenHandler.mock.calls[0] ?? [];
+  return handler as () => { action: 'deny' };
+}
+
 function createStatus(status: RendererHostStatusShape): RendererHostStatusShape {
   return {
     state: status.state,
@@ -105,6 +110,8 @@ describe('RendererHostLifecycle', () => {
     const hostWindow = createFakeWindow(41);
     hostWindow.loadURL.mockImplementation(async () => {
       expect(getWindowRoleByWebContentsId(41)).toBe('chunking-host');
+      expect(hostWindow.webContents.setWindowOpenHandler).toHaveBeenCalledOnce();
+      expect(getWindowOpenHandler(hostWindow)()).toEqual({ action: 'deny' });
     });
 
     const windows = [hostWindow];
