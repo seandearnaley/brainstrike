@@ -28,7 +28,7 @@ export interface TreeNode {
   type: 'file' | 'directory' | 'loadMore';
 }
 
-const PATH_SEPARATOR_CODE = 47;
+const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
 
 /**
  * Returns true only when targetPath is nested under ancestorPath on a path boundary.
@@ -346,8 +346,7 @@ export function getPathDepth(path: string): number {
   let count = 0;
   let inSegment = false;
   for (let i = 0; i < path.length; i++) {
-    // 47 is char code for '/'
-    if (path.charCodeAt(i) !== 47) {
+    if (path.charCodeAt(i) !== PATH_SEPARATOR_CODE) {
       if (!inSegment) {
         count++;
         inSegment = true;
