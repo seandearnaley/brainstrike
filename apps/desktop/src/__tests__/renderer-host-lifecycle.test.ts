@@ -46,7 +46,7 @@ interface FakeWindow {
   };
 }
 
-type WindowOpenHandler = () => { action: 'deny' };
+type WindowOpenHandler = () => { action: 'allow' | 'deny' };
 
 function getWindowOpenHandler(fakeWindow: FakeWindow): WindowOpenHandler {
   const [handler] = fakeWindow.webContents.setWindowOpenHandler.mock.calls[0] ?? [];
