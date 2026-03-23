@@ -477,7 +477,6 @@ export function filterTreeNodes<T>(
       if (!node) {
         continue;
       }
-
       const nodeMatches = predicate(node);
       let childHasMatch = false;
 
@@ -494,7 +493,7 @@ export function filterTreeNodes<T>(
         // biome-ignore lint/style/useForOf: optimized for performance
         for (let j = 0; j < ancestors.length; j++) {
           const ancestorId = ancestors[j];
-          if (ancestorId) {
+          if (ancestorId !== undefined) {
             ancestorIds.add(ancestorId);
           }
         }

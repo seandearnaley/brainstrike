@@ -489,4 +489,22 @@ describe('filterTreeNodes — edge cases', () => {
     const result = filterTreeNodes(roots, () => true, getChildren);
     expect(result.matchingIds.size).toBe(2);
   });
+
+  it('preserves empty-string ancestor IDs', () => {
+    const allNodes: TreeNode<TestData>[] = [
+      node('', 'Root', null, true, 0),
+      node('child', 'Match', '', false, 1),
+    ];
+    const getChildren = createChildrenGetter(allNodes);
+    const roots = buildTreeFromFlatNodes(allNodes);
+
+    const result = filterTreeNodes(
+      roots,
+      (n) => (n.data as TestData).name === 'Match',
+      getChildren
+    );
+
+    expect(result.matchingIds.has('child')).toBe(true);
+    expect(result.ancestorIds.has('')).toBe(true);
+  });
 });
