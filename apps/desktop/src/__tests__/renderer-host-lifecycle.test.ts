@@ -46,9 +46,16 @@ interface FakeWindow {
   };
 }
 
-function getWindowOpenHandler(fakeWindow: FakeWindow): () => { action: 'deny' } {
+type WindowOpenHandler = () => { action: 'deny' };
+
+function getWindowOpenHandler(fakeWindow: FakeWindow): WindowOpenHandler {
   const [handler] = fakeWindow.webContents.setWindowOpenHandler.mock.calls[0] ?? [];
-  return handler as () => { action: 'deny' };
+  return handler as WindowOpenHandler;
+}
+
+function expectDeniedWindowOpenHandler(fakeWindow: FakeWindow): void {
+  expect(fakeWindow.webContents.setWindowOpenHandler).toHaveBeenCalledOnce();
+  expect(getWindowOpenHandler(fakeWindow)()).toEqual({ action: 'deny' });
 }
 
 function createStatus(status: RendererHostStatusShape): RendererHostStatusShape {
@@ -111,8 +118,7 @@ describe('RendererHostLifecycle', () => {
     const hostWindow = createFakeWindow(41);
     hostWindow.loadURL.mockImplementation(async () => {
       expect(getWindowRoleByWebContentsId(41)).toBe('chunking-host');
-      expect(hostWindow.webContents.setWindowOpenHandler).toHaveBeenCalledOnce();
-      expect(getWindowOpenHandler(hostWindow)()).toEqual({ action: 'deny' });
+      expectDeniedWindowOpenHandler(hostWindow);
     });
 
     const windows = [hostWindow];
@@ -150,7 +156,9 @@ describe('RendererHostLifecycle', () => {
 
   it('encodes dev host query parameters before loading the renderer url', async () => {
     const hostWindow = createFakeWindow(42);
-    hostWindow.loadURL.mockResolvedValue(undefined);
+    hostWindow.loadURL.mockImplementation(async () => {
+      expectDeniedWindowOpenHandler(hostWindow);
+    });
 
     MockBrowserWindow.mockImplementation(function () {
       Object.assign(this, hostWindow);
