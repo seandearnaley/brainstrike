@@ -25,6 +25,6 @@
 ## 2026-03-13 - Native Regex over String Iteration for Character Stripping
 **Learning:** For stripping specific characters (like XML-illegal control characters < 0x20) from strings, using a pre-compiled regular expression with `.replace(/.../g, '')` is significantly faster (~30x for clean strings, ~5x for dirty strings) than manually iterating over the string with a `for...of` loop and rebuilding it character-by-character. Native regex avoids JavaScript string allocations and executes at C++ speed in V8.
 **Action:** Replace manual character-by-character string filtering loops with pre-compiled regular expressions when the goal is simply to remove specific characters or character ranges.
-## 2025-03-16 - Tree Filter Performance Improvement
+## 2026-03-16 - Tree Filter Performance Improvement
 **Learning:** In highly recursive functions on large tree structures, such as `filterTreeNodes`, creating new arrays by spreading (e.g. `[...ancestors, node.id]`) for every child traversal generates excessive GC pressure and degrades performance significantly.
 **Action:** Reuse a mutable `ancestors` array with `.push()` and `.pop()` across recursive calls when navigating hierarchical data instead of constantly allocating new nested path strings/arrays.
