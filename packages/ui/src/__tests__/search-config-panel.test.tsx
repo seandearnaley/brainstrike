@@ -105,7 +105,7 @@ describe('SearchConfigPanel', () => {
       <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
     );
 
-    const slider = screen.getByLabelText('Similarity threshold');
+    const slider = screen.getByLabelText('Threshold');
     fireEvent.change(slider, { target: { value: '0.8' } });
 
     expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ threshold: 0.8 }));
@@ -123,7 +123,7 @@ describe('SearchConfigPanel', () => {
       <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
     );
 
-    const slider = screen.getByLabelText('Similarity threshold');
+    const slider = screen.getByLabelText('Threshold');
     fireEvent.change(slider, { target: { value: 'not-a-number' } });
 
     expect(onConfigChange).not.toHaveBeenCalled();
