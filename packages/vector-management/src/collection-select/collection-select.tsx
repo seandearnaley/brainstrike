@@ -250,7 +250,10 @@ function mergeCollections(
   }
   return Array.from(merged.values()).sort(
     (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      // Direct string comparison is orders of magnitude faster than localeCompare/Intl.Collator
+      // for ISO-8601 dates and standard IDs since it bypasses the Internationalization API entirely.
+      (right.createdAt > left.createdAt ? 1 : right.createdAt < left.createdAt ? -1 : 0) ||
+      (right.id > left.id ? 1 : right.id < left.id ? -1 : 0)
   );
 }
 
@@ -262,7 +265,10 @@ function upsertCollectionSnapshot(
   next.unshift(collection);
   next.sort(
     (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      // Direct string comparison is orders of magnitude faster than localeCompare/Intl.Collator
+      // for ISO-8601 dates and standard IDs since it bypasses the Internationalization API entirely.
+      (right.createdAt > left.createdAt ? 1 : right.createdAt < left.createdAt ? -1 : 0) ||
+      (right.id > left.id ? 1 : right.id < left.id ? -1 : 0)
   );
   return next;
 }
@@ -291,7 +297,10 @@ function applyPendingCollectionMutations(
 
   return Array.from(merged.values()).sort(
     (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      // Direct string comparison is orders of magnitude faster than localeCompare/Intl.Collator
+      // for ISO-8601 dates and standard IDs since it bypasses the Internationalization API entirely.
+      (right.createdAt > left.createdAt ? 1 : right.createdAt < left.createdAt ? -1 : 0) ||
+      (right.id > left.id ? 1 : right.id < left.id ? -1 : 0)
   );
 }
 
