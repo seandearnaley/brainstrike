@@ -127,17 +127,23 @@ describe('ImportProgress', () => {
 
     // Initially errors should be hidden
     expect(screen.queryByText('Failed to import')).not.toBeInTheDocument();
+    const viewErrorsButton = screen.getByRole('button', { name: /view 1 error/i });
+    const errorListId = viewErrorsButton.getAttribute('aria-controls');
+
+    expect(errorListId).toBeTruthy();
+    expect(document.getElementById(errorListId ?? '')).toHaveAttribute('hidden');
 
     // Click to show errors
-    const viewErrorsButton = screen.getByText(/View 1 error/);
     fireEvent.click(viewErrorsButton);
 
     // Now errors should be visible
+    expect(document.getElementById(errorListId ?? '')).not.toHaveAttribute('hidden');
     expect(screen.getByText('Failed to import')).toBeInTheDocument();
     expect(screen.getByText('error.txt')).toBeInTheDocument();
 
     // Click again to hide
     fireEvent.click(viewErrorsButton);
+    expect(document.getElementById(errorListId ?? '')).toHaveAttribute('hidden');
     expect(screen.queryByText('Failed to import')).not.toBeInTheDocument();
   });
 
@@ -156,6 +162,8 @@ describe('ImportProgress', () => {
     expect(firstId).toBeTruthy();
     expect(secondId).toBeTruthy();
     expect(firstId).not.toBe(secondId);
+    expect(document.getElementById(firstId ?? '')).toBeInTheDocument();
+    expect(document.getElementById(secondId ?? '')).toBeInTheDocument();
   });
 
   it('displays correct singular error text', () => {
