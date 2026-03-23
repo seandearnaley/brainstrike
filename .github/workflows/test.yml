@@ -690,15 +690,99 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
+  desktop-e2e-backgrounding:
+    name: Desktop E2E Backgrounding Regression
+    needs: [prepare-desktop, desktop-e2e-pr, desktop-e2e-main]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: |
+      always() &&
+      (
+        (github.event_name == 'pull_request' && needs.desktop-e2e-pr.result == 'success') ||
+        (github.event_name != 'pull_request' && needs.desktop-e2e-main.result == 'success')
+      )
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+        with:
+          skip-electron: 'false'
+
+      - name: Setup desktop E2E
+        uses: ./.github/actions/setup-desktop-e2e
+
+      - name: Run desktop backgrounding regression tests
+        timeout-minutes: 30
+        working-directory: apps/desktop
+        run: |
+          export DISPLAY=":95"
+
+          LOCK_FILE="/tmp/.X95-lock"
+          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+
+          echo "Starting Xvfb on display ${DISPLAY} for backgrounding regression"
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+
+          echo "Waiting for Xvfb to initialize..."
+          sleep 3
+
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+          echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
+
+          echo "Starting Playwright backgrounding regression tests..."
+          pnpm test:e2e:backgrounding
+          TEST_EXIT_CODE=$?
+
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
+        env:
+          NODE_ENV: "test"
+          CI: "true"
+          RUN_SALT: ${{ github.run_id }}
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          ELECTRON_DISABLE_GPU: "1"
+
+      - name: Bundle blob report (desktop backgrounding)
+        if: always()
+        run: |
+          set -e
+          cd apps/desktop
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf desktop-backgrounding-blob-report.tar blob-report/
+            ls -lh desktop-backgrounding-blob-report.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "No blob report found for desktop backgrounding regression"
+          fi
+
+      - name: Upload blob report (desktop backgrounding)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-backgrounding-blob-report
+          path: apps/desktop/desktop-backgrounding-blob-report.tar
+          retention-days: 1
+          if-no-files-found: warn
+
   # Merge E2E test reports
   # Note: exactly one of desktop-e2e-pr / desktop-e2e-main is always skipped
   # (PR runs -pr, main/push runs -main). The OR condition handles this correctly.
   merge-reports:
     name: Merge Test Reports
-    needs: [checks, e2e, desktop-e2e-pr, desktop-e2e-main]
+    needs: [checks, e2e, desktop-e2e-pr, desktop-e2e-main, desktop-e2e-backgrounding]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success')
+    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e-pr.result == 'success' || needs.desktop-e2e-main.result == 'success' || needs.desktop-e2e-backgrounding.result == 'success')
     steps:
       - name: Checkout
         uses: actions/checkout@v4

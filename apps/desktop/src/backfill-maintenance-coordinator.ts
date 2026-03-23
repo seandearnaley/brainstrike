@@ -53,7 +53,8 @@ export class BackfillMaintenanceCoordinator {
   constructor(
     private readonly config: GpuMemoryReclaimConfig,
     private readonly embeddingSetId: string,
-    private readonly hostManager: EmbeddingHostMaintenanceControl
+    private readonly hostManager: EmbeddingHostMaintenanceControl,
+    private readonly now: () => number = Date.now
   ) {}
 
   getReclaimCycleCount(): number {
@@ -145,7 +146,7 @@ export class BackfillMaintenanceCoordinator {
       }
 
       this.completedSinceLastMaintenance = 0;
-      this.lastMaintenanceCompletedAt = Date.now();
+      this.lastMaintenanceCompletedAt = this.now();
       this.reclaimCycleCount = reclaimCycle;
       this.state = 'idle';
       logger.info('Completed embedding host GPU reclaim maintenance', {
@@ -168,13 +169,15 @@ export class BackfillMaintenanceCoordinator {
   }
 
   private createMaintenanceFailure(error: Error): Error {
-    return new Error(`Embedding host GPU reclaim maintenance failed: ${error.message}`);
+    return new Error(`Embedding host GPU reclaim maintenance failed: ${error.message}`, {
+      cause: error,
+    });
   }
 
   private isMaintenanceIntervalSatisfied(): boolean {
     if (this.lastMaintenanceCompletedAt === 0) {
       return true;
     }
-    return Date.now() - this.lastMaintenanceCompletedAt >= this.config.minimumIntervalMs;
+    return this.now() - this.lastMaintenanceCompletedAt >= this.config.minimumIntervalMs;
   }
 }

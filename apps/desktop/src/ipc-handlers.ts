@@ -80,7 +80,8 @@ const logger = createLogger('DesktopIpcHandlers');
 // mutations, each triggering multiple live queries).
 //
 // Foreground: 200ms flush interval — responsive UI updates without flooding
-// Background: 2000ms flush interval — reduces idle IPC traffic
+// Background: subscriptions are fully paused, so the 2s interval is only a
+// defensive fallback for any queued updates that exist before pause takes effect
 // Focus: immediate flush — user sees up-to-date state on return
 // ---------------------------------------------------------------------------
 let isBackgrounded = false;
@@ -476,13 +477,24 @@ export function setBackgrounded(value: boolean): void {
 function acquireLiveSubscriptionPause(): void {
   liveSubscriptionPauseDepth += 1;
   if (liveSubscriptionPauseDepth === 1) {
+    // Intentional fire-and-forget: PGlite unsubscribe may resolve asynchronously,
+    // so callbacks can race briefly with the pause transition. Those callbacks
+    // only enqueue fresh state and are flushed once subscriptions resume.
     for (const record of liveSubscriptions.values()) {
       try {
-        record.handle.unsubscribe(record.listener).catch(() => {
-          // Ignore async errors — subscription may already be cleaned up
+        record.handle.unsubscribe(record.listener).catch((error: unknown) => {
+          logger.debug('Failed to unsubscribe live query during pause', {
+            subscriptionId: record.id,
+            webContentsId: record.webContentsId,
+            error,
+          });
         });
-      } catch {
-        // Ignore errors — subscription may already be cleaned up
+      } catch (error) {
+        logger.debug('Failed to unsubscribe live query during pause', {
+          subscriptionId: record.id,
+          webContentsId: record.webContentsId,
+          error,
+        });
       }
     }
   }
@@ -494,11 +506,31 @@ function releaseLiveSubscriptionPause(): void {
   }
   liveSubscriptionPauseDepth -= 1;
   if (liveSubscriptionPauseDepth === 0) {
+    // Intentional fire-and-forget: subscriptions may already have been cleaned
+    // up concurrently, and live query reattachment should not block foregrounding.
     for (const record of liveSubscriptions.values()) {
       try {
-        record.handle.subscribe(record.listener);
-      } catch {
-        // Ignore errors — subscription may have been cleaned up
+        const subscribeResult = record.handle.subscribe(record.listener) as unknown;
+        if (
+          subscribeResult &&
+          typeof subscribeResult === 'object' &&
+          'catch' in subscribeResult &&
+          typeof subscribeResult.catch === 'function'
+        ) {
+          void subscribeResult.catch((error: unknown) => {
+            logger.debug('Failed to resubscribe live query after pause release', {
+              subscriptionId: record.id,
+              webContentsId: record.webContentsId,
+              error,
+            });
+          });
+        }
+      } catch (error) {
+        logger.debug('Failed to resubscribe live query after pause release', {
+          subscriptionId: record.id,
+          webContentsId: record.webContentsId,
+          error,
+        });
       }
     }
   }

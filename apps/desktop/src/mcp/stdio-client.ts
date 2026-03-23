@@ -6,6 +6,7 @@ import type { McpClient, McpDiscoveredTool } from './types';
 
 const logger = createLogger('DesktopStdioMcpClient');
 const DEFAULT_STDIO_CONNECT_TIMEOUT_MS = 10_000;
+const DEFAULT_STDIO_CONNECT_FAILURE_COOLDOWN_MS = 3000;
 
 interface ConnectedClient {
   client: Client;
@@ -22,10 +23,34 @@ function getConnectTimeoutMs(): number {
   return DEFAULT_STDIO_CONNECT_TIMEOUT_MS;
 }
 
+function getConnectFailureCooldownMs(): number {
+  const raw = Number(
+    process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'] ??
+      DEFAULT_STDIO_CONNECT_FAILURE_COOLDOWN_MS
+  );
+  if (Number.isFinite(raw) && raw >= 0) {
+    return raw;
+  }
+  return DEFAULT_STDIO_CONNECT_FAILURE_COOLDOWN_MS;
+}
+
+function toError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(String(error));
+}
+
 export function createStdioClient(server: Extract<McpServer, { transport: 'stdio' }>): McpClient {
   const discoveredToolNames = new Map<string, string>();
   let connected: ConnectedClient | undefined;
   let connectPromise: Promise<ConnectedClient> | undefined;
+  let lastConnectFailure:
+    | {
+        error: Error;
+        failedAt: number;
+      }
+    | undefined;
 
   async function ensureConnected(): Promise<ConnectedClient> {
     if (connected) {
@@ -33,6 +58,13 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
     }
     if (connectPromise) {
       return connectPromise;
+    }
+    if (lastConnectFailure) {
+      const elapsedMs = Date.now() - lastConnectFailure.failedAt;
+      if (elapsedMs < getConnectFailureCooldownMs()) {
+        throw lastConnectFailure.error;
+      }
+      lastConnectFailure = undefined;
     }
 
     connectPromise = (async () => {
@@ -46,14 +78,25 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
         ...(server.env ? { env: server.env } : {}),
       };
       const transport = new StdioClientTransport(transportOptions);
-      await client.connect(transport, { timeout: getConnectTimeoutMs() });
-      const next = { client, transport };
-      connected = next;
-      logger.info('Connected MCP stdio client', {
-        server: server.name,
-        command: server.command,
-      });
-      return next;
+      try {
+        await client.connect(transport, { timeout: getConnectTimeoutMs() });
+        const next = { client, transport };
+        connected = next;
+        lastConnectFailure = undefined;
+        logger.info('Connected MCP stdio client', {
+          server: server.name,
+          command: server.command,
+        });
+        return next;
+      } catch (error) {
+        const nextError = toError(error);
+        lastConnectFailure = {
+          error: nextError,
+          failedAt: Date.now(),
+        };
+        await transport.close().catch(() => undefined);
+        throw nextError;
+      }
     })().finally(() => {
       connectPromise = undefined;
     });
@@ -92,6 +135,7 @@ export function createStdioClient(server: Extract<McpServer, { transport: 'stdio
     async dispose(): Promise<void> {
       const current = connected;
       connected = undefined;
+      lastConnectFailure = undefined;
       discoveredToolNames.clear();
 
       if (!current) {

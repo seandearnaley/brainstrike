@@ -7,6 +7,8 @@ type ClientMap = Map<string, McpClient>;
 let clients: ClientMap = new Map();
 
 export function initClients(config: McpConfig | { servers: McpServer[] }): void {
+  // Intentional fire-and-forget: client disposal can outlive config replacement,
+  // and stale shutdown errors should not block installing the new registry.
   void disposeClients();
   const next: ClientMap = new Map();
   for (const s of config.servers) {

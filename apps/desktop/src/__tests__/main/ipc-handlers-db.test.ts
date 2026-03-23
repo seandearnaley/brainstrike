@@ -21,6 +21,7 @@ const {
   mockDb,
   getDatabaseMock,
   loggerWarn,
+  loggerDebug,
   isCorruptionErrorMock,
   handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
@@ -44,6 +45,7 @@ const {
   };
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
+  const loggerDebug = vi.fn();
   const isCorruptionErrorMock = vi.fn(() => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
@@ -99,6 +101,7 @@ const {
     mockDb,
     getDatabaseMock,
     loggerWarn,
+    loggerDebug,
     isCorruptionErrorMock,
     handleRuntimeCorruptionMock,
     resetLocalDatabaseMock,
@@ -212,7 +215,7 @@ vi.mock('@brainstrike/utils/logger', async () => {
       warn: loggerWarn,
       info: vi.fn(),
       error: vi.fn(),
-      debug: vi.fn(),
+      debug: loggerDebug,
     }),
   };
 });
@@ -1565,6 +1568,44 @@ describe('database IPC handlers', () => {
 
       // Clean up without triggering flush (no pending updates)
       setBackgrounded(false);
+    });
+
+    it('logs unsubscribe failures during pause without throwing', async () => {
+      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { liveHandle } = await setupLiveQuery();
+
+      liveHandle.unsubscribe.mockReturnValue(Promise.reject(new Error('pause failed')));
+
+      expect(() => setBackgrounded(true)).not.toThrow();
+      await Promise.resolve();
+
+      expect(loggerDebug).toHaveBeenCalledWith('Failed to unsubscribe live query during pause', {
+        subscriptionId: expect.any(Number),
+        webContentsId: 50,
+        error: expect.any(Error),
+      });
+
+      setBackgrounded(false);
+    });
+
+    it('logs resubscribe failures during resume without throwing', async () => {
+      const { setBackgrounded } = await import('../../ipc-handlers');
+      const { liveHandle } = await setupLiveQuery();
+
+      setBackgrounded(true);
+      liveHandle.subscribe.mockImplementation(() => Promise.reject(new Error('resume failed')));
+
+      expect(() => setBackgrounded(false)).not.toThrow();
+      await Promise.resolve();
+
+      expect(loggerDebug).toHaveBeenCalledWith(
+        'Failed to resubscribe live query after pause release',
+        {
+          subscriptionId: expect.any(Number),
+          webContentsId: 50,
+          error: expect.any(Error),
+        }
+      );
     });
 
     it('cleans up subscriptions when a backgrounded owner window is no longer available', async () => {

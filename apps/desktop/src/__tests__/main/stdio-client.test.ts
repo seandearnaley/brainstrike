@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   clientConnectMock,
@@ -59,8 +59,17 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
 import { createStdioClient } from '../../mcp/stdio-client';
 
 describe('stdio client', () => {
+  const originalConnectFailureCooldown = process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'];
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
+    process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'] = originalConnectFailureCooldown;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'] = originalConnectFailureCooldown;
   });
 
   it('discovers real MCP tools and namespaces them by server', async () => {
@@ -131,5 +140,41 @@ describe('stdio client', () => {
     await expect(client.dispose()).resolves.toBeUndefined();
     expect(clientCloseMock).toHaveBeenCalledTimes(1);
     expect(transportCloseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('briefly caches connect failures before retrying the stdio spawn path', async () => {
+    vi.useFakeTimers();
+    process.env['MCP_STDIO_CONNECT_FAILURE_COOLDOWN_MS'] = '1000';
+    clientConnectMock
+      .mockRejectedValueOnce(new Error('connect failed'))
+      .mockResolvedValueOnce(undefined);
+
+    const client = createStdioClient({
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'node',
+      args: ['/root'],
+    });
+
+    await expect(client.listTools()).rejects.toThrow('connect failed');
+    expect(clientConnectMock).toHaveBeenCalledTimes(1);
+    expect(transportCloseMock).toHaveBeenCalledTimes(1);
+
+    await expect(client.listTools()).rejects.toThrow('connect failed');
+    expect(clientConnectMock).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1000);
+
+    await expect(client.listTools()).resolves.toEqual({
+      'filesystem.read_file': {
+        description: 'Read a file',
+        inputSchema: { type: 'object' },
+      },
+      'filesystem.list_directory': {
+        description: 'List a directory',
+        inputSchema: { type: 'object' },
+      },
+    });
+    expect(clientConnectMock).toHaveBeenCalledTimes(2);
   });
 });

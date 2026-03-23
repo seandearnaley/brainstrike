@@ -7,6 +7,7 @@ import {
 function createCoordinator(
   config: GpuMemoryReclaimConfig,
   overrides?: Partial<{
+    now: () => number;
     reset: ReturnType<typeof vi.fn>;
   }>
 ): {
@@ -27,7 +28,7 @@ function createCoordinator(
   };
 
   return {
-    coordinator: new BackfillMaintenanceCoordinator(config, 'set-123', hostManager),
+    coordinator: new BackfillMaintenanceCoordinator(config, 'set-123', hostManager, overrides?.now),
     hostManager,
   };
 }
@@ -145,14 +146,18 @@ describe('BackfillMaintenanceCoordinator', () => {
   });
 
   it('keeps maintenance requested until the minimum interval has elapsed', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-19T00:00:00.000Z'));
-    const { coordinator, hostManager } = createCoordinator({
-      enabled: true,
-      itemThreshold: 1,
-      minimumIntervalMs: 15_000,
-      mode: 'reset',
-    });
+    let now = 1;
+    const { coordinator, hostManager } = createCoordinator(
+      {
+        enabled: true,
+        itemThreshold: 1,
+        minimumIntervalMs: 15_000,
+        mode: 'reset',
+      },
+      {
+        now: () => now,
+      }
+    );
 
     coordinator.noteCompletedItems(1);
     await coordinator.runRequestedMaintenance();
@@ -166,11 +171,40 @@ describe('BackfillMaintenanceCoordinator', () => {
     expect(hostManager.reset).toHaveBeenCalledTimes(1);
     expect(coordinator.getState()).toBe('requested');
 
-    vi.advanceTimersByTime(15_000);
+    now += 15_000;
     await coordinator.runRequestedMaintenance();
 
     expect(hostManager.reset).toHaveBeenCalledTimes(2);
     expect(coordinator.getState()).toBe('idle');
-    vi.useRealTimers();
+  });
+
+  it('preserves the original error as the failure cause', async () => {
+    const rootCause = new Error('reset exploded');
+    const { coordinator } = createCoordinator(
+      {
+        enabled: true,
+        itemThreshold: 1,
+        minimumIntervalMs: 0,
+        mode: 'reset',
+      },
+      {
+        reset: vi.fn(async () => {
+          throw rootCause;
+        }),
+      }
+    );
+
+    coordinator.noteCompletedItems(1);
+
+    try {
+      await coordinator.runRequestedMaintenance();
+      throw new Error('Expected maintenance to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        'Embedding host GPU reclaim maintenance failed: reset exploded'
+      );
+      expect((error as Error).cause).toBe(rootCause);
+    }
   });
 });
