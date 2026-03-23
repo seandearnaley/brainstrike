@@ -142,6 +142,31 @@ describe('SelectionRulesEditor', () => {
         ).not.toBeInTheDocument();
       });
     });
+
+    it('exposes descriptive labels and titles on icon-only remove buttons', async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionRulesEditor folderId="test-folder" isOpen onOpenChange={vi.fn()} />
+        </FileExplorerTestWrapper>
+      );
+
+      fireEvent.click(screen.getByTestId('apply-defaults-button'));
+      fireEvent.click(screen.getByTestId('add-exclude-pattern'));
+
+      await waitFor(() => {
+        const includeButton = screen.getByRole('button', { name: 'Remove include pattern' });
+        const excludeRootButton = screen.getByRole('button', {
+          name: 'Remove exclude directory',
+        });
+        const excludePatternButton = screen.getByRole('button', {
+          name: 'Remove exclude pattern',
+        });
+
+        expect(includeButton).toHaveAttribute('title', 'Remove include pattern');
+        expect(excludeRootButton).toHaveAttribute('title', 'Remove exclude directory');
+        expect(excludePatternButton).toHaveAttribute('title', 'Remove exclude pattern');
+      });
+    });
   });
 
   describe('default patterns', () => {
@@ -242,6 +267,60 @@ describe('SelectionRulesEditor', () => {
           screen.queryByText('No include patterns. Add patterns to match files.')
         ).not.toBeInTheDocument();
       });
+    });
+
+    it('exposes accessible names and titles on icon-only remove buttons', () => {
+      const existingRuleSet = {
+        version: 1,
+        folderId: 'test-folder',
+        rules: [
+          {
+            id: 'rule-1',
+            type: 'glob-include',
+            patterns: ['**/*.ts'],
+            enabled: true,
+            createdAt: '2024-01-01T00:00:00.000Z',
+          },
+          {
+            id: 'rule-2',
+            type: 'root-exclude',
+            roots: ['node_modules'],
+            enabled: true,
+            createdAt: '2024-01-01T00:00:00.000Z',
+          },
+          {
+            id: 'rule-3',
+            type: 'glob-exclude',
+            patterns: ['**/*.test.ts'],
+            enabled: true,
+            createdAt: '2024-01-01T00:00:00.000Z',
+          },
+        ],
+        metadata: {
+          createdAt: '2024-01-01T00:00:00.000Z',
+          updatedAt: '2024-01-01T00:00:00.000Z',
+        },
+      };
+      mockSelectionModel.ruleSetJson = JSON.stringify(existingRuleSet);
+
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionRulesEditor folderId="test-folder" isOpen onOpenChange={vi.fn()} />
+        </FileExplorerTestWrapper>
+      );
+
+      expect(screen.getByRole('button', { name: 'Remove include pattern' })).toHaveAttribute(
+        'title',
+        'Remove include pattern'
+      );
+      expect(screen.getByRole('button', { name: 'Remove exclude directory' })).toHaveAttribute(
+        'title',
+        'Remove exclude directory'
+      );
+      expect(screen.getByRole('button', { name: 'Remove exclude pattern' })).toHaveAttribute(
+        'title',
+        'Remove exclude pattern'
+      );
     });
   });
 
