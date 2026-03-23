@@ -141,6 +141,23 @@ describe('ImportProgress', () => {
     expect(screen.queryByText('Failed to import')).not.toBeInTheDocument();
   });
 
+  it('uses a unique error list id per component instance', () => {
+    const errors = [{ file: 'error.txt', error: 'Failed to import' }];
+    render(
+      <>
+        <ImportProgress progress={createProgress({ errors })} />
+        <ImportProgress progress={createProgress({ errors })} />
+      </>
+    );
+
+    const toggleButtons = screen.getAllByRole('button', { name: /view 1 error/i });
+    const [firstId, secondId] = toggleButtons.map((button) => button.getAttribute('aria-controls'));
+
+    expect(firstId).toBeTruthy();
+    expect(secondId).toBeTruthy();
+    expect(firstId).not.toBe(secondId);
+  });
+
   it('displays correct singular error text', () => {
     const errors = [{ file: 'error.txt', error: 'Failed' }];
     render(<ImportProgress progress={createProgress({ errors })} />);

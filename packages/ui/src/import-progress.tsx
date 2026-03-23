@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, X } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Badge } from './badge';
 import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
@@ -19,6 +19,7 @@ interface ImportProgressProps {
 
 export function ImportProgress({ progress, onClose }: ImportProgressProps) {
   const [showErrors, setShowErrors] = useState(false);
+  const errorListId = useId();
 
   const { total, completed, current, errors } = progress;
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -83,7 +84,7 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
       {hasErrors && (
         <CardContent className="pt-0">
           <Button
-            aria-controls="error-list"
+            aria-controls={errorListId}
             aria-expanded={showErrors}
             className="h-auto w-full justify-start p-2"
             onClick={() => setShowErrors(!showErrors)}
@@ -102,7 +103,7 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
           </Button>
 
           {showErrors && (
-            <div className="mt-2 max-h-32 space-y-1 overflow-y-auto" id="error-list">
+            <div className="mt-2 max-h-32 space-y-1 overflow-y-auto" id={errorListId}>
               {errors.map((error) => (
                 <div
                   className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
