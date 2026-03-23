@@ -108,15 +108,14 @@ describe('startsWithPrefix', () => {
     });
   });
 
-  describe('dev-mode assertion', () => {
-    it('throws when separator has more than 1 character in non-production env', () => {
-      // NODE_ENV defaults to 'test' in vitest, which is not 'production'
+  describe('runtime validation', () => {
+    it('throws when separator has more than 1 character', () => {
       expect(() => startsWithPrefix('/foo/bar', '/foo', '::')).toThrow(
         'startsWithPrefix: separator must be a single character, got "::"'
       );
     });
 
-    it('throws for empty separator in non-production env', () => {
+    it('throws for empty separator', () => {
       expect(() => startsWithPrefix('/foo/bar', '/foo', '')).toThrow(
         'startsWithPrefix: separator must be a single character, got ""'
       );
@@ -186,7 +185,7 @@ describe('startsWithDoubleCharPrefix', () => {
     });
   });
 
-  describe('dev-mode assertion', () => {
+  describe('runtime validation', () => {
     it('throws when separator is not exactly 2 characters', () => {
       expect(() => startsWithDoubleCharPrefix('a:b', 'a', ':')).toThrow(
         'startsWithDoubleCharPrefix: separator must be exactly 2 characters, got ":"'

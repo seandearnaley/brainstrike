@@ -13,17 +13,10 @@
  * Equivalent to `path.startsWith(prefix + separator)` but avoids the
  * intermediate string allocation.
  *
- * @param separator - Must be a single character; only the first `charCode` is checked.
+ * @param separator - Must be a single character.
  */
 export function startsWithPrefix(path: string, prefix: string, separator: string): boolean {
-  // Guard against browser runtimes where `process` may not exist.
-  // Bracket notation required: noPropertyAccessFromIndexSignature is enabled in tsconfig.
-  // Bundlers (esbuild/Vite) still statically replace process.env['NODE_ENV'] in prod builds.
-  if (
-    typeof process !== 'undefined' &&
-    process.env?.['NODE_ENV'] !== 'production' &&
-    separator.length !== 1
-  ) {
+  if (separator.length !== 1) {
     throw new Error(`startsWithPrefix: separator must be a single character, got "${separator}"`);
   }
   return (
@@ -47,14 +40,7 @@ export function startsWithPrefix(path: string, prefix: string, separator: string
  * @param sep - Must be exactly two characters (e.g. `'::'`).
  */
 export function startsWithDoubleCharPrefix(value: string, prefix: string, sep: string): boolean {
-  // Guard against browser runtimes where `process` may not exist.
-  // Bracket notation required: noPropertyAccessFromIndexSignature is enabled in tsconfig.
-  // Bundlers (esbuild/Vite) still statically replace process.env['NODE_ENV'] in prod builds.
-  if (
-    typeof process !== 'undefined' &&
-    process.env?.['NODE_ENV'] !== 'production' &&
-    sep.length !== 2
-  ) {
+  if (sep.length !== 2) {
     throw new Error(
       `startsWithDoubleCharPrefix: separator must be exactly 2 characters, got "${sep}"`
     );
