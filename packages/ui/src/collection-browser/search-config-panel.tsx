@@ -168,7 +168,8 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
           {/* Row 1: Retrieval Mode Toggle */}
           <div className="flex items-center gap-2">
             <span className="min-w-[52px] text-[10px] text-muted-foreground">Mode</span>
-            <div aria-label="Retrieval mode" className="flex flex-1 gap-1" role="group">
+            <fieldset className="flex min-w-0 flex-1 gap-1 border-0 p-0">
+              <legend className="sr-only">Retrieval mode</legend>
               {RETRIEVAL_MODES.map((mode) => {
                 const Icon = mode.icon === 'Zap' ? Zap : Sparkles;
                 const isActive = retrievalMode === mode.value;
@@ -196,7 +197,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
                   </Tooltip>
                 );
               })}
-            </div>
+            </fieldset>
           </div>
 
           {/* Row 2: Hybrid Mode Weight Sliders (only shown in hybrid mode) */}
