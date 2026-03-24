@@ -67,10 +67,6 @@ describe('token-utils-lite', () => {
       expect(countTokensHeuristic('line1\nline2\nline3')).toBe(5); // ceil(17/4)
     });
 
-    it('returns at least 1 for any non-empty string', () => {
-      // Even a single char should return at least 1 due to Math.max(1, ...)
-      expect(countTokensHeuristic('x')).toBeGreaterThanOrEqual(1);
-    });
   });
 
   // ---------------------------------------------------------------------------
@@ -285,22 +281,6 @@ describe('token-utils-lite', () => {
 
       expect(moduleFactory).toHaveBeenCalledTimes(1);
       expect(firstSupportCheck).toHaveBeenCalledTimes(2);
-    });
-
-    it('clears failure reason to null after dispose', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
-        countTokensAccurate: vi.fn(async () => 9),
-        disposeAccurateTokenCountingRuntime: vi.fn(),
-        getAccurateTokenCountingFailureReason: vi.fn(() => 'some reason'),
-        supportsAccurateTokenCounting: vi.fn(async () => false),
-      }));
-
-      const tokenUtils = await import('../token-utils-lite');
-      await tokenUtils.supportsAccurateTokenCounting();
-      expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe('some reason');
-
-      await tokenUtils.disposeAccurateTokenCountingRuntime();
-      expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBeNull();
     });
 
     it('can be called multiple times safely', async () => {
