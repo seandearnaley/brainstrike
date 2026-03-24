@@ -16,13 +16,7 @@ vi.mock('@brainstrike/preferences/stores/model-registry-store', () => ({
 
 // Mock the PromptManager component
 const mockPromptManager = vi.fn(
-  ({
-    availableModels,
-    providers,
-  }: {
-    availableModels: unknown[];
-    providers: unknown[];
-  }) => (
+  ({ availableModels, providers }: { availableModels: unknown[]; providers: unknown[] }) => (
     <div data-testid="prompt-manager">
       <span data-testid="model-count">{availableModels.length}</span>
       <span data-testid="provider-count">{providers.length}</span>
