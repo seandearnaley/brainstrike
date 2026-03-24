@@ -1,19 +1,24 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { useFileExplorerToasts } from '../../hooks/use-file-explorer-toasts';
 
-// Mock the file-explorer-hooks module
+// Mock the file-explorer-hooks module with spyable fns
+const mockShowToast = vi.fn();
+const mockHandleRefreshError = vi.fn();
+const mockHandleBrowserCompatibilityError = vi.fn();
+const mockHandleDirectorySelectError = vi.fn();
+const mockHandleSelectionLimitError = vi.fn();
+
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useToastManager: () => ({
     toast: null,
-    showToast: vi.fn(),
-    handleRefreshError: vi.fn(),
-    handlePartialRefreshError: vi.fn(),
-    handleBrowserCompatibilityError: vi.fn(),
-    handleDirectorySelectError: vi.fn(),
-    handleSelectionLimitError: vi.fn(),
+    showToast: mockShowToast,
+    handleRefreshError: mockHandleRefreshError,
+    handleBrowserCompatibilityError: mockHandleBrowserCompatibilityError,
+    handleDirectorySelectError: mockHandleDirectorySelectError,
+    handleSelectionLimitError: mockHandleSelectionLimitError,
   }),
   useAdapters: () => ({
     storageAdapter: {
@@ -32,6 +37,10 @@ const createWrapper = () => {
 };
 
 describe('useFileExplorerToasts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   const createMockParams = (overrides = {}) => ({
     rootDirectoryHandle: null,
     refreshFileExplorer: vi.fn().mockResolvedValue(undefined),
@@ -62,6 +71,17 @@ describe('useFileExplorerToasts', () => {
     });
 
     expect(result.current.isRefreshing).toBe(false);
+  });
+
+  it('should return handleRefresh, handleDirectorySelect, and handleCancelOperation', () => {
+    const params = createMockParams();
+    const { result } = renderHook(() => useFileExplorerToasts(params), {
+      wrapper: createWrapper(),
+    });
+
+    expect(typeof result.current.handleRefresh).toBe('function');
+    expect(typeof result.current.handleDirectorySelect).toBe('function');
+    expect(typeof result.current.handleCancelOperation).toBe('function');
   });
 
   describe('handleRefresh', () => {
@@ -125,6 +145,28 @@ describe('useFileExplorerToasts', () => {
       });
     });
 
+    it('should show success toast after successful refresh', async () => {
+      const refreshFileExplorer = vi.fn().mockResolvedValue(undefined);
+      const mockHandle = { name: 'test-folder' };
+      const params = createMockParams({
+        rootDirectoryHandle: mockHandle,
+        refreshFileExplorer,
+      });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      await result.current.handleRefresh();
+
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: expect.any(String),
+          description: expect.any(String),
+        })
+      );
+    });
+
     it('should call handleRefreshError when refresh fails', async () => {
       const refreshError = new Error('Refresh failed');
       const refreshFileExplorer = vi.fn().mockRejectedValue(refreshError);
@@ -140,8 +182,37 @@ describe('useFileExplorerToasts', () => {
 
       await result.current.handleRefresh();
 
-      expect(result.current.handleRefreshError).toHaveBeenCalledWith(refreshError);
+      expect(mockHandleRefreshError).toHaveBeenCalledWith(refreshError);
       expect(result.current.isRefreshing).toBe(false);
+    });
+
+    it('should reset isRefreshing even when refresh fails', async () => {
+      const refreshFileExplorer = vi.fn().mockRejectedValue(new Error('fail'));
+      const mockHandle = { name: 'folder' };
+      const params = createMockParams({
+        rootDirectoryHandle: mockHandle,
+        refreshFileExplorer,
+      });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      await result.current.handleRefresh();
+
+      expect(result.current.isRefreshing).toBe(false);
+    });
+
+    it('should not show toast when rootDirectoryHandle is null', async () => {
+      const params = createMockParams({ rootDirectoryHandle: null });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      await result.current.handleRefresh();
+
+      expect(mockShowToast).not.toHaveBeenCalled();
     });
   });
 
@@ -159,8 +230,22 @@ describe('useFileExplorerToasts', () => {
 
       await result.current.handleDirectorySelect();
 
-      // The function should return early and not call handleRootDirectorySelect
       expect(params.handleRootDirectorySelect).not.toHaveBeenCalled();
+    });
+
+    it('should call handleBrowserCompatibilityError when not supported', async () => {
+      const reason = 'Your browser does not support the File System Access API';
+      const params = createMockParams({
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: false, reason }),
+      });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      await result.current.handleDirectorySelect();
+
+      expect(mockHandleBrowserCompatibilityError).toHaveBeenCalledWith(reason);
     });
 
     it('should call handleRootDirectorySelect when supported', async () => {
@@ -190,7 +275,6 @@ describe('useFileExplorerToasts', () => {
         wrapper: createWrapper(),
       });
 
-      // Should not throw
       await expect(result.current.handleDirectorySelect()).resolves.toBeUndefined();
     });
 
@@ -208,7 +292,24 @@ describe('useFileExplorerToasts', () => {
 
       await result.current.handleDirectorySelect();
 
-      expect(result.current.handleDirectorySelectError).toHaveBeenCalledWith(selectError);
+      expect(mockHandleDirectorySelectError).toHaveBeenCalledWith(selectError);
+    });
+
+    it('should not call any error handler on successful directory selection', async () => {
+      const handleRootDirectorySelect = vi.fn().mockResolvedValue({ name: 'my-folder' });
+      const params = createMockParams({
+        handleRootDirectorySelect,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+      });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      await result.current.handleDirectorySelect();
+
+      expect(mockHandleBrowserCompatibilityError).not.toHaveBeenCalled();
+      expect(mockHandleDirectorySelectError).not.toHaveBeenCalled();
     });
   });
 
@@ -224,6 +325,87 @@ describe('useFileExplorerToasts', () => {
       result.current.handleCancelOperation();
 
       expect(cancelOperation).toHaveBeenCalledTimes(1);
+    });
+
+    it('should show cancel toast with correct title and description', () => {
+      const cancelOperation = vi.fn();
+      const params = createMockParams({ cancelOperation });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.handleCancelOperation();
+
+      expect(mockShowToast).toHaveBeenCalledWith({
+        title: 'Operation Cancelled',
+        description: 'The file loading operation has been cancelled.',
+        variant: 'default',
+      });
+    });
+
+    it('should call showToast exactly once per cancel', () => {
+      const cancelOperation = vi.fn();
+      const params = createMockParams({ cancelOperation });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.handleCancelOperation();
+      result.current.handleCancelOperation();
+
+      expect(mockShowToast).toHaveBeenCalledTimes(2);
+      expect(cancelOperation).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('passthrough functions', () => {
+    it('should expose handleSelectionLimitError from toast manager', () => {
+      const params = createMockParams();
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      expect(result.current.handleSelectionLimitError).toBe(mockHandleSelectionLimitError);
+    });
+
+    it('should expose handleRefreshError from toast manager', () => {
+      const params = createMockParams();
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      expect(result.current.handleRefreshError).toBe(mockHandleRefreshError);
+    });
+
+    it('should expose handleBrowserCompatibilityError from toast manager', () => {
+      const params = createMockParams();
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      expect(result.current.handleBrowserCompatibilityError).toBe(
+        mockHandleBrowserCompatibilityError
+      );
+    });
+
+    it('should expose handleDirectorySelectError from toast manager', () => {
+      const params = createMockParams();
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      expect(result.current.handleDirectorySelectError).toBe(mockHandleDirectorySelectError);
+    });
+
+    it('should expose showToast from toast manager', () => {
+      const params = createMockParams();
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      expect(result.current.showToast).toBe(mockShowToast);
     });
   });
 });

@@ -286,7 +286,6 @@ describe('useUndoableAction', () => {
       );
     });
 
-    // Check that default duration is used
     expect(mockToast).toHaveBeenCalledWith(
       expect.objectContaining({
         duration: 5000,
@@ -317,12 +316,10 @@ describe('useUndoableAction', () => {
       );
     });
 
-    // Get the description prop from the toast call
     const toastCall = mockToast.mock.calls[0]?.[0];
     expect(toastCall).toBeDefined();
     expect(toastCall.description).toBeDefined();
 
-    // The description should be a React element with the proper structure
     const descriptionElement = toastCall.description;
     expect(descriptionElement.type).toBe('div');
     expect(descriptionElement.props.className).toContain('flex');
@@ -330,18 +327,215 @@ describe('useUndoableAction', () => {
     expect(descriptionElement.props.className).toContain('justify-between');
     expect(descriptionElement.props.className).toContain('gap-2');
 
-    // Check the span element has truncation classes
     const spanElement = descriptionElement.props.children[0];
     expect(spanElement.type).toBe('span');
     expect(spanElement.props.className).toContain('min-w-0');
     expect(spanElement.props.className).toContain('flex-1');
     expect(spanElement.props.className).toContain('truncate');
 
-    // Check the span has a title attribute for tooltip on hover
     expect(spanElement.props.title).toBe(`Removed "${longPath}" from selection`);
 
-    // Check the button has flex-shrink-0 to prevent shrinking
     const buttonElement = descriptionElement.props.children[1];
     expect(buttonElement.props.className).toContain('flex-shrink-0');
+  });
+
+  // ── Additional coverage tests ───────────────────────────────────────
+
+  it('invokes onUndo with correct item and snapshot when undo button is clicked', () => {
+    const onUndo = vi.fn();
+    const getStateSnapshot = vi.fn().mockReturnValue({ order: [1, 2, 3] });
+
+    const { result } = renderHook(() =>
+      useUndoableAction<{ id: string }, { order: number[] }>()
+    );
+
+    act(() => {
+      result.current.performUndoableAction(
+        'undo-key',
+        { id: 'item-42' },
+        {
+          actionName: 'Removed item',
+          itemDescription: 'item-42',
+          onUndo,
+          getStateSnapshot,
+        }
+      );
+    });
+
+    // Extract the Button's onClick from the rendered description
+    const toastCall = mockToast.mock.calls[0]?.[0];
+    const descriptionElement = toastCall.description;
+    const buttonElement = descriptionElement.props.children[1];
+
+    // Simulate clicking the Undo button
+    act(() => {
+      buttonElement.props.onClick();
+    });
+
+    expect(onUndo).toHaveBeenCalledTimes(1);
+    expect(onUndo).toHaveBeenCalledWith({ id: 'item-42' }, { order: [1, 2, 3] });
+    // Undo also clears the timeout
+    expect(mockDismiss).toHaveBeenCalledWith('test-toast-id');
+  });
+
+  it('passes undefined snapshot when getStateSnapshot is not provided', () => {
+    const onUndo = vi.fn();
+    const { result } = renderHook(() => useUndoableAction<{ id: string }>());
+
+    act(() => {
+      result.current.performUndoableAction(
+        'no-snap',
+        { id: 'x' },
+        {
+          actionName: 'Action',
+          itemDescription: 'desc',
+          onUndo,
+        }
+      );
+    });
+
+    const toastCall = mockToast.mock.calls[0]?.[0];
+    const buttonElement = toastCall.description.props.children[1];
+
+    act(() => {
+      buttonElement.props.onClick();
+    });
+
+    expect(onUndo).toHaveBeenCalledWith({ id: 'x' }, undefined);
+  });
+
+  it('creates description with correct React element structure', () => {
+    const { result } = renderHook(() => useUndoableAction<{ name: string }>());
+
+    act(() => {
+      result.current.performUndoableAction(
+        'struct-key',
+        { name: 'test' },
+        {
+          actionName: 'Struct Test',
+          itemDescription: 'My description text',
+          onUndo: vi.fn(),
+        }
+      );
+    });
+
+    const toastCall = mockToast.mock.calls[0]?.[0];
+    const desc = toastCall.description;
+
+    // Root div
+    expect(desc.type).toBe('div');
+    // Children: [span, Button]
+    expect(desc.props.children).toHaveLength(2);
+    // Span shows item description
+    expect(desc.props.children[0].props.children).toBe('My description text');
+    // Button text is 'Undo'
+    expect(desc.props.children[1].props.children).toBe('Undo');
+  });
+
+  it('replaces existing action for same key and only the latest auto-clears', () => {
+    const onUndo1 = vi.fn();
+    const onUndo2 = vi.fn();
+    const { result } = renderHook(() => useUndoableAction<{ id: string }>());
+
+    act(() => {
+      result.current.performUndoableAction(
+        'replace-key',
+        { id: '1' },
+        {
+          actionName: 'First',
+          itemDescription: 'First item',
+          onUndo: onUndo1,
+          duration: 3000,
+        }
+      );
+    });
+
+    // Replace with a second action on the same key
+    act(() => {
+      result.current.performUndoableAction(
+        'replace-key',
+        { id: '2' },
+        {
+          actionName: 'Second',
+          itemDescription: 'Second item',
+          onUndo: onUndo2,
+          duration: 3000,
+        }
+      );
+    });
+
+    // After 3000ms, only the second action's timeout should fire
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    // Toast was called twice (once for each action)
+    expect(mockToast).toHaveBeenCalledTimes(2);
+    // Dismiss was called at least once for cleanup of the first toast
+    expect(mockDismiss).toHaveBeenCalled();
+  });
+
+  it('handles fallback toast id correctly and still auto-clears', () => {
+    // Return null id to force fallback
+    mockToast.mockReturnValueOnce(null);
+    const { result } = renderHook(() => useUndoableAction<string>());
+
+    act(() => {
+      result.current.performUndoableAction('fallback-key', 'item', {
+        actionName: 'Fallback Test',
+        itemDescription: 'desc',
+        onUndo: vi.fn(),
+        duration: 2000,
+      });
+    });
+
+    // Auto-clear fires without errors
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    // Dismiss should be called with the fallback id
+    expect(mockDismiss).toHaveBeenCalled();
+  });
+
+  it('clears specific key without affecting other keys', () => {
+    const { result } = renderHook(() => useUndoableAction<{ id: string }>());
+    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
+
+    mockToast.mockReturnValueOnce({ id: 'toast-a' }).mockReturnValueOnce({ id: 'toast-b' });
+
+    act(() => {
+      result.current.performUndoableAction('key-a', { id: 'a' }, {
+        actionName: 'A',
+        itemDescription: 'A',
+        onUndo: vi.fn(),
+      });
+    });
+
+    act(() => {
+      result.current.performUndoableAction('key-b', { id: 'b' }, {
+        actionName: 'B',
+        itemDescription: 'B',
+        onUndo: vi.fn(),
+      });
+    });
+
+    clearTimeoutSpy.mockClear();
+    mockDismiss.mockClear();
+
+    // Clear only key-a
+    act(() => {
+      result.current.clearUndoTimeout('key-a');
+    });
+
+    expect(mockDismiss).toHaveBeenCalledWith('toast-a');
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+
+    // key-b should still auto-clear after timeout
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(mockDismiss).toHaveBeenCalledWith('toast-b');
   });
 });
