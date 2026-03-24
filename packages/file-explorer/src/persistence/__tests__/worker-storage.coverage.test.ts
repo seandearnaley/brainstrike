@@ -85,13 +85,7 @@ const mockLocalStorage = {
   length: 0,
   key: vi.fn(() => null),
 };
-const originalLocalStorage = global.localStorage;
-
-Object.defineProperty(global, 'localStorage', {
-  value: mockLocalStorage,
-  writable: true,
-  configurable: true,
-});
+const originalLocalStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 
 const mockStorageAdapter: StorageAdapter = {
   async clear(): Promise<void> {
@@ -135,8 +129,7 @@ class MockErrorEvent extends Event {
     return 0;
   }
 }
-(global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
-const originalErrorEvent = global.ErrorEvent;
+const originalErrorEvent = globalThis.ErrorEvent;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -156,6 +149,12 @@ describe('WorkerStorage – coverage boost', () => {
     vi.resetModules();
     vi.clearAllMocks();
     mockLocalStorage.data.clear();
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: mockLocalStorage,
+      writable: true,
+      configurable: true,
+    });
+    (globalThis as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
 
     originalWorker = (global as unknown as { Worker?: typeof Worker }).Worker;
     mockWorker = new MockWorker();
@@ -186,12 +185,17 @@ describe('WorkerStorage – coverage boost', () => {
     } else {
       vi.unstubAllGlobals();
     }
-    Object.defineProperty(global, 'localStorage', {
-      value: originalLocalStorage,
-      writable: true,
-      configurable: true,
-    });
-    (global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = originalErrorEvent;
+    if (originalLocalStorageDescriptor) {
+      Object.defineProperty(globalThis, 'localStorage', originalLocalStorageDescriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, 'localStorage');
+    }
+    if (originalErrorEvent) {
+      (globalThis as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent =
+        originalErrorEvent as typeof MockErrorEvent;
+    } else {
+      Reflect.deleteProperty(globalThis, 'ErrorEvent');
+    }
   });
 
   // -----------------------------------------------------------------------
