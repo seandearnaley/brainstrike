@@ -2,20 +2,9 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { QueueStatusItem } from '../status-items/queue-status-item';
 
-vi.mock(
-  '@brainstrike/vector-management',
-  async () => {
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
-    });
-
-    return {
-      QueueStatusPopover: () => <div data-testid="queue-status-popover">Queue Status</div>,
-    };
-  },
-  // @ts-expect-error - Vitest accepts virtual mocks at runtime.
-  { virtual: true }
-);
+vi.mock('@brainstrike/vector-management', () => ({
+  QueueStatusPopover: () => <div data-testid="queue-status-popover">Queue Status</div>,
+}));
 
 describe('QueueStatusItem', () => {
   it('uses null Suspense fallback (no spinner or placeholder)', async () => {
