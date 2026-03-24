@@ -15,7 +15,7 @@
 **Action:** Always pre-compile `Intl.Collator` in a shared module and reuse its `.compare` method. This achieves massive speedups for large scale tree rendering logic.
 
 ## 2026-03-06 - Avoid template string allocations in hot path tree traversal
-**Learning:** Checking for path descendants in hot loops (e.g., `targetPath.startsWith(`${node.path}/`)`) causes excessive string allocations and slows down tree traversal significantly when dealing with large trees.
+**Learning:** Checking for path descendants in hot loops (e.g., `targetPath.startsWith(\`${node.path}/\`)`) causes excessive string allocations and slows down tree traversal significantly when dealing with large trees.
 **Action:** Replace template string checks with length and character code checks (`targetPath.length > node.path.length && targetPath.charCodeAt(node.path.length) === 47 && targetPath.startsWith(node.path)`). This avoids allocating intermediate strings and provides a >2x performance improvement.
 
 ## 2026-03-08 - String Iterator Overhead in Hot Paths
@@ -25,3 +25,7 @@
 ## 2026-03-13 - Native Regex over String Iteration for Character Stripping
 **Learning:** For stripping specific characters (like XML-illegal control characters < 0x20) from strings, using a pre-compiled regular expression with `.replace(/.../g, '')` is significantly faster (~30x for clean strings, ~5x for dirty strings) than manually iterating over the string with a `for...of` loop and rebuilding it character-by-character. Native regex avoids JavaScript string allocations and executes at C++ speed in V8.
 **Action:** Replace manual character-by-character string filtering loops with pre-compiled regular expressions when the goal is simply to remove specific characters or character ranges.
+
+## 2026-03-24 - Relational Operators for Strictly Formatted Strings
+**Learning:** For strictly formatted strings (like ISO-8601 dates and standard ASCII IDs), using `localeCompare` inside a `.sort()` callback introduces unnecessary Internationalization API overhead.
+**Action:** Use simple string relational operators (`<`, `>`) instead of `localeCompare` or `Intl.Collator` for sorting standard ASCII IDs or ISO-8601 dates in hot loops, as it is significantly faster while guaranteeing the exact same sort order.
