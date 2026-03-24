@@ -545,8 +545,7 @@ describe('useExportHandlers', () => {
       ];
 
       vi.mocked(csvExportUtils.generateFilesWithChunksCSV).mockImplementation(() => {
-        // eslint-disable-next-line @typescript-eslint/only-throw-error
-        // biome-ignore lint/style/useThrowOnlyError: testing non-Error throw handling
+        // biome-ignore lint/style/useThrowOnlyError: exercises non-Error throw fallback
         throw 'raw string error';
       });
 
@@ -580,8 +579,7 @@ describe('useExportHandlers', () => {
       ];
 
       vi.mocked(csvExportUtils.generateChunksCSV).mockImplementation(() => {
-        // eslint-disable-next-line @typescript-eslint/only-throw-error
-        // biome-ignore lint/style/useThrowOnlyError: testing non-Error throw handling
+        // biome-ignore lint/style/useThrowOnlyError: exercises non-Error throw fallback
         throw 42;
       });
 
@@ -616,8 +614,7 @@ describe('useExportHandlers', () => {
       ];
 
       vi.mocked(csvExportUtils.generateEmbeddingsCSV).mockImplementation(() => {
-        // eslint-disable-next-line @typescript-eslint/only-throw-error
-        // biome-ignore lint/style/useThrowOnlyError: testing non-Error throw handling
+        // biome-ignore lint/style/useThrowOnlyError: exercises non-Error throw fallback
         throw null;
       });
 

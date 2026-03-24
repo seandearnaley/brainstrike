@@ -52,20 +52,14 @@ vi.mock('@brainstrike/ui', async () => {
   const actual = await vi.importActual<object>('@brainstrike/ui');
   return {
     ...actual,
-    Badge: ({
-      children,
-      variant,
-    }: {
-      children: React.ReactNode;
-      variant?: string;
-    }) => <span data-variant={variant}>{children}</span>,
-    Card: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="card">{children}</div>
+    Badge: ({ children, variant }: { children: React.ReactNode; variant?: string }) => (
+      <span data-variant={variant}>{children}</span>
     ),
+    Card: ({ children }: { children: React.ReactNode }) => <div data-testid="card">{children}</div>,
     CardHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     CardTitle: ({ children }: { children: React.ReactNode }) => <h3>{children}</h3>,
     CardContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    Label: ({ children }: { children: React.ReactNode }) => <label>{children}</label>,
+    Label: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
     Button: ({
       children,
       onClick,
@@ -73,7 +67,13 @@ vi.mock('@brainstrike/ui', async () => {
       'aria-label': ariaLabel,
       title,
     }: React.ButtonHTMLAttributes<HTMLButtonElement> & { 'aria-label'?: string }) => (
-      <button type="button" onClick={onClick} disabled={disabled} aria-label={ariaLabel} title={title}>
+      <button
+        aria-label={ariaLabel}
+        disabled={disabled}
+        onClick={onClick}
+        title={title}
+        type="button"
+      >
         {children}
       </button>
     ),
@@ -82,13 +82,9 @@ vi.mock('@brainstrike/ui', async () => {
       <div role="tooltip">{children}</div>
     ),
     TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    TooltipTrigger: ({
-      children,
-      asChild: _asChild,
-    }: {
-      children: React.ReactNode;
-      asChild?: boolean;
-    }) => <>{children}</>,
+    TooltipTrigger: ({ children }: { children: React.ReactNode; asChild?: boolean }) => (
+      <>{children}</>
+    ),
     useToast: () => ({ toast: mockToast }),
   };
 });
@@ -156,7 +152,7 @@ vi.mock('../vector-status/embedding-set-selector', () => ({
     db: unknown;
   }) => (
     <div data-testid="embedding-set-selector">
-      <button type="button" onClick={() => onSelectionChange('set-1')}>
+      <button onClick={() => onSelectionChange('set-1')} type="button">
         Select Set 1
       </button>
     </div>
@@ -179,15 +175,25 @@ vi.mock('../vector-status/vector-queue-service', () => ({
   createVectorQueueService: vi.fn(() => ({ service: 'mock' })),
 }));
 
-vi.mock('@brainstrike/types', () => ({}));
-vi.mock('@brainstrike/utils/logger', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }),
-}));
+vi.mock('@brainstrike/types', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/types')>('@brainstrike/types');
+  return actual;
+});
+vi.mock('@brainstrike/utils/logger', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
+    '@brainstrike/utils/logger'
+  );
+
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    }),
+  };
+});
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -209,6 +215,8 @@ describe('VectorStatus (simple fallback)', () => {
 describe('VectorStatusWithDb', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSetActiveId.mockReset();
+    mockToast.mockReset();
     mockVectorEnabled = false;
     mockDb = { query: vi.fn() };
     mockChunkRepository = {
@@ -222,6 +230,9 @@ describe('VectorStatusWithDb', () => {
     mockWorkerControls.workerLocalRunning = false;
     mockWorkerControls.startingWorker = false;
     mockWorkerControls.startWorkerError = null;
+    mockWorkerControls.startWorker.mockReset().mockResolvedValue(undefined);
+    mockWorkerControls.stopWorker.mockReset().mockResolvedValue(undefined);
+    mockWorkerControls.resetWorker.mockReset().mockResolvedValue(undefined);
     mockQueueState.backfilling = false;
     mockQueueState.backfillProgress = null;
     mockQueueState.coverage = { total: 10, withSet: 5 };
@@ -230,6 +241,11 @@ describe('VectorStatusWithDb', () => {
     mockQueueState.lastError = null;
     mockQueueState.telemetryTrend = [];
     mockQueueState.latencyStats = { avgMs: 0, p50Ms: 0, p95Ms: 0 };
+    mockQueueState.backfillActiveSet.mockReset().mockResolvedValue(undefined);
+    mockQueueState.retryFailed.mockReset().mockResolvedValue(undefined);
+    mockQueueState.clearQueue.mockReset().mockResolvedValue(undefined);
+    mockQueueState.wipeQueue.mockReset().mockResolvedValue(undefined);
+    mockQueueState.validateApiKey.mockReset().mockResolvedValue({ valid: true });
   });
 
   it('renders Vector Status heading', () => {
@@ -376,7 +392,9 @@ describe('VectorStatusWithDb', () => {
       mockWorkerControls.startingWorker = true;
       mockWorkerControls.workerLocalRunning = false;
       render(<VectorStatusWithDb />);
-      expect(screen.getByText('Starting…')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Start embedding worker' })).toHaveTextContent(
+        'Starting…'
+      );
     });
 
     it('shows Reset button', () => {
@@ -395,9 +413,9 @@ describe('VectorStatusWithDb', () => {
   describe('BackfillButton', () => {
     it('renders Backfill button', () => {
       render(<VectorStatusWithDb />);
-      // Should show backfill or similar button
-      const backfillBtn = screen.queryByRole('button', { name: /backfill/i });
-      expect(backfillBtn).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Start worker and backfill' })
+      ).toBeInTheDocument();
     });
 
     it('shows backfill progress during backfill', () => {
@@ -497,15 +515,16 @@ describe('VectorStatusWithDb', () => {
       mockQueueState.queueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
       render(<VectorStatusWithDb />);
 
-      const backfillBtn = screen.queryByRole('button', { name: /backfill|start/i });
-      if (backfillBtn && !backfillBtn.hasAttribute('disabled')) {
-        await user.click(backfillBtn);
-        await waitFor(() => {
-          expect(mockToast).toHaveBeenCalledWith(
-            expect.objectContaining({ title: 'API Key Required' })
-          );
-        });
-      }
+      const backfillBtn = screen.getByRole('button', { name: 'Start worker and backfill' });
+      expect(backfillBtn).toBeEnabled();
+
+      await user.click(backfillBtn);
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({ title: 'API Key Required' })
+        );
+      });
     });
   });
 });
