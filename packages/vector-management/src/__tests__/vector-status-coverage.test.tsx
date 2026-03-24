@@ -6,7 +6,9 @@ import { VectorStatus, VectorStatusWithDb } from '../vector-status';
 // ─── Mutable mock state ──────────────────────────────────────────────────────
 
 let mockVectorEnabled = false;
-type MockDb = { query: ReturnType<typeof vi.fn> };
+interface MockDb {
+  query: ReturnType<typeof vi.fn>;
+}
 
 let mockDb: MockDb | null = { query: vi.fn() };
 let mockChunkRepository: object | null = {
