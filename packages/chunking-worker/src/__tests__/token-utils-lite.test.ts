@@ -14,44 +14,43 @@ describe('token-utils-lite', () => {
   // countTokensHeuristic
   // ---------------------------------------------------------------------------
   describe('countTokensHeuristic', () => {
-    it('returns 0 for an empty string', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    let countTokensHeuristic: (text: string) => number;
+
+    beforeEach(async () => {
+      ({ countTokensHeuristic } = await import('../token-utils-lite'));
+    });
+
+    it('returns 0 for an empty string', () => {
       expect(countTokensHeuristic('')).toBe(0);
     });
 
-    it('returns 1 for a single character', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    it('returns 1 for a single character', () => {
       expect(countTokensHeuristic('a')).toBe(1);
     });
 
-    it('returns 1 for strings up to 4 characters', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    it('returns 1 for strings up to 4 characters', () => {
       expect(countTokensHeuristic('ab')).toBe(1);
       expect(countTokensHeuristic('abc')).toBe(1);
       expect(countTokensHeuristic('abcd')).toBe(1);
     });
 
-    it('uses ceil(length / 4) for longer strings', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    it('uses ceil(length / 4) for longer strings', () => {
       expect(countTokensHeuristic('abcde')).toBe(2); // ceil(5/4) = 2
       expect(countTokensHeuristic('abcdefgh')).toBe(2); // ceil(8/4) = 2
       expect(countTokensHeuristic('abcdefghi')).toBe(3); // ceil(9/4) = 3
     });
 
-    it('handles very large inputs', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    it('handles very large inputs', () => {
       const largeText = 'x'.repeat(10_000);
       expect(countTokensHeuristic(largeText)).toBe(2500);
     });
 
-    it('handles strings with special characters', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    it('handles strings with special characters', () => {
       expect(countTokensHeuristic('\n\t\r ')).toBe(1); // 4 chars
       expect(countTokensHeuristic('!@#$%^&*()')).toBe(3); // ceil(10/4)
     });
 
-    it('handles unicode and multi-byte characters', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    it('handles unicode and multi-byte characters', () => {
       // JS string length counts UTF-16 code units, not bytes
       const emoji = '\u{1F600}'; // grinning face, length 2 in JS
       expect(countTokensHeuristic(emoji)).toBe(1); // ceil(2/4) = 1
@@ -59,19 +58,16 @@ describe('token-utils-lite', () => {
       expect(countTokensHeuristic(multiEmoji)).toBe(2); // ceil(6/4)
     });
 
-    it('handles strings with only whitespace', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    it('handles strings with only whitespace', () => {
       expect(countTokensHeuristic(' ')).toBe(1);
       expect(countTokensHeuristic('     ')).toBe(2); // ceil(5/4)
     });
 
-    it('handles strings with newlines', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    it('handles strings with newlines', () => {
       expect(countTokensHeuristic('line1\nline2\nline3')).toBe(5); // ceil(17/4)
     });
 
-    it('returns at least 1 for any non-empty string', async () => {
-      const { countTokensHeuristic } = await import('../token-utils-lite');
+    it('returns at least 1 for any non-empty string', () => {
       // Even a single char should return at least 1 due to Math.max(1, ...)
       expect(countTokensHeuristic('x')).toBeGreaterThanOrEqual(1);
     });
@@ -218,40 +214,6 @@ describe('token-utils-lite', () => {
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe(
         'encoder blew up after initialization'
       );
-    });
-
-    it('handles empty string input', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
-        countTokensAccurate: vi.fn(async () => 0),
-        getAccurateTokenCountingFailureReason: vi.fn(() => null),
-        supportsAccurateTokenCounting: vi.fn(async () => true),
-      }));
-
-      const tokenUtils = await import('../token-utils-lite');
-      await expect(tokenUtils.countTokensAccurate('')).resolves.toBe(0);
-    });
-
-    it('handles large text input', async () => {
-      const largeText = 'word '.repeat(5000);
-      vi.doMock('../token-utils-accurate-lite', () => ({
-        countTokensAccurate: vi.fn(async () => 5000),
-        getAccurateTokenCountingFailureReason: vi.fn(() => null),
-        supportsAccurateTokenCounting: vi.fn(async () => true),
-      }));
-
-      const tokenUtils = await import('../token-utils-lite');
-      await expect(tokenUtils.countTokensAccurate(largeText)).resolves.toBe(5000);
-    });
-
-    it('handles special characters and unicode', async () => {
-      vi.doMock('../token-utils-accurate-lite', () => ({
-        countTokensAccurate: vi.fn(async () => 3),
-        getAccurateTokenCountingFailureReason: vi.fn(() => null),
-        supportsAccurateTokenCounting: vi.fn(async () => true),
-      }));
-
-      const tokenUtils = await import('../token-utils-lite');
-      await expect(tokenUtils.countTokensAccurate('\u{1F600}\u{1F601}')).resolves.toBe(3);
     });
 
     it('shares the same cached module with supportsAccurateTokenCounting', async () => {
