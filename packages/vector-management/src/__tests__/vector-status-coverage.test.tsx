@@ -195,7 +195,47 @@ vi.mock('@brainstrike/utils/logger', async () => {
   };
 });
 
+function resetMockState(): void {
+  mockSetActiveId.mockReset();
+  mockToast.mockReset();
+  mockVectorEnabled = false;
+  mockDb = { query: vi.fn() };
+  mockChunkRepository = {
+    getCoverageForSet: vi.fn().mockResolvedValue({
+      totalChunks: 10,
+      chunksWithEmbeddingsForSet: 5,
+    }),
+    clearEmbeddingsForSet: vi.fn().mockResolvedValue(0),
+  };
+  mockActiveId = 'set-1';
+  mockWorkerControls.workerLocalRunning = false;
+  mockWorkerControls.startingWorker = false;
+  mockWorkerControls.startWorkerError = null;
+  mockWorkerControls.startWorker.mockReset().mockResolvedValue(undefined);
+  mockWorkerControls.stopWorker.mockReset().mockResolvedValue(undefined);
+  mockWorkerControls.resetWorker.mockReset().mockResolvedValue(undefined);
+  mockQueueState.backfilling = false;
+  mockQueueState.backfillProgress = null;
+  mockQueueState.coverage = { total: 10, withSet: 5 };
+  mockQueueState.queueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
+  mockQueueState.throughput = 0;
+  mockQueueState.recentErrorCount = 0;
+  mockQueueState.lastError = null;
+  mockQueueState.telemetryTrend = [];
+  mockQueueState.latencyStats = { avgMs: 0, p50Ms: 0, p95Ms: 0 };
+  mockQueueState.backfillActiveSet.mockReset().mockResolvedValue(undefined);
+  mockQueueState.retryFailed.mockReset().mockResolvedValue(undefined);
+  mockQueueState.clearQueue.mockReset().mockResolvedValue(undefined);
+  mockQueueState.wipeQueue.mockReset().mockResolvedValue(undefined);
+  mockQueueState.validateApiKey.mockReset().mockResolvedValue({ valid: true });
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetMockState();
+});
 
 describe('VectorStatus (simple fallback)', () => {
   it('renders with device badge showing wasm', () => {
@@ -213,41 +253,6 @@ describe('VectorStatus (simple fallback)', () => {
 });
 
 describe('VectorStatusWithDb', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockSetActiveId.mockReset();
-    mockToast.mockReset();
-    mockVectorEnabled = false;
-    mockDb = { query: vi.fn() };
-    mockChunkRepository = {
-      getCoverageForSet: vi.fn().mockResolvedValue({
-        totalChunks: 10,
-        chunksWithEmbeddingsForSet: 5,
-      }),
-      clearEmbeddingsForSet: vi.fn().mockResolvedValue(0),
-    };
-    mockActiveId = 'set-1';
-    mockWorkerControls.workerLocalRunning = false;
-    mockWorkerControls.startingWorker = false;
-    mockWorkerControls.startWorkerError = null;
-    mockWorkerControls.startWorker.mockReset().mockResolvedValue(undefined);
-    mockWorkerControls.stopWorker.mockReset().mockResolvedValue(undefined);
-    mockWorkerControls.resetWorker.mockReset().mockResolvedValue(undefined);
-    mockQueueState.backfilling = false;
-    mockQueueState.backfillProgress = null;
-    mockQueueState.coverage = { total: 10, withSet: 5 };
-    mockQueueState.queueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
-    mockQueueState.throughput = 0;
-    mockQueueState.lastError = null;
-    mockQueueState.telemetryTrend = [];
-    mockQueueState.latencyStats = { avgMs: 0, p50Ms: 0, p95Ms: 0 };
-    mockQueueState.backfillActiveSet.mockReset().mockResolvedValue(undefined);
-    mockQueueState.retryFailed.mockReset().mockResolvedValue(undefined);
-    mockQueueState.clearQueue.mockReset().mockResolvedValue(undefined);
-    mockQueueState.wipeQueue.mockReset().mockResolvedValue(undefined);
-    mockQueueState.validateApiKey.mockReset().mockResolvedValue({ valid: true });
-  });
-
   it('renders Vector Status heading', () => {
     render(<VectorStatusWithDb />);
     expect(screen.getByText('Vector Status')).toBeInTheDocument();
@@ -413,9 +418,7 @@ describe('VectorStatusWithDb', () => {
   describe('BackfillButton', () => {
     it('renders Backfill button', () => {
       render(<VectorStatusWithDb />);
-      expect(
-        screen.getByRole('button', { name: 'Start worker and backfill' })
-      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Start worker and backfill' })).toBeInTheDocument();
     });
 
     it('shows backfill progress during backfill', () => {
@@ -530,10 +533,6 @@ describe('VectorStatusWithDb', () => {
 });
 
 describe('Sparkline rendering edge cases', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it('renders with empty trend data (single zero point fallback)', () => {
     mockQueueState.telemetryTrend = [];
     render(<VectorStatusWithDb />);
