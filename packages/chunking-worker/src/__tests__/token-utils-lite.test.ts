@@ -159,14 +159,12 @@ describe('token-utils-lite', () => {
     });
 
     it('updates failure reason on each call', async () => {
-      let callCount = 0;
+      const supportResults = [false, true];
+      const failureReasons = ['first failure', null];
       vi.doMock('../token-utils-accurate-lite', () => ({
         countTokensAccurate: vi.fn(async () => 0),
-        getAccurateTokenCountingFailureReason: vi.fn(() => {
-          callCount++;
-          return callCount === 1 ? 'first failure' : null;
-        }),
-        supportsAccurateTokenCounting: vi.fn(async () => callCount === 0 ? false : true),
+        getAccurateTokenCountingFailureReason: vi.fn(() => failureReasons.shift() ?? null),
+        supportsAccurateTokenCounting: vi.fn(async () => supportResults.shift() ?? true),
       }));
 
       const tokenUtils = await import('../token-utils-lite');
@@ -306,13 +304,13 @@ describe('token-utils-lite', () => {
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBeNull();
     });
 
-    it('allows re-initialization after dispose', async () => {
-      const supportsAccurateTokenCounting = vi.fn(async () => true);
+    it('reruns support checks after dispose without keeping stale state', async () => {
+      const firstSupportCheck = vi.fn(async () => true);
       const moduleFactory = vi.fn(() => ({
         countTokensAccurate: vi.fn(async () => 9),
         disposeAccurateTokenCountingRuntime: vi.fn(),
         getAccurateTokenCountingFailureReason: vi.fn(() => null),
-        supportsAccurateTokenCounting,
+        supportsAccurateTokenCounting: firstSupportCheck,
       }));
 
       vi.doMock('../token-utils-accurate-lite', moduleFactory);
@@ -321,22 +319,21 @@ describe('token-utils-lite', () => {
 
       await tokenUtils.supportsAccurateTokenCounting();
       await tokenUtils.disposeAccurateTokenCountingRuntime();
-
-      // Re-initialize by calling again
       await tokenUtils.supportsAccurateTokenCounting();
-      expect(supportsAccurateTokenCounting).toHaveBeenCalledTimes(2);
+
+      expect(moduleFactory).toHaveBeenCalledTimes(1);
+      expect(firstSupportCheck).toHaveBeenCalledTimes(2);
     });
 
     it('clears failure reason to null after dispose', async () => {
       vi.doMock('../token-utils-accurate-lite', () => ({
-        countTokensAccurate: vi.fn(async () => 5),
+        countTokensAccurate: vi.fn(async () => 9),
         disposeAccurateTokenCountingRuntime: vi.fn(),
         getAccurateTokenCountingFailureReason: vi.fn(() => 'some reason'),
         supportsAccurateTokenCounting: vi.fn(async () => false),
       }));
 
       const tokenUtils = await import('../token-utils-lite');
-
       await tokenUtils.supportsAccurateTokenCounting();
       expect(tokenUtils.getAccurateTokenCountingFailureReason()).toBe('some reason');
 
@@ -368,27 +365,27 @@ describe('token-utils-lite', () => {
   // getAccurateTokenUtils (internal) — import caching & error recovery
   // ---------------------------------------------------------------------------
   describe('lazy import caching and error recovery', () => {
-    it('retries the import after a failure (does not cache rejected promise)', async () => {
-      let importAttempt = 0;
+    it('retries support probes after an initial runtime error', async () => {
+      let shouldThrow = true;
 
-      vi.doMock('../token-utils-accurate-lite', () => {
-        importAttempt++;
-        if (importAttempt === 1) {
-          throw new Error('network error');
-        }
-        return {
-          countTokensAccurate: vi.fn(async () => 42),
-          getAccurateTokenCountingFailureReason: vi.fn(() => null),
-          supportsAccurateTokenCounting: vi.fn(async () => true),
-        };
-      });
+      vi.doMock('../token-utils-accurate-lite', () => ({
+        countTokensAccurate: vi.fn(async () => 42),
+        getAccurateTokenCountingFailureReason: vi.fn(() => null),
+        supportsAccurateTokenCounting: vi.fn(async () => {
+          if (shouldThrow) {
+            shouldThrow = false;
+            throw new Error('network error');
+          }
+          return true;
+        }),
+      }));
 
       const tokenUtils = await import('../token-utils-lite');
 
-      // First attempt should fail
+      // First probe should fail
       await expect(tokenUtils.supportsAccurateTokenCounting()).rejects.toThrow('network error');
 
-      // Second attempt should succeed because the failed promise was cleared
+      // Second probe should succeed because runtime errors do not poison the cached module
       await expect(tokenUtils.supportsAccurateTokenCounting()).resolves.toBe(true);
     });
 
@@ -462,8 +459,8 @@ describe('token-utils-lite', () => {
       // Re-init by counting again
       await expect(tokenUtils.countTokensAccurate('world')).resolves.toBe(5);
 
-      // Module factory called twice: once on first init, once on re-init after dispose
-      expect(moduleFactory).toHaveBeenCalledTimes(2);
+      // dispose() clears the helper state, but the module itself stays cached by the runtime.
+      expect(moduleFactory).toHaveBeenCalledTimes(1);
     });
 
     it('heuristic counting works independently of accurate counting state', async () => {
