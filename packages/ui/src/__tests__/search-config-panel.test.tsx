@@ -105,10 +105,16 @@ describe('SearchConfigPanel', () => {
       <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
     );
 
-    const slider = screen.getByLabelText('Similarity threshold');
+    const slider = screen.getByLabelText('Threshold');
     fireEvent.change(slider, { target: { value: '0.8' } });
 
     expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ threshold: 0.8 }));
+  });
+
+  it('uses the visible threshold label for the slider', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+
+    expect(screen.getByLabelText('Threshold')).toBeInTheDocument();
   });
 
   it('ignores invalid threshold values', () => {
@@ -117,7 +123,7 @@ describe('SearchConfigPanel', () => {
       <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
     );
 
-    const slider = screen.getByLabelText('Similarity threshold');
+    const slider = screen.getByLabelText('Threshold');
     fireEvent.change(slider, { target: { value: 'not-a-number' } });
 
     expect(onConfigChange).not.toHaveBeenCalled();
@@ -207,6 +213,7 @@ describe('SearchConfigPanel', () => {
     renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
     expect(screen.getByText('Mode')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /retrieval mode/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /vector/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /hybrid/i })).toBeInTheDocument();
   });

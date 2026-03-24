@@ -168,7 +168,8 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
           {/* Row 1: Retrieval Mode Toggle */}
           <div className="flex items-center gap-2">
             <span className="min-w-[52px] text-[10px] text-muted-foreground">Mode</span>
-            <div className="flex flex-1 gap-1">
+            <fieldset className="flex min-w-0 flex-1 gap-1 border-0 p-0">
+              <legend className="sr-only">Retrieval mode</legend>
               {RETRIEVAL_MODES.map((mode) => {
                 const Icon = mode.icon === 'Zap' ? Zap : Sparkles;
                 const isActive = retrievalMode === mode.value;
@@ -176,6 +177,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
                   <Tooltip key={mode.value}>
                     <TooltipTrigger asChild>
                       <button
+                        aria-pressed={isActive}
                         className={cn(
                           'flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] transition-all',
                           isActive
@@ -195,7 +197,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
                   </Tooltip>
                 );
               })}
-            </div>
+            </fieldset>
           </div>
 
           {/* Row 2: Hybrid Mode Weight Sliders (only shown in hybrid mode) */}
@@ -242,9 +244,10 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
 
           {/* Row 3: Threshold slider - inline */}
           <div className="flex items-center gap-2">
-            <span className="min-w-[52px] text-[10px] text-muted-foreground">Threshold</span>
+            <label className="min-w-[52px] text-[10px] text-muted-foreground" htmlFor="threshold">
+              Threshold
+            </label>
             <input
-              aria-label="Similarity threshold"
               className="h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-muted accent-primary"
               id="threshold"
               max="1"
