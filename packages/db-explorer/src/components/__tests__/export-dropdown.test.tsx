@@ -89,9 +89,9 @@ describe('ExportDropdown', () => {
         {...createProps({ counts: { records: 5, chunks: 42, embeddings: 10 } })}
       />
     );
-    expect(screen.getByText('5')).toBeInTheDocument();
-    expect(screen.getByText('42')).toBeInTheDocument();
-    expect(screen.getByText('10')).toBeInTheDocument();
+    expect(screen.getByText('Files').closest('button')).toHaveTextContent('5');
+    expect(screen.getByText('Chunks').closest('button')).toHaveTextContent('42');
+    expect(screen.getByText('Embeddings').closest('button')).toHaveTextContent('10');
   });
 
   it('disables Files menu item when no files exist', () => {

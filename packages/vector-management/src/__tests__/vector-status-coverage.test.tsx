@@ -6,7 +6,9 @@ import { VectorStatus, VectorStatusWithDb } from '../vector-status';
 // ─── Mutable mock state ──────────────────────────────────────────────────────
 
 let mockVectorEnabled = false;
-let mockDb: object | null = { query: vi.fn() };
+type MockDb = { query: ReturnType<typeof vi.fn> };
+
+let mockDb: MockDb | null = { query: vi.fn() };
 let mockChunkRepository: object | null = {
   getCoverageForSet: vi.fn().mockResolvedValue({ totalChunks: 10, chunksWithEmbeddingsForSet: 5 }),
   clearEmbeddingsForSet: vi.fn().mockResolvedValue(0),
@@ -175,10 +177,6 @@ vi.mock('../vector-status/vector-queue-service', () => ({
   createVectorQueueService: vi.fn(() => ({ service: 'mock' })),
 }));
 
-vi.mock('@brainstrike/types', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/types')>('@brainstrike/types');
-  return actual;
-});
 vi.mock('@brainstrike/utils/logger', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils/logger')>(
     '@brainstrike/utils/logger'
