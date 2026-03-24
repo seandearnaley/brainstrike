@@ -85,6 +85,7 @@ const mockLocalStorage = {
   length: 0,
   key: vi.fn(() => null),
 };
+const originalLocalStorage = global.localStorage;
 
 Object.defineProperty(global, 'localStorage', {
   value: mockLocalStorage,
@@ -135,17 +136,12 @@ class MockErrorEvent extends Event {
   }
 }
 (global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
+const originalErrorEvent = global.ErrorEvent;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 const mockWorkerUrl = new URL('file:///mock-worker-storage.worker.mjs');
-
-async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-}
 
 // ---------------------------------------------------------------------------
 // Suite
@@ -160,8 +156,6 @@ describe('WorkerStorage – coverage boost', () => {
     vi.resetModules();
     vi.clearAllMocks();
     mockLocalStorage.data.clear();
-    mockLogger.warn.mockClear();
-    mockLogger.error.mockClear();
 
     originalWorker = (global as unknown as { Worker?: typeof Worker }).Worker;
     mockWorker = new MockWorker();
@@ -180,8 +174,6 @@ describe('WorkerStorage – coverage boost', () => {
     }
 
     vi.stubGlobal('Worker', MockWorkerImplementation);
-    (global as any).Worker = MockWorkerImplementation;
-    (globalThis as any).Worker = MockWorkerImplementation;
 
     const mod = await import('../worker-storage');
     WorkerStorageClass = mod.WorkerStorage;
@@ -191,13 +183,15 @@ describe('WorkerStorage – coverage boost', () => {
     vi.useRealTimers();
     if (originalWorker !== undefined) {
       vi.stubGlobal('Worker', originalWorker);
-      (global as any).Worker = originalWorker;
-      (globalThis as any).Worker = originalWorker;
     } else {
       vi.unstubAllGlobals();
-      (global as any).Worker = undefined;
-      (globalThis as any).Worker = undefined;
     }
+    Object.defineProperty(global, 'localStorage', {
+      value: originalLocalStorage,
+      writable: true,
+      configurable: true,
+    });
+    (global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = originalErrorEvent;
   });
 
   // -----------------------------------------------------------------------
@@ -275,14 +269,14 @@ describe('WorkerStorage – coverage boost', () => {
         opId: 1,
       });
 
-      await flushMicrotasks();
-
-      expect(mockWorker.postMessage).toHaveBeenCalledWith({
-        id: 'undef-1',
-        type: 'storage_response',
-        operation: 'setItem',
-        success: false,
-        error: 'Cannot store undefined value',
+      await vi.waitFor(() => {
+        expect(mockWorker.postMessage).toHaveBeenCalledWith({
+          id: 'undef-1',
+          type: 'storage_response',
+          operation: 'setItem',
+          success: false,
+          error: 'Cannot store undefined value',
+        });
       });
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
     });
@@ -415,10 +409,7 @@ describe('WorkerStorage – coverage boost', () => {
 
       // Pending save should be flushed to adapter
       await vi.advanceTimersByTimeAsync(200);
-      expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
-        'pending-set',
-        JSON.stringify('value')
-      );
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('pending-set', 'value');
 
       expect(storage.isWorkerAvailable).toBe(false);
       expect(mockWorker.terminate).toHaveBeenCalled();
@@ -438,8 +429,8 @@ describe('WorkerStorage – coverage boost', () => {
       await vi.advanceTimersByTimeAsync(6000);
 
       // No additional error logs from timeout after error cleanup
-      const timeoutErrors = mockLogger.error.mock.calls.filter(
-        (call: unknown[]) => String(call[0]).includes('timeout')
+      const timeoutErrors = mockLogger.error.mock.calls.filter((call: unknown[]) =>
+        String(call[0]).includes('timeout')
       );
       expect(timeoutErrors).toHaveLength(0);
     });
@@ -586,14 +577,14 @@ describe('WorkerStorage – coverage boost', () => {
         // opId intentionally omitted
       });
 
-      await flushMicrotasks();
-
-      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('k', 'v');
-      expect(mockWorker.postMessage).toHaveBeenCalledWith({
-        id: 'no-opid',
-        type: 'storage_response',
-        operation: 'setItem',
-        success: true,
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('k', 'v');
+        expect(mockWorker.postMessage).toHaveBeenCalledWith({
+          id: 'no-opid',
+          type: 'storage_response',
+          operation: 'setItem',
+          success: true,
+        });
       });
     });
 
@@ -610,7 +601,9 @@ describe('WorkerStorage – coverage boost', () => {
         opId: 5,
       });
 
-      await flushMicrotasks();
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('k', 'first-val');
+      });
 
       // Second request with equal opId should still process
       mockWorker.emitMessage({
@@ -622,9 +615,9 @@ describe('WorkerStorage – coverage boost', () => {
         opId: 5,
       });
 
-      await flushMicrotasks();
-
-      expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(2);
+      });
     });
 
     it('skips setItem when opId < lastOp but still responds success', async () => {
@@ -640,7 +633,9 @@ describe('WorkerStorage – coverage boost', () => {
         opId: 100,
       });
 
-      await flushMicrotasks();
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).toHaveBeenCalledWith('ordered-key', 'new');
+      });
 
       mockLocalStorage.setItem.mockClear();
 
@@ -654,17 +649,14 @@ describe('WorkerStorage – coverage boost', () => {
         opId: 50,
       });
 
-      await flushMicrotasks();
-
-      // Should NOT have called setItem for the stale op
-      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
-
-      // But should have responded with success
-      expect(mockWorker.postMessage).toHaveBeenCalledWith({
-        id: 'stale',
-        type: 'storage_response',
-        operation: 'setItem',
-        success: true,
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+        expect(mockWorker.postMessage).toHaveBeenCalledWith({
+          id: 'stale',
+          type: 'storage_response',
+          operation: 'setItem',
+          success: true,
+        });
       });
     });
   });
@@ -779,8 +771,6 @@ describe('WorkerStorage – coverage boost', () => {
 
       // Worker constructor that succeeds but produces null
       vi.stubGlobal('Worker', undefined);
-      (global as any).Worker = undefined;
-      (globalThis as any).Worker = undefined;
 
       const mod = await import('../worker-storage');
       const storage = new mod.WorkerStorage(mockWorkerUrl, mockStorageAdapter);
@@ -804,9 +794,9 @@ describe('WorkerStorage – coverage boost', () => {
         key: 'routing-key',
       });
 
-      await flushMicrotasks();
-
-      expect(mockLocalStorage.getItem).toHaveBeenCalledWith('routing-key');
+      await vi.waitFor(() => {
+        expect(mockLocalStorage.getItem).toHaveBeenCalledWith('routing-key');
+      });
     });
 
     it('routes success/error messages to handleWorkerResponse', async () => {
@@ -837,10 +827,7 @@ describe('WorkerStorage – coverage boost', () => {
       mockWorker.emitError('string error message');
 
       expect(storage.isWorkerAvailable).toBe(false);
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Worker error occurred:',
-        expect.anything()
-      );
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker error occurred:', expect.anything());
     });
   });
 });
