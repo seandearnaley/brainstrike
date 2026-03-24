@@ -388,7 +388,7 @@ describe('WorkerStorage – coverage boost', () => {
           (call[0] as { key?: string }).key === 'race-key'
       );
       expect(saveCall).toBeDefined();
-      expect((saveCall![0] as { value?: unknown }).value).toBe('new-value');
+      expect((saveCall?.[0] as { value?: unknown } | undefined)?.value).toBe('new-value');
     });
   });
 
@@ -534,7 +534,8 @@ describe('WorkerStorage – coverage boost', () => {
 
       await storage.getItem('load-key');
 
-      const sentMessage = mockWorker.postMessage.mock.calls[0]![0];
+      const sentMessage = mockWorker.postMessage.mock.calls[0]?.[0];
+      expect(sentMessage).toBeDefined();
       expect(sentMessage).toHaveProperty('type', 'load');
       expect(sentMessage).toHaveProperty('key', 'load-key');
       expect(sentMessage).not.toHaveProperty('value');
@@ -560,8 +561,10 @@ describe('WorkerStorage – coverage boost', () => {
         (call: unknown[]) => (call[0] as { type: string }).type === 'save'
       );
       expect(saveCall).toBeDefined();
-      expect((saveCall![0] as { key?: string }).key).toBe('save-key');
-      expect((saveCall![0] as { value?: unknown }).value).toEqual({ nested: 'data' });
+      expect((saveCall?.[0] as { key?: string } | undefined)?.key).toBe('save-key');
+      expect((saveCall?.[0] as { value?: unknown } | undefined)?.value).toEqual({
+        nested: 'data',
+      });
     });
   });
 
