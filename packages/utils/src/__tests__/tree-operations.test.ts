@@ -46,6 +46,7 @@ describe('tree-operations', () => {
     });
 
     it('counts only real path segments', () => {
+      expect(getPathDepth('file.txt')).toBe(1);
       expect(getPathDepth('/src/components/Button.tsx')).toBe(3);
       expect(getPathDepth('/src//components///Button.tsx/')).toBe(3);
       expect(getPathDepth('src/components/Button.tsx')).toBe(3);
