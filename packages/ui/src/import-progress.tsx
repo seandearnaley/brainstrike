@@ -37,6 +37,7 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
               <div
                 aria-hidden="true"
                 className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"
+                data-testid="import-progress-spinner"
               />
             )}
             Import Progress

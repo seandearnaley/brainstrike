@@ -82,15 +82,13 @@ describe('ImportProgress', () => {
     render(<ImportProgress progress={createProgress({ total: 10, completed: 10 })} />);
 
     // The CheckCircle icon should be present when complete — no spinner
-    const spinner = document.querySelector('.animate-spin');
-    expect(spinner).not.toBeInTheDocument();
+    expect(screen.queryByTestId('import-progress-spinner')).not.toBeInTheDocument();
   });
 
   it('shows spinner when import is in progress', () => {
     render(<ImportProgress progress={createProgress({ total: 10, completed: 5 })} />);
 
-    const spinner = document.querySelector('.animate-spin');
-    expect(spinner).toBeInTheDocument();
+    expect(screen.getByTestId('import-progress-spinner')).toBeInTheDocument();
   });
 
   it('renders close button when onClose is provided', () => {

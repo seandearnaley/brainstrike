@@ -339,9 +339,7 @@ describe('useUndoableAction', () => {
     const onUndo = vi.fn();
     const getStateSnapshot = vi.fn().mockReturnValue({ order: [1, 2, 3] });
 
-    const { result } = renderHook(() =>
-      useUndoableAction<{ id: string }, { order: number[] }>()
-    );
+    const { result } = renderHook(() => useUndoableAction<{ id: string }, { order: number[] }>());
 
     act(() => {
       result.current.performUndoableAction(
@@ -481,27 +479,33 @@ describe('useUndoableAction', () => {
 
   it('clears specific key without affecting other keys', () => {
     const { result } = renderHook(() => useUndoableAction<{ id: string }>());
-    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
 
     mockToast.mockReturnValueOnce({ id: 'toast-a' }).mockReturnValueOnce({ id: 'toast-b' });
 
     act(() => {
-      result.current.performUndoableAction('key-a', { id: 'a' }, {
-        actionName: 'A',
-        itemDescription: 'A',
-        onUndo: vi.fn(),
-      });
+      result.current.performUndoableAction(
+        'key-a',
+        { id: 'a' },
+        {
+          actionName: 'A',
+          itemDescription: 'A',
+          onUndo: vi.fn(),
+        }
+      );
     });
 
     act(() => {
-      result.current.performUndoableAction('key-b', { id: 'b' }, {
-        actionName: 'B',
-        itemDescription: 'B',
-        onUndo: vi.fn(),
-      });
+      result.current.performUndoableAction(
+        'key-b',
+        { id: 'b' },
+        {
+          actionName: 'B',
+          itemDescription: 'B',
+          onUndo: vi.fn(),
+        }
+      );
     });
 
-    clearTimeoutSpy.mockClear();
     mockDismiss.mockClear();
 
     // Clear only key-a
