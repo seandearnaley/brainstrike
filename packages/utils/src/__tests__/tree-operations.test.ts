@@ -50,6 +50,8 @@ describe('tree-operations', () => {
       expect(getPathDepth('/src/components/Button.tsx')).toBe(3);
       expect(getPathDepth('/src//components///Button.tsx/')).toBe(3);
       expect(getPathDepth('src/components/Button.tsx')).toBe(3);
+      expect(getPathDepth('/a/b/c/d/e/f/g/h/i/j/k')).toBe(11);
+      expect(getPathDepth('src\\components\\Button.tsx')).toBe(1);
     });
   });
 
