@@ -125,20 +125,45 @@ describe('ImportProgress', () => {
     const errors = [{ file: 'error.txt', error: 'Failed to import' }];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
-    // Initially errors should be hidden
-    expect(screen.queryByText('Failed to import')).not.toBeInTheDocument();
+    const viewErrorsButton = screen.getByRole('button', { name: /view 1 error/i });
+    const errorListId = viewErrorsButton.getAttribute('aria-controls');
+    const errorMessage = screen.getByText('Failed to import');
+
+    expect(errorListId).toBeTruthy();
+    expect(document.getElementById(errorListId ?? '')).toHaveAttribute('hidden');
+    expect(errorMessage).not.toBeVisible();
 
     // Click to show errors
-    const viewErrorsButton = screen.getByText(/View 1 error/);
     fireEvent.click(viewErrorsButton);
 
     // Now errors should be visible
+    expect(document.getElementById(errorListId ?? '')).not.toHaveAttribute('hidden');
     expect(screen.getByText('Failed to import')).toBeInTheDocument();
     expect(screen.getByText('error.txt')).toBeInTheDocument();
 
     // Click again to hide
     fireEvent.click(viewErrorsButton);
-    expect(screen.queryByText('Failed to import')).not.toBeInTheDocument();
+    expect(document.getElementById(errorListId ?? '')).toHaveAttribute('hidden');
+    expect(errorMessage).not.toBeVisible();
+  });
+
+  it('uses a unique error list id per component instance', () => {
+    const errors = [{ file: 'error.txt', error: 'Failed to import' }];
+    render(
+      <>
+        <ImportProgress progress={createProgress({ errors })} />
+        <ImportProgress progress={createProgress({ errors })} />
+      </>
+    );
+
+    const toggleButtons = screen.getAllByRole('button', { name: /view 1 error/i });
+    const [firstId, secondId] = toggleButtons.map((button) => button.getAttribute('aria-controls'));
+
+    expect(firstId).toBeTruthy();
+    expect(secondId).toBeTruthy();
+    expect(firstId).not.toBe(secondId);
+    expect(document.getElementById(firstId ?? '')).toBeInTheDocument();
+    expect(document.getElementById(secondId ?? '')).toBeInTheDocument();
   });
 
   it('displays correct singular error text', () => {
