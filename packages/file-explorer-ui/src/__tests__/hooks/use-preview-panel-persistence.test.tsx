@@ -51,20 +51,27 @@ const createWrapper = () => {
   return Wrapper;
 };
 
+const defaultColumnVisibility: ColumnVisibility = {
+  checkbox: true,
+  rootFolderId: true,
+  path: true,
+  type: true,
+  tokens: true,
+  size: true,
+};
+
+const makeColumnVisibility = (overrides: Partial<ColumnVisibility> = {}): ColumnVisibility => ({
+  ...defaultColumnVisibility,
+  ...overrides,
+});
+
 // ── Pure function tests ────────────────────────────────────────────────
 
 describe('preferencesEqual', () => {
   const makePrefs = (
     overrides: Partial<PreviewPanelPreferences> = {}
   ): PreviewPanelPreferences => ({
-    columnVisibility: {
-      checkbox: true,
-      rootFolderId: true,
-      path: true,
-      type: true,
-      tokens: true,
-      size: true,
-    },
+    columnVisibility: makeColumnVisibility(),
     sortField: 'path',
     sortDirection: 'asc',
     groupingConfig: 'none',
@@ -133,63 +140,16 @@ describe('preferencesEqual', () => {
     expect(preferencesEqual(a, b)).toBe(true);
   });
 
-  it('returns false when columnVisibility checkbox differs', () => {
-    const a = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: true, type: true, tokens: true, size: true },
-    });
-    const b = makePrefs({
-      columnVisibility: { checkbox: false, rootFolderId: true, path: true, type: true, tokens: true, size: true },
-    });
-    expect(preferencesEqual(a, b)).toBe(false);
-  });
-
-  it('returns false when columnVisibility rootFolderId differs', () => {
-    const a = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: true, type: true, tokens: true, size: true },
-    });
-    const b = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: false, path: true, type: true, tokens: true, size: true },
-    });
-    expect(preferencesEqual(a, b)).toBe(false);
-  });
-
-  it('returns false when columnVisibility path differs', () => {
-    const a = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: true, type: true, tokens: true, size: true },
-    });
-    const b = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: false, type: true, tokens: true, size: true },
-    });
-    expect(preferencesEqual(a, b)).toBe(false);
-  });
-
-  it('returns false when columnVisibility type differs', () => {
-    const a = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: true, type: true, tokens: true, size: true },
-    });
-    const b = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: true, type: false, tokens: true, size: true },
-    });
-    expect(preferencesEqual(a, b)).toBe(false);
-  });
-
-  it('returns false when columnVisibility tokens differs', () => {
-    const a = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: true, type: true, tokens: true, size: true },
-    });
-    const b = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: true, type: true, tokens: false, size: true },
-    });
-    expect(preferencesEqual(a, b)).toBe(false);
-  });
-
-  it('returns false when columnVisibility size differs', () => {
-    const a = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: true, type: true, tokens: true, size: true },
-    });
-    const b = makePrefs({
-      columnVisibility: { checkbox: true, rootFolderId: true, path: true, type: true, tokens: true, size: false },
-    });
+  it.each([
+    'checkbox',
+    'rootFolderId',
+    'path',
+    'type',
+    'tokens',
+    'size',
+  ] as const)('returns false when columnVisibility %s differs', (key) => {
+    const a = makePrefs({ columnVisibility: makeColumnVisibility() });
+    const b = makePrefs({ columnVisibility: makeColumnVisibility({ [key]: false }) });
     expect(preferencesEqual(a, b)).toBe(false);
   });
 });
@@ -198,14 +158,7 @@ describe('preferencesEqual', () => {
 
 describe('usePreviewPanelPersistence', () => {
   const defaultOptions = {
-    defaultColumnVisibility: {
-      checkbox: true,
-      rootFolderId: true,
-      path: true,
-      type: true,
-      tokens: true,
-      size: true,
-    } as ColumnVisibility,
+    defaultColumnVisibility,
     defaultSortField: 'path' as keyof Record<string, unknown>,
     defaultSortDirection: 'asc' as const,
     defaultGroupingConfig: 'none',
@@ -568,7 +521,7 @@ describe('usePreviewPanelPersistence', () => {
   });
 
   it('should not persist while still loading', async () => {
-    let resolveGetItem: (v: string | null) => void;
+    let resolveGetItem: ((value: string | null) => void) | undefined;
     mockStorageAdapter.getItem.mockReturnValue(
       new Promise<string | null>((resolve) => {
         resolveGetItem = resolve;
@@ -583,8 +536,9 @@ describe('usePreviewPanelPersistence', () => {
     expect(mockStorageAdapter.setItem).not.toHaveBeenCalled();
 
     // Now resolve
+    expect(resolveGetItem).toBeDefined();
     await act(async () => {
-      resolveGetItem!(null);
+      resolveGetItem?.(null);
     });
   });
 

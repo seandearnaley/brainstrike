@@ -286,8 +286,8 @@ describe('ImportProgress', () => {
     expect(screen.queryByText(/View/)).not.toBeInTheDocument();
   });
 
-  it('does not render current file text when current is undefined', () => {
-    render(<ImportProgress progress={createProgress({ current: undefined })} />);
+  it('does not render current file text when current is omitted', () => {
+    render(<ImportProgress progress={createProgress()} />);
 
     expect(screen.queryByText(/Current:/)).not.toBeInTheDocument();
   });

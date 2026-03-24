@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useUndoableAction } from '../hooks/use-undoable-action';
 
@@ -14,6 +14,12 @@ vi.mock('../use-toast', () => ({
 }));
 
 describe('useUndoableAction', () => {
+  const renderToastDescription = (callIndex = 0) => {
+    const toastCall = mockToast.mock.calls[callIndex]?.[0];
+    expect(toastCall?.description).toBeDefined();
+    return render(toastCall.description);
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -316,27 +322,15 @@ describe('useUndoableAction', () => {
       );
     });
 
-    const toastCall = mockToast.mock.calls[0]?.[0];
-    expect(toastCall).toBeDefined();
-    expect(toastCall.description).toBeDefined();
+    const { container } = renderToastDescription();
+    const descriptionElement = container.firstElementChild;
+    const spanElement = screen.getByText(`Removed "${longPath}" from selection`);
+    const buttonElement = screen.getByRole('button', { name: 'Undo' });
 
-    const descriptionElement = toastCall.description;
-    expect(descriptionElement.type).toBe('div');
-    expect(descriptionElement.props.className).toContain('flex');
-    expect(descriptionElement.props.className).toContain('items-center');
-    expect(descriptionElement.props.className).toContain('justify-between');
-    expect(descriptionElement.props.className).toContain('gap-2');
-
-    const spanElement = descriptionElement.props.children[0];
-    expect(spanElement.type).toBe('span');
-    expect(spanElement.props.className).toContain('min-w-0');
-    expect(spanElement.props.className).toContain('flex-1');
-    expect(spanElement.props.className).toContain('truncate');
-
-    expect(spanElement.props.title).toBe(`Removed "${longPath}" from selection`);
-
-    const buttonElement = descriptionElement.props.children[1];
-    expect(buttonElement.props.className).toContain('flex-shrink-0');
+    expect(descriptionElement).toHaveClass('flex', 'items-center', 'justify-between', 'gap-2');
+    expect(spanElement).toHaveClass('min-w-0', 'flex-1', 'truncate');
+    expect(spanElement).toHaveAttribute('title', `Removed "${longPath}" from selection`);
+    expect(buttonElement).toHaveClass('flex-shrink-0');
   });
 
   // ── Additional coverage tests ───────────────────────────────────────
@@ -363,13 +357,9 @@ describe('useUndoableAction', () => {
     });
 
     // Extract the Button's onClick from the rendered description
-    const toastCall = mockToast.mock.calls[0]?.[0];
-    const descriptionElement = toastCall.description;
-    const buttonElement = descriptionElement.props.children[1];
-
-    // Simulate clicking the Undo button
+    renderToastDescription();
     act(() => {
-      buttonElement.props.onClick();
+      screen.getByRole('button', { name: 'Undo' }).click();
     });
 
     expect(onUndo).toHaveBeenCalledTimes(1);
@@ -394,17 +384,15 @@ describe('useUndoableAction', () => {
       );
     });
 
-    const toastCall = mockToast.mock.calls[0]?.[0];
-    const buttonElement = toastCall.description.props.children[1];
-
+    renderToastDescription();
     act(() => {
-      buttonElement.props.onClick();
+      screen.getByRole('button', { name: 'Undo' }).click();
     });
 
     expect(onUndo).toHaveBeenCalledWith({ id: 'x' }, undefined);
   });
 
-  it('creates description with correct React element structure', () => {
+  it('renders the description text and undo action', () => {
     const { result } = renderHook(() => useUndoableAction<{ name: string }>());
 
     act(() => {
@@ -419,17 +407,10 @@ describe('useUndoableAction', () => {
       );
     });
 
-    const toastCall = mockToast.mock.calls[0]?.[0];
-    const desc = toastCall.description;
+    renderToastDescription();
 
-    // Root div
-    expect(desc.type).toBe('div');
-    // Children: [span, Button]
-    expect(desc.props.children).toHaveLength(2);
-    // Span shows item description
-    expect(desc.props.children[0].props.children).toBe('My description text');
-    // Button text is 'Undo'
-    expect(desc.props.children[1].props.children).toBe('Undo');
+    expect(screen.getByText('My description text')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
   });
 
   it('replaces existing action for same key and only the latest auto-clears', () => {
