@@ -248,10 +248,18 @@ function mergeCollections(
   for (const collection of liveCollections) {
     merged.set(collection.id, collection);
   }
-  return Array.from(merged.values()).sort(
-    (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
-  );
+  // ⚡ Bolt: Replaced inline localeCompare with simple string relational operators
+  // localeCompare creates a new Intl.Collator on every call which is very slow in hot loops.
+  // For ISO dates and UUIDs, < and > provide the exact same sorting order much faster.
+  return Array.from(merged.values()).sort((left, right) => {
+    if (right.createdAt !== left.createdAt) {
+      return right.createdAt < left.createdAt ? -1 : 1;
+    }
+    if (right.id !== left.id) {
+      return right.id < left.id ? -1 : 1;
+    }
+    return 0;
+  });
 }
 
 function upsertCollectionSnapshot(
@@ -260,10 +268,18 @@ function upsertCollectionSnapshot(
 ): CollectionWithDocCount[] {
   const next = collections.filter((candidate) => candidate.id !== collection.id);
   next.unshift(collection);
-  next.sort(
-    (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
-  );
+  // ⚡ Bolt: Replaced inline localeCompare with simple string relational operators
+  // localeCompare creates a new Intl.Collator on every call which is very slow in hot loops.
+  // For ISO dates and UUIDs, < and > provide the exact same sorting order much faster.
+  next.sort((left, right) => {
+    if (right.createdAt !== left.createdAt) {
+      return right.createdAt < left.createdAt ? -1 : 1;
+    }
+    if (right.id !== left.id) {
+      return right.id < left.id ? -1 : 1;
+    }
+    return 0;
+  });
   return next;
 }
 
@@ -289,10 +305,18 @@ function applyPendingCollectionMutations(
     }
   }
 
-  return Array.from(merged.values()).sort(
-    (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
-  );
+  // ⚡ Bolt: Replaced inline localeCompare with simple string relational operators
+  // localeCompare creates a new Intl.Collator on every call which is very slow in hot loops.
+  // For ISO dates and UUIDs, < and > provide the exact same sorting order much faster.
+  return Array.from(merged.values()).sort((left, right) => {
+    if (right.createdAt !== left.createdAt) {
+      return right.createdAt < left.createdAt ? -1 : 1;
+    }
+    if (right.id !== left.id) {
+      return right.id < left.id ? -1 : 1;
+    }
+    return 0;
+  });
 }
 
 function clearSatisfiedPendingCollectionMutations(
