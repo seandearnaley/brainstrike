@@ -16,7 +16,6 @@ export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButton
         <Button
           aria-label={tooltip}
           size="icon"
-          title={tooltip}
           variant="ghost"
           {...rest}
           asChild={asChild}
