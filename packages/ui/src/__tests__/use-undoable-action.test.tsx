@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useUndoableAction } from '../hooks/use-undoable-action';
 
@@ -14,6 +14,12 @@ vi.mock('../use-toast', () => ({
 }));
 
 describe('useUndoableAction', () => {
+  const renderToastDescription = (callIndex = 0) => {
+    const toastCall = mockToast.mock.calls[callIndex]?.[0];
+    expect(toastCall?.description).toBeDefined();
+    return render(toastCall.description);
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -286,7 +292,6 @@ describe('useUndoableAction', () => {
       );
     });
 
-    // Check that default duration is used
     expect(mockToast).toHaveBeenCalledWith(
       expect.objectContaining({
         duration: 5000,
@@ -317,31 +322,205 @@ describe('useUndoableAction', () => {
       );
     });
 
-    // Get the description prop from the toast call
-    const toastCall = mockToast.mock.calls[0]?.[0];
-    expect(toastCall).toBeDefined();
-    expect(toastCall.description).toBeDefined();
+    const { container } = renderToastDescription();
+    const descriptionElement = container.firstElementChild;
+    const spanElement = screen.getByText(`Removed "${longPath}" from selection`);
+    const buttonElement = screen.getByRole('button', { name: 'Undo' });
 
-    // The description should be a React element with the proper structure
-    const descriptionElement = toastCall.description;
-    expect(descriptionElement.type).toBe('div');
-    expect(descriptionElement.props.className).toContain('flex');
-    expect(descriptionElement.props.className).toContain('items-center');
-    expect(descriptionElement.props.className).toContain('justify-between');
-    expect(descriptionElement.props.className).toContain('gap-2');
+    expect(descriptionElement).toHaveClass('flex', 'items-center', 'justify-between', 'gap-2');
+    expect(spanElement).toHaveClass('min-w-0', 'flex-1', 'truncate');
+    expect(spanElement).toHaveAttribute('title', `Removed "${longPath}" from selection`);
+    expect(buttonElement).toHaveClass('flex-shrink-0');
+  });
 
-    // Check the span element has truncation classes
-    const spanElement = descriptionElement.props.children[0];
-    expect(spanElement.type).toBe('span');
-    expect(spanElement.props.className).toContain('min-w-0');
-    expect(spanElement.props.className).toContain('flex-1');
-    expect(spanElement.props.className).toContain('truncate');
+  // ── Additional coverage tests ───────────────────────────────────────
 
-    // Check the span has a title attribute for tooltip on hover
-    expect(spanElement.props.title).toBe(`Removed "${longPath}" from selection`);
+  it('invokes onUndo with correct item and snapshot when undo button is clicked', () => {
+    const onUndo = vi.fn();
+    const getStateSnapshot = vi.fn().mockReturnValue({ order: [1, 2, 3] });
 
-    // Check the button has flex-shrink-0 to prevent shrinking
-    const buttonElement = descriptionElement.props.children[1];
-    expect(buttonElement.props.className).toContain('flex-shrink-0');
+    const { result } = renderHook(() => useUndoableAction<{ id: string }, { order: number[] }>());
+
+    act(() => {
+      result.current.performUndoableAction(
+        'undo-key',
+        { id: 'item-42' },
+        {
+          actionName: 'Removed item',
+          itemDescription: 'item-42',
+          onUndo,
+          getStateSnapshot,
+        }
+      );
+    });
+
+    // Extract the Button's onClick from the rendered description
+    renderToastDescription();
+    act(() => {
+      screen.getByRole('button', { name: 'Undo' }).click();
+    });
+
+    expect(onUndo).toHaveBeenCalledTimes(1);
+    expect(onUndo).toHaveBeenCalledWith({ id: 'item-42' }, { order: [1, 2, 3] });
+    // Undo also clears the timeout
+    expect(mockDismiss).toHaveBeenCalledWith('test-toast-id');
+  });
+
+  it('passes undefined snapshot when getStateSnapshot is not provided', () => {
+    const onUndo = vi.fn();
+    const { result } = renderHook(() => useUndoableAction<{ id: string }>());
+
+    act(() => {
+      result.current.performUndoableAction(
+        'no-snap',
+        { id: 'x' },
+        {
+          actionName: 'Action',
+          itemDescription: 'desc',
+          onUndo,
+        }
+      );
+    });
+
+    renderToastDescription();
+    act(() => {
+      screen.getByRole('button', { name: 'Undo' }).click();
+    });
+
+    expect(onUndo).toHaveBeenCalledWith({ id: 'x' }, undefined);
+  });
+
+  it('renders the description text and undo action', () => {
+    const { result } = renderHook(() => useUndoableAction<{ name: string }>());
+
+    act(() => {
+      result.current.performUndoableAction(
+        'struct-key',
+        { name: 'test' },
+        {
+          actionName: 'Struct Test',
+          itemDescription: 'My description text',
+          onUndo: vi.fn(),
+        }
+      );
+    });
+
+    renderToastDescription();
+
+    expect(screen.getByText('My description text')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
+  });
+
+  it('replaces existing action for same key and only the latest auto-clears', () => {
+    const onUndo1 = vi.fn();
+    const onUndo2 = vi.fn();
+    const { result } = renderHook(() => useUndoableAction<{ id: string }>());
+
+    act(() => {
+      result.current.performUndoableAction(
+        'replace-key',
+        { id: '1' },
+        {
+          actionName: 'First',
+          itemDescription: 'First item',
+          onUndo: onUndo1,
+          duration: 3000,
+        }
+      );
+    });
+
+    // Replace with a second action on the same key
+    act(() => {
+      result.current.performUndoableAction(
+        'replace-key',
+        { id: '2' },
+        {
+          actionName: 'Second',
+          itemDescription: 'Second item',
+          onUndo: onUndo2,
+          duration: 3000,
+        }
+      );
+    });
+
+    // After 3000ms, only the second action's timeout should fire
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    // Toast was called twice (once for each action)
+    expect(mockToast).toHaveBeenCalledTimes(2);
+    // Dismiss was called at least once for cleanup of the first toast
+    expect(mockDismiss).toHaveBeenCalled();
+  });
+
+  it('handles fallback toast id correctly and still auto-clears', () => {
+    // Return null id to force fallback
+    mockToast.mockReturnValueOnce(null);
+    const { result } = renderHook(() => useUndoableAction<string>());
+
+    act(() => {
+      result.current.performUndoableAction('fallback-key', 'item', {
+        actionName: 'Fallback Test',
+        itemDescription: 'desc',
+        onUndo: vi.fn(),
+        duration: 2000,
+      });
+    });
+
+    // Auto-clear fires without errors
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    // Dismiss should be called with the fallback id
+    expect(mockDismiss).toHaveBeenCalled();
+  });
+
+  it('clears specific key without affecting other keys', () => {
+    const { result } = renderHook(() => useUndoableAction<{ id: string }>());
+
+    mockToast.mockReturnValueOnce({ id: 'toast-a' }).mockReturnValueOnce({ id: 'toast-b' });
+
+    act(() => {
+      result.current.performUndoableAction(
+        'key-a',
+        { id: 'a' },
+        {
+          actionName: 'A',
+          itemDescription: 'A',
+          onUndo: vi.fn(),
+        }
+      );
+    });
+
+    act(() => {
+      result.current.performUndoableAction(
+        'key-b',
+        { id: 'b' },
+        {
+          actionName: 'B',
+          itemDescription: 'B',
+          onUndo: vi.fn(),
+        }
+      );
+    });
+
+    mockDismiss.mockClear();
+
+    // Clear only key-a
+    act(() => {
+      result.current.clearUndoTimeout('key-a');
+    });
+
+    expect(mockDismiss).toHaveBeenCalledWith('toast-a');
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+
+    // key-b should still auto-clear after timeout
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(mockDismiss).toHaveBeenCalledWith('toast-b');
   });
 });
