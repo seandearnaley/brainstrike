@@ -66,6 +66,7 @@ export function PromptCard({
 
           <div className="flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
             <Button
+              aria-label={prompt.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
               className={cn(
                 'h-8 w-8 transition-colors',
                 prompt.isFavorite
@@ -77,6 +78,7 @@ export function PromptCard({
                 onToggleFavorite(prompt.id);
               }}
               size="icon"
+              title={prompt.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
               variant="ghost"
             >
               <Star className={cn('h-4 w-4', prompt.isFavorite && 'fill-current')} />
