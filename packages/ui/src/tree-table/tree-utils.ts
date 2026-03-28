@@ -473,7 +473,7 @@ export function filterTreeNodes<T>(
     // Manual loop unrolling/optimization for performance hot path
     // biome-ignore lint/style/useForOf: optimized for performance
     for (let i = 0; i < nodeList.length; i++) {
-      const node = nodeList[i] as TreeNode<T>;
+      const node = nodeList[i]!;
       const nodeMatches = predicate(node);
       let childHasMatch = false;
 
@@ -489,7 +489,7 @@ export function filterTreeNodes<T>(
         }
         // biome-ignore lint/style/useForOf: optimized for performance
         for (let j = 0; j < ancestors.length; j++) {
-          ancestorIds.add(ancestors[j] as string);
+          ancestorIds.add(ancestors[j]!);
         }
         hasMatchingDescendant = true;
       }
