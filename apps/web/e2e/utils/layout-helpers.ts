@@ -288,6 +288,8 @@ export async function activateSidebarNavigation(
   const expect = await getPlaywrightExpect();
   const navigationButton = page.getByRole('button', { name: label, exact: true });
   await expect(navigationButton).toBeVisible();
+  // Playwright's native click retries kept racing this sidebar's rerender path.
+  // We still gate on visibility, then dispatch the click event deterministically.
   await navigationButton.dispatchEvent('click');
 }
 

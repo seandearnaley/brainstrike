@@ -130,6 +130,8 @@ function parsePersistedPanelState(raw: string | null): PersistedPanelState | nul
 
 function createAdapterPersistStorage(storage: StorageAdapter): PersistStorage<PersistedPanelState> {
   return {
+    // Adapter-backed storage remains async, so this hydration path resolves on a later microtask.
+    // The fallback storage stays synchronous for direct localStorage environments.
     getItem: async (name: string) => {
       const state = parsePersistedPanelState(await storage.getItem(name));
       return state ? { state, version: 2 } : null;

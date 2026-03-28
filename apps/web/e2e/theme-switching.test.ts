@@ -23,6 +23,16 @@ async function waitForAppearanceSection(page: Page): Promise<Locator> {
   return appearanceSection;
 }
 
+async function activateAppearanceThemeButton(
+  page: Page,
+  label: 'Dark' | 'Light' | 'System'
+): Promise<void> {
+  const appearanceSection = await waitForAppearanceSection(page);
+  const themeButton = appearanceSection.getByRole('button', { name: label, exact: true });
+  await expect(themeButton).toBeVisible();
+  await themeButton.dispatchEvent('click');
+}
+
 test.describe('Theme Switching', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
@@ -54,7 +64,7 @@ test.describe('Theme Switching', () => {
       ).toBeVisible();
 
       // Test switching to Dark theme
-      await appearanceSection.getByRole('button', { name: 'Dark', exact: true }).click();
+      await activateAppearanceThemeButton(page, 'Dark');
 
       // Wait a moment for theme to apply
       await page.waitForTimeout(100);
@@ -76,9 +86,7 @@ test.describe('Theme Switching', () => {
       await waitForSettingsPage(page);
 
       // Test switching to Light theme (use settings-specific selector)
-      await (await waitForAppearanceSection(page))
-        .getByRole('button', { name: 'Light', exact: true })
-        .click();
+      await activateAppearanceThemeButton(page, 'Light');
 
       // Verify light theme is applied (dark class should be removed)
       await expect(htmlElement).not.toHaveClass(/dark/);
@@ -99,9 +107,7 @@ test.describe('Theme Switching', () => {
     await waitForSettingsPage(page);
 
     // Set to light theme explicitly (use settings-specific selector)
-    await (await waitForAppearanceSection(page))
-      .getByRole('button', { name: 'Light', exact: true })
-      .click();
+    await activateAppearanceThemeButton(page, 'Light');
     await page.waitForTimeout(100);
 
     // Navigate back to Context Explorer
@@ -135,8 +141,7 @@ test.describe('Theme Switching', () => {
     await waitForSettingsPage(page);
 
     // Click System theme button (use settings-specific selector)
-    const appearanceSection = await waitForAppearanceSection(page);
-    await appearanceSection.getByRole('button', { name: 'System', exact: true }).click();
+    await activateAppearanceThemeButton(page, 'System');
 
     // The actual theme applied will depend on the system preference
     // We can't control the system preference in the test, but we can verify
@@ -159,8 +164,7 @@ test.describe('Theme Switching', () => {
   test('should maintain theme consistency across page reloads', async ({ page }) => {
     // Set to dark theme (use settings-specific selector)
     await activateSidebarNavigation(page, 'Settings');
-    const appearanceSection = await waitForAppearanceSection(page);
-    await appearanceSection.getByRole('button', { name: 'Dark', exact: true }).click();
+    await activateAppearanceThemeButton(page, 'Dark');
     await page.waitForTimeout(100);
 
     const htmlElement = page.locator('html');
@@ -180,9 +184,7 @@ test.describe('Theme Switching', () => {
     await waitForSettingsPage(page);
 
     // Switch back to light and test reload persistence (use settings-specific selector)
-    await (await waitForAppearanceSection(page))
-      .getByRole('button', { name: 'Light', exact: true })
-      .click();
+    await activateAppearanceThemeButton(page, 'Light');
     await page.waitForTimeout(100);
     await expect(htmlElement).not.toHaveClass(/dark/);
 

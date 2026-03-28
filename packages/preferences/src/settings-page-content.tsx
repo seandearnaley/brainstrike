@@ -72,6 +72,20 @@ export interface SettingsCategory {
   title: string;
 }
 
+export function resolveSettingsCategoryContent(category: {
+  content?: ReactNode;
+  id: string;
+  render?: () => ReactNode;
+}): ReactNode {
+  if (category.content !== undefined) {
+    return category.content;
+  }
+  if (typeof category.render === 'function') {
+    return category.render();
+  }
+  throw new Error(`Settings category "${category.id}" is missing content`);
+}
+
 /**
  * Props for the SettingsPageContent component.
  */

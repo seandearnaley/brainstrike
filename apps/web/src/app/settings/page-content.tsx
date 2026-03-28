@@ -24,12 +24,13 @@ import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
+  resolveSettingsCategoryContent,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences/settings-page-content';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { FileCog, Layers } from 'lucide-react';
-import { type ReactNode, useMemo } from 'react';
+import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { getWebLogBuffer } from '../../log-buffer';
 
@@ -59,20 +60,6 @@ function getNativeToolsAsDisplayMetadata(
  */
 function getToolDescription(toolId: string): string {
   return TOOL_DESCRIPTIONS[toolId] ?? `Native tool: ${toolId}`;
-}
-
-function resolveCategoryContent(category: {
-  content?: ReactNode;
-  id: string;
-  render?: () => ReactNode;
-}) {
-  if (category.content !== undefined) {
-    return category.content;
-  }
-  if (typeof category.render === 'function') {
-    return category.render();
-  }
-  throw new Error(`Settings category "${category.id}" is missing content`);
 }
 
 function ModelSelectionCategory() {
@@ -196,7 +183,7 @@ export default function SettingsPageContent() {
       }),
       {
         ...diagnosticsCategory,
-        content: resolveCategoryContent(diagnosticsCategory),
+        content: resolveSettingsCategoryContent(diagnosticsCategory),
       },
       createFactoryResetSettingsCategory({
         isWebPlatform: true,

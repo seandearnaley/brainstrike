@@ -28,7 +28,7 @@ const IGNORE_PATTERNS = [
 ];
 
 const forbiddenDirective = ['use', 'no', 'memo'].join(' ');
-const NO_MEMO_PATTERN = new RegExp(`(['"])${forbiddenDirective}\\1`);
+const NO_MEMO_PATTERN = new RegExp(`(['"])${forbiddenDirective}\\1`, 'g');
 
 function getLineNumber(sourceText, matchIndex) {
   return sourceText.slice(0, matchIndex).split('\n').length;
@@ -45,16 +45,16 @@ async function main() {
 
   for (const filePath of sourceFiles.sort()) {
     const sourceText = await readFile(filePath, 'utf8');
-    const match = NO_MEMO_PATTERN.exec(sourceText);
+    NO_MEMO_PATTERN.lastIndex = 0;
 
-    if (!match || match.index === undefined) {
-      continue;
+    let match = NO_MEMO_PATTERN.exec(sourceText);
+    while (match && match.index !== undefined) {
+      violations.push({
+        filePath,
+        lineNumber: getLineNumber(sourceText, match.index),
+      });
+      match = NO_MEMO_PATTERN.exec(sourceText);
     }
-
-    violations.push({
-      filePath,
-      lineNumber: getLineNumber(sourceText, match.index),
-    });
   }
 
   if (violations.length === 0) {
