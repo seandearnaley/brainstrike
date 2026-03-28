@@ -11,3 +11,7 @@
 ## 2026-03-16 - Critical Loss of ARIA Roles in Simplified Components
 **Learning:** Simplifying components by removing robust UI primitives (like Radix UI `Progress`) often unintentionally strips essential ARIA roles, specifically `role="progressbar"`, `aria-valuemin`, `aria-valuemax`, and `aria-valuenow`. This completely breaks the component's semantic meaning for screen readers.
 **Action:** When migrating away from external UI primitives or building components from scratch, always verify that the semantic ARIA roles and state attributes are explicitly re-implemented to maintain accessibility.
+
+## 2026-03-27 - [Added Accessible Labels to PromptCard Favorite Button]
+**Learning:** Icon-only buttons representing binary toggle actions (like adding/removing a favorite) often omit `aria-label` and `title` attributes, making them inaccessible to screen readers and lacking native tooltips for mouse users.
+**Action:** Always provide descriptive and dynamic `aria-label` and `title` attributes (e.g., 'Add to favorites' / 'Remove from favorites') for icon-only toggle buttons, especially those using `size="icon"` from the UI package.
