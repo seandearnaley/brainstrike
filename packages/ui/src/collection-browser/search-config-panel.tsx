@@ -139,6 +139,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
       <Button
         aria-controls="search-config-content"
         aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? 'Collapse' : 'Expand'} advanced options`}
         className="h-auto w-full justify-between px-3 py-2 hover:bg-muted/50"
         depress={false}
         onClick={handleToggle}

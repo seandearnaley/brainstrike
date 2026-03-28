@@ -76,6 +76,7 @@ export const FilterBar = React.memo(function FilterBar({
       <Button
         aria-controls="filter-bar-content"
         aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? 'Collapse' : 'Expand'} quick filters`}
         className="h-auto w-full justify-between px-3 py-2 hover:bg-muted/50"
         depress={false}
         onClick={handleToggle}

@@ -104,9 +104,9 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
           </Button>
 
           <div
+            className="mt-2 max-h-32 space-y-1 overflow-y-auto"
             hidden={!showErrors}
             id={errorListId}
-            className="mt-2 max-h-32 space-y-1 overflow-y-auto"
           >
             {errors.map((error) => (
               <div

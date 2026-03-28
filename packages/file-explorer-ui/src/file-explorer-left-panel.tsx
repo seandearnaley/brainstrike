@@ -727,6 +727,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               <Button
                 aria-controls="view-filters-content"
                 aria-expanded={isFiltersExpanded}
+                aria-label={`${isFiltersExpanded ? 'Collapse' : 'Expand'} view filters`}
                 className="h-auto w-full justify-between rounded-none px-3 py-2 hover:bg-muted/50"
                 depress={false}
                 onClick={() => setFiltersExpanded(!isFiltersExpanded)}
