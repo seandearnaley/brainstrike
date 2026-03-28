@@ -3,6 +3,20 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 /**
+ * Sort comparator for collections: descending by createdAt, then id.
+ * Accepts any object with `createdAt` and `id` string fields.
+ */
+export function compareCollectionsDesc(
+  left: { createdAt: string; id: string },
+  right: { createdAt: string; id: string }
+): number {
+  return (
+    (right.createdAt < left.createdAt ? -1 : right.createdAt > left.createdAt ? 1 : 0) ||
+    (right.id < left.id ? -1 : right.id > left.id ? 1 : 0)
+  );
+}
+
+/**
  * Cached collection data - persists across component unmounts during imports
  */
 export interface CachedCollection {
@@ -215,18 +229,7 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
             (candidate) => candidate.id !== collection.id
           );
           next.unshift(collection);
-          // ⚡ Bolt: Replaced inline localeCompare with simple string relational operators
-          // localeCompare creates a new Intl.Collator on every call which is very slow in hot loops.
-          // For ISO dates and UUIDs, < and > provide the exact same sorting order much faster.
-          next.sort((left, right) => {
-            if (right.createdAt !== left.createdAt) {
-              return right.createdAt < left.createdAt ? -1 : 1;
-            }
-            if (right.id !== left.id) {
-              return right.id < left.id ? -1 : 1;
-            }
-            return 0;
-          });
+          next.sort(compareCollectionsDesc);
           return { cachedCollections: next };
         }),
       setCachedFileData: (data) => set({ cachedFileData: data }),
