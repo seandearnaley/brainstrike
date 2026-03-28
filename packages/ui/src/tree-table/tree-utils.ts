@@ -481,9 +481,14 @@ function processNodeForFilter<T>(
   traverseFn: (nodeList: TreeNode<T>[], ancestors: string[]) => boolean
 ): boolean {
   const nodeMatches = predicate(node);
-  const childHasMatch = node.hasChildren
-    ? traverseFn(getChildren(node), [...ancestors, node.id])
-    : false;
+  let childHasMatch = false;
+
+  if (node.hasChildren) {
+    // Reuse the ancestors array to avoid allocations per node
+    ancestors.push(node.id);
+    childHasMatch = traverseFn(getChildren(node), ancestors);
+    ancestors.pop();
+  }
 
   if (nodeMatches || childHasMatch) {
     if (nodeMatches) {
