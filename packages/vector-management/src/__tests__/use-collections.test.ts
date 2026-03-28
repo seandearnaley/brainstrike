@@ -85,6 +85,12 @@ vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
   useVectorStatusUIStore: vi.fn((selector: (state: typeof mockStoreState) => unknown) =>
     selector(mockStoreState)
   ),
+  compareCollectionsDesc: (
+    left: { createdAt: string; id: string },
+    right: { createdAt: string; id: string }
+  ) =>
+    (right.createdAt < left.createdAt ? -1 : right.createdAt > left.createdAt ? 1 : 0) ||
+    (right.id < left.id ? -1 : right.id > left.id ? 1 : 0),
 }));
 
 import { usePGliteLiveQuery } from '@brainstrike/db';
