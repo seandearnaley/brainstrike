@@ -1,4 +1,8 @@
-import { isNativeTool, NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/client';
+import {
+  isNativeTool,
+  NATIVE_TOOL_DEFAULTS,
+  TOOL_DESCRIPTIONS,
+} from '@brainstrike/agent/tool-metadata';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import {
   useFileExplorerStoreContext,
@@ -20,7 +24,7 @@ import {
 } from '@brainstrike/preferences/settings-page-content';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { FileCog, Layers } from 'lucide-react';
-import { useMemo } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
 
 /**
@@ -47,6 +51,20 @@ function getNativeToolsAsDisplayMetadata(
  */
 function getToolDescription(toolId: string): string {
   return TOOL_DESCRIPTIONS[toolId] ?? `Native tool: ${toolId}`;
+}
+
+function resolveCategoryContent(category: {
+  content?: ReactNode;
+  id: string;
+  render?: () => ReactNode;
+}) {
+  if (category.content !== undefined) {
+    return category.content;
+  }
+  if (typeof category.render === 'function') {
+    return category.render();
+  }
+  throw new Error(`Settings category "${category.id}" is missing content`);
 }
 
 function EmbeddingModelsCategory() {
@@ -272,8 +290,10 @@ export default function SettingsPageContent() {
     []
   );
 
-  const categories = useMemo<SettingsCategory[]>(
-    () => [
+  const categories = useMemo<SettingsCategory[]>(() => {
+    const diagnosticsCategory = createSystemDiagnosticsSettingsCategory();
+
+    return [
       createAppearanceSettingsCategory(),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createApiKeysSettingsCategory(),
@@ -283,7 +303,7 @@ export default function SettingsPageContent() {
         description: 'Choose chat and embedding models, manage downloads, and configure providers.',
         keywords: ['embeddings', 'models', 'providers', 'vector', 'llm', 'download'],
         icon: Layers,
-        render: () => <EmbeddingModelsCategory />,
+        content: <EmbeddingModelsCategory />,
       },
       {
         id: 'logging',
@@ -291,13 +311,16 @@ export default function SettingsPageContent() {
         description: 'Control renderer log verbosity and manage file logging for debugging.',
         keywords: ['logging', 'diagnostics', 'debugging', 'log file'],
         icon: FileCog,
-        render: () => <DesktopLoggingSettings />,
+        content: <DesktopLoggingSettings />,
       },
       createToolsSettingsCategory({
         operations: toolOperations,
         mcpAvailable: true,
       }),
-      createSystemDiagnosticsSettingsCategory(),
+      {
+        ...diagnosticsCategory,
+        content: resolveCategoryContent(diagnosticsCategory),
+      },
       createFactoryResetSettingsCategory({
         isWebPlatform: false,
         inlineFixtureSetting: {
@@ -307,9 +330,13 @@ export default function SettingsPageContent() {
           onChange: setDevInlineFixtureEnabled,
         },
       }),
-    ],
-    [accurateRuntimeAvailable, devInlineFixtureEnabled, setDevInlineFixtureEnabled, toolOperations]
-  );
+    ];
+  }, [
+    accurateRuntimeAvailable,
+    devInlineFixtureEnabled,
+    setDevInlineFixtureEnabled,
+    toolOperations,
+  ]);
 
   return (
     <>

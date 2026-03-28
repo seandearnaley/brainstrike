@@ -9,7 +9,7 @@ import {
   TOOL_LOADING_TIERS,
   type ToolCategoryInfo,
   type ToolLoadingTierInfo,
-} from '@brainstrike/agent/client';
+} from '@brainstrike/agent/tool-metadata';
 import {
   Button,
   Input,

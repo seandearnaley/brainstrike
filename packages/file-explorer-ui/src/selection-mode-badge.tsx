@@ -125,8 +125,6 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
   rulesEditorAvailable = true,
   show = true,
 }) {
-  'use no memo';
-
   const store = useFileExplorerStoreContext();
 
   // FIX: React Compiler + multiple selectors + optional chaining on Set causes React #311

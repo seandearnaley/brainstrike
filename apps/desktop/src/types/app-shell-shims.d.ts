@@ -73,11 +73,11 @@ declare module '@brainstrike/app-shell/settings-page-content' {
    * See: packages/app-shell/src/settings-page-content.tsx
    */
   export interface SettingsCategory {
+    content: React.ReactNode;
     description?: string;
     icon?: LucideIcon;
     id: string;
     keywords?: string[];
-    render: () => React.ReactNode;
     title: string;
   }
 
@@ -99,11 +99,11 @@ declare module '@brainstrike/app-shell' {
   export const navigationItems: unknown;
   export const RootLayoutContent: React.ComponentType;
   export interface SettingsCategory {
+    content: React.ReactNode;
     description?: string;
     icon?: LucideIcon;
     id: string;
     keywords?: string[];
-    render: () => React.ReactNode;
     title: string;
   }
   export interface SettingsPageContentProps {

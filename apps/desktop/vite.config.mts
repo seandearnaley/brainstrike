@@ -12,8 +12,9 @@ import {
   getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } from '@brainstrike/build-utils';
+import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
@@ -41,7 +42,7 @@ function resolveVendorChunk(id: string): string | undefined {
 }
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
-const ReactCompilerConfig = { compilationMode: 'infer' };
+const ReactCompilerConfig = { compilationMode: 'infer' } as const;
 // CRITICAL: Keep React/Babel transforms scoped to source files only.
 // Letting the React plugin process package dist artifacts (especially large worker bundles)
 // causes multi-second startup stalls in desktop dev while Vite/Babel reprocesses megabytes
@@ -50,6 +51,19 @@ const ReactPluginInclude = [
   /[/\\]apps[/\\]desktop[/\\]src[/\\].*\.[jt]sx?$/,
   /[/\\]packages[/\\][^/\\]+[/\\]src[/\\].*\.[jt]sx?$/,
 ];
+const ReactCompilerExclude = [
+  /[/\\]node_modules[/\\]/,
+  /[/\\]packages[/\\]app-shell[/\\]src[/\\].*\.[jt]sx?$/,
+  /[/\\]packages[/\\]file-explorer-ui[/\\]src[/\\].*\.[jt]sx?$/,
+];
+const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
+reactCompilerBabelPreset.rolldown.filter = {
+  ...reactCompilerBabelPreset.rolldown.filter,
+  id: {
+    include: ReactPluginInclude,
+    exclude: ReactCompilerExclude,
+  },
+};
 
 export default defineConfig({
   root: __dirname,
@@ -61,10 +75,10 @@ export default defineConfig({
     topLevelAwait(),
     react({
       include: ReactPluginInclude,
-      babel: {
-        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
-      },
       jsxRuntime: 'automatic',
+    }),
+    babel({
+      presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(),
     ...(wasmPath
@@ -85,13 +99,21 @@ export default defineConfig({
     emptyOutDir: true,
     target: 'esnext',
     assetsInlineLimit: 0,
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },
       external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
-        manualChunks: resolveVendorChunk,
+        codeSplitting: {
+          groups: [
+            {
+              name(moduleId: string): string | null {
+                return resolveVendorChunk(moduleId) ?? null;
+              },
+            },
+          ],
+        },
       },
     },
   },

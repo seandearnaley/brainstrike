@@ -1,9 +1,9 @@
+import { LocalRuntimeDiscoveryService } from '@brainstrike/agent/local-runtime';
 import {
-  LocalRuntimeDiscoveryService,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   type SupportedProvider,
-} from '@brainstrike/agent/client';
+} from '@brainstrike/agent/provider-metadata';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
 import {
@@ -61,7 +61,7 @@ describe('assistant-preferences-store', () => {
     const updated = useAssistantPreferencesStore.getState();
     expect(updated.getSelectedModel()).toBe(compositeKey);
     expect(updated.getSelectedProvider()).toBe('anthropic');
-    expect(updated.modelsByProvider.anthropic).toBe(defaultModel);
+    expect(updated.modelsByProvider['anthropic']).toBe(defaultModel);
   });
 
   it('clears selection when the current model is disabled', () => {
@@ -76,7 +76,7 @@ describe('assistant-preferences-store', () => {
 
     const after = useAssistantPreferencesStore.getState();
     expect(after.getSelectedModel()).toBeNull();
-    expect(after.enabledModelsByProvider.openai).not.toContain(initialModel);
+    expect(after.enabledModelsByProvider['openai']).not.toContain(initialModel);
   });
 
   it('clears selection when all models are disabled', () => {
@@ -277,7 +277,7 @@ describe('assistant-preferences-store', () => {
     // Model should be selected with composite key
     expect(updated.selectedModel).toBe(compositeKey);
     expect(updated.getSelectedProvider()).toBe('anthropic');
-    expect(updated.modelsByProvider.anthropic).toBe(defaultModel);
+    expect(updated.modelsByProvider['anthropic']).toBe(defaultModel);
     expect(updated.getSelectedModel()).toBe(compositeKey);
   });
 
@@ -318,14 +318,14 @@ describe('assistant-preferences-store', () => {
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
-    expect(store.modelsByProvider.openai).toBe('gpt-5.2');
-    expect(store.modelsByProvider.anthropic).toBe('claude-sonnet-4-5');
-    expect(store.modelsByProvider.google).toBe('gemini-3-pro-preview');
-    expect(store.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
+    expect(store.modelsByProvider['openai']).toBe('gpt-5.2');
+    expect(store.modelsByProvider['anthropic']).toBe('claude-sonnet-4-5');
+    expect(store.modelsByProvider['google']).toBe('gemini-3-pro-preview');
+    expect(store.modelsByProvider['openrouter']).toBe('openai/gpt-5.2');
     expect(store.selectedModel).toBe('openai::gpt-5.2');
-    expect(store.enabledModelsByProvider.openai).toContain('gpt-5.2');
-    expect(store.enabledModelsByProvider.openai).toContain('gpt-5.2-chat-latest');
-    expect(store.enabledModelsByProvider.openai).not.toContain('gpt-4o');
+    expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.2');
+    expect(store.enabledModelsByProvider['openai']).toContain('gpt-5.2-chat-latest');
+    expect(store.enabledModelsByProvider['openai']).not.toContain('gpt-4o');
   });
 
   it('switches between providers using composite keys', () => {
@@ -354,11 +354,11 @@ describe('assistant-preferences-store', () => {
     // Both should switch
     expect(updated.selectedModel).toBe(googleKey);
     expect(updated.getSelectedProvider()).toBe('google');
-    expect(updated.modelsByProvider.google).toBe(googleModel);
+    expect(updated.modelsByProvider['google']).toBe(googleModel);
     expect(updated.getSelectedModel()).toBe(googleKey);
 
     // Old provider's model should still be preserved
-    expect(updated.modelsByProvider.openai).toBe(PROVIDER_DEFAULT_MODELS.openai);
+    expect(updated.modelsByProvider['openai']).toBe(PROVIDER_DEFAULT_MODELS.openai);
   });
 
   it('persists to in-memory storage when localStorage is unavailable', () => {
@@ -406,9 +406,9 @@ describe('assistant-preferences-store', () => {
     };
 
     expect(snapshot.state?.selectedModel).toBe(compositeKey);
-    expect(snapshot.state?.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
+    expect(snapshot.state?.modelsByProvider['openrouter']).toBe('openai/gpt-5.2');
     // Only models with default: true are enabled by default, not all PROVIDER_MODELS
-    expect(snapshot.state?.enabledModelsByProvider.openrouter).toContain('openai/gpt-5.2');
+    expect(snapshot.state?.enabledModelsByProvider['openrouter']).toContain('openai/gpt-5.2');
 
     persistApi.clearStorage?.();
     const afterClear = storage.getItem(options.name)!;

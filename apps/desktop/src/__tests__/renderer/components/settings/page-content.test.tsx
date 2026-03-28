@@ -217,9 +217,9 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
   return {
     ...actual,
     createTokenCountingSettingsCategoryWithRuntimeSupport: vi.fn(() => ({
+      content: <div data-testid="token-counting-settings-mock" />,
       id: 'token-counting',
       title: 'Token Counting',
-      render: () => <div data-testid="token-counting-settings-mock" />,
     })),
   };
 });

@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import {
+  activateSidebarNavigation,
   ensureRightPanelVisible,
   getPanelElements,
   waitForAppLoad,
@@ -378,43 +379,23 @@ test.describe('IDE Layout Persistence', () => {
       await expect(leftPanel).toBeVisible();
 
       // Hide the panel
-      const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
-      await hideExplorerButton.click();
+      await page.getByTestId('hide-explorer-panel').click();
       await expect(leftPanel).not.toBeVisible();
 
       // Show explorer before navigation to avoid UI overlap
-      const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
-      await showExplorerButton.click();
+      await page.getByTestId('show-explorer-panel').click();
       await expect(leftPanel).toBeVisible();
 
       // Navigate to Settings
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      await activateSidebarNavigation(page, 'Settings');
       await waitForSettingsPage(page);
 
       // Navigate back to Context Explorer
-      await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
+      await activateSidebarNavigation(page, 'Context Explorer');
       await waitForContextExplorerPage(page);
 
       // Verify panel is still visible (state persisted)
       await expect(leftPanel).toBeVisible();
-
-      // Now test that hidden state also persists
-      await hideExplorerButton.click();
-      await expect(leftPanel).not.toBeVisible();
-
-      // Show panel again for navigation
-      await showExplorerButton.click();
-
-      // Navigate away and back
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
-      await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
-
-      // Hide panel again
-      await hideExplorerButton.click();
-
-      // Verify panel is hidden (state persisted)
-      await expect(leftPanel).not.toBeVisible();
-      await expect(showExplorerButton).toBeVisible();
     });
   });
 

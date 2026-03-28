@@ -10,9 +10,9 @@
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
  */
 import type { StorageAdapter } from '@brainstrike/storage';
-import { createBrowserStorageAdapter, createMemoryStorageAdapter } from '@brainstrike/storage';
+import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import type { StateCreator } from 'zustand';
-import { type PersistOptions, persist } from 'zustand/middleware';
+import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 export type PanelTab = 'explorer' | 'settings' | 'prompts';
@@ -106,37 +106,104 @@ function hasCorruptedSizes(sizes: unknown): boolean {
   return sizes.some((size) => typeof size === 'number' && size > 0 && size < MIN_PANEL_SIZE);
 }
 
+function parsePersistedPanelState(raw: string | null): PersistedPanelState | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      state?: PersistedPanelState;
+    };
+    const state = parsed?.state;
+    if (!state) {
+      return null;
+    }
+    if (state.sizes && hasCorruptedSizes(state.sizes)) {
+      state.sizes = [...DEFAULT_STATE.sizes] as [number, number, number];
+    }
+    return state;
+  } catch {
+    return null;
+  }
+}
+
+function createAdapterPersistStorage(storage: StorageAdapter): PersistStorage<PersistedPanelState> {
+  return {
+    getItem: async (name: string) => {
+      const state = parsePersistedPanelState(await storage.getItem(name));
+      return state ? { state, version: 2 } : null;
+    },
+    setItem: async (name: string, value) => {
+      await storage.setItem(name, JSON.stringify(value));
+    },
+    removeItem: async (name: string) => {
+      await storage.removeItem(name);
+    },
+  };
+}
+
+function createFallbackPersistStorage(): PersistStorage<PersistedPanelState> {
+  const memoryStorage = new Map<string, string>();
+
+  const getBrowserStorage = (): Storage | null => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  };
+
+  const readRaw = (name: string): string | null => {
+    const browserStorage = getBrowserStorage();
+    if (browserStorage) {
+      return browserStorage.getItem(name);
+    }
+    return memoryStorage.get(name) ?? null;
+  };
+
+  const writeRaw = (name: string, value: string): void => {
+    const browserStorage = getBrowserStorage();
+    if (browserStorage) {
+      browserStorage.setItem(name, value);
+      return;
+    }
+    memoryStorage.set(name, value);
+  };
+
+  const removeRaw = (name: string): void => {
+    const browserStorage = getBrowserStorage();
+    if (browserStorage) {
+      browserStorage.removeItem(name);
+      return;
+    }
+    memoryStorage.delete(name);
+  };
+
+  return {
+    getItem: (name: string) => {
+      const state = parsePersistedPanelState(readRaw(name));
+      return state ? { state, version: 2 } : null;
+    },
+    setItem: (name: string, value) => {
+      writeRaw(name, JSON.stringify(value));
+    },
+    removeItem: (name: string) => {
+      removeRaw(name);
+    },
+  };
+}
+
 function persistOptions(
-  storage: StorageAdapter
+  storage: PersistStorage<PersistedPanelState>
 ): PersistOptions<PanelLayoutStoreState, PersistedPanelState> {
   return {
     name: STORE_NAME,
     version: 2, // Bump version to trigger migration from v1 corrupted data
-    storage: {
-      getItem: async (name: string) => {
-        const raw = await storage.getItem(name);
-        if (!raw) {
-          return null;
-        }
-        try {
-          const parsed = JSON.parse(raw);
-          // Validate and fix corrupted sizes on load
-          if (parsed?.state?.sizes && hasCorruptedSizes(parsed.state.sizes)) {
-            parsed.state.sizes = [...DEFAULT_STATE.sizes];
-          }
-          return parsed;
-        } catch {
-          // Corrupted storage - return null to use default state
-          return null;
-        }
-      },
-      setItem: async (name: string, value: unknown) => {
-        await storage.setItem(name, JSON.stringify(value));
-      },
-      removeItem: async (name: string) => {
-        await storage.removeItem(name);
-      },
-    },
+    storage,
     partialize: (state): PersistedPanelState => ({
       sizes: state.sizes,
       showLeftPanel: state.showLeftPanel,
@@ -157,6 +224,10 @@ function persistOptions(
 }
 
 export function createPanelLayoutStore(storage: StorageAdapter) {
+  return createPanelLayoutStoreWithPersistStorage(createAdapterPersistStorage(storage));
+}
+
+function createPanelLayoutStoreWithPersistStorage(storage: PersistStorage<PersistedPanelState>) {
   return create<PanelLayoutStoreState>()(persist(creator, persistOptions(storage)));
 }
 
@@ -184,14 +255,14 @@ function isValidStore(candidate: unknown): candidate is BoundStore & { [k: strin
 let singleton = g[GLOBAL_KEY] as unknown;
 
 if (!isValidStore(singleton)) {
-  let adapter: StorageAdapter;
+  let storage: PersistStorage<PersistedPanelState>;
   try {
-    adapter = createBrowserStorageAdapter();
+    storage = createAdapterPersistStorage(createBrowserStorageAdapter());
   } catch {
-    adapter = createMemoryStorageAdapter();
+    storage = createFallbackPersistStorage();
   }
 
-  singleton = createPanelLayoutStore(adapter);
+  singleton = createPanelLayoutStoreWithPersistStorage(storage);
   (singleton as Record<string, unknown>)[BRAND] = BRAND_VERSION;
   g[GLOBAL_KEY] = singleton as unknown;
 }

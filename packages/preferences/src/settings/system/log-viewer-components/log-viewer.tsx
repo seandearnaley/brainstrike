@@ -309,7 +309,6 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
 }
 
 export function LogViewer({ logSource, toast }: LogViewerProps) {
-  'use no memo';
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
   const {
     logRecords,

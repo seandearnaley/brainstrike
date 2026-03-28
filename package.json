@@ -17,9 +17,9 @@
     "@playwright/test": "^1.58.2",
     "@types/node": "^25.3.0",
     "@typescript-eslint/parser": "^8.56.1",
-    "@vitest/browser-playwright": "^4.0.18",
-    "@vitest/coverage-v8": "^4.0.18",
-    "babel-plugin-react-compiler": "19.1.0-rc.3",
+    "@vitest/browser-playwright": "^4.1.2",
+    "@vitest/coverage-v8": "^4.1.2",
+    "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^10.0.2",
     "eslint-plugin-react-hooks": "^7.0.1",
     "glob": "^13.0.6",
@@ -35,8 +35,8 @@
     "typescript": "^5.9.3",
     "ultracite": "7.2.3",
     "vercel": "^50.23.2",
-    "vite": "^7.3.1",
-    "vitest": "^4.0.18"
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2"
   },
   "engines": {
     "node": "22.x"
@@ -94,10 +94,11 @@
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",
     "knip": "knip",
-    "lint": "pnpm run lint:eslint && biome check . --fix",
+    "lint": "pnpm run lint:no-no-memo && pnpm run lint:eslint && biome check . --fix",
     "lint-all": "pnpm lint && pnpm format",
     "lint:biome": "biome check .",
     "lint:eslint": "eslint --max-warnings=50 apps/web/src packages/ui/src packages/file-explorer-ui/src packages/file-explorer-hooks/src",
+    "lint:no-no-memo": "node scripts/forbid-no-memo.mjs",
     "postinstall": "node scripts/postinstall.js",
     "prepare": "node scripts/postinstall.js",
     "queue": "pnpm -w build --filter @brainstrike/db && node packages/db/dist/cli/queue-cli.js",

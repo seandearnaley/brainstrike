@@ -8,7 +8,7 @@ const { listProvidersMock, toastMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/agent/client', () => ({
+vi.mock('@brainstrike/agent/provider-metadata', () => ({
   listProviders: listProvidersMock,
 }));
 

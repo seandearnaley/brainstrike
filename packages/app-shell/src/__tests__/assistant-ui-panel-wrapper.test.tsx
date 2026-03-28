@@ -1,4 +1,5 @@
 import type { LocalRuntimeModelCatalogState, SupportedProvider } from '@brainstrike/agent/client';
+import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/tool-metadata';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
@@ -10,6 +11,8 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
+
+const NATIVE_TOOL_COUNT = Object.keys(NATIVE_TOOL_DEFAULTS).length;
 
 const { fileExplorerMocks, testEnabledModels } = vi.hoisted(() => ({
   fileExplorerMocks: {
@@ -1277,7 +1280,7 @@ describe('AssistantUiPanelWrapper', () => {
     );
 
     expect(mcpApi.listTools).toHaveBeenCalled();
-    expect(screen.getByTestId('tool-menu-count')).toHaveTextContent('1');
+    expect(screen.getByTestId('tool-menu-count')).toHaveTextContent(String(NATIVE_TOOL_COUNT + 1));
   });
 
   test('handles MCP load failures gracefully', async () => {
@@ -1287,7 +1290,7 @@ describe('AssistantUiPanelWrapper', () => {
 
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
-        expect(screen.getByTestId('tool-menu-count')).toHaveTextContent('0');
+        expect(screen.getByTestId('tool-menu-count')).toHaveTextContent(String(NATIVE_TOOL_COUNT));
       })
     );
 
@@ -1336,7 +1339,7 @@ describe('AssistantUiPanelWrapper', () => {
 
     await renderAssistantPanel(['openai'], () =>
       waitFor(() => {
-        expect(screen.getByTestId('tool-menu-count')).toHaveTextContent('0');
+        expect(screen.getByTestId('tool-menu-count')).toHaveTextContent(String(NATIVE_TOOL_COUNT));
       })
     );
 
@@ -1355,6 +1358,7 @@ describe('AssistantUiPanelWrapper', () => {
     await waitFor(() => {
       expect(screen.getByTestId('tool-menu-item-filesystem.list_directory')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('tool-menu-count')).toHaveTextContent(String(NATIVE_TOOL_COUNT + 1));
   });
 
   test('toggles MCP tools via IPC and reloads', async () => {

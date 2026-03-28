@@ -22,7 +22,7 @@
     "rimraf": "^6.1.3",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.2"
   },
   "engines": {
     "node": ">=22"
@@ -37,6 +37,31 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.mjs",
       "require": "./dist/client.js"
+    },
+    "./browser-safe": {
+      "types": "./dist/browser-safe.d.ts",
+      "import": "./dist/browser-safe.mjs",
+      "require": "./dist/browser-safe.js"
+    },
+    "./tool-metadata": {
+      "types": "./dist/tool-metadata.d.ts",
+      "import": "./dist/tool-metadata.mjs",
+      "require": "./dist/tool-metadata.js"
+    },
+    "./provider-metadata": {
+      "types": "./dist/provider-metadata.d.ts",
+      "import": "./dist/provider-metadata.mjs",
+      "require": "./dist/provider-metadata.js"
+    },
+    "./local-runtime": {
+      "types": "./dist/local-runtime.d.ts",
+      "import": "./dist/local-runtime.mjs",
+      "require": "./dist/local-runtime.js"
+    },
+    "./context-packer": {
+      "types": "./dist/context-packer.d.ts",
+      "import": "./dist/context-packer.mjs",
+      "require": "./dist/context-packer.js"
     }
   },
   "files": [

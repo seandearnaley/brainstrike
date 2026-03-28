@@ -27,6 +27,7 @@ interface DatabaseDemoActions {
 export type DatabaseDemoStore = DatabaseDemoData & DatabaseDemoActions;
 
 const STORE_NAME = 'database-demo.v2' as const;
+const STORE_VERSION = 3 as const;
 
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
@@ -65,10 +66,20 @@ export const useDatabaseDemoStore = create<DatabaseDemoStore>()(
     }),
     {
       name: STORE_NAME,
-      version: 2,
+      version: STORE_VERSION,
       storage,
+      migrate: (persistedState) => {
+        const snapshot =
+          persistedState && typeof persistedState === 'object'
+            ? (persistedState as Partial<DatabaseDemoStore>)
+            : {};
+
+        return {
+          ...snapshot,
+          showSettings: false,
+        } satisfies Partial<DatabaseDemoStore>;
+      },
       partialize: (s) => ({
-        showSettings: s.showSettings,
         expandedFileIds: s.expandedFileIds,
         recordPage: s.recordPage,
         recordPageSize: s.recordPageSize,

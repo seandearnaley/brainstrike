@@ -2,7 +2,7 @@
  * Types for the Unified Tools Settings UI
  */
 
-import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/client';
+import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/tool-metadata';
 
 /**
  * Minimal interface for token budget manager.

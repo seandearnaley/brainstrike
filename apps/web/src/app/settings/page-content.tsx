@@ -3,7 +3,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
   type NativeToolDefaultMetadata,
   TOOL_DESCRIPTIONS,
-} from '@brainstrike/agent/client';
+} from '@brainstrike/agent/tool-metadata';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import {
@@ -29,7 +29,7 @@ import {
 } from '@brainstrike/preferences/settings-page-content';
 import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
 import { FileCog, Layers } from 'lucide-react';
-import { useMemo } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { getWebLogBuffer } from '../../log-buffer';
 
@@ -59,6 +59,20 @@ function getNativeToolsAsDisplayMetadata(
  */
 function getToolDescription(toolId: string): string {
   return TOOL_DESCRIPTIONS[toolId] ?? `Native tool: ${toolId}`;
+}
+
+function resolveCategoryContent(category: {
+  content?: ReactNode;
+  id: string;
+  render?: () => ReactNode;
+}) {
+  if (category.content !== undefined) {
+    return category.content;
+  }
+  if (typeof category.render === 'function') {
+    return category.render();
+  }
+  throw new Error(`Settings category "${category.id}" is missing content`);
 }
 
 function ModelSelectionCategory() {
@@ -154,8 +168,10 @@ export default function SettingsPageContent() {
     []
   );
 
-  const categories = useMemo<SettingsCategory[]>(
-    () => [
+  const categories = useMemo<SettingsCategory[]>(() => {
+    const diagnosticsCategory = createSystemDiagnosticsSettingsCategory();
+
+    return [
       createAppearanceSettingsCategory(),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       {
@@ -164,7 +180,7 @@ export default function SettingsPageContent() {
         description: 'Manage AI providers and enable/disable specific models.',
         keywords: ['models', 'providers', 'llm', 'embedding', 'vector'],
         icon: Layers,
-        render: () => <ModelSelectionCategory />,
+        content: <ModelSelectionCategory />,
       },
       {
         id: 'logging',
@@ -172,13 +188,16 @@ export default function SettingsPageContent() {
         description: 'Control browser log verbosity and redaction for debugging.',
         keywords: ['logging', 'debugging', 'console', 'diagnostics'],
         icon: FileCog,
-        render: () => <LoggingSettingsSection logSource={logSource} runtime="browser" />,
+        content: <LoggingSettingsSection logSource={logSource} runtime="browser" />,
       },
       createToolsSettingsCategory({
         operations: toolOperations,
         mcpAvailable: false,
       }),
-      createSystemDiagnosticsSettingsCategory(),
+      {
+        ...diagnosticsCategory,
+        content: resolveCategoryContent(diagnosticsCategory),
+      },
       createFactoryResetSettingsCategory({
         isWebPlatform: true,
         hasStoredFolders: storedFolders.length > 0,
@@ -190,17 +209,16 @@ export default function SettingsPageContent() {
           onChange: setDevInlineFixtureEnabled,
         },
       }),
-    ],
-    [
-      logSource,
-      storedFolders.length,
-      clearStoredHandles,
-      devInlineFixtureEnabled,
-      setDevInlineFixtureEnabled,
-      toolOperations,
-      accurateRuntimeAvailable,
-    ]
-  );
+    ];
+  }, [
+    logSource,
+    storedFolders.length,
+    clearStoredHandles,
+    devInlineFixtureEnabled,
+    setDevInlineFixtureEnabled,
+    toolOperations,
+    accurateRuntimeAvailable,
+  ]);
 
   return (
     <>

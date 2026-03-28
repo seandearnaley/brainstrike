@@ -58,11 +58,15 @@ describe('db-main coverage helpers', () => {
 
   it('classifies wasm abort during extension load as wasm-runtime', async () => {
     vi.doMock('@electric-sql/pglite/vector', () => {
-      return {
-        get vector() {
+      const moduleRecord: Record<string, unknown> = {};
+      Object.defineProperty(moduleRecord, 'vector', {
+        configurable: true,
+        enumerable: true,
+        get() {
           throw new Error('Aborted(). Build with -sASSERTIONS for more info.');
         },
-      };
+      });
+      return moduleRecord;
     });
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
     await expect(initializeMainDatabase()).rejects.toThrow(/aborted/i);

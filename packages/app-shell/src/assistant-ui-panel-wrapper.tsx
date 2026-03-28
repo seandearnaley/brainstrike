@@ -5,21 +5,22 @@ import type {
   RuntimeData,
 } from '@brainstrike/agent';
 import {
-  getProviderDefaultModel,
-  getProviderDefinition,
-  getProviderModelDefinitions,
   isLoadedRuntimeModelCatalogState,
-  isSupportedProvider,
   type LocalRuntimeAvailabilityState,
   type LocalRuntimeId,
   type LocalRuntimeModelCatalogState,
-  NATIVE_TOOL_DEFAULTS,
+} from '@brainstrike/agent/local-runtime';
+import {
+  getProviderDefaultModel,
+  getProviderDefinition,
+  getProviderModelDefinitions,
+  isSupportedProvider,
   type ProviderModelDefinition,
   type ProviderRuntime,
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
-  TOOL_DESCRIPTIONS,
-} from '@brainstrike/agent/client';
+} from '@brainstrike/agent/provider-metadata';
+import { NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import {
   useFileExplorerStoreContext,

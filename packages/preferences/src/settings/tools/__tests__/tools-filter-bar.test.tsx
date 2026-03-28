@@ -7,11 +7,11 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolsFilterBar } from '../tools-filter-bar';
 
-// Mock @brainstrike/agent/client
-vi.mock('@brainstrike/agent/client', () => ({
+// Mock @brainstrike/agent/tool-metadata
+vi.mock('@brainstrike/agent/tool-metadata', () => ({
   TOOL_CATEGORIES: {
     retrieval: { id: 'retrieval', label: 'Retrieval' },
-    action: { id: 'action', label: 'Action' },
+    action: { id: 'action', label: 'Actions' },
     analysis: { id: 'analysis', label: 'Analysis' },
     configuration: { id: 'configuration', label: 'Configuration' },
     validation: { id: 'validation', label: 'Validation' },
@@ -197,7 +197,7 @@ describe('ToolsFilterBar', () => {
 
       expect(screen.getByText('All Categories')).toBeInTheDocument();
       expect(screen.getByText('Retrieval')).toBeInTheDocument();
-      expect(screen.getByText('Action')).toBeInTheDocument();
+      expect(screen.getByText('Actions')).toBeInTheDocument();
       expect(screen.getByText('Analysis')).toBeInTheDocument();
     });
   });

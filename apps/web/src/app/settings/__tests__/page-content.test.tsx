@@ -14,11 +14,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
   return {
     ...actual,
     createAppearanceSettingsCategory: vi.fn(() => ({
+      content: <div data-testid="appearance-category-mock">Theme Settings Mock</div>,
       id: 'appearance',
       title: 'Appearance',
       description: 'Appearance settings',
       keywords: ['appearance'],
-      render: () => <div data-testid="appearance-category-mock">Theme Settings Mock</div>,
     })),
   };
 });
