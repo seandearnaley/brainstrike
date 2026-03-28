@@ -66,6 +66,7 @@ describe('token-utils-lite', () => {
     it('handles strings with newlines', () => {
       expect(countTokensHeuristic('line1\nline2\nline3')).toBe(5); // ceil(17/4)
     });
+
   });
 
   // ---------------------------------------------------------------------------
