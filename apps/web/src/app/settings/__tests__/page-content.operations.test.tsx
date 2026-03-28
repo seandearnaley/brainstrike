@@ -122,45 +122,50 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   useOptionalTokenCacheContext: () => null,
 }));
 
-vi.mock('@brainstrike/preferences/settings-page-content', () => ({
-  createAppearanceSettingsCategory: (): MockSettingsCategory => ({
-    content: <div data-testid="appearance-category" />,
-    id: 'appearance',
-    title: 'Appearance',
-  }),
-  createTokenCountingSettingsCategoryWithRuntimeSupport: (): MockSettingsCategory => ({
-    content: <div data-testid="token-counting-category" />,
-    id: 'token-counting',
-    title: 'Token Counting',
-  }),
-  createFactoryResetSettingsCategory: (
-    options?: CapturedFactoryResetOptions
-  ): MockSettingsCategory => {
-    mockState.capturedFactoryResetOptions = options ?? null;
-    return {
-      content: <div data-testid="factory-reset-category" />,
-      id: 'factory-reset',
-      title: 'Factory Reset',
-    };
-  },
-  SettingsPageContent: ({
-    categories,
-  }: {
-    categories: MockSettingsCategory[];
-    defaultCategoryId?: string;
-  }) => {
-    mockState.renderedCategoryIds = categories.map((category) => category.id);
-    return (
-      <div data-testid="settings-layout">
-        {categories.map((category) => (
-          <section data-testid={`category-${category.id}`} key={category.id}>
-            {category.content}
-          </section>
-        ))}
-      </div>
-    );
-  },
-}));
+vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/preferences/settings-page-content')>();
+  return {
+    ...actual,
+    createAppearanceSettingsCategory: (): MockSettingsCategory => ({
+      content: <div data-testid="appearance-category" />,
+      id: 'appearance',
+      title: 'Appearance',
+    }),
+    createTokenCountingSettingsCategoryWithRuntimeSupport: (): MockSettingsCategory => ({
+      content: <div data-testid="token-counting-category" />,
+      id: 'token-counting',
+      title: 'Token Counting',
+    }),
+    createFactoryResetSettingsCategory: (
+      options?: CapturedFactoryResetOptions
+    ): MockSettingsCategory => {
+      mockState.capturedFactoryResetOptions = options ?? null;
+      return {
+        content: <div data-testid="factory-reset-category" />,
+        id: 'factory-reset',
+        title: 'Factory Reset',
+      };
+    },
+    SettingsPageContent: ({
+      categories,
+    }: {
+      categories: MockSettingsCategory[];
+      defaultCategoryId?: string;
+    }) => {
+      mockState.renderedCategoryIds = categories.map((category) => category.id);
+      return (
+        <div data-testid="settings-layout">
+          {categories.map((category) => (
+            <section data-testid={`category-${category.id}`} key={category.id}>
+              {category.content}
+            </section>
+          ))}
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', () => ({
   useNativeToolPreferencesStore: {
