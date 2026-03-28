@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { QueueTelemetryEvent, QueueTelemetryRuntime } from '@brainstrike/queue';
@@ -179,7 +180,21 @@ export function createQueueTelemetryCollector(
       return null;
     }
     const providedKey = headerValue(request.headers['x-api-key']);
-    if (providedKey === apiKey) {
+    if (!providedKey) {
+      return { status: 401, message: 'Unauthorized' };
+    }
+
+    const expectedBuffer = Buffer.from(apiKey, 'utf8');
+    const providedBuffer = Buffer.from(providedKey, 'utf8');
+
+    // Prevent timing attacks by always comparing buffers of equal length.
+    // If lengths differ, compare expectedBuffer with itself to take constant time,
+    // but ultimately fail validation.
+    const isLengthEqual = expectedBuffer.length === providedBuffer.length;
+    const a = isLengthEqual ? expectedBuffer : expectedBuffer;
+    const b = isLengthEqual ? providedBuffer : expectedBuffer;
+
+    if (timingSafeEqual(a, b) && isLengthEqual) {
       return null;
     }
     return { status: 401, message: 'Unauthorized' };
