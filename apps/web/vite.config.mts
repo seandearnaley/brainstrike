@@ -30,11 +30,17 @@ const ReactCompilerExclude = [
   /[/\\]packages[/\\]file-explorer-ui[/\\]src[/\\].*\.[jt]sx?$/,
 ];
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
-reactCompilerBabelPreset.rolldown.filter = {
-  ...reactCompilerBabelPreset.rolldown.filter,
-  id: {
-    include: ReactCompilerInclude,
-    exclude: ReactCompilerExclude,
+const filteredReactCompilerBabelPreset = {
+  ...reactCompilerBabelPreset,
+  rolldown: {
+    ...reactCompilerBabelPreset.rolldown,
+    filter: {
+      ...reactCompilerBabelPreset.rolldown.filter,
+      id: {
+        include: ReactCompilerInclude,
+        exclude: ReactCompilerExclude,
+      },
+    },
   },
 };
 
@@ -117,7 +123,7 @@ export default defineConfig({
       jsxRuntime: 'automatic',
     }),
     babel({
-      presets: [reactCompilerBabelPreset],
+      presets: [filteredReactCompilerBabelPreset],
     }),
     tailwindcss(), // Automatically finds and uses the root tailwind.config.js
     ...(wasmPath

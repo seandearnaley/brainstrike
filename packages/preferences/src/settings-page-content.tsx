@@ -77,6 +77,7 @@ export function resolveSettingsCategoryContent(category: {
   id: string;
   render?: () => ReactNode;
 }): ReactNode {
+  // TODO: Remove the legacy render fallback once all settings factories return `content`.
   if (category.content !== undefined) {
     return category.content;
   }
