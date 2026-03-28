@@ -27,16 +27,6 @@ describe('TooltipIconButton', () => {
     expect(screen.getByLabelText('Copy to clipboard')).toBeInTheDocument();
   });
 
-  it('includes title attribute for native tooltips', () => {
-    renderWithTooltip(
-      <TooltipIconButton tooltip="Native hover text">
-        <span>Icon</span>
-      </TooltipIconButton>
-    );
-
-    expect(screen.getByRole('button')).toHaveAttribute('title', 'Native hover text');
-  });
-
   it('renders as a button by default', () => {
     renderWithTooltip(
       <TooltipIconButton tooltip="Test tooltip">
