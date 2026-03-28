@@ -41,21 +41,26 @@ async function main() {
     nodir: true,
   });
 
-  const violations = [];
+  const violations = (
+    await Promise.all(
+      sourceFiles.sort().map(async (filePath) => {
+        const sourceText = await readFile(filePath, 'utf8');
+        NO_MEMO_PATTERN.lastIndex = 0;
 
-  for (const filePath of sourceFiles.sort()) {
-    const sourceText = await readFile(filePath, 'utf8');
-    NO_MEMO_PATTERN.lastIndex = 0;
+        const fileViolations = [];
+        let match = NO_MEMO_PATTERN.exec(sourceText);
+        while (match && match.index !== undefined) {
+          fileViolations.push({
+            filePath,
+            lineNumber: getLineNumber(sourceText, match.index),
+          });
+          match = NO_MEMO_PATTERN.exec(sourceText);
+        }
 
-    let match = NO_MEMO_PATTERN.exec(sourceText);
-    while (match && match.index !== undefined) {
-      violations.push({
-        filePath,
-        lineNumber: getLineNumber(sourceText, match.index),
-      });
-      match = NO_MEMO_PATTERN.exec(sourceText);
-    }
-  }
+        return fileViolations;
+      })
+    )
+  ).flat();
 
   if (violations.length === 0) {
     console.log('No forbidden React compiler escape directives found.');
