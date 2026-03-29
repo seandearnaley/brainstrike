@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../../../server/assistant-config', () => ({
-  resolveAssistantProviderConfig: vi.fn(),
-}));
+vi.mock('../../../../../server/assistant-config', async () => {
+  const actual = await vi.importActual<typeof import('../../../../../server/assistant-config')>(
+    '../../../../../server/assistant-config'
+  );
+  return {
+    ...actual,
+    resolveAssistantProviderConfig: vi.fn(),
+  };
+});
 
 import { resolveAssistantProviderConfig } from '../../../../../server/assistant-config';
 import { GET } from '../route';

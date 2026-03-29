@@ -779,6 +779,62 @@ describe('WorkerStorage', () => {
       });
     });
 
+    it('handles setItem with undefined value', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      mockWorker.emitMessage({
+        id: '1',
+        type: 'storage_request',
+        operation: 'setItem',
+        key: 'foo',
+        value: undefined,
+        opId: 1,
+      });
+
+      await flushAsyncWork();
+      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+      expect(mockWorker.postMessage).toHaveBeenCalledWith({
+        id: '1',
+        type: 'storage_response',
+        operation: 'setItem',
+        success: false,
+        error: 'Cannot store undefined value',
+      });
+    });
+
+    it('handles setItem without opId', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      mockWorker.emitMessage({
+        id: '1',
+        type: 'storage_request',
+        operation: 'setItem',
+        key: 'foo',
+        value: 'bar',
+        // No opId
+      });
+
+      await flushAsyncWork();
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('foo', 'bar');
+    });
+
+    it('handles unknown operation type by doing nothing', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      mockWorker.emitMessage({
+        id: '1',
+        type: 'storage_request',
+        operation: 'unknown' as 'setItem',
+        key: 'foo',
+      });
+
+      await flushAsyncWork();
+      // Should not call any storage methods
+      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+      expect(mockLocalStorage.getItem).not.toHaveBeenCalled();
+      expect(mockLocalStorage.removeItem).not.toHaveBeenCalled();
+    });
+
     it('returns explicit storage_response errors when adapter operations fail', async () => {
       new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
 
@@ -837,6 +893,184 @@ describe('WorkerStorage', () => {
         success: false,
         error: 'fail',
       });
+    });
+
+    it('sends error response when non-Error is thrown from adapter', async () => {
+      new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      mockLocalStorage.setItem.mockImplementationOnce(() => {
+        // biome-ignore lint/style/useThrowOnlyError: intentionally throwing non-Error to test handler
+        throw 'string-error';
+      });
+
+      mockWorker.emitMessage({
+        id: '1',
+        type: 'storage_request',
+        operation: 'setItem',
+        key: 'foo',
+        value: 'bar',
+        opId: 1,
+      });
+
+      await flushAsyncWork();
+      expect(mockWorker.postMessage).toHaveBeenCalledWith({
+        id: '1',
+        type: 'storage_response',
+        operation: 'setItem',
+        success: false,
+        error: 'string-error',
+      });
+    });
+  });
+
+  describe('flushPendingWrites', () => {
+    it('should flush pending save values through the public API', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      // Start a setItem that is pending (not yet debounced)
+      void storage.setItem('flush-key', 'flush-value');
+
+      // Call the public flushPendingWrites
+      storage.flushPendingWrites();
+
+      // The value should be flushed to localStorage
+      await vi.advanceTimersByTimeAsync(200);
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('flush-key', 'flush-value');
+    });
+
+    it('should handle flush with object values (JSON.stringify path)', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      void storage.setItem('obj-key', { nested: true });
+
+      storage.flushPendingWrites();
+
+      await vi.advanceTimersByTimeAsync(200);
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
+        'obj-key',
+        JSON.stringify({ nested: true })
+      );
+    });
+
+    it('should handle flush with string values directly (no JSON.stringify)', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      void storage.setItem('str-key', 'plain-string');
+
+      storage.flushPendingWrites();
+
+      await vi.advanceTimersByTimeAsync(200);
+      // flushPendingWrites uses `typeof value === 'string' ? value : JSON.stringify(value)`
+      // so a string value should be passed through directly
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('str-key', 'plain-string');
+    });
+  });
+
+  describe('removeItem with pending debounce', () => {
+    it('should resolve and clear pending debounced setItem when removeItem is called', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      // Setup mock response for the removeItem worker message
+      mockWorker.postMessage.mockImplementation((message: { id: string }) => {
+        queueMicrotask(() => {
+          mockWorker.emitMessage({
+            id: message.id,
+            type: 'success',
+            result: true,
+          });
+        });
+      });
+
+      // Start a debounced setItem
+      const setPromise = storage.setItem('remove-me', 'value');
+
+      // Now call removeItem for the same key - should resolve the pending setItem
+      await storage.removeItem('remove-me');
+
+      // The setItem promise should resolve (not hang or reject)
+      await vi.advanceTimersByTimeAsync(200);
+      await expect(setPromise).resolves.toBeUndefined();
+    });
+  });
+
+  describe('setItem fallback paths', () => {
+    it('should stringify non-string values in setItem fallback path', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      // Worker fails
+      mockWorker.postMessage.mockImplementation((message: { id: string }) => {
+        mockWorker.emitMessage({
+          id: message.id,
+          type: 'error',
+          error: 'Worker error',
+        });
+      });
+
+      const promise = storage.setItem('obj-key', { data: 'test' });
+
+      await vi.advanceTimersByTimeAsync(100);
+      await promise;
+
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
+        'obj-key',
+        JSON.stringify({ data: 'test' })
+      );
+    });
+
+    it('should pass string values through without double-stringify in fallback', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      // Worker fails
+      mockWorker.postMessage.mockImplementation((message: { id: string }) => {
+        mockWorker.emitMessage({
+          id: message.id,
+          type: 'error',
+          error: 'Worker error',
+        });
+      });
+
+      const promise = storage.setItem('str-key', 'already-a-string');
+
+      await vi.advanceTimersByTimeAsync(100);
+      await promise;
+
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('str-key', 'already-a-string');
+    });
+  });
+
+  describe('debounce superseding', () => {
+    it('should resolve previous caller when superseded by a new setItem', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl, mockStorageAdapter);
+
+      // Worker responds successfully
+      mockWorker.postMessage.mockImplementation((message: { id: string }) => {
+        mockWorker.emitMessage({
+          id: message.id,
+          type: 'success',
+          result: true,
+        });
+      });
+
+      // First call gets superseded
+      const promise1 = storage.setItem('key', 'value1');
+      // Second call supersedes the first
+      const promise2 = storage.setItem('key', 'value2');
+
+      await vi.advanceTimersByTimeAsync(100);
+
+      // Both promises should resolve
+      await expect(promise1).resolves.toBeUndefined();
+      await expect(promise2).resolves.toBeUndefined();
+
+      // Only the second value should be sent to worker (debounced)
+      expect(mockWorker.postMessage).toHaveBeenCalledTimes(1);
     });
   });
 });

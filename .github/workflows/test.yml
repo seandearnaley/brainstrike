@@ -152,12 +152,8 @@ jobs:
             const fs = require('fs');
             const path = require('path');
 
-            // Known thresholds (optional) – add more as packages mature
-            const thresholds = new Map(Object.entries({
-              '@brainstrike/file-explorer-ui': { lines: 86.5, functions: 84, branches: 81.5, statements: 86.5 },
-              '@brainstrike/app-shell': { lines: 81.5, functions: 79, branches: 83, statements: 81.5 },
-              '@brainstrike/desktop': { lines: 91, functions: 79, branches: 90.5, statements: 91 },
-            }));
+            // Thresholds are enforced by scripts/enforce-coverage.mjs (single source of truth).
+            // This PR comment is purely informational — it shows measured coverage only.
 
             function summarize(json) {
               let stTot = 0, stCov = 0, fnTot = 0, fnCov = 0, brTot = 0, brCov = 0, lnTot = 0, lnCov = 0;
@@ -182,7 +178,6 @@ jobs:
               };
             }
 
-            // Find all coverage-final.json files in packages/* and apps/*
             function* walk(dir) {
               const entries = fs.readdirSync(dir, { withFileTypes: true });
               for (const e of entries) {
@@ -220,24 +215,22 @@ jobs:
               try {
                 const json = JSON.parse(fs.readFileSync(file, 'utf8'));
                 const s = summarize(json);
-                const thr = thresholds.get(pkgName);
-                const thrText = thr ? `thresholds: L${thr.lines} F${thr.functions} B${thr.branches} S${thr.statements}` : 'thresholds: —';
-                rows.push(`| ${pkgName} | ${fmt(s.lines)} | ${fmt(s.functions)} | ${fmt(s.branches)} | ${fmt(s.statements)} | ${thrText} |`);
+                rows.push(`| ${pkgName} | ${fmt(s.lines)} | ${fmt(s.functions)} | ${fmt(s.branches)} | ${fmt(s.statements)} |`);
               } catch (e) {
-                rows.push(`| ${pkgName} | error reading coverage | — | — | — | thresholds: — |`);
+                rows.push(`| ${pkgName} | error | — | — | — |`);
               }
             }
 
             const header = `## ✅ Coverage Summary (All Workspaces with reports)\n\n` +
-              `| Package | Lines | Functions | Branches | Statements | Thresholds |\n` +
-              `|---|---:|---:|---:|---:|---|`;
-            const body = rows.length ? [header, ...rows].join('\n') : `${header}\n| — | — | — | — | — | — |`;
+              `| Package | Lines | Functions | Branches | Statements |\n` +
+              `|---|---:|---:|---:|---:|`;
+            const body = rows.length ? [header, ...rows].join('\n') : `${header}\n| — | — | — | — | — |`;
 
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body + '\n\n_Values computed from coverage-final.json; thresholds enforced via scripts/enforce-coverage.mjs_',
+              body: body + '\n\n_Values computed from coverage-final.json; thresholds enforced via `scripts/enforce-coverage.mjs`_',
             });
 
       - name: Bundle coverage files

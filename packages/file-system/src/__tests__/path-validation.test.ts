@@ -291,6 +291,146 @@ describe('resolveValidatedPath', () => {
       await fsPromises.rm(externalDir, { recursive: true, force: true });
     }
   });
+
+  it('rejects fallbackPath containing null bytes when requestedPath is empty', async () => {
+    const result = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: '',
+      fallbackPath: 'some\0path',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('null-byte');
+    }
+  });
+
+  it('rejects fallbackPath with excessive traversal when requestedPath is null', async () => {
+    const traversal = '../'.repeat(DEFAULT_TRAVERSAL_LIMIT + 1);
+    const result = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: null,
+      fallbackPath: traversal,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('traversal');
+    }
+  });
+
+  it('rejects with outside-root when allowMissing is false and path is outside root', async () => {
+    const result = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: '../nonexistent-outside',
+      allowMissing: false,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('outside-root');
+    }
+  });
+
+  it('rejects traversal with custom maxTraversal limit', async () => {
+    const result = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: '../../../deep',
+      maxTraversal: 2,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('traversal');
+    }
+  });
+
+  it('returns realpath-failure for non-ENOENT errors', async () => {
+    const spy = vi.spyOn(fsPromises, 'realpath');
+    const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+
+    // The first call resolves the rootDir, the second call (for candidate) rejects with EACCES
+    spy.mockResolvedValueOnce(tempDir).mockRejectedValueOnce(eacces);
+
+    const result = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: 'some-file.txt',
+      allowMissing: false,
+    });
+
+    spy.mockRestore();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('realpath-failure');
+      expect(result.error.message).toBe('permission denied');
+    }
+  });
+
+  it.skipIf(!home)(
+    'blocks sensitive user directory with win32 platform (case-insensitive)',
+    async () => {
+      const mixedCasePath = path.join(home!, '.SSH', 'id_rsa');
+      const result = await resolveValidatedPath({
+        requestedPath: mixedCasePath,
+        platform: 'win32',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('sensitive-path');
+      }
+    }
+  );
+
+  it('resolves absolute non-existent path with no rootDir and allowMissing true', async () => {
+    const nonExistentAbsolute = path.join(tempDir, 'deeply', 'nested', 'missing');
+    const result = await resolveValidatedPath({
+      requestedPath: nonExistentAbsolute,
+      allowMissing: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.path).toBe(nonExistentAbsolute);
+    }
+  });
+
+  it('falls back to fallbackPath when requestedPath is a non-string type', async () => {
+    // number
+    const resultNum = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: 42 as unknown,
+      fallbackPath: 'fallback-folder',
+    });
+    expect(resultNum.ok).toBe(true);
+    if (resultNum.ok) {
+      const rootReal = await fsPromises.realpath(tempDir);
+      expect(resultNum.path).toBe(path.join(rootReal, 'fallback-folder'));
+    }
+
+    // null
+    const resultNull = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: null as unknown,
+      fallbackPath: 'fallback-folder',
+    });
+    expect(resultNull.ok).toBe(true);
+    if (resultNull.ok) {
+      const rootReal = await fsPromises.realpath(tempDir);
+      expect(resultNull.path).toBe(path.join(rootReal, 'fallback-folder'));
+    }
+
+    // undefined with no fallback => invalid-input
+    const resultUndef = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: undefined as unknown,
+    });
+    expect(resultUndef.ok).toBe(false);
+    if (!resultUndef.ok) {
+      expect(resultUndef.error.code).toBe('invalid-input');
+    }
+  });
 });
 
 describe('expandHome', () => {
