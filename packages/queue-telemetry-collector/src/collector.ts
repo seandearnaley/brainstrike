@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { QueueTelemetryEvent, QueueTelemetryRuntime } from '@brainstrike/queue';
@@ -179,9 +180,21 @@ export function createQueueTelemetryCollector(
       return null;
     }
     const providedKey = headerValue(request.headers['x-api-key']);
-    if (providedKey === apiKey) {
+    if (!providedKey) {
+      return { status: 401, message: 'Unauthorized' };
+    }
+
+    const providedBuffer = Buffer.from(providedKey, 'utf8');
+    const apiBuffer = Buffer.from(apiKey, 'utf8');
+
+    if (providedBuffer.length !== apiBuffer.length) {
+      return { status: 401, message: 'Unauthorized' };
+    }
+
+    if (timingSafeEqual(providedBuffer, apiBuffer)) {
       return null;
     }
+
     return { status: 401, message: 'Unauthorized' };
   };
 
