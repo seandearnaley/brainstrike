@@ -130,6 +130,9 @@ vi.mock('../file-explorer-provider', () => ({
     };
     return storeFn;
   }),
+  useFileExplorerStoreSelector: vi.fn((selector: (state: Record<string, unknown>) => unknown) =>
+    selector(mockStoreState as unknown as Record<string, unknown>)
+  ),
 }));
 
 vi.mock('../hooks/use-view-filter-presets', () => ({

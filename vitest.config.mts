@@ -20,7 +20,7 @@ export default defineConfig({
     // Enable dependency optimization for better performance
     deps: {
       optimizer: {
-        web: { enabled: true },
+        client: { enabled: true },
       },
     },
     coverage: {

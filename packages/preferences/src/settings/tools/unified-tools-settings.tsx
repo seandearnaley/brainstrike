@@ -6,7 +6,7 @@
  * dense tool rows, and integrated MCP status display.
  */
 
-import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/client';
+import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/tool-metadata';
 import { usePGliteLiveQuery } from '@brainstrike/db';
 import {
   Accordion,
@@ -315,8 +315,6 @@ export function UnifiedToolsSettings({
   budgetManager,
   onToolsChanged,
 }: UnifiedToolsSettingsProps) {
-  // React Compiler cannot optimize: complex async patterns with sequential awaits and value blocks in try/catch
-  'use no memo';
   const [dataState, dispatch] = useReducer(toolsDataReducer, initialToolsDataState);
   const _statsStateRef = useRef<ToolStats | null>(null);
   const lastMcpErrorRef = useRef<string | null>(null);

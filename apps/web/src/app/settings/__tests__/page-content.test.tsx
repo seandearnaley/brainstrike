@@ -14,11 +14,11 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
   return {
     ...actual,
     createAppearanceSettingsCategory: vi.fn(() => ({
+      content: <div data-testid="appearance-category-mock">Theme Settings Mock</div>,
       id: 'appearance',
       title: 'Appearance',
       description: 'Appearance settings',
       keywords: ['appearance'],
-      render: () => <div data-testid="appearance-category-mock">Theme Settings Mock</div>,
     })),
   };
 });
@@ -42,6 +42,13 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
 });
 
 vi.mock('@brainstrike/file-explorer-ui', () => ({
+  useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) => {
+    const mockState = {
+      devInlineFixtureEnabled: false,
+      setDevInlineFixtureEnabled: vi.fn(),
+    };
+    return selector(mockState);
+  },
   useFileExplorerStoreContext: () => {
     const mockStore = (selector: (state: Record<string, unknown>) => unknown) => {
       const mockState = {

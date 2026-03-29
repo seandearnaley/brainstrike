@@ -1,0 +1,102 @@
+/**
+ * Browser-safe agent exports.
+ *
+ * This entry intentionally excludes the local Transformers-backed runtime from
+ * `./providers/local`, which introduces top-level await and async chunk
+ * initialization when bundled for the browser.
+ */
+
+export {
+  ContextPacker,
+  type ContextPackerChunk,
+  type ContextPackerOptions,
+  type ContextPackerResult,
+  type PackedContextChunk,
+} from './context-packer';
+export {
+  LOCAL_RUNTIME_IDS,
+  type LocalRuntimeAuthRequiredState,
+  type LocalRuntimeAvailabilityState,
+  type LocalRuntimeAvailableState,
+  type LocalRuntimeBlockedWebState,
+  type LocalRuntimeCheckingState,
+  LocalRuntimeDiscoveryService,
+  type LocalRuntimeDiscoveryServiceOptions,
+  type LocalRuntimeId,
+  type LocalRuntimeIncompatibleState,
+  type LocalRuntimeStaleState,
+  type LocalRuntimeSurface,
+  type LocalRuntimeUnavailableState,
+  type ProbeLocalRuntimeOptions,
+} from './providers/local-runtime-discovery';
+export {
+  isLoadedRuntimeModelCatalogState,
+  type ListLocalRuntimeModelsOptions,
+  type LoadedRuntimeModelCatalogState,
+  type LocalRuntimeDimensionsState,
+  type LocalRuntimeEmbeddingCapability,
+  type LocalRuntimeEmbeddingDimensionFailed,
+  type LocalRuntimeEmbeddingDimensionProbeResult,
+  type LocalRuntimeEmbeddingDimensionUnsupported,
+  type LocalRuntimeEmbeddingDimensionVerified,
+  type LocalRuntimeKnownDimensionsState,
+  LocalRuntimeModelCatalogService,
+  type LocalRuntimeModelCatalogServiceOptions,
+  type LocalRuntimeModelCatalogState,
+  type LocalRuntimeModelFreshness,
+  type LocalRuntimeModelSource,
+  type LocalRuntimeModelsFailedState,
+  type LocalRuntimeModelsLoadedEmptyState,
+  type LocalRuntimeModelsLoadedNonEmptyState,
+  type LocalRuntimeModelsStaleCachedState,
+  type LocalRuntimeNeedsVerificationDimensionsState,
+  type LocalRuntimeNormalizedModel,
+  type LocalRuntimeNotApplicableDimensionsState,
+} from './providers/local-runtime-model-catalog';
+export {
+  getProviderDefaultModel,
+  getProviderDefinition,
+  getProviderDisplayName,
+  getProviderModelDefinitions,
+  getProviderModels,
+  isSupportedProvider,
+  isValidModelForProvider,
+  listEmbeddingModels,
+  listProviders,
+  PROVIDER_DEFAULT_ENABLED_MODELS,
+  PROVIDER_DEFAULT_MODELS,
+  PROVIDER_DISPLAY_NAMES,
+  PROVIDER_MODELS,
+  type ProviderCapabilities,
+  type ProviderDefinition,
+  type ProviderModelDefinition,
+  type ProviderRuntime,
+  providerEnvKeys,
+  type SupportedProvider,
+  supportsStandardEmbeddingDimension,
+} from './providers/types';
+export {
+  compareByLoadPriority,
+  getCategoryInfo,
+  getNativeToolDefaults,
+  getTierInfo,
+  isNativeTool,
+  NATIVE_TOOL_DEFAULTS,
+  type NativeToolDefaultMetadata,
+  TOOL_CATEGORIES,
+  TOOL_LOADING_TIERS,
+  type ToolCategory,
+  type ToolCategoryInfo,
+  type ToolLoadingTier,
+  type ToolLoadingTierInfo,
+  type ToolSource,
+} from './registry/tool-categories';
+export { TOOL_DESCRIPTIONS } from './registry/tool-descriptions';
+export {
+  generateExampleInput,
+  getToolSchemaDisplay,
+  NATIVE_TOOL_SCHEMAS,
+  type ParameterType,
+  type ToolParameterDisplay,
+  type ToolSchemaDisplay,
+} from './registry/tool-schemas-display';

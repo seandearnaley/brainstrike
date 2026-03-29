@@ -99,7 +99,7 @@ export function createToolsSettingsCategory(
       'playground',
     ],
     icon: Wrench,
-    render: () => (
+    content: (
       <UnifiedToolsSettings
         mcpAvailable={mcpAvailable}
         operations={operations}

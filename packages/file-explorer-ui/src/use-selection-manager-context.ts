@@ -12,14 +12,13 @@
 import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/file-explorer-hooks';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo } from 'react';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useFileExplorerStoreSelector } from './file-explorer-provider';
 
 interface UseSelectionManagerProps {
   onSelectionLimitExceeded: () => void;
 }
 
 export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionManagerProps) => {
-  const store = useFileExplorerStoreContext();
   const [
     selectedFilePaths,
     maxSelectionCount,
@@ -27,7 +26,7 @@ export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionMa
     selectionModel,
     currentFolderId,
     clearSelectionRules,
-  ] = store(
+  ] = useFileExplorerStoreSelector(
     (s) =>
       [
         s.selectedFilePaths,

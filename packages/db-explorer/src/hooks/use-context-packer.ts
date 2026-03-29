@@ -6,8 +6,8 @@
  * integration to the token cache for accurate token counts.
  */
 
-import type { ContextPackerOptions, ContextPackerResult } from '@brainstrike/agent/client';
-import { ContextPacker } from '@brainstrike/agent/client';
+import type { ContextPackerOptions, ContextPackerResult } from '@brainstrike/agent/context-packer';
+import { ContextPacker } from '@brainstrike/agent/context-packer';
 import { countTokensHeuristic } from '@brainstrike/text-splitter';
 import type { SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils/logger';

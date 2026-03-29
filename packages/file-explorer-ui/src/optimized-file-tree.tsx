@@ -21,7 +21,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
 import { useOptionalFileTreeContext, useOptionalFileTreeIndexContext } from './file-tree-provider';
 import { useWorkerFlattenedTree } from './hooks/use-worker-flattened-tree';
 // TODO(BST-312): extract ROW_HEIGHT into a shared constant and retire legacy row component.
@@ -818,14 +821,20 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const { showToast } = useToastManager();
     // Keep a subscribed expansion snapshot for TreeTable render state.
     // Event handlers still use `store.getState()` to avoid stale async toggles.
-    const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
-    const toggleDirectoryExpansion = store((s) => s.toggleDirectoryExpansion);
-    const toggleSelectedFile = store((s) => s.toggleSelectedFile);
-    const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
-    const removeMultipleSelectedFiles = store((s) => s.removeMultipleSelectedFiles);
-    const selectedFilePaths = store((s) => s.selectedFilePaths);
-    const maxSelectionCount = store((s) => s.maxSelectionCount);
-    const selectionModel = store((s) => s.selectionModel);
+    const expandedDirectoryPaths = useFileExplorerStoreSelector((s) => s.expandedDirectoryPaths);
+    const toggleDirectoryExpansion = useFileExplorerStoreSelector(
+      (s) => s.toggleDirectoryExpansion
+    );
+    const toggleSelectedFile = useFileExplorerStoreSelector((s) => s.toggleSelectedFile);
+    const addMultipleSelectedFiles = useFileExplorerStoreSelector(
+      (s) => s.addMultipleSelectedFiles
+    );
+    const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
+      (s) => s.removeMultipleSelectedFiles
+    );
+    const selectedFilePaths = useFileExplorerStoreSelector((s) => s.selectedFilePaths);
+    const maxSelectionCount = useFileExplorerStoreSelector((s) => s.maxSelectionCount);
+    const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
     // Dedupe in-flight directory loads between rapid expand interactions.
     // Visual loading state still comes from `loadingPaths` or each node's `loadState`.
     const pendingChildLoadPathsRef = useRef<Set<string>>(new Set());

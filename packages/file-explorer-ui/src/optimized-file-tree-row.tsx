@@ -22,7 +22,10 @@ import {
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { memo, useCallback, useMemo } from 'react';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
 
 interface TreeNodeIconProps {
   isExpanded: boolean;
@@ -157,9 +160,13 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     const store = useFileExplorerStoreContext();
 
     // Subscribe to actions (stable references)
-    const maxSelectionCount = store((s) => s.maxSelectionCount);
-    const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
-    const removeMultipleSelectedFiles = store((s) => s.removeMultipleSelectedFiles);
+    const maxSelectionCount = useFileExplorerStoreSelector((s) => s.maxSelectionCount);
+    const addMultipleSelectedFiles = useFileExplorerStoreSelector(
+      (s) => s.addMultipleSelectedFiles
+    );
+    const removeMultipleSelectedFiles = useFileExplorerStoreSelector(
+      (s) => s.removeMultipleSelectedFiles
+    );
 
     // Extract node properties for stable dependencies
     const {
@@ -191,7 +198,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       },
       [compositeKey]
     );
-    const isFileSelected = store(isFileSelectedSelector);
+    const isFileSelected = useFileExplorerStoreSelector(isFileSelectedSelector);
 
     // PERFORMANCE OPTIMIZATION: Directory selection count via prefix scan
     // Instead of building the full descendant file list (expensive for large directories),
@@ -206,7 +213,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       },
       [nodeType, folderId, nodePath]
     );
-    const selectedCountInDir = store(selectedCountSelector);
+    const selectedCountInDir = useFileExplorerStoreSelector(selectedCountSelector);
 
     // Selector for current selection size (for limit checking)
     // Zustand compares return values, so this only triggers re-render when size changes
@@ -214,7 +221,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       () => (state: FileExplorerState) => state.selectedFilePaths.size,
       []
     );
-    const currentSelectionSize = store(selectionSizeSelector);
+    const currentSelectionSize = useFileExplorerStoreSelector(selectionSizeSelector);
 
     // PERFORMANCE OPTIMIZATION: Per-path selector for rules-mode selection
     // Instead of subscribing to the entire selectionModel object (which causes all rows
@@ -234,7 +241,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       },
       [nodeType, nodePath]
     );
-    const isRuleSelected = store(isRuleSelectedSelector);
+    const isRuleSelected = useFileExplorerStoreSelector(isRuleSelectedSelector);
 
     const folderInfo = useMemo(() => {
       if (nodeType !== 'directory') {

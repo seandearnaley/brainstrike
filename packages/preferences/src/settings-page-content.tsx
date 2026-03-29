@@ -30,11 +30,16 @@ const SETTINGS_HASH_PREFIX = 'settings/';
  *   description: 'Customize the look and feel of the application',
  *   keywords: ['theme', 'color', 'dark mode', 'display'],
  *   icon: Palette,
- *   render: () => <ThemeSettings />,
+ *   content: <ThemeSettings />,
  * };
  * ```
  */
 export interface SettingsCategory {
+  /**
+   * React content displayed when the category is active.
+   * Note: the ReactNode is created eagerly, but only mounted when selected.
+   */
+  content: ReactNode;
   /**
    * Optional subtitle displayed below the title in both navigation and content area.
    * Use this to clarify the purpose or scope of the category.
@@ -60,12 +65,6 @@ export interface SettingsCategory {
    * Searches are case-insensitive and use substring matching.
    */
   keywords?: string[];
-
-  /**
-   * Function that returns the React content to display when this category is selected.
-   * Called only when the category is active (lazy rendering).
-   */
-  render: () => ReactNode;
 
   /**
    * Display name shown in the navigation panel and content header.
@@ -336,7 +335,7 @@ export function SettingsPageContent({
                     </p>
                   ) : null}
                 </div>
-                <div className="space-y-6">{activeCategory.render()}</div>
+                <div className="space-y-6">{activeCategory.content}</div>
               </div>
             ) : (
               <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
@@ -357,7 +356,7 @@ export function createAppearanceSettingsCategory(): SettingsCategory {
     description: 'Choose your theme and personalize the interface for your workflow.',
     keywords: ['theme', 'color', 'display', 'dark mode'],
     icon: Palette,
-    render: () => <ThemeSettings />,
+    content: <ThemeSettings />,
   };
 }
 
@@ -376,9 +375,7 @@ export function createTokenCountingSettingsCategoryWithRuntimeSupport({
     description: 'Control the tokenizer used for previews and chunk generation.',
     keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
     icon: Sigma,
-    render: () => (
-      <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />
-    ),
+    content: <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />,
   };
 }
 
@@ -410,7 +407,7 @@ export function createFactoryResetSettingsCategory(
     description: 'Wipe application data and reset preferences.',
     keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences', 'stored folders'],
     icon: Settings,
-    render: () => (
+    content: (
       <FactoryResetSettingsSection
         hasStoredFolders={options?.hasStoredFolders}
         inlineFixtureSetting={options?.inlineFixtureSetting}
@@ -437,7 +434,7 @@ export function createModelRegistrySettingsCategory(): SettingsCategory {
       'download',
     ],
     icon: Settings, // Using Settings icon for now, could import something better like Brain or Cpu
-    render: () => <ModelSelectionPage />,
+    content: <ModelSelectionPage />,
   };
 }
 
@@ -448,6 +445,6 @@ export function createApiKeysSettingsCategory(): SettingsCategory {
     description: 'Manage API keys for external LLM providers.',
     keywords: ['api', 'keys', 'secrets', 'credentials', 'openai', 'anthropic', 'google'],
     icon: Key,
-    render: () => <ApiKeysSettings />,
+    content: <ApiKeysSettings />,
   };
 }

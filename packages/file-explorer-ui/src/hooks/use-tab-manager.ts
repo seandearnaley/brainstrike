@@ -15,16 +15,15 @@ export interface UseTabManagerReturn {
 }
 
 export function useTabManager(): UseTabManagerReturn {
-  const store = useTabManagerStore;
-  const tabs = store((s) => s.tabs);
-  const activeTabId = store((s) => s.activeTabId);
-  const openTab = store((s) => s.openTab);
-  const closeTab = store((s) => s.closeTab);
-  const setActiveTab = store((s) => s.setActiveTab);
-  const updateTabContent = store((s) => s.updateTabContent);
-  const setTabLoading = store((s) => s.setTabLoading);
-  const setTabError = store((s) => s.setTabError);
-  const clearTabs = store((s) => s.clearTabs);
+  const tabs = useTabManagerStore((s) => s.tabs);
+  const activeTabId = useTabManagerStore((s) => s.activeTabId);
+  const openTab = useTabManagerStore((s) => s.openTab);
+  const closeTab = useTabManagerStore((s) => s.closeTab);
+  const setActiveTab = useTabManagerStore((s) => s.setActiveTab);
+  const updateTabContent = useTabManagerStore((s) => s.updateTabContent);
+  const setTabLoading = useTabManagerStore((s) => s.setTabLoading);
+  const setTabError = useTabManagerStore((s) => s.setTabError);
+  const clearTabs = useTabManagerStore((s) => s.clearTabs);
 
   return {
     tabs,

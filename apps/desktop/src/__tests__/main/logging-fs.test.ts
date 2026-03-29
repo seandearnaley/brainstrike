@@ -189,7 +189,7 @@ describe('logging IPC handler performance', () => {
     expect(fs.promises.stat).toHaveBeenCalled();
   });
 
-  it('uses async destination checks when applying file logging preferences', async () => {
+  it('checks the destination directory asynchronously before verifying the log file', async () => {
     const statMock = vi.mocked(fs.promises.stat);
     statMock
       .mockResolvedValueOnce({
@@ -219,7 +219,9 @@ describe('logging IPC handler performance', () => {
 
     await ipcRenderer.invoke('logging:set-preferences', newPreferences);
 
-    expect(statMock.mock.calls.some(([target]) => target === '/mock/userData/logs')).toBe(true);
-    expect(statMock).not.toHaveBeenCalledWith('/mock/userData/logs/test.log');
+    const statTargets = statMock.mock.calls.map(([target]) => target);
+
+    expect(statTargets[0]).toBe('/mock/userData/logs');
+    expect(statTargets).toContain('/mock/userData/logs/test.log');
   });
 });

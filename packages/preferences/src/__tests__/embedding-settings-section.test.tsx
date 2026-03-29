@@ -289,6 +289,63 @@ describe('EmbeddingSettings', () => {
     expect(within(zetaRow).queryByText('Default')).toBeNull();
   });
 
+  it('annotates stale cached runtime models with pending-dimension metadata', () => {
+    const staleCatalog: {
+      ollama: LocalRuntimeModelCatalogState;
+      lmstudio: LocalRuntimeModelCatalogState;
+    } = {
+      ollama: {
+        state: 'stale_cached',
+        runtime: 'ollama',
+        checkedAt: 120,
+        availability: {
+          state: 'available',
+          checkedAt: 120,
+          endpoint: 'http://127.0.0.1:11434/v1/models',
+          latencyMs: 6,
+        },
+        endpoint: 'http://127.0.0.1:11434/v1/models',
+        source: 'openai_v1_models',
+        freshness: 'stale_cached',
+        lastSuccessfulAt: 100,
+        message: 'Using cached runtime model list',
+        models: [
+          {
+            runtime: 'ollama',
+            providerId: 'ollama',
+            modelId: 'pending-model',
+            modelKey: 'ollama::pending-model',
+            displayName: 'Pending Dimensions',
+            endpoint: 'http://127.0.0.1:11434/v1/models',
+            source: 'openai_v1_models',
+            freshness: 'stale_cached',
+            capabilities: {
+              llm: false,
+              embeddings: 'needs_verification',
+            },
+            dimensionsKnown: {
+              state: 'needs_verification',
+            },
+          },
+        ],
+      },
+      lmstudio: runtimeCatalogWithOllamaEmbedding.lmstudio,
+    };
+
+    mockUseLocalRuntimeEmbeddingModelCatalog.mockReturnValue({
+      catalog: staleCatalog,
+      isLoading: false,
+      error: null,
+      refresh: vi.fn().mockResolvedValue(undefined),
+    });
+
+    renderComponent();
+
+    const runtimeRow = screen.getByTestId('embedding-model-row-ollama-pending-model');
+    expect(runtimeRow.textContent ?? '').toContain('Dimension pending verification');
+    expect(runtimeRow.textContent ?? '').toContain('Using cached runtime model list');
+  });
+
   describe('Quick Start Presets', () => {
     it('renders all three preset buttons', () => {
       renderComponent();

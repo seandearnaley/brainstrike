@@ -30,7 +30,10 @@ import ActionButtons from './action-buttons-array-facade';
 import { RestoreAccessModal } from './components/restore-access-modal';
 import { TreeActionButtons } from './components/tree-action-buttons';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
 import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
@@ -181,7 +184,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     toggleFilterEnabled,
     isFiltersExpanded,
     setFiltersExpanded,
-  ] = store(
+  ] = useFileExplorerStoreSelector(
     (s) =>
       [
         s.includeFilters,
@@ -284,8 +287,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   } = useToastManager();
 
   // Get store actions for recursive folder selection
-  const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
-  const selectedFilePaths = store((s) => s.selectedFilePaths);
+  const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
+  const selectedFilePaths = useFileExplorerStoreSelector((s) => s.selectedFilePaths);
 
   // Wrapper for recursive folder selection that binds store actions
   // This allows FileExplorerSidebar to call with just the node
@@ -353,7 +356,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   });
 
   // Get selection model for rules-based mode token counting and display
-  const selectionModel = store((s) => s.selectionModel);
+  const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
 
   // Background token indexing - processes selected files off the main thread
   // IMPORTANT: Convert materializedPaths to composite keys when in rules mode
@@ -430,7 +433,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     electronFileReader,
   });
 
-  const [quickFilter, setQuickFilter, clearQuickFilter] = store(
+  const [quickFilter, setQuickFilter, clearQuickFilter] = useFileExplorerStoreSelector(
     (s) => [s.quickFilter, s.setQuickFilter, s.clearQuickFilter] as const
   );
 
@@ -727,6 +730,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               <Button
                 aria-controls="view-filters-content"
                 aria-expanded={isFiltersExpanded}
+                aria-label={`${isFiltersExpanded ? 'Collapse' : 'Expand'} view filters`}
                 className="h-auto w-full justify-between rounded-none px-3 py-2 hover:bg-muted/50"
                 depress={false}
                 onClick={() => setFiltersExpanded(!isFiltersExpanded)}

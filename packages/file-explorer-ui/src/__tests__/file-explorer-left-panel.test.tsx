@@ -52,9 +52,14 @@ vi.mock('../action-buttons', () => {
 // Mock hooks used by the component
 vi.mock('../file-explorer-provider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../file-explorer-provider')>();
+  const useFileExplorerStoreContext = vi.fn();
   return {
     ...actual,
-    useFileExplorerStoreContext: vi.fn(),
+    useFileExplorerStoreContext,
+    useFileExplorerStoreSelector: vi.fn((selector: (state: unknown) => unknown) => {
+      const store = useFileExplorerStoreContext();
+      return store(selector);
+    }),
   };
 });
 vi.mock('../use-file-explorer-context', () => ({

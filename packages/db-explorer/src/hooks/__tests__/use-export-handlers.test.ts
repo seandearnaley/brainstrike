@@ -501,5 +501,237 @@ describe('useExportHandlers', () => {
         variant: 'destructive',
       });
     });
+
+    it('uses generic message when a non-Error is thrown', async () => {
+      const records: FileRecord[] = [
+        {
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+      const chunks: FileChunk[] = [];
+
+      vi.mocked(csvExportUtils.exportAllDataAsZip).mockRejectedValue('non-error string');
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, chunks), mockToast)
+      );
+
+      await result.current.handleExportAll();
+
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Export Failed',
+        description: 'Failed to export all data',
+        variant: 'destructive',
+      });
+    });
+  });
+
+  describe('non-Error throws – generic fallback message', () => {
+    it('handleExportFiles falls back to generic message on non-Error throw', async () => {
+      const records: FileRecord[] = [
+        {
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      vi.mocked(csvExportUtils.generateFilesWithChunksCSV).mockImplementation(() => {
+        // biome-ignore lint/style/useThrowOnlyError: exercises non-Error throw fallback
+        throw 'raw string error';
+      });
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, []), mockToast)
+      );
+
+      await result.current.handleExportFiles();
+
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Export Failed',
+        description: 'Failed to export files',
+        variant: 'destructive',
+      });
+    });
+
+    it('handleExportChunks falls back to generic message on non-Error throw', async () => {
+      const chunks: FileChunk[] = [
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: 'x',
+          contentHash: 'h',
+          tokenCount: 1,
+          chunkType: 'text',
+          chunkSize: 1,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      vi.mocked(csvExportUtils.generateChunksCSV).mockImplementation(() => {
+        // biome-ignore lint/style/useThrowOnlyError: exercises non-Error throw fallback
+        throw 42;
+      });
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData([], chunks), mockToast)
+      );
+
+      await result.current.handleExportChunks();
+
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Export Failed',
+        description: 'Failed to export chunks',
+        variant: 'destructive',
+      });
+    });
+
+    it('handleExportEmbeddings falls back to generic message on non-Error throw', async () => {
+      const chunks: FileChunk[] = [
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: 'x',
+          contentHash: 'h',
+          tokenCount: 1,
+          chunkType: 'text',
+          chunkSize: 1,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+          embedding: [0.1],
+        },
+      ];
+
+      vi.mocked(csvExportUtils.generateEmbeddingsCSV).mockImplementation(() => {
+        // biome-ignore lint/style/useThrowOnlyError: exercises non-Error throw fallback
+        throw null;
+      });
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData([], chunks), mockToast)
+      );
+
+      await result.current.handleExportEmbeddings();
+
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Export Failed',
+        description: 'Failed to export embeddings',
+        variant: 'destructive',
+      });
+    });
+  });
+
+  describe('URL and DOM lifecycle', () => {
+    it('revokes the object URL after a successful file export', async () => {
+      const records: FileRecord[] = [
+        {
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, []), mockToast)
+      );
+
+      await result.current.handleExportFiles();
+
+      expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    });
+
+    it('revokes the object URL after a successful chunk export', async () => {
+      const chunks: FileChunk[] = [
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: 'x',
+          contentHash: 'h',
+          tokenCount: 1,
+          chunkType: 'text',
+          chunkSize: 1,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData([], chunks), mockToast)
+      );
+
+      await result.current.handleExportChunks();
+
+      expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    });
+
+    it('appends then removes the anchor from the document body', async () => {
+      const appendSpy = vi.spyOn(document.body, 'appendChild');
+      const removeSpy = vi.spyOn(document.body, 'removeChild');
+
+      const records: FileRecord[] = [
+        {
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+
+      const { result } = renderHook(() =>
+        useExportHandlers(createLoadExportData(records, []), mockToast)
+      );
+
+      await result.current.handleExportFiles();
+
+      expect(appendSpy).toHaveBeenCalledWith(mockLink);
+      expect(removeSpy).toHaveBeenCalledWith(mockLink);
+    });
+  });
+
+  describe('loadExportData rejection', () => {
+    it('surfaces a toast when loadExportData itself rejects', async () => {
+      const failingLoader = vi.fn().mockRejectedValue(new Error('DB unavailable'));
+
+      const { result } = renderHook(() => useExportHandlers(failingLoader, mockToast));
+
+      await result.current.handleExportFiles();
+
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Export Failed',
+        description: 'DB unavailable',
+        variant: 'destructive',
+      });
+    });
+
+    it('uses generic message when loadExportData rejects with a non-Error', async () => {
+      const failingLoader = vi.fn().mockRejectedValue('network timeout');
+
+      const { result } = renderHook(() => useExportHandlers(failingLoader, mockToast));
+
+      await result.current.handleExportChunks();
+
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Export Failed',
+        description: 'Failed to export chunks',
+        variant: 'destructive',
+      });
+    });
   });
 });

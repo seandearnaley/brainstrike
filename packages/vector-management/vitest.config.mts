@@ -151,6 +151,18 @@ export default defineConfig({
         replacement: resolve(__dirname, '../agent/src/client.ts'),
       },
       {
+        find: '@brainstrike/agent/local-runtime',
+        replacement: resolve(__dirname, '../agent/src/local-runtime.ts'),
+      },
+      {
+        find: '@brainstrike/agent/provider-metadata',
+        replacement: resolve(__dirname, '../agent/src/provider-metadata.ts'),
+      },
+      {
+        find: '@brainstrike/agent/tool-metadata',
+        replacement: resolve(__dirname, '../agent/src/tool-metadata.ts'),
+      },
+      {
         find: /^@brainstrike\/preferences\/(.*)$/,
         replacement: resolve(__dirname, '../preferences/src/$1'),
       },

@@ -5,24 +5,25 @@ import type {
   RuntimeData,
 } from '@brainstrike/agent';
 import {
-  getProviderDefaultModel,
-  getProviderDefinition,
-  getProviderModelDefinitions,
   isLoadedRuntimeModelCatalogState,
-  isSupportedProvider,
   type LocalRuntimeAvailabilityState,
   type LocalRuntimeId,
   type LocalRuntimeModelCatalogState,
-  NATIVE_TOOL_DEFAULTS,
+} from '@brainstrike/agent/local-runtime';
+import {
+  getProviderDefaultModel,
+  getProviderDefinition,
+  getProviderModelDefinitions,
+  isSupportedProvider,
   type ProviderModelDefinition,
   type ProviderRuntime,
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
-  TOOL_DESCRIPTIONS,
-} from '@brainstrike/agent/client';
+} from '@brainstrike/agent/provider-metadata';
+import { NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import {
-  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
   useOptionalTokenCacheContext,
   useSelectionManager,
 } from '@brainstrike/file-explorer-ui';
@@ -68,6 +69,17 @@ function resolveModelNameFromComposite(composite: string | null | undefined): st
   }
   const parts = composite.split('::');
   return parts.length === 2 ? parts[1] : composite;
+}
+
+function resolveProviderFromComposite(
+  composite: string | null | undefined
+): SupportedProvider | null {
+  if (!composite) {
+    return null;
+  }
+  const parts = composite.split('::');
+  const candidate = parts.length === 2 ? parts[0] : null;
+  return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
 function formatToolLabel(toolId: string): string {
@@ -497,6 +509,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     getSelectedProvider,
     setProviderSettings,
   } = useAssistantPreferencesStore();
+  const selectedModel = useAssistantPreferencesStore((state) => state.selectedModel);
   const enabledModelsByProvider = useAssistantPreferencesStore(
     (state) => state.enabledModelsByProvider
   );
@@ -596,8 +609,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     [runtimeLlmModelsByProvider]
   );
 
-  const selectedProvider = getSelectedProvider();
-  const currentModel = getSelectedModel();
+  const selectedProvider = useMemo(
+    () => resolveProviderFromComposite(selectedModel),
+    [selectedModel]
+  );
+  const currentModel = selectedModel;
   const resolvedModelName = useMemo(
     () => resolveModelNameFromComposite(currentModel),
     [currentModel]
@@ -614,7 +630,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     [selectedProvider, resolvedModelName, selectedProviderSettings]
   );
   const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
-  const store = useFileExplorerStoreContext();
   const [
     tokenBudget,
     currentFolderId,
@@ -626,7 +641,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     addMultipleSelectedFiles,
     removeMultipleSelectedFiles,
     clearSelectionRules,
-  ] = store(
+  ] = useFileExplorerStoreSelector(
     (s) =>
       [
         s.tokenBudget,

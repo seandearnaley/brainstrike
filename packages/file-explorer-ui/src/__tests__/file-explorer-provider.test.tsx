@@ -1,9 +1,14 @@
 import * as fileExplorer from '@brainstrike/file-explorer';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explorer-provider';
+import {
+  FileExplorerProvider,
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+  useOptionalFileExplorerStoreSelector,
+} from '../file-explorer-provider';
 
 // Utility wrapper for provider
 function wrapper(storage: MemoryStorageAdapter) {
@@ -34,5 +39,71 @@ describe('FileExplorerProvider', () => {
     expect(result.current).toBe(dummyStore);
 
     spy.mockRestore();
+  });
+
+  it('selects live store state inside the provider', () => {
+    const storage = new MemoryStorageAdapter();
+
+    const { result } = renderHook(
+      () => {
+        const store = useFileExplorerStoreContext();
+        const currentFolderId = useFileExplorerStoreSelector((state) => state.currentFolderId);
+        return { currentFolderId, store };
+      },
+      { wrapper: wrapper(storage) }
+    );
+
+    expect(result.current.currentFolderId).toBeNull();
+
+    act(() => {
+      result.current.store.setState({
+        currentFolderId: 'folder-1',
+      } as Partial<ReturnType<typeof result.current.store.getState>>);
+    });
+
+    expect(result.current.currentFolderId).toBe('folder-1');
+  });
+
+  it('returns the fallback selector value outside the provider', () => {
+    const { result, rerender } = renderHook(
+      ({ fallbackValue }: { fallbackValue: string }) =>
+        useOptionalFileExplorerStoreSelector(() => 'live-value', fallbackValue),
+      {
+        initialProps: { fallbackValue: 'fallback-a' },
+      }
+    );
+
+    expect(result.current).toBe('fallback-a');
+
+    rerender({ fallbackValue: 'fallback-b' });
+    expect(result.current).toBe('fallback-b');
+  });
+
+  it('reuses the previous selection when the equality function reports no change', () => {
+    const storage = new MemoryStorageAdapter();
+
+    const { result } = renderHook(
+      () => {
+        const store = useFileExplorerStoreContext();
+        const selection = useOptionalFileExplorerStoreSelector(
+          (state) => ({ currentFolderId: state.currentFolderId }),
+          { currentFolderId: 'fallback' },
+          (left, right) => left.currentFolderId === right.currentFolderId
+        );
+        return { selection, store };
+      },
+      { wrapper: wrapper(storage) }
+    );
+
+    const initialSelection = result.current.selection;
+    expect(initialSelection.currentFolderId).toBeNull();
+
+    act(() => {
+      result.current.store.setState({
+        expandedDirectoryPaths: new Set(['folder-1']),
+      } as Partial<ReturnType<typeof result.current.store.getState>>);
+    });
+
+    expect(result.current.selection).toBe(initialSelection);
   });
 });

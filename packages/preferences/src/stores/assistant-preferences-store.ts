@@ -1,17 +1,19 @@
 import {
-  getProviderDefaultModel,
   type LocalRuntimeAvailabilityState,
   LocalRuntimeDiscoveryService,
   type LocalRuntimeId,
   LocalRuntimeModelCatalogService,
   type LocalRuntimeModelCatalogState,
+} from '@brainstrike/agent/local-runtime';
+import {
+  getProviderDefaultModel,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   type ProviderDefinition,
   providerEnvKeys,
   type SupportedProvider,
-} from '@brainstrike/agent/client';
+} from '@brainstrike/agent/provider-metadata';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';

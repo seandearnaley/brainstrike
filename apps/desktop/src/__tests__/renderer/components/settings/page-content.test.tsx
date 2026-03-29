@@ -10,6 +10,13 @@ import SettingsPageContent from '../../../../renderer/components/settings/page-c
 
 // Mock file-explorer-ui - needed for useFileExplorerStoreContext
 vi.mock('@brainstrike/file-explorer-ui', () => ({
+  useFileExplorerStoreSelector: (selector: (state: Record<string, unknown>) => unknown) => {
+    const mockState = {
+      devInlineFixtureEnabled: false,
+      setDevInlineFixtureEnabled: vi.fn(),
+    };
+    return selector(mockState);
+  },
   useFileExplorerStoreContext: () => {
     // Return a mock store function that returns default values
     const mockStore = (selector: (state: Record<string, unknown>) => unknown) => {
@@ -217,9 +224,9 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
   return {
     ...actual,
     createTokenCountingSettingsCategoryWithRuntimeSupport: vi.fn(() => ({
+      content: <div data-testid="token-counting-settings-mock" />,
       id: 'token-counting',
       title: 'Token Counting',
-      render: () => <div data-testid="token-counting-settings-mock" />,
     })),
   };
 });
