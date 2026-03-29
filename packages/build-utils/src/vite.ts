@@ -72,11 +72,6 @@ const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
 const DATABASE_OPTIMIZE_DEPS_INCLUDE = ['jszip', 'file-saver', 'react-resizable-panels'] as const;
 
 const HEAVY_RUNTIME_OPTIMIZE_DEPS_EXCLUDE = ['@huggingface/transformers'] as const;
-const REACT_COMPILER_EXCLUDE_PATTERNS = [
-  /[/\\]node_modules[/\\]/,
-  /[/\\]packages[/\\]app-shell[/\\]src[/\\].*\.[jt]sx?$/,
-  /[/\\]packages[/\\]file-explorer-ui[/\\]src[/\\].*\.[jt]sx?$/,
-] as const;
 
 const moduleDir =
   typeof import.meta.dirname === 'string'
@@ -117,10 +112,6 @@ export function getDatabaseOptimizeDepsInclude(): readonly string[] {
 
 export function getHeavyRuntimeOptimizeDepsExclude(): readonly string[] {
   return HEAVY_RUNTIME_OPTIMIZE_DEPS_EXCLUDE;
-}
-
-export function getReactCompilerExcludePatterns(): readonly RegExp[] {
-  return REACT_COMPILER_EXCLUDE_PATTERNS;
 }
 
 export function getLazySurfaceOptimizeDepsEntries(

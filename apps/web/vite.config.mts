@@ -38,11 +38,9 @@ const {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
-  getReactCompilerExcludePatterns,
   getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } = await import('@brainstrike/build-utils');
-const ReactCompilerExclude = getReactCompilerExcludePatterns();
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
 const filteredReactCompilerBabelPreset = {
   ...reactCompilerBabelPreset,
@@ -50,10 +48,7 @@ const filteredReactCompilerBabelPreset = {
     ...reactCompilerBabelPreset.rolldown,
     filter: {
       ...reactCompilerBabelPreset.rolldown.filter,
-      id: {
-        include: ReactCompilerInclude,
-        exclude: ReactCompilerExclude,
-      },
+      id: { include: ReactCompilerInclude },
     },
   },
 };
