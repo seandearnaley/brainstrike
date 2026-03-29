@@ -196,3 +196,4 @@ The remaining uncovered code would be:
 1. **Import side effects:** The real `@brainstrike/agent` module may initialize connections, register handlers, or import heavy dependencies when first loaded. Test in isolation first.
 2. **Test flakiness:** Partial mocks can cause unexpected interactions between real and mocked code. Run the full suite multiple times after refactoring.
 3. **Breaking existing tests:** The chat route tests already use partial mocks successfully, so the pattern is proven in this codebase. The risk is mainly in discovering that the assistant-specific agent functions have untestable side effects.
+
