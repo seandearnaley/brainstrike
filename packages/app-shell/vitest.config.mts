@@ -3,6 +3,7 @@
 
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
+import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 export default defineConfig({
   test: {
@@ -76,22 +77,7 @@ export default defineConfig({
         find: '@brainstrike/embeddings',
         replacement: path.resolve(import.meta.dirname, '__mocks__/embeddings.ts'),
       },
-      {
-        find: '@brainstrike/agent/client',
-        replacement: path.resolve(import.meta.dirname, '../agent/src/client.ts'),
-      },
-      {
-        find: '@brainstrike/agent/local-runtime',
-        replacement: path.resolve(import.meta.dirname, '../agent/src/local-runtime.ts'),
-      },
-      {
-        find: '@brainstrike/agent/provider-metadata',
-        replacement: path.resolve(import.meta.dirname, '../agent/src/provider-metadata.ts'),
-      },
-      {
-        find: '@brainstrike/agent/tool-metadata',
-        replacement: path.resolve(import.meta.dirname, '../agent/src/tool-metadata.ts'),
-      },
+      ...createAgentBrowserSafeAliasEntries(path.resolve(import.meta.dirname, '../agent')),
       {
         find: '@brainstrike/text-splitter/chunking-core',
         replacement: path.resolve(import.meta.dirname, '../text-splitter/src/chunking-core.ts'),

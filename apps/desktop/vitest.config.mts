@@ -1,6 +1,7 @@
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
+import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getAdjustedTimeout } from '../../packages/test-utils/src/test-timeouts';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
@@ -39,22 +40,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src/renderer'),
-      '@brainstrike/agent/client': path.resolve(
-        import.meta.dirname,
-        '../../packages/agent/src/client.ts'
-      ),
-      '@brainstrike/agent/local-runtime': path.resolve(
-        import.meta.dirname,
-        '../../packages/agent/src/local-runtime.ts'
-      ),
-      '@brainstrike/agent/provider-metadata': path.resolve(
-        import.meta.dirname,
-        '../../packages/agent/src/provider-metadata.ts'
-      ),
-      '@brainstrike/agent/tool-metadata': path.resolve(
-        import.meta.dirname,
-        '../../packages/agent/src/tool-metadata.ts'
-      ),
+      ...createAgentBrowserSafeAliasMap(path.resolve(import.meta.dirname, '../../packages/agent')),
       '@brainstrike/embeddings/runtime-config': path.resolve(
         import.meta.dirname,
         '../../packages/embeddings/src/runtime-config.ts'

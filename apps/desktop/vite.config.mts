@@ -19,6 +19,7 @@ import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
+import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -299,22 +300,7 @@ export default defineConfig({
         replacement: pinoBrowserPath,
       },
       // Agent browser-safe subpath exports (no Mastra dependencies)
-      {
-        find: '@brainstrike/agent/client',
-        replacement: path.resolve(__dirname, '../../packages/agent/src/client.ts'),
-      },
-      {
-        find: '@brainstrike/agent/local-runtime',
-        replacement: path.resolve(__dirname, '../../packages/agent/src/local-runtime.ts'),
-      },
-      {
-        find: '@brainstrike/agent/provider-metadata',
-        replacement: path.resolve(__dirname, '../../packages/agent/src/provider-metadata.ts'),
-      },
-      {
-        find: '@brainstrike/agent/tool-metadata',
-        replacement: path.resolve(__dirname, '../../packages/agent/src/tool-metadata.ts'),
-      },
+      ...createAgentBrowserSafeAliasEntries(path.resolve(__dirname, '../../packages/agent')),
       // Force PGlite to use browser FS implementation in renderer to avoid node:fs imports
       {
         find: /@electric-sql\/pglite\/dist\/fs\/nodefs\.js$/,
