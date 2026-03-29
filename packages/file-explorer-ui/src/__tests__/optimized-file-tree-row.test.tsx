@@ -5,9 +5,16 @@ import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 
-vi.mock('../file-explorer-provider', () => ({
-  useFileExplorerStoreContext: vi.fn(),
-}));
+vi.mock('../file-explorer-provider', () => {
+  const useFileExplorerStoreContext = vi.fn();
+  return {
+    useFileExplorerStoreContext,
+    useFileExplorerStoreSelector: vi.fn((selector: (state: unknown) => unknown) => {
+      const store = useFileExplorerStoreContext();
+      return store(selector);
+    }),
+  };
+});
 
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import OptimizedFileTreeRow from '../optimized-file-tree-row';

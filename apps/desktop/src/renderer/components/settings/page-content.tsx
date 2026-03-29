@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/agent/tool-metadata';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import {
-  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
   useOptionalTokenCacheContext,
 } from '@brainstrike/file-explorer-ui';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
@@ -59,10 +59,11 @@ function EmbeddingModelsCategory() {
 
 export default function SettingsPageContent() {
   // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
-  const store = useFileExplorerStoreContext();
   const tokenCache = useOptionalTokenCacheContext();
-  const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
-  const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
+  const devInlineFixtureEnabled = useFileExplorerStoreSelector((s) => s.devInlineFixtureEnabled);
+  const setDevInlineFixtureEnabled = useFileExplorerStoreSelector(
+    (s) => s.setDevInlineFixtureEnabled
+  );
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
     if (!tokenCache) {
       return null;

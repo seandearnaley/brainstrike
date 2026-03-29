@@ -18,6 +18,7 @@ export interface AssistantMockOptions {
 
 interface AssistantMockInstallPayload {
   readonly models: Record<string, string>;
+  readonly provider: string;
   readonly streamChunks: Array<{ delayMs: number; payload: string }>;
 }
 
@@ -28,6 +29,10 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
     __assistantAvailabilityOverride?: { state: 'enabled' };
     fetch: typeof fetch;
     localStorage?: Storage;
+    secrets?: {
+      list?: () => Promise<string[]>;
+      [key: string]: unknown;
+    };
   };
 
   globals.__assistantMockConfig = payload;
@@ -48,6 +53,10 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
   }
 
   globals.__assistantAvailabilityOverride = { state: 'enabled' };
+  globals.secrets = {
+    ...globals.secrets,
+    list: async () => [payload.provider],
+  };
 
   if (globals.__assistantMockApplied) {
     return;
@@ -278,6 +287,7 @@ export async function setupAssistantMock(
   );
 
   const installPayload: AssistantMockInstallPayload = {
+    provider: merged.provider,
     models: merged.models,
     streamChunks: buildAssistantStreamChunks(merged),
   };

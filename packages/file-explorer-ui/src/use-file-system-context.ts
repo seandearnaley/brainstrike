@@ -7,7 +7,10 @@
 import { useFileSystem as useCoreFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useCallback, useEffect, useMemo } from 'react';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
 
 /**
  * Type guard to check if the store has the Zustand persist API.
@@ -87,10 +90,10 @@ async function selectDirectoryWithErrorMapping(
 
 export function useFileSystem() {
   const store = useFileExplorerStoreContext();
-  const setCurrentFolderId = store((s) => s.setCurrentFolderId);
-  const storedRootDirectoryHandle = store((s) => s.rootDirectoryHandle);
-  const setRootDirectoryHandle = store((s) => s.setRootDirectoryHandle);
-  const setStoreIsAccessLoading = store((s) => s.setIsAccessLoading);
+  const setCurrentFolderId = useFileExplorerStoreSelector((s) => s.setCurrentFolderId);
+  const storedRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
+  const setRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.setRootDirectoryHandle);
+  const setStoreIsAccessLoading = useFileExplorerStoreSelector((s) => s.setIsAccessLoading);
 
   /**
    * Wait for store hydration to complete before proceeding.

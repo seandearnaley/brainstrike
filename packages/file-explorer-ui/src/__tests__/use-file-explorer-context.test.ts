@@ -6,9 +6,16 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mocks for internal context hooks
-vi.mock('../file-explorer-provider', () => ({
-  useFileExplorerStoreContext: vi.fn(),
-}));
+vi.mock('../file-explorer-provider', () => {
+  const useFileExplorerStoreContext = vi.fn();
+  return {
+    useFileExplorerStoreContext,
+    useFileExplorerStoreSelector: vi.fn((selector: (state: unknown) => unknown) => {
+      const store = useFileExplorerStoreContext();
+      return store(selector);
+    }),
+  };
+});
 vi.mock('../use-file-system-context', () => ({
   useFileSystem: vi.fn(),
 }));

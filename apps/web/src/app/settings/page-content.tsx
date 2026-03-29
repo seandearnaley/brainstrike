@@ -7,7 +7,7 @@ import {
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import {
-  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
   useOptionalTokenCacheContext,
 } from '@brainstrike/file-explorer-ui';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
@@ -76,9 +76,10 @@ export default function SettingsPageContent() {
   const tokenCache = useOptionalTokenCacheContext();
 
   // Inline fixture state from file explorer store context
-  const store = useFileExplorerStoreContext();
-  const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
-  const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
+  const devInlineFixtureEnabled = useFileExplorerStoreSelector((s) => s.devInlineFixtureEnabled);
+  const setDevInlineFixtureEnabled = useFileExplorerStoreSelector(
+    (s) => s.setDevInlineFixtureEnabled
+  );
 
   const logSource = useMemo<LogSourceAdapter>(() => {
     const buffer = getWebLogBuffer();

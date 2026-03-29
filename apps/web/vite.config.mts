@@ -20,10 +20,6 @@ const viteLogger = createLogger('WebViteConfig');
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' } as const;
-const ReactCompilerInclude = [
-  /[/\\]apps[/\\]web[/\\]src[/\\].*\.[jt]sx?$/,
-  /[/\\]packages[/\\][^/\\]+[/\\]src[/\\].*\.[jt]sx?$/,
-];
 
 // Keep config concise; avoid noisy debug printing in dev
 
@@ -42,16 +38,6 @@ const {
   resolveAssistantVendorChunk,
 } = await import('@brainstrike/build-utils');
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
-const filteredReactCompilerBabelPreset = {
-  ...reactCompilerBabelPreset,
-  rolldown: {
-    ...reactCompilerBabelPreset.rolldown,
-    filter: {
-      ...reactCompilerBabelPreset.rolldown.filter,
-      id: { include: ReactCompilerInclude },
-    },
-  },
-};
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
@@ -115,7 +101,7 @@ export default defineConfig({
       jsxRuntime: 'automatic',
     }),
     babel({
-      presets: [filteredReactCompilerBabelPreset],
+      presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(), // Automatically finds and uses the root tailwind.config.js
     ...(wasmPath

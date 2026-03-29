@@ -358,37 +358,29 @@ vi.mock('@brainstrike/db', () => ({
 }));
 
 vi.mock('@brainstrike/file-explorer-ui', () => {
-  const store = (
-    selector?: (state: {
-      tokenBudget: number;
-      currentFolderId: string | null;
-      rootDirectoryHandle: { path: string; name: string } | null;
-      includeProjectTree: boolean;
-      setTokenBudget: (budget: number) => void;
-      setIncludeProjectTree: (value: boolean) => void;
-      setSelectedFiles: (files: ReadonlySet<string>) => void;
-      addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
-      removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
-      clearSelectionRules: () => void;
-    }) => unknown
-  ) => {
-    const state = {
-      tokenBudget: fileExplorerMocks.tokenBudget,
-      currentFolderId: fileExplorerMocks.currentFolderId,
-      rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
-      includeProjectTree: fileExplorerMocks.includeProjectTree,
-      setTokenBudget: fileExplorerMocks.setTokenBudget,
-      setIncludeProjectTree: fileExplorerMocks.setIncludeProjectTree,
-      setSelectedFiles: fileExplorerMocks.setSelectedFiles,
-      addMultipleSelectedFiles: fileExplorerMocks.addMultipleSelectedFiles,
-      removeMultipleSelectedFiles: fileExplorerMocks.removeMultipleSelectedFiles,
-      clearSelectionRules: fileExplorerMocks.clearSelectionRules,
-    };
+  const getState = () => ({
+    tokenBudget: fileExplorerMocks.tokenBudget,
+    currentFolderId: fileExplorerMocks.currentFolderId,
+    rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
+    includeProjectTree: fileExplorerMocks.includeProjectTree,
+    setTokenBudget: fileExplorerMocks.setTokenBudget,
+    setIncludeProjectTree: fileExplorerMocks.setIncludeProjectTree,
+    setSelectedFiles: fileExplorerMocks.setSelectedFiles,
+    addMultipleSelectedFiles: fileExplorerMocks.addMultipleSelectedFiles,
+    removeMultipleSelectedFiles: fileExplorerMocks.removeMultipleSelectedFiles,
+    clearSelectionRules: fileExplorerMocks.clearSelectionRules,
+  });
+
+  const store = (selector?: (state: ReturnType<typeof getState>) => unknown) => {
+    const state = getState();
     return selector ? selector(state) : state;
   };
+
   return {
     useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
     useFileExplorerStoreContext: () => store,
+    useFileExplorerStoreSelector: (selector: (state: ReturnType<typeof getState>) => unknown) =>
+      selector(getState()),
     useOptionalTokenCacheContext: () => fileExplorerMocks.tokenCache,
   };
 });

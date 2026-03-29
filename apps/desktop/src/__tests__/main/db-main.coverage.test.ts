@@ -1,5 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const fsMocks = vi.hoisted(() => ({
+  closeSync: vi.fn(),
+  cpSync: vi.fn(),
+  existsSync: vi.fn(() => true),
+  lstatSync: vi.fn(() => ({
+    isDirectory: () => false,
+    isFile: () => false,
+  })),
+  mkdirSync: vi.fn(),
+  openSync: vi.fn(() => 123),
+  readFileSync: vi.fn(() => ''),
+  readdirSync: vi.fn(() => []),
+  rmSync: vi.fn(),
+  unlinkSync: vi.fn(),
+  writeFileSync: vi.fn(),
+}));
+
+function applyFsMock() {
+  vi.doMock('node:fs', async (importOriginal) => {
+    const mod = await importOriginal<typeof import('node:fs')>();
+    return {
+      ...mod,
+      ...fsMocks,
+      default: { ...mod.default, ...fsMocks },
+    };
+  });
+}
+
 vi.mock('electron', () => ({
   app: {
     getPath: vi.fn(() => '/tmp'),
@@ -7,34 +35,26 @@ vi.mock('electron', () => ({
 }));
 
 // Mock fs utils to avoid touching real filesystem
-vi.mock('node:fs', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('node:fs')>();
-  const mocks = {
-    existsSync: vi.fn(() => true),
-    mkdirSync: vi.fn(),
-    rmSync: vi.fn(),
-    cpSync: vi.fn(),
-    readdirSync: vi.fn(() => []),
-    openSync: vi.fn(() => 123),
-    writeFileSync: vi.fn(),
-    closeSync: vi.fn(),
-    unlinkSync: vi.fn(),
-    readFileSync: vi.fn(() => ''),
-    lstatSync: vi.fn(() => ({
-      isDirectory: () => false,
-      isFile: () => false,
-    })),
-  };
-  return {
-    ...mod,
-    ...mocks,
-    default: { ...mod.default, ...mocks },
-  };
-});
+applyFsMock();
 
 describe('db-main coverage helpers', () => {
   beforeEach(() => {
     vi.resetModules();
+    applyFsMock();
+    fsMocks.existsSync.mockReturnValue(true);
+    fsMocks.mkdirSync.mockReset();
+    fsMocks.rmSync.mockReset();
+    fsMocks.cpSync.mockReset();
+    fsMocks.readdirSync.mockReturnValue([]);
+    fsMocks.openSync.mockReturnValue(123);
+    fsMocks.writeFileSync.mockReset();
+    fsMocks.closeSync.mockReset();
+    fsMocks.unlinkSync.mockReset();
+    fsMocks.readFileSync.mockReturnValue('');
+    fsMocks.lstatSync.mockReturnValue({
+      isDirectory: () => false,
+      isFile: () => false,
+    });
     process.env['NODE_ENV'] = 'test';
     process.env['BRAINSTRIKE_DB_PROFILE'] = '';
     vi.doMock('@electric-sql/pglite/vector', () => ({ vector: { name: 'vector' } }));

@@ -43,25 +43,7 @@ function resolveVendorChunk(id: string): string | undefined {
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' } as const;
-// CRITICAL: Keep React/Babel transforms scoped to source files only.
-// Letting the React plugin process package dist artifacts (especially large worker bundles)
-// causes multi-second startup stalls in desktop dev while Vite/Babel reprocesses megabytes
-// of non-React code before first paint.
-const ReactPluginInclude = [
-  /[/\\]apps[/\\]desktop[/\\]src[/\\].*\.[jt]sx?$/,
-  /[/\\]packages[/\\][^/\\]+[/\\]src[/\\].*\.[jt]sx?$/,
-];
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
-const filteredReactCompilerBabelPreset = {
-  ...reactCompilerBabelPreset,
-  rolldown: {
-    ...reactCompilerBabelPreset.rolldown,
-    filter: {
-      ...reactCompilerBabelPreset.rolldown.filter,
-      id: { include: ReactPluginInclude },
-    },
-  },
-};
 
 export default defineConfig({
   root: __dirname,
@@ -72,11 +54,10 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react({
-      include: ReactPluginInclude,
       jsxRuntime: 'automatic',
     }),
     babel({
-      presets: [filteredReactCompilerBabelPreset],
+      presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(),
     ...(wasmPath

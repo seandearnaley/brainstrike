@@ -30,6 +30,8 @@ vi.mock('@brainstrike/hooks', () => ({
 // Mock the file explorer provider - optional context
 vi.mock('../../file-explorer-provider', () => ({
   useOptionalFileExplorerStoreContext: () => null,
+  useOptionalFileExplorerStoreSelector: (_selector: unknown, fallbackValue: unknown) =>
+    fallbackValue,
 }));
 
 // Mock the logger to avoid noise in tests
