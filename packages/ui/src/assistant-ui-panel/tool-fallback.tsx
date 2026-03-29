@@ -130,6 +130,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
         </div>
         {showDetails && (
           <Button
+            aria-controls="tool-details"
             aria-expanded={!isCollapsed}
             aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}
             className="size-8"
