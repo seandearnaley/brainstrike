@@ -2,23 +2,33 @@ import { EventEmitter } from 'node:events';
 import type http from 'node:http';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@brainstrike/agent', () => ({
-  assistantDataStreamSessions: { create: vi.fn() },
-  convertAssistantUiMessages: vi.fn((messages: unknown) => messages),
-  resolveDataStreamSession: vi.fn(),
-  sanitizeStreamChunk: vi.fn((chunk: unknown) => chunk),
-  toAiSdkStyleStream: vi.fn(),
-}));
+// Partial mocks: spread real module, only override I/O-bound functions.
+// This preserves v8 coverage for pure functions (convertAssistantUiMessages,
+// sanitizeStreamChunk) while mocking functions that make HTTP calls or manage state.
+vi.mock('@brainstrike/agent', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
+  return {
+    ...actual,
+    assistantDataStreamSessions: { create: vi.fn() },
+    resolveDataStreamSession: vi.fn(),
+    toAiSdkStyleStream: vi.fn(),
+  };
+});
 
-vi.mock('../server/assistant-config', () => ({
-  resolveAssistantProviderConfig: vi.fn(),
-}));
+vi.mock('../server/assistant-config', async () => {
+  const actual = await vi.importActual<typeof import('../server/assistant-config')>(
+    '../server/assistant-config'
+  );
+  return {
+    ...actual,
+    resolveAssistantProviderConfig: vi.fn(),
+  };
+});
 
 import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent';
 import {
   assistantDataStreamSessions,
   resolveDataStreamSession,
-  sanitizeStreamChunk,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import {
@@ -180,10 +190,10 @@ describe('assistant-stream-helpers', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['Content-Type']).toContain('application/json');
-    expect(vi.mocked(sanitizeStreamChunk)).toHaveBeenCalledTimes(2);
 
     const lines = res.body.trim().split('\n');
     expect(lines).toHaveLength(2);
+    // sanitizeStreamChunk now runs real — verify output matches sanitized input
     expect(JSON.parse(lines[0]!)).toEqual(chunks[0]);
     expect(JSON.parse(lines[1]!)).toEqual(chunks[1]);
   });
