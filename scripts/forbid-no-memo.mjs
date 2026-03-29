@@ -27,8 +27,8 @@ const IGNORE_PATTERNS = [
   '**/reports/**',
 ];
 
-const forbiddenDirective = ['use', 'no', 'memo'].join(' ');
-const NO_MEMO_PATTERN = new RegExp(`(['"])${forbiddenDirective}\\1`, 'g');
+const forbiddenDirective = ['use', 'no', 'memo'].join(' '); // split to avoid self-match
+const NO_MEMO_PATTERN = new RegExp(`^\\s*(['"])${forbiddenDirective}\\1;?\\s*$`, 'gm');
 
 function getLineNumber(sourceText, matchIndex) {
   return sourceText.slice(0, matchIndex).split('\n').length;

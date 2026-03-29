@@ -46,11 +46,11 @@ const LazyQueueDiagnosticsPanel = lazy(async () => {
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
 
 interface DiagnosticsSettingsCategory {
+  readonly content: ReactNode;
   readonly description?: string;
   readonly icon?: LucideIcon;
   readonly id: string;
   readonly keywords?: string[];
-  readonly render: () => ReactNode;
   readonly title: string;
 }
 
@@ -359,6 +359,6 @@ export function createSystemDiagnosticsSettingsCategory(): DiagnosticsSettingsCa
     description: 'Monitor database, queue, and worker health in real-time.',
     keywords: ['diagnostics', 'health', 'status', 'database', 'queue', 'worker', 'monitoring'],
     icon: Activity,
-    render: () => <ConnectedSystemDiagnosticsPanel />,
+    content: <ConnectedSystemDiagnosticsPanel />,
   };
 }

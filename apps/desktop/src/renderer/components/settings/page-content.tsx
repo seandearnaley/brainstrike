@@ -19,7 +19,6 @@ import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
-  resolveSettingsCategoryContent,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences/settings-page-content';
@@ -304,10 +303,7 @@ export default function SettingsPageContent() {
         operations: toolOperations,
         mcpAvailable: true,
       }),
-      {
-        ...diagnosticsCategory,
-        content: resolveSettingsCategoryContent(diagnosticsCategory),
-      },
+      diagnosticsCategory,
       createFactoryResetSettingsCategory({
         isWebPlatform: false,
         inlineFixtureSetting: {

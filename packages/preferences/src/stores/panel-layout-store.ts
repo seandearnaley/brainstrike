@@ -11,6 +11,7 @@
  */
 import type { StorageAdapter } from '@brainstrike/storage';
 import { createBrowserStorageAdapter } from '@brainstrike/storage';
+import { createLogger } from '@brainstrike/utils';
 import type { StateCreator } from 'zustand';
 import { type PersistOptions, type PersistStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -63,6 +64,7 @@ const STORE_NAME = 'panel-layout-store.v1' as const;
  * Panels smaller than this threshold are considered corrupted and reset to defaults.
  */
 const MIN_PANEL_SIZE = 10;
+const logger = createLogger('PanelLayoutStore');
 
 const creator: StateCreator<PanelLayoutStoreState, [['zustand/persist', unknown]], []> = (
   set,
@@ -123,7 +125,12 @@ function parsePersistedPanelState(raw: string | null): PersistedPanelState | nul
       state.sizes = [...DEFAULT_STATE.sizes] as [number, number, number];
     }
     return state;
-  } catch {
+  } catch (error) {
+    if (process.env['NODE_ENV'] !== 'production') {
+      logger.warn('Ignoring invalid persisted panel layout state', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     return null;
   }
 }

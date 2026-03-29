@@ -290,7 +290,8 @@ export async function activateSidebarNavigation(
   await expect(navigationButton).toBeVisible();
   await expect(navigationButton).toBeEnabled();
   // Playwright's native click retries kept racing this sidebar's rerender path.
-  // We still gate on visibility, then dispatch the click event deterministically.
+  // These assertions intentionally cover the most important actionability checks
+  // before we dispatch the click event deterministically.
   await navigationButton.dispatchEvent('click');
 }
 

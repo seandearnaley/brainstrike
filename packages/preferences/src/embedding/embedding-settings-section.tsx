@@ -279,6 +279,7 @@ function toNormalizedRuntimeProvider(
 ): NormalizedEmbeddingProvider {
   const providerMetadata = LOCAL_RUNTIME_PROVIDER_METADATA[providerId];
   if (!providerMetadata) {
+    // Fail fast so new runtime ids cannot silently drift from their metadata mapping.
     throw new Error(`Unknown local runtime provider: ${providerId}`);
   }
 

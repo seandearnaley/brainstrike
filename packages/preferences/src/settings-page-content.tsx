@@ -37,6 +37,7 @@ const SETTINGS_HASH_PREFIX = 'settings/';
 export interface SettingsCategory {
   /**
    * React content displayed when the category is active.
+   * Note: the ReactNode is created eagerly, but only mounted when selected.
    */
   content: ReactNode;
   /**
@@ -70,21 +71,6 @@ export interface SettingsCategory {
    * Should be concise and descriptive (2-3 words recommended).
    */
   title: string;
-}
-
-export function resolveSettingsCategoryContent(category: {
-  content?: ReactNode;
-  id: string;
-  render?: () => ReactNode;
-}): ReactNode {
-  // TODO: Remove the legacy render fallback once all settings factories return `content`.
-  if (category.content !== undefined) {
-    return category.content;
-  }
-  if (typeof category.render === 'function') {
-    return category.render();
-  }
-  throw new Error(`Settings category "${category.id}" is missing content`);
 }
 
 /**

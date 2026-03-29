@@ -13,6 +13,8 @@ async function activateNavigationThemeToggle(
 ): Promise<void> {
   const themeToggle = page.getByRole('button', { name: label });
   await expect(themeToggle).toBeVisible();
+  await expect(themeToggle).toBeEnabled();
+  // This keeps keyboard semantics while avoiding the nav-toggle rerender detach race.
   await themeToggle.focus();
   await page.keyboard.press('Enter');
 }
@@ -187,6 +189,11 @@ test.describe('Theme Switching', () => {
     await activateAppearanceThemeButton(page, 'Light');
     await page.waitForTimeout(100);
     await expect(htmlElement).not.toHaveClass(/dark/);
+
+    // Preview mode does not serve /settings directly on hard reload, so return
+    // to the app root before verifying reload persistence.
+    await activateSidebarNavigation(page, 'Context Explorer');
+    await waitForContextExplorerPage(page);
 
     await page.reload();
     await expect(

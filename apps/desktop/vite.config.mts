@@ -9,6 +9,7 @@ import {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
+  getReactCompilerExcludePatterns,
   getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } from '@brainstrike/build-utils';
@@ -51,11 +52,7 @@ const ReactPluginInclude = [
   /[/\\]apps[/\\]desktop[/\\]src[/\\].*\.[jt]sx?$/,
   /[/\\]packages[/\\][^/\\]+[/\\]src[/\\].*\.[jt]sx?$/,
 ];
-const ReactCompilerExclude = [
-  /[/\\]node_modules[/\\]/,
-  /[/\\]packages[/\\]app-shell[/\\]src[/\\].*\.[jt]sx?$/,
-  /[/\\]packages[/\\]file-explorer-ui[/\\]src[/\\].*\.[jt]sx?$/,
-];
+const ReactCompilerExclude = getReactCompilerExcludePatterns();
 const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
 const filteredReactCompilerBabelPreset = {
   ...reactCompilerBabelPreset,

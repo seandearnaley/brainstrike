@@ -24,25 +24,6 @@ const ReactCompilerInclude = [
   /[/\\]apps[/\\]web[/\\]src[/\\].*\.[jt]sx?$/,
   /[/\\]packages[/\\][^/\\]+[/\\]src[/\\].*\.[jt]sx?$/,
 ];
-const ReactCompilerExclude = [
-  /[/\\]node_modules[/\\]/,
-  /[/\\]packages[/\\]app-shell[/\\]src[/\\].*\.[jt]sx?$/,
-  /[/\\]packages[/\\]file-explorer-ui[/\\]src[/\\].*\.[jt]sx?$/,
-];
-const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
-const filteredReactCompilerBabelPreset = {
-  ...reactCompilerBabelPreset,
-  rolldown: {
-    ...reactCompilerBabelPreset.rolldown,
-    filter: {
-      ...reactCompilerBabelPreset.rolldown.filter,
-      id: {
-        include: ReactCompilerInclude,
-        exclude: ReactCompilerExclude,
-      },
-    },
-  },
-};
 
 // Keep config concise; avoid noisy debug printing in dev
 
@@ -57,9 +38,25 @@ const {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
+  getReactCompilerExcludePatterns,
   getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } = await import('@brainstrike/build-utils');
+const ReactCompilerExclude = getReactCompilerExcludePatterns();
+const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
+const filteredReactCompilerBabelPreset = {
+  ...reactCompilerBabelPreset,
+  rolldown: {
+    ...reactCompilerBabelPreset.rolldown,
+    filter: {
+      ...reactCompilerBabelPreset.rolldown.filter,
+      id: {
+        include: ReactCompilerInclude,
+        exclude: ReactCompilerExclude,
+      },
+    },
+  },
+};
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
