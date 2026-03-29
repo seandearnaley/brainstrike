@@ -101,6 +101,7 @@ export default defineConfig({
       jsxRuntime: 'automatic',
     }),
     babel({
+      exclude: [/[\\/]\.vite[\\/]/, /[\\/]node_modules[\\/]/],
       presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(), // Automatically finds and uses the root tailwind.config.js

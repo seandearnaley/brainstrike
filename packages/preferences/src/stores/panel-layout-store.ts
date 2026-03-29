@@ -122,7 +122,10 @@ function parsePersistedPanelState(raw: string | null): PersistedPanelState | nul
       return null;
     }
     if (state.sizes && hasCorruptedSizes(state.sizes)) {
-      state.sizes = [...DEFAULT_STATE.sizes] as [number, number, number];
+      return {
+        ...state,
+        sizes: [...DEFAULT_STATE.sizes] as [number, number, number],
+      };
     }
     return state;
   } catch (error) {

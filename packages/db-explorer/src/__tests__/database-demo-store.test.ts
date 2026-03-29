@@ -64,4 +64,46 @@ describe('database-demo-store', () => {
     expect(state.searchQuery).toBe('report');
     expect(state.searchThreshold).toBe(0.7);
   });
+
+  it('migrates non-object legacy snapshots to the default closed settings state', async () => {
+    localStorage.setItem(
+      'database-demo.v2',
+      JSON.stringify({
+        state: 'corrupted',
+        version: 2,
+      })
+    );
+
+    const persistApi = (
+      useDatabaseDemoStore as unknown as { persist?: { rehydrate?: () => Promise<void> } }
+    ).persist;
+
+    await persistApi?.rehydrate?.();
+
+    const state = useDatabaseDemoStore.getState();
+    expect(state.showSettings).toBe(false);
+    expect(state.expandedFileIds).toEqual([]);
+    expect(state.recordPage).toBe(0);
+    expect(state.recordPageSize).toBe(50);
+    expect(state.searchQuery).toBe('');
+    expect(state.searchThreshold).toBe(0.5);
+  });
+
+  it('swallows storage clearing failures in the test reset helper', () => {
+    const persistApi = (
+      useDatabaseDemoStore as unknown as { persist?: { clearStorage?: () => void } }
+    ).persist;
+    if (!persistApi?.clearStorage) {
+      throw new Error('expected database demo store persist API');
+    }
+
+    const originalClearStorage = persistApi.clearStorage;
+    persistApi.clearStorage = () => {
+      throw new Error('storage unavailable');
+    };
+
+    expect(() => __resetDatabaseDemoStoreForTests()).not.toThrow();
+
+    persistApi.clearStorage = originalClearStorage;
+  });
 });

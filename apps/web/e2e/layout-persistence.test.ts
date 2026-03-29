@@ -397,6 +397,23 @@ test.describe('IDE Layout Persistence', () => {
       // Verify panel is still visible (state persisted)
       await expect(leftPanel).toBeVisible();
     });
+
+    test('should preserve hidden explorer state across page navigation', async ({ page }) => {
+      const leftPanel = page.locator('[id="explorer-panel"]');
+      await expect(leftPanel).toBeVisible();
+
+      await page.getByTestId('hide-explorer-panel').click();
+      await expect(leftPanel).not.toBeVisible();
+
+      await activateSidebarNavigation(page, 'Settings');
+      await waitForSettingsPage(page);
+
+      await activateSidebarNavigation(page, 'Context Explorer');
+      await waitForContextExplorerPage(page);
+
+      await expect(leftPanel).not.toBeVisible();
+      await expect(page.getByTestId('show-explorer-panel')).toBeVisible();
+    });
   });
 
   test.describe('Layout State Recovery', () => {

@@ -57,6 +57,7 @@ export default defineConfig({
       jsxRuntime: 'automatic',
     }),
     babel({
+      exclude: [/[\\/]\.vite[\\/]/, /[\\/]node_modules[\\/]/],
       presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(),
