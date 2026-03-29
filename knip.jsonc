@@ -328,6 +328,9 @@
         "vitest.mutation.config.ts", // Used by Stryker mutation testing
         "stryker.config.js" // Mutation testing config
       ],
+      "ignoreDependencies": [
+        "esbuild" // Pulled indirectly by vite-plugin-wasm / vitest tooling in this workspace
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -394,7 +397,8 @@
   ],
   // Keep existing global settings
   "ignoreBinaries": [
-    "sed" // System binary used in package.json scripts
+    "sed", // System binary used in package.json scripts
+    "unset" // Shell builtin used in desktop e2e convenience scripts
   ],
   "ignoreDependencies": [
     // These might need re-evaluation after running Knip
@@ -409,6 +413,7 @@
     "ts-node", // Likely used for scripts/configs
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
     "@vitejs/plugin-react", // Only used in Vite config
+    "babel-plugin-react-compiler", // Resolved indirectly by reactCompilerPreset in Vite config
     "@stryker-mutator/api", // Used for JSDoc type annotations in stryker.config.js files
     "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)

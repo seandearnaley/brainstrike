@@ -217,12 +217,12 @@ describe('createSystemDiagnosticsSettingsCategory', () => {
     expect(category.keywords).toContain('health');
     expect(category.keywords).toContain('database');
     expect(category.icon).toBeDefined();
-    expect(category.render).toBeInstanceOf(Function);
+    expect(category.content).toBeTruthy();
   });
 
-  it('renders SystemDiagnosticsPanel when render is called', () => {
+  it('renders SystemDiagnosticsPanel when content is rendered', () => {
     const category = createSystemDiagnosticsSettingsCategory();
-    render(category.render());
+    render(category.content);
 
     expect(screen.getByText('System Diagnostics')).toBeInTheDocument();
   });
@@ -236,7 +236,7 @@ describe('createSystemDiagnosticsSettingsCategory', () => {
     });
 
     const category = createSystemDiagnosticsSettingsCategory();
-    render(category.render());
+    render(category.content);
 
     // Verify the panel shows the correct status from context
     expect(screen.getByText('Fully Operational')).toBeInTheDocument();
@@ -248,7 +248,7 @@ describe('createSystemDiagnosticsSettingsCategory', () => {
     mockUseOptionalTokenCacheContext.mockReturnValue(null);
 
     const category = createSystemDiagnosticsSettingsCategory();
-    render(category.render());
+    render(category.content);
 
     // Verify the panel shows default "Not Ready" state
     expect(screen.getByText('Not Ready')).toBeInTheDocument();
@@ -263,7 +263,7 @@ describe('createSystemDiagnosticsSettingsCategory', () => {
     });
 
     const category = createSystemDiagnosticsSettingsCategory();
-    render(category.render());
+    render(category.content);
 
     expect(screen.getByText('Memory Only')).toBeInTheDocument();
     expect(

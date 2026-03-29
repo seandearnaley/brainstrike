@@ -8,11 +8,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToolCard } from '../tool-card';
 import type { ToolDisplayMetadata, ToolExecutionResult } from '../types';
 
-// Mock @brainstrike/agent/client
-vi.mock('@brainstrike/agent/client', () => ({
+// Mock @brainstrike/agent/tool-metadata
+vi.mock('@brainstrike/agent/tool-metadata', () => ({
   TOOL_CATEGORIES: {
     retrieval: { label: 'Retrieval' },
-    action: { label: 'Action' },
+    action: { label: 'Actions' },
     analysis: { label: 'Analysis' },
     configuration: { label: 'Configuration' },
     validation: { label: 'Validation' },
@@ -234,7 +234,7 @@ describe('ToolCard', () => {
     it('renders action category correctly', () => {
       const actionTool = { ...mockTool, category: 'action' as const };
       render(<ToolCard onToggle={mockOnToggle} tool={actionTool} />);
-      expect(screen.getByText('Action')).toBeInTheDocument();
+      expect(screen.getByText('Actions')).toBeInTheDocument();
     });
 
     it('renders analysis category correctly', () => {

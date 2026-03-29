@@ -6,7 +6,10 @@ import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { generateProjectTreeText } from '@brainstrike/utils/tree-generator';
 import { useCallback, useMemo, useState } from 'react';
 import type { ContextExportOptions } from './context-export-options';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
 import { usePreviewPanelReportActions } from './hooks/use-preview-panel-report-actions';
 import { useTextTokenCount } from './hooks/use-text-token-count';
 import { PreviewPanel } from './preview-panel';
@@ -53,7 +56,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     useRegex,
     folderSummaryThreshold,
     setFolderSummaryThreshold,
-  ] = store(
+  ] = useFileExplorerStoreSelector(
     (s) =>
       [
         s.tokenBudget,

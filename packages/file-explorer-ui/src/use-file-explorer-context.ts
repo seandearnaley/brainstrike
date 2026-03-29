@@ -16,7 +16,10 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
 import { useOptionalFileTreeContext } from './file-tree-provider';
 import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
@@ -248,11 +251,11 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const selectDisabledExcludeFilters = (s: FileExplorerState) => s.disabledExcludeFilters;
 
   const store = useFileExplorerStoreContext();
-  const includeFilters = store(selectIncludeFilters);
-  const excludeFilters = store(selectExcludeFilters);
-  const useRegex = store(selectUseRegex);
-  const disabledIncludeFilters = store(selectDisabledIncludeFilters);
-  const disabledExcludeFilters = store(selectDisabledExcludeFilters);
+  const includeFilters = useFileExplorerStoreSelector(selectIncludeFilters);
+  const excludeFilters = useFileExplorerStoreSelector(selectExcludeFilters);
+  const useRegex = useFileExplorerStoreSelector(selectUseRegex);
+  const disabledIncludeFilters = useFileExplorerStoreSelector(selectDisabledIncludeFilters);
+  const disabledExcludeFilters = useFileExplorerStoreSelector(selectDisabledExcludeFilters);
 
   // Compute active filters by excluding disabled ones
   const activeIncludeFilters = useMemo(
@@ -270,17 +273,17 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const deferredIncludeFilters = useDeferredValue(activeIncludeFilters);
   const deferredExcludeFilters = useDeferredValue(activeExcludeFilters);
   const deferredUseRegex = useDeferredValue(useRegex);
-  const setFilters = store(selectSetFilters);
-  const setUseRegex = store(selectSetUseRegex);
-  const storeClearFileContents = store(selectClearFileContents);
-  const clearSelectedFiles = store(selectClearSelectedFiles);
-  const setExpandedPaths = store(selectSetExpandedPaths);
+  const setFilters = useFileExplorerStoreSelector(selectSetFilters);
+  const setUseRegex = useFileExplorerStoreSelector(selectSetUseRegex);
+  const storeClearFileContents = useFileExplorerStoreSelector(selectClearFileContents);
+  const clearSelectedFiles = useFileExplorerStoreSelector(selectClearSelectedFiles);
+  const setExpandedPaths = useFileExplorerStoreSelector(selectSetExpandedPaths);
   // Subscribe to these values so effect fires when store rehydrates
-  const selectedFilePaths = store(selectSelectedFilePaths);
-  const expandedDirectoryPaths = store(selectExpandedDirectoryPaths);
+  const selectedFilePaths = useFileExplorerStoreSelector(selectSelectedFilePaths);
+  const expandedDirectoryPaths = useFileExplorerStoreSelector(selectExpandedDirectoryPaths);
   // Use isAccessLoading from store (shared state, not local hook state)
-  const storeIsAccessLoading = store(selectIsAccessLoading);
-  const setIsAccessLoading = store(selectSetIsAccessLoading);
+  const storeIsAccessLoading = useFileExplorerStoreSelector(selectIsAccessLoading);
+  const setIsAccessLoading = useFileExplorerStoreSelector(selectSetIsAccessLoading);
 
   const {
     rootDirectoryHandle,

@@ -19,7 +19,10 @@ import { fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useOptionalFileExplorerStoreContext } from '../file-explorer-provider';
+import {
+  useOptionalFileExplorerStoreContext,
+  useOptionalFileExplorerStoreSelector,
+} from '../file-explorer-provider';
 import type { FileSystemHandle } from '../utils/worker-node-conversion';
 import { rehydrateTree } from '../utils/worker-node-conversion';
 import {
@@ -352,9 +355,9 @@ export function useRecursiveFolderSelect(
   const store = useOptionalFileExplorerStoreContext();
 
   // Get filter settings from store if available
-  const includeFilters = store?.(selectIncludeFilters) ?? [];
-  const excludeFilters = store?.(selectExcludeFilters) ?? [];
-  const useRegex = store?.(selectUseRegex) ?? false;
+  const includeFilters = useOptionalFileExplorerStoreSelector(selectIncludeFilters, []);
+  const excludeFilters = useOptionalFileExplorerStoreSelector(selectExcludeFilters, []);
+  const useRegex = useOptionalFileExplorerStoreSelector(selectUseRegex, false);
 
   // Get the filter implementation
   const { applyFileFilters } = useFileFilters();

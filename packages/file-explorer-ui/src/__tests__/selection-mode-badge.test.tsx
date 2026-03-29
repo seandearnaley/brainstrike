@@ -17,17 +17,22 @@ const mockClearSelectionRules = vi.fn();
 
 vi.mock('../file-explorer-provider', async (importOriginal) => {
   const original = await importOriginal<typeof import('../file-explorer-provider')>();
+  const useFileExplorerStoreContext = vi.fn(() => {
+    const mockStore = vi.fn((selector: (state: unknown) => unknown) =>
+      selector({
+        selectionModel: mockSelectionModel,
+        setSelectionMode: mockSetSelectionMode,
+        clearSelectionRules: mockClearSelectionRules,
+      })
+    );
+    return mockStore;
+  });
   return {
     ...original,
-    useFileExplorerStoreContext: vi.fn(() => {
-      const mockStore = vi.fn((selector: (state: unknown) => unknown) =>
-        selector({
-          selectionModel: mockSelectionModel,
-          setSelectionMode: mockSetSelectionMode,
-          clearSelectionRules: mockClearSelectionRules,
-        })
-      );
-      return mockStore;
+    useFileExplorerStoreContext,
+    useFileExplorerStoreSelector: vi.fn((selector: (state: unknown) => unknown) => {
+      const store = useFileExplorerStoreContext();
+      return store(selector);
     }),
   };
 });

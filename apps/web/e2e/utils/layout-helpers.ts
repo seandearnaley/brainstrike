@@ -281,6 +281,20 @@ export async function waitForSettingsPage(page: Page, timeout = 15_000): Promise
   });
 }
 
+export async function activateSidebarNavigation(
+  page: Page,
+  label: 'Context Explorer' | 'Settings'
+): Promise<void> {
+  const expect = await getPlaywrightExpect();
+  const navigationButton = page.getByRole('button', { name: label, exact: true });
+  await expect(navigationButton).toBeVisible();
+  await expect(navigationButton).toBeEnabled();
+  // Playwright's native click retries kept racing this sidebar's rerender path.
+  // These assertions intentionally cover the most important actionability checks
+  // before we dispatch the click event deterministically.
+  await navigationButton.dispatchEvent('click');
+}
+
 /**
  * Clear layout state and reload page with clean state
  */

@@ -3,9 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useSelectionManager } from '../use-selection-manager-context';
 
-vi.mock('../file-explorer-provider', () => ({
-  useFileExplorerStoreContext: vi.fn(),
-}));
+vi.mock('../file-explorer-provider', () => {
+  const useFileExplorerStoreContext = vi.fn();
+  return {
+    useFileExplorerStoreContext,
+    useFileExplorerStoreSelector: vi.fn((selector: (state: unknown) => unknown) => {
+      const store = useFileExplorerStoreContext();
+      return store(selector);
+    }),
+  };
+});
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useSelectionManager: vi.fn(({ selectedFilePaths, setSelectedFiles }) => ({

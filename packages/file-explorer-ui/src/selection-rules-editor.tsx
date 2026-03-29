@@ -28,7 +28,7 @@ import {
 } from '@brainstrike/ui';
 import { Info, Minus, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useFileExplorerStoreSelector } from './file-explorer-provider';
 
 /** Props for the selection rules editor */
 export interface SelectionRulesEditorProps {
@@ -574,12 +574,11 @@ export const SelectionRulesEditor = memo<SelectionRulesEditorProps>(function Sel
   onOpenChange,
   folderId,
 }) {
-  const store = useFileExplorerStoreContext();
   // Use separate selectors to avoid array reference instability with useSyncExternalStore
-  const selectionModel = store((s) => s.selectionModel);
-  const setSelectionRules = store((s) => s.setSelectionRules);
-  const setSelectionMode = store((s) => s.setSelectionMode);
-  const clearSelectionRules = store((s) => s.clearSelectionRules);
+  const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
+  const setSelectionRules = useFileExplorerStoreSelector((s) => s.setSelectionRules);
+  const setSelectionMode = useFileExplorerStoreSelector((s) => s.setSelectionMode);
+  const clearSelectionRules = useFileExplorerStoreSelector((s) => s.clearSelectionRules);
 
   const handleSave = useCallback(
     (ruleSetJson: string) => {

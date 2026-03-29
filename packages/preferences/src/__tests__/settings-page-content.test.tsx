@@ -30,10 +30,10 @@ describe('SettingsPageContent', () => {
 
   const makeCategory = (id: string, title: string, description?: string): SettingsCategory => {
     const category: SettingsCategory = {
+      content: <div data-testid={`category-${id}`}>{title}</div>,
       id,
       title,
       keywords: [title.toLowerCase()],
-      render: () => <div data-testid={`category-${id}`}>{title}</div>,
     };
     if (description !== undefined) {
       category.description = description;
@@ -158,14 +158,14 @@ describe('createFactoryResetSettingsCategory', () => {
     expect(category.icon).toBeDefined();
   });
 
-  it('returns a category with a render function', () => {
+  it('returns a category with content', () => {
     const category = createFactoryResetSettingsCategory();
-    expect(category.render).toBeInstanceOf(Function);
+    expect(category.content).toBeTruthy();
   });
 
-  it('render function returns FactoryResetSettingsSection component', () => {
+  it('content returns FactoryResetSettingsSection component', () => {
     const category = createFactoryResetSettingsCategory();
-    const { container } = render(category.render() as React.ReactElement);
+    const { container } = render(category.content as React.ReactElement);
     expect(container.querySelector('[data-testid="factory-reset-settings-section"]')).toBeTruthy();
   });
 

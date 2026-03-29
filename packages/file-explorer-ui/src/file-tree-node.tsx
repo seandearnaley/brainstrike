@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback } from 'react';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { FolderSelectionDialog } from './folder-selection-dialog';
 import NodeCheckbox from './node-checkbox';
 import NodeIcon from './node-icon';
@@ -41,10 +41,9 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
     isLoading,
     folderId,
   }) => {
-    const store = useFileExplorerStoreContext();
-    const selectedFilePaths = store((s) => s.selectedFilePaths);
-    const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
-    const maxSelectionCount = store((s) => s.maxSelectionCount);
+    const selectedFilePaths = useFileExplorerStoreSelector((s) => s.selectedFilePaths);
+    const expandedDirectoryPaths = useFileExplorerStoreSelector((s) => s.expandedDirectoryPaths);
+    const maxSelectionCount = useFileExplorerStoreSelector((s) => s.maxSelectionCount);
     const {
       checkboxState,
       folderInfo,

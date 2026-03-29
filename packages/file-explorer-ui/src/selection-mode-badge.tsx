@@ -21,7 +21,7 @@ import {
 } from '@brainstrike/ui';
 import { BookOpen, CheckSquare, Sparkles } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useFileExplorerStoreSelector } from './file-explorer-provider';
 
 export interface SelectionModeBadgeProps {
   /** Callback when rules editor should be opened */
@@ -125,17 +125,13 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
   rulesEditorAvailable = true,
   show = true,
 }) {
-  'use no memo';
-
-  const store = useFileExplorerStoreContext();
-
   // FIX: React Compiler + multiple selectors + optional chaining on Set causes React #311
   // in Electron production builds. Solution: select entire selectionModel object ONCE
   // (same pattern used successfully by SelectionRulesEditor), then derive values in render.
   // This avoids multiple useSyncExternalStore subscriptions updating simultaneously.
-  const selectionModel = store((s) => s.selectionModel);
-  const setSelectionMode = store((s) => s.setSelectionMode);
-  const clearSelectionRules = store((s) => s.clearSelectionRules);
+  const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
+  const setSelectionMode = useFileExplorerStoreSelector((s) => s.setSelectionMode);
+  const clearSelectionRules = useFileExplorerStoreSelector((s) => s.clearSelectionRules);
 
   // Derive values from selectionModel in render (not in selectors)
   const isRulesMode = selectionModel.mode === 'rules';

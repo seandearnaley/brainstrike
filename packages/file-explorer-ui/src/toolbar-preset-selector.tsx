@@ -13,7 +13,10 @@ import { isDevEnv } from '@brainstrike/utils/env-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import * as React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
 import { useViewFilterPresets } from './hooks/use-view-filter-presets';
 import { ViewFilterPresetDropdown } from './view-filter-preset-dropdown';
 
@@ -376,13 +379,13 @@ const ToolbarPresetSelector: React.FC<ToolbarPresetSelectorProps> = React.memo(
 
     // Subscribe to each store field independently so preset label updates
     // cannot be dropped by a composite selector equality mismatch.
-    const includeFilters = store((s) => s.includeFilters);
-    const excludeFilters = store((s) => s.excludeFilters);
-    const useRegex = store((s) => s.useRegex);
-    const viewFilterPresetId = store((s) => s.viewFilterPresetId);
-    const setViewFilterPresetId = store((s) => s.setViewFilterPresetId);
-    const setFilters = store((s) => s.setFilters);
-    const setUseRegex = store((s) => s.setUseRegex);
+    const includeFilters = useFileExplorerStoreSelector((s) => s.includeFilters);
+    const excludeFilters = useFileExplorerStoreSelector((s) => s.excludeFilters);
+    const useRegex = useFileExplorerStoreSelector((s) => s.useRegex);
+    const viewFilterPresetId = useFileExplorerStoreSelector((s) => s.viewFilterPresetId);
+    const setViewFilterPresetId = useFileExplorerStoreSelector((s) => s.setViewFilterPresetId);
+    const setFilters = useFileExplorerStoreSelector((s) => s.setFilters);
+    const setUseRegex = useFileExplorerStoreSelector((s) => s.setUseRegex);
 
     // Create persist helper - stable reference via useCallback
     const persistPatch = useCallback(

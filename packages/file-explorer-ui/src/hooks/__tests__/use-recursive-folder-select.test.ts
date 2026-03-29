@@ -31,6 +31,8 @@ vi.mock('@brainstrike/hooks', () => ({
 // Tests can override this to test the store context fallback
 vi.mock('../../file-explorer-provider', () => ({
   useOptionalFileExplorerStoreContext: () => null,
+  useOptionalFileExplorerStoreSelector: (_selector: unknown, fallbackValue: unknown) =>
+    fallbackValue,
 }));
 
 // Mock utilities

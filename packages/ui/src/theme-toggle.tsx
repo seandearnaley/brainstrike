@@ -13,7 +13,8 @@ export function ThemeToggle() {
       <TooltipTrigger asChild>
         <Button
           aria-label={tooltipLabel}
-          className="kinetic-depress h-12 w-12 rounded-lg transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-sm active:translate-y-0"
+          className="h-12 w-12 rounded-lg transition-colors duration-200 ease-out hover:shadow-sm"
+          depress={false}
           onClick={() => setTheme(nextTheme)}
           size="icon"
           variant="ghost"

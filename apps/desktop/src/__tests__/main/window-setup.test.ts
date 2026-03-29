@@ -197,10 +197,10 @@ describe('window setup', () => {
     mockApp.isPackaged = false;
     isDevEnvMock.mockReturnValue(true);
 
-    const { setupSecurity } = await import('../../main');
+    const { setupSecurity } = await import('../../setup-security');
     setupSecurity();
 
-    expect(onHeadersReceivedMock).toHaveBeenCalledTimes(2);
+    expect(onHeadersReceivedMock).toHaveBeenCalledTimes(1);
     const handler = onHeadersReceivedMock.mock.calls.at(-1)?.[0] as (
       details: { responseHeaders?: Record<string, string[]> },
       callback: (r: { responseHeaders: Record<string, string[]> }) => void
@@ -237,10 +237,10 @@ describe('window setup', () => {
     mockApp.isPackaged = true;
     isDevEnvMock.mockReturnValue(false);
 
-    const { setupSecurity } = await import('../../main');
+    const { setupSecurity } = await import('../../setup-security');
     setupSecurity();
 
-    expect(onHeadersReceivedMock).toHaveBeenCalledTimes(2);
+    expect(onHeadersReceivedMock).toHaveBeenCalledTimes(1);
     const handler = onHeadersReceivedMock.mock.calls.at(-1)?.[0] as (
       details: { responseHeaders?: Record<string, string[]> },
       callback: (r: { responseHeaders: Record<string, string[]> }) => void

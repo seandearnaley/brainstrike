@@ -1,6 +1,16 @@
 import type { createAppMock } from '@brainstrike/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const electronMockState = vi.hoisted(() => ({
+  app: null as
+    | (ReturnType<typeof createAppMock> & {
+        dock?: { hide: ReturnType<typeof vi.fn> };
+        requestSingleInstanceLock?: ReturnType<typeof vi.fn>;
+        setActivationPolicy?: ReturnType<typeof vi.fn>;
+      })
+    | null,
+}));
+
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');
   const app = electronUtils.createAppMock({
@@ -12,6 +22,11 @@ vi.mock('electron', async () => {
     requestSingleInstanceLock: vi.fn(() => true),
     setActivationPolicy: vi.fn(),
   });
+  electronMockState.app = app as ReturnType<typeof createAppMock> & {
+    dock?: { hide: ReturnType<typeof vi.fn> };
+    requestSingleInstanceLock?: ReturnType<typeof vi.fn>;
+    setActivationPolicy?: ReturnType<typeof vi.fn>;
+  };
 
   const ipcMain = electronUtils.createIpcMainMock();
   Object.assign(ipcMain, {
@@ -79,6 +94,7 @@ const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];
 describe('main E2E window isolation', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.clearAllMocks();
     process.argv = ORIGINAL_ARGV.filter((arg) => arg !== '--test-mode');
     // biome-ignore lint/performance/noDelete: process.env coerces = undefined to the string "undefined"; delete is the only way to truly clear a key
     delete process.env['ELECTRON_IS_E2E_TEST'];
@@ -101,13 +117,9 @@ describe('main E2E window isolation', () => {
     await import('../../main');
     await Promise.resolve();
 
-    const { app } = await import('electron');
-    const mockedApp = app as unknown as ReturnType<typeof createAppMock> & {
-      dock?: { hide: ReturnType<typeof vi.fn> };
-      requestSingleInstanceLock?: ReturnType<typeof vi.fn>;
-      setActivationPolicy?: ReturnType<typeof vi.fn>;
-    };
+    const mockedApp = electronMockState.app;
 
+    expect(mockedApp).not.toBeNull();
     expect(mockedApp.requestSingleInstanceLock).not.toHaveBeenCalled();
     expect(mockedApp.on).not.toHaveBeenCalledWith('second-instance', expect.any(Function));
 
@@ -121,11 +133,9 @@ describe('main E2E window isolation', () => {
     await import('../../main');
     await Promise.resolve();
 
-    const { app } = await import('electron');
-    const mockedApp = app as unknown as ReturnType<typeof createAppMock> & {
-      requestSingleInstanceLock?: ReturnType<typeof vi.fn>;
-    };
+    const mockedApp = electronMockState.app;
 
+    expect(mockedApp).not.toBeNull();
     expect(mockedApp.requestSingleInstanceLock).toHaveBeenCalledTimes(1);
     expect(mockedApp.on).toHaveBeenCalledWith('second-instance', expect.any(Function));
   });
