@@ -19,9 +19,9 @@ const OVERRIDES = new Map([
   // Vitest 4: L 94.52% | F 76.75% | B 66.23% | S 74.64%
   // Recalibrated 2025-01 after FileTreeIndex type-change handling and handle cleanup additions
   ['@brainstrike/file-explorer-ui', { lines: 94, functions: 76, branches: 66, statements: 74 }],
-  // App shell — measured 2026-03: L 73.63% | F 68.52% | B 72.40% | S 73.63%
-  // Recalibrated 2026-03 — coverage regressed from component refactors; Phase 3 work needed.
-  ['@brainstrike/app-shell', { lines: 72, functions: 67, branches: 71, statements: 72 }],
+  // App shell — measured 2026-03: L 99.41% | F 89.87% | B 76.03% | S 88.07%
+  // Ratcheted after database-demo hooks, format utils, and export handler test additions.
+  ['@brainstrike/app-shell', { lines: 98, functions: 88, branches: 75, statements: 87 }],
   // Desktop — measured 2026-03: L 91.45% | F 71.10% | B 61.33% | S 71.54%
   // Recalibrated 2026-03 — coverage drifted from new IPC code; Phase 3 work needed.
   ['@brainstrike/desktop', { lines: 90, functions: 70, branches: 60, statements: 70 }],
@@ -56,8 +56,9 @@ const OVERRIDES = new Map([
   // Web Worker context where `typeof self !== 'undefined'`. This code cannot be tested
   // in Node.js - it's guarded by runtime environment check and legitimately untestable.
   ['@brainstrike/embedding-worker', { lines: 89, functions: 93, branches: 53, statements: 74 }],
-  // File explorer thresholds recalibrated in 2026-03.
-  ['@brainstrike/file-explorer', { lines: 92, functions: 84, branches: 70, statements: 82 }],
+  // File explorer — measured 2026-03: L 96.44% | F 86.53% | B 80.43% | S 87.93%
+  // Ratcheted after state-serialization, file-selection-actions, tab-persistence, worker-storage branch tests.
+  ['@brainstrike/file-explorer', { lines: 95, functions: 85, branches: 79, statements: 86 }],
   // File tree worker thresholds recalibrated in 2026-03.
   ['@brainstrike/file-tree-worker', { lines: 92, functions: 90, branches: 68, statements: 84 }],
   // File import thresholds ratcheted in 2026-03 after worker initialization/timeout edge-case tests.
