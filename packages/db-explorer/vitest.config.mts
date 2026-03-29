@@ -14,6 +14,18 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../agent/src/client.ts'),
       },
       {
+        find: '@brainstrike/agent/local-runtime',
+        replacement: resolve(import.meta.dirname, '../agent/src/local-runtime.ts'),
+      },
+      {
+        find: '@brainstrike/agent/provider-metadata',
+        replacement: resolve(import.meta.dirname, '../agent/src/provider-metadata.ts'),
+      },
+      {
+        find: '@brainstrike/agent/tool-metadata',
+        replacement: resolve(import.meta.dirname, '../agent/src/tool-metadata.ts'),
+      },
+      {
         find: '@brainstrike/embeddings/provider-core',
         replacement: resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
       },

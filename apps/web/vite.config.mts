@@ -277,8 +277,20 @@ export default defineConfig({
       // Force pino to browser build to avoid dynamic require of node libs
       pino: pinoBrowserPath,
       'pino/browser.js': pinoBrowserPath,
-      // Agent client-safe exports (no Mastra dependencies)
+      // Agent browser-safe subpath exports (no Mastra dependencies)
       '@brainstrike/agent/client': path.resolve(__dirname, '../../packages/agent/src/client.ts'),
+      '@brainstrike/agent/local-runtime': path.resolve(
+        __dirname,
+        '../../packages/agent/src/local-runtime.ts'
+      ),
+      '@brainstrike/agent/provider-metadata': path.resolve(
+        __dirname,
+        '../../packages/agent/src/provider-metadata.ts'
+      ),
+      '@brainstrike/agent/tool-metadata': path.resolve(
+        __dirname,
+        '../../packages/agent/src/tool-metadata.ts'
+      ),
       // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports
       '@electric-sql/pglite/dist/fs/nodefs.js': '@electric-sql/pglite/dist/fs/opfs-ahp.js',
       './fs/nodefs.js': './fs/opfs-ahp.js',
