@@ -298,10 +298,22 @@ export default defineConfig({
         find: 'pino/browser.js',
         replacement: pinoBrowserPath,
       },
-      // Agent client-safe exports (no Mastra dependencies)
+      // Agent browser-safe subpath exports (no Mastra dependencies)
       {
         find: '@brainstrike/agent/client',
         replacement: path.resolve(__dirname, '../../packages/agent/src/client.ts'),
+      },
+      {
+        find: '@brainstrike/agent/local-runtime',
+        replacement: path.resolve(__dirname, '../../packages/agent/src/local-runtime.ts'),
+      },
+      {
+        find: '@brainstrike/agent/provider-metadata',
+        replacement: path.resolve(__dirname, '../../packages/agent/src/provider-metadata.ts'),
+      },
+      {
+        find: '@brainstrike/agent/tool-metadata',
+        replacement: path.resolve(__dirname, '../../packages/agent/src/tool-metadata.ts'),
       },
       // Force PGlite to use browser FS implementation in renderer to avoid node:fs imports
       {

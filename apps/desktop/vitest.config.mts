@@ -43,6 +43,18 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/agent/src/client.ts'
       ),
+      '@brainstrike/agent/local-runtime': path.resolve(
+        import.meta.dirname,
+        '../../packages/agent/src/local-runtime.ts'
+      ),
+      '@brainstrike/agent/provider-metadata': path.resolve(
+        import.meta.dirname,
+        '../../packages/agent/src/provider-metadata.ts'
+      ),
+      '@brainstrike/agent/tool-metadata': path.resolve(
+        import.meta.dirname,
+        '../../packages/agent/src/tool-metadata.ts'
+      ),
       '@brainstrike/embeddings/runtime-config': path.resolve(
         import.meta.dirname,
         '../../packages/embeddings/src/runtime-config.ts'

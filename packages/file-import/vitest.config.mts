@@ -5,6 +5,18 @@ export default defineConfig({
   resolve: {
     alias: {
       '@brainstrike/agent/client': resolve(import.meta.dirname, '../agent/src/client.ts'),
+      '@brainstrike/agent/local-runtime': resolve(
+        import.meta.dirname,
+        '../agent/src/local-runtime.ts'
+      ),
+      '@brainstrike/agent/provider-metadata': resolve(
+        import.meta.dirname,
+        '../agent/src/provider-metadata.ts'
+      ),
+      '@brainstrike/agent/tool-metadata': resolve(
+        import.meta.dirname,
+        '../agent/src/tool-metadata.ts'
+      ),
     },
   },
   test: {

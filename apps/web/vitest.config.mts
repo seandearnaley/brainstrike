@@ -50,6 +50,18 @@ export default defineConfig({
         import.meta.dirname,
         '../../packages/agent/src/client.ts'
       ),
+      '@brainstrike/agent/local-runtime': resolve(
+        import.meta.dirname,
+        '../../packages/agent/src/local-runtime.ts'
+      ),
+      '@brainstrike/agent/provider-metadata': resolve(
+        import.meta.dirname,
+        '../../packages/agent/src/provider-metadata.ts'
+      ),
+      '@brainstrike/agent/tool-metadata': resolve(
+        import.meta.dirname,
+        '../../packages/agent/src/tool-metadata.ts'
+      ),
       '@brainstrike/app-shell': resolve(import.meta.dirname, '../../packages/app-shell/src'),
       '@brainstrike/db': resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
       '@brainstrike/db-explorer': resolve(import.meta.dirname, '../../packages/db-explorer/src'),

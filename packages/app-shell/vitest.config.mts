@@ -81,6 +81,18 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../agent/src/client.ts'),
       },
       {
+        find: '@brainstrike/agent/local-runtime',
+        replacement: path.resolve(import.meta.dirname, '../agent/src/local-runtime.ts'),
+      },
+      {
+        find: '@brainstrike/agent/provider-metadata',
+        replacement: path.resolve(import.meta.dirname, '../agent/src/provider-metadata.ts'),
+      },
+      {
+        find: '@brainstrike/agent/tool-metadata',
+        replacement: path.resolve(import.meta.dirname, '../agent/src/tool-metadata.ts'),
+      },
+      {
         find: '@brainstrike/text-splitter/chunking-core',
         replacement: path.resolve(import.meta.dirname, '../text-splitter/src/chunking-core.ts'),
       },

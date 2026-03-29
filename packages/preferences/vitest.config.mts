@@ -23,6 +23,18 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../agent/src/client.ts'),
       },
       {
+        find: '@brainstrike/agent/local-runtime',
+        replacement: resolve(import.meta.dirname, '../agent/src/local-runtime.ts'),
+      },
+      {
+        find: '@brainstrike/agent/provider-metadata',
+        replacement: resolve(import.meta.dirname, '../agent/src/provider-metadata.ts'),
+      },
+      {
+        find: '@brainstrike/agent/tool-metadata',
+        replacement: resolve(import.meta.dirname, '../agent/src/tool-metadata.ts'),
+      },
+      {
         find: '@brainstrike/ui',
         replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
       },
