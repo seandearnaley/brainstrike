@@ -130,10 +130,12 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
         </div>
         {showDetails && (
           <Button
+            aria-expanded={!isCollapsed}
             aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}
             className="size-8"
             onClick={() => setIsCollapsed((prev) => !prev)}
             size="icon"
+            title={isCollapsed ? 'Expand details' : 'Collapse details'}
             variant="ghost"
           >
             {isCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
