@@ -25,3 +25,7 @@
 ## 2026-03-13 - Native Regex over String Iteration for Character Stripping
 **Learning:** For stripping specific characters (like XML-illegal control characters < 0x20) from strings, using a pre-compiled regular expression with `.replace(/.../g, '')` is significantly faster (~30x for clean strings, ~5x for dirty strings) than manually iterating over the string with a `for...of` loop and rebuilding it character-by-character. Native regex avoids JavaScript string allocations and executes at C++ speed in V8.
 **Action:** Replace manual character-by-character string filtering loops with pre-compiled regular expressions when the goal is simply to remove specific characters or character ranges.
+
+## 2026-03-20 - Fast getPathDepth implementation
+**Learning:** `path.split('/').filter(Boolean).length` creates intermediate arrays and string segments leading to high GC overhead in hot paths involving file tree traversal and loading.
+**Action:** Replace split-based path depth counting with a native string loop iterating over character codes (`charCodeAt(i) === 47`) and tracking segment boundaries (`!inSegment`) to achieve zero allocations. This yields ~2x performance improvement over `split`.

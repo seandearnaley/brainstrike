@@ -28,7 +28,7 @@ export interface TreeNode {
   type: 'file' | 'directory' | 'loadMore';
 }
 
-const PATH_SEPARATOR_CODE = 47;
+const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
 
 /**
  * Returns true only when targetPath is nested under ancestorPath on a path boundary.
@@ -340,5 +340,17 @@ export function resetDirectoryNode<T extends TreeNode>(node: T): T {
  * ```
  */
 export function getPathDepth(path: string): number {
-  return path.split('/').filter(Boolean).length;
+  let count = 0;
+  let inSegment = false;
+  for (let i = 0; i < path.length; i++) {
+    if (path.charCodeAt(i) !== PATH_SEPARATOR_CODE) {
+      if (!inSegment) {
+        count++;
+        inSegment = true;
+      }
+    } else {
+      inSegment = false;
+    }
+  }
+  return count;
 }
