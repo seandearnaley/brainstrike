@@ -41,9 +41,9 @@ const OVERRIDES = new Map([
   ['@brainstrike/db', { lines: 85, functions: 73, branches: 61, statements: 70 }],
   // DB Explorer thresholds recalibrated in 2026-03.
   ['@brainstrike/db-explorer', { lines: 95, functions: 75, branches: 62, statements: 74 }],
-  // Web app — measured 2026-03: L 65.41% | F 50.00% | B 36.60% | S 46.37%
-  // Recalibrated 2026-03 — coverage regressed from new route/streaming code; Phase 3 work needed.
-  ['@brainstrike/web', { lines: 64, functions: 49, branches: 35, statements: 45 }],
+  // Web app — measured 2026-03: L 99.44% | F 86.41% | B 74.77% | S 90.27%
+  // Ratcheted after partial-mock refactoring restored coverage for stream-helpers and routes.
+  ['@brainstrike/web', { lines: 98, functions: 85, branches: 73, statements: 89 }],
   // Embeddings — heavy integration excluded from unit coverage
   // Vitest 4: L 0.00% | F 0.00% | B 0.00% | S 0.00% (no files covered)
   ['@brainstrike/embeddings', { lines: 0, functions: 0, branches: 0, statements: 0 }],
