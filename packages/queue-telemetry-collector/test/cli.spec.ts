@@ -139,4 +139,54 @@ describe('CLI', () => {
     expect(cliMocks.stop).toHaveBeenCalledTimes(1);
     expect(process.exit).toHaveBeenCalledWith(0);
   });
+
+  it('stops collector and exits cleanly on SIGTERM', async () => {
+    const handlers = new Map<string, () => Promise<void>>();
+    vi.spyOn(process, 'on').mockImplementation(
+      (event: Parameters<typeof process.on>[0], handler: (signal?: NodeJS.Signals) => void) => {
+        if (event === 'SIGINT' || event === 'SIGTERM') {
+          handlers.set(event, async () => {
+            handler(event);
+          });
+        }
+        return process;
+      }
+    );
+
+    await cli.runQueueTelemetryCollectorCli({});
+
+    const shutdown = handlers.get('SIGTERM');
+    expect(shutdown).toBeDefined();
+    await shutdown?.();
+
+    expect(cliMocks.stop).toHaveBeenCalledTimes(1);
+    expect(process.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('throws error for port value of zero', async () => {
+    await expect(
+      cli.runQueueTelemetryCollectorCli({
+        QUEUE_TELEMETRY_PORT: '0',
+      })
+    ).rejects.toThrow('Invalid QUEUE_TELEMETRY_PORT value');
+  });
+
+  it('throws error for max body bytes value of zero', async () => {
+    await expect(
+      cli.runQueueTelemetryCollectorCli({
+        QUEUE_TELEMETRY_MAX_BODY_BYTES: '0',
+      })
+    ).rejects.toThrow('Invalid QUEUE_TELEMETRY_MAX_BODY_BYTES value');
+  });
+
+  it('starts collector without optional apiKey', async () => {
+    await cli.runQueueTelemetryCollectorCli({
+      QUEUE_TELEMETRY_HOST: '127.0.0.1',
+      QUEUE_TELEMETRY_PORT: '3000',
+    });
+
+    expect(collectorModule.createQueueTelemetryCollector).toHaveBeenCalledWith(
+      expect.not.objectContaining({ apiKey: expect.anything() })
+    );
+  });
 });

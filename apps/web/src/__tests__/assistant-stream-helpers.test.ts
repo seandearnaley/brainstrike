@@ -18,6 +18,7 @@ import type { AssistantDataStreamSession, StreamChunk } from '@brainstrike/agent
 import {
   assistantDataStreamSessions,
   resolveDataStreamSession,
+  sanitizeStreamChunk,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import {
@@ -154,5 +155,202 @@ describe('assistant-stream-helpers', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toContain('ok');
+  });
+
+  it('streams chat response as JSON lines when provider is enabled', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: 'hello' } as StreamChunk,
+      { type: 'text-delta', value: ' world' } as StreamChunk,
+    ];
+
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        for (const c of chunks) {
+          yield c;
+        }
+      },
+    };
+
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
+
+    const res = new ResponseSink();
+    await handleChatEndpoint({ messages: [] }, res as unknown as http.ServerResponse);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['Content-Type']).toContain('application/json');
+    expect(vi.mocked(sanitizeStreamChunk)).toHaveBeenCalledTimes(2);
+
+    const lines = res.body.trim().split('\n');
+    expect(lines).toHaveLength(2);
+    expect(JSON.parse(lines[0]!)).toEqual(chunks[0]);
+    expect(JSON.parse(lines[1]!)).toEqual(chunks[1]);
+  });
+
+  it('resolves last-event-id from array header using the last element', async () => {
+    const response = new Response('resumed-from-array');
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveDataStreamSession).mockImplementation((id: string | null | undefined) =>
+      id === 'evt-2'
+        ? ({
+            createResponse: () => response,
+          } as unknown as AssistantDataStreamSession)
+        : undefined
+    );
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = { 'last-event-id': ['evt-1', 'evt-2'] } as unknown as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+
+    expect(vi.mocked(resolveDataStreamSession)).toHaveBeenCalledWith('evt-2');
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('resumed-from-array');
+  });
+
+  it('creates a new session when no last-event-id header is present', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+
+    const stream: AsyncIterable<StreamChunk> = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'text-delta', value: 'new' } as StreamChunk;
+      },
+    };
+
+    vi.mocked(toAiSdkStyleStream).mockResolvedValue(stream);
+    vi.mocked(assistantDataStreamSessions.create).mockImplementation(
+      () =>
+        ({
+          createResponse: () => new Response('fresh-session'),
+        }) as unknown as AssistantDataStreamSession
+    );
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = {} as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+
+    expect(vi.mocked(resolveDataStreamSession)).toHaveBeenCalledWith(undefined);
+    expect(vi.mocked(assistantDataStreamSessions.create)).toHaveBeenCalled();
+    expect(res.body).toContain('fresh-session');
+  });
+
+  it('calls res.end() when response body is null', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+    vi.mocked(resolveDataStreamSession).mockReturnValue({
+      createResponse: () => new Response(null, { status: 200 }),
+    } as unknown as AssistantDataStreamSession);
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = { 'last-event-id': 'evt-null' } as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    const endSpy = vi.spyOn(res, 'end');
+
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+
+    expect(endSpy).toHaveBeenCalled();
+    expect(res.status).toBe(200);
+  });
+
+  it('waits for drain event when write returns false (backpressure)', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+
+    // Create a response that has a body with content
+    const encoder = new TextEncoder();
+    const bodyStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('chunk-data'));
+        controller.close();
+      },
+    });
+    const response = new Response(bodyStream, { status: 200 });
+
+    vi.mocked(resolveDataStreamSession).mockReturnValue({
+      createResponse: () => response,
+    } as unknown as AssistantDataStreamSession);
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = { 'last-event-id': 'evt-bp' } as http.IncomingHttpHeaders;
+
+    // Override write to return false (signal backpressure), then emit drain
+    const res = new ResponseSink();
+    let drainResolved = false;
+    res.write = (chunk: Uint8Array | string) => {
+      res.body += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      // Schedule drain event to unblock the writer
+      setTimeout(() => {
+        drainResolved = true;
+        res.emit('drain');
+      }, 5);
+      return false; // signal backpressure
+    };
+
+    await handleAssistantEndpoint(req, res as unknown as http.ServerResponse, { messages: [] });
+
+    expect(drainResolved).toBe(true);
+    expect(res.body).toContain('chunk-data');
+  });
+
+  it('completes streaming after req emits close (abort cleanup)', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({ enabled: true, apiKey: 'key' });
+
+    let resolveChunk: (() => void) | undefined;
+    const chunkReady = new Promise<void>((r) => {
+      resolveChunk = r;
+    });
+
+    const encoder = new TextEncoder();
+    const bodyStream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        // Enqueue one chunk, then wait before closing so we can emit 'close'
+        controller.enqueue(encoder.encode('before-abort'));
+        resolveChunk!();
+        // Yield control so the abort can fire
+        await new Promise((r) => setTimeout(r, 10));
+        controller.close();
+      },
+    });
+    const response = new Response(bodyStream, { status: 200 });
+
+    vi.mocked(resolveDataStreamSession).mockReturnValue({
+      createResponse: () => response,
+    } as unknown as AssistantDataStreamSession);
+
+    const req = new EventEmitter() as http.IncomingMessage;
+    req.headers = { 'last-event-id': 'evt-abort' } as http.IncomingHttpHeaders;
+
+    const res = new ResponseSink();
+    const endSpy = vi.spyOn(res, 'end');
+
+    const streamPromise = handleAssistantEndpoint(req, res as unknown as http.ServerResponse, {
+      messages: [],
+    });
+
+    // Wait for the first chunk to be read, then simulate client disconnect
+    await chunkReady;
+    req.emit('close');
+
+    await streamPromise;
+
+    // Response should still end gracefully
+    expect(endSpy).toHaveBeenCalled();
+  });
+
+  it('sends enabled: true status when provider is enabled', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      enabled: true,
+      apiKey: 'key',
+    });
+
+    const res = new ResponseSink();
+    sendAssistantStatusResponse(res as unknown as http.ServerResponse);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['Content-Type']).toContain('application/json');
+    expect(JSON.parse(res.body)).toEqual({ enabled: true });
   });
 });
