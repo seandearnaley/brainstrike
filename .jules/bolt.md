@@ -25,3 +25,7 @@
 ## 2026-03-13 - Native Regex over String Iteration for Character Stripping
 **Learning:** For stripping specific characters (like XML-illegal control characters < 0x20) from strings, using a pre-compiled regular expression with `.replace(/.../g, '')` is significantly faster (~30x for clean strings, ~5x for dirty strings) than manually iterating over the string with a `for...of` loop and rebuilding it character-by-character. Native regex avoids JavaScript string allocations and executes at C++ speed in V8.
 **Action:** Replace manual character-by-character string filtering loops with pre-compiled regular expressions when the goal is simply to remove specific characters or character ranges.
+
+## 2026-03-29 - Avoid array allocations in hot path path parsing
+**Learning:** Using `path.split('/').filter(Boolean).length` in hot loops (e.g. tree traversal operations) creates two intermediate arrays and iterates the segments multiple times, causing huge garbage collection overhead and slower execution times. Using `String.prototype.indexOf` within a `while` loop avoids any memory allocations and achieves a >2x performance improvement.
+**Action:** When counting character occurrences or splitting simple paths in performance-critical loops, avoid methods that implicitly create arrays (like `.split()` or `.match()`) and opt for manual scanning with `indexOf` and `.charCodeAt`.

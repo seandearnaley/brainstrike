@@ -340,5 +340,28 @@ export function resetDirectoryNode<T extends TreeNode>(node: T): T {
  * ```
  */
 export function getPathDepth(path: string): number {
-  return path.split('/').filter(Boolean).length;
+  if (!path) {
+    return 0;
+  }
+
+  let depth = 0;
+  let pos = 0;
+  const len = path.length;
+
+  while (pos < len) {
+    const nextSlash = path.indexOf('/', pos);
+
+    if (nextSlash === -1) {
+      depth++;
+      break;
+    }
+
+    if (nextSlash > pos) {
+      depth++;
+    }
+
+    pos = nextSlash + 1;
+  }
+
+  return depth;
 }
