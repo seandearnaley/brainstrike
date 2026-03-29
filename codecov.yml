@@ -11,6 +11,7 @@ coverage:
         # PRs currently upload affected-only unit coverage, so project-wide deltas
         # are not a reliable merge gate. Keep patch coverage blocking instead.
         informational: true
+        only_pulls: true
         target: 70%
         threshold: 0.5%
     patch:
