@@ -105,11 +105,16 @@ const mockStoreState = {
   setSchemaVerified: vi.fn(),
 };
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
-  useVectorStatusUIStore: vi.fn((selector: (state: typeof mockStoreState) => unknown) =>
-    selector(mockStoreState)
-  ),
-}));
+vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/preferences/stores/vector-status-ui-store')>();
+  return {
+    ...actual,
+    useVectorStatusUIStore: vi.fn((selector: (state: typeof mockStoreState) => unknown) =>
+      selector(mockStoreState)
+    ),
+  };
+});
 
 // Use a valid HTML structure for select mock - no nested divs inside select
 vi.mock('@brainstrike/ui', async () => {

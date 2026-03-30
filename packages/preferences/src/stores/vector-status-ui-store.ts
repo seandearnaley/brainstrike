@@ -10,10 +10,19 @@ export function compareCollectionsDesc(
   left: { createdAt: string; id: string },
   right: { createdAt: string; id: string }
 ): number {
-  return (
-    (right.createdAt < left.createdAt ? -1 : right.createdAt > left.createdAt ? 1 : 0) ||
-    (right.id < left.id ? -1 : right.id > left.id ? 1 : 0)
-  );
+  if (right.createdAt < left.createdAt) {
+    return -1;
+  }
+  if (right.createdAt > left.createdAt) {
+    return 1;
+  }
+  if (right.id < left.id) {
+    return -1;
+  }
+  if (right.id > left.id) {
+    return 1;
+  }
+  return 0;
 }
 
 /**
