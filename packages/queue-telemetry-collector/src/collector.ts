@@ -119,6 +119,9 @@ export function createQueueTelemetryCollector(
   const port = options.port ?? 0;
   const path = normalisePath(options.path ?? DEFAULT_COLLECTOR_PATH);
   const apiKey = options.apiKey ?? null;
+  const apiKeyHmac = apiKey
+    ? createHmac('sha256', Buffer.from(apiKey, 'utf8')).update(Buffer.from(apiKey, 'utf8')).digest()
+    : null;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const maxStoredBatches = options.maxStoredBatches ?? DEFAULT_MAX_STORED_BATCHES;
   const onBatchCallback = options.onBatch ?? null;
@@ -176,7 +179,7 @@ export function createQueueTelemetryCollector(
   };
 
   const validateApiKey = (request: IncomingMessage): ValidationError | null => {
-    if (!apiKey) {
+    if (!(apiKey && apiKeyHmac)) {
       return null;
     }
     const providedKey = headerValue(request.headers['x-api-key']);
@@ -184,15 +187,12 @@ export function createQueueTelemetryCollector(
       return { status: 401, message: 'Unauthorized' };
     }
 
-    const providedBuffer = Buffer.from(providedKey, 'utf8');
-    const apiBuffer = Buffer.from(apiKey, 'utf8');
+    // HMAC the provided value to normalize length and prevent leaking key length via timing
+    const providedHmac = createHmac('sha256', Buffer.from(apiKey, 'utf8'))
+      .update(Buffer.from(providedKey, 'utf8'))
+      .digest();
 
-    // HMAC both values to normalize length and prevent leaking key length via timing
-    const hmac = (data: Buffer): Buffer => {
-      return createHmac('sha256', apiBuffer).update(data).digest();
-    };
-
-    if (timingSafeEqual(hmac(providedBuffer), hmac(apiBuffer))) {
+    if (timingSafeEqual(providedHmac, apiKeyHmac)) {
       return null;
     }
 
