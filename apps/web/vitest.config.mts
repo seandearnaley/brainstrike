@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
+import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
 
@@ -46,10 +47,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@brainstrike/agent': resolve(import.meta.dirname, '../../packages/agent/src'),
-      '@brainstrike/agent/client': resolve(
-        import.meta.dirname,
-        '../../packages/agent/src/client.ts'
-      ),
+      ...createAgentBrowserSafeAliasMap(resolve(import.meta.dirname, '../../packages/agent')),
       '@brainstrike/app-shell': resolve(import.meta.dirname, '../../packages/app-shell/src'),
       '@brainstrike/db': resolve(import.meta.dirname, '../../packages/db/src/index.ts'),
       '@brainstrike/db-explorer': resolve(import.meta.dirname, '../../packages/db-explorer/src'),

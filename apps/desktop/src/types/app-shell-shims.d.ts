@@ -57,11 +57,11 @@ declare module '@brainstrike/app-shell/stores/tools-panel-store' {
 
 declare module '@brainstrike/app-shell/diagnostics' {
   export interface SettingsCategory {
+    content: React.ReactNode;
     description?: string;
     icon?: LucideIcon;
     id: string;
     keywords?: string[];
-    render: () => React.ReactNode;
     title: string;
   }
 

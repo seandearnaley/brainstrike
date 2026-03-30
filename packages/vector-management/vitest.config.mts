@@ -4,6 +4,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -146,10 +147,7 @@ export default defineConfig({
         find: '@brainstrike/queue',
         replacement: resolve(__dirname, '../queue/src/index.ts'),
       },
-      {
-        find: '@brainstrike/agent/client',
-        replacement: resolve(__dirname, '../agent/src/client.ts'),
-      },
+      ...createAgentBrowserSafeAliasEntries(resolve(__dirname, '../agent')),
       {
         find: /^@brainstrike\/preferences\/(.*)$/,
         replacement: resolve(__dirname, '../preferences/src/$1'),

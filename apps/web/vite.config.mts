@@ -11,6 +11,7 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
+import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -277,8 +278,8 @@ export default defineConfig({
       // Force pino to browser build to avoid dynamic require of node libs
       pino: pinoBrowserPath,
       'pino/browser.js': pinoBrowserPath,
-      // Agent client-safe exports (no Mastra dependencies)
-      '@brainstrike/agent/client': path.resolve(__dirname, '../../packages/agent/src/client.ts'),
+      // Agent browser-safe subpath exports (no Mastra dependencies)
+      ...createAgentBrowserSafeAliasMap(path.resolve(__dirname, '../../packages/agent')),
       // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports
       '@electric-sql/pglite/dist/fs/nodefs.js': '@electric-sql/pglite/dist/fs/opfs-ahp.js',
       './fs/nodefs.js': './fs/opfs-ahp.js',
