@@ -1,6 +1,6 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
-import { type ComponentProps, type ReactElement, useState } from 'react';
+import { type ComponentProps, type ReactElement, useId, useState } from 'react';
 import { Button } from '../button';
 
 type ToolFallbackProps = ComponentProps<ToolCallMessagePartComponent>;
@@ -98,6 +98,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
   status,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const detailsId = useId();
 
   const hasResult = result !== undefined;
   const displayStatus = resolveDisplayStatus(status, hasResult);
@@ -130,7 +131,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
         </div>
         {showDetails && (
           <Button
-            aria-controls="tool-details"
+            aria-controls={isCollapsed ? undefined : detailsId}
             aria-expanded={!isCollapsed}
             aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}
             className="size-8"
@@ -145,7 +146,7 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
       </div>
 
       {showDetails && !isCollapsed && (
-        <div className="flex flex-col gap-2 border-t pt-2">
+        <div className="flex flex-col gap-2 border-t pt-2" id={detailsId}>
           {argsText && (
             <div className="px-4 py-2">
               <p className="mb-1 font-medium text-muted-foreground text-xs">Arguments:</p>
