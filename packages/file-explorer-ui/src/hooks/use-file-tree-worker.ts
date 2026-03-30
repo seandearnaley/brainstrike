@@ -55,9 +55,42 @@ function buildNodeFromPath(
   rootFolderId: string,
   handle: FileSystemHandle
 ): IFileNode {
-  const pathSegments = path.replace(rootPath, '').split('/').filter(Boolean);
-  const name = pathSegments.at(-1) ?? '';
-  const depth = pathSegments.length - 1;
+  let relativePath = path;
+  if (path.startsWith(rootPath)) {
+    relativePath = path.slice(rootPath.length);
+  }
+
+  // Calculate name by finding the last segment
+  let name = '';
+  // Normalize by stripping trailing slash if present (though not expected in clean paths)
+  let searchEnd = relativePath.length;
+  if (searchEnd > 0 && relativePath.charCodeAt(searchEnd - 1) === 47) {
+    searchEnd--;
+  }
+
+  const lastSlashIndex = relativePath.lastIndexOf('/', searchEnd - 1);
+  if (lastSlashIndex !== -1) {
+    name = relativePath.slice(lastSlashIndex + 1, searchEnd);
+  } else {
+    name = relativePath.slice(0, searchEnd);
+  }
+
+  // Calculate depth by counting segments directly
+  let segmentCount = 0;
+  let inSegment = false;
+  for (let i = 0; i < relativePath.length; i++) {
+    if (relativePath.charCodeAt(i) !== 47) {
+      // '/'
+      if (!inSegment) {
+        segmentCount++;
+        inSegment = true;
+      }
+    } else {
+      inSegment = false;
+    }
+  }
+
+  const depth = Math.max(0, segmentCount - 1);
 
   return {
     name,
