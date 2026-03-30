@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { QueueTelemetryEvent, QueueTelemetryRuntime } from '@brainstrike/queue';
@@ -187,11 +187,12 @@ export function createQueueTelemetryCollector(
     const providedBuffer = Buffer.from(providedKey, 'utf8');
     const apiBuffer = Buffer.from(apiKey, 'utf8');
 
-    if (providedBuffer.length !== apiBuffer.length) {
-      return { status: 401, message: 'Unauthorized' };
-    }
+    // HMAC both values to normalize length and prevent leaking key length via timing
+    const hmac = (data: Buffer): Buffer => {
+      return createHmac('sha256', apiBuffer).update(data).digest();
+    };
 
-    if (timingSafeEqual(providedBuffer, apiBuffer)) {
+    if (timingSafeEqual(hmac(providedBuffer), hmac(apiBuffer))) {
       return null;
     }
 
