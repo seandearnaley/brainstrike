@@ -486,8 +486,11 @@ function processNodeForFilter<T>(
   if (node.hasChildren) {
     // Reuse the ancestors array to avoid allocations per node
     ancestors.push(node.id);
-    childHasMatch = traverseFn(getChildren(node), ancestors);
-    ancestors.pop();
+    try {
+      childHasMatch = traverseFn(getChildren(node), ancestors);
+    } finally {
+      ancestors.pop();
+    }
   }
 
   if (nodeMatches || childHasMatch) {
