@@ -18,7 +18,7 @@ import {
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useMemo, useRef } from 'react';
-import { useFileExplorerStoreContext } from '../file-explorer-provider';
+import { useFileExplorerStoreSelector } from '../file-explorer-provider';
 
 const logger = createLogger('useRuleMaterialization');
 
@@ -135,10 +135,9 @@ export function useRuleMaterialization({
   fileTree,
   enabled = true,
 }: UseRuleMaterializationProps): UseRuleMaterializationReturn {
-  const store = useFileExplorerStoreContext();
   // Use separate selectors to avoid array reference instability with useSyncExternalStore
-  const selectionModel = store((s) => s.selectionModel);
-  const setMaterializedPaths = store((s) => s.setMaterializedPaths);
+  const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
+  const setMaterializedPaths = useFileExplorerStoreSelector((s) => s.setMaterializedPaths);
 
   const isEvaluatingRef = useRef(false);
   const evaluationErrorRef = useRef<Error | null>(null);

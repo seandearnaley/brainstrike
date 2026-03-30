@@ -1,10 +1,11 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
+import { createAgentBrowserSafeAliasMap } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 export default defineConfig({
   resolve: {
     alias: {
-      '@brainstrike/agent/client': resolve(import.meta.dirname, '../agent/src/client.ts'),
+      ...createAgentBrowserSafeAliasMap(resolve(import.meta.dirname, '../agent')),
     },
   },
   test: {

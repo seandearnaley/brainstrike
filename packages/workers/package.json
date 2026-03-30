@@ -15,7 +15,7 @@
     "@types/node": "^25.3.0",
     "rimraf": "^6.1.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.2"
   },
   "exports": {
     "./file-content-worker": {

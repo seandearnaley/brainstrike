@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findNodeByPath,
+  getPathDepth,
   isDescendantPath,
   type TreeNode,
   updateNodeChildren,
@@ -34,6 +35,23 @@ describe('tree-operations', () => {
       expect(isDescendantPath('/root/com/file.ts', '/root/com')).toBe(true);
       expect(isDescendantPath('/root/components/file.ts', '/root/com')).toBe(false);
       expect(isDescendantPath('/root/com', '/root/com')).toBe(false);
+    });
+  });
+
+  describe('getPathDepth', () => {
+    it('returns zero for empty and separator-only paths', () => {
+      expect(getPathDepth('')).toBe(0);
+      expect(getPathDepth('/')).toBe(0);
+      expect(getPathDepth('///')).toBe(0);
+    });
+
+    it('counts only real path segments', () => {
+      expect(getPathDepth('file.txt')).toBe(1);
+      expect(getPathDepth('/src/components/Button.tsx')).toBe(3);
+      expect(getPathDepth('/src//components///Button.tsx/')).toBe(3);
+      expect(getPathDepth('src/components/Button.tsx')).toBe(3);
+      expect(getPathDepth('/a/b/c/d/e/f/g/h/i/j/k')).toBe(11);
+      expect(getPathDepth('src\\components\\Button.tsx')).toBe(1);
     });
   });
 

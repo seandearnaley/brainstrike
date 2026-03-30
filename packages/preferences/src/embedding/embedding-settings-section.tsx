@@ -3,10 +3,12 @@ import {
   type LoadedRuntimeModelCatalogState,
   type LocalRuntimeId,
   type LocalRuntimeModelCatalogState,
+} from '@brainstrike/agent/local-runtime';
+import {
   listProviders,
   type ProviderDefinition,
   type ProviderModelDefinition,
-} from '@brainstrike/agent/client';
+} from '@brainstrike/agent/provider-metadata';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
@@ -159,7 +161,9 @@ function resolveKnownRuntimeDimensions(
   if (model.dimensionsKnown.state !== 'known') {
     return [];
   }
-  return model.dimensionsKnown.values.filter((value) => Number.isFinite(value) && value > 0);
+  return model.dimensionsKnown.values.filter(
+    (value: number) => Number.isFinite(value) && value > 0
+  );
 }
 
 function resolveLocalModelDimensions(model: DbModel): number {
@@ -273,39 +277,52 @@ function toNormalizedRuntimeProvider(
   providerId: LocalRuntimeId,
   state: LocalRuntimeModelCatalogState
 ): NormalizedEmbeddingProvider {
+  const providerMetadata = LOCAL_RUNTIME_PROVIDER_METADATA[providerId];
+  if (!providerMetadata) {
+    // Fail fast so new runtime ids cannot silently drift from their metadata mapping.
+    throw new Error(`Unknown local runtime provider: ${providerId}`);
+  }
+
   const models = isLoadedRuntimeModelCatalogState(state)
     ? state.models
-        .filter((model) => model.capabilities.embeddings !== 'unsupported')
-        .map<NormalizedEmbeddingModel>((model) => {
-          const knownDimensions = resolveKnownRuntimeDimensions(model);
-          const dimensions = knownDimensions[0] ?? STANDARD_EMBEDDING_DIMENSION;
-          const hasKnownDimensions = knownDimensions.length > 0;
-          const descriptionParts: string[] = [];
-          if (model.displayName !== model.modelId) {
-            descriptionParts.push(model.displayName);
-          }
-          if (!hasKnownDimensions) {
-            descriptionParts.push('Dimension pending verification');
-          }
-          if (state.state === 'stale_cached') {
-            descriptionParts.push('Using cached runtime model list');
-          }
+        .filter(
+          (model: LoadedRuntimeModelCatalogState['models'][number]) =>
+            model.capabilities.embeddings !== 'unsupported'
+        )
+        .map<NormalizedEmbeddingModel>(
+          (model: LoadedRuntimeModelCatalogState['models'][number]) => {
+            const knownDimensions = resolveKnownRuntimeDimensions(model);
+            const dimensions = knownDimensions[0] ?? STANDARD_EMBEDDING_DIMENSION;
+            const hasKnownDimensions = knownDimensions.length > 0;
+            const descriptionParts: string[] = [];
+            if (model.displayName !== model.modelId) {
+              descriptionParts.push(model.displayName);
+            }
+            if (!hasKnownDimensions) {
+              descriptionParts.push('Dimension pending verification');
+            }
+            if (state.state === 'stale_cached') {
+              descriptionParts.push('Using cached runtime model list');
+            }
 
-          return {
-            id: model.modelId,
-            label: model.displayName,
-            dimensions,
-            supportsStandardDimension: hasKnownDimensions
-              ? knownDimensions.includes(STANDARD_EMBEDDING_DIMENSION)
-              : dimensions === STANDARD_EMBEDDING_DIMENSION,
-            supportsCustomDimensions: false,
-            ...(hasKnownDimensions ? { availableDimensions: knownDimensions } : {}),
-            ...(descriptionParts.length > 0 ? { description: descriptionParts.join(' • ') } : {}),
-            isDefault: false,
-          };
-        })
-        .sort((a, b) => defaultCollator.compare(a.label, b.label))
-        .map((model, index) => ({
+            return {
+              id: model.modelId,
+              label: model.displayName,
+              dimensions,
+              supportsStandardDimension: hasKnownDimensions
+                ? knownDimensions.includes(STANDARD_EMBEDDING_DIMENSION)
+                : dimensions === STANDARD_EMBEDDING_DIMENSION,
+              supportsCustomDimensions: false,
+              ...(hasKnownDimensions ? { availableDimensions: knownDimensions } : {}),
+              ...(descriptionParts.length > 0 ? { description: descriptionParts.join(' • ') } : {}),
+              isDefault: false,
+            };
+          }
+        )
+        .sort((a: NormalizedEmbeddingModel, b: NormalizedEmbeddingModel) =>
+          defaultCollator.compare(a.label, b.label)
+        )
+        .map((model: NormalizedEmbeddingModel, index: number) => ({
           ...model,
           isDefault: index === 0,
         }))
@@ -313,8 +330,8 @@ function toNormalizedRuntimeProvider(
 
   return {
     id: providerId,
-    displayName: LOCAL_RUNTIME_PROVIDER_METADATA[providerId].displayName,
-    runtime: LOCAL_RUNTIME_PROVIDER_METADATA[providerId].runtime,
+    displayName: providerMetadata.displayName,
+    runtime: providerMetadata.runtime,
     models,
   };
 }

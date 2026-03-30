@@ -3,7 +3,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { findPGliteWasm, fullReloadOnCompilerHotspots } = await import('../vite');
+const {
+  findPGliteWasm,
+  fullReloadOnCompilerHotspots,
+  resolveAssistantVendorChunk,
+  getAssistantOptimizeDepsInclude,
+  getCoreAppOptimizeDepsInclude,
+  getDatabaseOptimizeDepsInclude,
+  getHeavyRuntimeOptimizeDepsExclude,
+  getWorkerpoolBrowserStubAliases,
+  getLazySurfaceOptimizeDepsEntries,
+} = await import('../vite');
 
 function createWorkspacePaths(prefix: string) {
   const root = mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -181,6 +191,92 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
       const result = findPGliteWasm(appDir);
       expect(result).toBe(wasmFile);
     });
+  });
+});
+
+describe('resolveAssistantVendorChunk', () => {
+  it('returns assistant-markdown-vendor for react-markdown dependency', () => {
+    expect(
+      resolveAssistantVendorChunk('/node_modules/@assistant-ui/react-markdown/dist/index.js')
+    ).toBe('assistant-markdown-vendor');
+  });
+
+  it('returns assistant-markdown-vendor for shiki dependency', () => {
+    expect(resolveAssistantVendorChunk('/node_modules/react-shiki/dist/core.js')).toBe(
+      'assistant-markdown-vendor'
+    );
+  });
+
+  it('returns assistant-vendor for react dependency', () => {
+    expect(resolveAssistantVendorChunk('/node_modules/@assistant-ui/react/dist/index.js')).toBe(
+      'assistant-vendor'
+    );
+  });
+
+  it('returns assistant-vendor for data-stream dependency', () => {
+    expect(
+      resolveAssistantVendorChunk('/node_modules/@assistant-ui/react-data-stream/dist/index.js')
+    ).toBe('assistant-vendor');
+  });
+
+  it('returns undefined for unrelated modules', () => {
+    expect(resolveAssistantVendorChunk('/node_modules/react/index.js')).toBeUndefined();
+  });
+});
+
+describe('utility getter functions', () => {
+  it('getAssistantOptimizeDepsInclude returns an array containing @assistant-ui/react', () => {
+    const result = getAssistantOptimizeDepsInclude();
+    expect(result).toContain('@assistant-ui/react');
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('getCoreAppOptimizeDepsInclude returns an array containing zod', () => {
+    const result = getCoreAppOptimizeDepsInclude();
+    expect(result).toContain('zod');
+  });
+
+  it('getDatabaseOptimizeDepsInclude returns an array containing jszip', () => {
+    const result = getDatabaseOptimizeDepsInclude();
+    expect(result).toContain('jszip');
+  });
+
+  it('getHeavyRuntimeOptimizeDepsExclude returns an array containing @huggingface/transformers', () => {
+    const result = getHeavyRuntimeOptimizeDepsExclude();
+    expect(result).toContain('@huggingface/transformers');
+  });
+});
+
+describe('getWorkerpoolBrowserStubAliases', () => {
+  it('returns aliases for child_process, os, and worker_threads', () => {
+    const aliases = getWorkerpoolBrowserStubAliases('/fake/base');
+    expect(aliases).toHaveProperty('child_process');
+    expect(aliases).toHaveProperty('os');
+    expect(aliases).toHaveProperty('worker_threads');
+    expect(Object.keys(aliases)).toHaveLength(3);
+  });
+
+  it('resolves paths relative to baseDir', () => {
+    const aliases = getWorkerpoolBrowserStubAliases('/my/project');
+    for (const aliasPath of Object.values(aliases)) {
+      expect(aliasPath).toContain('browser-node-stubs');
+    }
+  });
+});
+
+describe('getLazySurfaceOptimizeDepsEntries', () => {
+  it('throws when an entry does not exist', () => {
+    const alwaysFalse = () => false;
+    expect(() => getLazySurfaceOptimizeDepsEntries('/fake/app', alwaysFalse)).toThrow(
+      'Lazy-surface optimizeDeps entry does not exist'
+    );
+  });
+
+  it('returns entries when all files exist', () => {
+    const alwaysTrue = () => true;
+    const entries = getLazySurfaceOptimizeDepsEntries('/fake/app', alwaysTrue);
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries[0]).toContain('index.html');
   });
 });
 

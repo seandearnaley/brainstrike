@@ -11,7 +11,10 @@ const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;
 
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
 import { useOptionalFileTreeIndexContext } from './file-tree-provider';
 import { initFileContentWorker } from './utils/file-content-worker';
 import {
@@ -761,7 +764,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   // This prevents loading 1000s of files just because they're selected.
 
   // Use zustand selector to get fileContents with proper memoization
-  const fileContents = store((state) => state.fileContents);
+  const fileContents = useFileExplorerStoreSelector((state) => state.fileContents);
 
   return {
     fileContents,

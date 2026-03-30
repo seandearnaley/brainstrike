@@ -2,6 +2,19 @@ import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createPanelLayoutStore } from '../stores/panel-layout-store';
 
+const STORE_NAME = 'panel-layout-store.v1';
+
+function getPersistApi(store: ReturnType<typeof createPanelLayoutStore>): {
+  rehydrate: () => Promise<void>;
+} {
+  const persistApi = (store as unknown as { persist?: { rehydrate?: () => Promise<void> } })
+    .persist;
+  if (!persistApi?.rehydrate) {
+    throw new Error('expected panel layout store persist API');
+  }
+  return { rehydrate: persistApi.rehydrate };
+}
+
 describe('panel-layout-store', () => {
   let store: ReturnType<typeof createPanelLayoutStore>;
 
@@ -75,5 +88,76 @@ describe('panel-layout-store', () => {
     store.getState().setSizes([30, 25, 15]);
     const s = store.getState();
     expect(s.sizes).toEqual([30, 25, 15]);
+  });
+
+  it('leaves sizes unchanged when setSizes receives an empty array', () => {
+    store.getState().setSizes([]);
+    expect(store.getState().sizes).toEqual([25, 20, 20]);
+  });
+
+  it('redistributes all-zero sizes evenly', () => {
+    store.getState().setSizes([0, 0, 0]);
+    expect(store.getState().sizes).toEqual([100 / 3, 100 / 3, 100 / 3]);
+  });
+
+  it('scales oversized size totals back to 100%', () => {
+    store.getState().setSizes([60, 60, 60]);
+    const sizes = store.getState().sizes;
+    expect(sizes[0]).toBeCloseTo(100 / 3);
+    expect(sizes[1]).toBeCloseTo(100 / 3);
+    expect(sizes[2]).toBeCloseTo(100 / 3);
+  });
+
+  it('ignores invalid persisted JSON and keeps defaults', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(STORE_NAME, '{invalid json');
+
+    const persistedStore = createPanelLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().sizes).toEqual([25, 20, 20]);
+    expect(persistedStore.getState().showLeftPanel).toBe(true);
+    expect(persistedStore.getState().showRightPanel).toBe(false);
+    expect(persistedStore.getState().showConsole).toBe(false);
+  });
+
+  it('repairs corrupted persisted sizes during rehydration while preserving visibility flags', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      STORE_NAME,
+      JSON.stringify({
+        state: {
+          sizes: [4.488, 5.386, 0],
+          showLeftPanel: false,
+          showRightPanel: true,
+          showConsole: true,
+        },
+        version: 2,
+      })
+    );
+
+    const persistedStore = createPanelLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().sizes).toEqual([25, 20, 20]);
+    expect(persistedStore.getState().showLeftPanel).toBe(false);
+    expect(persistedStore.getState().showRightPanel).toBe(true);
+    expect(persistedStore.getState().showConsole).toBe(true);
+  });
+
+  it('treats persisted snapshots without state as empty', async () => {
+    const storage = createMemoryStorageAdapter();
+    await storage.setItem(
+      STORE_NAME,
+      JSON.stringify({
+        version: 2,
+      })
+    );
+
+    const persistedStore = createPanelLayoutStore(storage);
+    await getPersistApi(persistedStore).rehydrate();
+
+    expect(persistedStore.getState().sizes).toEqual([25, 20, 20]);
+    expect(persistedStore.getState().activeTab).toBe('explorer');
   });
 });

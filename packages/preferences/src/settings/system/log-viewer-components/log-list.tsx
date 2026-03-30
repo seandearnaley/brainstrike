@@ -30,7 +30,6 @@ export function LogList({
   autoScrollAnchor,
   wrapLines,
 }: LogListProps) {
-  'use no memo';
   const parentRef = useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({

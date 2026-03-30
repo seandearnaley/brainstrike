@@ -1,10 +1,26 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig((options) => ({
-  entry: ['src/index.ts', 'src/client.ts'],
+  entry: [
+    'src/index.ts',
+    'src/client.ts',
+    'src/browser-safe.ts',
+    'src/tool-metadata.ts',
+    'src/provider-metadata.ts',
+    'src/local-runtime.ts',
+    'src/context-packer.ts',
+  ],
   format: ['esm', 'cjs'],
   dts: {
-    entry: ['src/index.ts', 'src/client.ts'],
+    entry: [
+      'src/index.ts',
+      'src/client.ts',
+      'src/browser-safe.ts',
+      'src/tool-metadata.ts',
+      'src/provider-metadata.ts',
+      'src/local-runtime.ts',
+      'src/context-packer.ts',
+    ],
     compilerOptions: {
       composite: false,
     },

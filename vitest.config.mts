@@ -20,7 +20,7 @@ export default defineConfig({
     // Enable dependency optimization for better performance
     deps: {
       optimizer: {
-        web: { enabled: true },
+        client: { enabled: true },
       },
     },
     coverage: {
@@ -43,10 +43,10 @@ export default defineConfig({
       // Minimum thresholds for local aggregate runs.
       // CI thresholds are enforced per‑package in scripts/enforce-coverage.mjs.
       thresholds: {
-        lines: 70,
-        functions: 60,
-        branches: 60,
-        statements: 70,
+        lines: 72,
+        functions: 62,
+        branches: 62,
+        statements: 72,
       },
     },
   },

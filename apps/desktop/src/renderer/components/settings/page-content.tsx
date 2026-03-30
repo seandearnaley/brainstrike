@@ -1,7 +1,11 @@
-import { isNativeTool, NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/client';
+import {
+  isNativeTool,
+  NATIVE_TOOL_DEFAULTS,
+  TOOL_DESCRIPTIONS,
+} from '@brainstrike/agent/tool-metadata';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import {
-  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
   useOptionalTokenCacheContext,
 } from '@brainstrike/file-explorer-ui';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
@@ -55,10 +59,11 @@ function EmbeddingModelsCategory() {
 
 export default function SettingsPageContent() {
   // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
-  const store = useFileExplorerStoreContext();
   const tokenCache = useOptionalTokenCacheContext();
-  const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
-  const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
+  const devInlineFixtureEnabled = useFileExplorerStoreSelector((s) => s.devInlineFixtureEnabled);
+  const setDevInlineFixtureEnabled = useFileExplorerStoreSelector(
+    (s) => s.setDevInlineFixtureEnabled
+  );
   const accurateRuntimeAvailable = useMemo<boolean | null>(() => {
     if (!tokenCache) {
       return null;
@@ -272,8 +277,10 @@ export default function SettingsPageContent() {
     []
   );
 
-  const categories = useMemo<SettingsCategory[]>(
-    () => [
+  const categories = useMemo<SettingsCategory[]>(() => {
+    const diagnosticsCategory = createSystemDiagnosticsSettingsCategory();
+
+    return [
       createAppearanceSettingsCategory(),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createApiKeysSettingsCategory(),
@@ -283,7 +290,7 @@ export default function SettingsPageContent() {
         description: 'Choose chat and embedding models, manage downloads, and configure providers.',
         keywords: ['embeddings', 'models', 'providers', 'vector', 'llm', 'download'],
         icon: Layers,
-        render: () => <EmbeddingModelsCategory />,
+        content: <EmbeddingModelsCategory />,
       },
       {
         id: 'logging',
@@ -291,13 +298,13 @@ export default function SettingsPageContent() {
         description: 'Control renderer log verbosity and manage file logging for debugging.',
         keywords: ['logging', 'diagnostics', 'debugging', 'log file'],
         icon: FileCog,
-        render: () => <DesktopLoggingSettings />,
+        content: <DesktopLoggingSettings />,
       },
       createToolsSettingsCategory({
         operations: toolOperations,
         mcpAvailable: true,
       }),
-      createSystemDiagnosticsSettingsCategory(),
+      diagnosticsCategory,
       createFactoryResetSettingsCategory({
         isWebPlatform: false,
         inlineFixtureSetting: {
@@ -307,9 +314,13 @@ export default function SettingsPageContent() {
           onChange: setDevInlineFixtureEnabled,
         },
       }),
-    ],
-    [accurateRuntimeAvailable, devInlineFixtureEnabled, setDevInlineFixtureEnabled, toolOperations]
-  );
+    ];
+  }, [
+    accurateRuntimeAvailable,
+    devInlineFixtureEnabled,
+    setDevInlineFixtureEnabled,
+    toolOperations,
+  ]);
 
   return (
     <>

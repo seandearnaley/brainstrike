@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
+import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
 
@@ -18,10 +19,7 @@ export default defineConfig({
         find: '@brainstrike/embeddings/factory',
         replacement: resolve(import.meta.dirname, '../embeddings/src/factory-entry.ts'),
       },
-      {
-        find: '@brainstrike/agent/client',
-        replacement: resolve(import.meta.dirname, '../agent/src/client.ts'),
-      },
+      ...createAgentBrowserSafeAliasEntries(resolve(import.meta.dirname, '../agent')),
       {
         find: '@brainstrike/ui',
         replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),

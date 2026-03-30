@@ -3,11 +3,11 @@ import {
   NATIVE_TOOL_DEFAULTS,
   type NativeToolDefaultMetadata,
   TOOL_DESCRIPTIONS,
-} from '@brainstrike/agent/client';
+} from '@brainstrike/agent/tool-metadata';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import {
-  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
   useOptionalTokenCacheContext,
 } from '@brainstrike/file-explorer-ui';
 import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
@@ -76,9 +76,10 @@ export default function SettingsPageContent() {
   const tokenCache = useOptionalTokenCacheContext();
 
   // Inline fixture state from file explorer store context
-  const store = useFileExplorerStoreContext();
-  const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
-  const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
+  const devInlineFixtureEnabled = useFileExplorerStoreSelector((s) => s.devInlineFixtureEnabled);
+  const setDevInlineFixtureEnabled = useFileExplorerStoreSelector(
+    (s) => s.setDevInlineFixtureEnabled
+  );
 
   const logSource = useMemo<LogSourceAdapter>(() => {
     const buffer = getWebLogBuffer();
@@ -154,8 +155,10 @@ export default function SettingsPageContent() {
     []
   );
 
-  const categories = useMemo<SettingsCategory[]>(
-    () => [
+  const categories = useMemo<SettingsCategory[]>(() => {
+    const diagnosticsCategory = createSystemDiagnosticsSettingsCategory();
+
+    return [
       createAppearanceSettingsCategory(),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       {
@@ -164,7 +167,7 @@ export default function SettingsPageContent() {
         description: 'Manage AI providers and enable/disable specific models.',
         keywords: ['models', 'providers', 'llm', 'embedding', 'vector'],
         icon: Layers,
-        render: () => <ModelSelectionCategory />,
+        content: <ModelSelectionCategory />,
       },
       {
         id: 'logging',
@@ -172,13 +175,13 @@ export default function SettingsPageContent() {
         description: 'Control browser log verbosity and redaction for debugging.',
         keywords: ['logging', 'debugging', 'console', 'diagnostics'],
         icon: FileCog,
-        render: () => <LoggingSettingsSection logSource={logSource} runtime="browser" />,
+        content: <LoggingSettingsSection logSource={logSource} runtime="browser" />,
       },
       createToolsSettingsCategory({
         operations: toolOperations,
         mcpAvailable: false,
       }),
-      createSystemDiagnosticsSettingsCategory(),
+      diagnosticsCategory,
       createFactoryResetSettingsCategory({
         isWebPlatform: true,
         hasStoredFolders: storedFolders.length > 0,
@@ -190,17 +193,16 @@ export default function SettingsPageContent() {
           onChange: setDevInlineFixtureEnabled,
         },
       }),
-    ],
-    [
-      logSource,
-      storedFolders.length,
-      clearStoredHandles,
-      devInlineFixtureEnabled,
-      setDevInlineFixtureEnabled,
-      toolOperations,
-      accurateRuntimeAvailable,
-    ]
-  );
+    ];
+  }, [
+    logSource,
+    storedFolders.length,
+    clearStoredHandles,
+    devInlineFixtureEnabled,
+    setDevInlineFixtureEnabled,
+    toolOperations,
+    accurateRuntimeAvailable,
+  ]);
 
   return (
     <>

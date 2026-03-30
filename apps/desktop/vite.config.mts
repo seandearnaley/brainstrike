@@ -12,12 +12,14 @@ import {
   getWorkerpoolBrowserStubAliases,
   resolveAssistantVendorChunk,
 } from '@brainstrike/build-utils';
+import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
+import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
+import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,15 +43,8 @@ function resolveVendorChunk(id: string): string | undefined {
 }
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
-const ReactCompilerConfig = { compilationMode: 'infer' };
-// CRITICAL: Keep React/Babel transforms scoped to source files only.
-// Letting the React plugin process package dist artifacts (especially large worker bundles)
-// causes multi-second startup stalls in desktop dev while Vite/Babel reprocesses megabytes
-// of non-React code before first paint.
-const ReactPluginInclude = [
-  /[/\\]apps[/\\]desktop[/\\]src[/\\].*\.[jt]sx?$/,
-  /[/\\]packages[/\\][^/\\]+[/\\]src[/\\].*\.[jt]sx?$/,
-];
+const ReactCompilerConfig = { compilationMode: 'infer' } as const;
+const reactCompilerBabelPreset = reactCompilerPreset(ReactCompilerConfig);
 
 export default defineConfig({
   root: __dirname,
@@ -60,11 +55,11 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react({
-      include: ReactPluginInclude,
-      babel: {
-        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
-      },
       jsxRuntime: 'automatic',
+    }),
+    babel({
+      exclude: [/[\\/]\.vite[\\/]/, /[\\/]node_modules[\\/]/],
+      presets: [reactCompilerBabelPreset],
     }),
     tailwindcss(),
     ...(wasmPath
@@ -85,13 +80,21 @@ export default defineConfig({
     emptyOutDir: true,
     target: 'esnext',
     assetsInlineLimit: 0,
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },
       external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
-        manualChunks: resolveVendorChunk,
+        codeSplitting: {
+          groups: [
+            {
+              name(moduleId: string): string | null {
+                return resolveVendorChunk(moduleId) ?? null;
+              },
+            },
+          ],
+        },
       },
     },
   },
@@ -296,11 +299,8 @@ export default defineConfig({
         find: 'pino/browser.js',
         replacement: pinoBrowserPath,
       },
-      // Agent client-safe exports (no Mastra dependencies)
-      {
-        find: '@brainstrike/agent/client',
-        replacement: path.resolve(__dirname, '../../packages/agent/src/client.ts'),
-      },
+      // Agent browser-safe subpath exports (no Mastra dependencies)
+      ...createAgentBrowserSafeAliasEntries(path.resolve(__dirname, '../../packages/agent')),
       // Force PGlite to use browser FS implementation in renderer to avoid node:fs imports
       {
         find: /@electric-sql\/pglite\/dist\/fs\/nodefs\.js$/,
