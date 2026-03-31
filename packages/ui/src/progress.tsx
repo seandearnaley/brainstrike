@@ -11,6 +11,7 @@ const Progress = ({
   className,
   value,
   ref,
+  // Stripped: Radix ProgressPrimitive manages these internally
   'aria-valuemax': _ariaValueMax,
   'aria-valuemin': _ariaValueMin,
   'aria-valuenow': _ariaValueNow,
