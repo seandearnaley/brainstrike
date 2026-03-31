@@ -78,20 +78,17 @@ function buildNodeFromPath(
     name = relativePath.slice(0, searchEnd);
   }
 
-  // Calculate depth by counting slashes (each interior slash = one depth level)
+  // Calculate depth by counting interior slashes
   let depth = 0;
-  for (let i = 0; i < relativePath.length; i++) {
+  const start = relativePath.length > 0 && relativePath.charCodeAt(0) === SLASH ? 1 : 0;
+  const end = relativePath.length > 1 && relativePath.charCodeAt(relativePath.length - 1) === SLASH
+    ? relativePath.length - 1
+    : relativePath.length;
+  for (let i = start; i < end; i++) {
     if (relativePath.charCodeAt(i) === SLASH) {
       depth++;
     }
   }
-  if (relativePath.length > 0 && relativePath.charCodeAt(0) === SLASH) {
-    depth--;
-  }
-  if (relativePath.length > 1 && relativePath.charCodeAt(relativePath.length - 1) === SLASH) {
-    depth--;
-  }
-  depth = Math.max(0, depth);
 
   return {
     name,
