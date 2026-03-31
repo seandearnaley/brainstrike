@@ -34,6 +34,9 @@ const logger = createLogger('FileTreeWorker');
 /** Maximum concurrent directory loads to prevent overwhelming the browser */
 const MAX_CONCURRENT_LOADS = 5;
 
+/** Character code for '/' used in low-level path parsing */
+const SLASH = 47;
+
 /**
  * Sort nodes: directories first, then alphabetically.
  */
@@ -64,7 +67,7 @@ function buildNodeFromPath(
   let name = '';
   // Normalize by stripping trailing slash if present (though not expected in clean paths)
   let searchEnd = relativePath.length;
-  if (searchEnd > 0 && relativePath.charCodeAt(searchEnd - 1) === 47) {
+  if (searchEnd > 0 && relativePath.charCodeAt(searchEnd - 1) === SLASH) {
     searchEnd--;
   }
 
@@ -75,22 +78,20 @@ function buildNodeFromPath(
     name = relativePath.slice(0, searchEnd);
   }
 
-  // Calculate depth by counting segments directly
-  let segmentCount = 0;
-  let inSegment = false;
+  // Calculate depth by counting slashes (each interior slash = one depth level)
+  let depth = 0;
   for (let i = 0; i < relativePath.length; i++) {
-    if (relativePath.charCodeAt(i) !== 47) {
-      // '/'
-      if (!inSegment) {
-        segmentCount++;
-        inSegment = true;
-      }
-    } else {
-      inSegment = false;
+    if (relativePath.charCodeAt(i) === SLASH) {
+      depth++;
     }
   }
-
-  const depth = Math.max(0, segmentCount - 1);
+  if (relativePath.length > 0 && relativePath.charCodeAt(0) === SLASH) {
+    depth--;
+  }
+  if (relativePath.length > 1 && relativePath.charCodeAt(relativePath.length - 1) === SLASH) {
+    depth--;
+  }
+  depth = Math.max(0, depth);
 
   return {
     name,
