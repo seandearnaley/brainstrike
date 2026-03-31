@@ -15,7 +15,7 @@
 ## 2026-03-27 - [Added Accessible Labels to PromptCard Favorite Button]
 **Learning:** Icon-only buttons representing binary toggle actions (like adding/removing a favorite) often omit `aria-label` and `title` attributes, making them inaccessible to screen readers and lacking native tooltips for mouse users.
 **Action:** Always provide descriptive and dynamic `aria-label` and `title` attributes (e.g., 'Add to favorites' / 'Remove from favorites') for icon-only toggle buttons, especially those using `size="icon"` from the UI package.
-## 2025-04-03 - Missing ARIA labels and wrong size prop on icon-only action buttons
+## 2026-03-31 - Missing ARIA labels and wrong size prop on icon-only action buttons
 
 **Learning:** Icon-only action buttons in lists (like Edit/Delete in `CollectionPickerItem`) sometimes lack `aria-label` attributes and use `size="sm"` with custom width/height/padding classes instead of the standard `size="icon"` which is designed specifically for square icon buttons.
 **Action:** Always provide descriptive `aria-label` attributes for icon-only action buttons and prefer `size="icon"` over manually overriding `size="sm"` padding/dimensions when rendering purely icon-based buttons.
