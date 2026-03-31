@@ -1,34 +1,38 @@
+import * as ProgressPrimitive from '@radix-ui/react-progress';
 import type * as React from 'react';
-// import * as ProgressPrimitive from '@radix-ui/react-progress'; // Removed: Unused
+
 import { cn } from './lib/utils';
+
+type ProgressProps = React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root> & {
+  ref?: React.RefObject<HTMLDivElement | null>;
+};
 
 const Progress = ({
   className,
   value,
   ref,
+  // Stripped: Radix ProgressPrimitive manages these internally
+  'aria-valuemax': _ariaValueMax,
+  'aria-valuemin': _ariaValueMin,
+  'aria-valuenow': _ariaValueNow,
+  role: _role,
   ...props
-}: Omit<
-  React.HTMLAttributes<HTMLDivElement>,
-  'aria-valuemax' | 'aria-valuemin' | 'aria-valuenow' | 'role'
-> & {
-  value?: number;
-} & { ref?: React.RefObject<HTMLDivElement | null> }) => (
-  <div
-    {...props}
-    aria-valuemax={100}
-    aria-valuemin={0}
-    aria-valuenow={value}
-    className={cn('relative h-2 w-full overflow-hidden rounded-full bg-secondary', className)}
+}: ProgressProps) => (
+  <ProgressPrimitive.Root
+    className={cn('relative h-2 w-full overflow-hidden rounded-full bg-primary/20', className)}
+    data-slot="progress"
     ref={ref}
-    role="progressbar"
+    value={value}
+    {...props}
   >
-    <div
-      className="h-full w-full flex-1 bg-primary transition-transform"
+    <ProgressPrimitive.Indicator
+      className="h-full w-full flex-1 bg-primary transition-all"
+      data-slot="progress-indicator"
       style={{
-        transform: `translateX(-${100 - (value || 0)}%)`,
+        transform: `translateX(-${100 - (value ?? 0)}%)`,
       }}
     />
-  </div>
+  </ProgressPrimitive.Root>
 );
 Progress.displayName = 'Progress';
 

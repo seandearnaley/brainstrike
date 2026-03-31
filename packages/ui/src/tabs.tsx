@@ -17,6 +17,7 @@ const TabsList = ({
       'inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground',
       className
     )}
+    data-slot="tabs-list"
     ref={ref}
     {...props}
   />
@@ -32,9 +33,10 @@ const TabsTrigger = ({
 }) => (
   <TabsPrimitive.Trigger
     className={cn(
-      'kinetic-depress inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 font-medium text-sm ring-offset-background transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-xs',
+      'kinetic-depress inline-flex cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-sm px-3 py-1.5 font-medium text-sm outline-hidden transition-all focus-visible:border-ring focus-visible:outline-1 focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-xs dark:data-[state=active]:border-input dark:data-[state=active]:bg-input/30 [&_svg:not([class*=size-])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0',
       className
     )}
+    data-slot="tabs-trigger"
     ref={ref}
     {...props}
   />
@@ -50,9 +52,10 @@ const TabsContent = ({
 }) => (
   <TabsPrimitive.Content
     className={cn(
-      'ring-offset-background focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+      'flex-1 outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50',
       className
     )}
+    data-slot="tabs-content"
     ref={ref}
     {...props}
   />
