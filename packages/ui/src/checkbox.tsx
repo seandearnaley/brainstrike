@@ -13,16 +13,24 @@ const Checkbox = ({
   ref?: React.RefObject<React.ElementRef<typeof CheckboxPrimitive.Root> | null>;
 }) => (
   <CheckboxPrimitive.Root
-    checked={checked ?? false}
     className={cn(
-      'peer h-4 w-4 shrink-0 cursor-pointer rounded-sm border border-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=indeterminate]:bg-primary data-[state=checked]:text-primary-foreground data-[state=indeterminate]:text-primary-foreground',
+      'peer size-4 shrink-0 cursor-pointer rounded-[4px] border border-input shadow-xs outline-hidden transition-shadow focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[state=checked]:border-primary data-[state=indeterminate]:border-primary data-[state=checked]:bg-primary data-[state=indeterminate]:bg-primary data-[state=checked]:text-primary-foreground data-[state=indeterminate]:text-primary-foreground dark:bg-input/30 dark:data-[state=checked]:bg-primary dark:data-[state=indeterminate]:bg-primary dark:aria-invalid:ring-destructive/40',
       className
     )}
+    data-slot="checkbox"
     ref={ref}
+    {...(checked !== undefined ? { checked } : {})}
     {...props}
   >
-    <CheckboxPrimitive.Indicator className={cn('flex items-center justify-center text-current')}>
-      {checked === 'indeterminate' ? <Minus className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+    <CheckboxPrimitive.Indicator
+      className={cn('grid place-content-center text-current transition-none')}
+      data-slot="checkbox-indicator"
+    >
+      {checked === 'indeterminate' ? (
+        <Minus className="size-3.5" />
+      ) : (
+        <Check className="size-3.5" />
+      )}
     </CheckboxPrimitive.Indicator>
   </CheckboxPrimitive.Root>
 );

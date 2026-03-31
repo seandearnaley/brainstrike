@@ -107,7 +107,7 @@
     "test:browser": "turbo run test:browser --summarize --log-order=grouped --cache-dir=.turbo",
     "test:coverage": "TURBO_TEST_MODE=coverage turbo run test --concurrency=4 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:coverage:base": "pnpm -r --filter '!@brainstrike/embeddings' run test -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
-    "test:coverage:embeddings": "pnpm --filter @brainstrike/embeddings vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --reporter=default",
+    "test:coverage:embeddings": "pnpm --filter @brainstrike/embeddings run test -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:coverage:split": "pnpm run test:coverage:base && pnpm run test:coverage:embeddings",
     "test:e2e": "turbo run test:e2e --filter='./apps/*' --concurrency=1",
     "test:e2e:debug": "cd apps/web && pnpm run test:e2e:debug",

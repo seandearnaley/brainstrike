@@ -32,6 +32,10 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
       {
+        find: '@brainstrike/ui',
+        replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
+      },
+      {
         find: '@brainstrike/file-import/browser-queue-port',
         replacement: resolve(import.meta.dirname, '../file-import/src/browser-queue-port.ts'),
       },

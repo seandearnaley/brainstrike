@@ -2,7 +2,9 @@
 
 exports[`Badge > Snapshots > should render with correct Tailwind classes (default variant) 1`] = `
 <div
-  class="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold text-xs transition-colors focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-primary text-primary-foreground hover:bg-primary/80"
+  class="inline-flex w-fit items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3 border-transparent bg-primary text-primary-foreground hover:bg-primary/90"
+  data-slot="badge"
+  data-variant="default"
 >
   Snapshot Test
 </div>
@@ -10,7 +12,9 @@ exports[`Badge > Snapshots > should render with correct Tailwind classes (defaul
 
 exports[`Badge > Snapshots > should render with correct Tailwind classes (destructive variant) 1`] = `
 <div
-  class="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold text-xs transition-colors focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80"
+  class="inline-flex w-fit items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3 border-transparent bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive/60"
+  data-slot="badge"
+  data-variant="destructive"
 >
   Error Badge
 </div>
@@ -18,7 +22,9 @@ exports[`Badge > Snapshots > should render with correct Tailwind classes (destru
 
 exports[`Badge > Snapshots > should render with correct Tailwind classes (outline variant) 1`] = `
 <div
-  class="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold text-xs transition-colors focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 text-foreground"
+  class="inline-flex w-fit items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3 border-border text-foreground"
+  data-slot="badge"
+  data-variant="outline"
 >
   Outline Badge
 </div>
@@ -26,7 +32,9 @@ exports[`Badge > Snapshots > should render with correct Tailwind classes (outlin
 
 exports[`Badge > Snapshots > should render with correct Tailwind classes (secondary variant) 1`] = `
 <div
-  class="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold text-xs transition-colors focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80"
+  class="inline-flex w-fit items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full border px-2 py-0.5 font-medium text-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/90"
+  data-slot="badge"
+  data-variant="secondary"
 >
   Secondary Badge
 </div>
