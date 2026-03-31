@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { QueueTelemetryEvent, QueueTelemetryRuntime } from '@brainstrike/queue';
@@ -118,6 +119,9 @@ export function createQueueTelemetryCollector(
   const port = options.port ?? 0;
   const path = normalisePath(options.path ?? DEFAULT_COLLECTOR_PATH);
   const apiKey = options.apiKey ?? null;
+  const apiKeyHmac = apiKey
+    ? createHmac('sha256', Buffer.from(apiKey, 'utf8')).update(Buffer.from(apiKey, 'utf8')).digest()
+    : null;
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const maxStoredBatches = options.maxStoredBatches ?? DEFAULT_MAX_STORED_BATCHES;
   const onBatchCallback = options.onBatch ?? null;
@@ -175,13 +179,23 @@ export function createQueueTelemetryCollector(
   };
 
   const validateApiKey = (request: IncomingMessage): ValidationError | null => {
-    if (!apiKey) {
+    if (!(apiKey && apiKeyHmac)) {
       return null;
     }
     const providedKey = headerValue(request.headers['x-api-key']);
-    if (providedKey === apiKey) {
+    if (!providedKey) {
+      return { status: 401, message: 'Unauthorized' };
+    }
+
+    // HMAC the provided value to normalize length and prevent leaking key length via timing
+    const providedHmac = createHmac('sha256', Buffer.from(apiKey, 'utf8'))
+      .update(Buffer.from(providedKey, 'utf8'))
+      .digest();
+
+    if (timingSafeEqual(providedHmac, apiKeyHmac)) {
       return null;
     }
+
     return { status: 401, message: 'Unauthorized' };
   };
 

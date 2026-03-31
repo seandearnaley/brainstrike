@@ -124,6 +124,9 @@ describe('createQueueTelemetryCollector', () => {
     const unauthorized = await postJson(endpoint, payload);
     expect(unauthorized.status).toBe(401);
 
+    const wrongKey = await postJson(endpoint, payload, { 'x-api-key': 'wrong-key' });
+    expect(wrongKey.status).toBe(401);
+
     const authorized = await postJson(endpoint, payload, { 'x-api-key': 'secret-key' });
     expect(authorized.status).toBe(204);
 
