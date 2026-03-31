@@ -1,6 +1,9 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
-import { compareCollectionsDesc, useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import {
+  compareCollectionsDesc,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type { EmbeddingSetUpdatedEventDetail } from './embedding-set-events';
