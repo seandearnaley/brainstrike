@@ -29,3 +29,7 @@
 ## 2026-03-20 - Fast getPathDepth implementation
 **Learning:** `path.split('/').filter(Boolean).length` creates intermediate arrays and string segments leading to high GC overhead in hot paths involving file tree traversal and loading.
 **Action:** Replace split-based path depth counting with a native string loop iterating over character codes (`charCodeAt(i) === 47`) and tracking segment boundaries (`!inSegment`) to achieve zero allocations. This yields ~2x performance improvement over `split`.
+
+## 2026-03-31 - GC optimization in recursive tree traversal
+**Learning:** Using array spread syntax (`[...ancestors, node.id]`) during deep or wide recursive tree traversal (e.g., in `filterTreeNodes`) creates excessive intermediate arrays, increasing GC pressure and slowing down performance significantly.
+**Action:** Replace spread syntax with mutable array operations (`ancestors.push(node.id)` and `ancestors.pop()`) when passing tracking arrays down a recursive stack to minimize allocations and improve traversal speed.
