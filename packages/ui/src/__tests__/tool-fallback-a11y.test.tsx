@@ -1,27 +1,25 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, test, describe } from 'vitest';
+import type { ComponentProps } from 'react';
+import { describe, expect, test } from 'vitest';
 import { ToolFallback } from '../assistant-ui-panel/tool-fallback';
 
 // intentionally minimal mock — see BST-469
 const mockBaseProps = {
+  type: 'tool-call',
+  toolCallId: 'test-call-id',
   toolName: 'test-tool',
+  args: { foo: 'bar' },
   argsText: '{"foo": "bar"}',
-  status: { type: 'complete' as const },
-  part: {} as Record<string, unknown>,
+  status: { type: 'complete' },
   addResult: () => {},
-};
+  resume: () => {},
+} as unknown as ComponentProps<typeof ToolFallback>;
 
 describe('ToolFallback Accessibility', () => {
   test('expand/collapse button has correct aria-expanded state', async () => {
     const user = userEvent.setup();
-    render(
-      <ToolFallback
-        toolName="test-tool"
-        argsText='{"foo": "bar"}'
-        status={{ type: 'success' }}
-      />
-    );
+    render(<ToolFallback {...mockBaseProps} />);
 
     const button = screen.getByRole('button', { name: /Collapse details/i });
     expect(button).toBeInTheDocument();
@@ -37,9 +35,7 @@ describe('ToolFallback Accessibility', () => {
 
   test('aria-controls points to a real DOM element when expanded', async () => {
     const user = userEvent.setup();
-    const { container } = render(
-      <ToolFallback {...mockBaseProps} result="test-result" />
-    );
+    const { container } = render(<ToolFallback {...mockBaseProps} result="test-result" />);
 
     const button = screen.getByRole('button', { name: /Collapse details/i });
     const controlsId = button.getAttribute('aria-controls');
