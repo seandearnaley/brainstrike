@@ -37,7 +37,7 @@ The application implements a comprehensive Content Security Policy that differs 
 - Set to `DENY` to prevent clickjacking attacks
 
 ### X-XSS-Protection
-- Enables XSS filtering in browsers
+- Set to `0` to disable the legacy XSS auditor, which can itself introduce vulnerabilities. Modern CSP provides superior XSS protection.
 
 ### Referrer-Policy
 - Set to `strict-origin-when-cross-origin` for privacy
