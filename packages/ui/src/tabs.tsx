@@ -51,7 +51,10 @@ const TabsContent = ({
   ref?: React.RefObject<HTMLDivElement | null>;
 }) => (
   <TabsPrimitive.Content
-    className={cn('flex-1 outline-hidden', className)}
+    className={cn(
+      'flex-1 outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50',
+      className
+    )}
     data-slot="tabs-content"
     ref={ref}
     {...props}

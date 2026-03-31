@@ -21,11 +21,8 @@ const Progress = ({
     className={cn('relative h-2 w-full overflow-hidden rounded-full bg-primary/20', className)}
     data-slot="progress"
     ref={ref}
+    value={value}
     {...props}
-    aria-valuemax={100}
-    aria-valuemin={0}
-    {...(value === null || value === undefined ? {} : { 'aria-valuenow': value })}
-    role="progressbar"
   >
     <ProgressPrimitive.Indicator
       className="h-full w-full flex-1 bg-primary transition-all"
