@@ -147,24 +147,24 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
         {/* Right: Action buttons - visible on hover */}
         <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <Button
-            className="h-7 w-7 p-0"
+            aria-label="Edit collection"
+            className="h-7 w-7"
             onClick={handleEdit}
-            size="sm"
+            size="icon"
             title="Edit collection"
             variant="ghost"
           >
-            <Pencil className="h-3.5 w-3.5" />
-            <span className="sr-only">Edit</span>
+            <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
           <Button
-            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+            aria-label="Delete collection"
+            className="h-7 w-7 text-destructive hover:text-destructive"
             onClick={handleDelete}
-            size="sm"
+            size="icon"
             title="Delete collection"
             variant="ghost"
           >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span className="sr-only">Delete</span>
+            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>
