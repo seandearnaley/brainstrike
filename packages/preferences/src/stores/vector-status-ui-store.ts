@@ -3,6 +3,29 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 /**
+ * Sort comparator for collections: descending by createdAt, then id.
+ * Accepts any object with `createdAt` and `id` string fields.
+ */
+export function compareCollectionsDesc(
+  left: { createdAt: string; id: string },
+  right: { createdAt: string; id: string }
+): number {
+  if (right.createdAt > left.createdAt) {
+    return 1;
+  }
+  if (right.createdAt < left.createdAt) {
+    return -1;
+  }
+  if (right.id > left.id) {
+    return 1;
+  }
+  if (right.id < left.id) {
+    return -1;
+  }
+  return 0;
+}
+
+/**
  * Cached collection data - persists across component unmounts during imports
  */
 export interface CachedCollection {
@@ -215,10 +238,7 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
             (candidate) => candidate.id !== collection.id
           );
           next.unshift(collection);
-          next.sort(
-            (left, right) =>
-              right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
-          );
+          next.sort(compareCollectionsDesc);
           return { cachedCollections: next };
         }),
       setCachedFileData: (data) => set({ cachedFileData: data }),

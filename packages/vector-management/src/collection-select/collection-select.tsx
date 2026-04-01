@@ -1,6 +1,9 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import {
+  compareCollectionsDesc,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type { EmbeddingSetUpdatedEventDetail } from './embedding-set-events';
@@ -248,10 +251,7 @@ function mergeCollections(
   for (const collection of liveCollections) {
     merged.set(collection.id, collection);
   }
-  return Array.from(merged.values()).sort(
-    (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
-  );
+  return Array.from(merged.values()).sort(compareCollectionsDesc);
 }
 
 function upsertCollectionSnapshot(
@@ -260,10 +260,7 @@ function upsertCollectionSnapshot(
 ): CollectionWithDocCount[] {
   const next = collections.filter((candidate) => candidate.id !== collection.id);
   next.unshift(collection);
-  next.sort(
-    (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
-  );
+  next.sort(compareCollectionsDesc);
   return next;
 }
 
@@ -289,10 +286,7 @@ function applyPendingCollectionMutations(
     }
   }
 
-  return Array.from(merged.values()).sort(
-    (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
-  );
+  return Array.from(merged.values()).sort(compareCollectionsDesc);
 }
 
 function clearSatisfiedPendingCollectionMutations(
