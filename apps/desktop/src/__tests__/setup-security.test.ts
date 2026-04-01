@@ -3,6 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCSP } from '../csp-utils';
 import { desktopSecurityLogger, setupSecurity } from '../setup-security';
 
+vi.mock('@brainstrike/utils/logger', () => ({
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  })),
+}));
+
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
@@ -89,8 +98,12 @@ describe('setupSecurity', () => {
 
     expect(callback).toHaveBeenCalledWith({
       responseHeaders: {
-        'X-Frame-Options': ['DENY'],
         'Content-Security-Policy': [mockCSP],
+        'X-Content-Type-Options': ['nosniff'],
+        'X-Frame-Options': ['DENY'],
+        'X-XSS-Protection': ['0'],
+        'Referrer-Policy': ['strict-origin-when-cross-origin'],
+        'Permissions-Policy': ['camera=(), microphone=(), geolocation=(), payment=()'],
       },
     });
   });
@@ -121,6 +134,11 @@ describe('setupSecurity', () => {
     expect(callback).toHaveBeenCalledWith({
       responseHeaders: {
         'Content-Security-Policy': [mockCSP],
+        'X-Content-Type-Options': ['nosniff'],
+        'X-Frame-Options': ['DENY'],
+        'X-XSS-Protection': ['0'],
+        'Referrer-Policy': ['strict-origin-when-cross-origin'],
+        'Permissions-Policy': ['camera=(), microphone=(), geolocation=(), payment=()'],
       },
     });
   });
