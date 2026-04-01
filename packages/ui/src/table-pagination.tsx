@@ -185,7 +185,7 @@ const NavigationControls = memo(function NavigationControls({
           title="Go to first page"
           variant="ghost"
         >
-          <ChevronsLeft className="h-4 w-4" />
+          <ChevronsLeft aria-hidden="true" className="h-4 w-4" />
         </Button>
       )}
       <Button
@@ -197,7 +197,7 @@ const NavigationControls = memo(function NavigationControls({
         title="Go to previous page"
         variant="ghost"
       >
-        <ChevronLeft className="h-4 w-4" />
+        <ChevronLeft aria-hidden="true" className="h-4 w-4" />
       </Button>
 
       <div className={cn('flex items-center gap-1 px-1', isMiniDensity && 'px-0.5')}>
@@ -236,7 +236,7 @@ const NavigationControls = memo(function NavigationControls({
         title="Go to next page"
         variant="ghost"
       >
-        <ChevronRight className="h-4 w-4" />
+        <ChevronRight aria-hidden="true" className="h-4 w-4" />
       </Button>
       {!isMiniDensity && (
         <Button
@@ -248,7 +248,7 @@ const NavigationControls = memo(function NavigationControls({
           title="Go to last page"
           variant="ghost"
         >
-          <ChevronsRight className="h-4 w-4" />
+          <ChevronsRight aria-hidden="true" className="h-4 w-4" />
         </Button>
       )}
       <span className="sr-only">
