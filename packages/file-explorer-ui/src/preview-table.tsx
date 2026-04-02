@@ -109,12 +109,6 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
       <span aria-hidden="true" className="text-muted-foreground text-xs">
         {group.count} files
       </span>
-      <span className="whitespace-nowrap text-muted-foreground text-xs tabular-nums">
-        {formatTokenCount(group.totalTokens)}
-      </span>
-      <span className="whitespace-nowrap text-muted-foreground text-xs tabular-nums">
-        {(group.totalSize / 1024).toFixed(1)} KB
-      </span>
     </div>
   );
 });
@@ -675,7 +669,18 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         headerClassName: 'w-24',
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
-            return renderGroupHeaderIfPrimary(node.data.group, 'tokens');
+            if (primaryGroupColumn === 'tokens') {
+              return renderGroupHeaderIfPrimary(node.data.group, 'tokens');
+            }
+            const { totalTokens } = node.data.group;
+            if (!totalTokens) {
+              return null;
+            }
+            return (
+              <span className="whitespace-nowrap font-mono text-sm tabular-nums">
+                {formatTokenCount(totalTokens)}
+              </span>
+            );
           }
 
           const tokens = node.data.item.tokens;
@@ -708,7 +713,14 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         headerClassName: 'w-24',
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
-            return renderGroupHeaderIfPrimary(node.data.group, 'size');
+            if (primaryGroupColumn === 'size') {
+              return renderGroupHeaderIfPrimary(node.data.group, 'size');
+            }
+            return (
+              <span className="whitespace-nowrap font-mono text-sm tabular-nums">
+                {formatPreviewFileSize(node.data.group.totalSize)}
+              </span>
+            );
           }
 
           const size = node.data.item.size;
@@ -738,6 +750,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     onSelectAllOnPageStable,
     onSortStable,
     onToggleSelectionStable,
+    primaryGroupColumn,
     renderGroupHeaderIfPrimary,
     sortDirection,
     sortField,
