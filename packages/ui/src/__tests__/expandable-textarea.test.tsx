@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExpandableTextarea } from '../expandable-textarea';
 
 describe('ExpandableTextarea', () => {
@@ -8,6 +8,12 @@ describe('ExpandableTextarea', () => {
     render(<ExpandableTextarea onChange={onChange} value="" />);
 
     expect(screen.getByRole('textbox')).toBeInTheDocument();
+  });
+
+  it('sets rows to minRows so the host does not use the native default of two rows', () => {
+    const onChange = vi.fn();
+    render(<ExpandableTextarea minRows={1} onChange={onChange} value="" />);
+    expect(screen.getByRole('textbox')).toHaveAttribute('rows', '1');
   });
 
   it('displays the value', () => {
@@ -142,8 +148,7 @@ describe('ExpandableTextarea', () => {
     const onChange = vi.fn();
     render(<ExpandableTextarea minRows={2} onChange={onChange} value="" />);
 
-    // Component should render without errors with custom minRows
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveAttribute('rows', '2');
   });
 
   it('handles custom maxRows', () => {
@@ -159,6 +164,57 @@ describe('ExpandableTextarea', () => {
     render(<ExpandableTextarea maxRows={8} minRows={3} onChange={onChange} value="" />);
 
     expect(screen.getByRole('textbox')).toBeInTheDocument();
+  });
+
+  describe('height clamping with minHeight and maxRows', () => {
+    let scrollHeightSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      scrollHeightSpy = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(200);
+    });
+
+    afterEach(() => {
+      scrollHeightSpy.mockRestore();
+    });
+
+    it('maintains minHeight as floor when maxRows=1 and content is multi-line', () => {
+      const onChange = vi.fn();
+      render(
+        <ExpandableTextarea
+          maxRows={1}
+          minHeight={36}
+          onChange={onChange}
+          value={'line1\nline2\nline3'}
+        />
+      );
+
+      const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+      // With maxRows=1: rawMaxHeight = 20px (1 row * 20 lineHeight + 0 padding)
+      // calculatedMinHeight = 36px (minHeight prop)
+      // After fix: calculatedMaxHeight = Math.max(20, 36) = 36px
+      // newHeight = Math.min(Math.max(200, 36), 36) = 36px
+      // Before fix: calculatedMaxHeight = 20px
+      // newHeight = Math.min(Math.max(200, 36), 20) = 20px  ← BUG
+      expect(Number.parseInt(textarea.style.height, 10)).toBeGreaterThanOrEqual(36);
+    });
+
+    it('still caps height at maxRows when maxRows produces a higher limit than minHeight', () => {
+      const onChange = vi.fn();
+      render(
+        <ExpandableTextarea
+          maxRows={3}
+          minHeight={36}
+          onChange={onChange}
+          value={'line1\nline2\nline3'}
+        />
+      );
+
+      const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+      // maxRows=3: rawMaxHeight = 20*3 = 60px > minHeight=36px
+      // calculatedMaxHeight = Math.max(60, 36) = 60px
+      // newHeight = Math.min(Math.max(200, 36), 60) = 60px
+      expect(Number.parseInt(textarea.style.height, 10)).toBe(60);
+    });
   });
 
   it('maintains focus on input', () => {
