@@ -530,24 +530,60 @@ export async function splitCodeByFunctionRanges(
   return pieces;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: optimized for v8 loops
 export function splitByBlankLines(text: string): string[] {
-  const parts: string[] = [];
-  let buffer: string[] = [];
-  const lines = text.split(/\r?\n/);
-
-  for (const line of lines) {
-    if (line.trim() === '') {
-      if (buffer.length > 0) {
-        parts.push(buffer.join('\n'));
-        buffer = [];
-      }
-      continue;
-    }
-    buffer.push(line);
+  if (!text) {
+    return [];
   }
 
-  if (buffer.length > 0) {
-    parts.push(buffer.join('\n'));
+  const parts: string[] = [];
+  let blockStart = -1;
+  let end = 0;
+  const len = text.length;
+
+  while (end < len) {
+    let nextNewline = text.indexOf('\n', end);
+    if (nextNewline === -1) {
+      nextNewline = len;
+    }
+
+    let isBlank = true;
+    for (let i = end; i < nextNewline; i++) {
+      const code = text.charCodeAt(i);
+      // Not space, tab, or carriage return
+      if (code !== 32 && code !== 9 && code !== 13) {
+        isBlank = false;
+        break;
+      }
+    }
+
+    if (isBlank) {
+      if (blockStart !== -1) {
+        let blockEnd = end;
+        if (blockEnd > 0 && text.charCodeAt(blockEnd - 1) === 10) {
+          blockEnd -= 1;
+          if (blockEnd > 0 && text.charCodeAt(blockEnd - 1) === 13) {
+            blockEnd -= 1;
+          }
+        }
+        parts.push(text.slice(blockStart, blockEnd));
+        blockStart = -1;
+      }
+    } else if (blockStart === -1) {
+      blockStart = end;
+    }
+    end = nextNewline + 1;
+  }
+
+  if (blockStart !== -1) {
+    let blockEnd = len;
+    if (blockEnd > 0 && text.charCodeAt(blockEnd - 1) === 10) {
+      blockEnd -= 1;
+      if (blockEnd > 0 && text.charCodeAt(blockEnd - 1) === 13) {
+        blockEnd -= 1;
+      }
+    }
+    parts.push(text.slice(blockStart, blockEnd));
   }
 
   return parts;
