@@ -18,6 +18,8 @@ import type { BrowserNodeData, CollectionNodeType } from './types';
 export interface BulkAction {
   /** Node types this action applies to (if not specified, applies to all) */
   applicableTypes?: CollectionNodeType[];
+  /** Short label for compact/responsive display (falls back to label) */
+  compactLabel?: string;
   /** Whether the action is destructive (will be styled differently) */
   destructive?: boolean;
   /** Whether this action is disabled */
@@ -46,6 +48,8 @@ export interface BulkActionBarProps {
   clearButtonAriaLabel?: string;
   /** Custom clear button text */
   clearButtonLabel?: string;
+  /** Enable responsive compact mode — labels collapse to icon-only at narrow widths */
+  compact?: boolean;
   /** Map of node ID to node data */
   nodeData?: Map<string, BrowserNodeData>;
   /** Map of node ID to node type */
@@ -142,6 +146,7 @@ export function BulkActionBar({
   className,
   clearButtonAriaLabel,
   clearButtonLabel,
+  compact = false,
   summarySubtext,
   summarySubtextTitle,
   summaryText,
@@ -164,9 +169,12 @@ export function BulkActionBar({
   return (
     <div
       className={cn(
-        'flex max-w-[min(96vw,920px)] flex-wrap items-center gap-2 rounded-lg border bg-accent/90 px-3 py-2 shadow-lg backdrop-blur-sm md:gap-3 md:px-4',
+        'flex max-w-[min(96vw,920px)] items-center gap-2 rounded-xl',
+        'border border-border/80 bg-muted px-3 py-2',
+        'md:gap-3 md:px-4',
         className
       )}
+      style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.15), 0 2px 6px rgba(0,0,0,0.1)' }}
     >
       {/* Selection summary */}
       <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
@@ -195,11 +203,13 @@ export function BulkActionBar({
                 key={action.id}
                 onClick={() => action.onAction(selectedIds, nodeTypes)}
                 size="sm"
-                title={action.disabled ? action.disabledReason : undefined}
+                title={action.disabled ? action.disabledReason : action.label}
                 variant={action.destructive ? 'destructive' : 'secondary'}
               >
                 {action.icon}
-                {action.label}
+                <span className={compact ? '@[350px]:inline hidden' : undefined}>
+                  {(compact ? action.compactLabel : undefined) ?? action.label}
+                </span>
               </Button>
             ))}
           </div>
@@ -212,10 +222,13 @@ export function BulkActionBar({
         className="ml-auto gap-1 whitespace-nowrap"
         onClick={onClearSelection}
         size="sm"
+        title={clearButtonLabel ?? 'Clear'}
         variant="ghost"
       >
         <X className="h-4 w-4" />
-        {clearButtonLabel ?? 'Clear'}
+        <span className={compact ? '@[350px]:inline hidden' : undefined}>
+          {clearButtonLabel ?? 'Clear'}
+        </span>
       </Button>
     </div>
   );

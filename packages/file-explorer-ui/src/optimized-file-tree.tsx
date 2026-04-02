@@ -20,7 +20,7 @@ import {
   MoreHorizontal as MoreHorizontalIcon,
   Sparkles,
 } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -801,6 +801,127 @@ function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIco
 }
 
 /**
+ * Performance telemetry counters for the file tree.
+ * Exposed for tests and browser devtools inspection.
+ */
+export const fileTreeTelemetry = {
+  columnsRebuildCount: 0,
+  treeRowsRebuildCount: 0,
+};
+
+export function resetFileTreeTelemetry(): void {
+  fileTreeTelemetry.columnsRebuildCount = 0;
+  fileTreeTelemetry.treeRowsRebuildCount = 0;
+}
+
+/**
+ * Context for directory selection counts — allows directory cells to access
+ * aggregate selection state without embedding it in the columns definition.
+ * File cells use per-path Zustand selectors instead (more granular).
+ */
+interface FileTreeSelectionContextValue {
+  folderId: string;
+  maxSelectionCount: number;
+  selectedDirectoryCounts: Map<string, number>;
+  selectedFilePaths: Set<string>;
+}
+
+const FileTreeSelectionContext = createContext<FileTreeSelectionContextValue | null>(null);
+
+function useFileTreeSelection(): FileTreeSelectionContextValue {
+  const ctx = useContext(FileTreeSelectionContext);
+  if (!ctx) {
+    throw new Error('useFileTreeSelection must be used within FileTreeSelectionContext');
+  }
+  return ctx;
+}
+
+/**
+ * Cell content component with per-row store subscriptions.
+ *
+ * File nodes use a per-path Zustand selector for O(1) re-render on selection.
+ * Directory nodes read from FileTreeSelectionContext for aggregate counts.
+ *
+ * This component re-renders independently of TreeTableRow — columns stay stable,
+ * so TreeTableRow's React.memo prevents row-level re-renders on selection changes.
+ */
+interface FileTreeCellContentProps {
+  isExpanded: boolean;
+  onSelectionChange: (rowData: FileTreeRowData) => void;
+  rowData: FileTreeRowData;
+}
+
+function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTreeCellContentProps) {
+  const fileNode = rowData.fileNode;
+  const { folderId, maxSelectionCount, selectedDirectoryCounts, selectedFilePaths } =
+    useFileTreeSelection();
+
+  const selectionState = computeNodeSelectionState(
+    rowData,
+    folderId,
+    selectedFilePaths,
+    selectedDirectoryCounts,
+    maxSelectionCount
+  );
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center">
+      <div
+        className="mr-2 flex w-4 items-center justify-center"
+        title={
+          rowData.isLoadingForSelection
+            ? 'Loading folder contents...'
+            : selectionState.wouldExceedLimit
+              ? `Cannot select more than ${maxSelectionCount} files`
+              : undefined
+        }
+      >
+        {rowData.isLoadingForSelection ? (
+          <Loader2
+            aria-label={`Loading ${fileNode.name} for selection`}
+            className="h-4 w-4 animate-spin text-blue-500"
+          />
+        ) : (
+          <LightweightCheckbox
+            aria-label={`Select ${fileNode.name}`}
+            checked={selectionState.checkboxState}
+            className="h-4 w-4"
+            disabled={selectionState.wouldExceedLimit}
+            id={fileNode.path}
+            onCheckedChange={() => onSelectionChange(rowData)}
+          />
+        )}
+      </div>
+
+      <div className="mr-2 flex w-4 items-center justify-center">
+        <TreeNodeIcon
+          isExpanded={isExpanded}
+          isLoading={rowData.isFileLoading}
+          nodeName={fileNode.name}
+          nodeType={fileNode.type}
+        />
+      </div>
+
+      <div className="flex min-w-0 flex-1 items-center">
+        {fileNode.isSymbolicLink && (
+          <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
+        )}
+        <span className="truncate text-sm leading-4">{fileNode.name}</span>
+        {rowData.isRuleSelected && (
+          <Sparkles
+            aria-label="Selected by rule"
+            className="ml-1.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500 dark:text-amber-400"
+          />
+        )}
+        {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
+          <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * TreeTable adapter for file explorer left panel.
  * Maintains lazy-loading and recursive selection behavior while converging on shared tree-grid UI.
  */
@@ -880,6 +1001,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.
     const treeRows = useMemo(() => {
+      fileTreeTelemetry.treeRowsRebuildCount++;
       const options: BuildFileTreeRowsOptions = {
         expandedDirectoryPaths,
         folderId,
@@ -1113,105 +1235,67 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
     const handleNodeSelectionEvent = useEventCallback(handleNodeSelection);
 
-    // Recompute column cell closures when selection snapshots change so row reads
-    // stay render-pure under concurrent mode without render-phase ref mutation.
-    const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(
-      () => [
+    // Columns are now STABLE across selection changes. Selection state is handled
+    // inside FileTreeCellContent via context, not via column cell closures.
+    // This prevents all visible rows from re-rendering on every checkbox toggle.
+    const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(() => {
+      fileTreeTelemetry.columnsRebuildCount++;
+      return [
         {
           id: 'name',
           className: '!p-0',
-          cell: ({ node, isExpanded }) => {
-            const rowData = node.data;
-            const fileNode = rowData.fileNode;
-            const selectionState = getNodeSelectionState(rowData);
-
-            return (
-              <div className="flex min-w-0 flex-1 items-center">
-                <div
-                  className="mr-2 flex w-4 items-center justify-center"
-                  title={
-                    rowData.isLoadingForSelection
-                      ? 'Loading folder contents...'
-                      : selectionState.wouldExceedLimit
-                        ? `Cannot select more than ${maxSelectionCount} files`
-                        : undefined
-                  }
-                >
-                  {rowData.isLoadingForSelection ? (
-                    <Loader2
-                      aria-label={`Loading ${fileNode.name} for selection`}
-                      className="h-4 w-4 animate-spin text-blue-500"
-                    />
-                  ) : (
-                    <LightweightCheckbox
-                      aria-label={`Select ${fileNode.name}`}
-                      checked={selectionState.checkboxState}
-                      className="h-4 w-4"
-                      disabled={selectionState.wouldExceedLimit}
-                      id={fileNode.path}
-                      onCheckedChange={() => handleNodeSelectionEvent(rowData)}
-                    />
-                  )}
-                </div>
-
-                <div className="mr-2 flex w-4 items-center justify-center">
-                  <TreeNodeIcon
-                    isExpanded={isExpanded}
-                    isLoading={rowData.isFileLoading}
-                    nodeName={fileNode.name}
-                    nodeType={fileNode.type}
-                  />
-                </div>
-
-                <div className="flex min-w-0 flex-1 items-center">
-                  {fileNode.isSymbolicLink && (
-                    <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
-                  )}
-                  <span className="truncate text-sm leading-4">{fileNode.name}</span>
-                  {rowData.isRuleSelected && (
-                    <Sparkles
-                      aria-label="Selected by rule"
-                      className="ml-1.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500 dark:text-amber-400"
-                    />
-                  )}
-                  {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
-                    <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
-                  )}
-                </div>
-              </div>
-            );
-          },
+          cell: ({ node, isExpanded }) => (
+            <FileTreeCellContent
+              isExpanded={isExpanded}
+              onSelectionChange={handleNodeSelectionEvent}
+              rowData={node.data}
+            />
+          ),
         },
-      ],
-      [getNodeSelectionState, handleNodeSelectionEvent, maxSelectionCount]
-    );
+      ];
+    }, [handleNodeSelectionEvent]);
 
     useEffect(() => {
       onRender?.();
     }, [onRender]);
 
+    // Selection context value — changes when selection state changes, causing
+    // FileTreeCellContent components to re-render (but NOT TreeTableRow components,
+    // because columns stays stable).
+    const selectionContextValue = useMemo<FileTreeSelectionContextValue>(
+      () => ({
+        folderId: folderId ?? '',
+        maxSelectionCount,
+        selectedDirectoryCounts,
+        selectedFilePaths,
+      }),
+      [folderId, maxSelectionCount, selectedDirectoryCounts, selectedFilePaths]
+    );
+
     return (
-      <div
-        className="relative h-full min-h-0 flex-1 overflow-y-auto"
-        data-testid="file-tree-scroll-container"
-      >
-        <div className="relative h-full" data-testid="file-tree">
-          <TreeTable
-            ariaLabel="File tree"
-            className="file-tree h-full min-h-0 flex-1"
-            columns={columns}
-            expandedIds={expandedDirectoryPaths}
-            maxHeight="none"
-            nodes={treeRows}
-            onToggleExpand={handleToggleExpand}
-            overscan={10}
-            rowHeight={ROW_HEIGHT}
-            selectionMode="none"
-            showHeader={false}
-            windowingStrategy="virtual"
-          />
+      <FileTreeSelectionContext.Provider value={selectionContextValue}>
+        <div
+          className="relative h-full min-h-0 flex-1 overflow-y-auto"
+          data-testid="file-tree-scroll-container"
+        >
+          <div className="relative h-full" data-testid="file-tree">
+            <TreeTable
+              ariaLabel="File tree"
+              className="file-tree h-full min-h-0 flex-1"
+              columns={columns}
+              expandedIds={expandedDirectoryPaths}
+              maxHeight="none"
+              nodes={treeRows}
+              onToggleExpand={handleToggleExpand}
+              overscan={10}
+              rowHeight={ROW_HEIGHT}
+              selectionMode="none"
+              showHeader={false}
+              windowingStrategy="virtual"
+            />
+          </div>
         </div>
-      </div>
+      </FileTreeSelectionContext.Provider>
     );
   }
 );

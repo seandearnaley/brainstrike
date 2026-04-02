@@ -6,7 +6,7 @@
  */
 
 import { Button, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
-import { ChevronsDown, ChevronsUp, Loader2, RefreshCw, X } from 'lucide-react';
+import { ChevronsDownUp, ChevronsUpDown, Loader2, RefreshCw, X } from 'lucide-react';
 import * as React from 'react';
 
 export interface ScanningStatusInfo {
@@ -148,7 +148,7 @@ export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
               {isExpandingAll ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <ChevronsDown className="h-3.5 w-3.5" />
+                <ChevronsUpDown className="h-3.5 w-3.5" />
               )}
             </Button>
           </TooltipTrigger>
@@ -167,7 +167,7 @@ export const TreeActionButtons: React.FC<TreeActionButtonsProps> = React.memo(
               size="icon"
               variant="ghost"
             >
-              <ChevronsUp className="h-3.5 w-3.5" />
+              <ChevronsDownUp className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>

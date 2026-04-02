@@ -4,7 +4,10 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode, useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
-import OptimizedFileTree from '../optimized-file-tree';
+import OptimizedFileTree, {
+  fileTreeTelemetry,
+  resetFileTreeTelemetry,
+} from '../optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 type FileExplorerStore = ReturnType<typeof useFileExplorerStoreContext>;
@@ -855,5 +858,56 @@ describe('OptimizedFileTree', () => {
     });
 
     expect(screen.getByTestId('file-tree')).toBeInTheDocument();
+  });
+
+  describe('performance: columns stability', () => {
+    it('should NOT rebuild columns when a file is selected', async () => {
+      let fileExplorerStore: FileExplorerStore | null = null;
+
+      await act(async () => {
+        render(
+          <StrictMode>
+            <FileExplorerTestWrapper>
+              <StoreHandleBridge
+                onStoreReady={(store) => {
+                  fileExplorerStore = store;
+                }}
+              />
+              <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
+            </FileExplorerTestWrapper>
+          </StrictMode>
+        );
+      });
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(fileExplorerStore).not.toBeNull();
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- guarded by expect above
+      const store = fileExplorerStore!;
+
+      await act(async () => {
+        store.getState().clearSelectedFiles();
+        store.getState().setMaxSelectionCount(10);
+        await Promise.resolve();
+      });
+
+      // Reset telemetry AFTER initial render settles
+      resetFileTreeTelemetry();
+
+      // Select a file via store (simulates clicking a checkbox)
+      await act(async () => {
+        store.getState().toggleSelectedFile('root', '/test.txt');
+        await Promise.resolve();
+      });
+
+      // treeRows should NOT rebuild on selection change
+      expect(fileTreeTelemetry.treeRowsRebuildCount).toBe(0);
+
+      // columns should NOT rebuild on selection change — selection state
+      // is delivered via FileTreeSelectionContext, not column closures
+      expect(fileTreeTelemetry.columnsRebuildCount).toBe(0);
+    });
   });
 });

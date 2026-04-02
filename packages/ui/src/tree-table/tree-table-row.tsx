@@ -172,6 +172,10 @@ function TreeTableRowInner<T>({
 
   const isGroupHeader = isGroupHeaderNode(node);
 
+  // Determine which column gets tree indentation: the first column that doesn't
+  // explicitly opt out via isTreeColumn: false.
+  const treeColumnIndex = columns.findIndex((col) => col.isTreeColumn !== false);
+
   return (
     <TableRow
       aria-expanded={isTreegrid && node.hasChildren ? row.isExpanded : undefined}
@@ -218,6 +222,7 @@ function TreeTableRowInner<T>({
             checkboxState={checkboxState ?? 'unchecked'}
             column={column}
             columnIndex={columnIndex}
+            isTreeColumn={columnIndex === treeColumnIndex}
             key={column.id}
             onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
             onExpandClick={handleExpandClick}
@@ -238,6 +243,7 @@ interface TreeTableCellInternalProps<T> {
   checkboxState: 'checked' | 'unchecked' | 'indeterminate';
   column: TreeTableColumn<T>;
   columnIndex: number;
+  isTreeColumn: boolean;
   onCheckboxChange: (() => void) | undefined;
   onExpandClick: (event: React.MouseEvent) => void;
   row: FlattenedRow<T>;
@@ -247,14 +253,15 @@ interface TreeTableCellInternalProps<T> {
 function TreeTableCellComponent<T>({
   row,
   column,
-  columnIndex,
+  columnIndex: _columnIndex,
+  isTreeColumn,
   onExpandClick,
   showCheckbox,
   checkboxState,
   onCheckboxChange,
 }: TreeTableCellInternalProps<T>) {
   const { node, isExpanded, isSelected, isHighlighted, isInContext, index } = row;
-  const isFirstColumn = columnIndex === 0;
+  const isFirstColumn = isTreeColumn;
 
   // Render cell content using the column's cell renderer
   const cellContent = column.cell({

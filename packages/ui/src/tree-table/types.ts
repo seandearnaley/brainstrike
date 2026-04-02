@@ -85,6 +85,13 @@ export interface TreeTableColumn<T> {
   headerClassName?: string;
   /** Unique column identifier */
   id: string;
+  /**
+   * When true, this column receives tree indentation, expand/collapse toggle,
+   * and checkbox rendering. Defaults to true for the first column only.
+   * Set to false on utility columns (e.g., a standalone checkbox column) to
+   * prevent the tree layout from being applied.
+   */
+  isTreeColumn?: boolean;
   /** Maximum width in pixels */
   maxWidth?: number;
   /** Minimum width in pixels */

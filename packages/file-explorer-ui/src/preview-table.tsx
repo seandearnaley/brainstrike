@@ -90,7 +90,7 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
   const checkboxState = resolveCheckboxState(isFullySelected, isPartiallySelected);
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div className="flex min-w-0 items-center gap-2 overflow-hidden">
       {showInlineCheckbox && (
         <Checkbox
           aria-label={`Select all files in group ${group.groupLabel}`}
@@ -498,6 +498,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     if (columnVisibility.checkbox) {
       columns.push({
         id: 'checkbox',
+        isTreeColumn: false,
         header: (
           <Checkbox
             aria-label="Select all files on current page"
@@ -845,7 +846,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     <div className={cn('flex min-h-0 flex-1 overflow-auto', scrollAreaClassName)}>
       <TreeTable
         ariaLabel="Context explorer table"
-        className="min-w-full"
+        className="w-full"
         columns={groupedColumns}
         expandedIds={stableExpandedGroupNodeIds}
         maxHeight="none"

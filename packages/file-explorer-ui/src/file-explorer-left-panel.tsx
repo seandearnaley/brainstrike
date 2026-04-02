@@ -38,7 +38,6 @@ import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
-import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
 import { useRuleMaterialization } from './hooks/use-rule-materialization';
 import { RestorationStatus } from './restoration-status';
 import { SelectionCounter } from './selection-counter';
@@ -177,8 +176,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setCurrentFolderId,
     maxSelectionCount,
     setMaxSelectionCount,
-    devInlineFixtureEnabled,
-    setDevInlineFixtureEnabled,
+    _devInlineFixtureEnabled,
+    _setDevInlineFixtureEnabled,
     disabledIncludeFilters,
     disabledExcludeFilters,
     toggleFilterEnabled,
@@ -237,7 +236,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancellable,
     cancelOperation,
     isCancelling,
-    clearRootDirectory,
+    clearRootDirectory: _clearRootDirectory,
     setRootDirectoryHandle,
     loadingPaths,
     loadChildren,
@@ -317,25 +316,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     onSelectionLimitExceeded: handleSelectionLimitError,
   });
 
-  // Inline fixture state management - extracted to reduce component complexity
-  // The hook manages side effects for inline fixture mode (dev only).
-  // Settings UI has moved to the main Settings page, so we don't need the return values here.
-  useInlineFixtureEffect({
-    fileSystemAdapter,
-    devInlineFixtureEnabled,
-    setDevInlineFixtureEnabled,
-    setRootDirectoryHandle,
-    clearRootDirectory,
-    showToast,
-    strings: {
-      successTitle: FileExplorerStrings.success.title,
-      errorTitle: FileExplorerStrings.error.title,
-      enableSuccess: FileExplorerStrings.inlineFixture.enableSuccess,
-      disableSuccess: FileExplorerStrings.inlineFixture.disableSuccess,
-      enableError: FileExplorerStrings.inlineFixture.enableError,
-      disableError: FileExplorerStrings.inlineFixture.disableError,
-    },
-  });
+  // Inline fixture state management is now handled by setupInlineFixtureSubscription
+  // in FileExplorerProvider, ensuring it works regardless of which page is active.
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {

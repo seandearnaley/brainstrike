@@ -600,14 +600,14 @@ describe('PreviewPanel', () => {
       expect(file3Checkbox).toBeChecked();
     });
 
-    it('should handle global select all', () => {
+    it('should handle select all via header checkbox', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const selectAllButton = screen.getByTestId('select-all-button');
-      fireEvent.click(selectAllButton);
+      // Use header checkbox to select all files on current page
+      const headerCheckbox = screen.getByLabelText('Select all files on current page');
+      fireEvent.click(headerCheckbox);
 
-      // Should be disabled after selection
-      expect(selectAllButton).toBeDisabled();
+      expect(headerCheckbox).toBeChecked();
     });
 
     it('should handle batch removal', async () => {
@@ -621,9 +621,7 @@ describe('PreviewPanel', () => {
       // Should show action bar
       await waitFor(() => {
         const bulkActionBar = screen.getByTestId('bulk-action-bar');
-        expect(
-          within(bulkActionBar).getByText('1 file selected in Context Explorer')
-        ).toBeInTheDocument();
+        expect(within(bulkActionBar).getByText('1 file selected')).toBeInTheDocument();
       });
 
       // Click remove button
@@ -1141,12 +1139,12 @@ describe('PreviewPanel', () => {
       const groupingSelect = screen.getByDisplayValue('No Grouping');
       fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
-      // Click "Select All" button
-      const selectAllButton = screen.getByTestId('select-all-button');
-      fireEvent.click(selectAllButton);
+      // Use header checkbox to select all files on current page
+      const headerCheckbox = screen.getByLabelText('Select all files on current page');
+      fireEvent.click(headerCheckbox);
 
       // Should select files across all groups
-      expect(selectAllButton).toBeDisabled();
+      expect(headerCheckbox).toBeChecked();
     });
   });
 
