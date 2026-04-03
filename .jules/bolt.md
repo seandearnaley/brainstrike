@@ -33,3 +33,7 @@
 ## 2026-03-31 - GC optimization in recursive tree traversal
 **Learning:** Using array spread syntax (`[...ancestors, node.id]`) during deep or wide recursive tree traversal (e.g., in `filterTreeNodes`) creates excessive intermediate arrays, increasing GC pressure and slowing down performance significantly.
 **Action:** Replace spread syntax with mutable array operations (`ancestors.push(node.id)` and `ancestors.pop()`) when passing tracking arrays down a recursive stack to minimize allocations and improve traversal speed.
+
+## 2024-04-03 - Replacing string.split with native indexOf for chunking hot paths
+**Learning:** For functions that parse large texts (e.g. `splitByBlankLines` and `splitMarkdownIntoBlocks`), `String.prototype.split(/\r?\n/)` allocates massive intermediate string arrays, increasing peak memory footprint and garbage collection pause times significantly.
+**Action:** Replace `.split()` usage with a `while` loop utilizing `String.prototype.indexOf('\n')` and `.charCodeAt()` for carriage return validation. This avoids allocating arrays upfront and provides dramatic execution time reductions on large text bodies while retaining equivalent behavior.
