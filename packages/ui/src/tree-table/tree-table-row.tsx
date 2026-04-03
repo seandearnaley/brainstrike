@@ -59,20 +59,20 @@ function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupH
           variant="ghost"
         >
           {node.isLoading ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : isExpanded ? (
-            <ChevronDown className="h-3 w-3" />
+            <ChevronDown className="h-3.5 w-3.5" />
           ) : (
-            <ChevronRight className="h-3 w-3" />
+            <ChevronRight className="h-3.5 w-3.5" />
           )}
         </Button>
 
         {/* Group icon */}
-        <Layers className="mx-1 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        <Layers className="ml-1.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
 
         {/* Group label and item count */}
-        <span className="px-1 font-semibold text-sm">{node.data.groupLabel}</span>
-        <span className="text-muted-foreground text-xs">({node.data.itemCount})</span>
+        <span className="ml-1.5 font-semibold text-sm">{node.data.groupLabel}</span>
+        <span className="ml-1 text-muted-foreground text-xs">({node.data.itemCount})</span>
       </div>
     </TableCell>
   );
@@ -292,15 +292,14 @@ function TreeTableCellComponent<T>({
               variant="ghost"
             >
               {node.isLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : isExpanded ? (
-                <ChevronDown className="h-3 w-3" />
+                <ChevronDown className="h-3.5 w-3.5" />
               ) : (
-                <ChevronRight className="h-3 w-3" />
+                <ChevronRight className="h-3.5 w-3.5" />
               )}
             </Button>
           ) : (
-            // Spacer to align leaf nodes with expandable nodes
             <span className="h-6 w-6 flex-shrink-0" />
           )}
 
@@ -311,7 +310,7 @@ function TreeTableCellComponent<T>({
               checked={
                 checkboxState === 'indeterminate' ? 'indeterminate' : checkboxState === 'checked'
               }
-              className="mx-1 h-4 w-4 flex-shrink-0"
+              className="ml-1.5 h-4 w-4 flex-shrink-0"
               data-state={checkboxState}
               onCheckedChange={() => onCheckboxChange?.()}
               onClick={(e) => e.stopPropagation()}
@@ -322,14 +321,14 @@ function TreeTableCellComponent<T>({
           {isInContext && (
             <span
               aria-label="In context"
-              className="mx-0.5 h-2 w-2 flex-shrink-0 rounded-full bg-primary/70"
+              className="ml-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-primary/70"
               role="img"
               title="In context"
             />
           )}
 
           {/* Cell content */}
-          <div className="min-w-0 flex-1 px-2">{cellContent}</div>
+          <div className="min-w-0 flex-1 pl-1.5">{cellContent}</div>
         </div>
       </TableCell>
     );

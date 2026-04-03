@@ -177,7 +177,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     maxSelectionCount,
     setMaxSelectionCount,
     _devInlineFixtureEnabled,
-    _setDevInlineFixtureEnabled,
+    setDevInlineFixtureEnabled,
     disabledIncludeFilters,
     disabledExcludeFilters,
     toggleFilterEnabled,
@@ -556,6 +556,18 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const handleDirectorySelect = useCallback(async () => {
     const { supported, reason } = isFileSystemAccessSupported();
     if (!supported) {
+      // Fall back to inline fixture demo mode when the directory picker is unavailable.
+      // Check for loadInlineFixture to detect a fixture-capable adapter without importing
+      // from @brainstrike/file-system (avoids circular dep in this package boundary).
+      const adapterAsFixture = fileSystemAdapter as { loadInlineFixture?: unknown };
+      if (typeof adapterAsFixture.loadInlineFixture === 'function') {
+        setDevInlineFixtureEnabled(true);
+        showToast({
+          title: FileExplorerStrings.inlineFixture.noAccessFallbackTitle,
+          description: FileExplorerStrings.inlineFixture.noAccessFallbackDescription,
+        });
+        return;
+      }
       handleBrowserCompatibilityError(reason);
       return;
     }
@@ -575,6 +587,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
     isFileSystemAccessSupported,
+    fileSystemAdapter,
+    setDevInlineFixtureEnabled,
+    showToast,
   ]);
 
   const handleFilterChange = useCallback(

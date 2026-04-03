@@ -90,7 +90,7 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
   const checkboxState = resolveCheckboxState(isFullySelected, isPartiallySelected);
 
   return (
-    <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
       {showInlineCheckbox && (
         <Checkbox
           aria-label={`Select all files in group ${group.groupLabel}`}
@@ -566,7 +566,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
 
           const item = node.data.item;
           return (
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-1.5">
               <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate font-mono text-sm" title={item.rootFolderId}>
                 {item.rootFolderId}

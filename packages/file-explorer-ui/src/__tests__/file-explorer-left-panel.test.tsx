@@ -134,6 +134,7 @@ let setFiltersMock: ReturnType<typeof vi.fn>;
 let applyFileFiltersMock: ReturnType<typeof vi.fn>;
 let handleRootDirectorySelectMock: ReturnType<typeof vi.fn>;
 let isFileSystemAccessSupportedMock: ReturnType<typeof vi.fn>;
+let setDevInlineFixtureEnabledMock: ReturnType<typeof vi.fn>;
 let fileExplorerReturnValue: ReturnType<typeof useFileExplorer>;
 
 describe('FileExplorerLeftPanel', () => {
@@ -141,6 +142,7 @@ describe('FileExplorerLeftPanel', () => {
     vi.clearAllMocks();
 
     setFiltersMock = vi.fn();
+    setDevInlineFixtureEnabledMock = vi.fn();
     const storeState = {
       includeFilters: [],
       excludeFilters: [],
@@ -173,6 +175,8 @@ describe('FileExplorerLeftPanel', () => {
       disabledIncludeFilters: new Set<string>(),
       disabledExcludeFilters: new Set<string>(),
       toggleFilterEnabled: vi.fn(),
+      devInlineFixtureEnabled: false,
+      setDevInlineFixtureEnabled: setDevInlineFixtureEnabledMock,
     };
 
     const mockStore = Object.assign(
@@ -361,6 +365,39 @@ describe('FileExplorerLeftPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Select Directory' }));
 
     expect(handleBrowserCompatibilityErrorMock).toHaveBeenCalledWith('Browser not supported');
+  });
+
+  it('enables inline fixture when directory picker is unavailable and fixture adapter is present', async () => {
+    isFileSystemAccessSupportedMock.mockReturnValueOnce({
+      supported: false,
+      reason: 'Browser not supported',
+    });
+
+    const { useAdapters } = await import('@brainstrike/file-explorer-hooks');
+    vi.mocked(useAdapters).mockReturnValueOnce({
+      fileSystemAdapter: {
+        loadInlineFixture: vi.fn(),
+        clearInlineFixture: vi.fn(),
+        isInlineFixtureActive: vi.fn(() => false),
+        canLoadInlineFixture: true,
+        requestDirectoryAccess: vi.fn(),
+        readDirectory: vi.fn(),
+        readFile: vi.fn(),
+      } as unknown as ReturnType<typeof useAdapters>['fileSystemAdapter'],
+      storageAdapter: {} as unknown as ReturnType<typeof useAdapters>['storageAdapter'],
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    await user.click(screen.getByRole('button', { name: 'Select Directory' }));
+
+    expect(setDevInlineFixtureEnabledMock).toHaveBeenCalledWith(true);
+    expect(showToastMock).toHaveBeenCalledWith({
+      title: 'Demo Mode Enabled',
+      description:
+        'Local directory picker is not available in this browser. Using built-in mock project instead.',
+    });
   });
 
   it('handles user cancelling directory selection', async () => {

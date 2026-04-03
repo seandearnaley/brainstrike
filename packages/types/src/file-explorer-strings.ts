@@ -64,6 +64,9 @@ export const FileExplorerStrings = {
     disableSuccess: 'Inline fixture disabled.',
     enableError: 'Unable to enable the inline fixture.',
     disableError: 'Unable to disable the inline fixture.',
+    noAccessFallbackTitle: 'Demo Mode Enabled',
+    noAccessFallbackDescription:
+      'Local directory picker is not available in this browser. Using built-in mock project instead.',
   },
 
   // File Names

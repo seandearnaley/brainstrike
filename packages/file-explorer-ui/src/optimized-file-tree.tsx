@@ -865,9 +865,9 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
   );
 
   return (
-    <div className="flex min-w-0 flex-1 items-center">
+    <div className="flex min-w-0 flex-1 items-center gap-1.5">
       <div
-        className="mr-2 flex w-4 items-center justify-center"
+        className="flex w-4 flex-shrink-0 items-center justify-center"
         title={
           rowData.isLoadingForSelection
             ? 'Loading folder contents...'
@@ -893,7 +893,7 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
         )}
       </div>
 
-      <div className="mr-2 flex w-4 items-center justify-center">
+      <div className="flex w-4 flex-shrink-0 items-center justify-center">
         <TreeNodeIcon
           isExpanded={isExpanded}
           isLoading={rowData.isFileLoading}

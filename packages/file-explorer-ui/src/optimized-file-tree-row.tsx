@@ -402,11 +402,11 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         tabIndex={0}
       >
         <div
-          className="flex items-center rounded px-2 py-1.5 transition-colors duration-150 hover:bg-accent"
-          style={{ paddingLeft: depth * 24 + 8 }}
+          className="flex items-center rounded py-1.5 transition-colors duration-150 hover:bg-accent"
+          style={{ paddingLeft: depth * 20 + 8 }}
         >
           {/* Chevron button with fixed width for consistent alignment */}
-          <div className="mr-2 flex w-4 justify-center">
+          <div className="flex w-6 flex-shrink-0 items-center justify-center">
             {node.type === 'directory' && (
               <button
                 aria-label={
@@ -421,11 +421,11 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
                 type="button"
               >
                 {isChildrenLoading ? (
-                  <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
                 ) : isExpanded ? (
-                  <ChevronDown className="h-3 w-3" />
+                  <ChevronDown className="h-3.5 w-3.5" />
                 ) : (
-                  <ChevronRight className="h-3 w-3" />
+                  <ChevronRight className="h-3.5 w-3.5" />
                 )}
               </button>
             )}
@@ -433,7 +433,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
 
           {/* Optimized Checkbox with precise alignment */}
           <div
-            className="mr-2 flex w-4 items-center justify-center"
+            className="ml-1.5 flex w-4 flex-shrink-0 items-center justify-center"
             title={
               isLoadingForSelection
                 ? 'Loading folder contents...'
@@ -460,7 +460,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           </div>
 
           {/* File/folder icon with consistent sizing */}
-          <div className="mr-2 flex w-4 items-center justify-center">
+          <div className="ml-1.5 flex w-4 flex-shrink-0 items-center justify-center">
             <TreeNodeIcon
               isExpanded={isExpanded}
               isLoading={isLoading}
@@ -470,7 +470,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           </div>
 
           {/* File/folder name and additional icons */}
-          <div className="flex min-w-0 flex-1 items-center">
+          <div className="ml-1.5 flex min-w-0 flex-1 items-center">
             {node.isSymbolicLink && (
               <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
             )}
