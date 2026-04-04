@@ -354,8 +354,8 @@ async function scanUnloadedDirectories(args: {
   if (mode === 'early-stop') {
     for (const node of unloadedDirectories) {
       throwIfAborted(abortSignal);
-      const children = await scanDirectory(fileSystemAdapter, node, filterTreeFn, abortSignal);
       state.currentPath = node.path;
+      const children = await scanDirectory(fileSystemAdapter, node, filterTreeFn, abortSignal);
       state.directoriesReadFromAdapter++;
       state.directoriesCompleted++;
       const stopped = consumeNodes({

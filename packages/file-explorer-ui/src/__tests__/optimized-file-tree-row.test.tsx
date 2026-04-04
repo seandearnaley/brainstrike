@@ -282,3 +282,159 @@ it('does not show rule-selected indicator for query-backed manual selection', ()
   render(<OptimizedFileTreeRow {...baseFileProps} />);
   expect(screen.queryByLabelText('Selected by rule')).not.toBeInTheDocument();
 });
+
+it('blocks query-mode selection changes until the manifest is ready', async () => {
+  const onToggle = vi.fn();
+  const store = createStore({
+    selectionModel: {
+      mode: 'query' as const,
+      explicitPaths: new Set<string>(),
+      ruleSetJson: null,
+      materializedPaths: new Set<string>(),
+      materializedAt: new Date().toISOString(),
+      queryDescriptor: {
+        kind: 'recursive-select-all' as const,
+        folderId: 'root',
+        rootPath: null,
+        coveredDirectoryPaths: ['/dir'],
+        includeFilters: [],
+        excludeFilters: [],
+        includedPaths: [],
+        excludedPaths: [],
+        manifestFingerprint: 'expected-fp',
+        manifestSnapshotId: 'expected-snapshot',
+        totalSelectedCount: 2,
+        useRegex: false,
+      },
+    },
+    querySelectionManifest: {
+      filePaths: ['/file.ts'],
+      pathSet: new Set(['/file.ts']),
+      directoryCounts: new Map<string, number>(),
+      fingerprint: 'stale-fp',
+      snapshotId: 'stale-snapshot',
+      status: 'ready' as const,
+      errorMessage: null,
+    },
+  });
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+  const user = userEvent.setup();
+
+  render(<OptimizedFileTreeRow {...baseFileProps} onToggleFileSelection={onToggle} />);
+  await user.click(screen.getByRole('checkbox', { name: 'Select file.ts' }));
+
+  expect(onToggle).not.toHaveBeenCalled();
+});
+
+it('removes all directory files when a query-covered directory is toggled', async () => {
+  const removeMultipleSelectedFiles = vi.fn();
+  const store = createStore({
+    removeMultipleSelectedFiles,
+    selectionModel: {
+      mode: 'query' as const,
+      explicitPaths: new Set<string>(),
+      ruleSetJson: null,
+      materializedPaths: new Set<string>(),
+      materializedAt: new Date().toISOString(),
+      queryDescriptor: {
+        kind: 'recursive-folder-select' as const,
+        folderId: 'root',
+        rootPath: '/dir',
+        coveredDirectoryPaths: ['/dir'],
+        includeFilters: [],
+        excludeFilters: [],
+        includedPaths: [],
+        excludedPaths: [],
+        manifestFingerprint: 'fp-1',
+        manifestSnapshotId: 'snapshot-1',
+        totalSelectedCount: 2,
+        useRegex: false,
+      },
+    },
+    querySelectionManifest: {
+      filePaths: ['/dir/a.ts', '/dir/b.ts'],
+      pathSet: new Set(['/dir/a.ts', '/dir/b.ts']),
+      directoryCounts: new Map([['/dir', 2]]),
+      fingerprint: 'fp-1',
+      snapshotId: 'snapshot-1',
+      status: 'ready' as const,
+      errorMessage: null,
+    },
+  });
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+  const user = userEvent.setup();
+
+  render(<OptimizedFileTreeRow {...baseDirProps} />);
+  await user.click(screen.getByRole('checkbox', { name: 'Select dir' }));
+
+  expect(removeMultipleSelectedFiles).toHaveBeenCalledWith(
+    'root',
+    expect.arrayContaining(['/dir/a.ts', '/dir/b.ts'])
+  );
+});
+
+it('adds only the available unselected directory files up to the limit', async () => {
+  const addMultipleSelectedFiles = vi.fn();
+  const store = createStore({
+    addMultipleSelectedFiles,
+    selectedFilePaths: new Set([encodeFileSelection('root', '/dir/b.ts')]),
+    maxSelectionCount: 3,
+  });
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+  const user = userEvent.setup();
+
+  render(<OptimizedFileTreeRow {...baseDirProps} />);
+  await user.click(screen.getByRole('checkbox', { name: 'Select dir' }));
+
+  expect(addMultipleSelectedFiles).toHaveBeenCalledWith('root', ['/dir/a.ts']);
+});
+
+it('renders query-covered empty loaded directories as unchecked and without limit errors', () => {
+  const emptyDirNode = {
+    ...createDirectoryNode({
+      name: 'empty',
+      path: '/empty',
+      children: [],
+    }),
+    loadState: 'loaded' as const,
+  };
+  const store = createStore({
+    maxSelectionCount: 1,
+    selectionModel: {
+      mode: 'query' as const,
+      explicitPaths: new Set<string>(),
+      ruleSetJson: null,
+      materializedPaths: new Set<string>(),
+      materializedAt: new Date().toISOString(),
+      queryDescriptor: {
+        kind: 'recursive-folder-select' as const,
+        folderId: 'root',
+        rootPath: '/empty',
+        coveredDirectoryPaths: ['/empty'],
+        includeFilters: [],
+        excludeFilters: [],
+        includedPaths: [],
+        excludedPaths: [],
+        manifestFingerprint: 'fp-empty',
+        manifestSnapshotId: 'snapshot-empty',
+        totalSelectedCount: 0,
+        useRegex: false,
+      },
+    },
+    querySelectionManifest: {
+      filePaths: [],
+      pathSet: new Set<string>(),
+      directoryCounts: new Map([['/empty', 0]]),
+      fingerprint: 'fp-empty',
+      snapshotId: 'snapshot-empty',
+      status: 'ready' as const,
+      errorMessage: null,
+    },
+  });
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+  render(<OptimizedFileTreeRow {...baseDirProps} node={emptyDirNode} />);
+  const checkbox = screen.getByRole('checkbox', { name: 'Select empty' });
+  expect(checkbox).not.toBeChecked();
+  expect(checkbox).not.toBeDisabled();
+});

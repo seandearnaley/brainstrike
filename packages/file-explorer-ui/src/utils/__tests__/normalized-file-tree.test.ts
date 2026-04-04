@@ -1,11 +1,17 @@
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import {
+  createEmptyNormalizedFileTreeState,
   createNormalizedFileTreeState,
+  getNormalizedChildPaths,
   getNormalizedDescendantFileCount,
   getNormalizedNode,
+  getNormalizedParentPath,
+  getNormalizedRootDirectoryPaths,
   listNormalizedDescendantFilePaths,
   materializeNormalizedFileTree,
+  materializeNormalizedNode,
+  materializeNormalizedShallowNode,
   materializeNormalizedSubtree,
   replaceNormalizedDirectoryChildren,
   setNormalizedNodeLoadState,
@@ -39,6 +45,14 @@ function createDirectoryNode(overrides: Partial<IFileNode>): IFileNode {
 }
 
 describe('normalized-file-tree', () => {
+  it('creates an empty normalized state', () => {
+    const state = createEmptyNormalizedFileTreeState();
+
+    expect(state.rootPaths).toEqual([]);
+    expect(getNormalizedChildPaths(state, null)).toEqual([]);
+    expect(getNormalizedRootDirectoryPaths(state)).toEqual([]);
+  });
+
   it('round-trips a nested tree through normalized state', () => {
     const tree: IFileNode[] = [
       createDirectoryNode({
@@ -108,6 +122,28 @@ describe('normalized-file-tree', () => {
     expect(nextState.descendantFileCountByPath).toBe(state.descendantFileCountByPath);
   });
 
+  it('sets load errors and clears them when the directory load state is reset', () => {
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        loadState: 'unloaded',
+      }),
+    ]);
+
+    const erroredState = setNormalizedNodeLoadState(state, '/root/src', 'error', 'boom');
+    expect(getNormalizedNode(erroredState, '/root/src')).toMatchObject({
+      loadState: 'error',
+      loadError: 'boom',
+    });
+
+    const recoveredState = setNormalizedNodeLoadState(erroredState, '/root/src', 'loaded');
+    expect(getNormalizedNode(recoveredState, '/root/src')).toMatchObject({
+      loadState: 'loaded',
+    });
+    expect(getNormalizedNode(recoveredState, '/root/src')).not.toHaveProperty('loadError');
+  });
+
   it('materializes a single subtree on demand', () => {
     const state = createNormalizedFileTreeState([
       createDirectoryNode({
@@ -132,6 +168,57 @@ describe('normalized-file-tree', () => {
         children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
       })
     );
+  });
+
+  it('materializes shallow nodes and parent links without descending recursively', () => {
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        children: [
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/src/nested',
+            depth: 1,
+            children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
+          }),
+        ],
+      }),
+      createFileNode({ name: 'readme.md', path: '/root/readme.md', depth: 0 }),
+    ]);
+
+    expect(materializeNormalizedNode(state, '/root/src')).toMatchObject({
+      path: '/root/src',
+      type: 'directory',
+    });
+    expect(materializeNormalizedShallowNode(state, '/root/src')).toEqual(
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        children: [
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/src/nested',
+            depth: 1,
+          }),
+        ],
+      })
+    );
+    expect(getNormalizedChildPaths(state, '/root/src')).toEqual(['/root/src/nested']);
+    expect(getNormalizedParentPath(state, '/root/src/nested')).toBe('/root/src');
+    expect(getNormalizedRootDirectoryPaths(state)).toEqual(['/root/src']);
+  });
+
+  it('returns stable empty results for missing nodes and no-op replacements', () => {
+    const state = createNormalizedFileTreeState([createFileNode({ path: '/root/file.ts' })]);
+
+    expect(materializeNormalizedNode(state, '/missing')).toBeUndefined();
+    expect(materializeNormalizedSubtree(state, '/missing')).toBeUndefined();
+    expect(materializeNormalizedShallowNode(state, '/missing')).toBeUndefined();
+    expect(getNormalizedDescendantFileCount(state, '/missing')).toBe(0);
+    expect(listNormalizedDescendantFilePaths(state, '/missing')).toEqual([]);
+    expect(replaceNormalizedDirectoryChildren(state, '/missing', [])).toBe(state);
+    expect(setNormalizedNodeLoadState(state, '/missing', 'loading')).toBe(state);
   });
 
   it('does not loop forever if parent references become cyclic during count recomputation', () => {
@@ -200,5 +287,37 @@ describe('normalized-file-tree', () => {
         }),
       ])
     ).not.toThrow();
+  });
+
+  it('lists descendant file paths breadth-first with an optional max count', () => {
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        children: [
+          createFileNode({ name: 'a.ts', path: '/root/src/a.ts', depth: 1 }),
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/src/nested',
+            depth: 1,
+            children: [
+              createFileNode({ name: 'b.ts', path: '/root/src/nested/b.ts', depth: 2 }),
+              createFileNode({ name: 'c.ts', path: '/root/src/nested/c.ts', depth: 2 }),
+            ],
+          }),
+        ],
+      }),
+    ]);
+
+    expect(listNormalizedDescendantFilePaths(state, '/root/src')).toEqual([
+      '/root/src/a.ts',
+      '/root/src/nested/b.ts',
+      '/root/src/nested/c.ts',
+    ]);
+    expect(listNormalizedDescendantFilePaths(state, '/root/src', 2)).toEqual([
+      '/root/src/a.ts',
+      '/root/src/nested/b.ts',
+    ]);
+    expect(listNormalizedDescendantFilePaths(state, '/root/src/a.ts')).toEqual(['/root/src/a.ts']);
   });
 });

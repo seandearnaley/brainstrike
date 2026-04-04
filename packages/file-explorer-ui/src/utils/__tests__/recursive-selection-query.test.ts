@@ -158,6 +158,49 @@ describe('recursive-selection-query', () => {
     expect(result.filePaths).toEqual(['/root/src/keep.ts']);
   });
 
+  it('reports progress and skips hidden nodes while scanning', async () => {
+    const progress = vi.fn();
+    const adapter = createMockAdapter({
+      '/root': [
+        createFileNode({ path: '/root/visible.ts', name: 'visible.ts', depth: 1 }),
+        createFileNode({
+          path: '/root/hidden.ts',
+          name: 'hidden.ts',
+          depth: 1,
+          isVisible: false,
+        }),
+      ],
+    });
+
+    const result = await querySelectableFiles({
+      roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      excludeFilters: [],
+      onProgress: progress,
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual(['/root/visible.ts']);
+    expect(progress).toHaveBeenCalled();
+  });
+
+  it('throws an abort error before scanning when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      querySelectableFiles({
+        roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+        fileSystemAdapter: createMockAdapter({}),
+        includeFilters: [],
+        excludeFilters: [],
+        abortSignal: controller.signal,
+        useRegex: false,
+      })
+    ).rejects.toThrow(/cancelled/i);
+  });
+
   it('returns immediately when no slots are available', async () => {
     const adapter = createMockAdapter({
       '/root': [createFileNode({ path: '/root/file.ts', name: 'file.ts', depth: 1 })],

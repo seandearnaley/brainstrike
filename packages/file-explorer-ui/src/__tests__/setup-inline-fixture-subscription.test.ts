@@ -138,4 +138,70 @@ describe('setup-inline-fixture-subscription', () => {
 
     unsubscribe();
   });
+
+  it('skips setup when the adapter is not fixture-capable', () => {
+    const adapter = {
+      requestDirectoryAccess: vi.fn(),
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      exists: vi.fn(),
+    } as unknown as FileSystemAdapter;
+    const store = createFixtureStore(false);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+
+    expect(loggerMocks.debug).toHaveBeenCalledWith(
+      'Adapter does not support inline fixtures, skipping subscription'
+    );
+    unsubscribe();
+  });
+
+  it('loads and clears the inline fixture through the global testing API', async () => {
+    const loadInlineFixture = vi.fn(
+      async () => ({ path: '/fixture' }) as unknown as FileSystemDirectoryHandle
+    );
+    const clearInlineFixture = vi.fn(async () => undefined);
+    const adapter = createFixtureCapableAdapter({
+      loadInlineFixture,
+      clearInlineFixture,
+      isInlineFixtureActive: () => false,
+    });
+    const store = createFixtureStore(false);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+    window.__BRAINSTRIKE_LOAD_FIXTURE__?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(loadInlineFixture).toHaveBeenCalledTimes(1);
+    expect(store.getState().rootDirectoryHandle).toMatchObject({ path: '/fixture' });
+    expect(loggerMocks.info).toHaveBeenCalledWith('Inline fixture loaded');
+
+    window.__BRAINSTRIKE_CLEAR_FIXTURE__?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(clearInlineFixture).toHaveBeenCalledTimes(1);
+    expect(store.getState().rootDirectoryHandle).toBeNull();
+    expect(loggerMocks.info).toHaveBeenCalledWith('Inline fixture cleared');
+
+    unsubscribe();
+    expect(window.__BRAINSTRIKE_LOAD_FIXTURE__).toBeUndefined();
+    expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeUndefined();
+  });
+
+  it('does not reapply the fixture when persisted state says enabled but the adapter is already active', async () => {
+    const loadInlineFixture = vi.fn(async () => ({}) as FileSystemDirectoryHandle);
+    const adapter = createFixtureCapableAdapter({
+      loadInlineFixture,
+      isInlineFixtureActive: () => true,
+    });
+    const store = createFixtureStore(true);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+    await Promise.resolve();
+
+    expect(loadInlineFixture).not.toHaveBeenCalled();
+    unsubscribe();
+  });
 });

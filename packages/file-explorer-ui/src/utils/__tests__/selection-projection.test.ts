@@ -8,9 +8,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   getDirectorySelectedCount,
+  getSelectionCount,
   isDirectoryCoveredByQuerySelection,
   isQuerySelectionPathSelected,
   isSelectionPathSelected,
+  materializeCompositeKeysForSelectionModel,
 } from '../selection-projection';
 
 function createDescriptor(
@@ -132,10 +134,114 @@ describe('selection-projection', () => {
     expect(getDirectorySelectedCount(descriptor, manifest, 'folder-1', '/src')).toBe(2);
   });
 
+  it('matches absolute and relative path variants against include and exclude filters', () => {
+    const descriptor = createDescriptor({
+      includeFilters: ['src/**/*.ts'],
+      excludeFilters: ['src/**/ignore.ts'],
+    });
+
+    expect(isQuerySelectionPathSelected(descriptor, null, 'folder-1', '/src/index.ts')).toBe(false);
+    expect(
+      isQuerySelectionPathSelected(
+        descriptor,
+        null,
+        'folder-1',
+        '/src/index.ts',
+        new Set(['/src/index.ts'])
+      )
+    ).toBe(true);
+    expect(
+      isQuerySelectionPathSelected(
+        descriptor,
+        null,
+        'folder-1',
+        '/src/ignore.ts',
+        new Set(['/src/ignore.ts'])
+      )
+    ).toBe(false);
+  });
+
   it('propagates materialized path fallback through isSelectionPathSelected in query mode', () => {
     const selectionModel = createSelectionModel({
       materializedPaths: new Set(['/src/index.ts']),
     });
+
+    expect(
+      isSelectionPathSelected({
+        currentFolderId: 'folder-1',
+        path: '/src/index.ts',
+        querySelectionManifest: null,
+        selectedFilePaths: new Set<string>(),
+        selectionModel,
+      })
+    ).toBe(true);
+  });
+
+  it('returns false for query lookups when folder id or root path do not match', () => {
+    const descriptor = createDescriptor({ rootPath: '/src' });
+    const manifest = createManifest();
+
+    expect(
+      isQuerySelectionPathSelected(descriptor, manifest, 'other-folder', '/src/index.ts')
+    ).toBe(false);
+    expect(isQuerySelectionPathSelected(descriptor, manifest, 'folder-1', '/other/index.ts')).toBe(
+      false
+    );
+    expect(isDirectoryCoveredByQuerySelection(descriptor, manifest, 'other-folder', '/src')).toBe(
+      false
+    );
+    expect(getDirectorySelectedCount(descriptor, manifest, 'other-folder', '/src')).toBe(0);
+  });
+
+  it('materializes composite keys from rules and query selections', () => {
+    const manifest = createManifest();
+
+    const rulesKeys = materializeCompositeKeysForSelectionModel({
+      currentFolderId: 'folder-1',
+      selectedFilePaths: new Set<string>(),
+      querySelectionManifest: null,
+      selectionModel: {
+        ...createEmptySelectionModel(),
+        mode: 'rules',
+        materializedPaths: new Set(['/src/index.ts']),
+      },
+    });
+    expect(rulesKeys).toEqual(new Set(['folder-1|@|/src/index.ts']));
+
+    const queryKeys = materializeCompositeKeysForSelectionModel({
+      currentFolderId: 'folder-1',
+      selectedFilePaths: new Set<string>(),
+      querySelectionManifest: manifest,
+      selectionModel: createSelectionModel(),
+    });
+    expect(queryKeys).toEqual(new Set(['folder-1|@|/src/index.ts', 'folder-1|@|/src/utils.ts']));
+  });
+
+  it('returns selection counts for explicit, query, and rules modes', () => {
+    const explicitModel: SelectionModel = {
+      ...createEmptySelectionModel(),
+      mode: 'explicit',
+      explicitPaths: new Set(['/src/index.ts']),
+    };
+    expect(getSelectionCount(explicitModel, new Set(['folder-1|@|/src/index.ts']), null)).toBe(1);
+
+    const queryModel = createSelectionModel();
+    expect(getSelectionCount(queryModel, new Set<string>(), createManifest())).toBe(2);
+
+    const rulesModel: SelectionModel = {
+      ...createEmptySelectionModel(),
+      mode: 'rules',
+      materializedPaths: new Set(['/src/index.ts', '/src/utils.ts']),
+    };
+    expect(getSelectionCount(rulesModel, new Set<string>(), null)).toBe(2);
+  });
+
+  it('uses rule materialized paths in generic selection lookup', () => {
+    const selectionModel: SelectionModel = {
+      ...createEmptySelectionModel(),
+      mode: 'rules',
+      materializedPaths: new Set(['/src/index.ts']),
+    };
 
     expect(
       isSelectionPathSelected({
