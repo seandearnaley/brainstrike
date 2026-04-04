@@ -78,13 +78,19 @@ export function setupInlineFixtureSubscription(
     }
   };
 
+  const safelyApplyFixtureState = (enabled: boolean): void => {
+    void applyFixtureState(enabled).catch((error) => {
+      logger.error('Inline fixture toggle crashed outside guarded flow', { error, enabled });
+    });
+  };
+
   // Track previous state to detect actual changes
   let previousEnabled = store.getState().devInlineFixtureEnabled;
 
   // If fixture was enabled before subscription started (e.g., persisted state),
   // apply it immediately
   if (previousEnabled && !adapter.isInlineFixtureActive()) {
-    void applyFixtureState(true);
+    safelyApplyFixtureState(true);
   }
 
   const unsubscribe = store.subscribe((state) => {
@@ -93,7 +99,7 @@ export function setupInlineFixtureSubscription(
       return;
     }
     previousEnabled = currentEnabled;
-    void applyFixtureState(currentEnabled);
+    safelyApplyFixtureState(currentEnabled);
   });
 
   // Expose global testing API

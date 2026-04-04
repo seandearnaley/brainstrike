@@ -23,8 +23,12 @@ function createMockDb(
 }
 
 describe('query-selection-snapshot', () => {
-  it('creates snapshots with TTL cleanup before insert', async () => {
+  it('creates snapshots transactionally with TTL cleanup before insert', async () => {
     const db = createMockDb([
+      (sql) => {
+        expect(sql).toBe('BEGIN');
+        return { rows: [] };
+      },
       (sql) => {
         expect(sql).toContain('DELETE FROM selection_snapshots');
         expect(sql).toContain('expires_at <= NOW()');
@@ -41,6 +45,10 @@ describe('query-selection-snapshot', () => {
         expect(params).toEqual(['snapshot-1', ['/src/index.ts', '/src/utils.ts']]);
         return { rows: [] };
       },
+      (sql) => {
+        expect(sql).toBe('COMMIT');
+        return { rows: [] };
+      },
     ]);
 
     const snapshotId = await createQuerySelectionSnapshot(db, ['/src/index.ts', '/src/utils.ts']);
@@ -49,10 +57,43 @@ describe('query-selection-snapshot', () => {
   });
 
   it('throws when snapshot creation does not return an id', async () => {
-    const db = createMockDb([() => ({ rows: [] }), () => ({ rows: [] })]);
+    const db = createMockDb([
+      (sql) => {
+        expect(sql).toBe('BEGIN');
+        return { rows: [] };
+      },
+      () => ({ rows: [] }),
+      () => ({ rows: [] }),
+      (sql) => {
+        expect(sql).toBe('ROLLBACK');
+        return { rows: [] };
+      },
+    ]);
 
     await expect(createQuerySelectionSnapshot(db, ['/src/index.ts'])).rejects.toThrow(
       'Selection snapshot insert did not return an id'
+    );
+  });
+
+  it('rolls back when file path insertion fails after creating a snapshot row', async () => {
+    const db = createMockDb([
+      (sql) => {
+        expect(sql).toBe('BEGIN');
+        return { rows: [] };
+      },
+      () => ({ rows: [] }),
+      () => ({ rows: [{ id: 'snapshot-1' }] }),
+      () => {
+        throw new Error('insert files failed');
+      },
+      (sql) => {
+        expect(sql).toBe('ROLLBACK');
+        return { rows: [] };
+      },
+    ]);
+
+    await expect(createQuerySelectionSnapshot(db, ['/src/index.ts'])).rejects.toThrow(
+      'insert files failed'
     );
   });
 

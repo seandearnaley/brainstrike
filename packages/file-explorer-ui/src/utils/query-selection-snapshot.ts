@@ -30,31 +30,42 @@ export async function createQuerySelectionSnapshot(
     return null;
   }
 
-  await db.query(
-    `DELETE FROM selection_snapshots
-     WHERE expires_at IS NOT NULL
-       AND expires_at <= NOW()`
-  );
+  await db.query('BEGIN');
+  try {
+    await db.query(
+      `DELETE FROM selection_snapshots
+       WHERE expires_at IS NOT NULL
+         AND expires_at <= NOW()`
+    );
 
-  const snapshotResult = (await db.query(
-    `INSERT INTO selection_snapshots (expires_at)
-     VALUES (NOW() + ($1::int * INTERVAL '1 hour'))
-     RETURNING id`,
-    [QUERY_SELECTION_SNAPSHOT_TTL_HOURS]
-  )) as { rows: QueryResultRow[] };
-  const snapshotId = snapshotResult.rows[0]?.id;
-  if (!snapshotId) {
-    logger.error('Selection snapshot insert did not return an id');
-    throw new Error('Selection snapshot insert did not return an id');
+    const snapshotResult = (await db.query(
+      `INSERT INTO selection_snapshots (expires_at)
+       VALUES (NOW() + ($1::int * INTERVAL '1 hour'))
+       RETURNING id`,
+      [QUERY_SELECTION_SNAPSHOT_TTL_HOURS]
+    )) as { rows: QueryResultRow[] };
+    const snapshotId = snapshotResult.rows[0]?.id;
+    if (!snapshotId) {
+      logger.error('Selection snapshot insert did not return an id');
+      throw new Error('Selection snapshot insert did not return an id');
+    }
+
+    await db.query(
+      `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
+       SELECT $1, UNNEST($2::text[])`,
+      [snapshotId, Array.from(filePaths)]
+    );
+
+    await db.query('COMMIT');
+    return snapshotId;
+  } catch (error) {
+    try {
+      await db.query('ROLLBACK');
+    } catch (rollbackError) {
+      logger.warn('Selection snapshot rollback failed', { rollbackError });
+    }
+    throw error;
   }
-
-  await db.query(
-    `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
-     SELECT $1, UNNEST($2::text[])`,
-    [snapshotId, Array.from(filePaths)]
-  );
-
-  return snapshotId;
 }
 
 export async function loadQuerySelectionSnapshot(

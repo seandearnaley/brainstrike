@@ -82,6 +82,12 @@ interface ScanResult {
   node: IFileNode;
 }
 
+interface AsyncScanQueue {
+  close: () => void;
+  push: (result: ScanResult) => void;
+  takeNext: () => Promise<ScanResult | undefined>;
+}
+
 function snapshotProgress(state: MutableQueryState): RecursiveSelectionQueryProgress {
   return {
     currentPath: state.currentPath,
@@ -540,13 +546,7 @@ function createScanBatch(args: {
   const settledResults: ScanResult[] = [];
   const runningTasks = new Set<Promise<void>>();
   let currentIndex = nextDirectoryIndex;
-  let notifyNextResult: (() => void) | null = null;
-
-  const pushResult = (result: ScanResult): void => {
-    settledResults.push(result);
-    notifyNextResult?.();
-    notifyNextResult = null;
-  };
+  const resultQueue = createAsyncScanQueue(settledResults);
 
   while (
     !scanAbortController.signal.aborted &&
@@ -561,14 +561,14 @@ function createScanBatch(args: {
 
     const task = scanDirectory(fileSystemAdapter, node, filterTreeFn, scanAbortController.signal)
       .then((children) => {
-        pushResult({
+        resultQueue.push({
           children,
           error: null,
           node,
         });
       })
       .catch((error: unknown) => {
-        pushResult({
+        resultQueue.push({
           children: [],
           error,
           node,
@@ -578,23 +578,58 @@ function createScanBatch(args: {
     runningTasks.add(task);
     void task.finally(() => {
       runningTasks.delete(task);
-      notifyNextResult?.();
-      notifyNextResult = null;
+      if (runningTasks.size === 0) {
+        resultQueue.close();
+      }
     });
+  }
+
+  if (runningTasks.size === 0) {
+    resultQueue.close();
   }
 
   return {
     nextDirectoryIndex: currentIndex,
-    takeNext: async (): Promise<ScanResult | undefined> => {
-      while (settledResults.length === 0) {
-        if (runningTasks.size === 0) {
-          return undefined;
-        }
-        await new Promise<void>((resolve) => {
-          notifyNextResult = resolve;
-        });
+    takeNext: resultQueue.takeNext,
+  };
+}
+
+function createAsyncScanQueue(settledResults: ScanResult[]): AsyncScanQueue {
+  const waiters: Array<(result: ScanResult | undefined) => void> = [];
+  let closed = false;
+
+  const flushClosedWaiters = (): void => {
+    if (!(closed && waiters.length > 0)) {
+      return;
+    }
+    for (const waiter of waiters.splice(0)) {
+      waiter(undefined);
+    }
+  };
+
+  return {
+    push: (result) => {
+      const waiter = waiters.shift();
+      if (waiter) {
+        waiter(result);
+        return;
       }
-      return settledResults.shift();
+      settledResults.push(result);
+    },
+    close: () => {
+      closed = true;
+      flushClosedWaiters();
+    },
+    takeNext: async (): Promise<ScanResult | undefined> => {
+      if (settledResults.length > 0) {
+        return settledResults.shift();
+      }
+      if (closed) {
+        return undefined;
+      }
+      return new Promise<ScanResult | undefined>((resolve) => {
+        waiters.push(resolve);
+      });
     },
   };
 }

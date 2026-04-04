@@ -10,6 +10,17 @@ export interface NormalizedFileTreeState {
   rootPaths: string[];
 }
 
+interface TraversalFrame {
+  node: IFileNode;
+  parentPath: string | null;
+  visited: boolean;
+}
+
+interface MaterializeFrame {
+  path: string;
+  visited: boolean;
+}
+
 function createBaseState(): NormalizedFileTreeState {
   return {
     nodeByPath: new Map(),
@@ -29,31 +40,85 @@ function cloneNode(node: IFileNode): NormalizedFileTreeNode {
   return shallowNode;
 }
 
+function addFileNodeToState(
+  state: NormalizedFileTreeState,
+  node: IFileNode,
+  parentPath: string | null
+): void {
+  state.nodeByPath.set(node.path, cloneNode(node));
+  state.parentPathByPath.set(node.path, parentPath);
+  state.childPathsByPath.delete(node.path);
+  state.descendantFileCountByPath.set(node.path, 0);
+}
+
+function finalizeDirectoryNode(
+  state: NormalizedFileTreeState,
+  node: IFileNode & { type: 'directory' }
+): void {
+  const childPaths = (node.children ?? []).map((child) => child.path);
+  let descendantFileCount = 0;
+  for (const childPath of childPaths) {
+    const childNode = state.nodeByPath.get(childPath);
+    if (!childNode) {
+      continue;
+    }
+    descendantFileCount +=
+      childNode.type === 'file' ? 1 : (state.descendantFileCountByPath.get(childPath) ?? 0);
+  }
+
+  state.childPathsByPath.set(node.path, childPaths);
+  state.descendantFileCountByPath.set(node.path, descendantFileCount);
+}
+
+function isDirectoryNode(node: IFileNode): node is IFileNode & { type: 'directory' } {
+  return node.type === 'directory';
+}
+
 function addSubtree(
   state: NormalizedFileTreeState,
   node: IFileNode,
   parentPath: string | null
 ): number {
-  state.nodeByPath.set(node.path, cloneNode(node));
-  state.parentPathByPath.set(node.path, parentPath);
+  const traversalStack: TraversalFrame[] = [{ node, parentPath, visited: false }];
 
-  if (node.type !== 'directory') {
-    state.childPathsByPath.delete(node.path);
-    state.descendantFileCountByPath.set(node.path, 0);
-    return 1;
+  while (traversalStack.length > 0) {
+    const frame = traversalStack.pop();
+    if (!frame) {
+      continue;
+    }
+
+    const currentNode = frame.node;
+    if (!frame.visited) {
+      if (currentNode.type !== 'directory') {
+        addFileNodeToState(state, currentNode, frame.parentPath);
+        continue;
+      }
+
+      state.nodeByPath.set(currentNode.path, cloneNode(currentNode));
+      state.parentPathByPath.set(currentNode.path, frame.parentPath);
+
+      traversalStack.push({ ...frame, visited: true });
+      const children = currentNode.children ?? [];
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        const child = children[index];
+        if (!child) {
+          continue;
+        }
+        traversalStack.push({
+          node: child,
+          parentPath: currentNode.path,
+          visited: false,
+        });
+      }
+      continue;
+    }
+
+    if (isDirectoryNode(currentNode)) {
+      finalizeDirectoryNode(state, currentNode);
+    }
   }
 
-  const childPaths: string[] = [];
-  let descendantFileCount = 0;
-
-  for (const child of node.children ?? []) {
-    childPaths.push(child.path);
-    descendantFileCount += addSubtree(state, child, node.path);
-  }
-
-  state.childPathsByPath.set(node.path, childPaths);
-  state.descendantFileCountByPath.set(node.path, descendantFileCount);
-  return descendantFileCount;
+  return node.type === 'file' ? 1 : (state.descendantFileCountByPath.get(node.path) ?? 0);
 }
 
 export function createNormalizedFileTreeState(nodes: IFileNode[]): NormalizedFileTreeState {
@@ -67,22 +132,94 @@ export function createNormalizedFileTreeState(nodes: IFileNode[]): NormalizedFil
   return state;
 }
 
-function materializeNode(state: NormalizedFileTreeState, path: string): IFileNode | undefined {
+function materializeFileNode(state: NormalizedFileTreeState, path: string): IFileNode | undefined {
   const node = state.nodeByPath.get(path);
-  if (!node) {
-    return undefined;
-  }
+  return node?.type === 'file' ? { ...node } : undefined;
+}
 
-  if (node.type !== 'directory') {
-    return { ...node };
+function materializeDirectoryNode(
+  state: NormalizedFileTreeState,
+  path: string,
+  materializedNodes: Map<string, IFileNode>
+): IFileNode | undefined {
+  const node = state.nodeByPath.get(path);
+  if (!(node && node.type === 'directory')) {
+    return undefined;
   }
 
   const childPaths = state.childPathsByPath.get(path) ?? [];
   const children = childPaths
-    .map((childPath) => materializeNode(state, childPath))
+    .map((childPath) => materializedNodes.get(childPath))
     .filter((child): child is IFileNode => child !== undefined);
 
   return children.length > 0 ? { ...node, children } : { ...node };
+}
+
+function queueDirectoryChildrenForMaterialization(
+  state: NormalizedFileTreeState,
+  path: string,
+  traversalStack: MaterializeFrame[]
+): void {
+  traversalStack.push({ path, visited: true });
+  const childPaths = state.childPathsByPath.get(path) ?? [];
+  for (let index = childPaths.length - 1; index >= 0; index -= 1) {
+    const childPath = childPaths[index];
+    if (!childPath) {
+      continue;
+    }
+    traversalStack.push({ path: childPath, visited: false });
+  }
+}
+
+function handleUnvisitedMaterializeFrame(
+  state: NormalizedFileTreeState,
+  frame: MaterializeFrame,
+  node: NormalizedFileTreeNode,
+  materializedNodes: Map<string, IFileNode>,
+  traversalStack: MaterializeFrame[]
+): void {
+  if (node.type !== 'directory') {
+    const materializedFileNode = materializeFileNode(state, frame.path);
+    if (materializedFileNode) {
+      materializedNodes.set(frame.path, materializedFileNode);
+    }
+    return;
+  }
+
+  queueDirectoryChildrenForMaterialization(state, frame.path, traversalStack);
+}
+
+function materializeNode(state: NormalizedFileTreeState, path: string): IFileNode | undefined {
+  const materializedNodes = new Map<string, IFileNode>();
+  const traversalStack: MaterializeFrame[] = [{ path, visited: false }];
+
+  while (traversalStack.length > 0) {
+    const frame = traversalStack.pop();
+    if (!frame) {
+      continue;
+    }
+
+    const node = state.nodeByPath.get(frame.path);
+    if (!node) {
+      continue;
+    }
+
+    if (!frame.visited) {
+      handleUnvisitedMaterializeFrame(state, frame, node, materializedNodes, traversalStack);
+      continue;
+    }
+
+    const materializedDirectoryNode = materializeDirectoryNode(
+      state,
+      frame.path,
+      materializedNodes
+    );
+    if (materializedDirectoryNode) {
+      materializedNodes.set(frame.path, materializedDirectoryNode);
+    }
+  }
+
+  return materializedNodes.get(path);
 }
 
 export function materializeNormalizedNode(
@@ -147,9 +284,21 @@ export function getNormalizedRootDirectoryPaths(state: NormalizedFileTreeState):
 }
 
 function collectSubtreePaths(state: NormalizedFileTreeState, path: string, out: string[]): void {
-  out.push(path);
-  for (const childPath of state.childPathsByPath.get(path) ?? []) {
-    collectSubtreePaths(state, childPath, out);
+  const stack = [path];
+  while (stack.length > 0) {
+    const currentPath = stack.pop();
+    if (!currentPath) {
+      continue;
+    }
+    out.push(currentPath);
+    const childPaths = state.childPathsByPath.get(currentPath) ?? [];
+    for (let index = childPaths.length - 1; index >= 0; index -= 1) {
+      const childPath = childPaths[index];
+      if (!childPath) {
+        continue;
+      }
+      stack.push(childPath);
+    }
   }
 }
 

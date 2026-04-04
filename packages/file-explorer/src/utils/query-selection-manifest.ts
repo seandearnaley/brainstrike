@@ -42,6 +42,8 @@ export function buildQuerySelectionFingerprint(args: {
   rootPath: string | null;
   useRegex: boolean;
 }): string {
+  // Keep this field list explicit so any new selection semantics must be
+  // intentionally considered for fingerprint compatibility.
   return JSON.stringify({
     excludeFilters: [...args.excludeFilters],
     folderId: args.folderId,

@@ -160,4 +160,45 @@ describe('normalized-file-tree', () => {
     expect(getNormalizedDescendantFileCount(nextState, '/root/src/nested')).toBe(1);
     expect(getNormalizedDescendantFileCount(nextState, '/root/src')).toBe(1);
   });
+
+  it('handles deeply nested trees without recursive stack overflow', () => {
+    const depth = 12_000;
+    const directoryPaths: string[] = [];
+    let currentPath = '/root';
+    for (let index = 0; index < depth; index += 1) {
+      currentPath = `${currentPath}/dir-${index}`;
+      directoryPaths.push(currentPath);
+    }
+
+    let currentNode = createFileNode({
+      name: 'leaf.ts',
+      path: `${currentPath}/leaf.ts`,
+      depth,
+    });
+
+    for (let index = directoryPaths.length - 1; index >= 0; index -= 1) {
+      const directoryPath = directoryPaths[index];
+      if (!directoryPath) {
+        continue;
+      }
+      currentNode = createDirectoryNode({
+        name: `dir-${index}`,
+        path: directoryPath,
+        depth: index,
+        children: [currentNode],
+      });
+    }
+
+    const state = createNormalizedFileTreeState([currentNode]);
+    expect(() => materializeNormalizedFileTree(state)).not.toThrow();
+    expect(() =>
+      replaceNormalizedDirectoryChildren(state, currentNode.path, [
+        createFileNode({
+          name: 'replacement.ts',
+          path: `${currentNode.path}/replacement.ts`,
+          depth: 1,
+        }),
+      ])
+    ).not.toThrow();
+  });
 });

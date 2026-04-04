@@ -17,10 +17,6 @@ import type { PersistableFileExplorerStore } from '../utils/persist-file-explore
 
 export function yieldToBrowser(): Promise<void> {
   return new Promise((resolve) => {
-    if (typeof requestAnimationFrame !== 'undefined') {
-      requestAnimationFrame(() => resolve());
-      return;
-    }
     setTimeout(resolve, 0);
   });
 }
