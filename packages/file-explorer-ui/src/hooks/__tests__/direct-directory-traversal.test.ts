@@ -108,4 +108,20 @@ describe('traverseDirectoriesDirect', () => {
     expect(result.loaded).toBe(0);
     expect(result.visitedPaths).toEqual(['/root/src']);
   });
+
+  it('treats a directory removed during async load as completed without dereferencing it', async () => {
+    const root = createDirectory('/root', 'loaded', [createDirectory('/root/src', 'unloaded')]);
+
+    const result = await traverseDirectoriesDirect(['/root/src'], {
+      getDirectoryByPath: (path) => findDirectoryByPath(root, path),
+      isActive: () => true,
+      loadDirectoryPath: async () => {
+        root.children = [];
+      },
+    });
+
+    expect(result.cancelled).toBe(false);
+    expect(result.loaded).toBe(1);
+    expect(result.visitedPaths).toEqual(['/root/src']);
+  });
 });

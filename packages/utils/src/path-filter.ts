@@ -21,6 +21,12 @@ const IGNORE_REGEX = new RegExp(
 const regexCache = new Map<string, RegExp>();
 const invalidRegexPatterns = new Set<string>();
 const minimatchCache = new Map<string, Minimatch>();
+const MAX_REGEX_PATTERN_LENGTH = 256;
+const UNSAFE_REGEX_PATTERNS = [
+  /\\[1-9]/, // backreferences can explode search time and are unnecessary here
+  /\(\?<([=!])/, // lookbehind
+  /\((?:[^()\\]|\\.)*[+*{](?:[^()\\]|\\.)*\)[+*{]/, // nested quantifiers
+];
 
 const getLogger = (): ReturnType<typeof createLogger> => createLogger('fileFilter');
 
@@ -33,6 +39,14 @@ const getOrCreateWildcardMatcher = (pattern: string): Minimatch => {
   return matcher;
 };
 
+function isSafeRegexPattern(pattern: string): boolean {
+  if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+    return false;
+  }
+
+  return UNSAFE_REGEX_PATTERNS.every((unsafePattern) => !unsafePattern.test(pattern));
+}
+
 const getRegexMatcher = (pattern: string): RegExp | null => {
   const cachedRegex = regexCache.get(pattern);
   if (cachedRegex) {
@@ -43,9 +57,13 @@ const getRegexMatcher = (pattern: string): RegExp | null => {
     return null;
   }
 
+  if (!isSafeRegexPattern(pattern)) {
+    invalidRegexPatterns.add(pattern);
+    getLogger().warn(`Rejected unsafe regex pattern: ${pattern}`);
+    return null;
+  }
+
   try {
-    // Patterns are expected to come from trusted filter configuration.
-    // If this ever becomes untrusted input, add complexity safeguards.
     const regex = new RegExp(pattern);
     regexCache.set(pattern, regex);
     return regex;

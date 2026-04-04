@@ -54,11 +54,11 @@ describe('query-selection-manifest', () => {
       })
     ).toBe(
       JSON.stringify({
-        kind: 'recursive-folder',
-        folderId: 'folder-1',
-        rootPath: '/src',
-        includeFilters: ['**/*.ts'],
         excludeFilters: ['**/*.test.ts'],
+        folderId: 'folder-1',
+        includeFilters: ['**/*.ts'],
+        kind: 'recursive-folder',
+        rootPath: '/src',
         useRegex: false,
       })
     );
@@ -99,6 +99,16 @@ describe('query-selection-manifest', () => {
     expect(errored.filePaths).toEqual([]);
     expect(errored.pathSet.size).toBe(0);
     expect(errored.directoryCounts.size).toBe(0);
+
+    loading.pathSet.add('/mutated');
+    loading.directoryCounts.set('/mutated', 1);
+
+    const nextLoading = createLoadingQuerySelectionManifest({
+      fingerprint: 'fp-loading-2',
+      snapshotId: 'snapshot-loading-2',
+    });
+    expect(nextLoading.pathSet.size).toBe(0);
+    expect(nextLoading.directoryCounts.size).toBe(0);
   });
 
   it('returns an empty resolved selection when descriptor is null', () => {

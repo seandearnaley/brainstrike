@@ -203,6 +203,16 @@ function cloneState(state: NormalizedFileTreeState): NormalizedFileTreeState {
   };
 }
 
+function cloneStateWithNodeMap(state: NormalizedFileTreeState): NormalizedFileTreeState {
+  return {
+    rootPaths: state.rootPaths,
+    nodeByPath: new Map(state.nodeByPath),
+    childPathsByPath: state.childPathsByPath,
+    parentPathByPath: state.parentPathByPath,
+    descendantFileCountByPath: state.descendantFileCountByPath,
+  };
+}
+
 export function replaceNormalizedDirectoryChildren(
   state: NormalizedFileTreeState,
   path: string,
@@ -249,7 +259,7 @@ export function setNormalizedNodeLoadState(
     return state;
   }
 
-  const nextState = cloneState(state);
+  const nextState = cloneStateWithNodeMap(state);
   if (loadError !== undefined) {
     nextState.nodeByPath.set(path, {
       ...currentNode,

@@ -1,9 +1,5 @@
 import type { QuerySelectionManifest, SelectionQueryDescriptor } from '@brainstrike/types';
 
-const EMPTY_DIRECTORY_COUNTS = new Map<string, number>();
-const EMPTY_PATH_SET = new Set<string>();
-const EMPTY_FILE_PATHS: string[] = [];
-
 export interface ResolvedQuerySelection {
   directoryCounts: Map<string, number>;
   filePaths: string[];
@@ -47,11 +43,11 @@ export function buildQuerySelectionFingerprint(args: {
   useRegex: boolean;
 }): string {
   return JSON.stringify({
-    kind: args.kind,
-    folderId: args.folderId,
-    rootPath: args.rootPath,
-    includeFilters: [...args.includeFilters],
     excludeFilters: [...args.excludeFilters],
+    folderId: args.folderId,
+    includeFilters: [...args.includeFilters],
+    kind: args.kind,
+    rootPath: args.rootPath,
     useRegex: args.useRegex,
   });
 }
@@ -85,9 +81,9 @@ export function createLoadingQuerySelectionManifest(args: {
   snapshotId: string | null;
 }): QuerySelectionManifest {
   return {
-    filePaths: EMPTY_FILE_PATHS,
-    pathSet: EMPTY_PATH_SET,
-    directoryCounts: EMPTY_DIRECTORY_COUNTS,
+    filePaths: [],
+    pathSet: new Set<string>(),
+    directoryCounts: new Map<string, number>(),
     fingerprint: args.fingerprint,
     snapshotId: args.snapshotId,
     status: 'loading',
@@ -101,9 +97,9 @@ export function createErroredQuerySelectionManifest(args: {
   snapshotId: string | null;
 }): QuerySelectionManifest {
   return {
-    filePaths: EMPTY_FILE_PATHS,
-    pathSet: EMPTY_PATH_SET,
-    directoryCounts: EMPTY_DIRECTORY_COUNTS,
+    filePaths: [],
+    pathSet: new Set<string>(),
+    directoryCounts: new Map<string, number>(),
     fingerprint: args.fingerprint,
     snapshotId: args.snapshotId,
     status: 'error',
@@ -155,9 +151,9 @@ export function resolveQuerySelection(
 ): ResolvedQuerySelection {
   if (!descriptor) {
     return {
-      filePaths: EMPTY_FILE_PATHS,
-      pathSet: EMPTY_PATH_SET,
-      directoryCounts: EMPTY_DIRECTORY_COUNTS,
+      filePaths: [],
+      pathSet: new Set<string>(),
+      directoryCounts: new Map<string, number>(),
       selectedCount: 0,
     };
   }

@@ -1,9 +1,8 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { checkBudget, createTimer } from '@brainstrike/utils';
-import { normalizePathForMatching, processFilter } from '@brainstrike/utils/filter-utils';
+import { createPathFilterMatcher } from '@brainstrike/utils/filter-utils';
 import { createLogger } from '@brainstrike/utils/logger';
-import { fileFilter } from '@brainstrike/utils/path-filter';
 
 import { loadDirectoryChildren } from './lazy-tree-loader';
 
@@ -11,45 +10,9 @@ const logger = createLogger('RecursiveSelectionQuery');
 
 const DEFAULT_SCAN_CONCURRENCY = 6;
 const LOW_LIMIT_SCAN_THRESHOLD = 256;
+const PROGRESS_DIRECTORY_INTERVAL = 8;
 
-interface PathFilterMatcher {
-  shouldIncludeFile: (path: string) => boolean;
-  shouldTraverseDirectory: (path: string) => boolean;
-}
-
-function createPathFilterMatcher(
-  includeFilters: string[],
-  excludeFilters: string[] = [],
-  useRegex = false
-): PathFilterMatcher {
-  const includeMatchers = includeFilters.map((pattern) =>
-    fileFilter.createMatcher(useRegex ? pattern : processFilter(pattern), useRegex)
-  );
-  const excludeMatchers = excludeFilters.map((pattern) =>
-    fileFilter.createMatcher(useRegex ? pattern : processFilter(pattern), useRegex)
-  );
-
-  const matchesInclude = (path: string): boolean => {
-    if (includeMatchers.length === 0) {
-      return true;
-    }
-    return includeMatchers.some((matcher) => matcher(path));
-  };
-
-  const matchesExclude = (path: string): boolean => {
-    return excludeMatchers.some((matcher) => matcher(path));
-  };
-
-  return {
-    shouldIncludeFile(path: string): boolean {
-      const normalizedPath = normalizePathForMatching(path);
-      return !matchesExclude(normalizedPath) && matchesInclude(normalizedPath);
-    },
-    shouldTraverseDirectory(path: string): boolean {
-      return !matchesExclude(normalizePathForMatching(path));
-    },
-  };
-}
+type PathFilterMatcher = ReturnType<typeof createPathFilterMatcher>;
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
@@ -107,6 +70,10 @@ interface MutableQueryState {
   limitReached: boolean;
 }
 
+interface DirectoryTraversalState {
+  queuedDirectoryPaths: Set<string>;
+}
+
 function snapshotProgress(state: MutableQueryState): RecursiveSelectionQueryProgress {
   return {
     currentPath: state.currentPath,
@@ -115,6 +82,37 @@ function snapshotProgress(state: MutableQueryState): RecursiveSelectionQueryProg
     directoriesReadFromAdapter: state.directoriesReadFromAdapter,
     filesMatched: state.filesMatched,
     filesVisited: state.filesVisited,
+  };
+}
+
+function createProgressReporter(
+  onProgress: ((progress: RecursiveSelectionQueryProgress) => void) | undefined,
+  state: MutableQueryState
+): { emit: (force?: boolean) => void } {
+  let lastReportedCompleted = 0;
+  let lastReportedMatched = 0;
+
+  return {
+    emit(force = false) {
+      if (!onProgress) {
+        return;
+      }
+
+      const shouldEmit =
+        force ||
+        state.limitReached ||
+        state.directoriesCompleted === 0 ||
+        state.directoriesCompleted - lastReportedCompleted >= PROGRESS_DIRECTORY_INTERVAL ||
+        state.filesMatched !== lastReportedMatched;
+
+      if (!shouldEmit) {
+        return;
+      }
+
+      lastReportedCompleted = state.directoriesCompleted;
+      lastReportedMatched = state.filesMatched;
+      onProgress(snapshotProgress(state));
+    },
   };
 }
 
@@ -136,13 +134,14 @@ function recordMatchedFile(state: MutableQueryState, node: IFileNode, maxResults
 }
 
 function consumeNodes(args: {
+  directoryTraversalState: DirectoryTraversalState;
   matcher: ReturnType<typeof createPathFilterMatcher>;
   maxResults: number;
   nextFrontier: IFileNode[];
   nodes: IFileNode[];
   state: MutableQueryState;
 }): boolean {
-  const { matcher, maxResults, nextFrontier, nodes, state } = args;
+  const { directoryTraversalState, matcher, maxResults, nextFrontier, nodes, state } = args;
 
   for (const node of nodes) {
     if (node.isVisible === false) {
@@ -163,8 +162,11 @@ function consumeNodes(args: {
       continue;
     }
 
-    nextFrontier.push(node);
-    state.directoriesDiscovered++;
+    if (!directoryTraversalState.queuedDirectoryPaths.has(node.path)) {
+      directoryTraversalState.queuedDirectoryPaths.add(node.path);
+      nextFrontier.push(node);
+      state.directoriesDiscovered++;
+    }
   }
 
   return false;
@@ -244,6 +246,7 @@ function initializeQueryState(
 
 function processFrontierNode(args: {
   abortSignal: AbortSignal | undefined;
+  directoryTraversalState: DirectoryTraversalState;
   filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined;
   limit: number;
   matcher: PathFilterMatcher;
@@ -254,6 +257,7 @@ function processFrontierNode(args: {
 }): void {
   const {
     abortSignal,
+    directoryTraversalState,
     filterTreeFn,
     limit,
     matcher,
@@ -285,6 +289,7 @@ function processFrontierNode(args: {
   if (isDirectoryLoaded(node)) {
     state.directoriesCompleted++;
     consumeNodes({
+      directoryTraversalState,
       matcher,
       maxResults: limit,
       nextFrontier,
@@ -299,6 +304,7 @@ function processFrontierNode(args: {
 
 async function scanUnloadedDirectories(args: {
   abortSignal: AbortSignal | undefined;
+  directoryTraversalState: DirectoryTraversalState;
   effectiveConcurrency: number;
   fileSystemAdapter: FileSystemAdapter;
   filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined;
@@ -312,6 +318,7 @@ async function scanUnloadedDirectories(args: {
 }): Promise<void> {
   const {
     abortSignal,
+    directoryTraversalState,
     effectiveConcurrency,
     fileSystemAdapter,
     filterTreeFn,
@@ -323,6 +330,8 @@ async function scanUnloadedDirectories(args: {
     state,
     unloadedDirectories,
   } = args;
+
+  const progressReporter = createProgressReporter(onProgress, state);
 
   if (unloadedDirectories.length === 0) {
     return;
@@ -336,13 +345,14 @@ async function scanUnloadedDirectories(args: {
       state.directoriesReadFromAdapter++;
       state.directoriesCompleted++;
       const stopped = consumeNodes({
+        directoryTraversalState,
         matcher,
         maxResults: limit,
         nextFrontier,
         nodes: children,
         state,
       });
-      onProgress?.(snapshotProgress(state));
+      progressReporter.emit();
       if (stopped) {
         return;
       }
@@ -364,13 +374,14 @@ async function scanUnloadedDirectories(args: {
       state.directoriesReadFromAdapter++;
       state.directoriesCompleted++;
       const stopped = consumeNodes({
+        directoryTraversalState,
         matcher,
         maxResults: limit,
         nextFrontier,
         nodes: result.children,
         state,
       });
-      onProgress?.(snapshotProgress(state));
+      progressReporter.emit();
       if (stopped) {
         return;
       }
@@ -442,6 +453,19 @@ export async function querySelectableFiles(
   const effectiveConcurrency = Math.max(1, concurrency);
   const initialRoots = applyOptionalFilter(roots, filterTreeFn);
   const state = initializeQueryState(initialRoots, matcher);
+  const directoryTraversalState: DirectoryTraversalState = {
+    queuedDirectoryPaths: new Set(
+      initialRoots
+        .filter(
+          (node) =>
+            node.type === 'directory' &&
+            node.isVisible !== false &&
+            matcher.shouldTraverseDirectory(node.path)
+        )
+        .map((node) => node.path)
+    ),
+  };
+  const progressReporter = createProgressReporter(onProgress, state);
 
   let frontier = initialRoots;
 
@@ -454,6 +478,7 @@ export async function querySelectableFiles(
     for (const node of frontier) {
       processFrontierNode({
         abortSignal,
+        directoryTraversalState,
         filterTreeFn,
         limit,
         matcher,
@@ -462,7 +487,7 @@ export async function querySelectableFiles(
         state,
         unloadedDirectories,
       });
-      onProgress?.(snapshotProgress(state));
+      progressReporter.emit();
       if (state.limitReached) {
         break;
       }
@@ -474,6 +499,7 @@ export async function querySelectableFiles(
 
     await scanUnloadedDirectories({
       abortSignal,
+      directoryTraversalState,
       effectiveConcurrency,
       fileSystemAdapter,
       filterTreeFn,
@@ -495,5 +521,6 @@ export async function querySelectableFiles(
 
   const durationMs = timer.elapsed();
   const exceededBudget = checkBudget('recursive-selection-query', durationMs, 'treeSnapshot');
+  progressReporter.emit(true);
   return buildQueryResult({ durationMs, exceededBudget, mode, roots, state });
 }

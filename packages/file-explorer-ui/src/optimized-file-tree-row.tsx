@@ -207,7 +207,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
             state.selectionModel.queryDescriptor,
             state.querySelectionManifest,
             folderId,
-            nodePath
+            nodePath,
+            state.selectionModel.materializedPaths
           );
         }
         return state.selectedFilePaths.has(compositeKey);
@@ -215,6 +216,18 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       [compositeKey, folderId, nodePath]
     );
     const isFileSelected = useFileExplorerStoreSelector(isFileSelectedSelector);
+    const isQuerySelectionReady = useFileExplorerStoreSelector((state) => {
+      if (state.selectionModel.mode !== 'query' || !state.selectionModel.queryDescriptor) {
+        return true;
+      }
+      return (
+        state.querySelectionManifest?.status === 'ready' &&
+        state.querySelectionManifest.fingerprint ===
+          state.selectionModel.queryDescriptor.manifestFingerprint &&
+        state.querySelectionManifest.snapshotId ===
+          state.selectionModel.queryDescriptor.manifestSnapshotId
+      );
+    });
 
     // PERFORMANCE OPTIMIZATION: Directory selection count via prefix scan
     // Instead of building the full descendant file list (expensive for large directories),
@@ -230,7 +243,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
             state.selectionModel.queryDescriptor,
             state.querySelectionManifest,
             folderId,
-            nodePath
+            nodePath,
+            state.selectionModel.materializedPaths
           );
         }
         return countSelectedInDirectory(state.selectedFilePaths, folderId, nodePath);
@@ -300,7 +314,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           selectionModel.queryDescriptor,
           querySelectionManifest,
           folderId,
-          node.path
+          node.path,
+          selectionModel.materializedPaths
         )
       ) {
         return !isKnownEmptyDirectory;
@@ -336,7 +351,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           selectionModel.queryDescriptor,
           querySelectionManifest,
           folderId,
-          node.path
+          node.path,
+          selectionModel.materializedPaths
         )
       ) {
         return false;
@@ -358,6 +374,10 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
 
     // Memoize event handlers
     const handleNodeSelection = useCallback(() => {
+      if (selectionModel.mode === 'query' && !isQuerySelectionReady) {
+        return;
+      }
+
       if (node.type !== 'directory') {
         onToggleFileSelection(node.path);
         return;
@@ -394,7 +414,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           currentState.selectionModel.queryDescriptor,
           currentState.querySelectionManifest,
           folderId,
-          node.path
+          node.path,
+          currentState.selectionModel.materializedPaths
         )
           ? allFilePaths.length
           : countSelectedInDirectory(currentSelectedPaths, folderId, node.path);
@@ -410,7 +431,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
                   currentState.selectionModel.queryDescriptor,
                   currentState.querySelectionManifest,
                   folderId,
-                  path
+                  path,
+                  currentState.selectionModel.materializedPaths
                 )
               : folderId
                 ? isPathSelectedInFolder(currentSelectedPaths, folderId, path)
@@ -431,6 +453,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       addMultipleSelectedFiles,
       removeMultipleSelectedFiles,
       onSelectFolderRecursively,
+      selectionModel.mode,
+      isQuerySelectionReady,
     ]);
 
     const handleExpansionClick = useCallback(
@@ -537,7 +561,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
                 aria-label={`Select ${node.name}`}
                 checked={checkboxState}
                 className="h-4 w-4"
-                disabled={wouldExceedLimit}
+                disabled={wouldExceedLimit || !isQuerySelectionReady}
                 id={node.path}
                 onCheckedChange={handleCheckboxChange}
               />

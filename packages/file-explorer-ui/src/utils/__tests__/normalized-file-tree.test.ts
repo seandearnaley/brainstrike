@@ -103,6 +103,9 @@ describe('normalized-file-tree', () => {
 
     expect(getNormalizedNode(nextState, '/root/src')?.loadState).toBe('loading');
     expect(getNormalizedDescendantFileCount(nextState, '/root/src')).toBe(1);
+    expect(nextState.childPathsByPath).toBe(state.childPathsByPath);
+    expect(nextState.parentPathByPath).toBe(state.parentPathByPath);
+    expect(nextState.descendantFileCountByPath).toBe(state.descendantFileCountByPath);
   });
 
   it('materializes a single subtree on demand', () => {

@@ -121,6 +121,18 @@ function buildCompatibleSelectedFilePaths(
   return compositeKeys;
 }
 
+function isReadyQueryManifest(
+  descriptor: SelectionQueryDescriptor,
+  manifest: FileExplorerState['querySelectionManifest']
+): manifest is NonNullable<FileExplorerState['querySelectionManifest']> {
+  return Boolean(
+    manifest &&
+      manifest.status === 'ready' &&
+      manifest.fingerprint === descriptor.manifestFingerprint &&
+      manifest.snapshotId === descriptor.manifestSnapshotId
+  );
+}
+
 function applyQuerySelectionMutation(args: {
   additions: readonly string[];
   folderId: string;
@@ -135,15 +147,16 @@ function applyQuerySelectionMutation(args: {
     state.selectionModel.mode !== 'query' ||
     !descriptor ||
     descriptor.folderId !== folderId ||
-    !manifest
+    !isReadyQueryManifest(descriptor, manifest)
   ) {
     return {};
   }
 
+  const resolvedSelection = resolveQuerySelection(descriptor, manifest);
   const baseSelectedPaths = manifest.pathSet;
   const includedPaths = new Set(descriptor.includedPaths);
   const excludedPaths = new Set(descriptor.excludedPaths);
-  let totalSelectedCount = descriptor.totalSelectedCount;
+  let totalSelectedCount = resolvedSelection.selectedCount;
   let didChange = false;
 
   const isSelected = (path: string): boolean => {

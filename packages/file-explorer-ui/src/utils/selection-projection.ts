@@ -9,12 +9,15 @@ import { fileFilter } from '@brainstrike/utils/path-filter';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
 
 interface DescriptorMatchers {
+  coveredDirectoryPaths: Set<string>;
+  excludedPaths: Set<string>;
+  includedPaths: Set<string>;
   matchesExclude: (path: string) => boolean;
   matchesInclude: (path: string) => boolean;
 }
 
-const descriptorMatcherCache = new WeakMap<SelectionQueryDescriptor, DescriptorMatchers>();
-const coveredDirectoryCache = new WeakMap<SelectionQueryDescriptor, Set<string>>();
+const descriptorMatcherCache = new Map<string, DescriptorMatchers>();
+const MAX_DESCRIPTOR_CACHE_ENTRIES = 128;
 
 function matchesAnyPathVariant(path: string, matcher: (value: string) => boolean): boolean {
   if (matcher(path)) {
@@ -42,29 +45,42 @@ function createPathMatcher(patterns: string[], useRegex: boolean): (path: string
   };
 }
 
+function buildDescriptorCacheKey(descriptor: SelectionQueryDescriptor): string {
+  return JSON.stringify({
+    kind: descriptor.kind,
+    folderId: descriptor.folderId,
+    rootPath: descriptor.rootPath,
+    coveredDirectoryPaths: descriptor.coveredDirectoryPaths,
+    includeFilters: descriptor.includeFilters,
+    excludeFilters: descriptor.excludeFilters,
+    includedPaths: descriptor.includedPaths,
+    excludedPaths: descriptor.excludedPaths,
+    useRegex: descriptor.useRegex,
+  });
+}
+
 function getDescriptorMatchers(descriptor: SelectionQueryDescriptor): DescriptorMatchers {
-  const cached = descriptorMatcherCache.get(descriptor);
+  const cacheKey = buildDescriptorCacheKey(descriptor);
+  const cached = descriptorMatcherCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const nextMatchers = {
+    includedPaths: new Set(descriptor.includedPaths),
+    excludedPaths: new Set(descriptor.excludedPaths),
+    coveredDirectoryPaths: new Set(descriptor.coveredDirectoryPaths),
     matchesExclude: createPathMatcher(descriptor.excludeFilters, descriptor.useRegex),
     matchesInclude: createPathMatcher(descriptor.includeFilters, descriptor.useRegex),
   };
-  descriptorMatcherCache.set(descriptor, nextMatchers);
-  return nextMatchers;
-}
-
-function getCoveredDirectoryPaths(descriptor: SelectionQueryDescriptor): Set<string> {
-  const cached = coveredDirectoryCache.get(descriptor);
-  if (cached) {
-    return cached;
+  if (descriptorMatcherCache.size >= MAX_DESCRIPTOR_CACHE_ENTRIES) {
+    const oldestKey = descriptorMatcherCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      descriptorMatcherCache.delete(oldestKey);
+    }
   }
-
-  const nextCoveredPaths = new Set(descriptor.coveredDirectoryPaths);
-  coveredDirectoryCache.set(descriptor, nextCoveredPaths);
-  return nextCoveredPaths;
+  descriptorMatcherCache.set(cacheKey, nextMatchers);
+  return nextMatchers;
 }
 
 function isPathWithinRoot(path: string, rootPath: string | null): boolean {
@@ -74,20 +90,59 @@ function isPathWithinRoot(path: string, rootPath: string | null): boolean {
   return path === rootPath || path.startsWith(`${rootPath}/`);
 }
 
+function isQuerySelectionManifestReady(
+  descriptor: SelectionQueryDescriptor,
+  manifest: QuerySelectionManifest | null
+): manifest is QuerySelectionManifest {
+  return Boolean(
+    manifest &&
+      manifest.status === 'ready' &&
+      manifest.fingerprint === descriptor.manifestFingerprint &&
+      manifest.snapshotId === descriptor.manifestSnapshotId
+  );
+}
+
+function getMaterializedDirectorySelectedCount(
+  directoryPath: string,
+  materializedPaths: ReadonlySet<string> | null | undefined
+): number {
+  if (!(materializedPaths && materializedPaths.size > 0)) {
+    return 0;
+  }
+
+  let selectedCount = 0;
+  for (const filePath of materializedPaths) {
+    if (filePath === directoryPath || filePath.startsWith(`${directoryPath}/`)) {
+      selectedCount += 1;
+    }
+  }
+
+  return selectedCount;
+}
+
 export function isQuerySelectionPathSelected(
   descriptor: SelectionQueryDescriptor | null,
   manifest: QuerySelectionManifest | null,
   folderId: string | null,
-  path: string
+  path: string,
+  materializedPaths?: ReadonlySet<string> | null
 ): boolean {
   if (!(descriptor && folderId && descriptor.folderId === folderId)) {
     return false;
   }
 
-  if (descriptor.includedPaths.includes(path)) {
+  const {
+    coveredDirectoryPaths: _coveredDirectoryPaths,
+    excludedPaths,
+    includedPaths,
+    matchesExclude,
+    matchesInclude,
+  } = getDescriptorMatchers(descriptor);
+
+  if (includedPaths.has(path)) {
     return true;
   }
-  if (descriptor.excludedPaths.includes(path)) {
+  if (excludedPaths.has(path)) {
     return false;
   }
 
@@ -95,7 +150,6 @@ export function isQuerySelectionPathSelected(
     return false;
   }
 
-  const { matchesExclude, matchesInclude } = getDescriptorMatchers(descriptor);
   if (matchesExclude(path)) {
     return false;
   }
@@ -104,11 +158,11 @@ export function isQuerySelectionPathSelected(
     return false;
   }
 
-  if (manifest) {
+  if (isQuerySelectionManifestReady(descriptor, manifest)) {
     return resolveQuerySelection(descriptor, manifest).pathSet.has(path);
   }
 
-  return true;
+  return materializedPaths?.has(path) ?? false;
 }
 
 export function isSelectionPathSelected(params: {
@@ -126,7 +180,8 @@ export function isSelectionPathSelected(params: {
       selectionModel.queryDescriptor,
       querySelectionManifest ?? null,
       currentFolderId,
-      path
+      path,
+      selectionModel.materializedPaths
     );
   }
 
@@ -187,27 +242,40 @@ export function isDirectoryCoveredByQuerySelection(
   descriptor: SelectionQueryDescriptor | null,
   manifest: QuerySelectionManifest | null,
   folderId: string | null,
-  directoryPath: string
+  directoryPath: string,
+  materializedPaths?: ReadonlySet<string> | null
 ): boolean {
   if (!(descriptor && folderId && descriptor.folderId === folderId)) {
     return false;
   }
-  if (manifest) {
+
+  if (isQuerySelectionManifestReady(descriptor, manifest)) {
     return (
       (resolveQuerySelection(descriptor, manifest).directoryCounts.get(directoryPath) ?? 0) > 0
     );
   }
-  return getCoveredDirectoryPaths(descriptor).has(directoryPath);
+
+  if (materializedPaths) {
+    return getMaterializedDirectorySelectedCount(directoryPath, materializedPaths) > 0;
+  }
+
+  return getDescriptorMatchers(descriptor).coveredDirectoryPaths.has(directoryPath);
 }
 
 export function getDirectorySelectedCount(
   descriptor: SelectionQueryDescriptor | null,
   manifest: QuerySelectionManifest | null,
   folderId: string | null,
-  directoryPath: string
+  directoryPath: string,
+  materializedPaths?: ReadonlySet<string> | null
 ): number {
   if (!(descriptor && folderId && descriptor.folderId === folderId)) {
     return 0;
   }
-  return resolveQuerySelection(descriptor, manifest).directoryCounts.get(directoryPath) ?? 0;
+
+  if (isQuerySelectionManifestReady(descriptor, manifest)) {
+    return resolveQuerySelection(descriptor, manifest).directoryCounts.get(directoryPath) ?? 0;
+  }
+
+  return getMaterializedDirectorySelectedCount(directoryPath, materializedPaths);
 }

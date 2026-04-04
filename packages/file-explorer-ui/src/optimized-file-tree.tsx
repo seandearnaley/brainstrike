@@ -500,7 +500,8 @@ function computeFileSelectionState(
           selectionModel.queryDescriptor,
           querySelectionManifest,
           folderId,
-          node.path
+          node.path,
+          selectionModel.materializedPaths
         )
       : folderId
         ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path)
@@ -535,7 +536,8 @@ function computeDirectorySelectionState(
       selectionModel.queryDescriptor,
       querySelectionManifest,
       folderId,
-      node.path
+      node.path,
+      selectionModel.materializedPaths
     )
   ) {
     return {

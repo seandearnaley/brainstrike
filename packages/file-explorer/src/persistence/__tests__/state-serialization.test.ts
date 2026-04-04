@@ -622,6 +622,67 @@ describe('state-serialization', () => {
       });
     });
 
+    it('drops malformed query descriptor arrays and coerces invalid fields during deserialize', () => {
+      const current = buildState();
+      const persisted = {
+        currentFolderId: 'folder1',
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: [],
+          ruleSetJson: null,
+          materializedPaths: ['src/index.ts', 42],
+          materializedAt: '2024-01-01',
+          queryDescriptor: {
+            kind: 'recursive-folder',
+            folderId: 'folder1',
+            rootPath: 123,
+            coveredDirectoryPaths: ['src', 7],
+            includeFilters: ['**/*.ts', false],
+            excludeFilters: [null],
+            includedPaths: ['src/index.ts', {}],
+            excludedPaths: [99],
+            manifestFingerprint: 42,
+            manifestSnapshotId: {},
+            useRegex: 'yes',
+            totalSelectedCount: 'bad-count',
+          },
+        },
+      } as unknown as SerializedState;
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.selectionModel.mode).toBe('query');
+      expect(result.selectionModel.materializedPaths).toEqual(new Set(['src/index.ts']));
+      expect(result.selectionModel.queryDescriptor).toEqual({
+        kind: 'recursive-folder',
+        folderId: 'folder1',
+        rootPath: null,
+        coveredDirectoryPaths: ['src'],
+        includeFilters: ['**/*.ts'],
+        excludeFilters: [],
+        includedPaths: ['src/index.ts'],
+        excludedPaths: [],
+        manifestFingerprint: null,
+        manifestSnapshotId: null,
+        useRegex: false,
+        totalSelectedCount: 0,
+      });
+    });
+
     it('falls back to explicit mode when a persisted query descriptor is malformed', () => {
       const current = buildState();
       const persisted = {

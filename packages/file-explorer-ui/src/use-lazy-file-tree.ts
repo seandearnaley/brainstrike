@@ -1040,13 +1040,7 @@ export function useLazyFileTree(
         }
       }
     },
-    [
-      createAbortController,
-      fileSystemAdapter,
-      isExpandingAllRef,
-      performDirectoryLoad,
-      removeChildController,
-    ]
+    [fileSystemAdapter]
   );
 
   // Store loadRoot in a ref to avoid effect dependency on the callback itself.

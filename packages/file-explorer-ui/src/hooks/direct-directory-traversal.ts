@@ -38,6 +38,7 @@ export async function traverseDirectoriesDirect(
 ): Promise<DirectDirectoryTraversalResult> {
   const { getDirectoryByPath, isActive, loadDirectoryPath, onProgress } = options;
   const queue = [...initialPaths];
+  let queueIndex = 0;
   const discoveredPaths = new Set(queue);
   const visitedPaths: string[] = [];
   let loaded = 0;
@@ -45,12 +46,12 @@ export async function traverseDirectoriesDirect(
 
   onProgress?.(loaded, total);
 
-  while (queue.length > 0) {
+  while (queueIndex < queue.length) {
     if (!isActive()) {
       return { cancelled: true, discoveredPaths, loaded, total, visitedPaths };
     }
 
-    const currentPath = queue.shift();
+    const currentPath = queue[queueIndex++];
     if (!currentPath) {
       continue;
     }
@@ -71,10 +72,13 @@ export async function traverseDirectoriesDirect(
       currentNode = getDirectoryByPath(currentPath);
     }
 
-    if (currentNode?.type === 'directory') {
-      total += enqueueChildDirectories(currentNode, queue, discoveredPaths);
+    if (!(currentNode && currentNode.type === 'directory')) {
+      loaded += 1;
+      onProgress?.(loaded, total);
+      continue;
     }
 
+    total += enqueueChildDirectories(currentNode, queue, discoveredPaths);
     loaded += 1;
     onProgress?.(loaded, total);
   }

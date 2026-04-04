@@ -240,4 +240,48 @@ describe('recursive-selection-query', () => {
       expect.anything()
     );
   });
+
+  it('dedupes duplicate directory paths across the traversal frontier', async () => {
+    const adapter = createMockAdapter({
+      '/root/shared': [createFileNode({ path: '/root/shared/a.ts', name: 'a.ts', depth: 2 })],
+    });
+
+    const sharedDirectory = createDirectoryNode({
+      path: '/root/shared',
+      name: 'shared',
+      depth: 1,
+      loadState: 'unloaded',
+    });
+
+    const result = await querySelectableFiles({
+      roots: [
+        createDirectoryNode({
+          path: '/root',
+          name: 'root',
+          loadState: 'loaded',
+          children: [sharedDirectory],
+        }),
+        createDirectoryNode({
+          path: '/root-2',
+          name: 'root-2',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({
+              path: '/root/shared',
+              name: 'shared',
+              depth: 1,
+              loadState: 'unloaded',
+            }),
+          ],
+        }),
+      ],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual(['/root/shared/a.ts']);
+    expect(adapter.readDirectory).toHaveBeenCalledTimes(1);
+  });
 });
