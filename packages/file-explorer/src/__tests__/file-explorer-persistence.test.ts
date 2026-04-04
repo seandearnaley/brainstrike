@@ -1,5 +1,5 @@
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
-import { DEFAULT_STATE } from '@brainstrike/types';
+import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock console spies for all tests in this file
@@ -43,6 +43,7 @@ const testDefaultFolderState: FolderState = {
   maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
   lastActiveTab: DEFAULT_STATE.lastActiveTab,
   lastAccessed: 0, // Default lastAccessed
+  selectionModel: createEmptySelectionModel(),
   viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
 };
 
@@ -61,7 +62,7 @@ describe('file-explorer-persistence', () => {
       const persistOptions = await getFreshPersistOptions();
 
       expect(persistOptions.name).toBe('file-explorer-storage-v4');
-      expect(persistOptions.version).toBe(1);
+      expect(persistOptions.version).toBe(2);
       expect(persistOptions.storage).toBeDefined();
       expect(persistOptions.partialize).toBeDefined();
       expect(persistOptions.migrate).toBeDefined();

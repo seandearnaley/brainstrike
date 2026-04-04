@@ -1,18 +1,15 @@
 /**
  * Tests for useExpandAll hook
  *
- * Covers the expand-all functionality, rehydration optimization, and error handling.
+ * Covers the direct canonical-tree expand-all behavior, cancellation, and error handling.
  */
 
-import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 import { useExpandAll } from '../../hooks/use-expand-all';
-import type { FileSystemHandle } from '../../utils/worker-node-conversion';
 
-// Mock logger
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/utils')>();
   return {
@@ -26,355 +23,266 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   };
 });
 
-// Helper to create a mock worker port
-function createMockWorkerPort(overrides: Partial<FileTreeWorkerPort> = {}): FileTreeWorkerPort {
+function createFileNode(overrides: Partial<IFileNode> = {}): IFileNode {
   return {
-    init: vi.fn(),
-    expandAll: vi.fn().mockResolvedValue({ tree: [], expandedPaths: [], loadedCount: 0 }),
-    loadPaths: vi.fn().mockResolvedValue({ tree: [], expandedPaths: [], loadedCount: 0 }),
-    loadSubtree: vi.fn().mockResolvedValue({ tree: [], filePaths: [], loadedCount: 0 }),
-    collapseAll: vi.fn(),
-    abort: vi.fn(),
-    updateTree: vi.fn(),
-    sendLoadResult: vi.fn(),
-    sendLoadError: vi.fn(),
-    onRequestLoad: vi.fn(() => vi.fn()),
-    onProgress: vi.fn(() => vi.fn()),
-    onTreeSnapshot: vi.fn(() => vi.fn()),
-    onError: vi.fn(() => vi.fn()),
-    onLog: vi.fn(() => vi.fn()),
-    onFlattenedResult: vi.fn(() => vi.fn()),
-    flattenTree: vi.fn(),
-    isReady: vi.fn(() => true),
-    terminate: vi.fn(),
+    name: 'file.txt',
+    path: '/root/file.txt',
+    type: 'file',
+    depth: 1,
+    handle: {} as FileSystemFileHandle,
+    selectionState: 'unchecked',
+    rootFolderId: 'root',
     ...overrides,
   };
 }
 
+function createDirectoryNode(overrides: Partial<IFileNode> = {}): IFileNode {
+  return {
+    name: 'dir',
+    path: '/root/dir',
+    type: 'directory',
+    depth: 0,
+    handle: {} as FileSystemDirectoryHandle,
+    selectionState: 'unchecked',
+    rootFolderId: 'root',
+    loadState: 'unloaded',
+    ...overrides,
+  };
+}
+
+function findNodeByPath(nodes: IFileNode[], path: string): IFileNode | undefined {
+  for (const node of nodes) {
+    if (node.path === path) {
+      return node;
+    }
+    const found = node.children ? findNodeByPath(node.children, path) : undefined;
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
 describe('useExpandAll', () => {
-  let mockWorkerPort: FileTreeWorkerPort;
-  let mockHandleMap: Map<string, FileSystemHandle>;
-  let mockOnTreeUpdate: (tree: IFileNode[]) => void;
-  let mockOnError: (error: Error) => void;
+  let rootNodesRef: { current: IFileNode[] };
+  let cancelLoadOperationsMock: Mock<() => void>;
+  let onErrorMock: Mock<(error: Error) => void>;
+  let onProgressMock: Mock<(loaded: number, total: number) => void>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockWorkerPort = createMockWorkerPort();
-    mockHandleMap = new Map<string, FileSystemHandle>();
-    mockOnTreeUpdate = vi.fn<(tree: IFileNode[]) => void>();
-    mockOnError = vi.fn<(error: Error) => void>();
+    rootNodesRef = {
+      current: [
+        createDirectoryNode({
+          name: 'src',
+          path: '/root/src',
+          loadState: 'unloaded',
+        }),
+      ],
+    };
+    cancelLoadOperationsMock = vi.fn<() => void>();
+    onErrorMock = vi.fn<(error: Error) => void>();
+    onProgressMock = vi.fn<(loaded: number, total: number) => void>();
   });
 
-  it('should initialize with isExpandingAll=false', () => {
-    const workerPortRef = { current: mockWorkerPort };
-    const handleMapRef = { current: mockHandleMap };
-
-    const { result } = renderHook(() =>
+  function renderExpandAllHook(
+    loadDirectoryPath: (path: string) => Promise<void> = async (path: string) => {
+      if (path !== '/root/src') {
+        return;
+      }
+      rootNodesRef.current = [
+        createDirectoryNode({
+          name: 'src',
+          path: '/root/src',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({
+              name: 'nested',
+              path: '/root/src/nested',
+              depth: 1,
+              loadState: 'loaded',
+              children: [createFileNode({ path: '/root/src/nested/a.ts', depth: 2 })],
+            }),
+            createFileNode({ path: '/root/src/index.ts', depth: 1 }),
+          ],
+        }),
+      ];
+    }
+  ) {
+    return renderHook(() =>
       useExpandAll({
-        workerPortRef,
-        handleMapRef,
-        rootFolderId: 'test-root',
-        onTreeUpdate: mockOnTreeUpdate,
-        onError: mockOnError,
+        cancelLoadOperations: (): void => {
+          cancelLoadOperationsMock();
+        },
+        getNodeByPath: (path: string) => findNodeByPath(rootNodesRef.current, path),
+        getRootNodes: () => rootNodesRef.current,
+        loadDirectoryPath,
+        onError: (error: Error): void => {
+          onErrorMock(error);
+        },
+        onProgress: (loaded: number, total: number): void => {
+          onProgressMock(loaded, total);
+        },
+        rootFolderId: 'root',
       })
     );
+  }
 
+  it('initializes with isExpandingAll=false', () => {
+    const { result } = renderExpandAllHook();
     expect(result.current.isExpandingAll).toBe(false);
   });
 
-  it('should set isExpandingAll=true during operation', async () => {
-    const workerPortRef = { current: mockWorkerPort };
-    const handleMapRef = { current: mockHandleMap };
-
-    // Make expandAll return a promise that we can control
-    let resolveExpandAll: (value: {
-      tree: never[];
-      expandedPaths: never[];
-      loadedCount: number;
-    }) => void;
-    const expandAllPromise = new Promise<{
-      tree: never[];
-      expandedPaths: never[];
-      loadedCount: number;
-    }>((resolve) => {
-      resolveExpandAll = resolve;
-    });
-    mockWorkerPort.expandAll = vi.fn().mockReturnValue(expandAllPromise);
-
-    const { result } = renderHook(() =>
-      useExpandAll({
-        workerPortRef,
-        handleMapRef,
-        rootFolderId: 'test-root',
-        onTreeUpdate: mockOnTreeUpdate,
-        onError: mockOnError,
-      })
+  it('sets isExpandingAll=true during operation', async () => {
+    let resolveLoad: (() => void) | undefined;
+    const loadDirectoryPath = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve;
+        })
     );
 
+    const { result } = renderExpandAllHook(loadDirectoryPath);
     const setExpandedPaths = vi.fn();
 
-    // Start the expand-all operation
     let expandPromise: Promise<void>;
     await act(async () => {
       expandPromise = result.current.expandAllProgressively(setExpandedPaths);
     });
 
-    // Should be expanding now
     expect(result.current.isExpandingAll).toBe(true);
 
-    // Resolve the promise
     await act(async () => {
-      resolveExpandAll!({ tree: [], expandedPaths: [], loadedCount: 0 });
+      resolveLoad?.();
       await expandPromise!;
     });
 
-    // Should be done
     expect(result.current.isExpandingAll).toBe(false);
   });
 
-  describe('rehydration optimization', () => {
-    it('should skip rehydration when loadedCount=0 (all cached)', async () => {
-      const workerPortRef = { current: mockWorkerPort };
-      const handleMapRef = { current: mockHandleMap };
-
-      // Return loadedCount=0 to indicate all directories were cached
-      mockWorkerPort.expandAll = vi.fn().mockResolvedValue({
-        tree: [{ name: 'test', path: '/test', type: 'directory' }],
-        expandedPaths: ['/test'],
-        loadedCount: 0, // KEY: No directories were actually loaded
-      });
-
-      const { result } = renderHook(() =>
-        useExpandAll({
-          workerPortRef,
-          handleMapRef,
-          rootFolderId: 'test-root',
-          onTreeUpdate: mockOnTreeUpdate,
-          onError: mockOnError,
-        })
-      );
-
-      const setExpandedPaths = vi.fn();
-
-      await act(async () => {
-        await result.current.expandAllProgressively(setExpandedPaths);
-      });
-
-      // onTreeUpdate should NOT be called when loadedCount=0
-      // because we skip rehydration entirely
-      expect(mockOnTreeUpdate).not.toHaveBeenCalled();
-
-      // But setExpandedPaths should be called with the expanded paths
-      expect(setExpandedPaths).toHaveBeenCalled();
+  it('loads unloaded directories and expands all discovered directory paths', async () => {
+    const loadDirectoryPath = vi.fn(async (path: string) => {
+      if (path !== '/root/src') {
+        return;
+      }
+      rootNodesRef.current = [
+        createDirectoryNode({
+          name: 'src',
+          path: '/root/src',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({
+              name: 'nested',
+              path: '/root/src/nested',
+              depth: 1,
+              loadState: 'loaded',
+              children: [],
+            }),
+            createFileNode({ path: '/root/src/index.ts', depth: 1 }),
+          ],
+        }),
+      ];
     });
 
-    it('should call onTreeUpdate when loadedCount > 0 (directories loaded)', async () => {
-      const workerPortRef = { current: mockWorkerPort };
-      const handleMapRef = { current: mockHandleMap };
+    const { result } = renderExpandAllHook(loadDirectoryPath);
+    const setExpandedPaths = vi.fn();
 
-      // Return loadedCount > 0 to indicate directories were loaded
-      mockWorkerPort.expandAll = vi.fn().mockResolvedValue({
-        tree: [{ name: 'test', path: '/test', type: 'directory' }],
-        expandedPaths: ['/test'],
-        loadedCount: 5, // Directories were loaded, need rehydration
-      });
-
-      const { result } = renderHook(() =>
-        useExpandAll({
-          workerPortRef,
-          handleMapRef,
-          rootFolderId: 'test-root',
-          onTreeUpdate: mockOnTreeUpdate,
-          onError: mockOnError,
-        })
-      );
-
-      const setExpandedPaths = vi.fn();
-
-      await act(async () => {
-        await result.current.expandAllProgressively(setExpandedPaths);
-      });
-
-      // onTreeUpdate SHOULD be called when loadedCount > 0
-      expect(mockOnTreeUpdate).toHaveBeenCalled();
-
-      // setExpandedPaths should also be called
-      expect(setExpandedPaths).toHaveBeenCalled();
+    await act(async () => {
+      await result.current.expandAllProgressively(setExpandedPaths);
     });
+
+    expect(loadDirectoryPath).toHaveBeenCalledWith('/root/src');
+    expect(onProgressMock).toHaveBeenCalled();
+    const updater = setExpandedPaths.mock.calls[0]?.[0] as
+      | ((prev: Set<string>) => Set<string>)
+      | undefined;
+    expect(updater).toBeTypeOf('function');
+    const expandedPaths = updater?.(new Set()) ?? new Set<string>();
+    expect(expandedPaths).toEqual(new Set(['/root/src', '/root/src/nested']));
   });
 
-  it('should cancel expand-all via cancelExpandAll', async () => {
-    const workerPortRef = { current: mockWorkerPort };
-    const handleMapRef = { current: mockHandleMap };
-
-    const { result } = renderHook(() =>
-      useExpandAll({
-        workerPortRef,
-        handleMapRef,
-        rootFolderId: 'test-root',
-        onTreeUpdate: mockOnTreeUpdate,
-        onError: mockOnError,
-      })
-    );
+  it('cancels expand-all via cancelExpandAll', async () => {
+    const { result } = renderExpandAllHook();
 
     await act(async () => {
       result.current.cancelExpandAll();
     });
 
-    expect(mockWorkerPort.abort).toHaveBeenCalled();
+    expect(cancelLoadOperationsMock).toHaveBeenCalled();
     expect(result.current.isExpandingAll).toBe(false);
   });
 
-  it('should prevent double-clicks from starting multiple operations', async () => {
-    const workerPortRef = { current: mockWorkerPort };
-    const handleMapRef = { current: mockHandleMap };
-
-    // Make expandAll never resolve to keep isExpandingAll=true
-    mockWorkerPort.expandAll = vi.fn().mockReturnValue(new Promise(() => {}));
-
-    const { result } = renderHook(() =>
-      useExpandAll({
-        workerPortRef,
-        handleMapRef,
-        rootFolderId: 'test-root',
-        onTreeUpdate: mockOnTreeUpdate,
-        onError: mockOnError,
-      })
+  it('prevents double-clicks from starting multiple operations', async () => {
+    let resolveLoad: (() => void) | undefined;
+    const loadDirectoryPath = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = resolve;
+        })
     );
 
+    const { result } = renderExpandAllHook(loadDirectoryPath);
     const setExpandedPaths = vi.fn();
 
-    // Start first expand-all
     await act(async () => {
-      result.current.expandAllProgressively(setExpandedPaths);
+      void result.current.expandAllProgressively(setExpandedPaths);
+      void result.current.expandAllProgressively(setExpandedPaths);
     });
 
-    // Try to start second expand-all (should be blocked)
+    expect(loadDirectoryPath).toHaveBeenCalledTimes(1);
+
     await act(async () => {
-      result.current.expandAllProgressively(setExpandedPaths);
-    });
-
-    // expandAll should only be called once
-    expect(mockWorkerPort.expandAll).toHaveBeenCalledTimes(1);
-  });
-
-  describe('error handling', () => {
-    it('should call onError callback when expandAll throws an error', async () => {
-      const workerPortRef = { current: mockWorkerPort };
-      const handleMapRef = { current: mockHandleMap };
-
-      const testError = new Error('Test expand-all error');
-      mockWorkerPort.expandAll = vi.fn().mockRejectedValue(testError);
-
-      const { result } = renderHook(() =>
-        useExpandAll({
-          workerPortRef,
-          handleMapRef,
-          rootFolderId: 'test-root',
-          onTreeUpdate: mockOnTreeUpdate,
-          onError: mockOnError,
-        })
-      );
-
-      const setExpandedPaths = vi.fn();
-
-      await act(async () => {
-        await result.current.expandAllProgressively(setExpandedPaths);
-      });
-
-      // onError should be called with the error
-      expect(mockOnError).toHaveBeenCalledWith(testError);
-      // isExpandingAll should be reset to false
-      expect(result.current.isExpandingAll).toBe(false);
-    });
-
-    it('should convert non-Error exceptions to Error objects', async () => {
-      const workerPortRef = { current: mockWorkerPort };
-      const handleMapRef = { current: mockHandleMap };
-
-      // Throw a string instead of an Error
-      mockWorkerPort.expandAll = vi.fn().mockRejectedValue('string error');
-
-      const { result } = renderHook(() =>
-        useExpandAll({
-          workerPortRef,
-          handleMapRef,
-          rootFolderId: 'test-root',
-          onTreeUpdate: mockOnTreeUpdate,
-          onError: mockOnError,
-        })
-      );
-
-      const setExpandedPaths = vi.fn();
-
-      await act(async () => {
-        await result.current.expandAllProgressively(setExpandedPaths);
-      });
-
-      // onError should be called with an Error object
-      expect(mockOnError).toHaveBeenCalledWith(expect.any(Error));
-      const errorArg = (mockOnError as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
-        | Error
-        | undefined;
-      expect(errorArg?.message).toBe('string error');
-    });
-
-    it('should not call onError for AbortError (user cancellation)', async () => {
-      const workerPortRef = { current: mockWorkerPort };
-      const handleMapRef = { current: mockHandleMap };
-
-      // Create an AbortError
-      const abortError = new DOMException('Operation aborted', 'AbortError');
-      mockWorkerPort.expandAll = vi.fn().mockRejectedValue(abortError);
-
-      const { result } = renderHook(() =>
-        useExpandAll({
-          workerPortRef,
-          handleMapRef,
-          rootFolderId: 'test-root',
-          onTreeUpdate: mockOnTreeUpdate,
-          onError: mockOnError,
-        })
-      );
-
-      const setExpandedPaths = vi.fn();
-
-      await act(async () => {
-        await result.current.expandAllProgressively(setExpandedPaths);
-      });
-
-      // onError should NOT be called for abort errors
-      expect(mockOnError).not.toHaveBeenCalled();
-      // isExpandingAll should still be reset to false
-      expect(result.current.isExpandingAll).toBe(false);
+      resolveLoad?.();
+      await Promise.resolve();
     });
   });
 
-  describe('worker port null handling', () => {
-    it('should skip expand-all when worker port is null', async () => {
-      const workerPortRef = { current: null };
-      const handleMapRef = { current: mockHandleMap };
-
-      const { result } = renderHook(() =>
-        useExpandAll({
-          workerPortRef,
-          handleMapRef,
-          rootFolderId: 'test-root',
-          onTreeUpdate: mockOnTreeUpdate,
-          onError: mockOnError,
-        })
-      );
-
-      const setExpandedPaths = vi.fn();
-
-      await act(async () => {
-        await result.current.expandAllProgressively(setExpandedPaths);
-      });
-
-      // Nothing should happen when worker port is null
-      expect(setExpandedPaths).not.toHaveBeenCalled();
-      expect(mockOnTreeUpdate).not.toHaveBeenCalled();
-      expect(result.current.isExpandingAll).toBe(false);
+  it('calls onError when directory loading fails', async () => {
+    const testError = new Error('Test expand-all error');
+    const loadDirectoryPath = vi.fn(async () => {
+      throw testError;
     });
+
+    const { result } = renderExpandAllHook(loadDirectoryPath);
+    const setExpandedPaths = vi.fn();
+
+    await act(async () => {
+      await result.current.expandAllProgressively(setExpandedPaths);
+    });
+
+    expect(onErrorMock).toHaveBeenCalledWith(testError);
+    expect(result.current.isExpandingAll).toBe(false);
+  });
+
+  it('does not call onError for AbortError', async () => {
+    const abortError = new DOMException('Operation aborted', 'AbortError');
+    const loadDirectoryPath = vi.fn(async () => {
+      throw abortError;
+    });
+
+    const { result } = renderExpandAllHook(loadDirectoryPath);
+    const setExpandedPaths = vi.fn();
+
+    await act(async () => {
+      await result.current.expandAllProgressively(setExpandedPaths);
+    });
+
+    expect(onErrorMock).not.toHaveBeenCalled();
+    expect(result.current.isExpandingAll).toBe(false);
+  });
+
+  it('skips when there are no directories to expand', async () => {
+    rootNodesRef.current = [createFileNode({ path: '/root/readme.md', depth: 0 })];
+    const loadDirectoryPath = vi.fn();
+
+    const { result } = renderExpandAllHook(loadDirectoryPath);
+    const setExpandedPaths = vi.fn();
+
+    await act(async () => {
+      await result.current.expandAllProgressively(setExpandedPaths);
+    });
+
+    expect(loadDirectoryPath).not.toHaveBeenCalled();
+    expect(setExpandedPaths).toHaveBeenCalled();
   });
 });

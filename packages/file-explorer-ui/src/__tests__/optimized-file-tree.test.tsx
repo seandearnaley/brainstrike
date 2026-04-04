@@ -323,6 +323,245 @@ describe('OptimizedFileTree', () => {
     expect(getDirectoryCheckbox()).toHaveAttribute('data-state', 'unchecked');
   });
 
+  it('marks query-selected root directories as checked even before descendant counts load', async () => {
+    const partiallyLoadedTree: IFileNode[] = [
+      {
+        name: 'src',
+        path: '/src',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'unloaded',
+      },
+      {
+        name: 'docs',
+        path: '/docs',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'unloaded',
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={partiallyLoadedTree}
+          folderId="root"
+          loadingFiles={new Set()}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().setQuerySelection(
+        {
+          kind: 'recursive-select-all',
+          folderId: 'root',
+          rootPath: null,
+          coveredDirectoryPaths: ['/src', '/docs'],
+          includeFilters: [],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          totalSelectedCount: 10,
+          useRegex: false,
+        },
+        {
+          filePaths: ['/src/file1.ts', '/docs/readme.md'],
+          pathSet: new Set(['/src/file1.ts', '/docs/readme.md']),
+          directoryCounts: new Map([
+            ['/src', 1],
+            ['/docs', 1],
+          ]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+        new Set(['/src/file1.ts', '/docs/readme.md'])
+      );
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('Select src')).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByLabelText('Select docs')).toHaveAttribute('data-state', 'checked');
+
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setSelectionMode('explicit');
+      await Promise.resolve();
+    });
+  });
+
+  it('does not mark directories checked in query mode when they are outside the covered filtered paths', async () => {
+    const partiallyLoadedTree: IFileNode[] = [
+      {
+        name: 'src',
+        path: '/src',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'unloaded',
+        children: [],
+      },
+      {
+        name: 'docs',
+        path: '/docs',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'unloaded',
+        children: [],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={partiallyLoadedTree}
+          folderId="root"
+          loadingFiles={new Set()}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().setQuerySelection(
+        {
+          kind: 'recursive-select-all',
+          folderId: 'root',
+          rootPath: null,
+          coveredDirectoryPaths: ['/src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-2',
+          manifestSnapshotId: 'snapshot-2',
+          totalSelectedCount: 2,
+          useRegex: false,
+        },
+        {
+          filePaths: ['/src/index.ts'],
+          pathSet: new Set(['/src/index.ts']),
+          directoryCounts: new Map([['/src', 1]]),
+          fingerprint: 'fp-2',
+          snapshotId: 'snapshot-2',
+          status: 'ready',
+          errorMessage: null,
+        },
+        new Set(['/src/index.ts'])
+      );
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('Select src')).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByLabelText('Select docs')).toHaveAttribute('data-state', 'unchecked');
+
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setSelectionMode('explicit');
+      await Promise.resolve();
+    });
+  });
+
+  it('marks unloaded directories indeterminate when explicit selected descendants exist', async () => {
+    const partiallyLoadedTree: IFileNode[] = [
+      {
+        name: 'src',
+        path: '/src',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'unloaded',
+        children: [],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={partiallyLoadedTree}
+          folderId="root"
+          loadingFiles={new Set()}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore
+        .getState()
+        .setSelectedFiles(new Set([encodeFileSelection('root', '/src/index.ts')]));
+      readyStore.getState().setSelectionMode('explicit');
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('Select src')).toHaveAttribute('data-state', 'indeterminate');
+  });
+
   it('does not recompute directory file counts on file-selection rerenders', async () => {
     const getFolderFileCountSpy = vi.spyOn(memoizedFileExplorer, 'getFolderFileCount');
     try {

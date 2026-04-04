@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
+import type { IFileNode } from '@brainstrike/types';
 import type { ActionButtonsProps } from '../action-buttons';
 import { ActionButtons } from '../action-buttons';
 
@@ -19,6 +20,32 @@ function getProps(overrides: Partial<ActionButtonsProps> = {}): ActionButtonsPro
     onSelectionLimitExceeded: vi.fn(),
     ...overrides,
   };
+}
+
+function createFullyLoadedTree(): IFileNode[] {
+  return [
+    {
+      name: 'src',
+      path: '/src',
+      type: 'directory',
+      depth: 0,
+      handle: {} as FileSystemDirectoryHandle,
+      selectionState: 'unchecked' as const,
+      rootFolderId: TEST_FOLDER_ID,
+      loadState: 'loaded' as const,
+      children: [
+        {
+          name: 'a.ts',
+          path: '/src/a.ts',
+          type: 'file',
+          depth: 1,
+          handle: {} as FileSystemFileHandle,
+          selectionState: 'unchecked' as const,
+          rootFolderId: TEST_FOLDER_ID,
+        },
+      ],
+    },
+  ];
 }
 
 describe('ActionButtons', () => {
@@ -60,6 +87,57 @@ describe('ActionButtons', () => {
   });
 
   describe('Button Functionality', () => {
+    it('always routes select-all through the canonical recursive selection path', async () => {
+      const selectAllRecursively = vi.fn(async () => ({
+        success: true,
+        filePaths: ['/src/a.ts', '/README.md'],
+        limitReached: false,
+      }));
+      const props = getProps({
+        addMultipleSelectedFiles: vi.fn(),
+        filteredTree: createFullyLoadedTree(),
+        selectAllRecursively,
+        visibleFilePaths: ['/src/a.ts', '/README.md'],
+      });
+
+      const user = userEvent.setup();
+      render(<ActionButtons {...props} />);
+      await user.click(screen.getByRole('button', { name: 'Select All' }));
+
+      expect(selectAllRecursively).toHaveBeenCalledWith(
+        createFullyLoadedTree(),
+        TEST_FOLDER_ID,
+        expect.any(Function),
+        DEFAULT_MAX_SELECTION
+      );
+      expect(props.setSelectedFiles).not.toHaveBeenCalled();
+    });
+
+    it('leaves query-mode decisions to the recursive selection hook instead of the button', async () => {
+      const visibleFilePaths = Array.from({ length: 600 }, (_, index) => `/src/file-${index}.ts`);
+      const selectAllRecursively = vi.fn(async () => ({
+        success: true,
+        filePaths: visibleFilePaths,
+        limitReached: false,
+      }));
+      const props = getProps({
+        addMultipleSelectedFiles: vi.fn(),
+        filteredTree: createFullyLoadedTree(),
+        maxSelectionCount: 1000,
+        selectAllRecursively,
+        visibleFilePaths,
+        workspaceIncludeFilters: ['**/*.ts'],
+        workspaceExcludeFilters: ['node_modules'],
+        workspaceUseRegex: false,
+      });
+
+      const user = userEvent.setup();
+      render(<ActionButtons {...props} />);
+      await user.click(screen.getByRole('button', { name: 'Select All' }));
+
+      expect(selectAllRecursively).toHaveBeenCalled();
+    });
+
     it('should select all files when clicking "Select All" and files are within limit', async () => {
       const props = getProps({
         displayedFiles: new Set(['file1.txt', 'file2.txt']),
@@ -73,6 +151,29 @@ describe('ActionButtons', () => {
       await user.click(selectAllButton);
       const expectedSelection = new Set(['test-folder:file1.txt', 'test-folder:file2.txt']);
       expect(props.setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
+    });
+
+    it('uses explicit visible-file selection when a quick filter is active', async () => {
+      const selectAllRecursively = vi.fn();
+      const props = getProps({
+        addMultipleSelectedFiles: vi.fn(),
+        currentFolderId: TEST_FOLDER_ID,
+        displayedFiles: new Set<string>(),
+        filteredTree: createFullyLoadedTree(),
+        hasActiveQuickFilter: true,
+        selectAllRecursively,
+        setSelectedFiles: vi.fn(),
+        visibleFilePaths: ['/test.ts', '/test2.ts'],
+      });
+
+      const user = userEvent.setup();
+      render(<ActionButtons {...props} />);
+      await user.click(screen.getByRole('button', { name: 'Select All' }));
+
+      expect(selectAllRecursively).not.toHaveBeenCalled();
+      expect(props.setSelectedFiles).toHaveBeenCalledWith(
+        new Set(['test-folder:/test.ts', 'test-folder:/test2.ts'])
+      );
     });
 
     it('should select up to max selection limit when files exceed limit (fallback behavior)', async () => {
@@ -110,6 +211,29 @@ describe('ActionButtons', () => {
       await user.click(selectButton);
       const expectedSelection = new Set(['test-folder:file1.txt', 'test-folder:file2.txt']);
       expect(setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
+      expect(onSelectionLimitExceeded).toHaveBeenCalled();
+    });
+
+    it('caps quick-filter explicit selection to maxSelectionCount', async () => {
+      const onSelectionLimitExceeded = vi.fn();
+      const setSelectedFiles = vi.fn();
+      const props = getProps({
+        currentFolderId: TEST_FOLDER_ID,
+        displayedFiles: new Set<string>(),
+        hasActiveQuickFilter: true,
+        maxSelectionCount: 2,
+        onSelectionLimitExceeded,
+        setSelectedFiles,
+        visibleFilePaths: ['/test.ts', '/test2.ts', '/test3.ts'],
+      });
+
+      const user = userEvent.setup();
+      render(<ActionButtons {...props} />);
+      await user.click(screen.getByRole('button', { name: 'Select All' }));
+
+      expect(setSelectedFiles).toHaveBeenCalledWith(
+        new Set(['test-folder:/test.ts', 'test-folder:/test2.ts'])
+      );
       expect(onSelectionLimitExceeded).toHaveBeenCalled();
     });
 

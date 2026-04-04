@@ -165,6 +165,7 @@ describe('FileExplorerLeftPanel', () => {
         ruleSetJson: null,
         materializedPaths: null,
         materializedAt: null,
+        queryDescriptor: null,
       },
       setMaterializedPaths: vi.fn(),
       quickFilter: '',
@@ -244,11 +245,15 @@ describe('FileExplorerLeftPanel', () => {
 
     vi.mocked(useSelectionManager).mockReturnValue({
       // required API surface for selection manager
+      selectedCount: 0,
       selectedFilesList: [],
       setSelectedFilesFromList: vi.fn(),
       selectedFilePaths: new Set<string>(),
       handleSelectionChange: vi.fn(),
       wouldExceedSelectionLimit: vi.fn(),
+      effectiveSelection: new Set<string>(),
+      isQueryMode: false,
+      isRulesMode: false,
     } as unknown as ReturnType<typeof useSelectionManager>);
 
     showToastMock = vi.fn();
@@ -456,11 +461,15 @@ describe('FileExplorerLeftPanel', () => {
 
   it('displays toolbar with correct selection count', async () => {
     vi.mocked(useSelectionManager).mockReturnValueOnce({
+      selectedCount: 3,
       selectedFilesList: ['file1', 'file2', 'file3'],
       setSelectedFilesFromList: vi.fn(),
       selectedFilePaths: new Set(['file1', 'file2', 'file3']),
       handleSelectionChange: vi.fn(),
       wouldExceedSelectionLimit: vi.fn(),
+      effectiveSelection: new Set(['file1', 'file2', 'file3']),
+      isQueryMode: false,
+      isRulesMode: false,
     } as unknown as ReturnType<typeof useSelectionManager>);
 
     renderWithProviders(<FileExplorerLeftPanel />);
@@ -471,11 +480,15 @@ describe('FileExplorerLeftPanel', () => {
 
   it('renders correctly when selectedFilesList is empty', async () => {
     vi.mocked(useSelectionManager).mockReturnValueOnce({
+      selectedCount: 0,
       selectedFilesList: [],
       setSelectedFilesFromList: vi.fn(),
       selectedFilePaths: new Set(),
       handleSelectionChange: vi.fn(),
       wouldExceedSelectionLimit: vi.fn(),
+      effectiveSelection: new Set<string>(),
+      isQueryMode: false,
+      isRulesMode: false,
     } as unknown as ReturnType<typeof useSelectionManager>);
 
     renderWithProviders(<FileExplorerLeftPanel />);
@@ -564,6 +577,7 @@ describe('FileExplorerLeftPanel', () => {
         ruleSetJson: null,
         materializedPaths: null,
         materializedAt: null,
+        queryDescriptor: null,
       },
       setMaterializedPaths: vi.fn(),
     };
@@ -629,6 +643,7 @@ describe('FileExplorerLeftPanel', () => {
         ruleSetJson: null,
         materializedPaths: null,
         materializedAt: null,
+        queryDescriptor: null,
       },
       setMaterializedPaths: vi.fn(),
     };
@@ -783,6 +798,7 @@ describe('FileExplorerLeftPanel', () => {
         ruleSetJson: null,
         materializedPaths: null,
         materializedAt: null,
+        queryDescriptor: null,
       },
       setMaterializedPaths: vi.fn(),
     };

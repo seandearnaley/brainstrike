@@ -163,6 +163,7 @@ describe('state-serialization', () => {
           ruleSetJson: null,
           materializedPaths: null,
           materializedAt: null,
+          queryDescriptor: null,
         },
       });
 
@@ -170,6 +171,57 @@ describe('state-serialization', () => {
 
       expect(result.selectionModel?.materializedPaths).toBeNull();
       expect(result.selectionModel?.materializedAt).toBeNull();
+    });
+
+    it('should serialize query-backed selection descriptors without persisting giant explicit selections', () => {
+      const state = buildState({
+        selectedFilePaths: new Set(['folder1|@|src/index.ts']),
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['src/index.ts']),
+          materializedAt: '2024-01-01T00:00:00Z',
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: ['node_modules'],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            useRegex: false,
+            totalSelectedCount: 5000,
+          },
+        },
+      });
+
+      const result = serializeState(state);
+
+      expect(result.selectionModel).toEqual({
+        mode: 'query',
+        explicitPaths: [],
+        ruleSetJson: null,
+        materializedPaths: ['src/index.ts'],
+        materializedAt: '2024-01-01T00:00:00Z',
+        queryDescriptor: {
+          kind: 'recursive-select-all',
+          folderId: 'folder1',
+          rootPath: null,
+          coveredDirectoryPaths: ['src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: ['node_modules'],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          useRegex: false,
+          totalSelectedCount: 5000,
+        },
+      });
     });
   });
 
@@ -506,6 +558,68 @@ describe('state-serialization', () => {
       expect(result.selectionModel.ruleSetJson).toBe('{"rules":[]}');
       expect(result.selectionModel.materializedPaths).toEqual(new Set(['m1']));
       expect(result.selectionModel.materializedAt).toBe('2024-01-01');
+    });
+
+    it('should deserialize query-backed selection descriptors', () => {
+      const current = buildState();
+      const persisted: SerializedState = {
+        currentFolderId: 'folder1',
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: [],
+          ruleSetJson: null,
+          materializedPaths: ['src/index.ts'],
+          materializedAt: '2024-01-01',
+          queryDescriptor: {
+            kind: 'recursive-folder',
+            folderId: 'folder1',
+            rootPath: 'src',
+            coveredDirectoryPaths: ['src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: null,
+            manifestSnapshotId: null,
+            useRegex: false,
+            totalSelectedCount: 2500,
+          },
+        },
+      };
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.selectionModel.mode).toBe('query');
+      expect(result.selectionModel.explicitPaths).toEqual(new Set());
+      expect(result.selectionModel.materializedPaths).toEqual(new Set(['src/index.ts']));
+      expect(result.selectionModel.queryDescriptor).toEqual({
+        kind: 'recursive-folder',
+        folderId: 'folder1',
+        rootPath: 'src',
+        coveredDirectoryPaths: ['src'],
+        includeFilters: ['**/*.ts'],
+        excludeFilters: [],
+        includedPaths: [],
+        excludedPaths: [],
+        manifestFingerprint: null,
+        manifestSnapshotId: null,
+        useRegex: false,
+        totalSelectedCount: 2500,
+      });
     });
 
     it('should default mode to explicit when mode is not "rules"', () => {

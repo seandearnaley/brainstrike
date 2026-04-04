@@ -17,7 +17,12 @@ const fileNode = (name: string, path: string): IFileNode => ({
 
 // Helper to create directory nodes
 const dummyDirHandle = {} as FileSystemDirectoryHandle;
-const dirNode = (name: string, path: string, children: IFileNode[]): IFileNode => ({
+const dirNode = (
+  name: string,
+  path: string,
+  children: IFileNode[],
+  overrides: Partial<IFileNode> = {}
+): IFileNode => ({
   type: 'directory',
   name,
   path,
@@ -26,6 +31,7 @@ const dirNode = (name: string, path: string, children: IFileNode[]): IFileNode =
   selectionState: 'unchecked',
   rootFolderId: 'root',
   children,
+  ...overrides,
 });
 
 describe('useFileFilters', () => {
@@ -226,5 +232,44 @@ describe('useFileFilters', () => {
     expect(fileChild).toBeDefined();
     expect(dirChild).toBeDefined();
     expect(dirChild?.children).toHaveLength(1);
+  });
+
+  it('prunes loaded directories that have no matching descendants under include filters', () => {
+    const tree: IFileNode[] = [
+      dirNode(
+        'root',
+        '/root',
+        [
+          dirNode('src', '/root/src', [fileNode('app.ts', '/root/src/app.ts')], {
+            loadState: 'loaded',
+          }),
+          dirNode('docs', '/root/docs', [fileNode('readme.md', '/root/docs/readme.md')], {
+            loadState: 'loaded',
+          }),
+        ],
+        { loadState: 'loaded' }
+      ),
+    ];
+
+    const { result } = renderHook(() => useFileFilters());
+    const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
+
+    const rootDir = filtered[0]!;
+    const children = rootDir.children ?? [];
+    expect(children.map((child) => child.name)).toEqual(['src']);
+  });
+
+  it('preserves unloaded directories until their descendants are known', () => {
+    const tree: IFileNode[] = [
+      dirNode('root', '/root', [dirNode('docs', '/root/docs', [], { loadState: 'unloaded' })], {
+        loadState: 'loaded',
+      }),
+    ];
+
+    const { result } = renderHook(() => useFileFilters());
+    const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
+
+    const rootDir = filtered[0]!;
+    expect(rootDir.children?.map((child) => child.name)).toEqual(['docs']);
   });
 });

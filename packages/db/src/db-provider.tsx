@@ -101,7 +101,7 @@ async function loadDrizzleViewFilterPresetsRepository() {
   return mod.DrizzleViewFilterPresetsRepository;
 }
 
-interface DbHandle extends IDatabase {
+export interface DbHandle extends IDatabase {
   exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
   readonly raw?: unknown;
 }

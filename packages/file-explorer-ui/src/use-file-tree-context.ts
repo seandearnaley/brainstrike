@@ -17,6 +17,7 @@ import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { IFileNode } from '@brainstrike/types';
 import type React from 'react';
 import { useLazyFileTree } from './use-lazy-file-tree';
+import type { NormalizedFileTreeState } from './utils/normalized-file-tree';
 
 /**
  * Simplified loading progress state for lazy loading.
@@ -30,6 +31,16 @@ export interface LoadingProgressState {
 }
 
 export interface CancellableFileTreeHook {
+  /** @internal get cached descendant file count without nested traversal */
+  __internalGetDescendantFileCount?: (path: string) => number;
+  /** @internal get descendant file paths without nested traversal */
+  __internalGetDescendantFilePaths?: (path: string, maxCount?: number) => string[];
+  /** @internal materialize a full subtree on demand */
+  __internalMaterializeSubtree?: (path: string) => IFileNode | undefined;
+  /** @internal normalized tree state for provider-backed render paths */
+  __internalNormalizedTreeRef?: React.RefObject<NormalizedFileTreeState>;
+  /** @internal version that changes whenever the normalized tree changes */
+  __internalNormalizedTreeVersion?: number;
   /** Cancel loading for a specific directory (e.g., on collapse) */
   cancelChildLoading: (path: string) => void;
   /** Cancel expand-all operation */
@@ -157,6 +168,11 @@ export function useFileTree(
     cancelSelectAll,
     isLoadingForSelectAll,
     workerPortRef,
+    __internalNormalizedTreeRef,
+    __internalNormalizedTreeVersion,
+    __internalGetDescendantFileCount,
+    __internalGetDescendantFilePaths,
+    __internalMaterializeSubtree,
   } = useLazyFileTree(rootDirectoryHandle, options);
 
   return {
@@ -188,5 +204,10 @@ export function useFileTree(
     cancelSelectAll,
     isLoadingForSelectAll,
     workerPortRef,
+    __internalNormalizedTreeRef,
+    __internalNormalizedTreeVersion,
+    __internalGetDescendantFileCount,
+    __internalGetDescendantFilePaths,
+    __internalMaterializeSubtree,
   };
 }

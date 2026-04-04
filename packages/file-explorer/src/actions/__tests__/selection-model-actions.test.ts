@@ -30,6 +30,7 @@ describe('selection-model-actions', () => {
       quickFilter: '',
       devInlineFixtureEnabled: false,
       selectionModel: createEmptySelectionModel(),
+      querySelectionManifest: null,
       rootDirectoryHandle: null,
       ...overrides,
     }) as FileExplorerState;
@@ -93,6 +94,7 @@ describe('selection-model-actions', () => {
           ruleSetJson: '{"old":"rules"}',
           materializedPaths: new Set(['path1', 'path2']),
           materializedAt: '2024-01-01T00:00:00Z',
+          queryDescriptor: null,
         },
       });
       const mockGet = vi.fn(() => stateWithCache);
@@ -117,6 +119,7 @@ describe('selection-model-actions', () => {
           ruleSetJson: '{"some":"rules"}',
           materializedPaths: new Set(['mat1', 'mat2']),
           materializedAt: '2024-01-01T00:00:00Z',
+          queryDescriptor: null,
         },
       });
       const mockGet = vi.fn(() => stateWithRules);
@@ -152,6 +155,7 @@ describe('selection-model-actions', () => {
           ruleSetJson: '{"some":"rules"}',
           materializedPaths: null,
           materializedAt: null,
+          queryDescriptor: null,
         },
       });
       const mockGet = vi.fn(() => stateWithRulesNoMat);
@@ -171,6 +175,7 @@ describe('selection-model-actions', () => {
           ruleSetJson: '{"some":"rules"}',
           materializedPaths: new Set(['src/file1.ts', 'src/file2.ts']),
           materializedAt: '2024-01-01T00:00:00Z',
+          queryDescriptor: null,
         },
       });
       const mockGet = vi.fn(() => stateWithMaterialized);
@@ -185,8 +190,10 @@ describe('selection-model-actions', () => {
           ruleSetJson: null,
           materializedPaths: null,
           materializedAt: null,
+          queryDescriptor: null,
         },
         selectedFilePaths: new Set(['folder1|@|src/file1.ts', 'folder1|@|src/file2.ts']),
+        querySelectionManifest: null,
       });
     });
 
@@ -199,6 +206,7 @@ describe('selection-model-actions', () => {
           ruleSetJson: '{"some":"rules"}',
           materializedPaths: new Set(['file1.ts']),
           materializedAt: '2024-01-01T00:00:00Z',
+          queryDescriptor: null,
         },
       });
       const mockGet = vi.fn(() => stateWithNoFolder);
@@ -213,8 +221,10 @@ describe('selection-model-actions', () => {
           ruleSetJson: null,
           materializedPaths: null,
           materializedAt: null,
+          queryDescriptor: null,
         },
         selectedFilePaths: new Set(['file1.ts']),
+        querySelectionManifest: null,
       });
     });
   });
@@ -240,6 +250,114 @@ describe('selection-model-actions', () => {
       const timestamp = new Date(result.selectionModel.materializedAt);
       expect(timestamp.getTime()).toBeGreaterThanOrEqual(beforeCall.getTime());
       expect(timestamp.getTime()).toBeLessThanOrEqual(afterCall.getTime() + 1000);
+    });
+
+    it('should not sync query compatibility paths into selectedFilePaths in query mode', () => {
+      const stateWithQuery = createMockState({
+        currentFolderId: 'folder1',
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: ['node_modules'],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            useRegex: false,
+            totalSelectedCount: 5000,
+          },
+        },
+      });
+      const mockGet = vi.fn(() => stateWithQuery);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+      const paths = new Set(['src/index.ts', 'src/utils.ts']);
+
+      actions.setMaterializedPaths(paths);
+
+      const setterFn = mockSet.mock.calls[0][0];
+      const result = setterFn(stateWithQuery);
+
+      expect(result).toEqual({
+        selectionModel: {
+          ...stateWithQuery.selectionModel,
+          materializedPaths: paths,
+          materializedAt: expect.any(String),
+        },
+      });
+    });
+  });
+
+  describe('setQuerySelection', () => {
+    it('should switch to query mode and store the exact manifest separately from selectedFilePaths', () => {
+      const state = createMockState({
+        currentFolderId: 'folder1',
+        selectedFilePaths: new Set(['folder1|@|old.ts']),
+      });
+      const mockGet = vi.fn(() => state);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+      const queryManifest = {
+        filePaths: ['src/index.ts', 'src/utils.ts'],
+        pathSet: new Set(['src/index.ts', 'src/utils.ts']),
+        directoryCounts: new Map([['src', 2]]),
+        fingerprint: 'fp-1',
+        snapshotId: 'snapshot-1',
+        status: 'ready' as const,
+        errorMessage: null,
+      };
+
+      actions.setQuerySelection(
+        {
+          kind: 'recursive-folder',
+          folderId: 'folder1',
+          rootPath: 'src',
+          coveredDirectoryPaths: ['src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: ['**/*.test.ts'],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          useRegex: false,
+          totalSelectedCount: 2048,
+        },
+        queryManifest,
+        new Set(['src/index.ts', 'src/utils.ts'])
+      );
+
+      expect(mockSet).toHaveBeenCalledWith({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['src/index.ts', 'src/utils.ts']),
+          materializedAt: expect.any(String),
+          queryDescriptor: {
+            kind: 'recursive-folder',
+            folderId: 'folder1',
+            rootPath: 'src',
+            coveredDirectoryPaths: ['src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: ['**/*.test.ts'],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            useRegex: false,
+            totalSelectedCount: 2048,
+          },
+        },
+        selectedFilePaths: new Set<string>(),
+        querySelectionManifest: queryManifest,
+      });
     });
   });
 });

@@ -9,3 +9,4 @@ export * from './persistence/tab-persistence';
 export { resolveWorkerStorageUrl } from './persistence/worker-storage';
 export * from './store';
 export type { GetState, SetState } from './types/store-types';
+export * from './utils/query-selection-manifest';

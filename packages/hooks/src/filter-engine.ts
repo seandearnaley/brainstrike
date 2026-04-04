@@ -49,13 +49,24 @@ export function normalizeNodePath(path: string): string {
 
 function processDirectoryNode(
   node: IFileNode,
+  path: string,
+  matchesInclude: (path: string) => boolean,
   processTree: (nodes: IFileNode[]) => IFileNode[]
-): IFileNode {
+): IFileNode | null {
   const cloned = cloneNode(node, false);
   if (node.children && node.children.length > 0) {
     cloned.children = processTree(node.children);
   }
-  return cloned;
+
+  const hasMatchingChildren = (cloned.children?.length ?? 0) > 0;
+  const isLoadedDirectory = node.loadState === 'loaded';
+  const isNameMatchedByInclude = matchesInclude(path);
+
+  if (hasMatchingChildren || !isLoadedDirectory || isNameMatchedByInclude) {
+    return cloned;
+  }
+
+  return null;
 }
 
 function processFileNode(
@@ -146,7 +157,10 @@ export function createProcessTreeFunction(
       }
 
       if (node.type === 'directory') {
-        result.push(processDirectoryNode(node, processTree));
+        const processedDirectory = processDirectoryNode(node, path, matchesInclude, processTree);
+        if (processedDirectory) {
+          result.push(processedDirectory);
+        }
       } else if (node.type === 'file') {
         const processedFile = processFileNode(node, path, matchesInclude);
         if (processedFile) {

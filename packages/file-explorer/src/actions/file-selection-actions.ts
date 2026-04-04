@@ -1,4 +1,4 @@
-import type { FileExplorerState } from '@brainstrike/types';
+import type { FileExplorerState, SelectionQueryDescriptor } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
@@ -6,6 +6,7 @@ import {
   IDLE_CALLBACK_TIMEOUT_MS,
 } from '../constants/selection-constants';
 import type { GetState, SetState } from '../types/store-types';
+import { resolveQuerySelection } from '../utils/query-selection-manifest';
 
 const logger = createLogger('FileSelectionActions');
 
@@ -94,6 +95,138 @@ interface ComputeKeysResult {
   wasCapped: boolean;
 }
 
+function createExplicitSelectionModel(selectedFiles: Set<string>) {
+  return {
+    mode: 'explicit' as const,
+    explicitPaths: new Set(selectedFiles),
+    ruleSetJson: null,
+    materializedPaths: null,
+    materializedAt: null,
+    queryDescriptor: null,
+  };
+}
+
+function sortPaths(paths: Set<string>): string[] {
+  return Array.from(paths).sort((left, right) => left.localeCompare(right));
+}
+
+function buildCompatibleSelectedFilePaths(
+  folderId: string,
+  descriptor: SelectionQueryDescriptor
+): Set<string> {
+  const compositeKeys = new Set<string>();
+  for (const path of descriptor.includedPaths) {
+    compositeKeys.add(encodeFileSelection(folderId, path));
+  }
+  return compositeKeys;
+}
+
+function applyQuerySelectionMutation(args: {
+  additions: readonly string[];
+  folderId: string;
+  removals: readonly string[];
+  state: FileExplorerState;
+}): Partial<FileExplorerState> {
+  const { additions, folderId, removals, state } = args;
+  const descriptor = state.selectionModel.queryDescriptor;
+  const manifest = state.querySelectionManifest;
+
+  if (
+    state.selectionModel.mode !== 'query' ||
+    !descriptor ||
+    descriptor.folderId !== folderId ||
+    !manifest
+  ) {
+    return {};
+  }
+
+  const baseSelectedPaths = manifest.pathSet;
+  const includedPaths = new Set(descriptor.includedPaths);
+  const excludedPaths = new Set(descriptor.excludedPaths);
+  let totalSelectedCount = descriptor.totalSelectedCount;
+  let didChange = false;
+
+  const isSelected = (path: string): boolean => {
+    if (includedPaths.has(path)) {
+      return true;
+    }
+    if (excludedPaths.has(path)) {
+      return false;
+    }
+    return baseSelectedPaths.has(path);
+  };
+
+  for (const path of removals) {
+    if (includedPaths.delete(path)) {
+      totalSelectedCount -= 1;
+      didChange = true;
+      continue;
+    }
+    if (baseSelectedPaths.has(path) && !excludedPaths.has(path)) {
+      excludedPaths.add(path);
+      totalSelectedCount -= 1;
+      didChange = true;
+    }
+  }
+
+  for (const path of additions) {
+    if (isSelected(path)) {
+      continue;
+    }
+    if (totalSelectedCount >= state.maxSelectionCount) {
+      break;
+    }
+    if (excludedPaths.delete(path) && baseSelectedPaths.has(path)) {
+      totalSelectedCount += 1;
+      didChange = true;
+      continue;
+    }
+    includedPaths.add(path);
+    totalSelectedCount += 1;
+    didChange = true;
+  }
+
+  if (!didChange) {
+    return {};
+  }
+
+  const nextDescriptor: SelectionQueryDescriptor = {
+    ...descriptor,
+    includedPaths: sortPaths(includedPaths),
+    excludedPaths: sortPaths(excludedPaths),
+    totalSelectedCount,
+  };
+
+  return {
+    selectedFilePaths: buildCompatibleSelectedFilePaths(folderId, nextDescriptor),
+    selectionModel: {
+      ...state.selectionModel,
+      queryDescriptor: nextDescriptor,
+    },
+    selectionVersion: state.selectionVersion + 1,
+  };
+}
+
+function resolveSelectionModelAfterExplicitMutation(
+  currentSelectionModel: FileExplorerState['selectionModel'],
+  newSelectedFiles: Set<string>
+): FileExplorerState['selectionModel'] {
+  if (!(currentSelectionModel && 'mode' in currentSelectionModel)) {
+    return createExplicitSelectionModel(newSelectedFiles);
+  }
+  if (currentSelectionModel.mode === 'explicit') {
+    return {
+      ...currentSelectionModel,
+      explicitPaths: new Set(newSelectedFiles),
+      materializedPaths: null,
+      materializedAt: null,
+      queryDescriptor: null,
+      ruleSetJson: null,
+    };
+  }
+  return createExplicitSelectionModel(newSelectedFiles);
+}
+
 /**
  * Phase 1: Compute composite keys in chunks, yielding between chunks.
  * Caps iteration to the remaining selection budget to avoid unnecessary work.
@@ -159,6 +292,11 @@ export const createFileSelectionActions = (
     }
     set((state) => ({
       selectedFilePaths: validatedFiles,
+      selectionModel: resolveSelectionModelAfterExplicitMutation(
+        state.selectionModel,
+        validatedFiles
+      ),
+      querySelectionManifest: null,
       selectionVersion: state.selectionVersion + 1,
     }));
   },
@@ -168,6 +306,14 @@ export const createFileSelectionActions = (
       return; // Skip if no folder is selected
     }
     set((state) => {
+      if (state.selectionModel.mode === 'query') {
+        return applyQuerySelectionMutation({
+          state,
+          folderId,
+          additions: [path],
+          removals: [],
+        });
+      }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       // Check against maxSelectionCount before adding
       if (newSelectedFiles.size < state.maxSelectionCount) {
@@ -175,6 +321,11 @@ export const createFileSelectionActions = (
       }
       return {
         selectedFilePaths: newSelectedFiles,
+        selectionModel: resolveSelectionModelAfterExplicitMutation(
+          state.selectionModel,
+          newSelectedFiles
+        ),
+        querySelectionManifest: null,
         selectionVersion: state.selectionVersion + 1,
       };
     });
@@ -185,10 +336,23 @@ export const createFileSelectionActions = (
       return; // Skip if no folder is selected
     }
     set((state) => {
+      if (state.selectionModel.mode === 'query') {
+        return applyQuerySelectionMutation({
+          state,
+          folderId,
+          additions: [],
+          removals: [path],
+        });
+      }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       newSelectedFiles.delete(encodeFileSelection(folderId, path));
       return {
         selectedFilePaths: newSelectedFiles,
+        selectionModel: resolveSelectionModelAfterExplicitMutation(
+          state.selectionModel,
+          newSelectedFiles
+        ),
+        querySelectionManifest: null,
         selectionVersion: state.selectionVersion + 1,
       };
     });
@@ -199,6 +363,19 @@ export const createFileSelectionActions = (
       return; // Skip if no folder is selected
     }
     set((state) => {
+      if (state.selectionModel.mode === 'query') {
+        const resolvedQuerySelection = resolveQuerySelection(
+          state.selectionModel.queryDescriptor,
+          state.querySelectionManifest
+        );
+        const isCurrentlySelected = resolvedQuerySelection.pathSet.has(path);
+        return applyQuerySelectionMutation({
+          state,
+          folderId,
+          additions: isCurrentlySelected ? [] : [path],
+          removals: isCurrentlySelected ? [path] : [],
+        });
+      }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       const compositeKey = encodeFileSelection(folderId, path);
       if (newSelectedFiles.has(compositeKey)) {
@@ -209,6 +386,11 @@ export const createFileSelectionActions = (
       }
       return {
         selectedFilePaths: newSelectedFiles,
+        selectionModel: resolveSelectionModelAfterExplicitMutation(
+          state.selectionModel,
+          newSelectedFiles
+        ),
+        querySelectionManifest: null,
         selectionVersion: state.selectionVersion + 1,
       };
     });
@@ -217,6 +399,11 @@ export const createFileSelectionActions = (
   clearSelectedFiles: () => {
     set((state) => ({
       selectedFilePaths: new Set(),
+      selectionModel:
+        state.selectionModel?.mode === 'explicit'
+          ? state.selectionModel
+          : createExplicitSelectionModel(new Set<string>()),
+      querySelectionManifest: null,
       selectionVersion: state.selectionVersion + 1,
     }));
   },
@@ -229,6 +416,14 @@ export const createFileSelectionActions = (
     });
 
     set((state) => {
+      if (state.selectionModel.mode === 'query') {
+        return applyQuerySelectionMutation({
+          state,
+          folderId,
+          additions: paths,
+          removals: [],
+        });
+      }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       const previousSize = newSelectedFiles.size;
       let currentSize = previousSize;
@@ -253,6 +448,11 @@ export const createFileSelectionActions = (
 
       return {
         selectedFilePaths: newSelectedFiles,
+        selectionModel: resolveSelectionModelAfterExplicitMutation(
+          state.selectionModel,
+          newSelectedFiles
+        ),
+        querySelectionManifest: null,
         selectionVersion: state.selectionVersion + 1,
       };
     });
@@ -260,6 +460,14 @@ export const createFileSelectionActions = (
 
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => {
     set((state) => {
+      if (state.selectionModel.mode === 'query') {
+        return applyQuerySelectionMutation({
+          state,
+          folderId,
+          additions: [],
+          removals: paths,
+        });
+      }
       const newSelectedFiles = new Set(state.selectedFilePaths);
       for (const path of paths) {
         const compositeKey = encodeFileSelection(folderId, path);
@@ -267,6 +475,11 @@ export const createFileSelectionActions = (
       }
       return {
         selectedFilePaths: newSelectedFiles,
+        selectionModel: resolveSelectionModelAfterExplicitMutation(
+          state.selectionModel,
+          newSelectedFiles
+        ),
+        querySelectionManifest: null,
         selectionVersion: state.selectionVersion + 1,
       };
     });
@@ -290,6 +503,27 @@ export const createFileSelectionActions = (
       const stateBefore = get();
       const sizeBefore = stateBefore.selectedFilePaths.size;
 
+      if (stateBefore.selectionModel.mode === 'query') {
+        set((state) =>
+          applyQuerySelectionMutation({
+            state,
+            folderId,
+            additions: paths,
+            removals: [],
+          })
+        );
+        const stateAfter = get();
+        const addedCount = stateAfter.selectionModel.queryDescriptor
+          ? stateAfter.selectionModel.queryDescriptor.totalSelectedCount -
+            (stateBefore.selectionModel.queryDescriptor?.totalSelectedCount ?? 0)
+          : 0;
+        const limitReached =
+          (stateAfter.selectionModel.queryDescriptor?.totalSelectedCount ?? 0) >=
+          stateAfter.maxSelectionCount;
+        onProgress?.(paths.length, paths.length);
+        return { addedCount, cancelled: false, limitReached };
+      }
+
       set((state) => {
         const newSelectedFiles = new Set(state.selectedFilePaths);
         let currentSize = newSelectedFiles.size;
@@ -307,6 +541,11 @@ export const createFileSelectionActions = (
 
         return {
           selectedFilePaths: newSelectedFiles,
+          selectionModel: resolveSelectionModelAfterExplicitMutation(
+            state.selectionModel,
+            newSelectedFiles
+          ),
+          querySelectionManifest: null,
           selectionVersion: state.selectionVersion + 1,
         };
       });
@@ -329,6 +568,27 @@ export const createFileSelectionActions = (
     // authoritative latest state — this cap is purely an optimization to skip
     // unnecessary key computation.
     const currentState = get();
+    if (currentState.selectionModel.mode === 'query') {
+      set((state) =>
+        applyQuerySelectionMutation({
+          state,
+          folderId,
+          additions: paths,
+          removals: [],
+        })
+      );
+      const stateAfter = get();
+      const addedCount = stateAfter.selectionModel.queryDescriptor
+        ? stateAfter.selectionModel.queryDescriptor.totalSelectedCount -
+          (currentState.selectionModel.queryDescriptor?.totalSelectedCount ?? 0)
+        : 0;
+      const limitReached =
+        (stateAfter.selectionModel.queryDescriptor?.totalSelectedCount ?? 0) >=
+        stateAfter.maxSelectionCount;
+      onProgress?.(paths.length, paths.length);
+      return { addedCount, cancelled: false, limitReached };
+    }
+
     const remainingBudget = Math.max(
       0,
       currentState.maxSelectionCount - currentState.selectedFilePaths.size
@@ -369,6 +629,11 @@ export const createFileSelectionActions = (
 
         return {
           selectedFilePaths: newSelectedFiles,
+          selectionModel: resolveSelectionModelAfterExplicitMutation(
+            state.selectionModel,
+            newSelectedFiles
+          ),
+          querySelectionManifest: null,
           selectionVersion: state.selectionVersion + 1,
         };
       });

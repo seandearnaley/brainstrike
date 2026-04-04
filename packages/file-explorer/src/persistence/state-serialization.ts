@@ -59,6 +59,7 @@ function serializeSelectionModel(model: SelectionModel): SerializedSelectionMode
     ruleSetJson: model.ruleSetJson,
     materializedPaths: model.materializedPaths ? cachedSetToArray(model.materializedPaths) : null,
     materializedAt: model.materializedAt,
+    queryDescriptor: model.queryDescriptor,
   };
 }
 
@@ -72,14 +73,39 @@ function deserializeSelectionModel(
     return createEmptySelectionModel();
   }
 
+  const queryDescriptor = serialized.queryDescriptor
+    ? {
+        ...serialized.queryDescriptor,
+        coveredDirectoryPaths: coerceStringArray(serialized.queryDescriptor.coveredDirectoryPaths),
+        includedPaths: coerceStringArray(
+          (serialized.queryDescriptor as { includedPaths?: unknown }).includedPaths
+        ),
+        excludedPaths: coerceStringArray(
+          (serialized.queryDescriptor as { excludedPaths?: unknown }).excludedPaths
+        ),
+        manifestFingerprint:
+          typeof (serialized.queryDescriptor as { manifestFingerprint?: unknown })
+            .manifestFingerprint === 'string'
+            ? (serialized.queryDescriptor as { manifestFingerprint: string }).manifestFingerprint
+            : null,
+        manifestSnapshotId:
+          typeof (serialized.queryDescriptor as { manifestSnapshotId?: unknown })
+            .manifestSnapshotId === 'string'
+            ? (serialized.queryDescriptor as { manifestSnapshotId: string }).manifestSnapshotId
+            : null,
+      }
+    : null;
+
   return {
-    mode: serialized.mode === 'rules' ? 'rules' : 'explicit',
+    mode:
+      serialized.mode === 'rules' ? 'rules' : serialized.mode === 'query' ? 'query' : 'explicit',
     explicitPaths: new Set(coerceStringArray(serialized.explicitPaths)),
     ruleSetJson: serialized.ruleSetJson ?? null,
     materializedPaths: serialized.materializedPaths
       ? new Set(coerceStringArray(serialized.materializedPaths))
       : null,
     materializedAt: serialized.materializedAt ?? null,
+    queryDescriptor,
   };
 }
 
@@ -96,6 +122,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     folderStatesToSerialize[currentFolderId] = {
       ...folderStatesToSerialize[currentFolderId],
       selectedFilePaths: state.selectedFilePaths,
+      selectionModel: state.selectionModel,
       expandedDirectoryPaths: state.expandedDirectoryPaths,
       includeFilters: state.includeFilters,
       excludeFilters: state.excludeFilters,
@@ -112,6 +139,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     // Create folder state if it doesn't exist yet
     folderStatesToSerialize[currentFolderId] = {
       selectedFilePaths: state.selectedFilePaths,
+      selectionModel: state.selectionModel,
       expandedDirectoryPaths: state.expandedDirectoryPaths,
       includeFilters: state.includeFilters,
       excludeFilters: state.excludeFilters,
@@ -134,6 +162,9 @@ export function serializeState(state: FileExplorerState): SerializedState {
         {
           ...folderState,
           selectedFilePaths: cachedSetToArray(folderState?.selectedFilePaths),
+          selectionModel: serializeSelectionModel(
+            folderState?.selectionModel ?? createEmptySelectionModel()
+          ),
           expandedDirectoryPaths: cachedSetToArray(folderState?.expandedDirectoryPaths),
           lastAccessed: folderState?.lastAccessed || Date.now(),
         },
@@ -228,6 +259,10 @@ export function mergeState(
             selectedFilePaths: shouldUseTopLevelSelections
               ? topLevelSelectedFilePaths
               : new Set(coerceStringArray(psFolderState.selectedFilePaths)),
+            selectionModel:
+              shouldUseTopLevelSelections && persistedSerialized.selectionModel
+                ? deserializeSelectionModel(persistedSerialized.selectionModel)
+                : deserializeSelectionModel(psFolderState.selectionModel),
             expandedDirectoryPaths: shouldUseTopLevelExpansions
               ? topLevelExpandedDirectoryPaths
               : new Set(coerceStringArray(psFolderState.expandedDirectoryPaths)),

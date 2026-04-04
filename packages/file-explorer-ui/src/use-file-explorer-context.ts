@@ -604,6 +604,10 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     const storeState = store.getState();
     const expandedPaths = storeState.expandedDirectoryPaths;
     const selectedFiles = storeState.selectedFilePaths;
+    const queryCoveredDirectories =
+      storeState.selectionModel.mode === 'query'
+        ? new Set(storeState.selectionModel.queryDescriptor?.coveredDirectoryPaths ?? [])
+        : new Set<string>();
 
     // BST-308/BST-310: Include ALL ancestor directories of selected files in restoration.
     // When files are restored from persistence, their ancestor directories must be loaded
@@ -615,13 +619,18 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     const parentDirectoriesOfSelectedFiles = getParentDirectoriesForSelectedFiles(selectedFiles);
 
     // Merge expanded paths with parent directories of selected files
-    const allPathsToRestore = new Set([...expandedPaths, ...parentDirectoriesOfSelectedFiles]);
+    const allPathsToRestore = new Set([
+      ...expandedPaths,
+      ...parentDirectoriesOfSelectedFiles,
+      ...queryCoveredDirectories,
+    ]);
 
     logger.debug('[Restoration Effect] Paths to restore', {
       folderId: currentRootFolderId,
       expandedPathCount: expandedPaths.size,
       selectedFileCount: selectedFiles.size,
       parentDirsOfSelectedFiles: parentDirectoriesOfSelectedFiles.size,
+      queryCoveredDirectoryCount: queryCoveredDirectories.size,
       totalPathsToRestore: allPathsToRestore.size,
       expandedPaths: [...expandedPaths].slice(0, 5),
       parentDirs: [...parentDirectoriesOfSelectedFiles].slice(0, 5),
@@ -668,6 +677,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
           const newExpandedPaths = new Set([
             ...currentExpandedPaths,
             ...parentDirectoriesOfSelectedFiles,
+            ...queryCoveredDirectories,
           ]);
           logger.debug('[Restoration Effect] Expanding parent directories of selected files', {
             count: parentDirectoriesOfSelectedFiles.size,

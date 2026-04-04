@@ -26,6 +26,12 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
+import {
+  getDirectorySelectedCount,
+  getSelectionCount,
+  isDirectoryCoveredByQuerySelection,
+  isQuerySelectionPathSelected,
+} from './utils/selection-projection';
 
 interface TreeNodeIconProps {
   isExpanded: boolean;
@@ -161,6 +167,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
 
     // Subscribe to actions (stable references)
     const maxSelectionCount = useFileExplorerStoreSelector((s) => s.maxSelectionCount);
+    const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
+    const querySelectionManifest = useFileExplorerStoreSelector((s) => s.querySelectionManifest);
     const addMultipleSelectedFiles = useFileExplorerStoreSelector(
       (s) => s.addMultipleSelectedFiles
     );
@@ -194,9 +202,17 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         if (compositeKey === null) {
           return false;
         }
+        if (state.selectionModel.mode === 'query') {
+          return isQuerySelectionPathSelected(
+            state.selectionModel.queryDescriptor,
+            state.querySelectionManifest,
+            folderId,
+            nodePath
+          );
+        }
         return state.selectedFilePaths.has(compositeKey);
       },
-      [compositeKey]
+      [compositeKey, folderId, nodePath]
     );
     const isFileSelected = useFileExplorerStoreSelector(isFileSelectedSelector);
 
@@ -209,6 +225,14 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         if (nodeType !== 'directory') {
           return 0;
         }
+        if (state.selectionModel.mode === 'query') {
+          return getDirectorySelectedCount(
+            state.selectionModel.queryDescriptor,
+            state.querySelectionManifest,
+            folderId,
+            nodePath
+          );
+        }
         return countSelectedInDirectory(state.selectedFilePaths, folderId, nodePath);
       },
       [nodeType, folderId, nodePath]
@@ -218,7 +242,12 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     // Selector for current selection size (for limit checking)
     // Zustand compares return values, so this only triggers re-render when size changes
     const selectionSizeSelector = useMemo(
-      () => (state: FileExplorerState) => state.selectedFilePaths.size,
+      () => (state: FileExplorerState) =>
+        getSelectionCount(
+          state.selectionModel,
+          state.selectedFilePaths,
+          state.querySelectionManifest
+        ),
       []
     );
     const currentSelectionSize = useFileExplorerStoreSelector(selectionSizeSelector);
@@ -239,7 +268,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         }
         return model.materializedPaths ? model.materializedPaths.has(nodePath) : false;
       },
-      [nodeType, nodePath]
+      [folderId, nodeType, nodePath]
     );
     const isRuleSelected = useFileExplorerStoreSelector(isRuleSelectedSelector);
 
@@ -257,14 +286,42 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         return isFileSelected;
       }
       const totalFiles = folderInfo?.count ?? 0;
+      const isKnownEmptyDirectory =
+        totalFiles === 0 &&
+        nodeLoadState === 'loaded' &&
+        !(
+          nodeChildren?.some(
+            (child) => child.type === 'directory' && child.loadState !== 'loaded'
+          ) ?? false
+        );
+      if (
+        selectionModel.mode === 'query' &&
+        isDirectoryCoveredByQuerySelection(
+          selectionModel.queryDescriptor,
+          querySelectionManifest,
+          folderId,
+          node.path
+        )
+      ) {
+        return !isKnownEmptyDirectory;
+      }
       if (totalFiles === 0) {
-        return false;
+        return selectedCountInDir > 0 ? 'indeterminate' : false;
       }
       if (selectedCountInDir === 0) {
         return false;
       }
       return selectedCountInDir === totalFiles ? true : 'indeterminate';
-    }, [node.type, isFileSelected, folderInfo, selectedCountInDir]);
+    }, [
+      folderId,
+      folderInfo,
+      isFileSelected,
+      node.path,
+      node.type,
+      selectedCountInDir,
+      querySelectionManifest,
+      selectionModel,
+    ]);
 
     const wouldExceedLimit = useMemo(() => {
       if (node.type === 'file') {
@@ -273,15 +330,30 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       if (!folderInfo) {
         return false;
       }
+      if (
+        selectionModel.mode === 'query' &&
+        isDirectoryCoveredByQuerySelection(
+          selectionModel.queryDescriptor,
+          querySelectionManifest,
+          folderId,
+          node.path
+        )
+      ) {
+        return false;
+      }
       const unselectedCount = folderInfo.count - selectedCountInDir;
       return currentSelectionSize + unselectedCount > maxSelectionCount;
     }, [
+      folderId,
       node.type,
+      node.path,
       isFileSelected,
       currentSelectionSize,
       maxSelectionCount,
       folderInfo,
       selectedCountInDir,
+      querySelectionManifest,
+      selectionModel,
     ]);
 
     // Memoize event handlers
@@ -291,14 +363,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         return;
       }
 
-      // For directories that aren't fully loaded, use recursive selection
-      // This will load all children first, then select them
-      const needsRecursiveLoad =
-        node.loadState !== 'loaded' ||
-        (node.children?.some((c) => c.type === 'directory' && c.loadState !== 'loaded') ?? false);
-
-      if (needsRecursiveLoad && onSelectFolderRecursively) {
-        // Use async recursive selection - the hook handles everything
+      if (onSelectFolderRecursively) {
         void onSelectFolderRecursively(node);
         return;
       }
@@ -315,13 +380,24 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       // Get current selection state at callback time (not stale render-time value)
       const currentState = store.getState();
       const currentSelectedPaths = currentState.selectedFilePaths;
+      const currentSelectionTotal = getSelectionCount(
+        currentState.selectionModel,
+        currentSelectedPaths,
+        currentState.querySelectionManifest
+      );
+      const isQueryMode = currentState.selectionModel.mode === 'query';
 
       // Compute selected count at click time for accurate comparison
-      const currentSelectedCount = countSelectedInDirectory(
-        currentSelectedPaths,
-        folderId,
-        node.path
-      );
+      const currentSelectedCount =
+        isQueryMode &&
+        isDirectoryCoveredByQuerySelection(
+          currentState.selectionModel.queryDescriptor,
+          currentState.querySelectionManifest,
+          folderId,
+          node.path
+        )
+          ? allFilePaths.length
+          : countSelectedInDirectory(currentSelectedPaths, folderId, node.path);
 
       const isFullySelected = currentSelectedCount === allFilePaths.length;
       if (isFullySelected) {
@@ -329,9 +405,18 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       } else {
         const unselectedPaths = allFilePaths.filter(
           (path: string) =>
-            !(folderId ? isPathSelectedInFolder(currentSelectedPaths, folderId, path) : false)
+            !(isQueryMode
+              ? isQuerySelectionPathSelected(
+                  currentState.selectionModel.queryDescriptor,
+                  currentState.querySelectionManifest,
+                  folderId,
+                  path
+                )
+              : folderId
+                ? isPathSelectedInFolder(currentSelectedPaths, folderId, path)
+                : false)
         );
-        const availableSlots = maxSelectionCount - currentSelectedPaths.size;
+        const availableSlots = maxSelectionCount - currentSelectionTotal;
         const pathsToSelect = unselectedPaths.slice(0, availableSlots);
         if (pathsToSelect.length > 0) {
           addMultipleSelectedFiles(folderId, pathsToSelect);

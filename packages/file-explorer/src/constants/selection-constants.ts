@@ -48,3 +48,18 @@ export const IDLE_CALLBACK_TIMEOUT_MS = 50;
  * to avoid excessive log output for large selections.
  */
 export const LOG_SAMPLE_SIZE = 3;
+
+/**
+ * Threshold above which full-result recursive selections should switch to
+ * query-backed mode instead of materializing every selected file key.
+ */
+export const LARGE_SELECTION_QUERY_THRESHOLD = 500;
+
+/**
+ * Maximum number of relative paths to materialize for query-backed selections.
+ *
+ * These paths are used as a compatibility subset for preview, persistence UX,
+ * and staged background indexing. The canonical selection remains the query
+ * descriptor, not this subset.
+ */
+export const QUERY_SELECTION_MATERIALIZATION_LIMIT = 250;

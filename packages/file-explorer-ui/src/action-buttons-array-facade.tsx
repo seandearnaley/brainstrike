@@ -1,3 +1,4 @@
+import type { ChunkedSelectionResult } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import * as React from 'react';
 import { ActionButtons } from './action-buttons';
@@ -6,6 +7,11 @@ import type { SelectAllResult } from './hooks/use-recursive-select-all';
 interface Props {
   /** Add multiple selected files (used by recursive selection) */
   addMultipleSelectedFiles?: (folderId: string, paths: string[]) => void;
+  addMultipleSelectedFilesChunked?: (
+    folderId: string,
+    paths: string[],
+    options?: { signal?: AbortSignal }
+  ) => Promise<ChunkedSelectionResult>;
   /** Cancel the current recursive selection operation */
   cancelSelectAll?: () => void;
   currentFolderId: string | null;
@@ -16,6 +22,7 @@ interface Props {
    * Pass quickFilteredTree to respect workspace include/exclude filters.
    */
   filteredTree?: IFileNode[];
+  hasActiveQuickFilter?: boolean;
   /** Whether the tree has any files (used to enable/disable Select All) */
   hasFilesInTree?: boolean;
   /** Whether the tree is being loaded for select all */
@@ -34,6 +41,10 @@ interface Props {
   ) => Promise<SelectAllResult>;
   selectedFiles: readonly string[];
   setSelectedFiles: (next: readonly string[]) => void;
+  visibleFilePaths?: readonly string[];
+  workspaceExcludeFilters?: readonly string[];
+  workspaceIncludeFilters?: readonly string[];
+  workspaceUseRegex?: boolean;
 }
 
 const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
@@ -53,11 +64,13 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
   return (
     <ActionButtons
       addMultipleSelectedFiles={props.addMultipleSelectedFiles}
+      addMultipleSelectedFilesChunked={props.addMultipleSelectedFilesChunked}
       cancelSelectAll={props.cancelSelectAll}
       currentFolderId={props.currentFolderId}
       displayedFiles={displayedSet}
       encodeFileSelection={props.encodeFileSelection}
       filteredTree={props.filteredTree}
+      hasActiveQuickFilter={props.hasActiveQuickFilter}
       hasFilesInTree={props.hasFilesInTree}
       isLoadingForSelectAll={props.isLoadingForSelectAll}
       maxSelectionCount={props.maxSelectionCount}
@@ -65,6 +78,10 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
       selectAllRecursively={props.selectAllRecursively}
       selectedFilePaths={selectedSet}
       setSelectedFiles={setSelectedSet}
+      visibleFilePaths={props.visibleFilePaths}
+      workspaceExcludeFilters={props.workspaceExcludeFilters}
+      workspaceIncludeFilters={props.workspaceIncludeFilters}
+      workspaceUseRegex={props.workspaceUseRegex}
     />
   );
 };

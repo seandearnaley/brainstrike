@@ -483,5 +483,73 @@ describe('useFileTree (lazy loading version)', () => {
       // loadingPaths should be empty when nothing is loading
       expect(result.current.loadingPaths.size).toBe(0);
     });
+
+    it('loads specific paths directly into the tree for restoration', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      expect(parentDir?.type).toBe('directory');
+
+      await act(async () => {
+        await result.current.loadSpecificPaths([parentDir?.path ?? 'parent']);
+      });
+
+      const reloadedParent = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.path === parentDir?.path
+      );
+      expect(reloadedParent?.type).toBe('directory');
+      expect(reloadedParent?.loadState).toBe('loaded');
+      expect(reloadedParent?.children?.some((child) => child.name === 'child')).toBe(true);
+    });
+
+    it('deduplicates concurrent child loads between direct expansion and restoration replay', async () => {
+      const nestedFS = createNestedMockFileSystem();
+      mockAdapter.setMockFileSystem(nestedFS);
+      mockAdapter.setStreamingDelay(25);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const parentDir = result.current.fileTree.find(
+        (node) => node.type === 'directory' && node.name === 'parent'
+      );
+      expect(parentDir?.type).toBe('directory');
+
+      const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
+      const readDirectoryStreamingSpy = vi
+        .spyOn(mockAdapter, 'readDirectoryStreaming')
+        .mockImplementation(async (...args) => originalReadDirectoryStreaming(...args));
+
+      await act(async () => {
+        await Promise.all([
+          result.current.loadChildren(parentDir?.path ?? 'parent'),
+          result.current.loadSpecificPaths([parentDir?.path ?? 'parent']),
+        ]);
+      });
+
+      expect(readDirectoryStreamingSpy).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -22,6 +22,8 @@ import {
 } from 'react';
 import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
+import type { NormalizedFileTreeState } from './utils/normalized-file-tree';
+import { createEmptyNormalizedFileTreeState } from './utils/normalized-file-tree';
 
 type FileTreeContextType = CancellableFileTreeHook & {
   rootDirectoryHandle: DirectoryHandle | null;
@@ -48,6 +50,16 @@ export interface FileTreeIndexContextValue {
 }
 
 const FileTreeIndexContext = createContext<FileTreeIndexContextValue | null>(null);
+
+export interface FileTreeNormalizedContextValue {
+  getDescendantFileCount: (path: string) => number;
+  getDescendantFilePaths: (path: string, maxCount?: number) => string[];
+  materializeSubtree: (path: string) => IFileNode | undefined;
+  normalizedTreeRef: React.RefObject<NormalizedFileTreeState>;
+  version: number;
+}
+
+const FileTreeNormalizedContext = createContext<FileTreeNormalizedContextValue | null>(null);
 
 export interface FileTreeProviderProps {
   children: ReactNode;
@@ -130,6 +142,20 @@ export function FileTreeProvider({
   }, [onNodesIndexed, filterTreeFn]);
 
   const fileTreeState = useFileTree(rootDirectoryHandle, options);
+  const fallbackNormalizedTreeRef = useRef<NormalizedFileTreeState>(
+    createEmptyNormalizedFileTreeState()
+  );
+
+  const normalizedContextValue = useMemo<FileTreeNormalizedContextValue>(
+    () => ({
+      getDescendantFileCount: fileTreeState.__internalGetDescendantFileCount ?? (() => 0),
+      getDescendantFilePaths: fileTreeState.__internalGetDescendantFilePaths ?? (() => []),
+      materializeSubtree: fileTreeState.__internalMaterializeSubtree ?? (() => undefined),
+      normalizedTreeRef: fileTreeState.__internalNormalizedTreeRef ?? fallbackNormalizedTreeRef,
+      version: fileTreeState.__internalNormalizedTreeVersion ?? 0,
+    }),
+    [fileTreeState]
+  );
 
   // Stable lookup functions - identity never changes since index instance is stable
   // This prevents downstream effects from re-running when only version changes
@@ -156,9 +182,11 @@ export function FileTreeProvider({
 
   return (
     <FileTreeContext.Provider value={{ ...fileTreeState, rootDirectoryHandle }}>
-      <FileTreeIndexContext.Provider value={indexContextValue}>
-        {children}
-      </FileTreeIndexContext.Provider>
+      <FileTreeNormalizedContext.Provider value={normalizedContextValue}>
+        <FileTreeIndexContext.Provider value={indexContextValue}>
+          {children}
+        </FileTreeIndexContext.Provider>
+      </FileTreeNormalizedContext.Provider>
     </FileTreeContext.Provider>
   );
 }
@@ -215,4 +243,8 @@ export function useFileTreeIndexContext(): FileTreeIndexContextValue {
  */
 export function useOptionalFileTreeIndexContext(): FileTreeIndexContextValue | null {
   return useContext(FileTreeIndexContext);
+}
+
+export function useOptionalFileTreeNormalizedContext(): FileTreeNormalizedContextValue | null {
+  return useContext(FileTreeNormalizedContext);
 }

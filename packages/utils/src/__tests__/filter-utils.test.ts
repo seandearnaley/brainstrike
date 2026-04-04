@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { processFilter } from '../filter-utils';
+import { createPathFilterMatcher, processFilter } from '../filter-utils';
 
 describe('filter-utils', () => {
   describe('processFilter', () => {
@@ -38,6 +38,33 @@ describe('filter-utils', () => {
 
     it('should handle double negation in filters', () => {
       expect(processFilter('!!*.json')).toBe('!!**/*.json');
+    });
+  });
+
+  describe('createPathFilterMatcher', () => {
+    it('includes matching files and prunes excluded directories for glob filters', () => {
+      const matcher = createPathFilterMatcher(['*.ts'], ['node_modules/**'], false);
+
+      expect(matcher.shouldIncludeFile('/src/index.ts')).toBe(true);
+      expect(matcher.shouldIncludeFile('/src/index.js')).toBe(false);
+      expect(matcher.shouldTraverseDirectory('/src')).toBe(true);
+      expect(matcher.shouldTraverseDirectory('/node_modules/pkg')).toBe(false);
+    });
+
+    it('supports regex matching', () => {
+      const matcher = createPathFilterMatcher(['\\.tsx?$'], ['(^|/)dist($|/)'], true);
+
+      expect(matcher.shouldIncludeFile('/src/app.ts')).toBe(true);
+      expect(matcher.shouldIncludeFile('/src/app.js')).toBe(false);
+      expect(matcher.shouldTraverseDirectory('/dist')).toBe(false);
+      expect(matcher.shouldTraverseDirectory('/src')).toBe(true);
+    });
+
+    it('allows all files when no include filters are configured', () => {
+      const matcher = createPathFilterMatcher([], ['coverage/**'], false);
+
+      expect(matcher.shouldIncludeFile('/src/readme.md')).toBe(true);
+      expect(matcher.shouldIncludeFile('/coverage/out.txt')).toBe(false);
     });
   });
 });

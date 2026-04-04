@@ -134,7 +134,7 @@ interface FileExplorerTestSnapshot {
   rootDirectoryPath: string | null;
   selectedFilePathCount: number;
   selectedFilePathSamples: string[];
-  selectionMode: 'explicit' | 'rules';
+  selectionMode: 'explicit' | 'query' | 'rules';
   treeRootCount: number;
   treeSamples: Array<{
     childCount: number;
@@ -287,7 +287,13 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   // Get store actions for recursive folder selection
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
-  const selectedFilePaths = useFileExplorerStoreSelector((s) => s.selectedFilePaths);
+  const addMultipleSelectedFilesChunked = useFileExplorerStoreSelector(
+    (s) => s.addMultipleSelectedFilesChunked
+  );
+  const { selectedCount, selectedFilePaths, selectedFilesList, setSelectedFilesFromList } =
+    useSelectionManager({
+      onSelectionLimitExceeded: handleSelectionLimitError,
+    });
 
   // Wrapper for recursive folder selection that binds store actions
   // This allows FileExplorerSidebar to call with just the node
@@ -299,7 +305,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         folderId,
         addMultipleSelectedFiles,
         maxSelectionCount,
-        selectedFilePaths.size
+        selectedCount
       );
     },
     [
@@ -308,13 +314,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       currentFolderId,
       addMultipleSelectedFiles,
       maxSelectionCount,
-      selectedFilePaths,
+      selectedCount,
     ]
   );
-
-  const { selectedFilesList, setSelectedFilesFromList } = useSelectionManager({
-    onSelectionLimitExceeded: handleSelectionLimitError,
-  });
 
   // Inline fixture state management is now handled by setupInlineFixtureSubscription
   // in FileExplorerProvider, ensuring it works regardless of which page is active.
@@ -340,27 +342,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // Get selection model for rules-based mode token counting and display
   const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
 
-  // Background token indexing - processes selected files off the main thread
-  // IMPORTANT: Convert materializedPaths to composite keys when in rules mode
-  // The indexer expects composite keys (folderId|@|path format), not relative paths
-  const selectedFilesSet = useMemo(() => {
-    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths && currentFolderId) {
-      const compositeKeys = new Set<string>();
-      for (const relativePath of selectionModel.materializedPaths) {
-        compositeKeys.add(encodeFileSelection(currentFolderId, relativePath));
-      }
-      return compositeKeys;
-    }
-    return new Set(selectedFilesList);
-  }, [selectionModel.mode, selectionModel.materializedPaths, currentFolderId, selectedFilesList]);
-
-  // Selection count - mode-aware for display purposes
-  const selectedCount = useMemo(() => {
-    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths) {
-      return selectionModel.materializedPaths.size;
-    }
-    return selectedFilesList.length;
-  }, [selectionModel.mode, selectionModel.materializedPaths, selectedFilesList]);
+  const selectedFilesSet = selectedFilePaths;
 
   const largeSelectionDiagnosticSignatureRef = React.useRef<string | null>(null);
 
@@ -444,6 +426,14 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     const excludesLower = excludes.map((value: string) => value.toLowerCase());
     return filterTreeByPatterns(stableFileTree, includesLower, excludesLower);
   }, [deferredQuickFilter, stableFileTree]);
+
+  const visibleFilePaths = useMemo(() => {
+    const visible = new Set<string>();
+    if (quickFilteredTree) {
+      collectVisibleFiles(quickFilteredTree, visible);
+    }
+    return Array.from(visible);
+  }, [quickFilteredTree]);
 
   // displayedFiles are only needed by the legacy "fallback select-all" path.
   // In desktop, recursive select-all should always be available and this stays false.
@@ -828,11 +818,13 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           <div className="flex items-center justify-between gap-2 px-4 py-3">
             <ActionButtons
               addMultipleSelectedFiles={addMultipleSelectedFiles}
+              addMultipleSelectedFilesChunked={addMultipleSelectedFilesChunked}
               cancelSelectAll={cancelSelectAll}
               currentFolderId={getRootFolderId(rootDirectoryHandle) ?? currentFolderId}
               displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
               filteredTree={quickFilteredTree ?? []}
+              hasActiveQuickFilter={deferredQuickFilter.trim().length > 0}
               hasFilesInTree={fileTree.length > 0}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
@@ -840,6 +832,10 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               selectAllRecursively={selectAllRecursively}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}
+              visibleFilePaths={visibleFilePaths}
+              workspaceExcludeFilters={excludeFilters}
+              workspaceIncludeFilters={includeFilters}
+              workspaceUseRegex={useRegex}
             />
             {/* Selection controls - mode toggle and count */}
             <div className="flex items-center gap-2">

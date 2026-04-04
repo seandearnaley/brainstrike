@@ -31,7 +31,9 @@ function createStore(overrides: Partial<Record<string, unknown>> = {}) {
       ruleSetJson: null,
       materializedPaths: null,
       materializedAt: null,
+      queryDescriptor: null,
     },
+    querySelectionManifest: null,
     ...overrides,
   };
   const store = vi.fn((selector: (s: typeof state) => unknown) => selector(state));
@@ -234,6 +236,45 @@ it('does not show rule-selected indicator for non-matching files in rules mode',
       ruleSetJson: '{}',
       materializedPaths: new Set(['/other-file.ts']),
       materializedAt: new Date().toISOString(),
+    },
+  });
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+  render(<OptimizedFileTreeRow {...baseFileProps} />);
+  expect(screen.queryByLabelText('Selected by rule')).not.toBeInTheDocument();
+});
+
+it('does not show rule-selected indicator for query-backed manual selection', () => {
+  const store = createStore({
+    selectionModel: {
+      mode: 'query' as const,
+      explicitPaths: new Set<string>(),
+      ruleSetJson: null,
+      materializedPaths: new Set(['/file.ts']),
+      materializedAt: new Date().toISOString(),
+      queryDescriptor: {
+        kind: 'recursive-select-all' as const,
+        folderId: 'root',
+        rootPath: null,
+        coveredDirectoryPaths: ['/dir'],
+        includeFilters: ['**/*.ts'],
+        excludeFilters: [],
+        includedPaths: [],
+        excludedPaths: [],
+        manifestFingerprint: 'fp-1',
+        manifestSnapshotId: 'snapshot-1',
+        totalSelectedCount: 1,
+        useRegex: false,
+      },
+    },
+    querySelectionManifest: {
+      filePaths: ['/file.ts'],
+      pathSet: new Set(['/file.ts']),
+      directoryCounts: new Map<string, number>(),
+      fingerprint: 'fp-1',
+      snapshotId: 'snapshot-1',
+      status: 'ready' as const,
+      errorMessage: null,
     },
   });
   vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);

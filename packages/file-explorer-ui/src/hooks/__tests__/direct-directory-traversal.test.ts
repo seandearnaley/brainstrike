@@ -1,0 +1,111 @@
+import type { IFileNode } from '@brainstrike/types';
+import { describe, expect, it } from 'vitest';
+
+import { traverseDirectoriesDirect } from '../direct-directory-traversal';
+
+function createDirectory(
+  path: string,
+  loadState: NonNullable<IFileNode['loadState']>,
+  children: IFileNode[] = []
+): IFileNode {
+  return {
+    name: path.split('/').pop() || path,
+    path,
+    type: 'directory',
+    handle: {} as FileSystemDirectoryHandle,
+    depth: path.split('/').length - 2,
+    selectionState: 'unchecked',
+    rootFolderId: 'root',
+    loadState,
+    children,
+  };
+}
+
+function createFile(path: string): IFileNode {
+  return {
+    name: path.split('/').pop() || path,
+    path,
+    type: 'file',
+    handle: {} as FileSystemFileHandle,
+    depth: path.split('/').length - 2,
+    selectionState: 'unchecked',
+    rootFolderId: 'root',
+    loadState: 'loaded',
+  };
+}
+
+function findDirectoryByPath(node: IFileNode, path: string): IFileNode | undefined {
+  if (node.path === path) {
+    return node;
+  }
+  for (const child of node.children ?? []) {
+    if (child.type !== 'directory') {
+      continue;
+    }
+    const nested = findDirectoryByPath(child, path);
+    if (nested) {
+      return nested;
+    }
+  }
+  return undefined;
+}
+
+describe('traverseDirectoriesDirect', () => {
+  it('discovers nested directories after direct loads', async () => {
+    const root = createDirectory('/root', 'loaded', [createDirectory('/root/src', 'unloaded')]);
+
+    const result = await traverseDirectoriesDirect(['/root/src'], {
+      getDirectoryByPath: (path) => findDirectoryByPath(root, path),
+      isActive: () => true,
+      loadDirectoryPath: async (path) => {
+        if (path === '/root/src') {
+          const target = findDirectoryByPath(root, path);
+          if (!target) {
+            throw new Error('missing target');
+          }
+          target.loadState = 'loaded';
+          target.children = [
+            createDirectory('/root/src/nested', 'loaded'),
+            createFile('/root/src/a.ts'),
+          ];
+        }
+      },
+    });
+
+    expect(result.cancelled).toBe(false);
+    expect(result.visitedPaths).toEqual(['/root/src', '/root/src/nested']);
+    expect(result.discoveredPaths).toEqual(new Set(['/root/src', '/root/src/nested']));
+  });
+
+  it('stops and returns cancelled when cancellation happens during an awaited load', async () => {
+    const root = createDirectory('/root', 'loaded', [createDirectory('/root/src', 'unloaded')]);
+    let active = true;
+    let resolveLoad!: () => void;
+
+    const traversalPromise = traverseDirectoriesDirect(['/root/src'], {
+      getDirectoryByPath: (path) => findDirectoryByPath(root, path),
+      isActive: () => active,
+      loadDirectoryPath: () =>
+        new Promise<void>((resolve) => {
+          resolveLoad = () => {
+            const target = findDirectoryByPath(root, '/root/src');
+            if (!target) {
+              throw new Error('missing target');
+            }
+            target.loadState = 'loaded';
+            target.children = [createDirectory('/root/src/nested', 'loaded')];
+            resolve();
+          };
+        }),
+    });
+
+    active = false;
+    resolveLoad();
+
+    const result = await traversalPromise;
+
+    expect(result.cancelled).toBe(true);
+    expect(result.loaded).toBe(0);
+    expect(result.visitedPaths).toEqual(['/root/src']);
+  });
+});

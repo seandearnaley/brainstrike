@@ -17,10 +17,11 @@
  * - "Deselect All" when files are currently selected
  */
 
+import type { ChunkedSelectionResult } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
 import * as React from 'react';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
 // NOTE: `| undefined` on optional props is required due to exactOptionalPropertyTypes: true in tsconfig.
@@ -28,6 +29,14 @@ import type { SelectAllResult } from './hooks/use-recursive-select-all';
 export interface ActionButtonsProps {
   /** Add multiple selected files (used by recursive selection) */
   addMultipleSelectedFiles?: ((folderId: string, paths: string[]) => void) | undefined;
+  /** Add multiple selected files using chunked scheduling */
+  addMultipleSelectedFilesChunked?:
+    | ((
+        folderId: string,
+        paths: string[],
+        options?: { signal?: AbortSignal }
+      ) => Promise<ChunkedSelectionResult>)
+    | undefined;
   /** Cancel the current recursive selection operation */
   cancelSelectAll?: (() => void) | undefined;
   currentFolderId: string | null;
@@ -38,6 +47,7 @@ export interface ActionButtonsProps {
    * Pass quickFilteredTree to respect workspace include/exclude filters.
    */
   filteredTree?: IFileNode[] | undefined;
+  hasActiveQuickFilter?: boolean | undefined;
   /** Whether the tree has any files (used to enable/disable Select All) */
   hasFilesInTree?: boolean | undefined;
   /** Whether the tree is being loaded for select all */
@@ -58,6 +68,11 @@ export interface ActionButtonsProps {
     | undefined;
   selectedFilePaths: Set<string>;
   setSelectedFiles: (files: Set<string>) => void;
+  /** Precomputed visible file paths for the current filtered tree */
+  visibleFilePaths?: readonly string[] | undefined;
+  workspaceExcludeFilters?: readonly string[] | undefined;
+  workspaceIncludeFilters?: readonly string[] | undefined;
+  workspaceUseRegex?: boolean | undefined;
 }
 
 export const ActionButtons = React.memo(
@@ -71,11 +86,21 @@ export const ActionButtons = React.memo(
     onSelectionLimitExceeded,
     hasFilesInTree = false,
     filteredTree,
+    hasActiveQuickFilter = false,
     selectAllRecursively,
     cancelSelectAll,
     isLoadingForSelectAll = false,
     addMultipleSelectedFiles,
+    addMultipleSelectedFilesChunked: _addMultipleSelectedFilesChunked,
+    visibleFilePaths,
+    workspaceExcludeFilters: _workspaceExcludeFilters,
+    workspaceIncludeFilters: _workspaceIncludeFilters,
+    workspaceUseRegex: _workspaceUseRegex,
   }: ActionButtonsProps) => {
+    useEffect(() => {
+      return () => {};
+    }, []);
+
     /**
      * Performs recursive selection using the tree worker API.
      * Loads all directories then selects files up to the limit.
@@ -112,17 +137,24 @@ export const ActionButtons = React.memo(
      */
     const performFallbackSelection = useCallback(
       (folderId: string): void => {
-        const filesToSelect = Array.from(displayedFiles)
+        const sourcePaths =
+          hasActiveQuickFilter && visibleFilePaths && visibleFilePaths.length > 0
+            ? visibleFilePaths
+            : Array.from(displayedFiles);
+
+        const filesToSelect = sourcePaths
           .slice(0, maxSelectionCount)
           .map((path) => encodeFileSelection(folderId, path));
 
-        if (displayedFiles.size > maxSelectionCount && onSelectionLimitExceeded) {
+        if (sourcePaths.length > maxSelectionCount && onSelectionLimitExceeded) {
           onSelectionLimitExceeded();
         }
         setSelectedFiles(new Set(filesToSelect));
       },
       [
+        hasActiveQuickFilter,
         displayedFiles,
+        visibleFilePaths,
         maxSelectionCount,
         encodeFileSelection,
         onSelectionLimitExceeded,
@@ -138,7 +170,11 @@ export const ActionButtons = React.memo(
         return;
       }
 
-      // Check if recursive selection is available
+      if (hasActiveQuickFilter) {
+        performFallbackSelection(currentFolderId);
+        return;
+      }
+
       const canUseRecursive = selectAllRecursively && addMultipleSelectedFiles && filteredTree;
 
       if (canUseRecursive) {
@@ -153,6 +189,7 @@ export const ActionButtons = React.memo(
       filteredTree,
       performRecursiveSelection,
       performFallbackSelection,
+      hasActiveQuickFilter,
     ]);
 
     // Clears all selected files
@@ -169,12 +206,15 @@ export const ActionButtons = React.memo(
 
     const hasDisplayedFiles = displayedFiles.size > 0;
     const hasSelectedFiles = selectedFilePaths.size > 0;
+    const isSelecting = isLoadingForSelectAll;
 
     // Enable button if there are displayed files OR if tree has files (for recursive selection)
-    const canSelectFiles = hasDisplayedFiles || hasFilesInTree;
+    const canSelectFiles = hasActiveQuickFilter
+      ? (visibleFilePaths?.length ?? 0) > 0
+      : hasDisplayedFiles || hasFilesInTree;
 
     const getButtonText = () => {
-      if (isLoadingForSelectAll) {
+      if (isSelecting) {
         return 'Selecting...';
       }
       if (hasSelectedFiles) {
@@ -184,7 +224,7 @@ export const ActionButtons = React.memo(
     };
 
     const handleClick = () => {
-      if (isLoadingForSelectAll) {
+      if (isSelecting) {
         handleCancel();
       } else if (hasSelectedFiles) {
         handleDeselectAll();
@@ -197,7 +237,7 @@ export const ActionButtons = React.memo(
       <div className="@container/buttons flex flex-wrap items-center gap-2">
         <Button
           className="flex h-8 items-center gap-1"
-          disabled={!(canSelectFiles || isLoadingForSelectAll)}
+          disabled={!(canSelectFiles || isSelecting)}
           onClick={handleClick}
           variant="outline"
         >

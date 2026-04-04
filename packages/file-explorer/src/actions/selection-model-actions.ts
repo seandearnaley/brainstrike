@@ -5,13 +5,51 @@
  * path-based selection and rule-based selection modes.
  */
 
-import type { FileExplorerState, SelectionMode } from '@brainstrike/types';
+import type {
+  FileExplorerState,
+  QuerySelectionManifest,
+  SelectionMode,
+  SelectionQueryDescriptor,
+} from '@brainstrike/types';
 import type { GetState, SetState } from '../types/store-types';
+
+function manifestsEqual(
+  left: QuerySelectionManifest | null,
+  right: QuerySelectionManifest | null
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!(left && right)) {
+    return false;
+  }
+  if (
+    left.status !== right.status ||
+    left.fingerprint !== right.fingerprint ||
+    left.snapshotId !== right.snapshotId ||
+    left.errorMessage !== right.errorMessage ||
+    left.filePaths.length !== right.filePaths.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < left.filePaths.length; index += 1) {
+    if (left.filePaths[index] !== right.filePaths[index]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 export interface SelectionModelActions {
   clearSelectionRules: () => void;
   commitRulesToExplicit: () => void;
   setMaterializedPaths: (paths: Set<string>) => void;
+  setQuerySelection: (
+    descriptor: SelectionQueryDescriptor,
+    manifest: QuerySelectionManifest,
+    materializedPaths?: Set<string>
+  ) => void;
+  setQuerySelectionManifest: (manifest: QuerySelectionManifest | null) => void;
   setSelectionMode: (mode: SelectionMode) => void;
   setSelectionRules: (ruleSetJson: string) => void;
 }
@@ -23,15 +61,20 @@ export const createSelectionModelActions = (
   setSelectionMode: (mode: SelectionMode) => {
     const currentState = get();
     const isEnteringRulesMode = mode === 'rules' && currentState.selectionModel.mode !== 'rules';
+    const isEnteringQueryMode = mode === 'query' && currentState.selectionModel.mode !== 'query';
 
     set((state: FileExplorerState) => ({
       selectionModel: {
         ...state.selectionModel,
         mode,
+        ...(mode !== 'query' ? { queryDescriptor: null } : {}),
       },
+      ...(mode !== 'query' ? { querySelectionManifest: null } : {}),
       // Clear selectedFilePaths when entering rules mode to avoid stale explicit selections
       // (will be repopulated by setMaterializedPaths when rules are evaluated)
-      ...(isEnteringRulesMode ? { selectedFilePaths: new Set<string>() } : {}),
+      ...(isEnteringRulesMode || isEnteringQueryMode
+        ? { selectedFilePaths: new Set<string>() }
+        : {}),
     }));
   },
 
@@ -43,7 +86,9 @@ export const createSelectionModelActions = (
         // Clear materialized cache when rules change
         materializedPaths: null,
         materializedAt: null,
+        queryDescriptor: null,
       },
+      querySelectionManifest: null,
     }));
   },
 
@@ -55,7 +100,9 @@ export const createSelectionModelActions = (
         ruleSetJson: null,
         materializedPaths: null,
         materializedAt: null,
+        queryDescriptor: null,
       },
+      querySelectionManifest: null,
     }));
   },
 
@@ -87,9 +134,11 @@ export const createSelectionModelActions = (
         ruleSetJson: null,
         materializedPaths: null,
         materializedAt: null,
+        queryDescriptor: null,
       },
       // Also update the legacy selectedFilePaths for backward compatibility
       selectedFilePaths: explicitPaths,
+      querySelectionManifest: null,
     });
   },
 
@@ -97,8 +146,7 @@ export const createSelectionModelActions = (
     const state = get();
     const { currentFolderId, selectionModel } = state;
 
-    // Only sync to selectedFilePaths when in rules mode
-    // This allows all existing components (tree rows, preview, counters) to work
+    // Only sync to selectedFilePaths when in rules mode.
     if (selectionModel.mode === 'rules' && currentFolderId) {
       // Convert relative paths to composite keys for selectedFilePaths compatibility
       const compositeKeys = new Set<string>();
@@ -125,5 +173,59 @@ export const createSelectionModelActions = (
         },
       }));
     }
+  },
+
+  setQuerySelection: (
+    descriptor: SelectionQueryDescriptor,
+    manifest: QuerySelectionManifest,
+    materializedPaths?: Set<string>
+  ) => {
+    set({
+      selectionModel: {
+        mode: 'query',
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: materializedPaths ?? null,
+        materializedAt: new Date().toISOString(),
+        queryDescriptor: descriptor,
+      },
+      selectedFilePaths: new Set<string>(),
+      querySelectionManifest: manifest,
+    });
+  },
+
+  setQuerySelectionManifest: (manifest: QuerySelectionManifest | null) => {
+    set((state: FileExplorerState) => {
+      const manifestFingerprint =
+        manifest?.fingerprint ?? state.selectionModel.queryDescriptor?.manifestFingerprint ?? null;
+      const manifestSnapshotId =
+        manifest?.snapshotId ?? state.selectionModel.queryDescriptor?.manifestSnapshotId ?? null;
+      const queryDescriptorUnchanged =
+        state.selectionModel.mode !== 'query' ||
+        !state.selectionModel.queryDescriptor ||
+        (state.selectionModel.queryDescriptor.manifestFingerprint === manifestFingerprint &&
+          state.selectionModel.queryDescriptor.manifestSnapshotId === manifestSnapshotId);
+
+      if (manifestsEqual(state.querySelectionManifest, manifest) && queryDescriptorUnchanged) {
+        return state;
+      }
+
+      const nextSelectionModel =
+        state.selectionModel.mode === 'query' && state.selectionModel.queryDescriptor
+          ? {
+              ...state.selectionModel,
+              queryDescriptor: {
+                ...state.selectionModel.queryDescriptor,
+                manifestFingerprint,
+                manifestSnapshotId,
+              },
+            }
+          : state.selectionModel;
+
+      return {
+        querySelectionManifest: manifest,
+        selectionModel: nextSelectionModel,
+      };
+    });
   },
 });
