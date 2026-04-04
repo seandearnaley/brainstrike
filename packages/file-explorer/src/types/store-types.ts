@@ -1,3 +1,4 @@
+/* c8 ignore file -- type definitions only */
 import type { StoreApi, UseBoundStore } from 'zustand';
 
 /** Zustand `set` function type for updating store state. */

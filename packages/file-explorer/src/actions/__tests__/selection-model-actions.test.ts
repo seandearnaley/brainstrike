@@ -70,6 +70,68 @@ describe('selection-model-actions', () => {
 
       expect(result.selectionModel.mode).toBe('explicit');
     });
+
+    it('clears stale selectedFilePaths when entering rules mode', () => {
+      const existingState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|src/index.ts']),
+      });
+      const mockGet = vi.fn(() => existingState);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+
+      actions.setSelectionMode('rules');
+
+      const setterFn = mockSet.mock.calls[0][0];
+      const result = setterFn(existingState);
+
+      expect(result.selectedFilePaths).toEqual(new Set<string>());
+      expect(result.selectionModel.mode).toBe('rules');
+    });
+
+    it('clears query descriptor and manifest when leaving query mode', () => {
+      const stateWithQuery = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['src/index.ts']),
+          materializedAt: '2024-01-01T00:00:00Z',
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            useRegex: false,
+            totalSelectedCount: 2,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const mockGet = vi.fn(() => stateWithQuery);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+
+      actions.setSelectionMode('explicit');
+
+      const setterFn = mockSet.mock.calls[0][0];
+      const result = setterFn(stateWithQuery);
+
+      expect(result.selectionModel.mode).toBe('explicit');
+      expect(result.selectionModel.queryDescriptor).toBeNull();
+      expect(result.querySelectionManifest).toBeNull();
+    });
   });
 
   describe('setSelectionRules', () => {
@@ -135,6 +197,29 @@ describe('selection-model-actions', () => {
       expect(result.selectionModel.ruleSetJson).toBeNull();
       expect(result.selectionModel.materializedPaths).toBeNull();
       expect(result.selectionModel.materializedAt).toBeNull();
+    });
+
+    it('clears any lingering query manifest while returning to explicit mode', () => {
+      const stateWithRules = createMockState({
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts'],
+          pathSet: new Set(['/src/index.ts']),
+          directoryCounts: new Map([['/src', 1]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const mockGet = vi.fn(() => stateWithRules);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+
+      actions.clearSelectionRules();
+
+      const setterFn = mockSet.mock.calls[0][0];
+      const result = setterFn(stateWithRules);
+
+      expect(result.querySelectionManifest).toBeNull();
     });
   });
 
@@ -255,6 +340,33 @@ describe('selection-model-actions', () => {
       expect(timestamp.getTime()).toBeLessThanOrEqual(afterCall.getTime() + 1000);
     });
 
+    it('syncs rule materialized paths into selectedFilePaths when a folder id exists', () => {
+      const stateWithRules = createMockState({
+        currentFolderId: 'folder1',
+        selectionModel: {
+          mode: 'rules',
+          explicitPaths: new Set(),
+          ruleSetJson: '{"folderId":"folder1"}',
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+      });
+      const mockGet = vi.fn(() => stateWithRules);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+
+      actions.setMaterializedPaths(new Set(['src/index.ts', 'src/utils.ts']));
+
+      expect(mockSet).toHaveBeenCalledWith({
+        selectionModel: {
+          ...stateWithRules.selectionModel,
+          materializedPaths: new Set(['src/index.ts', 'src/utils.ts']),
+          materializedAt: expect.any(String),
+        },
+        selectedFilePaths: new Set(['folder1|@|src/index.ts', 'folder1|@|src/utils.ts']),
+      });
+    });
+
     it('should not sync query compatibility paths into selectedFilePaths in query mode', () => {
       const stateWithQuery = createMockState({
         currentFolderId: 'folder1',
@@ -361,6 +473,203 @@ describe('selection-model-actions', () => {
         selectedFilePaths: new Set<string>(),
         querySelectionManifest: queryManifest,
       });
+    });
+  });
+
+  describe('setQuerySelectionManifest', () => {
+    it('returns the existing state when manifest and descriptor metadata are unchanged', () => {
+      const currentState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            useRegex: false,
+            totalSelectedCount: 2,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts'],
+          pathSet: new Set(['/src/index.ts']),
+          directoryCounts: new Map([['/src', 1]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const mockGet = vi.fn(() => currentState);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+
+      actions.setQuerySelectionManifest(currentState.querySelectionManifest);
+
+      const setterFn = mockSet.mock.calls[0][0];
+      const result = setterFn(currentState);
+
+      expect(result).toBe(currentState);
+    });
+
+    it('updates query descriptor manifest metadata when a new manifest arrives', () => {
+      const currentState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-old',
+            manifestSnapshotId: 'snapshot-old',
+            useRegex: false,
+            totalSelectedCount: 2,
+          },
+        },
+      });
+      const mockGet = vi.fn(() => currentState);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+
+      actions.setQuerySelectionManifest({
+        filePaths: ['/src/index.ts', '/src/utils.ts'],
+        pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+        directoryCounts: new Map([['/src', 2]]),
+        fingerprint: 'fp-new',
+        snapshotId: 'snapshot-new',
+        status: 'ready',
+        errorMessage: null,
+      });
+
+      const setterFn = mockSet.mock.calls[0][0];
+      const result = setterFn(currentState);
+
+      expect(result.querySelectionManifest?.fingerprint).toBe('fp-new');
+      expect(result.selectionModel.queryDescriptor?.manifestFingerprint).toBe('fp-new');
+      expect(result.selectionModel.queryDescriptor?.manifestSnapshotId).toBe('snapshot-new');
+    });
+
+    it('treats manifests with different file counts as changed', () => {
+      const currentState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            useRegex: false,
+            totalSelectedCount: 2,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts'],
+          pathSet: new Set(['/src/index.ts']),
+          directoryCounts: new Map([['/src', 1]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const mockGet = vi.fn(() => currentState);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+
+      actions.setQuerySelectionManifest({
+        filePaths: ['/src/index.ts', '/src/utils.ts'],
+        pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+        directoryCounts: new Map([['/src', 2]]),
+        fingerprint: 'fp-1',
+        snapshotId: 'snapshot-1',
+        status: 'ready',
+        errorMessage: null,
+      });
+
+      const setterFn = mockSet.mock.calls[0][0];
+      const result = setterFn(currentState);
+
+      expect(result).not.toBe(currentState);
+      expect(result.querySelectionManifest?.filePaths).toEqual(['/src/index.ts', '/src/utils.ts']);
+    });
+
+    it('treats manifests with different file ordering as changed', () => {
+      const currentState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            useRegex: false,
+            totalSelectedCount: 2,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const mockGet = vi.fn(() => currentState);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+
+      actions.setQuerySelectionManifest({
+        filePaths: ['/src/utils.ts', '/src/index.ts'],
+        pathSet: new Set(['/src/utils.ts', '/src/index.ts']),
+        directoryCounts: new Map([['/src', 2]]),
+        fingerprint: 'fp-1',
+        snapshotId: 'snapshot-1',
+        status: 'ready',
+        errorMessage: null,
+      });
+
+      const setterFn = mockSet.mock.calls[0][0];
+      const result = setterFn(currentState);
+
+      expect(result).not.toBe(currentState);
+      expect(result.querySelectionManifest?.filePaths).toEqual(['/src/utils.ts', '/src/index.ts']);
     });
   });
 });

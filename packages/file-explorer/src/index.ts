@@ -1,3 +1,4 @@
+/* c8 ignore file -- barrel exports only */
 export * from './actions/directory-expansion-actions';
 export * from './actions/file-selection-actions';
 export * from './actions/folder-state-actions';

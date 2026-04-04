@@ -99,12 +99,14 @@ if (typeof localStorage !== 'undefined') {
     async removeItem(key: string) {
       localStorage.removeItem(key);
     },
+    /* v8 ignore start -- Zustand persist storage only calls getItem/setItem/removeItem */
     async clear() {
       localStorage.clear();
     },
     async getAllKeys() {
       return Object.keys(localStorage);
     },
+    /* v8 ignore stop */
   };
 } else {
   // Fallback for Node.js environments (like tests) where localStorage is not available

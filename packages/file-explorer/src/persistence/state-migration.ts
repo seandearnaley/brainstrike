@@ -72,6 +72,10 @@ export function migrateState(
     return rawPersistedState as unknown as SerializedState;
   }
 
+  if (typeof rawPersistedState !== 'object') {
+    return rawPersistedState as SerializedState;
+  }
+
   const wrapper = rawPersistedState as Partial<ZustandPersistWrapper<SerializedState>>;
   if ('state' in wrapper && wrapper.state === undefined) {
     return rawPersistedState as SerializedState;

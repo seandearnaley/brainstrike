@@ -1,3 +1,4 @@
+/* c8 ignore file -- barrel exports only */
 export {
   CHUNKED_SELECTION_THRESHOLD,
   DEFAULT_SELECTION_CHUNK_SIZE,
