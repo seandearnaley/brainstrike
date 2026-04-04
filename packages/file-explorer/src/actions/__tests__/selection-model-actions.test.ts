@@ -370,6 +370,7 @@ describe('selection-model-actions', () => {
           materializedAt: expect.any(String),
         },
         selectedFilePaths: new Set(['folder1|@|src/index.ts', 'folder1|@|src/utils.ts']),
+        selectionVersion: stateWithRules.selectionVersion + 1,
       });
     });
 
@@ -413,6 +414,7 @@ describe('selection-model-actions', () => {
           materializedPaths: paths,
           materializedAt: expect.any(String),
         },
+        selectionVersion: stateWithQuery.selectionVersion + 1,
       });
     });
   });

@@ -28,6 +28,18 @@ const shouldLog = isDev && !isTest;
 export const FILE_EXPLORER_STORAGE_KEY = 'file-explorer-storage-v4' as const;
 export const FILE_EXPLORER_STORAGE_VERSION = 2 as const;
 
+function isRehydratedFileExplorerState(
+  state: FileExplorerState | undefined
+): state is FileExplorerState {
+  return Boolean(
+    state &&
+      typeof state === 'object' &&
+      state.folderStates &&
+      typeof state.folderStates === 'object' &&
+      Array.isArray(state.folderAccessOrder)
+  );
+}
+
 export function createPersistedFileExplorerSnapshot(state: FileExplorerState): {
   state: SerializedState;
   version: typeof FILE_EXPLORER_STORAGE_VERSION;
@@ -84,11 +96,15 @@ export const createPersistOptions = (
       mergeState(persisted as SerializedState | null, current, shouldLog),
 
     onRehydrateStorage: () => (state, error) => {
-      if (!(shouldLog && state)) {
+      if (!shouldLog) {
         return;
       }
       if (error) {
         logger.warn('onRehydrateStorage - Storage rehydration failed:', error);
+        return;
+      }
+      if (!isRehydratedFileExplorerState(state)) {
+        logger.warn('onRehydrateStorage - Rehydrated state shape was invalid');
         return;
       }
       logger.debug(

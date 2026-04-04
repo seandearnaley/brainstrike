@@ -127,9 +127,7 @@ export function useSelectionResolver(): SelectionResolverState {
       });
 
     return () => {
-      if (token === loadTokenRef.current) {
-        loadTokenRef.current += 1;
-      }
+      loadTokenRef.current += 1;
     };
   }, [
     db,

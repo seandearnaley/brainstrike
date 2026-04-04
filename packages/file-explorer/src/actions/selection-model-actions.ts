@@ -165,6 +165,7 @@ export const createSelectionModelActions = (
         },
         // Sync to selectedFilePaths so all existing components work automatically
         selectedFilePaths: compositeKeys,
+        selectionVersion: state.selectionVersion + 1,
       });
     } else {
       // Non-rules mode or no folder ID - just update materialized paths
@@ -174,6 +175,7 @@ export const createSelectionModelActions = (
           materializedPaths: paths,
           materializedAt: new Date().toISOString(),
         },
+        selectionVersion: s.selectionVersion + 1,
       }));
     }
   },

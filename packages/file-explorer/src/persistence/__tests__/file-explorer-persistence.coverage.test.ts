@@ -111,6 +111,7 @@ describe('file-explorer-persistence coverage', () => {
     vi.stubEnv('NODE_ENV', 'development');
     const hydratedState = {
       folderStates: { a: {}, b: {} },
+      folderAccessOrder: [],
       currentFolderId: 'folder-1',
     } as unknown as FileExplorerState;
 
@@ -137,6 +138,58 @@ describe('file-explorer-persistence coverage', () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(
       'onRehydrateStorage - Storage rehydration failed:',
       expect.any(Error)
+    );
+  });
+
+  it('warns when the rehydrated state shape is invalid', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+
+    await withClearedTestMarkers(async () => {
+      const mod = await import('../file-explorer-persistence');
+      const persistOptions = mod.createPersistOptions({
+        getItem: async () => null,
+        setItem: async () => {},
+        removeItem: async () => {},
+        clear: async () => {},
+        getAllKeys: async () => [],
+      });
+      const callback = persistOptions.onRehydrateStorage?.();
+      callback?.(
+        { folderAccessOrder: null, folderStates: null } as unknown as FileExplorerState,
+        undefined
+      );
+    });
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'onRehydrateStorage - Rehydrated state shape was invalid'
+    );
+  });
+
+  it('does not warn for a minimally valid rehydrated state shape', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+
+    await withClearedTestMarkers(async () => {
+      const mod = await import('../file-explorer-persistence');
+      const persistOptions = mod.createPersistOptions({
+        getItem: async () => null,
+        setItem: async () => {},
+        removeItem: async () => {},
+        clear: async () => {},
+        getAllKeys: async () => [],
+      });
+      const callback = persistOptions.onRehydrateStorage?.();
+      callback?.(
+        {
+          folderStates: {},
+          folderAccessOrder: [],
+          currentFolderId: null,
+        } as unknown as FileExplorerState,
+        undefined
+      );
+    });
+
+    expect(mockLogger.warn).not.toHaveBeenCalledWith(
+      'onRehydrateStorage - Rehydrated state shape was invalid'
     );
   });
 });

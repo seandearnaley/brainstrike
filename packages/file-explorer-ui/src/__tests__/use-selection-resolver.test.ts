@@ -309,4 +309,62 @@ describe('useSelectionResolver', () => {
       );
     });
   });
+
+  it('ignores snapshot completions after the resolver unmounts', async () => {
+    let resolveSnapshot: ((paths: string[]) => void) | undefined;
+
+    const state = {
+      currentFolderId: 'folder-1',
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        mode: 'query' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: new Set<string>(),
+        materializedAt: null,
+        queryDescriptor: {
+          kind: 'recursive-select-all' as const,
+          folderId: 'folder-1',
+          rootPath: null,
+          coveredDirectoryPaths: ['/src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          totalSelectedCount: 2,
+          useRegex: false,
+        },
+      },
+      querySelectionManifest: null,
+      setQuerySelectionManifest: vi.fn((manifest) => {
+        state.querySelectionManifest = manifest;
+      }),
+    };
+
+    const store = { getState: () => state };
+    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useFileExplorerStoreContextMock.mockReturnValue(store);
+    loadQuerySelectionSnapshotMock.mockImplementation(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveSnapshot = resolve;
+        })
+    );
+
+    const { unmount } = renderHook(() => useSelectionResolver());
+    unmount();
+
+    resolveSnapshot?.(['/src/stale.ts']);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(state.setQuerySelectionManifest).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ready',
+        filePaths: ['/src/stale.ts'],
+      })
+    );
+  });
 });

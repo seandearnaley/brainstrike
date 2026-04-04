@@ -223,6 +223,25 @@ describe('state-serialization', () => {
         },
       });
     });
+
+    it('should coerce non-finite numbers to fallbacks during merge', () => {
+      const current = buildState({
+        tokenBudget: 1234,
+      });
+      const persisted = {
+        tokenBudget: Number.NaN,
+        folderStates: {
+          root: {
+            tokenBudget: Number.POSITIVE_INFINITY,
+          },
+        },
+      } as unknown as SerializedState;
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.tokenBudget).toBe(1234);
+      expect(result.folderStates['root']?.tokenBudget).toBe(1234);
+    });
   });
 
   describe('mergeState – shouldLog=false paths', () => {
