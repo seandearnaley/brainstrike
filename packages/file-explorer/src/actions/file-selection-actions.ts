@@ -176,7 +176,9 @@ function applyQuerySelectionMutation(args: {
     if (totalSelectedCount >= state.maxSelectionCount) {
       break;
     }
-    if (excludedPaths.delete(path) && baseSelectedPaths.has(path)) {
+    const wasExcluded = excludedPaths.has(path);
+    if (wasExcluded && baseSelectedPaths.has(path)) {
+      excludedPaths.delete(path);
       totalSelectedCount += 1;
       didChange = true;
       continue;
@@ -401,7 +403,7 @@ export const createFileSelectionActions = (
       selectedFilePaths: new Set(),
       selectionModel:
         state.selectionModel?.mode === 'explicit'
-          ? state.selectionModel
+          ? resolveSelectionModelAfterExplicitMutation(state.selectionModel, new Set<string>())
           : createExplicitSelectionModel(new Set<string>()),
       querySelectionManifest: null,
       selectionVersion: state.selectionVersion + 1,

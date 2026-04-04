@@ -15,7 +15,15 @@ import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   useFileExplorerStoreContext,
@@ -437,7 +445,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const displayError = deriveDisplayError();
 
   // Initial load is when we have a root but tree is still loading
-  const isInitialLoad = !rootDirectoryHandle && isTreeLoading;
+  const isInitialLoad = Boolean(rootDirectoryHandle) && isTreeLoading;
   const currentRootFolderId = getRootFolderId(rootDirectoryHandle);
 
   // Track which folder we've already restored expanded paths for
@@ -451,13 +459,14 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
   const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
 
-  // CRITICAL: Cancel the stale clearing timer immediately when isAccessLoading becomes true.
-  // This runs synchronously on every render, ensuring the timer is cancelled before it can fire.
-  if (isAccessLoading && staleClearingTimerRef.current !== null) {
+  useLayoutEffect(() => {
+    if (!(isAccessLoading && staleClearingTimerRef.current !== null)) {
+      return;
+    }
     logger.debug('Cancelling stale clearing timer - isAccessLoading became true');
     clearTimeout(staleClearingTimerRef.current);
     staleClearingTimerRef.current = null;
-  }
+  }, [isAccessLoading]);
 
   /**
    * Clear stale selection and expansion state when there's no root directory handle.

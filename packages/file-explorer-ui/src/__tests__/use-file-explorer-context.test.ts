@@ -453,11 +453,99 @@ describe('useFileExplorer (context)', () => {
         setAccessLoading: vi.fn(),
       });
 
-      rerender();
+      act(() => {
+        rerender();
+      });
 
       // State should STILL not be cleared because we now have a valid handle
       expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
       expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+    });
+
+    it('cancels pending stale-state clearing when access loading restarts before the timer fires', async () => {
+      const useFileSystemMock = vi.mocked(useFileSystem);
+      useFileSystemMock.mockReturnValue({
+        rootDirectoryHandle: null,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
+      storeState.expandedDirectoryPaths = new Set(['/src']);
+
+      vi.useFakeTimers();
+
+      const { rerender } = renderHook(() => useFileExplorer());
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      useFileSystemMock.mockReturnValue({
+        rootDirectoryHandle: null,
+        isAccessLoading: true,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+      storeState.isAccessLoading = true;
+
+      act(() => {
+        rerender();
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('isInitialLoad', () => {
+    it('is true only when a root handle exists and the tree is still loading', () => {
+      vi.mocked(useFileTree).mockReturnValue({
+        fileTree: [],
+        isLoading: true,
+        loadingProgress: {
+          loadingCount: 1,
+          isInitialLoading: true,
+        },
+        error: null,
+        refreshTree: mockRefreshTree,
+        cancellable: false,
+        cancelOperation: vi.fn(),
+        isCancelling: false,
+        loadingPaths: new Set<string>(),
+        loadChildren: vi.fn(),
+        refreshDirectory: vi.fn(),
+        expandAllProgressively: vi.fn(),
+        cancelExpandAll: vi.fn(),
+        isExpandingAll: false,
+        expandAllProgress: null,
+        loadSpecificPaths: vi.fn(),
+        cancelChildLoading: vi.fn(),
+        selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelRecursiveSelect: vi.fn(),
+        isLoadingForSelection: false,
+        loadingPathForSelection: null,
+        selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelSelectAll: vi.fn(),
+        isLoadingForSelectAll: false,
+        workerPortRef: { current: null },
+      });
+
+      const { result } = renderHook(() => useFileExplorer());
+      expect(result.current.isInitialLoad).toBe(true);
     });
   });
 

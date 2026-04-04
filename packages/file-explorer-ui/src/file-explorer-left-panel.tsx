@@ -25,7 +25,15 @@ type StoreWithPersist<T> = UseBoundStoreWithEqualityFn<StoreApi<T>> & {
 };
 
 import * as React from 'react';
-import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import ActionButtons from './action-buttons-array-facade';
 import { RestoreAccessModal } from './components/restore-access-modal';
 import { TreeActionButtons } from './components/tree-action-buttons';
@@ -174,6 +182,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setUseRegex,
     currentFolderId,
     setCurrentFolderId,
+    hydrateFolderState,
     maxSelectionCount,
     setMaxSelectionCount,
     _devInlineFixtureEnabled,
@@ -193,6 +202,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.setUseRegex,
         s.currentFolderId,
         s.setCurrentFolderId,
+        s.hydrateFolderState,
         s.maxSelectionCount,
         s.setMaxSelectionCount,
         s.devInlineFixtureEnabled,
@@ -220,6 +230,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRulesEditorOpen, setIsRulesEditorOpen] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const previousRootFolderIdRef = useRef<string | null>(null);
 
   const {
     fileTree,
@@ -269,13 +280,24 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // CRITICAL: Block stale clearing effect as soon as restore modal becomes visible.
   // The stale clearing effect runs after 1500ms if no rootDirectoryHandle exists.
   // If we wait until the user clicks "Restore Access" to set isAccessLoading,
-  // the expanded paths will already have been cleared by then.
-  // biome-ignore lint/plugin: setAccessLoading is a stable Zustand action - calling it conditionally on restore state is intentional
+  // the expanded paths will already have been cleared by then. Also block stale
+  // clearing while we are still checking IndexedDB for stored handles.
   useEffect(() => {
-    if (pendingRestore || showDeniedBanner || showStaleBanner) {
+    if (isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner) {
       setAccessLoading(true);
+      return;
     }
-  }, [pendingRestore, showDeniedBanner, showStaleBanner, setAccessLoading]);
+    if (!rootDirectoryHandle) {
+      setAccessLoading(false);
+    }
+  }, [
+    isCheckingStoredHandles,
+    pendingRestore,
+    showDeniedBanner,
+    showStaleBanner,
+    rootDirectoryHandle,
+    setAccessLoading,
+  ]);
 
   const {
     showToast,
@@ -352,22 +374,24 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     }
 
     window.__brainstrikeFileExplorerTestHooks__ = {
-      getSnapshot: () => ({
-        currentFolderId,
-        rootDirectoryPath: rootDirectoryHandle?.path ?? null,
-        selectionMode: selectionModel.mode,
-        selectedFilePathCount: selectedFilePaths.size,
-        selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
-        materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
-        materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
-        treeRootCount: stableFileTree.length,
-        treeSamples: stableFileTree.slice(0, 5).map((node) => ({
-          path: node.path,
-          type: node.type,
-          rootFolderId: node.rootFolderId ?? null,
-          childCount: node.children?.length ?? 0,
-        })),
-      }),
+      getSnapshot: () => {
+        return {
+          currentFolderId,
+          rootDirectoryPath: rootDirectoryHandle?.path ?? null,
+          selectionMode: selectionModel.mode,
+          selectedFilePathCount: selectedFilePaths.size,
+          selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
+          materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
+          materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
+          treeRootCount: stableFileTree.length,
+          treeSamples: stableFileTree.slice(0, 5).map((node) => ({
+            path: node.path,
+            type: node.type,
+            rootFolderId: node.rootFolderId ?? null,
+            childCount: node.children?.length ?? 0,
+          })),
+        };
+      },
     };
 
     return () => {
@@ -603,12 +627,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         });
         return;
       }
+      const previousRootFolderId = previousRootFolderIdRef.current;
+      previousRootFolderIdRef.current = id;
       const currentState = store.getState();
       if (currentState.currentFolderId !== id) {
         // set id synchronously (no extra async)
         setCurrentFolderId(id);
+      } else if (previousRootFolderId === null && currentState.folderStates[id]) {
+        // Rehydrate the persisted folder state when the root handle is restored after
+        // top-level selection state may have been cleared during the no-handle window.
+        hydrateFolderState(id);
       }
     } else {
+      previousRootFolderIdRef.current = null;
       // CRITICAL: Don't clear currentFolderId if we're waiting for restore access.
       // When the page loads with stored handles but no permission yet, we need to
       // preserve the currentFolderId so that the per-folder expandedDirectoryPaths
@@ -626,6 +657,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [
     rootDirectoryHandle,
     setCurrentFolderId,
+    hydrateFolderState,
     store,
     isCheckingStoredHandles,
     pendingRestore,
@@ -828,7 +860,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               hasFilesInTree={fileTree.length > 0}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
-              onSelectionLimitExceeded={() => {}}
+              onSelectionLimitExceeded={handleSelectionLimitError}
               selectAllRecursively={selectAllRecursively}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}

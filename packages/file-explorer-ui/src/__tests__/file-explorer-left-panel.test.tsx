@@ -118,6 +118,7 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
       handleRefreshError: vi.fn(),
       handleBrowserCompatibilityError: vi.fn(),
       handleDirectorySelectError: handleDirectorySelectErrorMock,
+      handleSelectionLimitError: handleSelectionLimitErrorMock,
     })),
   };
 });
@@ -130,11 +131,13 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 let refreshFileExplorerMock: ReturnType<typeof vi.fn>;
 let showToastMock: ReturnType<typeof vi.fn>;
 let handleDirectorySelectErrorMock: ReturnType<typeof vi.fn>;
+let handleSelectionLimitErrorMock: ReturnType<typeof vi.fn>;
 let setFiltersMock: ReturnType<typeof vi.fn>;
 let applyFileFiltersMock: ReturnType<typeof vi.fn>;
 let handleRootDirectorySelectMock: ReturnType<typeof vi.fn>;
 let isFileSystemAccessSupportedMock: ReturnType<typeof vi.fn>;
 let setDevInlineFixtureEnabledMock: ReturnType<typeof vi.fn>;
+let hydrateFolderStateMock: ReturnType<typeof vi.fn>;
 let fileExplorerReturnValue: ReturnType<typeof useFileExplorer>;
 
 describe('FileExplorerLeftPanel', () => {
@@ -143,6 +146,7 @@ describe('FileExplorerLeftPanel', () => {
 
     setFiltersMock = vi.fn();
     setDevInlineFixtureEnabledMock = vi.fn();
+    hydrateFolderStateMock = vi.fn();
     const storeState = {
       includeFilters: [],
       excludeFilters: [],
@@ -151,8 +155,9 @@ describe('FileExplorerLeftPanel', () => {
       setFilters: setFiltersMock,
       setUseRegex: vi.fn(),
       setViewFilterPresetId: vi.fn(),
-      currentFolderId: 'root',
+      currentFolderId: '/root',
       setCurrentFolderId: vi.fn(),
+      hydrateFolderState: hydrateFolderStateMock,
       maxSelectionCount: 5,
       includeProjectTree: true,
       setIncludeProjectTree: vi.fn(),
@@ -178,6 +183,30 @@ describe('FileExplorerLeftPanel', () => {
       toggleFilterEnabled: vi.fn(),
       devInlineFixtureEnabled: false,
       setDevInlineFixtureEnabled: setDevInlineFixtureEnabledMock,
+      folderStates: {
+        '/root': {
+          selectedFilePaths: new Set<string>(['/root|@|file.ts']),
+          selectionModel: {
+            mode: 'explicit' as const,
+            explicitPaths: new Set<string>(['/root|@|file.ts']),
+            ruleSetJson: null,
+            materializedPaths: null,
+            materializedAt: null,
+            queryDescriptor: null,
+          },
+          expandedDirectoryPaths: new Set<string>(),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          tokenBudget: 100_000,
+          folderSummaryThreshold: 5,
+          maxSelectionCount: 5,
+          lastActiveTab: 'files' as const,
+          lastAccessed: Date.now(),
+          viewFilterPresetId: null,
+        },
+      },
     };
 
     const mockStore = Object.assign(
@@ -258,6 +287,7 @@ describe('FileExplorerLeftPanel', () => {
 
     showToastMock = vi.fn();
     handleDirectorySelectErrorMock = vi.fn();
+    handleSelectionLimitErrorMock = vi.fn();
   });
 
   it('renders toolbar, sidebar and action buttons', async () => {
@@ -266,6 +296,51 @@ describe('FileExplorerLeftPanel', () => {
     expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
     expect(await screen.findByTestId('sidebar')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /select all/i })).toBeInTheDocument();
+  });
+
+  it('passes the selection limit handler through to ActionButtons', () => {
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(ActionButtonsMock).toHaveBeenCalled();
+    const props = ActionButtonsMock?.mock.calls[0]?.[0] as {
+      onSelectionLimitExceeded: () => void;
+    };
+
+    props.onSelectionLimitExceeded();
+
+    expect(handleSelectionLimitErrorMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rehydrates the persisted folder state when the restored root matches the current folder id', () => {
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(hydrateFolderStateMock).toHaveBeenCalledWith('/root');
+  });
+
+  it('blocks stale-state clearing while stored handles are still being checked', async () => {
+    const { useRestoreAccess } = await import('@brainstrike/file-explorer-hooks');
+    const setAccessLoadingMock = vi.fn();
+
+    vi.mocked(useRestoreAccess).mockReturnValueOnce({
+      pendingRestore: null,
+      showDeniedBanner: false,
+      showStaleBanner: false,
+      storedFolders: [],
+      beginRestore: vi.fn(),
+      dismissRestore: vi.fn(),
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+      isCheckingStoredHandles: true,
+    });
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      rootDirectoryHandle: null,
+      setAccessLoading: setAccessLoadingMock,
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(setAccessLoadingMock).toHaveBeenCalledWith(true);
   });
 
   it('triggers refresh and shows toast when refresh button is clicked', async () => {

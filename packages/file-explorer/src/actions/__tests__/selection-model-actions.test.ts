@@ -29,6 +29,7 @@ describe('selection-model-actions', () => {
       folderAccessOrder: [],
       quickFilter: '',
       devInlineFixtureEnabled: false,
+      selectionVersion: 0,
       selectionModel: createEmptySelectionModel(),
       querySelectionManifest: null,
       rootDirectoryHandle: null,
@@ -194,6 +195,7 @@ describe('selection-model-actions', () => {
         },
         selectedFilePaths: new Set(['folder1|@|src/file1.ts', 'folder1|@|src/file2.ts']),
         querySelectionManifest: null,
+        selectionVersion: stateWithMaterialized.selectionVersion + 1,
       });
     });
 
@@ -225,6 +227,7 @@ describe('selection-model-actions', () => {
         },
         selectedFilePaths: new Set(['file1.ts']),
         querySelectionManifest: null,
+        selectionVersion: stateWithNoFolder.selectionVersion + 1,
       });
     });
   });

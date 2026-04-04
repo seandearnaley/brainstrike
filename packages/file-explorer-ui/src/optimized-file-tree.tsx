@@ -1266,6 +1266,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       fileNodeIndex,
       filteredPathSet,
       normalizedTreeContext,
+      normalizedTreeContext?.version,
     ]);
 
     const fileNodeByPath = useMemo(() => {

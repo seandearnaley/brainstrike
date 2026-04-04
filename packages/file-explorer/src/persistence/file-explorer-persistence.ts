@@ -83,16 +83,20 @@ export const createPersistOptions = (
     merge: (persisted, current) =>
       mergeState(persisted as SerializedState | null, current, shouldLog),
 
-    onRehydrateStorage: (state) => {
-      if (shouldLog) {
-        // Log summary only to avoid DevTools serialization issues
-        logger.debug(
-          'onRehydrateStorage - Storage rehydrated. Folder count:',
-          Object.keys(state.folderStates).length,
-          'Current folder:',
-          state.currentFolderId
-        );
+    onRehydrateStorage: () => (state, error) => {
+      if (!(shouldLog && state)) {
+        return;
       }
+      if (error) {
+        logger.warn('onRehydrateStorage - Storage rehydration failed:', error);
+        return;
+      }
+      logger.debug(
+        'onRehydrateStorage - Storage rehydrated. Folder count:',
+        Object.keys(state.folderStates).length,
+        'Current folder:',
+        state.currentFolderId
+      );
     },
   };
 };

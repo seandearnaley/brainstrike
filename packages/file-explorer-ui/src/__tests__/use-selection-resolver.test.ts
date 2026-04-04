@@ -69,4 +69,50 @@ describe('useSelectionResolver', () => {
 
     expect(state.setQuerySelectionManifest).toHaveBeenCalledTimes(1);
   });
+
+  it('uses persisted materialized paths while the query manifest snapshot is unavailable', () => {
+    const state = {
+      currentFolderId: 'folder-1',
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        mode: 'query' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: new Set<string>(['src/index.ts', 'src/utils.ts']),
+        materializedAt: null,
+        queryDescriptor: {
+          kind: 'recursive-select-all' as const,
+          folderId: 'folder-1',
+          rootPath: null,
+          coveredDirectoryPaths: ['/src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          totalSelectedCount: 600,
+          useRegex: false,
+        },
+      },
+      querySelectionManifest: null,
+      setQuerySelectionManifest: vi.fn(),
+    };
+
+    const store = {
+      getState: () => state,
+    };
+
+    usePGliteDatabaseMock.mockReturnValue(null);
+    useFileExplorerStoreContextMock.mockReturnValue(store);
+
+    const { result } = renderHook(() => useSelectionResolver());
+
+    expect(result.current.selectedCount).toBe(600);
+    expect(result.current.effectiveRelativePaths).toEqual(['src/index.ts', 'src/utils.ts']);
+    expect(result.current.selectedFilesList).toEqual([
+      'folder-1|@|src/index.ts',
+      'folder-1|@|src/utils.ts',
+    ]);
+  });
 });

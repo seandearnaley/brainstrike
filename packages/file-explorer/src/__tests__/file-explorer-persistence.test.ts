@@ -213,7 +213,17 @@ describe('file-explorer-persistence', () => {
       };
       const wrappedState = { state: actualState, version: 1 };
       const result = migrateFn(wrappedState, 1);
-      expect(result).toEqual(actualState);
+      expect(result).toEqual({
+        ...actualState,
+        selectionModel: {
+          mode: 'explicit',
+          explicitPaths: ['file.ts'],
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+      });
     });
 
     it('should return state as is if not wrapped', () => {
@@ -232,7 +242,68 @@ describe('file-explorer-persistence', () => {
         lastActiveTab: 'files',
       };
       const result = migrateFn(actualState, 1);
-      expect(result).toEqual(actualState);
+      expect(result).toEqual({
+        ...actualState,
+        selectionModel: {
+          mode: 'explicit',
+          explicitPaths: ['file.js'],
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+      });
+    });
+
+    it('should backfill selectionModel for legacy persisted state versions', () => {
+      const legacyState = {
+        currentFolderId: 'folder-abc',
+        selectedFilePaths: ['folder-abc|@|file.ts'],
+        folderStates: {
+          'folder-abc': {
+            selectedFilePaths: ['folder-abc|@|file.ts'],
+            expandedDirectoryPaths: [],
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: false,
+            tokenBudget: 100,
+            folderSummaryThreshold: 10,
+            maxSelectionCount: 50,
+            lastActiveTab: 'files',
+            lastAccessed: 1,
+            viewFilterPresetId: null,
+          },
+        },
+        folderAccessOrder: ['folder-abc'],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+      } as unknown as SerializedState;
+
+      const result = migrateFn(legacyState, 1);
+
+      expect(result.selectionModel).toEqual({
+        mode: 'explicit',
+        explicitPaths: ['folder-abc|@|file.ts'],
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      });
+      expect(result.folderStates['folder-abc']?.selectionModel).toEqual({
+        mode: 'explicit',
+        explicitPaths: ['folder-abc|@|file.ts'],
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      });
     });
 
     it('should return wrapper unchanged when state is undefined', () => {
@@ -522,9 +593,11 @@ describe('file-explorer-persistence', () => {
       onRehydrateStorageFn = persistOptions.onRehydrateStorage;
     });
 
-    it('should be called with the rehydrated state but not log in test environment', () => {
+    it('returns a completion callback and stays silent in test environment', () => {
       const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
-      onRehydrateStorageFn(mockHydratedState);
+      const afterRehydrate = onRehydrateStorageFn(mockHydratedState);
+      expect(typeof afterRehydrate).toBe('function');
+      afterRehydrate?.(mockHydratedState, undefined);
       // In test environment, logs should be silenced even when NODE_ENV is development
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
@@ -538,16 +611,15 @@ describe('file-explorer-persistence', () => {
       }
 
       const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
-      prodOnRehydrate(mockHydratedState);
+      const afterRehydrate = prodOnRehydrate(mockHydratedState);
+      afterRehydrate?.(mockHydratedState, undefined);
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
 
-    it('should log when in development and not running tests', async () => {
-      // Simply test that the function can be called without errors
-      // The actual logging behavior depends on environment variables which are complex to mock
+    it('should not throw when rehydration completes with an error', async () => {
       const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
-      expect(() => onRehydrateStorageFn(mockHydratedState)).not.toThrow();
-      // Note: In test environment, logging is typically suppressed regardless of NODE_ENV
+      const afterRehydrate = onRehydrateStorageFn(mockHydratedState);
+      expect(() => afterRehydrate?.(undefined, new Error('rehydration failed'))).not.toThrow();
     });
   });
 });

@@ -622,6 +622,45 @@ describe('state-serialization', () => {
       });
     });
 
+    it('falls back to explicit mode when a persisted query descriptor is malformed', () => {
+      const current = buildState();
+      const persisted = {
+        currentFolderId: 'folder1',
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: ['folder1|@|src/index.ts'],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: ['folder1|@|src/index.ts'],
+          ruleSetJson: null,
+          materializedPaths: ['src/index.ts'],
+          materializedAt: '2024-01-01',
+          queryDescriptor: {
+            kind: 'unknown-kind',
+            folderId: 42,
+            totalSelectedCount: 'bad-count',
+          },
+        },
+      } as unknown as SerializedState;
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.selectionModel.mode).toBe('explicit');
+      expect(result.selectionModel.queryDescriptor).toBeNull();
+      expect(result.selectionModel.explicitPaths).toEqual(new Set(['folder1|@|src/index.ts']));
+    });
+
     it('should default mode to explicit when mode is not "rules"', () => {
       const current = buildState();
       const persisted: SerializedState = {
@@ -826,6 +865,77 @@ describe('state-serialization', () => {
 
       // folder-2 is NOT the current folder, so it should keep its empty selections
       expect(result.folderStates['folder-2']?.selectedFilePaths).toEqual(new Set());
+    });
+
+    it('should prefer the top-level query selection model for the current folder even when explicit selections are empty', () => {
+      const current = buildState();
+      const persisted: SerializedState = {
+        currentFolderId: 'folder-1',
+        folderStates: {
+          'folder-1': {
+            selectedFilePaths: [],
+            selectionModel: {
+              mode: 'explicit',
+              explicitPaths: [],
+              ruleSetJson: null,
+              materializedPaths: null,
+              materializedAt: null,
+              queryDescriptor: null,
+            },
+            expandedDirectoryPaths: [],
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: false,
+            tokenBudget: 100,
+            folderSummaryThreshold: 10,
+            maxSelectionCount: 1000,
+            lastActiveTab: 'files',
+            lastAccessed: 0,
+          },
+        },
+        folderAccessOrder: [],
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 1000,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: [],
+          ruleSetJson: null,
+          materializedPaths: ['file-0.ts'],
+          materializedAt: '2024-01-01T00:00:00Z',
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder-1',
+            rootPath: null,
+            coveredDirectoryPaths: [],
+            includeFilters: ['*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fingerprint',
+            manifestSnapshotId: 'snapshot-id',
+            useRegex: false,
+            totalSelectedCount: 600,
+          },
+        },
+      };
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.folderStates['folder-1']?.selectionModel.mode).toBe('query');
+      expect(
+        result.folderStates['folder-1']?.selectionModel.queryDescriptor?.totalSelectedCount
+      ).toBe(600);
     });
   });
 });

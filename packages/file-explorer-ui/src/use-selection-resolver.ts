@@ -158,6 +158,15 @@ export function useSelectionResolver(): SelectionResolverState {
       );
     }
     if (selectionModel.mode === 'query') {
+      if (
+        resolvedQuerySelection.filePaths.length === 0 &&
+        selectionModel.materializedPaths &&
+        selectionModel.materializedPaths.size > 0
+      ) {
+        return Array.from(selectionModel.materializedPaths).sort((left, right) =>
+          left.localeCompare(right)
+        );
+      }
       return resolvedQuerySelection.filePaths;
     }
     return [];

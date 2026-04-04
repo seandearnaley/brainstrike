@@ -170,10 +170,11 @@ export function materializeCompositeKeysForSelectionModel(params: {
 
   if (selectionModel.mode === 'query' && currentFolderId) {
     const compositeKeys = new Set<string>();
-    for (const relativePath of resolveQuerySelection(
-      selectionModel.queryDescriptor,
-      querySelectionManifest ?? null
-    ).filePaths) {
+    const relativePaths =
+      querySelectionManifest?.status === 'ready'
+        ? resolveQuerySelection(selectionModel.queryDescriptor, querySelectionManifest).filePaths
+        : Array.from(selectionModel.materializedPaths ?? []);
+    for (const relativePath of relativePaths) {
       compositeKeys.add(encodeFileSelection(currentFolderId, relativePath));
     }
     return compositeKeys;

@@ -518,6 +518,14 @@ describe('file-selection-actions', () => {
       // Arrange
       const mockState = createMockState({
         selectedFilePaths: new Set(['folder1|@|file.ts']),
+        selectionModel: {
+          mode: 'explicit',
+          explicitPaths: new Set(['folder1|@|file.ts']),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
         selectionVersion: 5,
       });
       const fileSelectionActions = createFileSelectionActions(mockSet, vi.fn());
@@ -534,6 +542,7 @@ describe('file-selection-actions', () => {
       };
       const result = setCallback(mockState);
       expect(result.selectedFilePaths).toEqual(new Set());
+      expect(result.selectionModel.explicitPaths).toEqual(new Set());
       expect(result.selectionVersion).toBe(6);
     });
   });

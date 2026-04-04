@@ -11,6 +11,7 @@ import type {
   SelectionMode,
   SelectionQueryDescriptor,
 } from '@brainstrike/types';
+import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import type { GetState, SetState } from '../types/store-types';
 
 function manifestsEqual(
@@ -119,8 +120,7 @@ export const createSelectionModelActions = (
     const explicitPaths = new Set<string>();
     for (const relativePath of selectionModel.materializedPaths) {
       if (currentFolderId) {
-        // Create composite key: folderId|@|path
-        explicitPaths.add(`${currentFolderId}|@|${relativePath}`);
+        explicitPaths.add(encodeFileSelection(currentFolderId, relativePath));
       } else {
         // If no folder ID, use path directly (legacy behavior)
         explicitPaths.add(relativePath);
@@ -139,6 +139,7 @@ export const createSelectionModelActions = (
       // Also update the legacy selectedFilePaths for backward compatibility
       selectedFilePaths: explicitPaths,
       querySelectionManifest: null,
+      selectionVersion: state.selectionVersion + 1,
     });
   },
 

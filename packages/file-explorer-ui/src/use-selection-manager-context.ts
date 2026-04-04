@@ -47,8 +47,7 @@ export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionMa
 
   const setSelectedFilesStable = useCallback(
     (next: ReadonlySet<string>) => {
-      const array = next instanceof Set ? Array.from(next) : Array.from(next);
-      setSelectedFiles(new Set(array));
+      setSelectedFiles(new Set(Array.from(next)));
     },
     [setSelectedFiles]
   );

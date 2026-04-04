@@ -4,7 +4,6 @@ import { checkBudget, createTimer } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 
-import { runWithConcurrency } from './concurrency';
 import { loadDirectoryChildren } from './lazy-tree-loader';
 
 const logger = createLogger('RecursiveSelectionQuery');
@@ -364,29 +363,30 @@ async function scanUnloadedDirectories(args: {
     return;
   }
 
-  const results = await runWithConcurrency(
-    unloadedDirectories,
-    effectiveConcurrency,
-    async (node) => ({
-      children: await scanDirectory(fileSystemAdapter, node, filterTreeFn, abortSignal),
-      node,
-    })
-  );
+  for (let index = 0; index < unloadedDirectories.length; index += effectiveConcurrency) {
+    const chunk = unloadedDirectories.slice(index, index + effectiveConcurrency);
+    const results = await Promise.all(
+      chunk.map(async (node) => ({
+        children: await scanDirectory(fileSystemAdapter, node, filterTreeFn, abortSignal),
+        node,
+      }))
+    );
 
-  for (const result of results) {
-    state.currentPath = result.node.path;
-    state.directoriesReadFromAdapter++;
-    state.directoriesCompleted++;
-    const stopped = consumeNodes({
-      matcher,
-      maxResults: limit,
-      nextFrontier,
-      nodes: result.children,
-      state,
-    });
-    onProgress?.(snapshotProgress(state));
-    if (stopped) {
-      return;
+    for (const result of results) {
+      state.currentPath = result.node.path;
+      state.directoriesReadFromAdapter++;
+      state.directoriesCompleted++;
+      const stopped = consumeNodes({
+        matcher,
+        maxResults: limit,
+        nextFrontier,
+        nodes: result.children,
+        state,
+      });
+      onProgress?.(snapshotProgress(state));
+      if (stopped) {
+        return;
+      }
     }
   }
 }

@@ -154,7 +154,13 @@ export function FileTreeProvider({
       normalizedTreeRef: fileTreeState.__internalNormalizedTreeRef ?? fallbackNormalizedTreeRef,
       version: fileTreeState.__internalNormalizedTreeVersion ?? 0,
     }),
-    [fileTreeState]
+    [
+      fileTreeState.__internalGetDescendantFileCount,
+      fileTreeState.__internalGetDescendantFilePaths,
+      fileTreeState.__internalMaterializeSubtree,
+      fileTreeState.__internalNormalizedTreeRef,
+      fileTreeState.__internalNormalizedTreeVersion,
+    ]
   );
 
   // Stable lookup functions - identity never changes since index instance is stable

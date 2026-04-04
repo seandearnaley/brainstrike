@@ -21,7 +21,7 @@ import type { ChunkedSelectionResult } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
 import * as React from 'react';
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
 // NOTE: `| undefined` on optional props is required due to exactOptionalPropertyTypes: true in tsconfig.
@@ -97,10 +97,6 @@ export const ActionButtons = React.memo(
     workspaceIncludeFilters: _workspaceIncludeFilters,
     workspaceUseRegex: _workspaceUseRegex,
   }: ActionButtonsProps) => {
-    useEffect(() => {
-      return () => {};
-    }, []);
-
     /**
      * Performs recursive selection using the tree worker API.
      * Loads all directories then selects files up to the limit.

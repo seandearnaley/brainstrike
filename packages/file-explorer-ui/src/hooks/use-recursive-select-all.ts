@@ -4,7 +4,6 @@ import {
   buildQuerySelectionManifest,
   CHUNKED_SELECTION_THRESHOLD,
   DEFAULT_SELECTION_CHUNK_SIZE,
-  QUERY_SELECTION_MATERIALIZATION_LIMIT,
 } from '@brainstrike/file-explorer';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
@@ -316,7 +315,7 @@ export function useRecursiveSelectAll(
               excludedPaths: [],
             }),
             manifest,
-            new Set(result.filePaths.slice(0, QUERY_SELECTION_MATERIALIZATION_LIMIT))
+            new Set(result.filePaths)
           );
         } else {
           await applyExplicitSelection(result.filePaths, folderId, addMultipleSelectedFiles);

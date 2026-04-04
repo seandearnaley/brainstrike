@@ -181,4 +181,63 @@ describe('recursive-selection-query', () => {
     expect(result.filePaths).toEqual([]);
     expect(adapter.readDirectory).not.toHaveBeenCalled();
   });
+
+  it('stops scheduling additional throughput chunks once the limit is reached', async () => {
+    const makeFiles = (prefix: string, count: number): IFileNode[] =>
+      Array.from({ length: count }, (_, index) =>
+        createFileNode({
+          path: `${prefix}/file-${index}.ts`,
+          name: `file-${index}.ts`,
+          depth: 2,
+        })
+      );
+
+    const adapter = createMockAdapter({
+      '/root': [
+        createDirectoryNode({ path: '/root/a', name: 'a', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/b', name: 'b', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/c', name: 'c', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/d', name: 'd', depth: 1, loadState: 'unloaded' }),
+      ],
+      '/root/a': makeFiles('/root/a', 200),
+      '/root/b': makeFiles('/root/b', 200),
+      '/root/c': makeFiles('/root/c', 200),
+      '/root/d': makeFiles('/root/d', 200),
+    });
+
+    const root = createDirectoryNode({
+      path: '/root',
+      name: 'root',
+      loadState: 'unloaded',
+    });
+
+    const result = await querySelectableFiles({
+      roots: [root],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      excludeFilters: [],
+      maxResults: 300,
+      concurrency: 2,
+      useRegex: false,
+    });
+
+    expect(result.limitReached).toBe(true);
+    expect(result.filePaths).toHaveLength(300);
+    expect(adapter.readDirectory).toHaveBeenCalledTimes(3);
+    expect(adapter.readDirectory).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ path: '/root' }),
+      expect.anything()
+    );
+    expect(adapter.readDirectory).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ path: '/root/a' }),
+      expect.anything()
+    );
+    expect(adapter.readDirectory).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ path: '/root/b' }),
+      expect.anything()
+    );
+  });
 });
