@@ -49,6 +49,7 @@ describe('selection-model-actions', () => {
       const result = setterFn(currentState);
 
       expect(result.selectionModel.mode).toBe('rules');
+      expect(result.selectionVersion).toBe(currentState.selectionVersion + 1);
     });
 
     it('should update mode to explicit', () => {
@@ -69,6 +70,7 @@ describe('selection-model-actions', () => {
       const result = setterFn(currentState);
 
       expect(result.selectionModel.mode).toBe('explicit');
+      expect(result.selectionVersion).toBe(currentState.selectionVersion + 1);
     });
 
     it('clears stale selectedFilePaths when entering rules mode', () => {
@@ -85,6 +87,7 @@ describe('selection-model-actions', () => {
 
       expect(result.selectedFilePaths).toEqual(new Set<string>());
       expect(result.selectionModel.mode).toBe('rules');
+      expect(result.selectionVersion).toBe(existingState.selectionVersion + 1);
     });
 
     it('clears query descriptor and manifest when leaving query mode', () => {
@@ -131,6 +134,7 @@ describe('selection-model-actions', () => {
       expect(result.selectionModel.mode).toBe('explicit');
       expect(result.selectionModel.queryDescriptor).toBeNull();
       expect(result.querySelectionManifest).toBeNull();
+      expect(result.selectionVersion).toBe(stateWithQuery.selectionVersion + 1);
     });
   });
 
@@ -147,6 +151,7 @@ describe('selection-model-actions', () => {
       const result = setterFn(createMockState());
 
       expect(result.selectionModel.ruleSetJson).toBe(ruleSetJson);
+      expect(result.selectionVersion).toBe(1);
     });
 
     it('should clear materialized cache when rules change', () => {
@@ -170,6 +175,7 @@ describe('selection-model-actions', () => {
 
       expect(result.selectionModel.materializedPaths).toBeNull();
       expect(result.selectionModel.materializedAt).toBeNull();
+      expect(result.selectionVersion).toBe(stateWithCache.selectionVersion + 1);
     });
   });
 
@@ -472,6 +478,7 @@ describe('selection-model-actions', () => {
         },
         selectedFilePaths: new Set<string>(),
         querySelectionManifest: queryManifest,
+        selectionVersion: state.selectionVersion + 1,
       });
     });
   });

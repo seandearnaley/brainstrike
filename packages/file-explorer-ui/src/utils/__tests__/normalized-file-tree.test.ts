@@ -133,4 +133,31 @@ describe('normalized-file-tree', () => {
       })
     );
   });
+
+  it('does not loop forever if parent references become cyclic during count recomputation', () => {
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        children: [
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/src/nested',
+            depth: 1,
+            children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
+          }),
+        ],
+      }),
+    ]);
+
+    state.parentPathByPath.set('/root/src', '/root/src/nested');
+    state.parentPathByPath.set('/root/src/nested', '/root/src');
+
+    const nextState = replaceNormalizedDirectoryChildren(state, '/root/src/nested', [
+      createFileNode({ name: 'b.ts', path: '/root/src/nested/b.ts', depth: 2 }),
+    ]);
+
+    expect(getNormalizedDescendantFileCount(nextState, '/root/src/nested')).toBe(1);
+    expect(getNormalizedDescendantFileCount(nextState, '/root/src')).toBe(1);
+  });
 });

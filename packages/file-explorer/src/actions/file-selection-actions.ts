@@ -95,6 +95,58 @@ interface ComputeKeysResult {
   wasCapped: boolean;
 }
 
+function shouldStopKeyComputation(params: {
+  cancelled: boolean;
+  exhaustedBudget: boolean;
+  processedCount: number;
+  totalPaths: number;
+}): boolean {
+  const { cancelled, exhaustedBudget, processedCount, totalPaths } = params;
+  return cancelled || exhaustedBudget || processedCount >= totalPaths;
+}
+
+function appendChunkKeys(args: {
+  chunkEnd: number;
+  computedKeys: string[];
+  existingSelectedFiles: ReadonlySet<string>;
+  folderId: string;
+  paths: string[];
+  processedCount: number;
+  remainingBudget: number;
+  seenKeys: Set<string>;
+}): boolean {
+  const {
+    chunkEnd,
+    computedKeys,
+    existingSelectedFiles,
+    folderId,
+    paths,
+    processedCount,
+    remainingBudget,
+    seenKeys,
+  } = args;
+
+  for (let i = processedCount; i < chunkEnd; i++) {
+    const path = paths[i];
+    if (path === undefined) {
+      continue;
+    }
+
+    const compositeKey = encodeFileSelection(folderId, path);
+    if (seenKeys.has(compositeKey) || existingSelectedFiles.has(compositeKey)) {
+      continue;
+    }
+
+    seenKeys.add(compositeKey);
+    computedKeys.push(compositeKey);
+    if (computedKeys.length >= remainingBudget) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function createExplicitSelectionModel(selectedFiles: Set<string>) {
   return {
     mode: 'explicit' as const,
@@ -251,15 +303,24 @@ async function computeKeysInChunks(
   paths: string[],
   remainingBudget: number,
   chunkSize: number,
+  existingSelectedFiles: ReadonlySet<string>,
   signal?: AbortSignal,
   onProgress?: (processed: number, total: number) => void
 ): Promise<ComputeKeysResult> {
-  const cappedPaths = remainingBudget < paths.length ? paths.slice(0, remainingBudget) : paths;
   const computedKeys: string[] = [];
+  const seenKeys = new Set<string>();
   let processedCount = 0;
   let cancelled = false;
+  let exhaustedBudget = remainingBudget === 0;
 
-  while (processedCount < cappedPaths.length && !cancelled) {
+  while (
+    !shouldStopKeyComputation({
+      cancelled,
+      exhaustedBudget,
+      processedCount,
+      totalPaths: paths.length,
+    })
+  ) {
     if (signal?.aborted) {
       cancelled = true;
       break;
@@ -272,13 +333,17 @@ async function computeKeysInChunks(
       break;
     }
 
-    const chunkEnd = Math.min(processedCount + chunkSize, cappedPaths.length);
-    for (let i = processedCount; i < chunkEnd; i++) {
-      const path = cappedPaths[i];
-      if (path !== undefined) {
-        computedKeys.push(encodeFileSelection(folderId, path));
-      }
-    }
+    const chunkEnd = Math.min(processedCount + chunkSize, paths.length);
+    exhaustedBudget = appendChunkKeys({
+      chunkEnd,
+      computedKeys,
+      existingSelectedFiles,
+      folderId,
+      paths,
+      processedCount,
+      remainingBudget,
+      seenKeys,
+    });
 
     processedCount = chunkEnd;
     onProgress?.(processedCount, paths.length);
@@ -288,7 +353,7 @@ async function computeKeysInChunks(
     computedKeys,
     processedCount,
     cancelled,
-    wasCapped: cappedPaths.length < paths.length,
+    wasCapped: exhaustedBudget,
   };
 }
 
@@ -614,6 +679,7 @@ export const createFileSelectionActions = (
       paths,
       remainingBudget,
       chunkSize,
+      currentState.selectedFilePaths,
       signal,
       onProgress
     );

@@ -223,4 +223,90 @@ describe('useSelectionResolver', () => {
       );
     });
   });
+
+  it('ignores stale snapshot resolutions after the query descriptor changes', async () => {
+    let resolveFirst: ((paths: string[]) => void) | undefined;
+    let resolveSecond: ((paths: string[]) => void) | undefined;
+
+    const state = {
+      currentFolderId: 'folder-1',
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        mode: 'query' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: new Set<string>(),
+        materializedAt: null,
+        queryDescriptor: {
+          kind: 'recursive-select-all' as const,
+          folderId: 'folder-1',
+          rootPath: null,
+          coveredDirectoryPaths: ['/src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          totalSelectedCount: 2,
+          useRegex: false,
+        },
+      },
+      querySelectionManifest: null,
+      setQuerySelectionManifest: vi.fn((manifest) => {
+        state.querySelectionManifest = manifest;
+      }),
+    };
+
+    const store = { getState: () => state };
+    usePGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useFileExplorerStoreContextMock.mockReturnValue(store);
+    loadQuerySelectionSnapshotMock.mockImplementation((_: unknown, snapshotId: string) => {
+      if (snapshotId === 'snapshot-1') {
+        return new Promise<string[]>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return new Promise<string[]>((resolve) => {
+        resolveSecond = resolve;
+      });
+    });
+
+    const { rerender } = renderHook(() => useSelectionResolver());
+
+    state.selectionModel = {
+      ...state.selectionModel,
+      queryDescriptor: {
+        ...state.selectionModel.queryDescriptor,
+        manifestFingerprint: 'fp-2',
+        manifestSnapshotId: 'snapshot-2',
+      },
+    };
+    state.querySelectionManifest = null;
+    rerender();
+
+    resolveFirst?.(['/src/stale.ts']);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(state.setQuerySelectionManifest).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ready',
+        fingerprint: 'fp-1',
+        snapshotId: 'snapshot-1',
+      })
+    );
+
+    resolveSecond?.(['/src/fresh.ts']);
+    await waitFor(() => {
+      expect(state.setQuerySelectionManifest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'ready',
+          fingerprint: 'fp-2',
+          snapshotId: 'snapshot-2',
+          filePaths: ['/src/fresh.ts'],
+        })
+      );
+    });
+  });
 });

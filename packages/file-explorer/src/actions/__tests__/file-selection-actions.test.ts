@@ -1612,6 +1612,38 @@ describe('file-selection-actions', () => {
       expect(currentState.selectedFilePaths.size).toBe(3);
     });
 
+    it('should not let duplicate input paths consume the optimistic large-selection budget', async () => {
+      let currentState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|existing.ts']),
+        maxSelectionCount: 2, // one remaining slot
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+        }
+      });
+
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
+        'folder1',
+        ['existing.ts', 'new.ts', 'new.ts', 'ignored.ts'],
+        { chunkSize: 2 }
+      );
+
+      expect(result.addedCount).toBe(1);
+      expect(result.limitReached).toBe(true);
+      expect(currentState.selectedFilePaths).toEqual(
+        new Set(['folder1|@|existing.ts', 'folder1|@|new.ts'])
+      );
+    });
+
     it('should handle max limit reached during Phase 2 atomic update', async () => {
       // Arrange - large selection that hits limit during Phase 2 state update
       let currentState = createMockState({

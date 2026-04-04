@@ -1,6 +1,7 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { checkBudget, createTimer } from '@brainstrike/utils';
+import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createPathFilterMatcher } from '@brainstrike/utils/filter-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 
@@ -72,6 +73,12 @@ interface MutableQueryState {
 
 interface DirectoryTraversalState {
   queuedDirectoryPaths: Set<string>;
+}
+
+interface ScanResult {
+  children: IFileNode[];
+  error: unknown | null;
+  node: IFileNode;
 }
 
 function snapshotProgress(state: MutableQueryState): RecursiveSelectionQueryProgress {
@@ -360,16 +367,135 @@ async function scanUnloadedDirectories(args: {
     return;
   }
 
-  for (let index = 0; index < unloadedDirectories.length; index += effectiveConcurrency) {
-    const chunk = unloadedDirectories.slice(index, index + effectiveConcurrency);
-    const results = await Promise.all(
-      chunk.map(async (node) => ({
-        children: await scanDirectory(fileSystemAdapter, node, filterTreeFn, abortSignal),
-        node,
-      }))
-    );
+  await scanUnloadedDirectoriesInThroughputMode({
+    abortSignal,
+    directoryTraversalState,
+    effectiveConcurrency,
+    fileSystemAdapter,
+    filterTreeFn,
+    limit,
+    matcher,
+    nextFrontier,
+    onProgress,
+    state,
+    unloadedDirectories,
+  });
+}
 
-    for (const result of results) {
+async function scanUnloadedDirectoriesInThroughputMode(args: {
+  abortSignal: AbortSignal | undefined;
+  directoryTraversalState: DirectoryTraversalState;
+  effectiveConcurrency: number;
+  fileSystemAdapter: FileSystemAdapter;
+  filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined;
+  limit: number;
+  matcher: PathFilterMatcher;
+  nextFrontier: IFileNode[];
+  onProgress: ((progress: RecursiveSelectionQueryProgress) => void) | undefined;
+  state: MutableQueryState;
+  unloadedDirectories: IFileNode[];
+}): Promise<void> {
+  const {
+    abortSignal,
+    directoryTraversalState,
+    effectiveConcurrency,
+    fileSystemAdapter,
+    filterTreeFn,
+    limit,
+    matcher,
+    nextFrontier,
+    onProgress,
+    state,
+    unloadedDirectories,
+  } = args;
+
+  const progressReporter = createProgressReporter(onProgress, state);
+  const scanAbortController = new AbortController();
+  const forwardAbort = () => scanAbortController.abort();
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      scanAbortController.abort();
+    } else {
+      abortSignal.addEventListener('abort', forwardAbort, { once: true });
+    }
+  }
+
+  try {
+    await drainThroughputScanQueue({
+      directoryTraversalState,
+      effectiveConcurrency,
+      fileSystemAdapter,
+      filterTreeFn,
+      limit,
+      matcher,
+      nextFrontier,
+      progressReporter,
+      scanAbortController,
+      state,
+      unloadedDirectories,
+    });
+  } finally {
+    if (abortSignal) {
+      abortSignal.removeEventListener('abort', forwardAbort);
+    }
+  }
+}
+
+async function drainThroughputScanQueue(args: {
+  directoryTraversalState: DirectoryTraversalState;
+  effectiveConcurrency: number;
+  fileSystemAdapter: FileSystemAdapter;
+  filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined;
+  limit: number;
+  matcher: PathFilterMatcher;
+  nextFrontier: IFileNode[];
+  progressReporter: { emit: (force?: boolean) => void };
+  scanAbortController: AbortController;
+  state: MutableQueryState;
+  unloadedDirectories: IFileNode[];
+}): Promise<void> {
+  const {
+    directoryTraversalState,
+    effectiveConcurrency,
+    fileSystemAdapter,
+    filterTreeFn,
+    limit,
+    matcher,
+    nextFrontier,
+    progressReporter,
+    scanAbortController,
+    state,
+    unloadedDirectories,
+  } = args;
+
+  let nextDirectoryIndex = 0;
+  while (
+    !(state.limitReached || scanAbortController.signal.aborted) &&
+    nextDirectoryIndex < unloadedDirectories.length
+  ) {
+    const batchResults = createScanBatch({
+      effectiveConcurrency,
+      fileSystemAdapter,
+      filterTreeFn,
+      nextDirectoryIndex,
+      scanAbortController,
+      unloadedDirectories,
+    });
+    nextDirectoryIndex = batchResults.nextDirectoryIndex;
+
+    while (true) {
+      const result = await batchResults.takeNext();
+      if (!result) {
+        break;
+      }
+
+      if (result.error) {
+        if (scanAbortController.signal.aborted && isAbortError(result.error)) {
+          return;
+        }
+        throw result.error;
+      }
+
       state.currentPath = result.node.path;
       state.directoriesReadFromAdapter++;
       state.directoriesCompleted++;
@@ -383,10 +509,93 @@ async function scanUnloadedDirectories(args: {
       });
       progressReporter.emit();
       if (stopped) {
+        state.limitReached = true;
+        scanAbortController.abort();
         return;
       }
     }
   }
+}
+
+function createScanBatch(args: {
+  effectiveConcurrency: number;
+  fileSystemAdapter: FileSystemAdapter;
+  filterTreeFn: ((tree: IFileNode[]) => IFileNode[]) | undefined;
+  nextDirectoryIndex: number;
+  scanAbortController: AbortController;
+  unloadedDirectories: IFileNode[];
+}): {
+  nextDirectoryIndex: number;
+  takeNext: () => Promise<ScanResult | undefined>;
+} {
+  const {
+    effectiveConcurrency,
+    fileSystemAdapter,
+    filterTreeFn,
+    nextDirectoryIndex,
+    scanAbortController,
+    unloadedDirectories,
+  } = args;
+  const settledResults: ScanResult[] = [];
+  const runningTasks = new Set<Promise<void>>();
+  let currentIndex = nextDirectoryIndex;
+  let notifyNextResult: (() => void) | null = null;
+
+  const pushResult = (result: ScanResult): void => {
+    settledResults.push(result);
+    notifyNextResult?.();
+    notifyNextResult = null;
+  };
+
+  while (
+    !scanAbortController.signal.aborted &&
+    currentIndex < unloadedDirectories.length &&
+    runningTasks.size < effectiveConcurrency
+  ) {
+    const node = unloadedDirectories[currentIndex];
+    currentIndex += 1;
+    if (!node) {
+      continue;
+    }
+
+    const task = scanDirectory(fileSystemAdapter, node, filterTreeFn, scanAbortController.signal)
+      .then((children) => {
+        pushResult({
+          children,
+          error: null,
+          node,
+        });
+      })
+      .catch((error: unknown) => {
+        pushResult({
+          children: [],
+          error,
+          node,
+        });
+      });
+
+    runningTasks.add(task);
+    void task.finally(() => {
+      runningTasks.delete(task);
+      notifyNextResult?.();
+      notifyNextResult = null;
+    });
+  }
+
+  return {
+    nextDirectoryIndex: currentIndex,
+    takeNext: async (): Promise<ScanResult | undefined> => {
+      while (settledResults.length === 0) {
+        if (runningTasks.size === 0) {
+          return undefined;
+        }
+        await new Promise<void>((resolve) => {
+          notifyNextResult = resolve;
+        });
+      }
+      return settledResults.shift();
+    },
+  };
 }
 
 function buildQueryResult(args: {

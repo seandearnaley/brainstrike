@@ -241,6 +241,65 @@ describe('recursive-selection-query', () => {
     );
   });
 
+  it('returns once the limit is satisfied without waiting for sibling throughput reads to settle', async () => {
+    const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
+      if (handle.path === '/root') {
+        return [
+          createDirectoryNode({ path: '/root/a', name: 'a', depth: 1, loadState: 'unloaded' }),
+          createDirectoryNode({ path: '/root/b', name: 'b', depth: 1, loadState: 'unloaded' }),
+          createDirectoryNode({ path: '/root/c', name: 'c', depth: 1, loadState: 'unloaded' }),
+        ];
+      }
+      if (handle.path === '/root/a') {
+        return Array.from({ length: 300 }, (_, index) =>
+          createFileNode({
+            path: `/root/a/file-${index}.ts`,
+            name: `file-${index}.ts`,
+            depth: 2,
+          })
+        );
+      }
+      if (handle.path === '/root/b') {
+        return new Promise<IFileNode[]>(() => {});
+      }
+      if (handle.path === '/root/c') {
+        throw new Error('throughput scheduling should not reach /root/c once the limit is met');
+      }
+      return [];
+    });
+
+    const adapter = {
+      requestDirectoryAccess: vi.fn(),
+      readDirectory,
+      readFile: vi.fn(),
+      exists: vi.fn(),
+    } as unknown as FileSystemAdapter;
+
+    const root = createDirectoryNode({
+      path: '/root',
+      name: 'root',
+      loadState: 'unloaded',
+    });
+
+    const result = await querySelectableFiles({
+      roots: [root],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      excludeFilters: [],
+      maxResults: 300,
+      concurrency: 2,
+      useRegex: false,
+    });
+
+    expect(result.limitReached).toBe(true);
+    expect(result.filePaths).toHaveLength(300);
+    expect(readDirectory).toHaveBeenCalledTimes(3);
+    expect(readDirectory).not.toHaveBeenCalledWith(
+      expect.objectContaining({ path: '/root/c' }),
+      expect.anything()
+    );
+  });
+
   it('dedupes duplicate directory paths across the traversal frontier', async () => {
     const adapter = createMockAdapter({
       '/root/shared': [createFileNode({ path: '/root/shared/a.ts', name: 'a.ts', depth: 2 })],

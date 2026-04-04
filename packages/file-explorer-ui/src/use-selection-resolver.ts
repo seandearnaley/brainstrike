@@ -6,7 +6,7 @@ import {
   resolveQuerySelection,
 } from '@brainstrike/file-explorer';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -35,8 +35,11 @@ export function useSelectionResolver(): SelectionResolverState {
           state.setQuerySelectionManifest,
         ] as const
     );
+  const loadTokenRef = useRef(0);
 
   useEffect(() => {
+    loadTokenRef.current += 1;
+    const token = loadTokenRef.current;
     const latestState = store.getState();
     if (latestState.selectionModel.mode !== 'query') {
       return;
@@ -90,7 +93,6 @@ export function useSelectionResolver(): SelectionResolverState {
       return;
     }
 
-    let cancelled = false;
     setManifest(
       createLoadingQuerySelectionManifest({
         fingerprint: descriptor.manifestFingerprint,
@@ -100,7 +102,7 @@ export function useSelectionResolver(): SelectionResolverState {
 
     void loadQuerySelectionSnapshot(db, descriptor.manifestSnapshotId)
       .then((filePaths) => {
-        if (cancelled) {
+        if (token !== loadTokenRef.current) {
           return;
         }
         setManifest(
@@ -112,7 +114,7 @@ export function useSelectionResolver(): SelectionResolverState {
         );
       })
       .catch((error: unknown) => {
-        if (cancelled) {
+        if (token !== loadTokenRef.current) {
           return;
         }
         setManifest(
@@ -125,7 +127,9 @@ export function useSelectionResolver(): SelectionResolverState {
       });
 
     return () => {
-      cancelled = true;
+      if (token === loadTokenRef.current) {
+        loadTokenRef.current += 1;
+      }
     };
   }, [
     db,

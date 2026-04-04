@@ -76,6 +76,7 @@ export const createSelectionModelActions = (
       ...(isEnteringRulesMode || isEnteringQueryMode
         ? { selectedFilePaths: new Set<string>() }
         : {}),
+      selectionVersion: state.selectionVersion + 1,
     }));
   },
 
@@ -90,6 +91,7 @@ export const createSelectionModelActions = (
         queryDescriptor: null,
       },
       querySelectionManifest: null,
+      selectionVersion: state.selectionVersion + 1,
     }));
   },
 
@@ -152,7 +154,7 @@ export const createSelectionModelActions = (
       // Convert relative paths to composite keys for selectedFilePaths compatibility
       const compositeKeys = new Set<string>();
       for (const relativePath of paths) {
-        compositeKeys.add(`${currentFolderId}|@|${relativePath}`);
+        compositeKeys.add(encodeFileSelection(currentFolderId, relativePath));
       }
 
       set({
@@ -192,6 +194,7 @@ export const createSelectionModelActions = (
       },
       selectedFilePaths: new Set<string>(),
       querySelectionManifest: manifest,
+      selectionVersion: get().selectionVersion + 1,
     });
   },
 

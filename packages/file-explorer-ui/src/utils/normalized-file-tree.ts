@@ -169,8 +169,10 @@ function recomputeDescendantFileCountsFrom(
   state: NormalizedFileTreeState,
   startPath: string | null
 ): void {
+  const visitedPaths = new Set<string>();
   let currentPath = startPath;
-  while (currentPath) {
+  while (currentPath && !visitedPaths.has(currentPath)) {
+    visitedPaths.add(currentPath);
     const node = state.nodeByPath.get(currentPath);
     if (!node || node.type !== 'directory') {
       currentPath = state.parentPathByPath.get(currentPath) ?? null;

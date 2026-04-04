@@ -18,6 +18,7 @@ interface DescriptorMatchers {
 
 const descriptorMatcherCache = new Map<string, DescriptorMatchers>();
 const MAX_DESCRIPTOR_CACHE_ENTRIES = 128;
+const materializedDirectoryCountCache = new WeakMap<ReadonlySet<string>, Map<string, number>>();
 
 function matchesAnyPathVariant(path: string, matcher: (value: string) => boolean): boolean {
   if (matcher(path)) {
@@ -63,6 +64,8 @@ function getDescriptorMatchers(descriptor: SelectionQueryDescriptor): Descriptor
   const cacheKey = buildDescriptorCacheKey(descriptor);
   const cached = descriptorMatcherCache.get(cacheKey);
   if (cached) {
+    descriptorMatcherCache.delete(cacheKey);
+    descriptorMatcherCache.set(cacheKey, cached);
     return cached;
   }
 
@@ -81,6 +84,45 @@ function getDescriptorMatchers(descriptor: SelectionQueryDescriptor): Descriptor
   }
   descriptorMatcherCache.set(cacheKey, nextMatchers);
   return nextMatchers;
+}
+
+function incrementDirectoryCount(counts: Map<string, number>, path: string): void {
+  counts.set(path, (counts.get(path) ?? 0) + 1);
+}
+
+function buildMaterializedDirectoryCounts(
+  materializedPaths: ReadonlySet<string>
+): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (const filePath of materializedPaths) {
+    incrementDirectoryCount(counts, filePath);
+
+    let separatorIndex = filePath.lastIndexOf('/');
+    while (separatorIndex > 0) {
+      incrementDirectoryCount(counts, filePath.slice(0, separatorIndex));
+      separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
+    }
+  }
+
+  return counts;
+}
+
+function getMaterializedDirectoryCounts(
+  materializedPaths: ReadonlySet<string> | null | undefined
+): Map<string, number> | null {
+  if (!(materializedPaths && materializedPaths.size > 0)) {
+    return null;
+  }
+
+  const cached = materializedDirectoryCountCache.get(materializedPaths);
+  if (cached) {
+    return cached;
+  }
+
+  const counts = buildMaterializedDirectoryCounts(materializedPaths);
+  materializedDirectoryCountCache.set(materializedPaths, counts);
+  return counts;
 }
 
 function isPathWithinRoot(path: string, rootPath: string | null): boolean {
@@ -106,18 +148,7 @@ function getMaterializedDirectorySelectedCount(
   directoryPath: string,
   materializedPaths: ReadonlySet<string> | null | undefined
 ): number {
-  if (!(materializedPaths && materializedPaths.size > 0)) {
-    return 0;
-  }
-
-  let selectedCount = 0;
-  for (const filePath of materializedPaths) {
-    if (filePath === directoryPath || filePath.startsWith(`${directoryPath}/`)) {
-      selectedCount += 1;
-    }
-  }
-
-  return selectedCount;
+  return getMaterializedDirectoryCounts(materializedPaths)?.get(directoryPath) ?? 0;
 }
 
 export function isQuerySelectionPathSelected(

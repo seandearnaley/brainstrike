@@ -87,6 +87,40 @@ describe('selection-projection', () => {
     );
   });
 
+  it('reuses ancestor counts for repeated directory queries while the manifest is loading', () => {
+    const descriptor = createDescriptor();
+    const materializedPaths = new Set([
+      '/src/index.ts',
+      '/src/nested/a.ts',
+      '/src/nested/deeper/b.ts',
+    ]);
+
+    expect(getDirectorySelectedCount(descriptor, null, 'folder-1', '/src', materializedPaths)).toBe(
+      3
+    );
+    expect(
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/src/nested', materializedPaths)
+    ).toBe(2);
+    expect(
+      getDirectorySelectedCount(
+        descriptor,
+        null,
+        'folder-1',
+        '/src/nested/deeper',
+        materializedPaths
+      )
+    ).toBe(1);
+    expect(
+      isDirectoryCoveredByQuerySelection(
+        descriptor,
+        null,
+        'folder-1',
+        '/src/nested/deeper',
+        materializedPaths
+      )
+    ).toBe(true);
+  });
+
   it('uses the ready manifest when available', () => {
     const descriptor = createDescriptor();
     const manifest = createManifest();
