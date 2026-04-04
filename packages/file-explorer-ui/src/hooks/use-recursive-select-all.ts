@@ -2,13 +2,11 @@ import { usePGliteDatabase } from '@brainstrike/db';
 import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
-  CHUNKED_SELECTION_THRESHOLD,
-  DEFAULT_SELECTION_CHUNK_SIZE,
 } from '@brainstrike/file-explorer';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
-import type { IFileNode, SelectionQueryDescriptor } from '@brainstrike/types';
+import type { IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -16,10 +14,7 @@ import {
   useOptionalFileExplorerStoreContext,
   useOptionalFileExplorerStoreSelector,
 } from '../file-explorer-provider';
-import {
-  type PersistableFileExplorerStore,
-  persistFileExplorerStateImmediately,
-} from '../utils/persist-file-explorer-state';
+import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { createQuerySelectionSnapshot } from '../utils/query-selection-snapshot';
 import { querySelectableFiles } from '../utils/recursive-selection-query';
 import {
@@ -27,91 +22,13 @@ import {
   selectIncludeFilters,
   selectUseRegex,
 } from '../utils/workspace-filter-selectors';
-
-function yieldToBrowser(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof requestAnimationFrame !== 'undefined') {
-      requestAnimationFrame(() => resolve());
-      return;
-    }
-    setTimeout(resolve, 0);
-  });
-}
-
-function hasPersistApi(store: unknown): store is PersistableFileExplorerStore {
-  return (
-    typeof store === 'function' &&
-    'persist' in store &&
-    typeof (store as { persist?: unknown }).persist === 'object' &&
-    (store as { persist?: { getOptions?: unknown } }).persist !== null &&
-    typeof (store as { persist?: { getOptions?: unknown } }).persist?.getOptions === 'function'
-  );
-}
-
-async function applyExplicitSelection(
-  filePaths: string[],
-  folderId: string,
-  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void
-): Promise<void> {
-  if (filePaths.length === 0) {
-    return;
-  }
-
-  if (filePaths.length <= CHUNKED_SELECTION_THRESHOLD) {
-    addMultipleSelectedFiles(folderId, filePaths);
-    return;
-  }
-
-  for (let index = 0; index < filePaths.length; index += DEFAULT_SELECTION_CHUNK_SIZE) {
-    const chunk = filePaths.slice(index, index + DEFAULT_SELECTION_CHUNK_SIZE);
-    addMultipleSelectedFiles(folderId, chunk);
-    if (index + DEFAULT_SELECTION_CHUNK_SIZE < filePaths.length) {
-      await yieldToBrowser();
-    }
-  }
-}
-
-function buildQuerySelectionDescriptor(args: {
-  coveredDirectoryPaths: string[];
-  excludeFilters: string[];
-  excludedPaths: string[];
-  folderId: string;
-  includeFilters: string[];
-  includedPaths: string[];
-  manifestFingerprint: string | null;
-  manifestSnapshotId: string | null;
-  totalSelectedCount: number;
-  useRegex: boolean;
-}): SelectionQueryDescriptor {
-  return {
-    kind: 'recursive-select-all',
-    folderId: args.folderId,
-    rootPath: null,
-    coveredDirectoryPaths: [...args.coveredDirectoryPaths],
-    includeFilters: [...args.includeFilters],
-    excludeFilters: [...args.excludeFilters],
-    includedPaths: [...args.includedPaths],
-    excludedPaths: [...args.excludedPaths],
-    manifestFingerprint: args.manifestFingerprint,
-    manifestSnapshotId: args.manifestSnapshotId,
-    useRegex: args.useRegex,
-    totalSelectedCount: args.totalSelectedCount,
-  };
-}
-
-function collectAncestorDirectories(filePaths: string[]): string[] {
-  const coveredPaths = new Set<string>();
-
-  for (const filePath of filePaths) {
-    let separatorIndex = filePath.lastIndexOf('/');
-    while (separatorIndex > 0) {
-      coveredPaths.add(filePath.slice(0, separatorIndex));
-      separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
-    }
-  }
-
-  return Array.from(coveredPaths).sort((left, right) => left.localeCompare(right));
-}
+import {
+  applyExplicitSelection,
+  buildQuerySelectionDescriptor,
+  collectAncestorDirectories,
+  hasPersistApi,
+  yieldToBrowser,
+} from './recursive-selection-utils';
 
 function handleSelectAllError(err: unknown, onError?: (error: Error) => void): SelectAllResult {
   const isCancelled = isAbortError(err);
@@ -303,7 +220,9 @@ export function useRecursiveSelectAll(
           });
           setQuerySelection?.(
             buildQuerySelectionDescriptor({
+              kind: 'recursive-select-all',
               folderId,
+              rootPath: null,
               coveredDirectoryPaths: collectAncestorDirectories(result.filePaths),
               includeFilters,
               excludeFilters,

@@ -17,7 +17,6 @@
  * - "Deselect All" when files are currently selected
  */
 
-import type { ChunkedSelectionResult } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
 import * as React from 'react';
@@ -29,14 +28,6 @@ import type { SelectAllResult } from './hooks/use-recursive-select-all';
 export interface ActionButtonsProps {
   /** Add multiple selected files (used by recursive selection) */
   addMultipleSelectedFiles?: ((folderId: string, paths: string[]) => void) | undefined;
-  /** Add multiple selected files using chunked scheduling */
-  addMultipleSelectedFilesChunked?:
-    | ((
-        folderId: string,
-        paths: string[],
-        options?: { signal?: AbortSignal }
-      ) => Promise<ChunkedSelectionResult>)
-    | undefined;
   /** Cancel the current recursive selection operation */
   cancelSelectAll?: (() => void) | undefined;
   currentFolderId: string | null;
@@ -70,9 +61,6 @@ export interface ActionButtonsProps {
   setSelectedFiles: (files: Set<string>) => void;
   /** Precomputed visible file paths for the current filtered tree */
   visibleFilePaths?: readonly string[] | undefined;
-  workspaceExcludeFilters?: readonly string[] | undefined;
-  workspaceIncludeFilters?: readonly string[] | undefined;
-  workspaceUseRegex?: boolean | undefined;
 }
 
 export const ActionButtons = React.memo(
@@ -91,11 +79,7 @@ export const ActionButtons = React.memo(
     cancelSelectAll,
     isLoadingForSelectAll = false,
     addMultipleSelectedFiles,
-    addMultipleSelectedFilesChunked: _addMultipleSelectedFilesChunked,
     visibleFilePaths,
-    workspaceExcludeFilters: _workspaceExcludeFilters,
-    workspaceIncludeFilters: _workspaceIncludeFilters,
-    workspaceUseRegex: _workspaceUseRegex,
   }: ActionButtonsProps) => {
     /**
      * Performs recursive selection using the tree worker API.
@@ -202,7 +186,6 @@ export const ActionButtons = React.memo(
 
     const hasDisplayedFiles = displayedFiles.size > 0;
     const hasSelectedFiles = selectedFilePaths.size > 0;
-    const isSelecting = isLoadingForSelectAll;
 
     // Enable button if there are displayed files OR if tree has files (for recursive selection)
     const canSelectFiles = hasActiveQuickFilter
@@ -210,7 +193,7 @@ export const ActionButtons = React.memo(
       : hasDisplayedFiles || hasFilesInTree;
 
     const getButtonText = () => {
-      if (isSelecting) {
+      if (isLoadingForSelectAll) {
         return 'Selecting...';
       }
       if (hasSelectedFiles) {
@@ -220,7 +203,7 @@ export const ActionButtons = React.memo(
     };
 
     const handleClick = () => {
-      if (isSelecting) {
+      if (isLoadingForSelectAll) {
         handleCancel();
       } else if (hasSelectedFiles) {
         handleDeselectAll();
@@ -233,7 +216,7 @@ export const ActionButtons = React.memo(
       <div className="@container/buttons flex flex-wrap items-center gap-2">
         <Button
           className="flex h-8 items-center gap-1"
-          disabled={!(canSelectFiles || isSelecting)}
+          disabled={!(canSelectFiles || isLoadingForSelectAll)}
           onClick={handleClick}
           variant="outline"
         >

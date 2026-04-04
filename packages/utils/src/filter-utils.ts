@@ -29,7 +29,7 @@ export function processFilter(filter: string): string {
   return `**/${filter}`;
 }
 
-function normalizePathForMatching(path: string): string {
+export function normalizePathForMatching(path: string): string {
   return path.startsWith('/') ? path.slice(1) : path;
 }
 

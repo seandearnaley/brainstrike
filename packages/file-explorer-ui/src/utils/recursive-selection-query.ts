@@ -1,6 +1,7 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { checkBudget, createTimer } from '@brainstrike/utils';
+import { normalizePathForMatching, processFilter } from '@brainstrike/utils/filter-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 
@@ -14,20 +15,6 @@ const LOW_LIMIT_SCAN_THRESHOLD = 256;
 interface PathFilterMatcher {
   shouldIncludeFile: (path: string) => boolean;
   shouldTraverseDirectory: (path: string) => boolean;
-}
-
-function processFilter(filter: string): string {
-  if (filter.startsWith('!')) {
-    return `!${processFilter(filter.slice(1))}`;
-  }
-  if (filter.startsWith('**/') || filter.startsWith('**') || filter.startsWith('/')) {
-    return filter;
-  }
-  return `**/${filter}`;
-}
-
-function normalizePathForMatching(path: string): string {
-  return path.startsWith('/') ? path.slice(1) : path;
 }
 
 function createPathFilterMatcher(

@@ -40,8 +40,10 @@ import {
   createEmptyNormalizedFileTreeState,
   createNormalizedFileTreeState,
   getNormalizedDescendantFileCount,
+  getNormalizedRootDirectoryPaths,
   listNormalizedDescendantFilePaths,
   materializeNormalizedFileTree,
+  materializeNormalizedShallowNode,
   materializeNormalizedSubtree,
   type NormalizedFileTreeState,
   replaceNormalizedDirectoryChildren,
@@ -570,8 +572,14 @@ export function useLazyFileTree(
     isExpandingAllRef,
   } = useExpandAll({
     cancelLoadOperations: cancelAllLoading,
-    getNodeByPath: (path: string) => materializeNormalizedSubtree(normalizedTreeRef.current, path),
-    getRootNodes: () => materializeNormalizedFileTree(normalizedTreeRef.current),
+    getNodeByPath: (path: string) =>
+      materializeNormalizedShallowNode(normalizedTreeRef.current, path),
+    getRootNodes: () => {
+      const dirPaths = getNormalizedRootDirectoryPaths(normalizedTreeRef.current);
+      return dirPaths
+        .map((p) => materializeNormalizedShallowNode(normalizedTreeRef.current, p))
+        .filter((n): n is import('@brainstrike/types').IFileNode => n !== undefined);
+    },
     loadDirectoryPath: (path: string) => loadChildrenRef.current(path),
     onError: handleWorkerError,
     onProgress: handleProgress,

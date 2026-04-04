@@ -109,6 +109,43 @@ export function materializeNormalizedSubtree(
   return materializeNode(state, path);
 }
 
+/**
+ * Materialize a node with only its immediate children (no recursive descent).
+ * Useful for traversals that only need child paths and types (e.g., expand-all).
+ */
+export function materializeNormalizedShallowNode(
+  state: NormalizedFileTreeState,
+  path: string
+): IFileNode | undefined {
+  const node = state.nodeByPath.get(path);
+  if (!node) {
+    return undefined;
+  }
+  if (node.type !== 'directory') {
+    return { ...node };
+  }
+  const childPaths = state.childPathsByPath.get(path) ?? [];
+  const children = childPaths
+    .map((childPath) => {
+      const childNode = state.nodeByPath.get(childPath);
+      return childNode ? ({ ...childNode } as IFileNode) : undefined;
+    })
+    .filter((child): child is IFileNode => child !== undefined);
+
+  return children.length > 0 ? { ...node, children } : { ...node };
+}
+
+/**
+ * Get root directory paths without materializing the full tree.
+ * Useful for expand-all which only needs root directory paths to seed traversal.
+ */
+export function getNormalizedRootDirectoryPaths(state: NormalizedFileTreeState): string[] {
+  return state.rootPaths.filter((rootPath) => {
+    const node = state.nodeByPath.get(rootPath);
+    return node?.type === 'directory';
+  });
+}
+
 function collectSubtreePaths(state: NormalizedFileTreeState, path: string, out: string[]): void {
   out.push(path);
   for (const childPath of state.childPathsByPath.get(path) ?? []) {

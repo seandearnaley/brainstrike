@@ -126,9 +126,6 @@ describe('ActionButtons', () => {
         maxSelectionCount: 1000,
         selectAllRecursively,
         visibleFilePaths,
-        workspaceIncludeFilters: ['**/*.ts'],
-        workspaceExcludeFilters: ['node_modules'],
-        workspaceUseRegex: false,
       });
 
       const user = userEvent.setup();
