@@ -473,7 +473,12 @@ export class SelectionRuleEngine {
     for (const path of selection) {
       let excluded = false;
       for (const root of rule.roots) {
-        if (path === root || path.startsWith(`${root}/`)) {
+        if (
+          path === root ||
+          (path.length > root.length &&
+            path.charCodeAt(root.length) === 47 &&
+            path.startsWith(root))
+        ) {
           excluded = true;
           break;
         }
@@ -632,9 +637,16 @@ export class InMemoryTreeAdapter implements TreeAdapter {
 
     // Add implicit parent directories
     for (const path of this.files.keys()) {
-      const parts = path.split('/');
-      for (let i = 1; i < parts.length; i++) {
-        this.directories.add(parts.slice(0, i).join('/'));
+      let lastSlashIndex = path.lastIndexOf('/');
+      while (lastSlashIndex > 0) {
+        const parentPath = path.slice(0, lastSlashIndex);
+        // Optimization: If we've already added this directory, its parents are
+        // also already added, so we can break early.
+        if (this.directories.has(parentPath)) {
+          break;
+        }
+        this.directories.add(parentPath);
+        lastSlashIndex = path.lastIndexOf('/', lastSlashIndex - 1);
       }
     }
   }
@@ -643,15 +655,26 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     return this.files.keys();
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: unrolled loop logic for performance
   getFilesUnderRoot(root: string, maxDepth?: number): Iterable<string> {
     const result: string[] = [];
     const normalizedRoot = root.replace(/\/$/, '');
 
     for (const path of this.files.keys()) {
-      if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
+      if (
+        path === normalizedRoot ||
+        (path.length > normalizedRoot.length &&
+          path.charCodeAt(normalizedRoot.length) === 47 &&
+          path.startsWith(normalizedRoot))
+      ) {
         if (maxDepth !== undefined) {
           const relativePath = path.slice(normalizedRoot.length + 1);
-          const depth = relativePath.split('/').length - 1;
+          let depth = 0;
+          for (let i = 0; i < relativePath.length; i++) {
+            if (relativePath.charCodeAt(i) === 47) {
+              depth++;
+            }
+          }
           if (depth > maxDepth) {
             continue;
           }
