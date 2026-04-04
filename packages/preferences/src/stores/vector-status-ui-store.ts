@@ -170,11 +170,50 @@ export type VectorStatusUIStore = VectorStatusUIData & VectorStatusUIActions;
 
 const STORE_NAME = 'vector-status-ui.v1' as const;
 
+interface ElectronStorageBridge {
+  readonly getItem: (key: string) => Promise<string | null>;
+  readonly removeItem: (key: string) => Promise<void>;
+  readonly setItem: (key: string, value: string) => Promise<void>;
+}
+
+function getElectronStorageBridge(): ElectronStorageBridge | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const bridge = (
+    window as Window & {
+      electronAPI?: {
+        storage?: ElectronStorageBridge;
+      };
+    }
+  ).electronAPI?.storage;
+
+  if (!bridge) {
+    return null;
+  }
+
+  return bridge;
+}
+
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
  * Uses safe storage utility with proper error logging
  */
-const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
+function createVectorStatusUIStorage() {
+  const electronStorage = getElectronStorageBridge();
+  if (electronStorage) {
+    return {
+      getItem: (key: string) => electronStorage.getItem(key),
+      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
+      removeItem: (key: string) => electronStorage.removeItem(key),
+    };
+  }
+
+  return createSafeJsonStorageAdapter();
+}
+
+const storage = createJSONStorage(() => createVectorStatusUIStorage());
 
 function areQueueStatsSnapshotsEqual(
   left: QueueStatsSnapshot | null,

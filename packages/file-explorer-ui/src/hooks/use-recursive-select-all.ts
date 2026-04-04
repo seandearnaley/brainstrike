@@ -1,4 +1,4 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useOptionalPGliteDatabase } from '@brainstrike/db';
 import {
   buildQuerySelectionFingerprint,
   buildQuerySelectionManifest,
@@ -111,7 +111,7 @@ export function useRecursiveSelectAll(
   } = options;
 
   const store = useOptionalFileExplorerStoreContext();
-  const db = usePGliteDatabase();
+  const db = useOptionalPGliteDatabase();
   const { storageAdapter } = useAdapters();
   const includeFilters = useOptionalFileExplorerStoreSelector(selectIncludeFilters, []);
   const excludeFilters = useOptionalFileExplorerStoreSelector(selectExcludeFilters, []);

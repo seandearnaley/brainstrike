@@ -15,6 +15,16 @@ export interface EnvironmentConfig {
 }
 
 /**
+ * Node warns when both FORCE_COLOR and NO_COLOR are set.
+ * Playwright child processes inherit our environment, so normalize it once up front.
+ */
+export const harmonizeColorEnvironment = (): void => {
+  if (process.env['FORCE_COLOR'] && process.env['NO_COLOR']) {
+    Reflect.deleteProperty(process.env, 'NO_COLOR');
+  }
+};
+
+/**
  * Detect the current environment based on environment variables
  */
 export const detectEnvironment = () => {

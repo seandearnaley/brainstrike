@@ -967,6 +967,24 @@ export function usePGliteDatabase(): DbHandle | null {
   return ctx.ready && !ctx.error ? ctx.db : null;
 }
 
+export function useOptionalPGliteDatabase(): DbHandle | null {
+  const ctx = useContext(DbContext);
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
+  useEffect(() => {
+    if (!(db || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [db, error, initializing, initializeDatabase]);
+
+  return ctx?.ready && !ctx.error ? ctx.db : null;
+}
+
 export function useDbProviderError(): Error | null {
   const ctx = useContext(DbContext);
   if (!ctx) {

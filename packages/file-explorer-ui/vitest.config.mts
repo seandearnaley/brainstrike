@@ -34,6 +34,10 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
       {
+        find: '@brainstrike/db',
+        replacement: resolve(import.meta.dirname, '../db/src/index.ts'),
+      },
+      {
         find: '@brainstrike/types',
         replacement: resolve(import.meta.dirname, '../types/src'),
       },

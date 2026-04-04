@@ -1,6 +1,7 @@
 import {
   getCILaunchArgs,
   getEnvironmentConfig,
+  harmonizeColorEnvironment,
   logEnvironmentConfig,
   validateEnvironmentConfig,
 } from '@brainstrike/config/playwright-environment';
@@ -13,6 +14,7 @@ const fullBrowserCoverageEnv = 'PLAYWRIGHT_FULL_BROWSER_COVERAGE';
 
 // Mark local-first DB expected for web E2E unless explicitly disabled
 process.env['LOCAL_FIRST_DB'] = process.env['LOCAL_FIRST_DB'] ?? 'true';
+harmonizeColorEnvironment();
 
 // Get environment configuration
 const config = getEnvironmentConfig();

@@ -2,12 +2,12 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSelectionResolver } from '../use-selection-resolver';
 
-const usePGliteDatabaseMock = vi.fn();
+const useOptionalPGliteDatabaseMock = vi.fn();
 const useFileExplorerStoreContextMock = vi.fn();
 const loadQuerySelectionSnapshotMock = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: () => usePGliteDatabaseMock(),
+  useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
 }));
 
 vi.mock('../file-explorer-provider', () => ({
@@ -24,7 +24,7 @@ vi.mock('../utils/query-selection-snapshot', () => ({
 
 describe('useSelectionResolver', () => {
   beforeEach(() => {
-    usePGliteDatabaseMock.mockReset();
+    useOptionalPGliteDatabaseMock.mockReset();
     useFileExplorerStoreContextMock.mockReset();
     loadQuerySelectionSnapshotMock.mockReset();
   });
@@ -72,7 +72,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    usePGliteDatabaseMock.mockReturnValue(null);
+    useOptionalPGliteDatabaseMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     renderHook(() => useSelectionResolver());
@@ -114,7 +114,7 @@ describe('useSelectionResolver', () => {
       getState: () => state,
     };
 
-    usePGliteDatabaseMock.mockReturnValue(null);
+    useOptionalPGliteDatabaseMock.mockReturnValue(null);
     useFileExplorerStoreContextMock.mockReturnValue(store);
 
     const { result } = renderHook(() => useSelectionResolver());
@@ -159,7 +159,7 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    usePGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockResolvedValue(['/src/utils.ts', '/src/index.ts']);
 
@@ -208,7 +208,7 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    usePGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockRejectedValue(new Error('snapshot broken'));
 
@@ -259,7 +259,7 @@ describe('useSelectionResolver', () => {
     };
 
     const store = { getState: () => state };
-    usePGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
     useFileExplorerStoreContextMock.mockReturnValue(store);
     loadQuerySelectionSnapshotMock.mockImplementation((_: unknown, snapshotId: string) => {
       if (snapshotId === 'snapshot-1') {
