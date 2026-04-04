@@ -1289,6 +1289,80 @@ describe('file-selection-actions', () => {
       expect(currentState.selectionModel.queryDescriptor?.totalSelectedCount).toBe(3);
     });
 
+    it('uses the updater state for query-path result deltas even if get() changes after set()', async () => {
+      let currentState = createMockState({
+        maxSelectionCount: 10,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/index.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 1,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts'],
+          pathSet: new Set(['/src/index.ts']),
+          directoryCounts: new Map([['/src', 1]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      let authoritativeSelectedCount = 0;
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState) as Partial<FileExplorerState>;
+          currentState = {
+            ...currentState,
+            ...result,
+            selectionModel: result.selectionModel ?? currentState.selectionModel,
+            selectedFilePaths: result.selectedFilePaths ?? currentState.selectedFilePaths,
+          };
+          authoritativeSelectedCount =
+            currentState.selectionModel.queryDescriptor?.totalSelectedCount ?? 0;
+          currentState = {
+            ...currentState,
+            selectionModel: {
+              ...currentState.selectionModel,
+              queryDescriptor: {
+                ...currentState.selectionModel.queryDescriptor!,
+                totalSelectedCount: 999,
+              },
+            },
+          };
+        }
+      });
+
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked('folder1', [
+        '/src/extra.ts',
+      ]);
+
+      expect(result).toEqual({
+        addedCount: 1,
+        cancelled: false,
+        limitReached: false,
+      });
+      expect(authoritativeSelectedCount).toBe(2);
+    });
+
     it('should add files for small selections (under chunk size)', async () => {
       // Arrange
       const mockState = createMockState({
@@ -1676,6 +1750,47 @@ describe('file-selection-actions', () => {
       expect(result.limitReached).toBe(true);
       expect(result.addedCount).toBe(10);
       expect(currentState.selectedFilePaths.size).toBe(10);
+    });
+
+    it('uses the updater state for explicit-path result deltas even if get() changes after set()', async () => {
+      let currentState = createMockState({
+        selectedFilePaths: new Set<string>(),
+        maxSelectionCount: 5,
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      let authoritativeSelectedCount = 0;
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+          authoritativeSelectedCount = currentState.selectedFilePaths.size;
+          currentState = {
+            ...currentState,
+            selectedFilePaths: new Set([
+              ...currentState.selectedFilePaths,
+              'folder1|@|concurrent.ts',
+            ]),
+          };
+        }
+      });
+
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked('folder1', [
+        'file1.ts',
+        'file2.ts',
+      ]);
+
+      expect(result).toEqual({
+        addedCount: 2,
+        cancelled: false,
+        limitReached: false,
+      });
+      expect(authoritativeSelectedCount).toBe(2);
     });
 
     it('should call onProgress for small (synchronous) selections', async () => {

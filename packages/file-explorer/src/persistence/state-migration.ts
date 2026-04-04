@@ -1,4 +1,4 @@
-import type { SerializedState } from '@brainstrike/types';
+import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
 interface ZustandPersistWrapper<T> {
@@ -7,6 +7,36 @@ interface ZustandPersistWrapper<T> {
 }
 
 const logger = createLogger('Persistence');
+
+function createEmptySerializedState(): SerializedState {
+  return {
+    currentFolderId: null,
+    devInlineFixtureEnabled: DEFAULT_STATE.devInlineFixtureEnabled,
+    excludeFilters: [...DEFAULT_STATE.excludeFilters],
+    expandedDirectoryPaths: [],
+    folderAccessOrder: [...DEFAULT_STATE.folderAccessOrder],
+    folderStates: {},
+    folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
+    includeFilters: [...DEFAULT_STATE.includeFilters],
+    includeProjectTree: DEFAULT_STATE.includeProjectTree,
+    isFiltersExpanded: DEFAULT_STATE.isFiltersExpanded,
+    lastActiveTab: DEFAULT_STATE.lastActiveTab,
+    maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
+    quickFilter: DEFAULT_STATE.quickFilter,
+    selectedFilePaths: [],
+    selectionModel: {
+      mode: DEFAULT_STATE.selectionModel.mode,
+      explicitPaths: [],
+      materializedAt: DEFAULT_STATE.selectionModel.materializedAt,
+      materializedPaths: null,
+      queryDescriptor: null,
+      ruleSetJson: DEFAULT_STATE.selectionModel.ruleSetJson,
+    },
+    tokenBudget: DEFAULT_STATE.tokenBudget,
+    useRegex: DEFAULT_STATE.useRegex,
+    viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
+  };
+}
 
 function looksLikeSerializedState(value: unknown): value is SerializedState {
   if (!(value && typeof value === 'object')) {
@@ -56,6 +86,13 @@ function ensureSelectionModel(state: SerializedState): SerializedState {
   };
 }
 
+function discardInvalidPayload(message: string, shouldLog: boolean): SerializedState {
+  if (shouldLog) {
+    logger.debug(message);
+  }
+  return createEmptySerializedState();
+}
+
 export function migrateState(
   rawPersistedState: unknown,
   version: number,
@@ -69,16 +106,19 @@ export function migrateState(
     if (shouldLog) {
       logger.debug('Migrate - No state (null or undefined), returning it as is.');
     }
-    return rawPersistedState as unknown as SerializedState;
+    return createEmptySerializedState();
   }
 
   if (typeof rawPersistedState !== 'object') {
-    return rawPersistedState as SerializedState;
+    return discardInvalidPayload(
+      'Migrate - Invalid non-object persisted payload, discarding.',
+      shouldLog
+    );
   }
 
   const wrapper = rawPersistedState as Partial<ZustandPersistWrapper<SerializedState>>;
   if ('state' in wrapper && wrapper.state === undefined) {
-    return rawPersistedState as SerializedState;
+    return discardInvalidPayload('Migrate - Wrapped state missing payload, discarding.', shouldLog);
   }
   const stateToProcess =
     wrapper.state !== undefined ? wrapper.state : (rawPersistedState as SerializedState);
@@ -87,11 +127,14 @@ export function migrateState(
     if (shouldLog) {
       logger.debug('Migrate - No actual state after unwrap (null/undefined), returning as is.');
     }
-    return stateToProcess as unknown as SerializedState;
+    return createEmptySerializedState();
   }
 
   if (!looksLikeSerializedState(stateToProcess)) {
-    return stateToProcess as SerializedState;
+    return discardInvalidPayload(
+      'Migrate - Payload does not match SerializedState shape, discarding.',
+      shouldLog
+    );
   }
 
   const serialized = stateToProcess as SerializedState;

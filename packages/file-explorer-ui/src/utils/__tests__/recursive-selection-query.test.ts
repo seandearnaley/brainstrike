@@ -343,4 +343,62 @@ describe('recursive-selection-query', () => {
     expect(result.filePaths).toEqual(['/root/shared/a.ts']);
     expect(adapter.readDirectory).toHaveBeenCalledTimes(1);
   });
+
+  it('caps throughput concurrency to avoid excessive parallel directory reads', async () => {
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const childDirectories = Array.from({ length: 40 }, (_, index) =>
+      createDirectoryNode({
+        path: `/root/dir-${index}`,
+        name: `dir-${index}`,
+        depth: 1,
+        loadState: 'unloaded',
+      })
+    );
+
+    const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
+      if (handle.path === '/root') {
+        return childDirectories;
+      }
+
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      activeReads -= 1;
+
+      return [
+        createFileNode({
+          path: `${handle.path}/file.ts`,
+          name: 'file.ts',
+          depth: 2,
+        }),
+      ];
+    });
+
+    const adapter = {
+      requestDirectoryAccess: vi.fn(),
+      readDirectory,
+      readFile: vi.fn(),
+      exists: vi.fn(),
+    } as unknown as FileSystemAdapter;
+
+    const root = createDirectoryNode({
+      path: '/root',
+      name: 'root',
+      loadState: 'unloaded',
+    });
+
+    const result = await querySelectableFiles({
+      roots: [root],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      excludeFilters: [],
+      maxResults: 400,
+      concurrency: 999,
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toHaveLength(40);
+    expect(maxActiveReads).toBeLessThanOrEqual(32);
+  });
 });

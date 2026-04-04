@@ -11,6 +11,7 @@ const logger = createLogger('RecursiveSelectionQuery');
 
 const DEFAULT_SCAN_CONCURRENCY = 6;
 const LOW_LIMIT_SCAN_THRESHOLD = 256;
+const MAX_SCAN_CONCURRENCY = 32;
 const PROGRESS_DIRECTORY_INTERVAL = 8;
 
 type PathFilterMatcher = ReturnType<typeof createPathFilterMatcher>;
@@ -659,7 +660,7 @@ export async function querySelectableFiles(
 
   const mode: RecursiveSelectionQueryMetrics['mode'] =
     limit <= LOW_LIMIT_SCAN_THRESHOLD ? 'early-stop' : 'throughput';
-  const effectiveConcurrency = Math.max(1, concurrency);
+  const effectiveConcurrency = Math.min(MAX_SCAN_CONCURRENCY, Math.max(1, concurrency));
   const initialRoots = applyOptionalFilter(roots, filterTreeFn);
   const state = initializeQueryState(initialRoots, matcher);
   const directoryTraversalState: DirectoryTraversalState = {

@@ -95,6 +95,11 @@ interface ComputeKeysResult {
   wasCapped: boolean;
 }
 
+interface QuerySelectionMutationResult {
+  addedCount: number;
+  limitReached: boolean;
+}
+
 function shouldStopKeyComputation(params: {
   cancelled: boolean;
   exhaustedBudget: boolean;
@@ -272,6 +277,38 @@ function applyQuerySelectionMutation(args: {
     },
     selectionVersion: state.selectionVersion + 1,
   };
+}
+
+function applyQuerySelectionAndMeasure(args: {
+  additions: readonly string[];
+  folderId: string;
+  removals: readonly string[];
+  set: (
+    partial: Partial<FileExplorerState> | ((state: FileExplorerState) => Partial<FileExplorerState>)
+  ) => void;
+}): QuerySelectionMutationResult {
+  const { additions, folderId, removals, set } = args;
+  let addedCount = 0;
+  let limitReached = false;
+
+  set((state) => {
+    const nextPartial = applyQuerySelectionMutation({
+      state,
+      folderId,
+      additions,
+      removals,
+    });
+    const nextDescriptor =
+      nextPartial.selectionModel?.queryDescriptor ?? state.selectionModel.queryDescriptor;
+    const previousSelectedCount = state.selectionModel.queryDescriptor?.totalSelectedCount ?? 0;
+
+    addedCount = nextDescriptor ? nextDescriptor.totalSelectedCount - previousSelectedCount : 0;
+    limitReached = (nextDescriptor?.totalSelectedCount ?? 0) >= state.maxSelectionCount;
+
+    return nextPartial;
+  });
+
+  return { addedCount, limitReached };
 }
 
 function resolveSelectionModelAfterExplicitMutation(
@@ -581,41 +618,34 @@ export const createFileSelectionActions = (
     // For small selections, use the synchronous version
     if (paths.length <= chunkSize) {
       const stateBefore = get();
-      const sizeBefore = stateBefore.selectedFilePaths.size;
 
       if (stateBefore.selectionModel.mode === 'query') {
-        set((state) =>
-          applyQuerySelectionMutation({
-            state,
-            folderId,
-            additions: paths,
-            removals: [],
-          })
-        );
-        const stateAfter = get();
-        const addedCount = stateAfter.selectionModel.queryDescriptor
-          ? stateAfter.selectionModel.queryDescriptor.totalSelectedCount -
-            (stateBefore.selectionModel.queryDescriptor?.totalSelectedCount ?? 0)
-          : 0;
-        const limitReached =
-          (stateAfter.selectionModel.queryDescriptor?.totalSelectedCount ?? 0) >=
-          stateAfter.maxSelectionCount;
+        const { addedCount, limitReached } = applyQuerySelectionAndMeasure({
+          additions: paths,
+          folderId,
+          removals: [],
+          set,
+        });
         onProgress?.(paths.length, paths.length);
         return { addedCount, cancelled: false, limitReached };
       }
 
+      let addedCount = 0;
+      let limitReached = false;
       set((state) => {
         const newSelectedFiles = new Set(state.selectedFilePaths);
         let currentSize = newSelectedFiles.size;
 
         for (const path of paths) {
           if (currentSize >= state.maxSelectionCount) {
+            limitReached = true;
             break;
           }
           const compositeKey = encodeFileSelection(folderId, path);
           if (!newSelectedFiles.has(compositeKey)) {
             newSelectedFiles.add(compositeKey);
             currentSize++;
+            addedCount++;
           }
         }
 
@@ -629,10 +659,6 @@ export const createFileSelectionActions = (
           selectionVersion: state.selectionVersion + 1,
         };
       });
-
-      const stateAfter = get();
-      const addedCount = stateAfter.selectedFilePaths.size - sizeBefore;
-      const limitReached = stateAfter.selectedFilePaths.size >= stateAfter.maxSelectionCount;
 
       onProgress?.(paths.length, paths.length);
 
@@ -649,22 +675,12 @@ export const createFileSelectionActions = (
     // unnecessary key computation.
     const currentState = get();
     if (currentState.selectionModel.mode === 'query') {
-      set((state) =>
-        applyQuerySelectionMutation({
-          state,
-          folderId,
-          additions: paths,
-          removals: [],
-        })
-      );
-      const stateAfter = get();
-      const addedCount = stateAfter.selectionModel.queryDescriptor
-        ? stateAfter.selectionModel.queryDescriptor.totalSelectedCount -
-          (currentState.selectionModel.queryDescriptor?.totalSelectedCount ?? 0)
-        : 0;
-      const limitReached =
-        (stateAfter.selectionModel.queryDescriptor?.totalSelectedCount ?? 0) >=
-        stateAfter.maxSelectionCount;
+      const { addedCount, limitReached } = applyQuerySelectionAndMeasure({
+        additions: paths,
+        folderId,
+        removals: [],
+        set,
+      });
       onProgress?.(paths.length, paths.length);
       return { addedCount, cancelled: false, limitReached };
     }

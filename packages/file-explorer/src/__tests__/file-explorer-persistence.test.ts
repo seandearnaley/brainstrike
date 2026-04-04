@@ -191,9 +191,21 @@ describe('file-explorer-persistence', () => {
       migrateFn = persistOptions.migrate;
     });
 
-    it('should return undefined if raw persisted state is null or undefined', () => {
-      expect(migrateFn(null, 1)).toBeNull();
-      expect(migrateFn(undefined, 1)).toBeUndefined();
+    it('should replace nullish raw persisted state with a safe empty serialized state', () => {
+      expect(migrateFn(null, 1)).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
+      });
+      expect(migrateFn(undefined, 1)).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
+      });
     });
 
     it('should unwrap state from { state, version } wrapper', () => {
@@ -306,17 +318,29 @@ describe('file-explorer-persistence', () => {
       });
     });
 
-    it('should return wrapper unchanged when state is undefined', () => {
+    it('should discard wrappers when state is undefined', () => {
       const wrapper = { state: undefined, version: 1 } as unknown as SerializedState;
       const result = migrateFn(wrapper, 1);
-      expect(result).toEqual(wrapper);
+      expect(result).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
+      });
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
 
-    it('should handle object missing state property gracefully', () => {
+    it('should replace malformed objects with a safe empty serialized state', () => {
       const malformed = { version: 1 } as unknown as SerializedState;
       const result = migrateFn(malformed as unknown as SerializedState, 1);
-      expect(result).toEqual(malformed as unknown as SerializedState);
+      expect(result).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
+      });
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
   });
