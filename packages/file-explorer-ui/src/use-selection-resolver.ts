@@ -11,6 +11,7 @@ import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
+import { defaultCollator } from './utils/file-node-collator';
 import { loadQuerySelectionSnapshot } from './utils/query-selection-snapshot';
 
 export interface SelectionResolverState {
@@ -155,9 +156,7 @@ export function useSelectionResolver(): SelectionResolverState {
 
   const effectiveRelativePaths = useMemo(() => {
     if (selectionModel.mode === 'rules') {
-      return Array.from(selectionModel.materializedPaths ?? []).sort((left, right) =>
-        left.localeCompare(right)
-      );
+      return Array.from(selectionModel.materializedPaths ?? []).sort(defaultCollator.compare);
     }
     if (selectionModel.mode === 'query') {
       if (
@@ -165,9 +164,7 @@ export function useSelectionResolver(): SelectionResolverState {
         selectionModel.materializedPaths &&
         selectionModel.materializedPaths.size > 0
       ) {
-        return Array.from(selectionModel.materializedPaths).sort((left, right) =>
-          left.localeCompare(right)
-        );
+        return Array.from(selectionModel.materializedPaths).sort(defaultCollator.compare);
       }
       return resolvedQuerySelection.filePaths;
     }
@@ -187,7 +184,7 @@ export function useSelectionResolver(): SelectionResolverState {
   }, [currentFolderId, effectiveRelativePaths, selectedFilePaths, selectionModel.mode]);
 
   const selectedFilesList = useMemo(
-    () => Array.from(effectiveSelection).sort((left, right) => left.localeCompare(right)),
+    () => Array.from(effectiveSelection).sort(defaultCollator.compare),
     [effectiveSelection]
   );
 

@@ -49,8 +49,6 @@ export function normalizeNodePath(path: string): string {
 
 function processDirectoryNode(
   node: IFileNode,
-  _path: string,
-  _matchesInclude: (path: string) => boolean,
   processTree: (nodes: IFileNode[]) => IFileNode[]
 ): IFileNode | null {
   const cloned = cloneNode(node, false);
@@ -148,7 +146,7 @@ export function createProcessTreeFunction(
       }
 
       if (node.type === 'directory') {
-        const processedDirectory = processDirectoryNode(node, path, matchesInclude, processTree);
+        const processedDirectory = processDirectoryNode(node, processTree);
         if (processedDirectory) {
           result.push(processedDirectory);
         }

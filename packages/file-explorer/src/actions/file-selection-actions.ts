@@ -1,4 +1,6 @@
 import type { FileExplorerState, SelectionQueryDescriptor } from '@brainstrike/types';
+import { createEmptySelectionModel } from '@brainstrike/types';
+import { defaultCollator } from '@brainstrike/utils/collator';
 import { createLogger } from '@brainstrike/utils/logger';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
@@ -154,17 +156,13 @@ function appendChunkKeys(args: {
 
 function createExplicitSelectionModel(selectedFiles: Set<string>) {
   return {
-    mode: 'explicit' as const,
+    ...createEmptySelectionModel(),
     explicitPaths: new Set(selectedFiles),
-    ruleSetJson: null,
-    materializedPaths: null,
-    materializedAt: null,
-    queryDescriptor: null,
   };
 }
 
 function sortPaths(paths: Set<string>): string[] {
-  return Array.from(paths).sort((left, right) => left.localeCompare(right));
+  return Array.from(paths).sort(defaultCollator.compare);
 }
 
 function buildCompatibleSelectedFilePaths(

@@ -1,6 +1,8 @@
 import type { DbHandle } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 
+import { defaultCollator } from './file-node-collator';
+
 const QUERY_SELECTION_SNAPSHOT_TTL_HOURS = 24;
 const logger = createLogger('QuerySelectionSnapshot');
 
@@ -19,7 +21,7 @@ function normalizeSnapshotRows(rows: unknown[]): string[] {
       return typeof filePath === 'string' ? filePath : (row as QueryResultRow).filePath;
     })
     .filter((value): value is string => typeof value === 'string')
-    .sort((left, right) => left.localeCompare(right));
+    .sort(defaultCollator.compare);
 }
 
 export async function createQuerySelectionSnapshot(

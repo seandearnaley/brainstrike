@@ -494,7 +494,9 @@ export function listNormalizedDescendantFilePaths(
       continue;
     }
 
-    queue.push(...(state.childPathsByPath.get(currentPath) ?? []));
+    for (const childPath of state.childPathsByPath.get(currentPath) ?? []) {
+      queue.push(childPath);
+    }
   }
 
   return filePaths;

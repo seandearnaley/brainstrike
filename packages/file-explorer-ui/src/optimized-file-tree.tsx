@@ -896,7 +896,7 @@ function createTreeRowData(node: IFileNode, options: BuildFileTreeRowsOptions): 
       node.type === 'directory' ? fileExplorer.getFolderFileCount(node).count : 0,
     hasUnloadedDirectoryChildren:
       node.type === 'directory' ? hasUnloadedDirectoryChildren(node) : false,
-    immediateChildren: node.type === 'directory' ? [...(node.children ?? [])] : [],
+    immediateChildren: node.type === 'directory' ? (node.children ?? []) : [],
     isChildrenLoading: isNodeChildrenLoading(node, loadingPaths),
     isFileLoading: isNodeFileLoading(node, folderId, loadingFiles),
     isLoadingForSelection: Boolean(isLoadingForSelection && loadingPathForSelection === node.path),

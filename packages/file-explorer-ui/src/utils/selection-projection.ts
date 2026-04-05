@@ -16,8 +16,7 @@ interface DescriptorMatchers {
   matchesInclude: (path: string) => boolean;
 }
 
-const descriptorMatcherCache = new Map<string, DescriptorMatchers>();
-const MAX_DESCRIPTOR_CACHE_ENTRIES = 128;
+const descriptorMatcherCache = new WeakMap<SelectionQueryDescriptor, DescriptorMatchers>();
 const materializedDirectoryCountCache = new WeakMap<ReadonlySet<string>, Map<string, number>>();
 
 function matchesAnyPathVariant(path: string, matcher: (value: string) => boolean): boolean {
@@ -46,44 +45,21 @@ function createPathMatcher(patterns: string[], useRegex: boolean): (path: string
   };
 }
 
-function buildDescriptorCacheKey(descriptor: SelectionQueryDescriptor): string {
-  return JSON.stringify({
-    kind: descriptor.kind,
-    folderId: descriptor.folderId,
-    rootPath: descriptor.rootPath,
-    coveredDirectoryPaths: descriptor.coveredDirectoryPaths,
-    includeFilters: descriptor.includeFilters,
-    excludeFilters: descriptor.excludeFilters,
-    includedPaths: descriptor.includedPaths,
-    excludedPaths: descriptor.excludedPaths,
-    useRegex: descriptor.useRegex,
-  });
-}
-
 function getDescriptorMatchers(descriptor: SelectionQueryDescriptor): DescriptorMatchers {
-  const cacheKey = buildDescriptorCacheKey(descriptor);
-  const cached = descriptorMatcherCache.get(cacheKey);
+  const cached = descriptorMatcherCache.get(descriptor);
   if (cached) {
-    descriptorMatcherCache.delete(cacheKey);
-    descriptorMatcherCache.set(cacheKey, cached);
     return cached;
   }
 
-  const nextMatchers = {
+  const matchers: DescriptorMatchers = {
     includedPaths: new Set(descriptor.includedPaths),
     excludedPaths: new Set(descriptor.excludedPaths),
     coveredDirectoryPaths: new Set(descriptor.coveredDirectoryPaths),
     matchesExclude: createPathMatcher(descriptor.excludeFilters, descriptor.useRegex),
     matchesInclude: createPathMatcher(descriptor.includeFilters, descriptor.useRegex),
   };
-  if (descriptorMatcherCache.size >= MAX_DESCRIPTOR_CACHE_ENTRIES) {
-    const oldestKey = descriptorMatcherCache.keys().next().value;
-    if (oldestKey !== undefined) {
-      descriptorMatcherCache.delete(oldestKey);
-    }
-  }
-  descriptorMatcherCache.set(cacheKey, nextMatchers);
-  return nextMatchers;
+  descriptorMatcherCache.set(descriptor, matchers);
+  return matchers;
 }
 
 function incrementDirectoryCount(counts: Map<string, number>, path: string): void {

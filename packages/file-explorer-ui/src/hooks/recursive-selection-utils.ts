@@ -12,7 +12,7 @@ import {
   DEFAULT_SELECTION_CHUNK_SIZE,
 } from '@brainstrike/file-explorer';
 import type { SelectionQueryDescriptor } from '@brainstrike/types';
-
+import { defaultCollator } from '../utils/file-node-collator';
 import type { PersistableFileExplorerStore } from '../utils/persist-file-explorer-state';
 
 export function yieldToBrowser(): Promise<void> {
@@ -65,7 +65,7 @@ export function collectAncestorDirectories(filePaths: string[]): string[] {
     }
   }
 
-  return Array.from(coveredPaths).sort((left, right) => left.localeCompare(right));
+  return Array.from(coveredPaths).sort(defaultCollator.compare);
 }
 
 export function buildQuerySelectionDescriptor(args: {

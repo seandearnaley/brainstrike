@@ -1,4 +1,5 @@
 import type { QuerySelectionManifest, SelectionQueryDescriptor } from '@brainstrike/types';
+import { defaultCollator } from '@brainstrike/utils/collator';
 
 export interface ResolvedQuerySelection {
   directoryCounts: Map<string, number>;
@@ -31,7 +32,7 @@ function incrementDirectoryCounts(
 }
 
 function normalizeAndSortPaths(filePaths: readonly string[]): string[] {
-  return Array.from(new Set(filePaths)).sort((left, right) => left.localeCompare(right));
+  return Array.from(new Set(filePaths)).sort(defaultCollator.compare);
 }
 
 export function buildQuerySelectionFingerprint(args: {
@@ -137,7 +138,7 @@ function buildResolvedQuerySelection(
     incrementDirectoryCounts(directoryCounts, filePath, 1);
   }
 
-  filePaths.sort((left, right) => left.localeCompare(right));
+  filePaths.sort(defaultCollator.compare);
 
   return {
     filePaths,
