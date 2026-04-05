@@ -1,7 +1,7 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 
@@ -194,6 +194,21 @@ it('renders loader and icon states correctly', () => {
     rerender(<OptimizedFileTreeRow {...baseDirProps} isExpanded={true} isLoading={false} />);
   });
   expect(screen.getByRole('button', { name: /collapse dir directory/i })).toBeInTheDocument();
+});
+
+it('supports keyboard interaction on the treeitem wrapper', () => {
+  const store = createStore();
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+  const onToggle = vi.fn();
+
+  render(<OptimizedFileTreeRow {...baseDirProps} onToggleDirectoryExpansion={onToggle} />);
+
+  const treeitem = screen.getByRole('treeitem');
+  expect(treeitem).toHaveAttribute('tabindex', '0');
+
+  fireEvent.keyDown(treeitem, { key: 'ArrowRight' });
+
+  expect(onToggle).toHaveBeenCalledWith('/dir');
 });
 
 it('shows rule-selected indicator when file is selected by rules', () => {

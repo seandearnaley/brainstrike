@@ -20,7 +20,7 @@ import {
   MoreHorizontal as MoreHorizontalIcon,
   Sparkles,
 } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, KeyboardEvent, MouseEvent } from 'react';
 import { memo, useCallback, useMemo } from 'react';
 import {
   useFileExplorerStoreContext,
@@ -457,43 +457,46 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       isQuerySelectionReady,
     ]);
 
-    const handleExpansionClick = useCallback(
-      async (e: React.MouseEvent<HTMLButtonElement>) => {
-        e.stopPropagation();
+    const handleExpansionToggle = useCallback(async () => {
+      // For lazy loading: if directory children haven't been loaded yet, load them first
+      // Check loadState rather than children because adapters may set children: [] initially
+      const needsLoad =
+        node.type === 'directory' &&
+        (node.loadState === 'unloaded' || node.loadState === undefined) &&
+        onLoadChildren;
 
-        // For lazy loading: if directory children haven't been loaded yet, load them first
-        // Check loadState rather than children because adapters may set children: [] initially
-        const needsLoad =
-          node.type === 'directory' &&
-          (node.loadState === 'unloaded' || node.loadState === undefined) &&
-          onLoadChildren;
-
-        if (needsLoad) {
-          try {
-            await onLoadChildren(node.path);
-          } catch (error: unknown) {
-            if (onLoadChildrenError) {
-              onLoadChildrenError(error, node.path);
-            } else {
-              logger.error('Failed to load directory children before expansion', {
-                path: node.path,
-                error,
-              });
-            }
-            return;
+      if (needsLoad) {
+        try {
+          await onLoadChildren(node.path);
+        } catch (error: unknown) {
+          if (onLoadChildrenError) {
+            onLoadChildrenError(error, node.path);
+          } else {
+            logger.error('Failed to load directory children before expansion', {
+              path: node.path,
+              error,
+            });
           }
+          return;
         }
+      }
 
-        onToggleDirectoryExpansion(node.path);
+      onToggleDirectoryExpansion(node.path);
+    }, [
+      node.path,
+      node.type,
+      node.loadState,
+      onToggleDirectoryExpansion,
+      onLoadChildren,
+      onLoadChildrenError,
+    ]);
+
+    const handleExpansionClick = useCallback(
+      (event: MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        void handleExpansionToggle();
       },
-      [
-        node.path,
-        node.type,
-        node.loadState,
-        onToggleDirectoryExpansion,
-        onLoadChildren,
-        onLoadChildrenError,
-      ]
+      [handleExpansionToggle]
     );
 
     const handleCheckboxChange = useCallback(() => {
@@ -502,10 +505,49 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       }
     }, [wouldExceedLimit, handleNodeSelection]);
 
+    const handleTreeItemKeyDown = useCallback(
+      (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.target !== event.currentTarget) {
+          return;
+        }
+
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          handleCheckboxChange();
+          return;
+        }
+
+        if (node.type !== 'directory' || isChildrenLoading) {
+          return;
+        }
+
+        if (event.key === 'ArrowRight' && !isExpanded) {
+          event.preventDefault();
+          void handleExpansionToggle();
+          return;
+        }
+
+        if (event.key === 'ArrowLeft' && isExpanded) {
+          event.preventDefault();
+          onToggleDirectoryExpansion(node.path);
+        }
+      },
+      [
+        handleCheckboxChange,
+        handleExpansionToggle,
+        isChildrenLoading,
+        isExpanded,
+        node.path,
+        node.type,
+        onToggleDirectoryExpansion,
+      ]
+    );
+
     return (
       <div
         aria-expanded={node.type === 'directory' ? isExpanded : undefined}
         className="list-none"
+        onKeyDown={handleTreeItemKeyDown}
         role="treeitem"
         style={style}
         tabIndex={0}

@@ -246,6 +246,9 @@ function applyQuerySelectionMutation(args: {
     }
     const wasExcluded = excludedPaths.has(path);
     if (wasExcluded && baseSelectedPaths.has(path)) {
+      if (totalSelectedCount >= state.maxSelectionCount) {
+        break;
+      }
       excludedPaths.delete(path);
       totalSelectedCount += 1;
       didChange = true;

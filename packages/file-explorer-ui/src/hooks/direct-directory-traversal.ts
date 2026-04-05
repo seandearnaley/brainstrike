@@ -4,6 +4,7 @@ export interface DirectDirectoryTraversalOptions {
   getDirectoryByPath: (path: string) => IFileNode | undefined;
   isActive: () => boolean;
   loadDirectoryPath: (path: string) => Promise<void>;
+  maxDirectories?: number;
   onProgress?: ((loaded: number, total: number) => void) | undefined;
 }
 
@@ -15,10 +16,22 @@ export interface DirectDirectoryTraversalResult {
   visitedPaths: string[];
 }
 
+const DEFAULT_MAX_DIRECTORIES = 100_000;
+
+function assertDirectoryTraversalWithinLimit(
+  discoveredCount: number,
+  maxDirectories: number
+): void {
+  if (discoveredCount > maxDirectories) {
+    throw new Error(`Directory traversal limit exceeded (${maxDirectories})`);
+  }
+}
+
 function enqueueChildDirectories(
   node: IFileNode,
   queue: string[],
-  discoveredPaths: Set<string>
+  discoveredPaths: Set<string>,
+  maxDirectories: number
 ): number {
   let added = 0;
   for (const child of node.children ?? []) {
@@ -26,6 +39,7 @@ function enqueueChildDirectories(
       continue;
     }
     discoveredPaths.add(child.path);
+    assertDirectoryTraversalWithinLimit(discoveredPaths.size, maxDirectories);
     queue.push(child.path);
     added += 1;
   }
@@ -40,10 +54,17 @@ export async function traverseDirectoriesDirect(
   initialPaths: string[],
   options: DirectDirectoryTraversalOptions
 ): Promise<DirectDirectoryTraversalResult> {
-  const { getDirectoryByPath, isActive, loadDirectoryPath, onProgress } = options;
+  const {
+    getDirectoryByPath,
+    isActive,
+    loadDirectoryPath,
+    maxDirectories = DEFAULT_MAX_DIRECTORIES,
+    onProgress,
+  } = options;
   const queue = [...initialPaths];
   let queueIndex = 0;
   const discoveredPaths = new Set(queue);
+  assertDirectoryTraversalWithinLimit(discoveredPaths.size, maxDirectories);
   const visitedPaths: string[] = [];
   let loaded = 0;
   let total = queue.length;
@@ -82,7 +103,7 @@ export async function traverseDirectoriesDirect(
       continue;
     }
 
-    total += enqueueChildDirectories(currentNode, queue, discoveredPaths);
+    total += enqueueChildDirectories(currentNode, queue, discoveredPaths, maxDirectories);
     loaded += 1;
     onProgress?.(loaded, total);
   }

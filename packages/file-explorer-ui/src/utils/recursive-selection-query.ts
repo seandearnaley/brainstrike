@@ -12,6 +12,7 @@ const logger = createLogger('RecursiveSelectionQuery');
 const DEFAULT_SCAN_CONCURRENCY = 6;
 const LOW_LIMIT_SCAN_THRESHOLD = 256;
 const MAX_SCAN_CONCURRENCY = 32;
+const MAX_DIRECTORY_TRAVERSAL_COUNT = 100_000;
 const PROGRESS_DIRECTORY_INTERVAL = 8;
 
 type PathFilterMatcher = ReturnType<typeof createPathFilterMatcher>;
@@ -48,6 +49,7 @@ export interface RecursiveSelectionQueryOptions {
   fileSystemAdapter: FileSystemAdapter;
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
   includeFilters: string[];
+  maxDirectories?: number;
   maxResults?: number;
   onProgress?: (progress: RecursiveSelectionQueryProgress) => void;
   roots: IFileNode[];
@@ -73,6 +75,7 @@ interface MutableQueryState {
 }
 
 interface DirectoryTraversalState {
+  maxDirectories: number;
   queuedDirectoryPaths: Set<string>;
   scannedDirectoryPaths: Set<string>;
 }
@@ -179,6 +182,13 @@ function consumeNodes(args: {
 
     if (!directoryTraversalState.queuedDirectoryPaths.has(node.path)) {
       directoryTraversalState.queuedDirectoryPaths.add(node.path);
+      if (
+        directoryTraversalState.queuedDirectoryPaths.size > directoryTraversalState.maxDirectories
+      ) {
+        throw new Error(
+          `Recursive selection traversal limit exceeded (${directoryTraversalState.maxDirectories})`
+        );
+      }
       nextFrontier.push(node);
       state.directoriesDiscovered++;
     }
@@ -729,6 +739,7 @@ export async function querySelectableFiles(
     fileSystemAdapter,
     filterTreeFn,
     includeFilters,
+    maxDirectories = MAX_DIRECTORY_TRAVERSAL_COUNT,
     maxResults,
     onProgress,
     roots,
@@ -751,6 +762,7 @@ export async function querySelectableFiles(
   const initialRoots = applyOptionalFilter(roots, filterTreeFn);
   const state = initializeQueryState(initialRoots, matcher);
   const directoryTraversalState: DirectoryTraversalState = {
+    maxDirectories,
     queuedDirectoryPaths: new Set(
       initialRoots
         .filter(
@@ -763,6 +775,9 @@ export async function querySelectableFiles(
     ),
     scannedDirectoryPaths: new Set(),
   };
+  if (directoryTraversalState.queuedDirectoryPaths.size > maxDirectories) {
+    throw new Error(`Recursive selection traversal limit exceeded (${maxDirectories})`);
+  }
   const progressReporter = createProgressReporter(onProgress, state);
 
   let frontier = initialRoots;

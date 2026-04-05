@@ -444,6 +444,52 @@ describe('file-selection-actions', () => {
       expect(updatedState.selectionModel?.queryDescriptor?.totalSelectedCount).toBe(2);
     });
 
+    it('does not re-include an excluded manifest path when query selection is already at the max limit', () => {
+      const mockState = createMockState({
+        maxSelectionCount: 1,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/utils.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: ['/src/index.ts'],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 1,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      fileSelectionActions.addSelectedFile('folder1', '/src/index.ts');
+
+      // @ts-expect-error mock narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toEqual({});
+    });
+
     it('adds a non-manifest query path as an included override and syncs compatibility keys', () => {
       const mockState = createMockState({
         selectionModel: {

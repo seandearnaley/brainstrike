@@ -151,4 +151,22 @@ describe('traverseDirectoriesDirect', () => {
     expect(result.visitedPaths).toEqual(['/root/src']);
     expect(result.discoveredPaths).toEqual(new Set(['/root/src']));
   });
+
+  it('throws when discovered directories exceed the traversal safety limit', async () => {
+    const root = createDirectory('/root', 'loaded', [createDirectory('/root/src', 'loaded')]);
+    const src = findDirectoryByPath(root, '/root/src');
+    if (!src) {
+      throw new Error('missing src');
+    }
+    src.children = [createDirectory('/root/src/nested', 'loaded')];
+
+    await expect(
+      traverseDirectoriesDirect(['/root/src'], {
+        getDirectoryByPath: (path) => findDirectoryByPath(root, path),
+        isActive: () => true,
+        loadDirectoryPath: async () => undefined,
+        maxDirectories: 1,
+      })
+    ).rejects.toThrow('Directory traversal limit exceeded (1)');
+  });
 });

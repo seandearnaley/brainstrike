@@ -43,7 +43,7 @@ function handleSelectAllError(err: unknown, onError?: (error: Error) => void): S
     success: false,
     filePaths: [],
     cancelled: isCancelled,
-    error: err instanceof Error ? err.message : String(err),
+    ...(isCancelled ? {} : { error: err instanceof Error ? err.message : String(err) }),
   };
 }
 
@@ -172,10 +172,10 @@ export function useRecursiveSelectAll(
         return { success: false, filePaths: [], error: 'Operation already in progress' };
       }
 
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
       isOperationInProgressRef.current = true;
       isLoadingForSelectAllRef.current = true;
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
       setState({
         isLoadingForSelectAll: true,
         loadingProgress: null,

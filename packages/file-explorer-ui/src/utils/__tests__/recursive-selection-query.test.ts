@@ -258,6 +258,36 @@ describe('recursive-selection-query', () => {
     expect(adapter.readDirectory).not.toHaveBeenCalled();
   });
 
+  it('throws when discovered directories exceed the traversal safety limit', async () => {
+    const adapter = createMockAdapter({
+      '/root': [
+        createDirectoryNode({
+          path: '/root/a',
+          name: 'a',
+          depth: 1,
+          loadState: 'unloaded',
+        }),
+        createDirectoryNode({
+          path: '/root/b',
+          name: 'b',
+          depth: 1,
+          loadState: 'unloaded',
+        }),
+      ],
+    });
+
+    await expect(
+      querySelectableFiles({
+        roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+        fileSystemAdapter: adapter,
+        includeFilters: [],
+        excludeFilters: [],
+        maxDirectories: 2,
+        useRegex: false,
+      })
+    ).rejects.toThrow('Recursive selection traversal limit exceeded (2)');
+  });
+
   it('stops scheduling additional throughput chunks once the limit is reached', async () => {
     const makeFiles = (prefix: string, count: number): IFileNode[] =>
       Array.from({ length: count }, (_, index) =>

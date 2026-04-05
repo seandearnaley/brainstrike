@@ -159,11 +159,11 @@ export function useRecursiveFolderSelect(
         return { success: false, filePaths: [], error: 'Operation already in progress' };
       }
 
+      isStartingRef.current = true;
+      isLoadingForSelectionRef.current = true;
       const currentNode = getSubtreeByPath(node.path) ?? node;
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
-      isStartingRef.current = true;
-      isLoadingForSelectionRef.current = true;
       setState({
         isLoadingForSelection: true,
         loadingPath: node.path,
