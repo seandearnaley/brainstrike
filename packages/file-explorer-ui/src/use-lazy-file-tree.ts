@@ -906,6 +906,7 @@ export function useLazyFileTree(
     (path: string) => {
       // Abort the in-flight request
       cancelChildLoading(path);
+      inFlightChildLoadsRef.current.delete(path);
 
       // Remove from loading paths and reset node to unloaded state
       const nextTree = commitNormalizedTree((currentTree) =>

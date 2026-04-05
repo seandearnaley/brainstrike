@@ -7,6 +7,7 @@ interface ZustandPersistWrapper<T> {
 }
 
 const logger = createLogger('Persistence');
+const CURRENT_STORAGE_VERSION = 2;
 
 function createEmptySerializedState(): SerializedState {
   return {
@@ -45,10 +46,11 @@ function looksLikeSerializedState(value: unknown): value is SerializedState {
 
   const candidate = value as Record<string, unknown>;
   return (
-    'folderStates' in candidate ||
-    'selectedFilePaths' in candidate ||
-    'expandedDirectoryPaths' in candidate ||
-    'currentFolderId' in candidate
+    (('folderStates' in candidate && typeof candidate['folderStates'] === 'object') ||
+      ('selectedFilePaths' in candidate && Array.isArray(candidate['selectedFilePaths'])) ||
+      ('expandedDirectoryPaths' in candidate &&
+        Array.isArray(candidate['expandedDirectoryPaths']))) &&
+    ('currentFolderId' in candidate || 'selectionModel' in candidate)
   );
 }
 
@@ -93,33 +95,45 @@ function discardInvalidPayload(message: string, shouldLog: boolean): SerializedS
   return createEmptySerializedState();
 }
 
-export function migrateState(
+function logPersistedStateCandidate(
   rawPersistedState: unknown,
   version: number,
   shouldLog: boolean
-): SerializedState {
-  if (shouldLog) {
-    logger.debug('Migrate - Received raw state:', rawPersistedState, 'Version:', version);
+): void {
+  if (!shouldLog) {
+    return;
   }
 
+  logger.debug('Migrate - Received persisted state candidate', {
+    version,
+    wrapperStatePresent:
+      typeof rawPersistedState === 'object' &&
+      rawPersistedState !== null &&
+      'state' in (rawPersistedState as Record<string, unknown>),
+    valueType: rawPersistedState === null ? 'null' : typeof rawPersistedState,
+  });
+}
+
+function unwrapPersistedState(
+  rawPersistedState: unknown,
+  shouldLog: boolean
+): SerializedState | null | undefined | 'invalid' {
   if (rawPersistedState === null || rawPersistedState === undefined) {
     if (shouldLog) {
       logger.debug('Migrate - No state (null or undefined), returning it as is.');
     }
-    return createEmptySerializedState();
+    return null;
   }
 
   if (typeof rawPersistedState !== 'object') {
-    return discardInvalidPayload(
-      'Migrate - Invalid non-object persisted payload, discarding.',
-      shouldLog
-    );
+    return 'invalid';
   }
 
   const wrapper = rawPersistedState as Partial<ZustandPersistWrapper<SerializedState>>;
   if ('state' in wrapper && wrapper.state === undefined) {
-    return discardInvalidPayload('Migrate - Wrapped state missing payload, discarding.', shouldLog);
+    return 'invalid';
   }
+
   const stateToProcess =
     wrapper.state !== undefined ? wrapper.state : (rawPersistedState as SerializedState);
 
@@ -127,7 +141,33 @@ export function migrateState(
     if (shouldLog) {
       logger.debug('Migrate - No actual state after unwrap (null/undefined), returning as is.');
     }
+    return null;
+  }
+
+  return stateToProcess;
+}
+
+export function migrateState(
+  rawPersistedState: unknown,
+  version: number,
+  shouldLog: boolean
+): SerializedState {
+  logPersistedStateCandidate(rawPersistedState, version, shouldLog);
+  const stateToProcess = unwrapPersistedState(rawPersistedState, shouldLog);
+  if (stateToProcess === null || stateToProcess === undefined) {
     return createEmptySerializedState();
+  }
+  if (stateToProcess === 'invalid') {
+    const isWrappedStateMissingPayload =
+      typeof rawPersistedState === 'object' &&
+      rawPersistedState !== null &&
+      'state' in (rawPersistedState as Record<string, unknown>);
+    return discardInvalidPayload(
+      isWrappedStateMissingPayload
+        ? 'Migrate - Wrapped state missing payload, discarding.'
+        : 'Migrate - Invalid non-object persisted payload, discarding.',
+      shouldLog
+    );
   }
 
   if (!looksLikeSerializedState(stateToProcess)) {
@@ -138,9 +178,22 @@ export function migrateState(
   }
 
   const serialized = stateToProcess as SerializedState;
+  if (version > CURRENT_STORAGE_VERSION) {
+    return discardInvalidPayload(
+      `Migrate - Future persisted version ${version} is not supported, discarding.`,
+      shouldLog
+    );
+  }
   const migrated = version < 2 ? ensureSelectionModel(serialized) : serialized;
   if (shouldLog) {
-    logger.debug('Migrate - Returning valid SerializedState:', migrated);
+    logger.debug('Migrate - Returning valid SerializedState summary', {
+      currentFolderId: migrated.currentFolderId,
+      folderStateCount: Object.keys(migrated.folderStates ?? {}).length,
+      hasSelectionModel: Boolean(migrated.selectionModel),
+      selectedFileCount: Array.isArray(migrated.selectedFilePaths)
+        ? migrated.selectedFilePaths.length
+        : 0,
+    });
   }
   return migrated;
 }

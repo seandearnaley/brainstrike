@@ -702,6 +702,32 @@ describe('state-serialization', () => {
       });
     });
 
+    it('truncates oversized persisted string arrays during deserialize', () => {
+      const current = buildState();
+      const oversizedPaths = Array.from({ length: 50_100 }, (_, index) => `src/file-${index}.ts`);
+      const persisted = {
+        currentFolderId: 'folder1',
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: oversizedPaths,
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+      } as unknown as SerializedState;
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.selectedFilePaths.size).toBe(50_000);
+    });
+
     it('falls back to explicit mode when a persisted query descriptor is malformed', () => {
       const current = buildState();
       const persisted = {

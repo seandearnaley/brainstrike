@@ -444,4 +444,29 @@ describe('recursive-selection-query', () => {
     expect(result.filePaths).toHaveLength(40);
     expect(maxActiveReads).toBeLessThanOrEqual(32);
   });
+
+  it('does not prematurely close a throughput batch when synchronous directory reads settle immediately', async () => {
+    const adapter = createMockAdapter({
+      '/root': [
+        createDirectoryNode({ path: '/root/a', name: 'a', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/b', name: 'b', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/c', name: 'c', depth: 1, loadState: 'unloaded' }),
+      ],
+      '/root/a': [createFileNode({ path: '/root/a/a.ts', name: 'a.ts', depth: 2 })],
+      '/root/b': [createFileNode({ path: '/root/b/b.ts', name: 'b.ts', depth: 2 })],
+      '/root/c': [createFileNode({ path: '/root/c/c.ts', name: 'c.ts', depth: 2 })],
+    });
+
+    const result = await querySelectableFiles({
+      roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      excludeFilters: [],
+      concurrency: 2,
+      maxResults: 10,
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual(['/root/a/a.ts', '/root/b/b.ts', '/root/c/c.ts']);
+  });
 });

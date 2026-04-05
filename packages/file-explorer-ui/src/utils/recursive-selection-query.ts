@@ -74,6 +74,7 @@ interface MutableQueryState {
 
 interface DirectoryTraversalState {
   queuedDirectoryPaths: Set<string>;
+  scannedDirectoryPaths: Set<string>;
 }
 
 interface ScanResult {
@@ -354,6 +355,10 @@ async function scanUnloadedDirectories(args: {
   if (mode === 'early-stop') {
     for (const node of unloadedDirectories) {
       throwIfAborted(abortSignal);
+      if (directoryTraversalState.scannedDirectoryPaths.has(node.path)) {
+        continue;
+      }
+      directoryTraversalState.scannedDirectoryPaths.add(node.path);
       state.currentPath = node.path;
       const children = await scanDirectory(fileSystemAdapter, node, filterTreeFn, abortSignal);
       state.directoriesReadFromAdapter++;
@@ -495,33 +500,74 @@ async function drainThroughputScanQueue(args: {
       if (!result) {
         break;
       }
-
-      if (result.error) {
-        if (scanAbortController.signal.aborted && isAbortError(result.error)) {
-          return;
-        }
-        throw result.error;
-      }
-
-      state.currentPath = result.node.path;
-      state.directoriesReadFromAdapter++;
-      state.directoriesCompleted++;
-      const stopped = consumeNodes({
+      const stopped = processThroughputScanResult({
         directoryTraversalState,
+        limit,
         matcher,
-        maxResults: limit,
         nextFrontier,
-        nodes: result.children,
+        progressReporter,
+        result,
+        scanAbortController,
         state,
       });
-      progressReporter.emit();
       if (stopped) {
-        state.limitReached = true;
-        scanAbortController.abort();
         return;
       }
     }
   }
+}
+
+function processThroughputScanResult(args: {
+  directoryTraversalState: DirectoryTraversalState;
+  limit: number;
+  matcher: PathFilterMatcher;
+  nextFrontier: IFileNode[];
+  progressReporter: { emit: (force?: boolean) => void };
+  result: ScanResult;
+  scanAbortController: AbortController;
+  state: MutableQueryState;
+}): boolean {
+  const {
+    directoryTraversalState,
+    limit,
+    matcher,
+    nextFrontier,
+    progressReporter,
+    result,
+    scanAbortController,
+    state,
+  } = args;
+
+  if (result.error) {
+    if (scanAbortController.signal.aborted && isAbortError(result.error)) {
+      return true;
+    }
+    throw result.error;
+  }
+
+  if (directoryTraversalState.scannedDirectoryPaths.has(result.node.path)) {
+    return false;
+  }
+  directoryTraversalState.scannedDirectoryPaths.add(result.node.path);
+  state.currentPath = result.node.path;
+  state.directoriesReadFromAdapter++;
+  state.directoriesCompleted++;
+  const stopped = consumeNodes({
+    directoryTraversalState,
+    matcher,
+    maxResults: limit,
+    nextFrontier,
+    nodes: result.children,
+    state,
+  });
+  progressReporter.emit();
+  if (!stopped) {
+    return false;
+  }
+
+  state.limitReached = true;
+  scanAbortController.abort();
+  return true;
 }
 
 function createScanBatch(args: {
@@ -544,14 +590,15 @@ function createScanBatch(args: {
     unloadedDirectories,
   } = args;
   const settledResults: ScanResult[] = [];
-  const runningTasks = new Set<Promise<void>>();
+  let activeTaskCount = 0;
   let currentIndex = nextDirectoryIndex;
   const resultQueue = createAsyncScanQueue(settledResults);
+  let finishedSpawning = false;
 
   while (
     !scanAbortController.signal.aborted &&
     currentIndex < unloadedDirectories.length &&
-    runningTasks.size < effectiveConcurrency
+    activeTaskCount < effectiveConcurrency
   ) {
     const node = unloadedDirectories[currentIndex];
     currentIndex += 1;
@@ -559,6 +606,7 @@ function createScanBatch(args: {
       continue;
     }
 
+    activeTaskCount += 1;
     const task = scanDirectory(fileSystemAdapter, node, filterTreeFn, scanAbortController.signal)
       .then((children) => {
         resultQueue.push({
@@ -575,16 +623,16 @@ function createScanBatch(args: {
         });
       });
 
-    runningTasks.add(task);
     void task.finally(() => {
-      runningTasks.delete(task);
-      if (runningTasks.size === 0) {
+      activeTaskCount -= 1;
+      if (finishedSpawning && activeTaskCount === 0) {
         resultQueue.close();
       }
     });
   }
 
-  if (runningTasks.size === 0) {
+  finishedSpawning = true;
+  if (activeTaskCount === 0) {
     resultQueue.close();
   }
 
@@ -709,6 +757,7 @@ export async function querySelectableFiles(
         )
         .map((node) => node.path)
     ),
+    scannedDirectoryPaths: new Set(),
   };
   const progressReporter = createProgressReporter(onProgress, state);
 

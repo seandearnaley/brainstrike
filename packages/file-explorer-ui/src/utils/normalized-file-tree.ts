@@ -356,11 +356,11 @@ function cloneState(state: NormalizedFileTreeState): NormalizedFileTreeState {
 
 function cloneStateWithNodeMap(state: NormalizedFileTreeState): NormalizedFileTreeState {
   return {
-    rootPaths: state.rootPaths,
+    rootPaths: [...state.rootPaths],
     nodeByPath: new Map(state.nodeByPath),
-    childPathsByPath: state.childPathsByPath,
-    parentPathByPath: state.parentPathByPath,
-    descendantFileCountByPath: state.descendantFileCountByPath,
+    childPathsByPath: new Map(state.childPathsByPath),
+    parentPathByPath: new Map(state.parentPathByPath),
+    descendantFileCountByPath: new Map(state.descendantFileCountByPath),
   };
 }
 

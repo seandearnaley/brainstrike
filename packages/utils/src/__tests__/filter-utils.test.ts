@@ -60,6 +60,16 @@ describe('filter-utils', () => {
       expect(matcher.shouldTraverseDirectory('/src')).toBe(true);
     });
 
+    it('throws for invalid regex patterns', () => {
+      expect(() => createPathFilterMatcher(['('], [], true)).toThrow(/Invalid regex pattern/);
+    });
+
+    it('rejects obviously unsafe nested quantified regex patterns', () => {
+      expect(() => createPathFilterMatcher(['(a+)+$'], [], true)).toThrow(
+        /Unsafe regex pattern rejected/
+      );
+    });
+
     it('allows all files when no include filters are configured', () => {
       const matcher = createPathFilterMatcher([], ['coverage/**'], false);
 

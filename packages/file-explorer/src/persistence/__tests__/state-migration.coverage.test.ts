@@ -39,10 +39,11 @@ describe('state-migration coverage', () => {
 
     expectEmptySerializedState(result);
     expect(mockLogger.debug).toHaveBeenCalledWith(
-      'Migrate - Received raw state:',
-      'not-an-object',
-      'Version:',
-      1
+      'Migrate - Received persisted state candidate',
+      expect.objectContaining({
+        version: 1,
+        valueType: 'string',
+      })
     );
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'Migrate - Invalid non-object persisted payload, discarding.'
@@ -120,8 +121,49 @@ describe('state-migration coverage', () => {
       queryDescriptor: null,
     });
     expect(mockLogger.debug).toHaveBeenCalledWith(
-      'Migrate - Returning valid SerializedState:',
-      result
+      'Migrate - Returning valid SerializedState summary',
+      expect.objectContaining({
+        currentFolderId: 'folder-1',
+        folderStateCount: 0,
+        hasSelectionModel: true,
+        selectedFileCount: 1,
+      })
+    );
+  });
+
+  it('rejects unsupported future persisted versions', async () => {
+    const { migrateState } = await import('../state-migration');
+    const serializedState = {
+      currentFolderId: 'folder-1',
+      folderStates: {},
+      folderAccessOrder: [],
+      selectedFilePaths: ['folder-1|@|file.ts'],
+      expandedDirectoryPaths: [],
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      includeProjectTree: false,
+      folderSummaryThreshold: 10,
+      maxSelectionCount: 50,
+      lastActiveTab: 'files',
+    };
+
+    const result = migrateState(serializedState, 3, true);
+
+    expectEmptySerializedState(result);
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      'Migrate - Future persisted version 3 is not supported, discarding.'
+    );
+  });
+
+  it('rejects partially shaped payloads that only expose currentFolderId', async () => {
+    const { migrateState } = await import('../state-migration');
+
+    const result = migrateState({ currentFolderId: null }, 1, true);
+
+    expectEmptySerializedState(result);
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      'Migrate - Payload does not match SerializedState shape, discarding.'
     );
   });
 });

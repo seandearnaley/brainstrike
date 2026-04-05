@@ -9,6 +9,7 @@ import { createEmptySelectionModel } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('Persistence');
+const MAX_PERSISTED_STRING_ARRAY_LENGTH = 50_000;
 
 /**
  * Cached Set-to-Array converter using WeakMap.
@@ -34,7 +35,17 @@ function coerceStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter((item): item is string => typeof item === 'string');
+
+  const strings = value.filter((item): item is string => typeof item === 'string');
+  if (strings.length <= MAX_PERSISTED_STRING_ARRAY_LENGTH) {
+    return strings;
+  }
+
+  logger.warn('Truncating oversized persisted string array', {
+    maxEntries: MAX_PERSISTED_STRING_ARRAY_LENGTH,
+    receivedEntries: strings.length,
+  });
+  return strings.slice(0, MAX_PERSISTED_STRING_ARRAY_LENGTH);
 }
 
 function coerceNumber(value: unknown, fallback: number): number {

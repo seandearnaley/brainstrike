@@ -576,10 +576,12 @@ describe('useFileTree (lazy loading version)', () => {
       const childLoadGate = new Promise<void>((resolve) => {
         releaseChildLoad = resolve;
       });
+      let parentLoadAttempts = 0;
       const originalReadDirectoryStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
       vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockImplementation(async (...args) => {
         const [handleArg] = args;
         if (handleArg.path === (parentDir?.path ?? 'parent')) {
+          parentLoadAttempts += 1;
           await childLoadGate;
         }
         return originalReadDirectoryStreaming(...args);
@@ -599,6 +601,13 @@ describe('useFileTree (lazy loading version)', () => {
         result.current.cancelChildLoading(parentDir?.path ?? 'parent');
       });
 
+      await act(async () => {
+        void result.current.loadChildren(parentDir?.path ?? 'parent');
+        await Promise.resolve();
+      });
+
+      expect(parentLoadAttempts).toBe(2);
+
       if (releaseChildLoad) {
         releaseChildLoad();
       }
@@ -611,7 +620,7 @@ describe('useFileTree (lazy loading version)', () => {
         (node) => node.type === 'directory' && node.path === parentDir?.path
       );
       expect(cancelledParent?.type).toBe('directory');
-      expect(cancelledParent?.loadState).toBe('unloaded');
+      expect(cancelledParent?.loadState).toBe('loaded');
 
       await loadPromise;
     });
