@@ -533,15 +533,18 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
         return;
       }
 
+      const currentHasStaleSelection = currentStoreState.selectedFilePaths.size > 0;
+      const currentHasStaleExpansion = currentStoreState.expandedDirectoryPaths.size > 0;
+
       logger.info('Clearing stale file explorer state - no root directory handle', {
-        staleSelectedFiles: selectedFilePaths.size,
-        staleExpandedPaths: expandedDirectoryPaths.size,
+        staleSelectedFiles: currentStoreState.selectedFilePaths.size,
+        staleExpandedPaths: currentStoreState.expandedDirectoryPaths.size,
       });
 
-      if (hasStaleSelection) {
+      if (currentHasStaleSelection) {
         clearSelectedFiles();
       }
-      if (hasStaleExpansion) {
+      if (currentHasStaleExpansion) {
         setExpandedPaths(new Set());
       }
     }, 1500);

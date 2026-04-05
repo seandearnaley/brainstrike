@@ -509,6 +509,36 @@ describe('useFileExplorer (context)', () => {
 
       vi.useRealTimers();
     });
+
+    it('reads stale selection and expansion state from the store when the timer fires', async () => {
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: null,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
+      storeState.expandedDirectoryPaths = new Set(['/src']);
+
+      vi.useFakeTimers();
+
+      renderHook(() => useFileExplorer());
+
+      storeState.selectedFilePaths = new Set();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+      });
+
+      expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).toHaveBeenCalledWith(new Set());
+
+      vi.useRealTimers();
+    });
   });
 
   describe('isInitialLoad', () => {

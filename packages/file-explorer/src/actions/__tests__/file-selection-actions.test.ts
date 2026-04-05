@@ -108,7 +108,13 @@ describe('file-selection-actions', () => {
 
     it('should filter out invalid composite keys', () => {
       // Arrange
-      const selectedFiles = new Set(['folder1|@|file1.ts', 'invalid-key']);
+      const selectedFiles = new Set([
+        'folder1|@|file1.ts',
+        'invalid-key',
+        '|@|missing-folder.ts',
+        'folder1|@|',
+        'folder1|@||@|nested',
+      ]);
       const fileSelectionActions = createFileSelectionActions(mockSet, vi.fn());
 
       // Act

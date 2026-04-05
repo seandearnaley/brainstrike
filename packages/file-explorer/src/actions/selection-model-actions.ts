@@ -214,7 +214,7 @@ export const createSelectionModelActions = (
           state.selectionModel.queryDescriptor.manifestSnapshotId === manifestSnapshotId);
 
       if (manifestsEqual(state.querySelectionManifest, manifest) && queryDescriptorUnchanged) {
-        return state;
+        return {};
       }
 
       const nextSelectionModel =

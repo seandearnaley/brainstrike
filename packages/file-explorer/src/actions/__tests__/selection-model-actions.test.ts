@@ -530,7 +530,7 @@ describe('selection-model-actions', () => {
   });
 
   describe('setQuerySelectionManifest', () => {
-    it('returns the existing state when manifest and descriptor metadata are unchanged', () => {
+    it('returns an empty patch when manifest and descriptor metadata are unchanged', () => {
       const currentState = createMockState({
         selectionModel: {
           mode: 'query',
@@ -571,7 +571,7 @@ describe('selection-model-actions', () => {
       const setterFn = mockSet.mock.calls[0][0];
       const result = setterFn(currentState);
 
-      expect(result).toBe(currentState);
+      expect(result).toEqual({});
     });
 
     it('updates query descriptor manifest metadata when a new manifest arrives', () => {

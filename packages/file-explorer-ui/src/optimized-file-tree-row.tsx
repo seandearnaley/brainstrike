@@ -285,6 +285,9 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       [folderId, nodeType, nodePath]
     );
     const isRuleSelected = useFileExplorerStoreSelector(isRuleSelectedSelector);
+    const selectionMode = selectionModel.mode;
+    const queryDescriptor = selectionModel.queryDescriptor;
+    const materializedPaths = selectionModel.materializedPaths;
 
     const folderInfo = useMemo(() => {
       if (nodeType !== 'directory') {
@@ -309,13 +312,13 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           ) ?? false
         );
       if (
-        selectionModel.mode === 'query' &&
+        selectionMode === 'query' &&
         isDirectoryCoveredByQuerySelection(
-          selectionModel.queryDescriptor,
+          queryDescriptor,
           querySelectionManifest,
           folderId,
           node.path,
-          selectionModel.materializedPaths
+          materializedPaths
         )
       ) {
         return !isKnownEmptyDirectory;
@@ -333,9 +336,11 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       isFileSelected,
       node.path,
       node.type,
-      selectedCountInDir,
+      selectionMode,
+      queryDescriptor,
+      materializedPaths,
       querySelectionManifest,
-      selectionModel,
+      selectedCountInDir,
     ]);
 
     const wouldExceedLimit = useMemo(() => {
@@ -346,13 +351,13 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         return false;
       }
       if (
-        selectionModel.mode === 'query' &&
+        selectionMode === 'query' &&
         isDirectoryCoveredByQuerySelection(
-          selectionModel.queryDescriptor,
+          queryDescriptor,
           querySelectionManifest,
           folderId,
           node.path,
-          selectionModel.materializedPaths
+          materializedPaths
         )
       ) {
         return false;
@@ -368,8 +373,10 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       maxSelectionCount,
       folderInfo,
       selectedCountInDir,
+      selectionMode,
+      queryDescriptor,
+      materializedPaths,
       querySelectionManifest,
-      selectionModel,
     ]);
 
     // Memoize event handlers

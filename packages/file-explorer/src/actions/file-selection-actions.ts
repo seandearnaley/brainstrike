@@ -403,8 +403,12 @@ export const createFileSelectionActions = (
     // Ensure all files in the set are properly encoded composite keys
     const validatedFiles = new Set<string>();
     for (const file of selectedFiles) {
-      // Only add files that are already in composite key format
-      if (file.includes('|@|')) {
+      const separatorIndex = file.indexOf('|@|');
+      const hasSingleSeparator = separatorIndex === file.lastIndexOf('|@|');
+      const hasFolderId = separatorIndex > 0;
+      const hasPath = separatorIndex >= 0 && separatorIndex < file.length - 3;
+
+      if (hasSingleSeparator && hasFolderId && hasPath) {
         validatedFiles.add(file);
       }
     }
