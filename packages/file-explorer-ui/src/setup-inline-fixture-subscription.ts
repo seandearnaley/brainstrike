@@ -52,6 +52,7 @@ export function setupInlineFixtureSubscription(
 
   const adapter = fileSystemAdapter as FixtureCapableFileSystemAdapter;
   let isProcessing = false;
+  let suppressNextSubscription = false;
 
   const applyFixtureState = async (enabled: boolean) => {
     if (isProcessing) {
@@ -71,7 +72,8 @@ export function setupInlineFixtureSubscription(
       }
     } catch (error) {
       logger.warn('Failed to toggle inline fixture', { error, enabled });
-      // Rollback: revert the store to the opposite state
+      // Roll back the toggle without re-entering the subscription loop.
+      suppressNextSubscription = true;
       store.getState().setDevInlineFixtureEnabled(!enabled);
     } finally {
       isProcessing = false;
@@ -95,6 +97,11 @@ export function setupInlineFixtureSubscription(
 
   const unsubscribe = store.subscribe((state) => {
     const currentEnabled = state.devInlineFixtureEnabled;
+    if (suppressNextSubscription) {
+      suppressNextSubscription = false;
+      previousEnabled = currentEnabled;
+      return;
+    }
     if (currentEnabled === previousEnabled) {
       return;
     }

@@ -139,6 +139,27 @@ describe('setup-inline-fixture-subscription', () => {
     unsubscribe();
   });
 
+  it('suppresses the rollback subscription bounce when fixture activation fails', async () => {
+    const clearInlineFixture = vi.fn(async () => undefined);
+    const adapter = createFixtureCapableAdapter({
+      loadInlineFixture: vi.fn(async () => {
+        throw new Error('fixture failed');
+      }),
+      clearInlineFixture,
+      isInlineFixtureActive: () => false,
+    });
+    const store = createFixtureStore(true);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(clearInlineFixture).not.toHaveBeenCalled();
+    expect(store.getState().devInlineFixtureEnabled).toBe(false);
+
+    unsubscribe();
+  });
+
   it('skips setup when the adapter is not fixture-capable', () => {
     const adapter = {
       requestDirectoryAccess: vi.fn(),

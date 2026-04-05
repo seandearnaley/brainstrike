@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/file-explorer';
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useEffect, useMemo, useRef } from 'react';
+import { shallow } from 'zustand/shallow';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -34,7 +35,8 @@ export function useSelectionResolver(): SelectionResolverState {
           state.currentFolderId,
           state.querySelectionManifest,
           state.setQuerySelectionManifest,
-        ] as const
+        ] as const,
+      shallow
     );
   const loadTokenRef = useRef(0);
 
