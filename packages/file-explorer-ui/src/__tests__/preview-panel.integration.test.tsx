@@ -576,7 +576,10 @@ vi.mock('lucide-react', () => ({
   Layers: () => <div data-testid="layers" />,
   Files: () => <div data-testid="files" />,
   CheckSquare: () => <div data-testid="check-square" />,
+  ChevronsDownUp: () => <div data-testid="chevrons-down-up" />,
+  ChevronsUpDown: () => <div data-testid="chevrons-up-down" />,
   LayoutGrid: () => <div data-testid="layout-grid" />,
+  ListChecks: () => <div data-testid="list-checks" />,
   RefreshCw: () => <div data-testid="refresh-cw" />,
   RotateCcw: () => <div data-testid="rotate-ccw" />,
   Table: () => <div data-testid="table" />,
@@ -686,9 +689,7 @@ describe('PreviewPanel Integration Tests', () => {
       // Verify selection UI appears
       await waitFor(() => {
         const bulkActionBar = screen.getByTestId('bulk-action-bar');
-        expect(
-          within(bulkActionBar).getByText(/file[s]? selected in Context Explorer/)
-        ).toBeInTheDocument();
+        expect(within(bulkActionBar).getByText(/\d+ (file )?selected/)).toBeInTheDocument();
       });
 
       // Perform batch removal
@@ -760,14 +761,14 @@ describe('PreviewPanel Integration Tests', () => {
 
       render(<PreviewPanel {...mockProps} />);
 
-      // Select all files globally
-      const selectAllButton = screen.getByTestId('select-all-button');
+      // Select all files via header checkbox
+      const headerCheckbox = screen.getByLabelText('Select all files on current page');
       act(() => {
-        fireEvent.click(selectAllButton);
+        fireEvent.click(headerCheckbox);
       });
 
-      // Should be disabled after selection
-      expect(selectAllButton).toBeDisabled();
+      // Should be checked after selection
+      expect(headerCheckbox).toBeChecked();
     });
   });
 
@@ -881,13 +882,11 @@ describe('PreviewPanel Integration Tests', () => {
       // Should show selection bar
       await waitFor(() => {
         const bulkActionBar = screen.getByTestId('bulk-action-bar');
-        expect(
-          within(bulkActionBar).getByText(/file[s]? selected in Context Explorer/)
-        ).toBeInTheDocument();
+        expect(within(bulkActionBar).getByText(/\d+ (file )?selected/)).toBeInTheDocument();
       });
 
       // Clear selection
-      const clearButton = screen.getByText('Clear Context Selection');
+      const clearButton = screen.getByText('Clear Selection');
       act(() => {
         fireEvent.click(clearButton);
       });

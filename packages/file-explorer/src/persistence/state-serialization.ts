@@ -9,6 +9,7 @@ import { createEmptySelectionModel } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 
 const logger = createLogger('Persistence');
+const MAX_PERSISTED_STRING_ARRAY_LENGTH = 50_000;
 
 /**
  * Cached Set-to-Array converter using WeakMap.
@@ -34,11 +35,21 @@ function coerceStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter((item): item is string => typeof item === 'string');
+
+  const strings = value.filter((item): item is string => typeof item === 'string');
+  if (strings.length <= MAX_PERSISTED_STRING_ARRAY_LENGTH) {
+    return strings;
+  }
+
+  logger.warn('Truncating oversized persisted string array', {
+    maxEntries: MAX_PERSISTED_STRING_ARRAY_LENGTH,
+    receivedEntries: strings.length,
+  });
+  return strings.slice(0, MAX_PERSISTED_STRING_ARRAY_LENGTH);
 }
 
 function coerceNumber(value: unknown, fallback: number): number {
-  return typeof value === 'number' ? value : fallback;
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function coerceString(value: unknown, fallback: string): string {
@@ -47,6 +58,42 @@ function coerceString(value: unknown, fallback: string): string {
 
 function coerceBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
+}
+
+function coerceNullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function deserializeQueryDescriptor(value: unknown): SerializedSelectionModel['queryDescriptor'] {
+  if (!(value && typeof value === 'object')) {
+    return null;
+  }
+
+  const descriptor = value as Record<string, unknown>;
+  const kind =
+    descriptor['kind'] === 'recursive-folder' || descriptor['kind'] === 'recursive-select-all'
+      ? descriptor['kind']
+      : null;
+  const folderId = typeof descriptor['folderId'] === 'string' ? descriptor['folderId'] : null;
+
+  if (!(kind && folderId)) {
+    return null;
+  }
+
+  return {
+    kind,
+    folderId,
+    rootPath: typeof descriptor['rootPath'] === 'string' ? descriptor['rootPath'] : null,
+    coveredDirectoryPaths: coerceStringArray(descriptor['coveredDirectoryPaths']),
+    includeFilters: coerceStringArray(descriptor['includeFilters']),
+    excludeFilters: coerceStringArray(descriptor['excludeFilters']),
+    includedPaths: coerceStringArray(descriptor['includedPaths']),
+    excludedPaths: coerceStringArray(descriptor['excludedPaths']),
+    manifestFingerprint: coerceNullableString(descriptor['manifestFingerprint']),
+    manifestSnapshotId: coerceNullableString(descriptor['manifestSnapshotId']),
+    useRegex: coerceBoolean(descriptor['useRegex'], false),
+    totalSelectedCount: Math.max(0, coerceNumber(descriptor['totalSelectedCount'], 0)),
+  };
 }
 
 /**
@@ -59,6 +106,7 @@ function serializeSelectionModel(model: SelectionModel): SerializedSelectionMode
     ruleSetJson: model.ruleSetJson,
     materializedPaths: model.materializedPaths ? cachedSetToArray(model.materializedPaths) : null,
     materializedAt: model.materializedAt,
+    queryDescriptor: model.queryDescriptor,
   };
 }
 
@@ -72,14 +120,29 @@ function deserializeSelectionModel(
     return createEmptySelectionModel();
   }
 
+  const queryDescriptor = deserializeQueryDescriptor(serialized.queryDescriptor);
+  const shouldWarnOnMalformedQueryDescriptor =
+    serialized.mode === 'query' && serialized.queryDescriptor !== null && !queryDescriptor;
+
+  if (shouldWarnOnMalformedQueryDescriptor) {
+    logger.warn('Dropping malformed persisted query selection descriptor during deserialization');
+  }
+  const mode =
+    serialized.mode === 'rules'
+      ? 'rules'
+      : serialized.mode === 'query' && queryDescriptor
+        ? 'query'
+        : 'explicit';
+
   return {
-    mode: serialized.mode === 'rules' ? 'rules' : 'explicit',
+    mode,
     explicitPaths: new Set(coerceStringArray(serialized.explicitPaths)),
     ruleSetJson: serialized.ruleSetJson ?? null,
     materializedPaths: serialized.materializedPaths
       ? new Set(coerceStringArray(serialized.materializedPaths))
       : null,
     materializedAt: serialized.materializedAt ?? null,
+    queryDescriptor,
   };
 }
 
@@ -96,6 +159,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     folderStatesToSerialize[currentFolderId] = {
       ...folderStatesToSerialize[currentFolderId],
       selectedFilePaths: state.selectedFilePaths,
+      selectionModel: state.selectionModel,
       expandedDirectoryPaths: state.expandedDirectoryPaths,
       includeFilters: state.includeFilters,
       excludeFilters: state.excludeFilters,
@@ -112,6 +176,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     // Create folder state if it doesn't exist yet
     folderStatesToSerialize[currentFolderId] = {
       selectedFilePaths: state.selectedFilePaths,
+      selectionModel: state.selectionModel,
       expandedDirectoryPaths: state.expandedDirectoryPaths,
       includeFilters: state.includeFilters,
       excludeFilters: state.excludeFilters,
@@ -134,6 +199,9 @@ export function serializeState(state: FileExplorerState): SerializedState {
         {
           ...folderState,
           selectedFilePaths: cachedSetToArray(folderState?.selectedFilePaths),
+          selectionModel: serializeSelectionModel(
+            folderState?.selectionModel ?? createEmptySelectionModel()
+          ),
           expandedDirectoryPaths: cachedSetToArray(folderState?.expandedDirectoryPaths),
           lastAccessed: folderState?.lastAccessed || Date.now(),
         },
@@ -190,6 +258,7 @@ export function mergeState(
   const topLevelExpandedDirectoryPaths = new Set(
     coerceStringArray(persistedSerialized.expandedDirectoryPaths)
   );
+  const topLevelSelectionModel = deserializeSelectionModel(persistedSerialized.selectionModel);
   const currentFolderId = persistedSerialized.currentFolderId;
 
   const mergedState: FileExplorerState = {
@@ -211,8 +280,11 @@ export function mergeState(
         const folderHasEmptySelections =
           coerceStringArray(psFolderState.selectedFilePaths).length === 0;
         const topLevelHasSelections = topLevelSelectedFilePaths.size > 0;
+        const topLevelHasCanonicalSelectionModel = topLevelSelectionModel.mode !== 'explicit';
         const shouldUseTopLevelSelections =
-          isCurrentFolder && folderHasEmptySelections && topLevelHasSelections;
+          isCurrentFolder &&
+          folderHasEmptySelections &&
+          (topLevelHasSelections || topLevelHasCanonicalSelectionModel);
 
         const folderHasEmptyExpansions =
           coerceStringArray(psFolderState.expandedDirectoryPaths).length === 0;
@@ -228,6 +300,10 @@ export function mergeState(
             selectedFilePaths: shouldUseTopLevelSelections
               ? topLevelSelectedFilePaths
               : new Set(coerceStringArray(psFolderState.selectedFilePaths)),
+            selectionModel:
+              shouldUseTopLevelSelections && persistedSerialized.selectionModel
+                ? topLevelSelectionModel
+                : deserializeSelectionModel(psFolderState.selectionModel),
             expandedDirectoryPaths: shouldUseTopLevelExpansions
               ? topLevelExpandedDirectoryPaths
               : new Set(coerceStringArray(psFolderState.expandedDirectoryPaths)),
@@ -242,7 +318,7 @@ export function mergeState(
       persistedSerialized.devInlineFixtureEnabled,
       current.devInlineFixtureEnabled
     ),
-    selectionModel: deserializeSelectionModel(persistedSerialized.selectionModel),
+    selectionModel: topLevelSelectionModel,
     isFiltersExpanded: coerceBoolean(
       persistedSerialized.isFiltersExpanded,
       current.isFiltersExpanded

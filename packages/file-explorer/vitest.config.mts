@@ -18,7 +18,14 @@ export default defineConfig({
       enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
       provider: 'v8',
       include: ['src/**/*.ts', 'src/**/*.tsx'],
-      exclude: ['**/*.d.ts', '**/*.config.*', '**/dist/**'],
+      exclude: [
+        '**/*.d.ts',
+        '**/*.config.*',
+        '**/dist/**',
+        'src/index.ts',
+        'src/constants/index.ts',
+        'src/types/store-types.ts',
+      ],
     },
   },
   resolve: {

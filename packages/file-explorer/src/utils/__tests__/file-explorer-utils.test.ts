@@ -1,5 +1,6 @@
 import type { FileExplorerData, FolderState } from '@brainstrike/types';
 import {
+  createEmptySelectionModel,
   DEFAULT_FOLDER_SUMMARY_THRESHOLD,
   DEFAULT_MAX_SELECTION_COUNT,
   DEFAULT_TOKEN_BUDGET,
@@ -44,6 +45,7 @@ describe('file-explorer-utils', () => {
             maxSelectionCount: 10,
             lastActiveTab: 'git',
             lastAccessed: 1000,
+            selectionModel: createEmptySelectionModel(),
             viewFilterPresetId: null,
           },
         },
@@ -68,6 +70,7 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 10,
           lastActiveTab: 'git',
           lastAccessed: 1000,
+          selectionModel: createEmptySelectionModel(),
           viewFilterPresetId: null,
         },
         folder2: {
@@ -82,6 +85,7 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 2000,
+          selectionModel: createEmptySelectionModel(),
           viewFilterPresetId: null,
         },
       });
@@ -118,6 +122,7 @@ describe('file-explorer-utils', () => {
             maxSelectionCount: 10,
             lastActiveTab: 'git',
             lastAccessed: 1000,
+            selectionModel: createEmptySelectionModel(),
             viewFilterPresetId: null,
           },
         },
@@ -141,6 +146,7 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 75,
           lastActiveTab: 'search',
           lastAccessed: 3000,
+          selectionModel: createEmptySelectionModel(),
           viewFilterPresetId: null,
         },
       });
@@ -298,6 +304,7 @@ describe('file-explorer-utils', () => {
         maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
         lastActiveTab: 'files',
         lastAccessed: 5000,
+        selectionModel: createEmptySelectionModel(),
         viewFilterPresetId: null,
       });
     });

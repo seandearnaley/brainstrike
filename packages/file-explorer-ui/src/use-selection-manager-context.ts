@@ -13,6 +13,7 @@ import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/fil
 import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useMemo } from 'react';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
+import { useSelectionResolver } from './use-selection-resolver';
 
 interface UseSelectionManagerProps {
   onSelectionLimitExceeded: () => void;
@@ -37,11 +38,16 @@ export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionMa
         s.clearSelectionRules,
       ] as const
   );
+  const {
+    effectiveSelection: resolvedSelection,
+    isQuerySelectionReady,
+    selectedCount: resolvedSelectedCount,
+    selectedFilesList: resolvedSelectedFilesList,
+  } = useSelectionResolver();
 
   const setSelectedFilesStable = useCallback(
     (next: ReadonlySet<string>) => {
-      const array = next instanceof Set ? Array.from(next) : Array.from(next);
-      setSelectedFiles(new Set(array));
+      setSelectedFiles(new Set(Array.from(next)));
     },
     [setSelectedFiles]
   );
@@ -61,6 +67,9 @@ export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionMa
    * In 'rules' mode: Converts materializedPaths to composite keys
    */
   const effectiveSelection = useMemo(() => {
+    if (selectionModel.mode === 'query') {
+      return resolvedSelection;
+    }
     if (selectionModel.mode === 'rules' && selectionModel.materializedPaths && currentFolderId) {
       // Convert materialized paths (relative) to composite keys
       const compositeKeys = new Set<string>();
@@ -71,10 +80,35 @@ export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionMa
     }
     // Default to explicit selection
     return selectedFilePaths;
-  }, [selectionModel.mode, selectionModel.materializedPaths, currentFolderId, selectedFilePaths]);
+  }, [
+    currentFolderId,
+    resolvedSelection,
+    selectedFilePaths,
+    selectionModel.materializedPaths,
+    selectionModel.mode,
+  ]);
 
   // Array façade for UI - uses effective selection
-  const selectedFilesList = useMemo(() => Array.from(effectiveSelection), [effectiveSelection]);
+  const selectedFilesList = useMemo(
+    () =>
+      selectionModel.mode === 'query' ? resolvedSelectedFilesList : Array.from(effectiveSelection),
+    [effectiveSelection, resolvedSelectedFilesList, selectionModel.mode]
+  );
+
+  const selectedCount = useMemo(() => {
+    if (selectionModel.mode === 'query') {
+      return resolvedSelectedCount;
+    }
+    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths) {
+      return selectionModel.materializedPaths.size;
+    }
+    return effectiveSelection.size;
+  }, [
+    effectiveSelection.size,
+    resolvedSelectedCount,
+    selectionModel.materializedPaths,
+    selectionModel.mode,
+  ]);
 
   const setSelectedFilesFromList = useCallback(
     (list: readonly string[]) => {
@@ -92,11 +126,16 @@ export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionMa
 
   return {
     ...core,
+    selectedFilePaths: effectiveSelection,
+    selectedCount,
     selectedFilesList,
     setSelectedFilesFromList,
     /** The effective selection set based on current mode */
     effectiveSelection,
     /** Whether we're in rules mode */
     isRulesMode: selectionModel.mode === 'rules',
+    /** Whether we're in query-backed large selection mode */
+    isQueryMode: selectionModel.mode === 'query',
+    isQuerySelectionReady,
   };
 };

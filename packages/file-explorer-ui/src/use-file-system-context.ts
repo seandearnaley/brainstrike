@@ -91,9 +91,36 @@ async function selectDirectoryWithErrorMapping(
 export function useFileSystem() {
   const store = useFileExplorerStoreContext();
   const setCurrentFolderId = useFileExplorerStoreSelector((s) => s.setCurrentFolderId);
+  const hydrateFolderState = useFileExplorerStoreSelector((s) => s.hydrateFolderState);
   const storedRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.rootDirectoryHandle);
   const setRootDirectoryHandle = useFileExplorerStoreSelector((s) => s.setRootDirectoryHandle);
   const setStoreIsAccessLoading = useFileExplorerStoreSelector((s) => s.setIsAccessLoading);
+
+  const rehydrateCurrentFolderStateIfNeeded = useCallback(
+    (folderId: string) => {
+      const state = store.getState();
+      if (state.currentFolderId !== folderId) {
+        return;
+      }
+
+      const persistedFolderState = state.folderStates[folderId];
+      if (!persistedFolderState) {
+        return;
+      }
+
+      const selectionModeChanged =
+        state.selectionModel.mode !== persistedFolderState.selectionModel.mode;
+      const selectedCountChanged =
+        state.selectedFilePaths.size !== persistedFolderState.selectedFilePaths.size;
+      const expandedPathCountChanged =
+        state.expandedDirectoryPaths.size !== persistedFolderState.expandedDirectoryPaths.size;
+
+      if (selectionModeChanged || selectedCountChanged || expandedPathCountChanged) {
+        hydrateFolderState(folderId);
+      }
+    },
+    [hydrateFolderState, store]
+  );
 
   /**
    * Wait for store hydration to complete before proceeding.
@@ -158,6 +185,9 @@ export function useFileSystem() {
   const setRootHandle = (handle: DirectoryHandle | null) => {
     coreApi.setRootDirectoryHandle(handle);
     setRootDirectoryHandle(handle);
+    if (handle) {
+      rehydrateCurrentFolderStateIfNeeded(handle.path);
+    }
   };
 
   // Sync core hook's restoration to the store (desktop auto-restore)
@@ -166,8 +196,14 @@ export function useFileSystem() {
   useEffect(() => {
     if (!storedRootDirectoryHandle && coreApi.rootDirectoryHandle) {
       setRootDirectoryHandle(coreApi.rootDirectoryHandle);
+      rehydrateCurrentFolderStateIfNeeded(coreApi.rootDirectoryHandle.path);
     }
-  }, [storedRootDirectoryHandle, coreApi.rootDirectoryHandle, setRootDirectoryHandle]);
+  }, [
+    storedRootDirectoryHandle,
+    coreApi.rootDirectoryHandle,
+    setRootDirectoryHandle,
+    rehydrateCurrentFolderStateIfNeeded,
+  ]);
 
   // CRITICAL: Sync isAccessLoading from core hook to store.
   // The stale state clearing effect in use-file-explorer-context checks the STORE's

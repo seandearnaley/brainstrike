@@ -63,6 +63,7 @@ function createPersistedFileExplorerState(): PersistedEnvelope<SerializedState> 
         ruleSetJson: DEFAULT_STATE.selectionModel.ruleSetJson,
         materializedPaths: null,
         materializedAt: DEFAULT_STATE.selectionModel.materializedAt,
+        queryDescriptor: DEFAULT_STATE.selectionModel.queryDescriptor,
       },
       viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
       isFiltersExpanded: DEFAULT_STATE.isFiltersExpanded,

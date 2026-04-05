@@ -177,6 +177,7 @@ export const createUiModuleMock = () => ({
     actions,
     clearButtonAriaLabel,
     clearButtonLabel,
+    compact: _compact,
     nodeTypes: _nodeTypes,
     onClearSelection,
     selectedIds,
@@ -188,6 +189,7 @@ export const createUiModuleMock = () => ({
     actions?: Array<{ id: string; label: string; onAction?: () => void }>;
     clearButtonAriaLabel?: string;
     clearButtonLabel?: string;
+    compact?: boolean;
     nodeTypes?: Map<string, string>;
     onClearSelection?: () => void;
     selectedIds?: Set<string>;
@@ -763,7 +765,10 @@ export const createLucideModuleMock = () => ({
   Layers: () => <div data-testid="layers" />,
   Files: () => <div data-testid="files" />,
   CheckSquare: () => <div data-testid="check-square" />,
+  ChevronsDownUp: () => <div data-testid="chevrons-down-up" />,
+  ChevronsUpDown: () => <div data-testid="chevrons-up-down" />,
   LayoutGrid: () => <div data-testid="layout-grid" />,
+  ListChecks: () => <div data-testid="list-checks" />,
   Maximize2: () => <div data-testid="maximize" />,
   Minimize2: () => <div data-testid="minimize" />,
   RefreshCw: () => <div data-testid="refresh-cw" />,

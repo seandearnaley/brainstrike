@@ -16,6 +16,7 @@ vi.mock('../worker-storage', () => ({
   WorkerStorage: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
     this.isWorkerAvailable = true;
     this.destroy = vi.fn();
+    this.flushPendingWrites = vi.fn();
   }),
 }));
 
@@ -116,6 +117,15 @@ describe('worker-init', () => {
     expect(result.workerStorage).toBeNull();
   });
 
+  it('does not initialize worker during SSR when window is unavailable', () => {
+    vi.stubGlobal('window', undefined);
+
+    const result = initWorker(mockStorageAdapter, false, true);
+
+    expect(result).toEqual({ workerStorage: null, useWorker: false });
+    expect(WorkerStorage).not.toHaveBeenCalled();
+  });
+
   it('initializes worker in Electron renderer when Worker is available', () => {
     vi.stubGlobal('window', {
       addEventListener: vi.fn(),
@@ -205,6 +215,50 @@ describe('worker-init', () => {
 
     expect(result.useWorker).toBe(false);
     expect(result.workerStorage).toBeNull();
+  });
+
+  it('flushes and destroys worker storage during beforeunload cleanup', () => {
+    const addEventListener = vi.fn();
+    vi.stubGlobal('window', {
+      addEventListener,
+    });
+    vi.stubGlobal('document', {
+      addEventListener: vi.fn(),
+      visibilityState: 'visible',
+    });
+
+    const result = initWorker(mockStorageAdapter, false, true);
+    const beforeUnloadHandler = addEventListener.mock.calls.find(
+      ([eventName]) => eventName === 'beforeunload'
+    )?.[1] as (() => void) | undefined;
+
+    expect(beforeUnloadHandler).toBeTypeOf('function');
+    beforeUnloadHandler?.();
+
+    expect(result.workerStorage?.flushPendingWrites).toHaveBeenCalled();
+    expect(result.workerStorage?.destroy).toHaveBeenCalled();
+  });
+
+  it('flushes pending writes when the tab becomes hidden', () => {
+    const documentListeners = new Map<string, EventListener>();
+    vi.stubGlobal('window', {
+      addEventListener: vi.fn(),
+    });
+    vi.stubGlobal('document', {
+      addEventListener: vi.fn((eventName: string, handler: EventListener) => {
+        documentListeners.set(eventName, handler);
+      }),
+      visibilityState: 'visible',
+    });
+
+    const result = initWorker(mockStorageAdapter, false, true);
+    const visibilityHandler = documentListeners.get('visibilitychange');
+
+    expect(visibilityHandler).toBeTypeOf('function');
+    (document as { visibilityState: string }).visibilityState = 'hidden';
+    visibilityHandler?.(new Event('visibilitychange'));
+
+    expect(result.workerStorage?.flushPendingWrites).toHaveBeenCalled();
   });
 
   it('logs debug message when worker is disabled in test mode', () => {

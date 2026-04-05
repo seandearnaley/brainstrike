@@ -471,6 +471,7 @@ jobs:
             echo "Running full E2E tests for main"
             PROJECT="functional"
           fi
+          unset NO_COLOR
           pnpm exec playwright test --project=$PROJECT --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "production"
@@ -559,6 +560,7 @@ jobs:
 
           # Run smoke tests with explicit DISPLAY
           echo "Starting Playwright smoke tests..."
+          unset NO_COLOR
           pnpm exec playwright test --project=smoke --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 
@@ -656,6 +658,7 @@ jobs:
 
           # Run regression tests (non-smoke) with explicit DISPLAY
           echo "Starting Playwright regression tests..."
+          unset NO_COLOR
           pnpm exec playwright test --project=regression --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
           TEST_EXIT_CODE=$?
 

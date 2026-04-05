@@ -147,7 +147,7 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(baseReadDirectory).not.toHaveBeenCalled();
 
     const srcHandle: DirectoryHandle = {
-      path: 'src',
+      path: 'fixture-root/src',
       name: 'src',
       kind: 'directory',
       platform: 'web',
@@ -165,7 +165,7 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(srcEntriesAgain[0]?.name).toBe('nested');
 
     const fileHandle: FileHandle = {
-      path: 'README.md',
+      path: 'fixture-root/README.md',
       name: 'README.md',
       kind: 'file',
       platform: 'web',
@@ -181,8 +181,8 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     ).resolves.toBe('');
     expect(baseReadFile).not.toHaveBeenCalled();
 
-    await expect(adapter.exists('src')).resolves.toBe(true);
-    await expect(adapter.exists('src/a.ts')).resolves.toBe(true);
+    await expect(adapter.exists('fixture-root/src')).resolves.toBe(true);
+    await expect(adapter.exists('fixture-root/src/a.ts')).resolves.toBe(true);
     await expect(adapter.exists('not-in-fixture')).resolves.toBe(false);
     expect(baseExists).toHaveBeenCalledWith('not-in-fixture');
 
@@ -212,7 +212,7 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     const streamed: Array<{ done: boolean; total: number }> = [];
     await adapter.readDirectoryStreaming?.(
       {
-        path: 'src',
+        path: 'fixture-root/src',
         name: 'src',
         kind: 'directory',
         platform: 'web',

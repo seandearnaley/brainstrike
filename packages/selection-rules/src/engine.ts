@@ -10,7 +10,7 @@
  * @see apps/docs/docs/reference/adr/selection-rules-v1.md for evaluation semantics
  */
 
-import { minimatch } from 'minimatch';
+import { Minimatch } from 'minimatch';
 import type {
   CapRule,
   ExplicitRule,
@@ -107,6 +107,8 @@ const RULE_TYPE_PRECEDENCE: Record<SelectionRule['type'], number> = {
   explicit: 5,
   cap: 6,
 };
+
+const GLOB_MATCH_OPTIONS = { dot: true } as const;
 
 /**
  * Sort rules by type precedence, then by priority within type.
@@ -445,7 +447,8 @@ export class SelectionRuleEngine {
 
     for (const pattern of rule.patterns) {
       const fullPattern = rule.basePath ? `${rule.basePath}/${pattern}` : pattern;
-      const matches = allPaths.filter((p) => minimatch(p, fullPattern, { dot: true }));
+      const matcher = new Minimatch(fullPattern, GLOB_MATCH_OPTIONS);
+      const matches = allPaths.filter((path) => matcher.match(path));
 
       if (matches.length === 0) {
         warnings.push({
@@ -496,10 +499,11 @@ export class SelectionRuleEngine {
 
     for (const pattern of rule.patterns) {
       const fullPattern = rule.basePath ? `${rule.basePath}/${pattern}` : pattern;
+      const matcher = new Minimatch(fullPattern, GLOB_MATCH_OPTIONS);
 
       // Remove paths that match this exclusion pattern
       for (const path of result) {
-        if (minimatch(path, fullPattern, { dot: true })) {
+        if (matcher.match(path)) {
           result.delete(path);
         }
       }

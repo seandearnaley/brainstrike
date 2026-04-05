@@ -182,9 +182,11 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
 
     const fileCheckbox1 = fileTree.getByRole('checkbox', { name: 'Select test.ts' });
     const fileCheckbox2 = fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
+    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
 
     await expect(fileCheckbox1).toBeChecked();
     await expect(fileCheckbox2).toBeChecked();
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
 
     // Button should now say Deselect All
     const deselectAllButton = page.getByRole('button', { name: 'Deselect All' });
@@ -193,6 +195,108 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
 
     await expect(fileCheckbox1).not.toBeChecked();
     await expect(fileCheckbox2).not.toBeChecked();
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
     await expect(page.getByText('0 files').first()).toBeVisible();
+  });
+
+  test('should recursively select an unloaded folder without throwing and reveal checked descendants', async ({
+    page,
+  }) => {
+    const pageErrors: Error[] = [];
+    page.on('pageerror', (error) => {
+      pageErrors.push(error);
+    });
+
+    await page.getByTestId('select-root-button').click();
+
+    const fileTree = getFileTree(page);
+    await expect(fileTree).toBeVisible();
+
+    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
+    await expect(srcCheckbox).toBeVisible();
+    await srcCheckbox.click({ force: true });
+
+    await expect(page.getByText('4/10')).toBeVisible({ timeout: 10_000 });
+
+    const expandAllButton = page.getByTestId('expand-all-button-small');
+    await expect(expandAllButton).toBeVisible();
+    await expandAllButton.click();
+
+    const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
+    const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
+    const helpersCheckbox = fileTree.getByRole('checkbox', { name: 'Select helpers.ts' });
+    const indexCheckbox = fileTree.getByRole('checkbox', { name: 'Select index.ts' });
+
+    await expect(buttonCheckbox).toBeChecked({ timeout: 10_000 });
+    await expect(inputCheckbox).toBeChecked();
+    await expect(helpersCheckbox).toBeChecked();
+    await expect(indexCheckbox).toBeChecked();
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('should deselect a selected folder instead of re-running recursive selection', async ({
+    page,
+  }) => {
+    await page.getByTestId('select-root-button').click();
+
+    const fileTree = getFileTree(page);
+    await expect(fileTree).toBeVisible();
+
+    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
+    await expect(srcCheckbox).toBeVisible();
+    await srcCheckbox.click({ force: true });
+
+    await expect(page.getByText('4/10')).toBeVisible({ timeout: 10_000 });
+
+    const expandAllButton = page.getByTestId('expand-all-button-small');
+    await expect(expandAllButton).toBeVisible();
+    await expandAllButton.click();
+
+    const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
+    const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
+
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
+    await expect(buttonCheckbox).toBeChecked({ timeout: 10_000 });
+    await expect(inputCheckbox).toBeChecked();
+
+    await srcCheckbox.click({ force: true });
+
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
+    await expect(buttonCheckbox).not.toBeChecked();
+    await expect(inputCheckbox).not.toBeChecked();
+  });
+
+  test('should keep filtered Select All scoped to visible files and stay in manual mode', async ({
+    page,
+  }) => {
+    await page.getByTestId('select-root-button').click();
+
+    const fileTree = getFileTree(page);
+    await expect(fileTree).toBeVisible();
+
+    const filterInput = page.getByPlaceholder(
+      "Type to filter files... (e.g. 'test component -spec')"
+    );
+    await filterInput.fill('test');
+
+    await expect(fileTree.getByText('test.ts')).toBeVisible();
+    await expect(fileTree.getByText('test2.ts')).toBeVisible();
+    await expect(fileTree.getByText('src')).not.toBeVisible();
+
+    const selectAllButton = page.getByRole('button', { name: 'Select All' });
+    await expect(selectAllButton).toBeEnabled();
+    await selectAllButton.click();
+
+    await expect(fileTree.getByRole('checkbox', { name: 'Select test.ts' })).toBeChecked();
+    await expect(fileTree.getByRole('checkbox', { name: 'Select test2.ts' })).toBeChecked();
+    await expect(page.getByTestId('selection-mode-badge')).toHaveText('Manual');
+
+    await filterInput.clear();
+    await expect(fileTree.getByText('src')).toBeVisible();
+
+    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
+    await expect(fileTree.getByRole('checkbox', { name: 'Select test.ts' })).toBeChecked();
+    await expect(fileTree.getByRole('checkbox', { name: 'Select test2.ts' })).toBeChecked();
   });
 });

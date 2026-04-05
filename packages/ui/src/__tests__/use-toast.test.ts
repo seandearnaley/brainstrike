@@ -144,6 +144,33 @@ describe('useToast', () => {
     vi.useRealTimers();
   });
 
+  it('should auto-dismiss and remove a toast when duration is provided', () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useToast());
+
+    let toastId: string;
+    act(() => {
+      const { id } = result.current.toast({
+        title: 'Timed Toast',
+        duration: 4000,
+      });
+      toastId = id;
+    });
+
+    expect(result.current.toasts.find((t) => t.id === toastId)?.open).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(result.current.toasts.find((t) => t.id === toastId)?.open).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(result.current.toasts.find((t) => t.id === toastId)).toBeUndefined();
+    vi.useRealTimers();
+  });
+
   it('should generate unique ids for each toast', () => {
     const { result } = renderHook(() => useToast());
     const ids = new Set<string>();

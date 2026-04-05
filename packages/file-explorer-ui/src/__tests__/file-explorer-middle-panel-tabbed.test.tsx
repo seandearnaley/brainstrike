@@ -113,12 +113,15 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     ]);
 
     vi.mocked(useSelectionManager).mockReturnValue({
+      selectedCount: selectedFiles.size,
       selectedFilePaths: selectedFiles,
       selectedFilesList: Array.from(selectedFiles),
       setSelectedFilesFromList: vi.fn(),
       handleSelectionChange: vi.fn(),
       wouldExceedSelectionLimit: vi.fn(() => false),
       effectiveSelection: selectedFiles,
+      isQueryMode: false,
+      isQuerySelectionReady: true,
       isRulesMode: false,
     });
 
@@ -306,12 +309,15 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const mockHandleSelectionChange = vi.fn();
 
     vi.mocked(useSelectionManager).mockReturnValue({
+      selectedCount: 0,
       selectedFilePaths: new Set<string>(),
       selectedFilesList: [],
       setSelectedFilesFromList: vi.fn(),
       handleSelectionChange: mockHandleSelectionChange,
       wouldExceedSelectionLimit: vi.fn(() => false),
       effectiveSelection: new Set<string>(),
+      isQueryMode: false,
+      isQuerySelectionReady: true,
       isRulesMode: false,
     });
 

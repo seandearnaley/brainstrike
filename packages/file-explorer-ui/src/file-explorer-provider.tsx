@@ -1,9 +1,11 @@
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
+import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState } from '@brainstrike/types';
-import { createContext, useContext, useMemo, useRef, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand';
 import { type UseBoundStoreWithEqualityFn, useStoreWithEqualityFn } from 'zustand/traditional';
+import { setupInlineFixtureSubscription } from './setup-inline-fixture-subscription';
 
 type FileExplorerStore = UseBoundStoreWithEqualityFn<StoreApi<FileExplorerState>>;
 type FileExplorerStoreSelector<T> = (state: FileExplorerState) => T;
@@ -17,12 +19,27 @@ const FileExplorerStoreContext = createContext<FileExplorerStore | null>(null);
 
 export interface FileExplorerProviderProps {
   children: React.ReactNode;
+  /** Optional file system adapter — when provided, enables inline fixture subscription */
+  fileSystemAdapter?: FileSystemAdapter;
   storageAdapter: StorageAdapter;
 }
 
-export function FileExplorerProvider({ storageAdapter, children }: FileExplorerProviderProps) {
+export function FileExplorerProvider({
+  storageAdapter,
+  fileSystemAdapter,
+  children,
+}: FileExplorerProviderProps) {
   // Create store instance with the provided storage adapter
   const store = useMemo(() => createFileExplorerStore(storageAdapter), [storageAdapter]);
+
+  // Set up inline fixture subscription when adapter is available.
+  // Runs once on mount, outside the React render cycle.
+  useEffect(() => {
+    if (!fileSystemAdapter) {
+      return;
+    }
+    return setupInlineFixtureSubscription(store, fileSystemAdapter);
+  }, [store, fileSystemAdapter]);
 
   return (
     <FileExplorerStoreContext.Provider value={store}>{children}</FileExplorerStoreContext.Provider>

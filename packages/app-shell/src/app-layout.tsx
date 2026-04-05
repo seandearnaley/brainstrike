@@ -15,12 +15,12 @@ import type { AppLayoutProps } from './types';
 
 export function AppLayout({ children, config, currentPath, onNavigationClick }: AppLayoutProps) {
   useDatabaseStatusSync();
-  const { storageAdapter } = useAdapters();
+  const { fileSystemAdapter, storageAdapter } = useAdapters();
 
   return (
     <ThemeProvider defaultTheme="light" storageKey={config.themeStorageKey}>
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
-        <FileExplorerProvider storageAdapter={storageAdapter}>
+        <FileExplorerProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
           <div className="flex h-screen flex-col">
             {/* Main content area */}
             <div className="flex min-h-0 flex-1">

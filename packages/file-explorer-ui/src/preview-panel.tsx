@@ -5,6 +5,7 @@ import {
   BulkActionBar,
   Button,
   type CollectionNodeType,
+  cn,
   EmptyState,
   TablePagination,
   Tabs,
@@ -19,10 +20,10 @@ import {
 import { getFileExtension } from '@brainstrike/utils/file-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
-  CheckSquare,
   FileText,
   FileX2,
   LayoutGrid,
+  ListChecks,
   RotateCcw,
   Table as TableIcon,
 } from 'lucide-react';
@@ -775,6 +776,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       {
         id: 'remove-selected-from-project',
         label: 'Remove Selected from Project',
+        compactLabel: 'Remove',
         icon: <FileX2 className="size-3.5" />,
         destructive: true,
         applicableTypes: ['file'],
@@ -787,10 +789,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   );
 
   const contextSelectionSummaryText = useMemo(
-    () =>
-      previewSelections.size === 1
-        ? '1 file selected in Context Explorer'
-        : `${previewSelections.size} files selected in Context Explorer`,
+    () => (previewSelections.size === 1 ? '1 file selected' : `${previewSelections.size} selected`),
     [previewSelections.size]
   );
 
@@ -904,26 +903,30 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                   setCollapsedGroups(new Set());
                 }}
               />
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      aria-label={`Select all ${flattenedData.length} files`}
-                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                      data-testid="select-all-button"
-                      disabled={isAllSelected(flattenedData)}
-                      onClick={() => groupSelection.selectAll(flattenedData)}
+                      aria-label="Toggle multi-select"
+                      className={cn(
+                        'h-8 w-8 p-0',
+                        columnVisibility.checkbox && 'bg-accent text-accent-foreground'
+                      )}
+                      data-testid="toggle-multi-select-button"
+                      onClick={() => {
+                        const newVisibility = !columnVisibility.checkbox;
+                        setColumnVisibility({ ...columnVisibility, checkbox: newVisibility });
+                        if (!newVisibility) {
+                          deselectAll();
+                        }
+                      }}
                       size="sm"
-                      variant="outline"
+                      variant="ghost"
                     >
-                      <CheckSquare className="@[600px]:mr-2 size-3.5" />
-                      <span className="@[750px]:inline hidden">
-                        Select All ({flattenedData.length})
-                      </span>
-                      <span className="@[550px]:inline @[750px]:hidden hidden">Select All</span>
+                      <ListChecks className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Select all files across all pages</TooltipContent>
+                  <TooltipContent>Toggle multi-select</TooltipContent>
                 </Tooltip>
 
                 {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
@@ -1000,7 +1003,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                   actions={contextSelectionActions}
                   className="pointer-events-auto"
                   clearButtonAriaLabel="Clear context selection"
-                  clearButtonLabel="Clear Context Selection"
+                  clearButtonLabel="Clear Selection"
+                  compact
                   nodeTypes={contextSelectionNodeTypes}
                   onClearSelection={deselectAll}
                   selectedIds={previewSelections}

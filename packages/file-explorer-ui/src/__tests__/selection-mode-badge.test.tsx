@@ -10,6 +10,7 @@ const mockSelectionModel: SelectionModel = {
   ruleSetJson: null,
   materializedPaths: null,
   materializedAt: null,
+  queryDescriptor: null,
 };
 
 const mockSetSelectionMode = vi.fn();

@@ -314,4 +314,74 @@ describe('useFileSystem context hook', () => {
       'An unexpected error occurred while selecting the directory. Please try again.'
     );
   });
+
+  it('rehydrates persisted folder state when restoring a handle for the already-current folder id', () => {
+    const restoredHandle: DirectoryHandle = {
+      path: 'restored-root',
+      name: 'restored-root',
+      kind: 'directory',
+      platform: 'web',
+    } as DirectoryHandle;
+
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    act(() => {
+      result.current.store.setState({
+        currentFolderId: 'restored-root',
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          mode: 'explicit',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+        folderStates: {
+          'restored-root': {
+            selectedFilePaths: new Set<string>(['restored-root|@|file-0.ts']),
+            selectionModel: {
+              mode: 'query',
+              explicitPaths: new Set<string>(),
+              ruleSetJson: null,
+              materializedPaths: new Set<string>(['file-0.ts']),
+              materializedAt: new Date().toISOString(),
+              queryDescriptor: {
+                kind: 'recursive-select-all',
+                folderId: 'restored-root',
+                rootPath: null,
+                coveredDirectoryPaths: [],
+                includeFilters: ['*.ts'],
+                excludeFilters: [],
+                includedPaths: [],
+                excludedPaths: [],
+                manifestFingerprint: 'fingerprint',
+                manifestSnapshotId: 'snapshot-id',
+                useRegex: false,
+                totalSelectedCount: 600,
+              },
+            },
+            expandedDirectoryPaths: new Set<string>(),
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: true,
+            tokenBudget: 100_000,
+            folderSummaryThreshold: 5,
+            maxSelectionCount: 1000,
+            lastActiveTab: 'files',
+            lastAccessed: Date.now(),
+            viewFilterPresetId: null,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      result.current.fs.setRootDirectoryHandle(restoredHandle);
+    });
+
+    expect(result.current.store.getState().selectionModel.mode).toBe('query');
+    expect(result.current.store.getState().selectedFilePaths.size).toBe(1);
+  });
 });

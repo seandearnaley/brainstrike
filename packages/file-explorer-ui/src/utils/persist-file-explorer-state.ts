@@ -3,13 +3,13 @@ import type { FileExplorerState, SerializedState } from '@brainstrike/types';
 import type { StoreApi } from 'zustand';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 
-interface PersistOptions {
+export interface PersistOptions {
   name?: string;
   partialize?: (state: FileExplorerState) => SerializedState;
   version?: number;
 }
 
-type PersistableFileExplorerStore = Pick<
+export type PersistableFileExplorerStore = Pick<
   UseBoundStoreWithEqualityFn<StoreApi<FileExplorerState>>,
   'getState'
 > & {

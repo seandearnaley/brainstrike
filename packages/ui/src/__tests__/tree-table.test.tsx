@@ -571,6 +571,31 @@ describe('TreeTable', () => {
       expect(handleToggle).toHaveBeenCalledWith('1');
     });
 
+    it('disables the expand button while a row is loading and does not toggle', () => {
+      const handleToggle = vi.fn();
+      const nodes: TreeNode<TestData>[] = [
+        {
+          ...createTestNode('1', 'Folder', null, true),
+          isLoading: true,
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={testColumns}
+          expandedIds={new Set()}
+          nodes={nodes}
+          onToggleExpand={handleToggle}
+        />
+      );
+
+      const expandButton = screen.getByRole('button', { name: /expand/i });
+      expect(expandButton).toBeDisabled();
+
+      fireEvent.click(expandButton);
+      expect(handleToggle).not.toHaveBeenCalled();
+    });
+
     it('shows children when parent is expanded', () => {
       const nodes: TreeNode<TestData>[] = [
         createTestNode('1', 'Parent', null, true, 0),

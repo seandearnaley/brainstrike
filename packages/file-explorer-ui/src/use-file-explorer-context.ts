@@ -15,7 +15,15 @@ import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   useFileExplorerStoreContext,
@@ -437,7 +445,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const displayError = deriveDisplayError();
 
   // Initial load is when we have a root but tree is still loading
-  const isInitialLoad = !rootDirectoryHandle && isTreeLoading;
+  const isInitialLoad = Boolean(rootDirectoryHandle) && isTreeLoading;
   const currentRootFolderId = getRootFolderId(rootDirectoryHandle);
 
   // Track which folder we've already restored expanded paths for
@@ -451,13 +459,14 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
   const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
 
-  // CRITICAL: Cancel the stale clearing timer immediately when isAccessLoading becomes true.
-  // This runs synchronously on every render, ensuring the timer is cancelled before it can fire.
-  if (isAccessLoading && staleClearingTimerRef.current !== null) {
+  useLayoutEffect(() => {
+    if (!(isAccessLoading && staleClearingTimerRef.current !== null)) {
+      return;
+    }
     logger.debug('Cancelling stale clearing timer - isAccessLoading became true');
     clearTimeout(staleClearingTimerRef.current);
     staleClearingTimerRef.current = null;
-  }
+  }, [isAccessLoading]);
 
   /**
    * Clear stale selection and expansion state when there's no root directory handle.
@@ -524,15 +533,18 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
         return;
       }
 
+      const currentHasStaleSelection = currentStoreState.selectedFilePaths.size > 0;
+      const currentHasStaleExpansion = currentStoreState.expandedDirectoryPaths.size > 0;
+
       logger.info('Clearing stale file explorer state - no root directory handle', {
-        staleSelectedFiles: selectedFilePaths.size,
-        staleExpandedPaths: expandedDirectoryPaths.size,
+        staleSelectedFiles: currentStoreState.selectedFilePaths.size,
+        staleExpandedPaths: currentStoreState.expandedDirectoryPaths.size,
       });
 
-      if (hasStaleSelection) {
+      if (currentHasStaleSelection) {
         clearSelectedFiles();
       }
-      if (hasStaleExpansion) {
+      if (currentHasStaleExpansion) {
         setExpandedPaths(new Set());
       }
     }, 1500);
@@ -604,6 +616,10 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     const storeState = store.getState();
     const expandedPaths = storeState.expandedDirectoryPaths;
     const selectedFiles = storeState.selectedFilePaths;
+    const queryCoveredDirectories =
+      storeState.selectionModel.mode === 'query'
+        ? new Set(storeState.selectionModel.queryDescriptor?.coveredDirectoryPaths ?? [])
+        : new Set<string>();
 
     // BST-308/BST-310: Include ALL ancestor directories of selected files in restoration.
     // When files are restored from persistence, their ancestor directories must be loaded
@@ -615,13 +631,18 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     const parentDirectoriesOfSelectedFiles = getParentDirectoriesForSelectedFiles(selectedFiles);
 
     // Merge expanded paths with parent directories of selected files
-    const allPathsToRestore = new Set([...expandedPaths, ...parentDirectoriesOfSelectedFiles]);
+    const allPathsToRestore = new Set([
+      ...expandedPaths,
+      ...parentDirectoriesOfSelectedFiles,
+      ...queryCoveredDirectories,
+    ]);
 
     logger.debug('[Restoration Effect] Paths to restore', {
       folderId: currentRootFolderId,
       expandedPathCount: expandedPaths.size,
       selectedFileCount: selectedFiles.size,
       parentDirsOfSelectedFiles: parentDirectoriesOfSelectedFiles.size,
+      queryCoveredDirectoryCount: queryCoveredDirectories.size,
       totalPathsToRestore: allPathsToRestore.size,
       expandedPaths: [...expandedPaths].slice(0, 5),
       parentDirs: [...parentDirectoriesOfSelectedFiles].slice(0, 5),
@@ -668,6 +689,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
           const newExpandedPaths = new Set([
             ...currentExpandedPaths,
             ...parentDirectoriesOfSelectedFiles,
+            ...queryCoveredDirectories,
           ]);
           logger.debug('[Restoration Effect] Expanding parent directories of selected files', {
             count: parentDirectoriesOfSelectedFiles.size,

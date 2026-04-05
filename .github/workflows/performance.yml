@@ -97,6 +97,7 @@ jobs:
         timeout-minutes: 30
         run: |
           cd apps/web
+          unset NO_COLOR
           PROJECT=${{ github.event.inputs.project || 'performance' }}
           GREP=${{ github.event.inputs.grep || '' }}
           if [ -n "$GREP" ]; then

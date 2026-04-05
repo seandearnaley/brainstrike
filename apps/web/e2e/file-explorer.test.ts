@@ -203,6 +203,91 @@ test.describe('File Explorer', () => {
       await expect(page.getByText('Select filter...')).toHaveCount(0);
     });
 
+    test('keeps root Select All and single-click expansion aligned with the TypeScript/JavaScript preset', async ({
+      page,
+    }) => {
+      const presetTree: FileTree = {
+        src: {
+          'app.ts': null,
+          'readme.md': null,
+          nested: {
+            'deep.tsx': null,
+            'notes.txt': null,
+          },
+        },
+        scripts: {
+          'build.js': null,
+        },
+        docs: {
+          'guide.md': null,
+        },
+        assets: {
+          'logo.png': null,
+        },
+      };
+
+      const filteredExplorer = await bootstrapFileExplorer(page, {
+        tree: presetTree,
+        projectName: 'filtered-select-all-project',
+        resetSettings: true,
+        clearStorageKeys: ['panel-layout-store.v1'],
+      });
+
+      await filteredExplorer.selectRoot();
+      await openViewFilters(page);
+
+      const presetTrigger = await getPresetTrigger(page);
+      await presetTrigger.click();
+      await expect(page.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+
+      const tsPresetOption = page.getByRole('button', { name: /typescript\/javascript/i }).first();
+      await expect(tsPresetOption).toBeVisible({ timeout: 10_000 });
+      await tsPresetOption.click();
+
+      await expect(
+        page.locator('#explorer-panel').getByRole('button', { name: /typescript\/javascript/i })
+      ).toBeVisible({ timeout: 10_000 });
+
+      await filteredExplorer.selectAllButton.click();
+
+      await expect(
+        filteredExplorer.fileTree.getByRole('checkbox', { name: 'Select src' })
+      ).toHaveAttribute('data-state', 'checked');
+      await expect(
+        filteredExplorer.fileTree.getByRole('checkbox', { name: 'Select scripts' })
+      ).toHaveAttribute('data-state', 'checked');
+      await expect(
+        filteredExplorer.fileTree.getByRole('checkbox', { name: 'Select docs' })
+      ).toHaveAttribute('data-state', 'unchecked');
+      await expect(
+        filteredExplorer.fileTree.getByRole('checkbox', { name: 'Select assets' })
+      ).toHaveAttribute('data-state', 'unchecked');
+
+      const srcRow = filteredExplorer.fileTree.getByRole('row', {
+        name: /Expand Select src src/i,
+      });
+      await srcRow.getByRole('button', { name: 'Expand' }).click();
+
+      await expect(filteredExplorer.fileTree.getByText('app.ts')).toBeVisible({ timeout: 10_000 });
+      await expect(
+        filteredExplorer.fileTree.getByRole('checkbox', { name: 'Select app.ts' })
+      ).toBeChecked();
+      await expect(filteredExplorer.fileTree.getByText('readme.md')).not.toBeVisible();
+
+      const nestedRow = filteredExplorer.fileTree.getByRole('row', {
+        name: /Expand Select nested nested/i,
+      });
+      await nestedRow.getByRole('button', { name: 'Expand' }).click();
+
+      await expect(filteredExplorer.fileTree.getByText('deep.tsx')).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(
+        filteredExplorer.fileTree.getByRole('checkbox', { name: 'Select deep.tsx' })
+      ).toBeChecked();
+      await expect(filteredExplorer.fileTree.getByText('notes.txt')).not.toBeVisible();
+    });
+
     test('does not stay stuck on loading presets after opening the dropdown', async ({ page }) => {
       await openViewFilters(page);
 

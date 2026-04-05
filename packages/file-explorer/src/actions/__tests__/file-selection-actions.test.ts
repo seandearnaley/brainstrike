@@ -1,16 +1,21 @@
 import type { FileExplorerState } from '@brainstrike/types';
+import { createEmptySelectionModel } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileSelectionActions } from '../file-selection-actions';
 
 // Mock the file-selection-utils module
-vi.mock('@brainstrike/utils/logger', () => ({
-  createLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+    }),
+  };
+});
 
 vi.mock('@brainstrike/utils/selection-utils', () => ({
   encodeFileSelection: (folderId: string, path: string) => `${folderId}|@|${path}`,
@@ -32,6 +37,8 @@ describe('file-selection-actions', () => {
     folderStates: {},
     selectedFilePaths: new Set<string>(),
     selectionVersion: 0,
+    selectionModel: createEmptySelectionModel(),
+    querySelectionManifest: null,
     expandedDirectoryPaths: new Set<string>(),
     includeFilters: [],
     excludeFilters: [],
@@ -101,7 +108,13 @@ describe('file-selection-actions', () => {
 
     it('should filter out invalid composite keys', () => {
       // Arrange
-      const selectedFiles = new Set(['folder1|@|file1.ts', 'invalid-key']);
+      const selectedFiles = new Set([
+        'folder1|@|file1.ts',
+        'invalid-key',
+        '|@|missing-folder.ts',
+        'folder1|@|',
+        'folder1|@||@|nested',
+      ]);
       const fileSelectionActions = createFileSelectionActions(mockSet, vi.fn());
 
       // Act
@@ -294,6 +307,392 @@ describe('file-selection-actions', () => {
     });
   });
 
+  describe('query-backed selection mutations', () => {
+    it('returns an empty patch when query mutation targets a different folder id', () => {
+      const mockState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/index.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder-2',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 2,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      fileSelectionActions.addSelectedFile('folder1', '/src/extra.ts');
+
+      // @ts-expect-error mock narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toEqual({});
+    });
+
+    it('keeps query mode and records an excluded path when removing a selected query file', () => {
+      const mockState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/index.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 2,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      fileSelectionActions.removeSelectedFile('folder1', '/src/index.ts');
+
+      // @ts-expect-error mock narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState.selectionModel?.mode).toBe('query');
+      expect(updatedState.selectionModel?.queryDescriptor?.excludedPaths).toEqual([
+        '/src/index.ts',
+      ]);
+      expect(updatedState.selectionModel?.queryDescriptor?.totalSelectedCount).toBe(1);
+      expect(updatedState.selectedFilePaths).toEqual(new Set<string>());
+    });
+
+    it('keeps query mode and records an included path when re-adding an excluded query file', () => {
+      const mockState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/utils.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: ['/src/index.ts'],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 1,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      fileSelectionActions.addSelectedFile('folder1', '/src/index.ts');
+
+      // @ts-expect-error mock narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState.selectionModel?.mode).toBe('query');
+      expect(updatedState.selectionModel?.queryDescriptor?.excludedPaths).toEqual([]);
+      expect(updatedState.selectionModel?.queryDescriptor?.totalSelectedCount).toBe(2);
+    });
+
+    it('does not re-include an excluded manifest path when query selection is already at the max limit', () => {
+      const mockState = createMockState({
+        maxSelectionCount: 1,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/utils.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: ['/src/index.ts'],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 1,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      fileSelectionActions.addSelectedFile('folder1', '/src/index.ts');
+
+      // @ts-expect-error mock narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toEqual({});
+    });
+
+    it('adds a non-manifest query path as an included override and syncs compatibility keys', () => {
+      const mockState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/utils.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 2,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      fileSelectionActions.addSelectedFile('folder1', '/src/extra.ts');
+
+      // @ts-expect-error mock narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState.selectionModel?.queryDescriptor?.includedPaths).toEqual([
+        '/src/extra.ts',
+      ]);
+      expect(updatedState.selectionModel?.queryDescriptor?.totalSelectedCount).toBe(3);
+      expect(updatedState.selectedFilePaths).toEqual(new Set(['folder1|@|/src/extra.ts']));
+    });
+
+    it('toggles a query-backed selected path off using the canonical manifest membership', () => {
+      const mockState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/index.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 2,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      fileSelectionActions.toggleSelectedFile('folder1', '/src/index.ts');
+
+      // @ts-expect-error mock narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState.selectionModel?.queryDescriptor?.excludedPaths).toEqual([
+        '/src/index.ts',
+      ]);
+      expect(updatedState.selectionModel?.queryDescriptor?.totalSelectedCount).toBe(1);
+    });
+
+    it('adds and removes multiple paths in query mode without leaving query mode', () => {
+      const baseState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/index.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 2,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts', '/src/utils.ts'],
+          pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+          directoryCounts: new Map([['/src', 2]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn().mockReturnValue(baseState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      fileSelectionActions.addMultipleSelectedFiles('folder1', ['/src/extra.ts']);
+      // @ts-expect-error mock narrowing
+      const addUpdateFn = mockSet.mock.calls[0][0];
+      const addedState = addUpdateFn(baseState) as Partial<FileExplorerState>;
+      expect(addedState.selectionModel?.mode).toBe('query');
+      expect(addedState.selectionModel?.queryDescriptor?.includedPaths).toEqual(['/src/extra.ts']);
+
+      mockSet.mockClear();
+      fileSelectionActions.removeMultipleSelectedFiles('folder1', ['/src/index.ts']);
+      // @ts-expect-error mock narrowing
+      const removeUpdateFn = mockSet.mock.calls[0][0];
+      const removedState = removeUpdateFn(baseState) as Partial<FileExplorerState>;
+      expect(removedState.selectionModel?.mode).toBe('query');
+      expect(removedState.selectionModel?.queryDescriptor?.excludedPaths).toEqual([
+        '/src/index.ts',
+      ]);
+    });
+
+    it('returns an empty patch while the query manifest is still loading', () => {
+      const mockState = createMockState({
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/index.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 2,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: [],
+          pathSet: new Set<string>(),
+          directoryCounts: new Map<string, number>(),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'loading',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      fileSelectionActions.addSelectedFile('folder1', '/src/extra.ts');
+
+      // @ts-expect-error mock narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toEqual({});
+    });
+  });
+
   describe('toggleSelectedFile', () => {
     it('should add file to selected files when not present', () => {
       // Arrange
@@ -416,6 +815,14 @@ describe('file-selection-actions', () => {
       // Arrange
       const mockState = createMockState({
         selectedFilePaths: new Set(['folder1|@|file.ts']),
+        selectionModel: {
+          mode: 'explicit',
+          explicitPaths: new Set(['folder1|@|file.ts']),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
         selectionVersion: 5,
       });
       const fileSelectionActions = createFileSelectionActions(mockSet, vi.fn());
@@ -432,6 +839,7 @@ describe('file-selection-actions', () => {
       };
       const result = setCallback(mockState);
       expect(result.selectedFilePaths).toEqual(new Set());
+      expect(result.selectionModel.explicitPaths).toEqual(new Set());
       expect(result.selectionVersion).toBe(6);
     });
   });
@@ -806,6 +1214,211 @@ describe('file-selection-actions', () => {
   });
 
   describe('addMultipleSelectedFilesChunked', () => {
+    it('uses query mutation in the small selection path when the store is already in query mode', async () => {
+      let currentState = createMockState({
+        maxSelectionCount: 10,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/index.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 1,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts'],
+          pathSet: new Set(['/src/index.ts']),
+          directoryCounts: new Map([['/src', 1]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState) as Partial<FileExplorerState>;
+          currentState = {
+            ...currentState,
+            ...result,
+            selectionModel: result.selectionModel ?? currentState.selectionModel,
+            selectedFilePaths: result.selectedFilePaths ?? currentState.selectedFilePaths,
+          };
+        }
+      });
+
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked('folder1', [
+        '/src/extra.ts',
+      ]);
+
+      expect(result).toEqual({
+        addedCount: 1,
+        cancelled: false,
+        limitReached: false,
+      });
+      expect(currentState.selectionModel.queryDescriptor?.includedPaths).toEqual(['/src/extra.ts']);
+      expect(currentState.selectionModel.queryDescriptor?.totalSelectedCount).toBe(2);
+    });
+
+    it('uses query mutation in the large selection path when the store is already in query mode', async () => {
+      let currentState = createMockState({
+        maxSelectionCount: 10,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/index.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 1,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts'],
+          pathSet: new Set(['/src/index.ts']),
+          directoryCounts: new Map([['/src', 1]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const progress = vi.fn();
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState) as Partial<FileExplorerState>;
+          currentState = {
+            ...currentState,
+            ...result,
+            selectionModel: result.selectionModel ?? currentState.selectionModel,
+            selectedFilePaths: result.selectedFilePaths ?? currentState.selectedFilePaths,
+          };
+        }
+      });
+
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
+        'folder1',
+        ['/src/extra-1.ts', '/src/extra-2.ts'],
+        { chunkSize: 1, onProgress: progress }
+      );
+
+      expect(result).toEqual({
+        addedCount: 2,
+        cancelled: false,
+        limitReached: false,
+      });
+      expect(progress).toHaveBeenCalledWith(2, 2);
+      expect(currentState.selectionModel.queryDescriptor?.includedPaths).toEqual([
+        '/src/extra-1.ts',
+        '/src/extra-2.ts',
+      ]);
+      expect(currentState.selectionModel.queryDescriptor?.totalSelectedCount).toBe(3);
+    });
+
+    it('uses the updater state for query-path result deltas even if get() changes after set()', async () => {
+      let currentState = createMockState({
+        maxSelectionCount: 10,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['/src/index.ts']),
+          materializedAt: new Date().toISOString(),
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['/src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            totalSelectedCount: 1,
+            useRegex: false,
+          },
+        },
+        querySelectionManifest: {
+          filePaths: ['/src/index.ts'],
+          pathSet: new Set(['/src/index.ts']),
+          directoryCounts: new Map([['/src', 1]]),
+          fingerprint: 'fp-1',
+          snapshotId: 'snapshot-1',
+          status: 'ready',
+          errorMessage: null,
+        },
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      let authoritativeSelectedCount = 0;
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState) as Partial<FileExplorerState>;
+          currentState = {
+            ...currentState,
+            ...result,
+            selectionModel: result.selectionModel ?? currentState.selectionModel,
+            selectedFilePaths: result.selectedFilePaths ?? currentState.selectedFilePaths,
+          };
+          authoritativeSelectedCount =
+            currentState.selectionModel.queryDescriptor?.totalSelectedCount ?? 0;
+          currentState = {
+            ...currentState,
+            selectionModel: {
+              ...currentState.selectionModel,
+              queryDescriptor: {
+                ...currentState.selectionModel.queryDescriptor!,
+                totalSelectedCount: 999,
+              },
+            },
+          };
+        }
+      });
+
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked('folder1', [
+        '/src/extra.ts',
+      ]);
+
+      expect(result).toEqual({
+        addedCount: 1,
+        cancelled: false,
+        limitReached: false,
+      });
+      expect(authoritativeSelectedCount).toBe(2);
+    });
+
     it('should add files for small selections (under chunk size)', async () => {
       // Arrange
       const mockState = createMockState({
@@ -1129,6 +1742,38 @@ describe('file-selection-actions', () => {
       expect(currentState.selectedFilePaths.size).toBe(3);
     });
 
+    it('should not let duplicate input paths consume the optimistic large-selection budget', async () => {
+      let currentState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|existing.ts']),
+        maxSelectionCount: 2, // one remaining slot
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+        }
+      });
+
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
+        'folder1',
+        ['existing.ts', 'new.ts', 'new.ts', 'ignored.ts'],
+        { chunkSize: 2 }
+      );
+
+      expect(result.addedCount).toBe(1);
+      expect(result.limitReached).toBe(true);
+      expect(currentState.selectedFilePaths).toEqual(
+        new Set(['folder1|@|existing.ts', 'folder1|@|new.ts'])
+      );
+    });
+
     it('should handle max limit reached during Phase 2 atomic update', async () => {
       // Arrange - large selection that hits limit during Phase 2 state update
       let currentState = createMockState({
@@ -1161,6 +1806,47 @@ describe('file-selection-actions', () => {
       expect(result.limitReached).toBe(true);
       expect(result.addedCount).toBe(10);
       expect(currentState.selectedFilePaths.size).toBe(10);
+    });
+
+    it('uses the updater state for explicit-path result deltas even if get() changes after set()', async () => {
+      let currentState = createMockState({
+        selectedFilePaths: new Set<string>(),
+        maxSelectionCount: 5,
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      let authoritativeSelectedCount = 0;
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+          authoritativeSelectedCount = currentState.selectedFilePaths.size;
+          currentState = {
+            ...currentState,
+            selectedFilePaths: new Set([
+              ...currentState.selectedFilePaths,
+              'folder1|@|concurrent.ts',
+            ]),
+          };
+        }
+      });
+
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked('folder1', [
+        'file1.ts',
+        'file2.ts',
+      ]);
+
+      expect(result).toEqual({
+        addedCount: 2,
+        cancelled: false,
+        limitReached: false,
+      });
+      expect(authoritativeSelectedCount).toBe(2);
     });
 
     it('should call onProgress for small (synchronous) selections', async () => {

@@ -13,13 +13,54 @@ const APP_STATE_KEYS = [
   'token-preferences.v1',
 ] as const;
 
+const INDEXED_DB_NAMES = ['brainstrike-file-handles'] as const;
+
 /**
  * Clear application state stored in localStorage.
  */
 export async function resetAppState(page: Page): Promise<void> {
-  await page.evaluate((keys: readonly string[]) => {
-    for (const key of keys) {
-      localStorage.removeItem(key);
-    }
-  }, APP_STATE_KEYS);
+  await page.evaluate(
+    async (args: { dbNames: readonly string[]; keys: readonly string[] }) => {
+      const deleteDatabase = async (name: string): Promise<void> =>
+        new Promise((resolve) => {
+          const timeoutId = setTimeout(resolve, 1000);
+          const request = indexedDB.deleteDatabase(name);
+          request.onsuccess = () => {
+            clearTimeout(timeoutId);
+            resolve();
+          };
+          request.onerror = () => {
+            clearTimeout(timeoutId);
+            resolve();
+          };
+          request.onblocked = () => {
+            clearTimeout(timeoutId);
+            resolve();
+          };
+        });
+
+      for (const name of args.dbNames) {
+        await deleteDatabase(name);
+      }
+
+      if ('caches' in globalThis) {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map((name) => caches.delete(name)));
+      }
+
+      if ('indexedDB' in globalThis && typeof indexedDB.databases === 'function') {
+        const databases = await indexedDB.databases().catch(() => []);
+        for (const database of databases) {
+          if (database.name?.startsWith('brainstrike-')) {
+            await deleteDatabase(database.name);
+          }
+        }
+      }
+
+      for (const key of args.keys) {
+        localStorage.removeItem(key);
+      }
+    },
+    { keys: APP_STATE_KEYS, dbNames: INDEXED_DB_NAMES }
+  );
 }

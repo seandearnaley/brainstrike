@@ -5,6 +5,8 @@ import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { resetStore } from './test-utils';
 
+const originalConsoleError = console.error;
+
 // Configure React's act() environment for Zustand store updates
 // This prevents false-positive act(...) warnings when Zustand triggers re-renders
 // See: https://github.com/pmndrs/zustand/issues/2200
@@ -16,12 +18,29 @@ if (typeof globalThis !== 'undefined') {
 // Reset store state for each test to ensure isolation
 beforeEach(() => {
   resetStore();
+  console.error = (...args: unknown[]) => {
+    const message = String(args[0] ?? '');
+    const isActWarning =
+      (message.includes('was not wrapped in act(...)') &&
+        message.includes('When testing, code that causes React state updates')) ||
+      message.includes(
+        'A suspended resource finished loading inside a test, but the event was not wrapped in act(...)'
+      ) ||
+      message.includes('The current testing environment is not configured to support act(...)');
+
+    if (isActWarning) {
+      return;
+    }
+
+    originalConsoleError(...args);
+  };
 });
 
 // Global safety: always restore real timers and cleanup React between tests
 afterEach(() => {
   vi.useRealTimers();
   cleanup();
+  console.error = originalConsoleError;
 });
 
 // The import '@testing-library/jest-dom' at the top should handle extending expect.

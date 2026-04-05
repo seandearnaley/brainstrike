@@ -90,7 +90,7 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
   const checkboxState = resolveCheckboxState(isFullySelected, isPartiallySelected);
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
       {showInlineCheckbox && (
         <Checkbox
           aria-label={`Select all files in group ${group.groupLabel}`}
@@ -108,12 +108,6 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
       </div>
       <span aria-hidden="true" className="text-muted-foreground text-xs">
         {group.count} files
-      </span>
-      <span className="whitespace-nowrap text-muted-foreground text-xs tabular-nums">
-        {formatTokenCount(group.totalTokens)}
-      </span>
-      <span className="whitespace-nowrap text-muted-foreground text-xs tabular-nums">
-        {(group.totalSize / 1024).toFixed(1)} KB
       </span>
     </div>
   );
@@ -498,6 +492,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     if (columnVisibility.checkbox) {
       columns.push({
         id: 'checkbox',
+        isTreeColumn: false,
         header: (
           <Checkbox
             aria-label="Select all files on current page"
@@ -571,7 +566,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
 
           const item = node.data.item;
           return (
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-1.5">
               <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate font-mono text-sm" title={item.rootFolderId}>
                 {item.rootFolderId}
@@ -674,7 +669,18 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         headerClassName: 'w-24',
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
-            return renderGroupHeaderIfPrimary(node.data.group, 'tokens');
+            if (primaryGroupColumn === 'tokens') {
+              return renderGroupHeaderIfPrimary(node.data.group, 'tokens');
+            }
+            const { totalTokens } = node.data.group;
+            if (!totalTokens) {
+              return null;
+            }
+            return (
+              <span className="whitespace-nowrap font-mono text-sm tabular-nums">
+                {formatTokenCount(totalTokens)}
+              </span>
+            );
           }
 
           const tokens = node.data.item.tokens;
@@ -707,7 +713,14 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
         headerClassName: 'w-24',
         cell: ({ node }) => {
           if (node.data.kind === 'group') {
-            return renderGroupHeaderIfPrimary(node.data.group, 'size');
+            if (primaryGroupColumn === 'size') {
+              return renderGroupHeaderIfPrimary(node.data.group, 'size');
+            }
+            return (
+              <span className="whitespace-nowrap font-mono text-sm tabular-nums">
+                {formatPreviewFileSize(node.data.group.totalSize)}
+              </span>
+            );
           }
 
           const size = node.data.item.size;
@@ -737,6 +750,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     onSelectAllOnPageStable,
     onSortStable,
     onToggleSelectionStable,
+    primaryGroupColumn,
     renderGroupHeaderIfPrimary,
     sortDirection,
     sortField,
@@ -845,7 +859,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     <div className={cn('flex min-h-0 flex-1 overflow-auto', scrollAreaClassName)}>
       <TreeTable
         ariaLabel="Context explorer table"
-        className="min-w-full"
+        className="w-full"
         columns={groupedColumns}
         expandedIds={stableExpandedGroupNodeIds}
         maxHeight="none"

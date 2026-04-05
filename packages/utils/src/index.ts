@@ -24,6 +24,7 @@ export * from './filter-utils';
 export * from './hash-utils';
 export * from './log-sampling';
 export * from './logging/install-renderer-error-hooks';
+export * from './path-ancestors';
 export * from './path-filter';
 export * from './path-utils';
 export * from './perf-timing';

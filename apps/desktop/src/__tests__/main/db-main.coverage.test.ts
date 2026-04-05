@@ -66,7 +66,15 @@ describe('db-main coverage helpers', () => {
 
   it('fails fast when pgvector extension cannot be loaded', async () => {
     vi.doMock('@electric-sql/pglite/vector', () => {
-      throw new Error('vector module missing');
+      const moduleRecord: Record<string, unknown> = {};
+      Object.defineProperty(moduleRecord, 'vector', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          throw new Error('vector module missing');
+        },
+      });
+      return moduleRecord;
     });
     const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
     await expect(initializeMainDatabase()).rejects.toThrow(/pgvector extension is required/i);
@@ -77,9 +85,9 @@ describe('db-main coverage helpers', () => {
   });
 
   it('classifies wasm abort during extension load as wasm-runtime', async () => {
-    vi.doMock('@electric-sql/pglite/vector', () => {
+    vi.doMock('@electric-sql/pglite', () => {
       const moduleRecord: Record<string, unknown> = {};
-      Object.defineProperty(moduleRecord, 'vector', {
+      Object.defineProperty(moduleRecord, 'PGlite', {
         configurable: true,
         enumerable: true,
         get() {

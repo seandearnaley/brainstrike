@@ -13,12 +13,37 @@
  * Selection mode determines how files are selected.
  * - 'explicit': Traditional manual file selection (Set of composite keys)
  * - 'rules': Rule-based selection using SelectionRuleSet
+ * - 'query': Query-backed recursive selection for large folder/root selections
  */
-export type SelectionMode = 'explicit' | 'rules';
+export type SelectionMode = 'explicit' | 'query' | 'rules';
+
+export interface SelectionQueryDescriptor {
+  coveredDirectoryPaths: string[];
+  excludedPaths: string[];
+  excludeFilters: string[];
+  folderId: string;
+  includedPaths: string[];
+  includeFilters: string[];
+  kind: 'recursive-folder' | 'recursive-select-all';
+  manifestFingerprint: string | null;
+  manifestSnapshotId: string | null;
+  rootPath: string | null;
+  totalSelectedCount: number;
+  useRegex: boolean;
+}
+
+export interface QuerySelectionManifest {
+  directoryCounts: Map<string, number>;
+  errorMessage: string | null;
+  filePaths: string[];
+  fingerprint: string | null;
+  pathSet: Set<string>;
+  snapshotId: string | null;
+  status: 'error' | 'loading' | 'ready';
+}
 
 /**
- * Selection model that supports both explicit and rule-based selection.
- * This abstraction allows coexistence during migration from explicit to rules.
+ * Selection model that supports explicit, rule-based, and query-backed selection.
  */
 export interface SelectionModel {
   /**
@@ -41,6 +66,12 @@ export interface SelectionModel {
   mode: SelectionMode;
 
   /**
+   * Query descriptor for large recursive selections.
+   * Only used when mode is 'query'.
+   */
+  queryDescriptor: SelectionQueryDescriptor | null;
+
+  /**
    * Rule set for rule-based selection.
    * Only used when mode is 'rules'.
    */
@@ -55,6 +86,7 @@ export interface SerializedSelectionModel {
   materializedAt: string | null;
   materializedPaths: string[] | null;
   mode: SelectionMode;
+  queryDescriptor: SelectionQueryDescriptor | null;
   ruleSetJson: string | null;
 }
 
@@ -68,6 +100,7 @@ export function createEmptySelectionModel(): SelectionModel {
     ruleSetJson: null,
     materializedPaths: null,
     materializedAt: null,
+    queryDescriptor: null,
   };
 }
 
@@ -90,6 +123,7 @@ export interface SerializedFolderState {
   lastActiveTab: string;
   maxSelectionCount: number;
   selectedFilePaths: string[];
+  selectionModel?: SerializedSelectionModel;
   tokenBudget: number;
   useRegex: boolean;
   /**
@@ -152,6 +186,7 @@ export interface FolderState {
   lastActiveTab: string;
   maxSelectionCount: number;
   selectedFilePaths: Set<string>;
+  selectionModel: SelectionModel;
   tokenBudget: number;
   useRegex: boolean;
   /**
@@ -201,6 +236,7 @@ export interface FileExplorerData {
   isFiltersExpanded: boolean;
   lastActiveTab: string;
   maxSelectionCount: number;
+  querySelectionManifest: QuerySelectionManifest | null;
   /**
    * Quick filter input in the sidebar filter bar.
    * Persisting this improves UX across unmounts and reloads.
@@ -238,6 +274,15 @@ export interface CacheStats {
 // Store interface extends data with actions
 export interface FileExplorerState extends FileExplorerData {
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  addMultipleSelectedFilesChunked: (
+    folderId: string,
+    paths: string[],
+    options?: {
+      chunkSize?: number;
+      onProgress?: (processed: number, total: number) => void;
+      signal?: AbortSignal;
+    }
+  ) => Promise<{ addedCount: number; cancelled: boolean; limitReached: boolean }>;
   addSelectedFile: (folderId: string, path: string) => void;
   clearAllFileContents: () => void;
   clearFileContents: (compositeKeys: string[]) => void;
@@ -289,6 +334,12 @@ export interface FileExplorerState extends FileExplorerData {
    */
   setMaterializedPaths: (paths: Set<string>) => void;
   setMaxSelectionCount: (count: number) => void;
+  setQuerySelection: (
+    descriptor: SelectionQueryDescriptor,
+    manifest: QuerySelectionManifest,
+    materializedPaths?: Set<string>
+  ) => void;
+  setQuerySelectionManifest: (manifest: QuerySelectionManifest | null) => void;
 
   // UI state actions (ephemeral + lightweight persisted)
   setQuickFilter: (value: string) => void;
@@ -350,6 +401,7 @@ export const DEFAULT_STATE = {
   folderAccessOrder: [] as string[],
   fileContents: {} as Record<string, string>,
   quickFilter: '',
+  querySelectionManifest: null as QuerySelectionManifest | null,
   devInlineFixtureEnabled: false,
   selectionModel: createEmptySelectionModel(),
   isAccessLoading: false,
