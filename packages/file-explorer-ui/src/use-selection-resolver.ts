@@ -23,6 +23,8 @@ export interface SelectionResolverState {
   selectedFilesList: string[];
 }
 
+const EMPTY_RELATIVE_PATHS: string[] = [];
+
 export function useSelectionResolver(): SelectionResolverState {
   const db = useOptionalPGliteDatabase();
   const store = useFileExplorerStoreContext();
@@ -157,22 +159,25 @@ export function useSelectionResolver(): SelectionResolverState {
         querySelectionManifest.snapshotId === selectionModel.queryDescriptor.manifestSnapshotId
     );
 
+  const sortedMaterializedPaths = useMemo(() => {
+    if (!(selectionModel.materializedPaths && selectionModel.materializedPaths.size > 0)) {
+      return EMPTY_RELATIVE_PATHS;
+    }
+    return Array.from(selectionModel.materializedPaths).sort(defaultCollator.compare);
+  }, [selectionModel.materializedPaths]);
+
   const effectiveRelativePaths = useMemo(() => {
     if (selectionModel.mode === 'rules') {
-      return Array.from(selectionModel.materializedPaths ?? []).sort(defaultCollator.compare);
+      return sortedMaterializedPaths;
     }
     if (selectionModel.mode === 'query') {
-      if (
-        resolvedQuerySelection.filePaths.length === 0 &&
-        selectionModel.materializedPaths &&
-        selectionModel.materializedPaths.size > 0
-      ) {
-        return Array.from(selectionModel.materializedPaths).sort(defaultCollator.compare);
+      if (resolvedQuerySelection.filePaths.length === 0 && sortedMaterializedPaths.length > 0) {
+        return sortedMaterializedPaths;
       }
       return resolvedQuerySelection.filePaths;
     }
-    return [];
-  }, [resolvedQuerySelection.filePaths, selectionModel]);
+    return EMPTY_RELATIVE_PATHS;
+  }, [resolvedQuerySelection.filePaths, selectionModel.mode, sortedMaterializedPaths]);
 
   const effectiveSelection = useMemo(() => {
     if (selectionModel.mode === 'explicit' || !currentFolderId) {
@@ -203,7 +208,8 @@ export function useSelectionResolver(): SelectionResolverState {
     effectiveRelativePaths.length,
     resolvedQuerySelection.selectedCount,
     selectedFilePaths.size,
-    selectionModel,
+    selectionModel.mode,
+    selectionModel.queryDescriptor,
   ]);
 
   return {

@@ -176,6 +176,56 @@ describe('useSelectionResolver', () => {
     });
   });
 
+  it('keeps effectiveRelativePaths stable when unrelated query descriptor fields change', () => {
+    const state = {
+      currentFolderId: 'folder-1',
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        mode: 'query' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: new Set<string>(['src/index.ts']),
+        materializedAt: null,
+        queryDescriptor: {
+          kind: 'recursive-select-all' as const,
+          folderId: 'folder-1',
+          rootPath: null,
+          coveredDirectoryPaths: ['/src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          totalSelectedCount: 1,
+          useRegex: false,
+        },
+      },
+      querySelectionManifest: null,
+      setQuerySelectionManifest: vi.fn(),
+    };
+
+    const store = { getState: () => state };
+    useOptionalPGliteDatabaseMock.mockReturnValue(null);
+    useFileExplorerStoreContextMock.mockReturnValue(store);
+
+    const { result, rerender } = renderHook(() => useSelectionResolver());
+    const initialPaths = result.current.effectiveRelativePaths;
+
+    state.selectionModel = {
+      ...state.selectionModel,
+      queryDescriptor: {
+        ...state.selectionModel.queryDescriptor,
+        coveredDirectoryPaths: ['/src', '/src/nested'],
+      },
+    };
+
+    rerender();
+
+    expect(result.current.effectiveRelativePaths).toBe(initialPaths);
+    expect(result.current.effectiveRelativePaths).toEqual(['src/index.ts']);
+  });
+
   it('publishes an errored manifest when snapshot loading fails', async () => {
     const state = {
       currentFolderId: 'folder-1',

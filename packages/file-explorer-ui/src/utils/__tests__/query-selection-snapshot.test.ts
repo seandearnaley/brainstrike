@@ -1,5 +1,5 @@
 import type { DbHandle } from '@brainstrike/db';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createQuerySelectionSnapshot,
@@ -23,6 +23,10 @@ function createMockDb(
 }
 
 describe('query-selection-snapshot', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('creates snapshots transactionally with TTL cleanup before insert', async () => {
     const db = createMockDb([
       (sql) => {
@@ -138,6 +142,43 @@ describe('query-selection-snapshot', () => {
         createQuerySelectionSnapshot(db, ['/src/utils.ts']),
       ])
     ).resolves.toEqual(['snapshot-1', 'snapshot-2']);
+  });
+
+  it('releases the write lock after a timed-out snapshot write', async () => {
+    vi.useFakeTimers();
+
+    let insertFilesCallCount = 0;
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+          return { rows: [] };
+        }
+        if (sql.includes('DELETE FROM selection_snapshots')) {
+          return { rows: [] };
+        }
+        if (sql.includes('INSERT INTO selection_snapshots')) {
+          return { rows: [{ id: `snapshot-${insertFilesCallCount + 1}` }] };
+        }
+        if (sql.includes('INSERT INTO selection_snapshot_files')) {
+          insertFilesCallCount += 1;
+          if (insertFilesCallCount === 1) {
+            return new Promise(() => undefined);
+          }
+          return { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    } as unknown as DbHandle;
+
+    const firstSnapshotPromise = createQuerySelectionSnapshot(db, ['/src/index.ts']);
+    const handledTimeout = firstSnapshotPromise.catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(handledTimeout).resolves.toBeInstanceOf(Error);
+    await expect(handledTimeout).resolves.toMatchObject({
+      message: 'Selection snapshot write timed out',
+    });
+    await expect(createQuerySelectionSnapshot(db, ['/src/utils.ts'])).resolves.toBe('snapshot-2');
   });
 
   it('loads only non-expired snapshot rows', async () => {

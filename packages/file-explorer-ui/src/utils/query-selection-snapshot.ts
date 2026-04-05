@@ -4,6 +4,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { defaultCollator } from './file-node-collator';
 
 const QUERY_SELECTION_SNAPSHOT_TTL_HOURS = 24;
+const SNAPSHOT_WRITE_TIMEOUT_MS = 30_000;
 const logger = createLogger('QuerySelectionSnapshot');
 const snapshotWriteLocks = new WeakMap<object, Promise<void>>();
 
@@ -25,6 +26,29 @@ function normalizeSnapshotRows(rows: unknown[]): string[] {
     .sort(defaultCollator.compare);
 }
 
+function createTimeoutError(message: string): Error {
+  return new Error(message);
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(createTimeoutError(message));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 async function withSerializedSnapshotWrite<T>(
   db: DbHandle,
   operation: () => Promise<T>
@@ -37,10 +61,18 @@ async function withSerializedSnapshotWrite<T>(
   const tailLock = priorLock.then(() => nextLock);
   snapshotWriteLocks.set(db as object, tailLock);
 
-  await priorLock;
+  await withTimeout(
+    priorLock,
+    SNAPSHOT_WRITE_TIMEOUT_MS,
+    'Selection snapshot write lock timed out'
+  );
 
   try {
-    return await operation();
+    return await withTimeout(
+      operation(),
+      SNAPSHOT_WRITE_TIMEOUT_MS,
+      'Selection snapshot write timed out'
+    );
   } finally {
     releaseLock();
     if (snapshotWriteLocks.get(db as object) === tailLock) {
@@ -87,6 +119,13 @@ export async function createQuerySelectionSnapshot(
       await db.query('COMMIT');
       return snapshotId;
     } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === 'Selection snapshot write timed out' ||
+          error.message === 'Selection snapshot write lock timed out')
+      ) {
+        logger.warn('Selection snapshot write timed out', { errorMessage: error.message });
+      }
       try {
         await db.query('ROLLBACK');
       } catch (rollbackError) {

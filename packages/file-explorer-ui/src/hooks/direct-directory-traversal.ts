@@ -32,6 +32,10 @@ function enqueueChildDirectories(
   return added;
 }
 
+function isReadyDirectoryNode(node: IFileNode | undefined): node is IFileNode {
+  return Boolean(node && node.type === 'directory' && node.loadState === 'loaded');
+}
+
 export async function traverseDirectoriesDirect(
   initialPaths: string[],
   options: DirectDirectoryTraversalOptions
@@ -72,7 +76,7 @@ export async function traverseDirectoriesDirect(
       currentNode = getDirectoryByPath(currentPath);
     }
 
-    if (!(currentNode && currentNode.type === 'directory')) {
+    if (!isReadyDirectoryNode(currentNode)) {
       loaded += 1;
       onProgress?.(loaded, total);
       continue;

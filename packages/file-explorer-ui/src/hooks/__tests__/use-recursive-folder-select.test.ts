@@ -445,6 +445,7 @@ describe('useRecursiveFolderSelect', () => {
     expect(cancelLoadOperations).toHaveBeenCalled();
     expect(selectionResult.cancelled).toBe(true);
     expect(selectionResult.success).toBe(false);
+    expect(selectionResult.error).toBeUndefined();
   });
 
   it('surfaces adapter errors through onError', async () => {

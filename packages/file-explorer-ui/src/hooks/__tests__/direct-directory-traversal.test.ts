@@ -124,4 +124,31 @@ describe('traverseDirectoriesDirect', () => {
     expect(result.loaded).toBe(1);
     expect(result.visitedPaths).toEqual(['/root/src']);
   });
+
+  it('does not enumerate stale children when a load resolves into an error state', async () => {
+    const staleChild = createDirectory('/root/src/stale', 'loaded');
+    const root = createDirectory('/root', 'loaded', [
+      createDirectory('/root/src', 'unloaded', [staleChild]),
+    ]);
+
+    const result = await traverseDirectoriesDirect(['/root/src'], {
+      getDirectoryByPath: (path) => findDirectoryByPath(root, path),
+      isActive: () => true,
+      loadDirectoryPath: async (path) => {
+        if (path !== '/root/src') {
+          return;
+        }
+        const target = findDirectoryByPath(root, path);
+        if (!target) {
+          throw new Error('missing target');
+        }
+        target.loadState = 'error';
+      },
+    });
+
+    expect(result.cancelled).toBe(false);
+    expect(result.loaded).toBe(1);
+    expect(result.visitedPaths).toEqual(['/root/src']);
+    expect(result.discoveredPaths).toEqual(new Set(['/root/src']));
+  });
 });

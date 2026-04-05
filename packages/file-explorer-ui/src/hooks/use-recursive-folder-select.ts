@@ -42,7 +42,7 @@ function handleSelectionError(err: unknown, onError?: (error: Error) => void): S
     success: false,
     filePaths: [],
     cancelled: isCancelled,
-    error: err instanceof Error ? err.message : String(err),
+    ...(isCancelled ? {} : { error: err instanceof Error ? err.message : String(err) }),
   };
 }
 
