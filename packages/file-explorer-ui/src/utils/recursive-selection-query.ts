@@ -11,7 +11,9 @@ const logger = createLogger('RecursiveSelectionQuery');
 
 const DEFAULT_SCAN_CONCURRENCY = 6;
 const LOW_LIMIT_SCAN_THRESHOLD = 256;
-const MAX_SCAN_CONCURRENCY = 32;
+// Keep a modest ceiling above the default to preserve throughput without
+// letting caller-supplied concurrency create a large buffered frontier.
+const MAX_SCAN_CONCURRENCY = 12;
 const MAX_DIRECTORY_TRAVERSAL_COUNT = 100_000;
 const PROGRESS_DIRECTORY_INTERVAL = 8;
 

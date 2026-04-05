@@ -505,7 +505,7 @@ describe('recursive-selection-query', () => {
     });
 
     expect(result.filePaths).toHaveLength(40);
-    expect(maxActiveReads).toBeLessThanOrEqual(32);
+    expect(maxActiveReads).toBeLessThanOrEqual(12);
   });
 
   it('does not prematurely close a throughput batch when synchronous directory reads settle immediately', async () => {
