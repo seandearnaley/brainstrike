@@ -257,6 +257,32 @@ describe('normalized-file-tree', () => {
     expect(getNormalizedDescendantFileCount(nextState, '/root/src')).toBe(1);
   });
 
+  it('does not loop forever if subtree child paths become cyclic during replacement', () => {
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        children: [
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/src/nested',
+            depth: 1,
+            children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
+          }),
+        ],
+      }),
+    ]);
+
+    state.childPathsByPath.set('/root/src/nested', ['/root/src']);
+
+    const nextState = replaceNormalizedDirectoryChildren(state, '/root/src', [
+      createFileNode({ name: 'replacement.ts', path: '/root/src/replacement.ts', depth: 1 }),
+    ]);
+
+    expect(getNormalizedChildPaths(nextState, '/root/src')).toEqual(['/root/src/replacement.ts']);
+    expect(getNormalizedNode(nextState, '/root/src/nested')).toBeUndefined();
+  });
+
   it('handles deeply nested trees without recursive stack overflow', () => {
     const depth = 12_000;
     const directoryPaths: string[] = [];

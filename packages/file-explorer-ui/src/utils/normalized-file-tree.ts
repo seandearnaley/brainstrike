@@ -285,11 +285,13 @@ export function getNormalizedRootDirectoryPaths(state: NormalizedFileTreeState):
 
 function collectSubtreePaths(state: NormalizedFileTreeState, path: string, out: string[]): void {
   const stack = [path];
+  const visitedPaths = new Set<string>();
   while (stack.length > 0) {
     const currentPath = stack.pop();
-    if (!currentPath) {
+    if (!(currentPath && !visitedPaths.has(currentPath))) {
       continue;
     }
+    visitedPaths.add(currentPath);
     out.push(currentPath);
     const childPaths = state.childPathsByPath.get(currentPath) ?? [];
     for (let index = childPaths.length - 1; index >= 0; index -= 1) {
