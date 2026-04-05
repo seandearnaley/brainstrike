@@ -8,6 +8,7 @@ import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -29,6 +30,8 @@ import {
   hasPersistApi,
   yieldToBrowser,
 } from './recursive-selection-utils';
+
+const logger = createLogger('RecursiveSelectAll');
 
 function handleSelectAllError(err: unknown, onError?: (error: Error) => void): SelectAllResult {
   const isCancelled = isAbortError(err);
@@ -258,6 +261,9 @@ export function useRecursiveSelectAll(
           limitReached: result.limitReached,
         };
       } catch (err) {
+        if (!isAbortError(err)) {
+          logger.error('selectAllRecursively failed', { error: err });
+        }
         return handleSelectAllError(err, onError);
       } finally {
         abortControllerRef.current = null;

@@ -12,6 +12,7 @@ import {
   DEFAULT_SELECTION_CHUNK_SIZE,
 } from '@brainstrike/file-explorer';
 import type { SelectionQueryDescriptor } from '@brainstrike/types';
+import { getAncestorDirectoryPaths } from '@brainstrike/utils/path-ancestors';
 import { defaultCollator } from '../utils/file-node-collator';
 import type { PersistableFileExplorerStore } from '../utils/persist-file-explorer-state';
 
@@ -56,12 +57,14 @@ export async function applyExplicitSelection(
 
 export function collectAncestorDirectories(filePaths: string[]): string[] {
   const coveredPaths = new Set<string>();
+  const ancestorCache = new Map<string, readonly string[]>();
 
   for (const filePath of filePaths) {
-    let separatorIndex = filePath.lastIndexOf('/');
-    while (separatorIndex > 0) {
-      coveredPaths.add(filePath.slice(0, separatorIndex));
-      separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
+    for (const directoryPath of getAncestorDirectoryPaths(filePath, {
+      cache: ancestorCache,
+      includeRoot: false,
+    })) {
+      coveredPaths.add(directoryPath);
     }
   }
 

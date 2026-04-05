@@ -15,14 +15,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { mergeState, serializeState } from '../state-serialization';
 
 // Mock the logger
-vi.mock('@brainstrike/utils/logger', () => ({
-  createLogger: vi.fn(() => ({
+const { mockLogger } = vi.hoisted(() => ({
+  mockLogger: {
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
-  })),
+  },
 }));
+
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => mockLogger),
+  };
+});
 
 /** Helper to build a minimal FileExplorerState for testing. */
 function buildState(overrides: Partial<FileExplorerState> = {}): FileExplorerState {
@@ -39,6 +47,42 @@ function buildState(overrides: Partial<FileExplorerState> = {}): FileExplorerSta
 }
 
 describe('state-serialization', () => {
+  it('preserves the current folder fallback entry with expansion and filter state', () => {
+    const state = buildState({
+      currentFolderId: 'folder-1',
+      selectedFilePaths: new Set(['folder-1|@|src/index.ts']),
+      expandedDirectoryPaths: new Set(['/src', '/src/utils']),
+      includeFilters: ['**/*.ts'],
+      excludeFilters: ['**/*.test.ts'],
+      useRegex: true,
+      includeProjectTree: false,
+      tokenBudget: 250,
+      folderSummaryThreshold: 12,
+      maxSelectionCount: 999,
+      lastActiveTab: 'preview',
+      viewFilterPresetId: 'ts-js',
+      folderStates: {},
+    });
+
+    const result = serializeState(state);
+
+    expect(result.folderStates['folder-1']).toEqual(
+      expect.objectContaining({
+        selectedFilePaths: ['folder-1|@|src/index.ts'],
+        expandedDirectoryPaths: ['/src', '/src/utils'],
+        includeFilters: ['**/*.ts'],
+        excludeFilters: ['**/*.test.ts'],
+        useRegex: true,
+        includeProjectTree: false,
+        tokenBudget: 250,
+        folderSummaryThreshold: 12,
+        maxSelectionCount: 999,
+        lastActiveTab: 'preview',
+        viewFilterPresetId: 'ts-js',
+      })
+    );
+  });
+
   describe('cachedSetToArray – WeakMap cache hit', () => {
     it('should return the cached array on the second serialization with the same Set reference', () => {
       // The WeakMap cache is module-level state. Calling serializeState twice with the
@@ -729,6 +773,7 @@ describe('state-serialization', () => {
     });
 
     it('falls back to explicit mode when a persisted query descriptor is malformed', () => {
+      mockLogger.warn.mockClear();
       const current = buildState();
       const persisted = {
         currentFolderId: 'folder1',
@@ -765,6 +810,9 @@ describe('state-serialization', () => {
       expect(result.selectionModel.mode).toBe('explicit');
       expect(result.selectionModel.queryDescriptor).toBeNull();
       expect(result.selectionModel.explicitPaths).toEqual(new Set(['folder1|@|src/index.ts']));
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Dropping malformed persisted query selection descriptor during deserialization'
+      );
     });
 
     it('should default mode to explicit when mode is not "rules"', () => {

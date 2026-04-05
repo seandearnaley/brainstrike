@@ -197,8 +197,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
 
     // Selector for file selection - returns boolean, only re-renders when this file's selection changes
     // Zustand compares return values, so this only triggers re-render when the boolean changes
-    const isFileSelectedSelector = useMemo(
-      () => (state: FileExplorerState) => {
+    const isFileSelectedSelector = useCallback(
+      (state: FileExplorerState) => {
         if (compositeKey === null) {
           return false;
         }

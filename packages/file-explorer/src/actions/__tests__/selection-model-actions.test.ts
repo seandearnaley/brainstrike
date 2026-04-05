@@ -218,6 +218,7 @@ describe('selection-model-actions', () => {
       expect(result.selectionModel.ruleSetJson).toBeNull();
       expect(result.selectionModel.materializedPaths).toBeNull();
       expect(result.selectionModel.materializedAt).toBeNull();
+      expect(result.selectionVersion).toBe(stateWithRules.selectionVersion + 1);
     });
 
     it('clears any lingering query manifest while returning to explicit mode', () => {

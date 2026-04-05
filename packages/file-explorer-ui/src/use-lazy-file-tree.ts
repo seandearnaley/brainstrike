@@ -711,7 +711,6 @@ export function useLazyFileTree(
     createAbortController,
     handleMapRef,
     portRef,
-    isExpandingAllRef,
     syncNormalizedTree,
   ]);
 

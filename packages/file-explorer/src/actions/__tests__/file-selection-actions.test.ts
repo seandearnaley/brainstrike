@@ -4,14 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileSelectionActions } from '../file-selection-actions';
 
 // Mock the file-selection-utils module
-vi.mock('@brainstrike/utils/logger', () => ({
-  createLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+    }),
+  };
+});
 
 vi.mock('@brainstrike/utils/selection-utils', () => ({
   encodeFileSelection: (folderId: string, path: string) => `${folderId}|@|${path}`,

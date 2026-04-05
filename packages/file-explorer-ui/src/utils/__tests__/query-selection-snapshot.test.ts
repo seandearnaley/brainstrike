@@ -144,6 +144,62 @@ describe('query-selection-snapshot', () => {
     ).resolves.toEqual(['snapshot-1', 'snapshot-2']);
   });
 
+  it('keeps later snapshot writes serialized after an earlier write rejects', async () => {
+    let insertFilesStarted = false;
+    let allowFirstRollback = false;
+    let secondInsertStartedBeforeRollback = false;
+    let snapshotInsertCount = 0;
+
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql === 'BEGIN' || sql === 'COMMIT') {
+          return { rows: [] };
+        }
+        if (sql === 'ROLLBACK') {
+          expect(insertFilesStarted).toBe(true);
+          while (!allowFirstRollback) {
+            await new Promise((resolve) => {
+              setTimeout(resolve, 0);
+            });
+          }
+          return { rows: [] };
+        }
+        if (sql.includes('DELETE FROM selection_snapshots')) {
+          return { rows: [] };
+        }
+        if (sql.includes('INSERT INTO selection_snapshots')) {
+          snapshotInsertCount += 1;
+          return { rows: [{ id: snapshotInsertCount === 1 ? 'one' : 'two' }] };
+        }
+        if (sql.includes('INSERT INTO selection_snapshot_files')) {
+          if (!insertFilesStarted) {
+            insertFilesStarted = true;
+            throw new Error('first write failed');
+          }
+          secondInsertStartedBeforeRollback = !allowFirstRollback;
+          return { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    } as unknown as DbHandle;
+
+    const firstPromise = createQuerySelectionSnapshot(db, ['/src/index.ts']).catch(
+      (error) => error
+    );
+    const secondPromise = createQuerySelectionSnapshot(db, ['/src/utils.ts']);
+
+    await vi.waitFor(() => {
+      expect(insertFilesStarted).toBe(true);
+    });
+    expect(secondInsertStartedBeforeRollback).toBe(false);
+
+    allowFirstRollback = true;
+
+    await expect(firstPromise).resolves.toBeInstanceOf(Error);
+    await expect(secondPromise).resolves.toBe('two');
+    expect(secondInsertStartedBeforeRollback).toBe(false);
+  });
+
   it('releases the write lock after a timed-out snapshot write', async () => {
     vi.useFakeTimers();
 

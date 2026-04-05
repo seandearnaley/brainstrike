@@ -6,7 +6,7 @@ import { defaultCollator } from './file-node-collator';
 const QUERY_SELECTION_SNAPSHOT_TTL_HOURS = 24;
 const SNAPSHOT_WRITE_TIMEOUT_MS = 30_000;
 const logger = createLogger('QuerySelectionSnapshot');
-const snapshotWriteLocks = new WeakMap<object, Promise<void>>();
+const snapshotWriteLocks = new WeakMap<object, { tail: Promise<void> }>();
 
 interface QueryResultRow {
   filePath?: string;
@@ -53,13 +53,17 @@ async function withSerializedSnapshotWrite<T>(
   db: DbHandle,
   operation: () => Promise<T>
 ): Promise<T> {
-  const priorLock = snapshotWriteLocks.get(db as object) ?? Promise.resolve();
+  const lockEntry = snapshotWriteLocks.get(db as object) ?? {
+    tail: Promise.resolve(),
+  };
+  snapshotWriteLocks.set(db as object, lockEntry);
+
+  const priorLock = lockEntry.tail.catch(() => undefined);
   let releaseLock: () => void = () => {};
   const nextLock = new Promise<void>((resolve) => {
     releaseLock = resolve;
   });
-  const tailLock = priorLock.then(() => nextLock);
-  snapshotWriteLocks.set(db as object, tailLock);
+  lockEntry.tail = priorLock.then(() => nextLock);
 
   await withTimeout(
     priorLock,
@@ -75,9 +79,6 @@ async function withSerializedSnapshotWrite<T>(
     );
   } finally {
     releaseLock();
-    if (snapshotWriteLocks.get(db as object) === tailLock) {
-      snapshotWriteLocks.delete(db as object);
-    }
   }
 }
 

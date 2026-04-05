@@ -121,6 +121,12 @@ function deserializeSelectionModel(
   }
 
   const queryDescriptor = deserializeQueryDescriptor(serialized.queryDescriptor);
+  const shouldWarnOnMalformedQueryDescriptor =
+    serialized.mode === 'query' && serialized.queryDescriptor !== null && !queryDescriptor;
+
+  if (shouldWarnOnMalformedQueryDescriptor) {
+    logger.warn('Dropping malformed persisted query selection descriptor during deserialization');
+  }
   const mode =
     serialized.mode === 'rules'
       ? 'rules'

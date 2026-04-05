@@ -106,6 +106,7 @@ export const createSelectionModelActions = (
         queryDescriptor: null,
       },
       querySelectionManifest: null,
+      selectionVersion: state.selectionVersion + 1,
     }));
   },
 

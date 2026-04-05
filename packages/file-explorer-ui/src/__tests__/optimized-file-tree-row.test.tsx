@@ -326,6 +326,26 @@ it('blocks query-mode selection changes until the manifest is ready', async () =
   expect(onToggle).not.toHaveBeenCalled();
 });
 
+it('updates file selection when the row path and folder id change', () => {
+  const store = createStore({
+    selectedFilePaths: new Set([encodeFileSelection('folder-b', '/other.ts')]),
+  });
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+  const { rerender } = render(<OptimizedFileTreeRow {...baseFileProps} />);
+  expect(screen.getByRole('checkbox', { name: 'Select file.ts' })).not.toBeChecked();
+
+  rerender(
+    <OptimizedFileTreeRow
+      {...baseFileProps}
+      folderId="folder-b"
+      node={createFileNode({ name: 'other.ts', path: '/other.ts' })}
+    />
+  );
+
+  expect(screen.getByRole('checkbox', { name: 'Select other.ts' })).toBeChecked();
+});
+
 it('removes all directory files when a query-covered directory is toggled', async () => {
   const removeMultipleSelectedFiles = vi.fn();
   const store = createStore({

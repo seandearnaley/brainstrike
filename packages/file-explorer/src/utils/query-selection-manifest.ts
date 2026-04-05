@@ -1,4 +1,5 @@
 import type { QuerySelectionManifest, SelectionQueryDescriptor } from '@brainstrike/types';
+import { getAncestorDirectoryPaths } from '@brainstrike/utils';
 import { defaultCollator } from '@brainstrike/utils/collator';
 
 export interface ResolvedQuerySelection {
@@ -16,21 +17,20 @@ const resolvedSelectionCache = new WeakMap<
 function incrementDirectoryCounts(
   directoryCounts: Map<string, number>,
   filePath: string,
-  delta: number
+  delta: number,
+  ancestorCache?: Map<string, readonly string[]>
 ): void {
-  let separatorIndex = filePath.lastIndexOf('/');
-  while (separatorIndex >= 0) {
-    const directoryPath = separatorIndex === 0 ? '/' : filePath.slice(0, separatorIndex);
+  const ancestorOptions = ancestorCache
+    ? { cache: ancestorCache, includeRoot: true }
+    : { includeRoot: true };
+
+  for (const directoryPath of getAncestorDirectoryPaths(filePath, ancestorOptions)) {
     const nextCount = (directoryCounts.get(directoryPath) ?? 0) + delta;
     if (nextCount <= 0) {
       directoryCounts.delete(directoryPath);
     } else {
       directoryCounts.set(directoryPath, nextCount);
     }
-    if (separatorIndex === 0) {
-      break;
-    }
-    separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
   }
 }
 
@@ -66,9 +66,10 @@ export function buildQuerySelectionManifest(args: {
 }): QuerySelectionManifest {
   const normalizedPaths = normalizeAndSortPaths(args.filePaths);
   const directoryCounts = new Map<string, number>();
+  const ancestorCache = new Map<string, readonly string[]>();
 
   for (const filePath of normalizedPaths) {
-    incrementDirectoryCounts(directoryCounts, filePath, 1);
+    incrementDirectoryCounts(directoryCounts, filePath, 1, ancestorCache);
   }
 
   return {
@@ -122,10 +123,11 @@ function buildResolvedQuerySelection(
   const filePaths: string[] = [];
   const pathSet = new Set<string>();
   const directoryCounts = new Map(manifest.directoryCounts);
+  const ancestorCache = new Map<string, readonly string[]>();
 
   for (const filePath of manifest.filePaths) {
     if (excludedPaths.has(filePath)) {
-      incrementDirectoryCounts(directoryCounts, filePath, -1);
+      incrementDirectoryCounts(directoryCounts, filePath, -1, ancestorCache);
       continue;
     }
     filePaths.push(filePath);
@@ -138,7 +140,7 @@ function buildResolvedQuerySelection(
     }
     filePaths.push(filePath);
     pathSet.add(filePath);
-    incrementDirectoryCounts(directoryCounts, filePath, 1);
+    incrementDirectoryCounts(directoryCounts, filePath, 1, ancestorCache);
   }
 
   filePaths.sort(defaultCollator.compare);
@@ -172,8 +174,9 @@ export function resolveQuerySelection(
   ) {
     const includedFilePaths = normalizeAndSortPaths(descriptor.includedPaths);
     const directoryCounts = new Map<string, number>();
+    const ancestorCache = new Map<string, readonly string[]>();
     for (const filePath of includedFilePaths) {
-      incrementDirectoryCounts(directoryCounts, filePath, 1);
+      incrementDirectoryCounts(directoryCounts, filePath, 1, ancestorCache);
     }
     return {
       filePaths: includedFilePaths,
