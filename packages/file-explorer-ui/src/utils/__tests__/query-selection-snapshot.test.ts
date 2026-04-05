@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createQuerySelectionSnapshot,
   loadQuerySelectionSnapshot,
+  primeSerializedSnapshotWriteLockForTests,
+  withSerializedSnapshotWrite,
 } from '../query-selection-snapshot';
 
 function createMockDb(
@@ -235,6 +237,33 @@ describe('query-selection-snapshot', () => {
       message: 'Selection snapshot write timed out',
     });
     await expect(createQuerySelectionSnapshot(db, ['/src/utils.ts'])).resolves.toBe('snapshot-2');
+  });
+
+  it('releases the queued write lock when waiting on a prior lock times out', async () => {
+    vi.useFakeTimers();
+
+    const { promise: priorLock, resolve: releasePriorLock } = Promise.withResolvers<void>();
+    const db = {
+      query: vi.fn(),
+    } as unknown as DbHandle;
+
+    primeSerializedSnapshotWriteLockForTests(db, priorLock);
+
+    const timedOutWrite = withSerializedSnapshotWrite(db, async () => 'first').catch(
+      (error: unknown) => error
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(timedOutWrite).resolves.toBeInstanceOf(Error);
+    await expect(timedOutWrite).resolves.toMatchObject({
+      message: 'Selection snapshot write lock timed out',
+    });
+
+    releasePriorLock();
+    await Promise.resolve();
+
+    await expect(withSerializedSnapshotWrite(db, async () => 'second')).resolves.toBe('second');
   });
 
   it('loads only non-expired snapshot rows', async () => {

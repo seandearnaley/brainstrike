@@ -49,7 +49,11 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
   }
 }
 
-async function withSerializedSnapshotWrite<T>(
+export function primeSerializedSnapshotWriteLockForTests(db: DbHandle, tail: Promise<void>): void {
+  snapshotWriteLocks.set(db as object, { tail });
+}
+
+export async function withSerializedSnapshotWrite<T>(
   db: DbHandle,
   operation: () => Promise<T>
 ): Promise<T> {
@@ -65,13 +69,12 @@ async function withSerializedSnapshotWrite<T>(
   });
   lockEntry.tail = priorLock.then(() => nextLock);
 
-  await withTimeout(
-    priorLock,
-    SNAPSHOT_WRITE_TIMEOUT_MS,
-    'Selection snapshot write lock timed out'
-  );
-
   try {
+    await withTimeout(
+      priorLock,
+      SNAPSHOT_WRITE_TIMEOUT_MS,
+      'Selection snapshot write lock timed out'
+    );
     return await withTimeout(
       operation(),
       SNAPSHOT_WRITE_TIMEOUT_MS,
