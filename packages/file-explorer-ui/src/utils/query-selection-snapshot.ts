@@ -5,6 +5,7 @@ import { defaultCollator } from './file-node-collator';
 
 const QUERY_SELECTION_SNAPSHOT_TTL_HOURS = 24;
 const logger = createLogger('QuerySelectionSnapshot');
+const snapshotWriteLocks = new WeakMap<object, Promise<void>>();
 
 interface QueryResultRow {
   filePath?: string;
@@ -24,6 +25,30 @@ function normalizeSnapshotRows(rows: unknown[]): string[] {
     .sort(defaultCollator.compare);
 }
 
+async function withSerializedSnapshotWrite<T>(
+  db: DbHandle,
+  operation: () => Promise<T>
+): Promise<T> {
+  const priorLock = snapshotWriteLocks.get(db as object) ?? Promise.resolve();
+  let releaseLock: () => void = () => {};
+  const nextLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  const tailLock = priorLock.then(() => nextLock);
+  snapshotWriteLocks.set(db as object, tailLock);
+
+  await priorLock;
+
+  try {
+    return await operation();
+  } finally {
+    releaseLock();
+    if (snapshotWriteLocks.get(db as object) === tailLock) {
+      snapshotWriteLocks.delete(db as object);
+    }
+  }
+}
+
 export async function createQuerySelectionSnapshot(
   db: DbHandle | null,
   filePaths: readonly string[]
@@ -32,42 +57,44 @@ export async function createQuerySelectionSnapshot(
     return null;
   }
 
-  await db.query('BEGIN');
-  try {
-    await db.query(
-      `DELETE FROM selection_snapshots
-       WHERE expires_at IS NOT NULL
-         AND expires_at <= NOW()`
-    );
-
-    const snapshotResult = (await db.query(
-      `INSERT INTO selection_snapshots (expires_at)
-       VALUES (NOW() + ($1::int * INTERVAL '1 hour'))
-       RETURNING id`,
-      [QUERY_SELECTION_SNAPSHOT_TTL_HOURS]
-    )) as { rows: QueryResultRow[] };
-    const snapshotId = snapshotResult.rows[0]?.id;
-    if (!snapshotId) {
-      logger.error('Selection snapshot insert did not return an id');
-      throw new Error('Selection snapshot insert did not return an id');
-    }
-
-    await db.query(
-      `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
-       SELECT $1, UNNEST($2::text[])`,
-      [snapshotId, Array.from(filePaths)]
-    );
-
-    await db.query('COMMIT');
-    return snapshotId;
-  } catch (error) {
+  return withSerializedSnapshotWrite(db, async () => {
+    await db.query('BEGIN');
     try {
-      await db.query('ROLLBACK');
-    } catch (rollbackError) {
-      logger.warn('Selection snapshot rollback failed', { rollbackError });
+      await db.query(
+        `DELETE FROM selection_snapshots
+         WHERE expires_at IS NOT NULL
+           AND expires_at <= NOW()`
+      );
+
+      const snapshotResult = (await db.query(
+        `INSERT INTO selection_snapshots (expires_at)
+         VALUES (NOW() + ($1::int * INTERVAL '1 hour'))
+         RETURNING id`,
+        [QUERY_SELECTION_SNAPSHOT_TTL_HOURS]
+      )) as { rows: QueryResultRow[] };
+      const snapshotId = snapshotResult.rows[0]?.id;
+      if (!snapshotId) {
+        logger.error('Selection snapshot insert did not return an id');
+        throw new Error('Selection snapshot insert did not return an id');
+      }
+
+      await db.query(
+        `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
+         SELECT $1, UNNEST($2::text[])`,
+        [snapshotId, Array.from(filePaths)]
+      );
+
+      await db.query('COMMIT');
+      return snapshotId;
+    } catch (error) {
+      try {
+        await db.query('ROLLBACK');
+      } catch (rollbackError) {
+        logger.warn('Selection snapshot rollback failed', { rollbackError });
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 export async function loadQuerySelectionSnapshot(

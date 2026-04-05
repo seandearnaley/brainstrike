@@ -27,10 +27,20 @@ async function supportsOpfs(page: Page): Promise<boolean> {
 async function clearIndexedDb(page: Page, dbName: string): Promise<void> {
   await page.evaluate(async (name) => {
     await new Promise<void>((resolve) => {
+      const timeoutId = setTimeout(resolve, 1000);
       const request = indexedDB.deleteDatabase(name);
-      request.onsuccess = () => resolve();
-      request.onerror = () => resolve();
-      request.onblocked = () => resolve();
+      request.onsuccess = () => {
+        clearTimeout(timeoutId);
+        resolve();
+      };
+      request.onerror = () => {
+        clearTimeout(timeoutId);
+        resolve();
+      };
+      request.onblocked = () => {
+        clearTimeout(timeoutId);
+        resolve();
+      };
     });
   }, dbName);
 }

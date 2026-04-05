@@ -46,9 +46,9 @@ export function buildQuerySelectionFingerprint(args: {
   // Keep this field list explicit so any new selection semantics must be
   // intentionally considered for fingerprint compatibility.
   return JSON.stringify({
-    excludeFilters: [...args.excludeFilters],
+    excludeFilters: [...args.excludeFilters].sort(defaultCollator.compare),
     folderId: args.folderId,
-    includeFilters: [...args.includeFilters],
+    includeFilters: [...args.includeFilters].sort(defaultCollator.compare),
     kind: args.kind,
     rootPath: args.rootPath,
     useRegex: args.useRegex,

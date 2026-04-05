@@ -123,6 +123,39 @@ describe('recursive-selection-query', () => {
     );
   });
 
+  it('does not revisit the same directory path when traversal encounters a cycle', async () => {
+    const adapter = createMockAdapter({
+      '/root': [
+        createDirectoryNode({
+          path: '/root/loop',
+          name: 'loop',
+          depth: 1,
+          loadState: 'unloaded',
+        }),
+      ],
+      '/root/loop': [
+        createDirectoryNode({
+          path: '/root/loop',
+          name: 'loop',
+          depth: 2,
+          loadState: 'unloaded',
+        }),
+        createFileNode({ path: '/root/loop/file.ts', name: 'file.ts', depth: 2 }),
+      ],
+    });
+
+    const result = await querySelectableFiles({
+      roots: [createDirectoryNode({ path: '/root', name: 'root', loadState: 'unloaded' })],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual(['/root/loop/file.ts']);
+    expect(adapter.readDirectory).toHaveBeenCalledTimes(2);
+  });
+
   it('applies filterTreeFn to loaded and adapter-read nodes', async () => {
     const adapter = createMockAdapter({
       '/root': [

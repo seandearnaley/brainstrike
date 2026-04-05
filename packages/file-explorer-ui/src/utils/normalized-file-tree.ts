@@ -354,16 +354,6 @@ function cloneState(state: NormalizedFileTreeState): NormalizedFileTreeState {
   };
 }
 
-function cloneStateWithNodeMap(state: NormalizedFileTreeState): NormalizedFileTreeState {
-  return {
-    rootPaths: [...state.rootPaths],
-    nodeByPath: new Map(state.nodeByPath),
-    childPathsByPath: new Map(state.childPathsByPath),
-    parentPathByPath: new Map(state.parentPathByPath),
-    descendantFileCountByPath: new Map(state.descendantFileCountByPath),
-  };
-}
-
 export function replaceNormalizedDirectoryChildren(
   state: NormalizedFileTreeState,
   path: string,
@@ -410,21 +400,27 @@ export function setNormalizedNodeLoadState(
     return state;
   }
 
-  const nextState = cloneStateWithNodeMap(state);
+  const nextNodeByPath = new Map(state.nodeByPath);
   if (loadError !== undefined) {
-    nextState.nodeByPath.set(path, {
+    nextNodeByPath.set(path, {
       ...currentNode,
       loadError,
       loadState,
     });
   } else {
     const { loadError: _existingLoadError, ...directoryNode } = currentNode;
-    nextState.nodeByPath.set(path, {
+    nextNodeByPath.set(path, {
       ...directoryNode,
       loadState,
     });
   }
-  return nextState;
+  return {
+    rootPaths: state.rootPaths,
+    nodeByPath: nextNodeByPath,
+    childPathsByPath: state.childPathsByPath,
+    parentPathByPath: state.parentPathByPath,
+    descendantFileCountByPath: state.descendantFileCountByPath,
+  };
 }
 
 export function getNormalizedNode(

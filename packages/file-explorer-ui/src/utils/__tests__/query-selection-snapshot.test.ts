@@ -97,6 +97,49 @@ describe('query-selection-snapshot', () => {
     );
   });
 
+  it('serializes concurrent snapshot writes on a shared db handle', async () => {
+    let activeTransaction = false;
+    let nextSnapshotId = 1;
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql === 'BEGIN') {
+          expect(activeTransaction).toBe(false);
+          activeTransaction = true;
+          return { rows: [] };
+        }
+
+        if (sql === 'COMMIT' || sql === 'ROLLBACK') {
+          expect(activeTransaction).toBe(true);
+          activeTransaction = false;
+          return { rows: [] };
+        }
+
+        expect(activeTransaction).toBe(true);
+
+        if (sql.includes('INSERT INTO selection_snapshots')) {
+          return { rows: [{ id: `snapshot-${nextSnapshotId++}` }] };
+        }
+
+        if (sql.includes('INSERT INTO selection_snapshot_files')) {
+          expect(Array.isArray(params?.[1])).toBe(true);
+          await new Promise((resolve) => {
+            setTimeout(resolve, 0);
+          });
+          return { rows: [] };
+        }
+
+        return { rows: [] };
+      }),
+    } as unknown as DbHandle;
+
+    await expect(
+      Promise.all([
+        createQuerySelectionSnapshot(db, ['/src/index.ts']),
+        createQuerySelectionSnapshot(db, ['/src/utils.ts']),
+      ])
+    ).resolves.toEqual(['snapshot-1', 'snapshot-2']);
+  });
+
   it('loads only non-expired snapshot rows', async () => {
     const db = createMockDb([
       (sql, params) => {

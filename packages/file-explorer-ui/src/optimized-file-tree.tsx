@@ -736,6 +736,9 @@ function summarizeLoadedChildSelection(
     if (childState !== true) {
       allSelected = false;
     }
+    if (anySelected && !allSelected) {
+      break;
+    }
   }
 
   return { allSelected, anySelected };

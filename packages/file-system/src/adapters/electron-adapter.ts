@@ -304,6 +304,11 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     try {
       // Stryker disable next-line StringLiteral
       const electron = await import('electron');
+      if (!(electron.dialog && typeof electron.dialog.showOpenDialog === 'function')) {
+        throw new Error(
+          'Electron is not available - this adapter should only be used in the main process'
+        );
+      }
       dialog = electron.dialog;
     } catch {
       throw new Error(

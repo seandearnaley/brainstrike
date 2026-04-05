@@ -135,6 +135,7 @@ export function useSelectionResolver(): SelectionResolverState {
   }, [
     db,
     selectionModel.mode,
+    selectionModel.queryDescriptor,
     selectionModel.queryDescriptor?.manifestFingerprint,
     selectionModel.queryDescriptor?.manifestSnapshotId,
     setManifest,

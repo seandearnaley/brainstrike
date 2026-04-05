@@ -64,6 +64,27 @@ describe('query-selection-manifest', () => {
     );
   });
 
+  it('normalizes filter ordering when building fingerprints', () => {
+    const first = buildQuerySelectionFingerprint({
+      kind: 'recursive-folder',
+      folderId: 'folder-1',
+      rootPath: '/src',
+      includeFilters: ['**/*.tsx', '**/*.ts'],
+      excludeFilters: ['**/*.spec.ts', '**/*.test.ts'],
+      useRegex: false,
+    });
+    const second = buildQuerySelectionFingerprint({
+      kind: 'recursive-folder',
+      folderId: 'folder-1',
+      rootPath: '/src',
+      includeFilters: ['**/*.ts', '**/*.tsx'],
+      excludeFilters: ['**/*.test.ts', '**/*.spec.ts'],
+      useRegex: false,
+    });
+
+    expect(first).toBe(second);
+  });
+
   it('builds a normalized manifest with sorted unique paths and directory counts', () => {
     const manifest = buildQuerySelectionManifest({
       filePaths: ['/src/utils.ts', '/src/index.ts', '/src/index.ts', '/README.md'],
