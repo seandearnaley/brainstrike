@@ -89,61 +89,75 @@ interface OptimizedFileTreeRowProps {
 const ROW_HEIGHT = 32;
 const logger = createLogger('OptimizedFileTreeRow');
 
-// Optimized comparison function for React.memo
-const areOptimizedFileTreeRowPropsEqual = (
+function areRowNodePropsEqual(
   prevProps: OptimizedFileTreeRowProps,
   nextProps: OptimizedFileTreeRowProps
-): boolean => {
-  // Fast path: if it's the same object reference, they're equal
-  if (prevProps === nextProps) {
-    return true;
-  }
-
-  // Compare critical props that affect rendering
-  if (
+): boolean {
+  return !(
     prevProps.node.path !== nextProps.node.path ||
     prevProps.node.loadState !== nextProps.node.loadState ||
-    prevProps.node.children !== nextProps.node.children ||
+    prevProps.node.children !== nextProps.node.children
+  );
+}
+
+function areRowDisplayPropsEqual(
+  prevProps: OptimizedFileTreeRowProps,
+  nextProps: OptimizedFileTreeRowProps
+): boolean {
+  return !(
     prevProps.depth !== nextProps.depth ||
     prevProps.isExpanded !== nextProps.isExpanded ||
     prevProps.isLoading !== nextProps.isLoading ||
     prevProps.folderId !== nextProps.folderId ||
     prevProps.children !== nextProps.children
-  ) {
-    return false;
-  }
+  );
+}
 
-  // Compare style props (only the ones we care about)
-  const prevTop = prevProps.style?.top;
-  const nextTop = nextProps.style?.top;
-  if (prevTop !== nextTop) {
-    return false;
-  }
-
-  // Compare callback props (reference equality)
-  if (
+function areRowCallbackPropsEqual(
+  prevProps: OptimizedFileTreeRowProps,
+  nextProps: OptimizedFileTreeRowProps
+): boolean {
+  return !(
     prevProps.onToggleDirectoryExpansion !== nextProps.onToggleDirectoryExpansion ||
     prevProps.onToggleFileSelection !== nextProps.onToggleFileSelection ||
     prevProps.onLoadChildren !== nextProps.onLoadChildren ||
-    prevProps.onLoadChildrenError !== nextProps.onLoadChildrenError
-  ) {
-    return false;
+    prevProps.onLoadChildrenError !== nextProps.onLoadChildrenError ||
+    prevProps.onSelectFolderRecursively !== nextProps.onSelectFolderRecursively
+  );
+}
+
+function areRowLoadingPropsEqual(
+  prevProps: OptimizedFileTreeRowProps,
+  nextProps: OptimizedFileTreeRowProps
+): boolean {
+  return !(
+    prevProps.isChildrenLoading !== nextProps.isChildrenLoading ||
+    prevProps.isLoadingForSelection !== nextProps.isLoadingForSelection
+  );
+}
+
+function areRowStylePropsEqual(
+  prevProps: OptimizedFileTreeRowProps,
+  nextProps: OptimizedFileTreeRowProps
+): boolean {
+  return prevProps.style?.top === nextProps.style?.top;
+}
+
+const areOptimizedFileTreeRowPropsEqual = (
+  prevProps: OptimizedFileTreeRowProps,
+  nextProps: OptimizedFileTreeRowProps
+): boolean => {
+  if (prevProps === nextProps) {
+    return true;
   }
 
-  // Compare lazy loading state
-  if (prevProps.isChildrenLoading !== nextProps.isChildrenLoading) {
-    return false;
-  }
-
-  // Compare recursive selection props
-  if (prevProps.onSelectFolderRecursively !== nextProps.onSelectFolderRecursively) {
-    return false;
-  }
-  if (prevProps.isLoadingForSelection !== nextProps.isLoadingForSelection) {
-    return false;
-  }
-
-  return true;
+  return (
+    areRowNodePropsEqual(prevProps, nextProps) &&
+    areRowDisplayPropsEqual(prevProps, nextProps) &&
+    areRowStylePropsEqual(prevProps, nextProps) &&
+    areRowCallbackPropsEqual(prevProps, nextProps) &&
+    areRowLoadingPropsEqual(prevProps, nextProps)
+  );
 };
 
 const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(

@@ -37,6 +37,21 @@ import { getRootFolderId } from './utils/get-root-folder-id';
 
 const logger = createLogger('FileExplorerContext');
 
+const selectIncludeFilters = (state: FileExplorerState) => state.includeFilters;
+const selectExcludeFilters = (state: FileExplorerState) => state.excludeFilters;
+const selectUseRegex = (state: FileExplorerState) => state.useRegex;
+const selectSetFilters = (state: FileExplorerState) => state.setFilters;
+const selectSetUseRegex = (state: FileExplorerState) => state.setUseRegex;
+const selectClearFileContents = (state: FileExplorerState) => state.clearFileContents;
+const selectClearSelectedFiles = (state: FileExplorerState) => state.clearSelectedFiles;
+const selectSetExpandedPaths = (state: FileExplorerState) => state.setExpandedPaths;
+const selectSelectedFilePaths = (state: FileExplorerState) => state.selectedFilePaths;
+const selectExpandedDirectoryPaths = (state: FileExplorerState) => state.expandedDirectoryPaths;
+const selectIsAccessLoading = (state: FileExplorerState) => state.isAccessLoading;
+const selectSetIsAccessLoading = (state: FileExplorerState) => state.setIsAccessLoading;
+const selectDisabledIncludeFilters = (state: FileExplorerState) => state.disabledIncludeFilters;
+const selectDisabledExcludeFilters = (state: FileExplorerState) => state.disabledExcludeFilters;
+
 /**
  * Module-level lock for restoration to prevent concurrent runs.
  * React's concurrent rendering can cause multiple effect instances to run
@@ -232,25 +247,6 @@ interface UseFileExplorerReturn {
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
-  // Split Zustand selectors and hoist them to avoid recreating selector lambdas per render
-  const selectIncludeFilters = (s: FileExplorerState) => s.includeFilters;
-  const selectExcludeFilters = (s: FileExplorerState) => s.excludeFilters;
-  const selectUseRegex = (s: FileExplorerState) => s.useRegex;
-  const selectSetFilters = (s: FileExplorerState) => s.setFilters;
-  const selectSetUseRegex = (s: FileExplorerState) => s.setUseRegex;
-  const selectClearFileContents = (s: FileExplorerState) => s.clearFileContents;
-  const selectClearSelectedFiles = (s: FileExplorerState) => s.clearSelectedFiles;
-  const selectSetExpandedPaths = (s: FileExplorerState) => s.setExpandedPaths;
-  // Subscribe to selection/expansion state for stale state detection
-  const selectSelectedFilePaths = (s: FileExplorerState) => s.selectedFilePaths;
-  const selectExpandedDirectoryPaths = (s: FileExplorerState) => s.expandedDirectoryPaths;
-  // Subscribe to isAccessLoading from store (shared across all components)
-  const selectIsAccessLoading = (s: FileExplorerState) => s.isAccessLoading;
-  const selectSetIsAccessLoading = (s: FileExplorerState) => s.setIsAccessLoading;
-  // Subscribe to disabled filter sets for toggle functionality
-  const selectDisabledIncludeFilters = (s: FileExplorerState) => s.disabledIncludeFilters;
-  const selectDisabledExcludeFilters = (s: FileExplorerState) => s.disabledExcludeFilters;
-
   const store = useFileExplorerStoreContext();
   const includeFilters = useFileExplorerStoreSelector(selectIncludeFilters);
   const excludeFilters = useFileExplorerStoreSelector(selectExcludeFilters);
