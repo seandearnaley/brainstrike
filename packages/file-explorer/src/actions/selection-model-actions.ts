@@ -185,7 +185,7 @@ export const createSelectionModelActions = (
     manifest: QuerySelectionManifest,
     materializedPaths?: Set<string>
   ) => {
-    set({
+    set((state: FileExplorerState) => ({
       selectionModel: {
         mode: 'query',
         explicitPaths: new Set<string>(),
@@ -196,8 +196,8 @@ export const createSelectionModelActions = (
       },
       selectedFilePaths: new Set<string>(),
       querySelectionManifest: manifest,
-      selectionVersion: get().selectionVersion + 1,
-    });
+      selectionVersion: state.selectionVersion + 1,
+    }));
   },
 
   setQuerySelectionManifest: (manifest: QuerySelectionManifest | null) => {

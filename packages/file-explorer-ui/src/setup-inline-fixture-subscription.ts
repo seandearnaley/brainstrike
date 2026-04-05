@@ -24,6 +24,18 @@ import type { StoreApi } from 'zustand';
 
 const logger = createLogger('InlineFixtureSubscription');
 
+function shouldExposeFixtureTestingApi(): boolean {
+  if (globalThis.process?.env?.['NODE_ENV'] === 'production') {
+    return false;
+  }
+  const env = (
+    import.meta as ImportMeta & {
+      env?: Record<string, unknown>;
+    }
+  ).env;
+  return env?.['DEV'] === true || env?.['MODE'] === 'test';
+}
+
 declare global {
   interface Window {
     /** Clear the dev fixture and reset the file explorer */
@@ -111,12 +123,17 @@ export function setupInlineFixtureSubscription(
 
   // Expose global testing API
   if (typeof window !== 'undefined') {
-    window.__BRAINSTRIKE_LOAD_FIXTURE__ = () => {
-      store.getState().setDevInlineFixtureEnabled(true);
-    };
-    window.__BRAINSTRIKE_CLEAR_FIXTURE__ = () => {
-      store.getState().setDevInlineFixtureEnabled(false);
-    };
+    if (shouldExposeFixtureTestingApi()) {
+      window.__BRAINSTRIKE_LOAD_FIXTURE__ = () => {
+        store.getState().setDevInlineFixtureEnabled(true);
+      };
+      window.__BRAINSTRIKE_CLEAR_FIXTURE__ = () => {
+        store.getState().setDevInlineFixtureEnabled(false);
+      };
+    } else {
+      window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
+      window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
+    }
   }
 
   return () => {

@@ -94,9 +94,25 @@ describe('query-selection-manifest', () => {
 
     expect(manifest.filePaths).toEqual(['/README.md', '/src/index.ts', '/src/utils.ts']);
     expect(manifest.pathSet).toEqual(new Set(['/README.md', '/src/index.ts', '/src/utils.ts']));
-    expect(manifest.directoryCounts).toEqual(new Map([['/src', 2]]));
+    expect(manifest.directoryCounts).toEqual(
+      new Map([
+        ['/', 3],
+        ['/src', 2],
+      ])
+    );
     expect(manifest.status).toBe('ready');
     expect(manifest.errorMessage).toBeNull();
+  });
+
+  it('counts the root directory for absolute manifest paths', () => {
+    const manifest = buildQuerySelectionManifest({
+      filePaths: ['/README.md', '/src/index.ts'],
+      fingerprint: 'fingerprint-1',
+      snapshotId: 'snapshot-1',
+    });
+
+    expect(manifest.directoryCounts.get('/')).toBe(2);
+    expect(manifest.directoryCounts.get('/src')).toBe(1);
   });
 
   it('creates loading and errored manifests with shared empty collections', () => {
@@ -156,7 +172,12 @@ describe('query-selection-manifest', () => {
 
     expect(missingResolved.filePaths).toEqual(['/manual/a.ts', '/manual/b.ts']);
     expect(missingResolved.pathSet).toEqual(new Set(['/manual/a.ts', '/manual/b.ts']));
-    expect(missingResolved.directoryCounts).toEqual(new Map([['/manual', 2]]));
+    expect(missingResolved.directoryCounts).toEqual(
+      new Map([
+        ['/', 2],
+        ['/manual', 2],
+      ])
+    );
     expect(missingResolved.selectedCount).toBe(99);
 
     expect(staleResolved.filePaths).toEqual(['/manual/a.ts', '/manual/b.ts']);
@@ -176,6 +197,7 @@ describe('query-selection-manifest', () => {
     expect(resolved.pathSet).toEqual(new Set(['/manual/extra.ts', '/src/utils.ts']));
     expect(resolved.directoryCounts).toEqual(
       new Map([
+        ['/', 1],
         ['/manual', 1],
         ['/src', 1],
       ])

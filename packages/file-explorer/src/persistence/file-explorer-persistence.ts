@@ -9,6 +9,7 @@ import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, SerializedState } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { PersistOptions, PersistStorage } from 'zustand/middleware';
+import { FILE_EXPLORER_STORAGE_KEY, FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
 import { migrateState } from './state-migration';
 import { mergeState, serializeState } from './state-serialization';
 import { createStorageWrapper } from './storage-wrapper';
@@ -25,8 +26,6 @@ const isTest =
   (typeof globalThis !== 'undefined' &&
     ('vitest' in globalThis || 'jest' in globalThis || '__vitest_worker__' in globalThis));
 const shouldLog = isDev && !isTest;
-export const FILE_EXPLORER_STORAGE_KEY = 'file-explorer-storage-v4' as const;
-export const FILE_EXPLORER_STORAGE_VERSION = 2 as const;
 
 function isRehydratedFileExplorerState(
   state: FileExplorerState | undefined

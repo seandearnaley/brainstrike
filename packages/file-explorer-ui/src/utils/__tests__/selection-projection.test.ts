@@ -177,6 +177,21 @@ describe('selection-projection', () => {
     ).toBe(true);
   });
 
+  it('counts the root directory for absolute materialized paths while loading', () => {
+    const descriptor = createDescriptor({
+      folderId: '/workspace',
+      coveredDirectoryPaths: ['/'],
+    });
+    const materializedPaths = new Set(['/README.md', '/src/index.ts']);
+
+    expect(getDirectorySelectedCount(descriptor, null, '/workspace', '/', materializedPaths)).toBe(
+      2
+    );
+    expect(
+      isDirectoryCoveredByQuerySelection(descriptor, null, '/workspace', '/', materializedPaths)
+    ).toBe(true);
+  });
+
   it('uses the ready manifest when available', () => {
     const descriptor = createDescriptor();
     const manifest = createManifest();

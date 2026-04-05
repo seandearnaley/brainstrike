@@ -19,13 +19,16 @@ function incrementDirectoryCounts(
   delta: number
 ): void {
   let separatorIndex = filePath.lastIndexOf('/');
-  while (separatorIndex > 0) {
-    const directoryPath = filePath.slice(0, separatorIndex);
+  while (separatorIndex >= 0) {
+    const directoryPath = separatorIndex === 0 ? '/' : filePath.slice(0, separatorIndex);
     const nextCount = (directoryCounts.get(directoryPath) ?? 0) + delta;
     if (nextCount <= 0) {
       directoryCounts.delete(directoryPath);
     } else {
       directoryCounts.set(directoryPath, nextCount);
+    }
+    if (separatorIndex === 0) {
+      break;
     }
     separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
   }

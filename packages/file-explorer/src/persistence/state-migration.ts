@@ -1,5 +1,6 @@
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
+import { FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
 
 interface ZustandPersistWrapper<T> {
   state?: T;
@@ -7,7 +8,6 @@ interface ZustandPersistWrapper<T> {
 }
 
 const logger = createLogger('Persistence');
-const CURRENT_STORAGE_VERSION = 2;
 
 function createEmptySerializedState(): SerializedState {
   return {
@@ -45,12 +45,12 @@ function looksLikeSerializedState(value: unknown): value is SerializedState {
   }
 
   const candidate = value as Record<string, unknown>;
-  return (
-    (('folderStates' in candidate && typeof candidate['folderStates'] === 'object') ||
-      ('selectedFilePaths' in candidate && Array.isArray(candidate['selectedFilePaths'])) ||
-      ('expandedDirectoryPaths' in candidate &&
-        Array.isArray(candidate['expandedDirectoryPaths']))) &&
-    ('currentFolderId' in candidate || 'selectionModel' in candidate)
+  return Boolean(
+    candidate['folderStates'] &&
+      typeof candidate['folderStates'] === 'object' &&
+      Array.isArray(candidate['folderAccessOrder']) &&
+      Array.isArray(candidate['selectedFilePaths']) &&
+      Array.isArray(candidate['expandedDirectoryPaths'])
   );
 }
 
@@ -178,7 +178,7 @@ export function migrateState(
   }
 
   const serialized = stateToProcess as SerializedState;
-  if (version > CURRENT_STORAGE_VERSION) {
+  if (version > FILE_EXPLORER_STORAGE_VERSION) {
     return discardInvalidPayload(
       `Migrate - Future persisted version ${version} is not supported, discarding.`,
       shouldLog

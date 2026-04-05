@@ -166,4 +166,24 @@ describe('state-migration coverage', () => {
       'Migrate - Payload does not match SerializedState shape, discarding.'
     );
   });
+
+  it('rejects payloads that are missing the core serialized collections', async () => {
+    const { migrateState } = await import('../state-migration');
+
+    const result = migrateState(
+      {
+        currentFolderId: 'folder-1',
+        folderStates: {},
+        selectedFilePaths: [],
+        // Missing folderAccessOrder and expandedDirectoryPaths
+      },
+      1,
+      true
+    );
+
+    expectEmptySerializedState(result);
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      'Migrate - Payload does not match SerializedState shape, discarding.'
+    );
+  });
 });

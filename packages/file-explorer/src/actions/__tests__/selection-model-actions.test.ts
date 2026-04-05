@@ -36,6 +36,21 @@ describe('selection-model-actions', () => {
       ...overrides,
     }) as FileExplorerState;
 
+  const createQueryDescriptor = () => ({
+    kind: 'recursive-folder' as const,
+    folderId: 'folder1',
+    rootPath: 'src',
+    coveredDirectoryPaths: ['src'],
+    includeFilters: ['**/*.ts'],
+    excludeFilters: ['**/*.test.ts'],
+    includedPaths: [],
+    excludedPaths: [],
+    manifestFingerprint: 'fp-1',
+    manifestSnapshotId: 'snapshot-1',
+    useRegex: false,
+    totalSelectedCount: 1,
+  });
+
   describe('setSelectionMode', () => {
     it('should update mode to rules', () => {
       const mockGet = vi.fn(() => createMockState());
@@ -456,7 +471,12 @@ describe('selection-model-actions', () => {
         new Set(['src/index.ts', 'src/utils.ts'])
       );
 
-      expect(mockSet).toHaveBeenCalledWith({
+      const setterFn = mockSet.mock.calls[0][0];
+      expect(typeof setterFn).toBe('function');
+
+      const result = setterFn(state);
+
+      expect(result).toEqual({
         selectionModel: {
           mode: 'query',
           explicitPaths: new Set(),
@@ -482,6 +502,29 @@ describe('selection-model-actions', () => {
         querySelectionManifest: queryManifest,
         selectionVersion: state.selectionVersion + 1,
       });
+    });
+
+    it('increments selectionVersion from the updater state to avoid lost concurrent bumps', () => {
+      const staleState = createMockState({ selectionVersion: 2 });
+      const liveState = createMockState({ selectionVersion: 7 });
+      const mockGet = vi.fn(() => staleState);
+      const actions = createSelectionModelActions(mockSet, mockGet);
+      const queryManifest = {
+        filePaths: ['src/index.ts'],
+        pathSet: new Set(['src/index.ts']),
+        directoryCounts: new Map([['src', 1]]),
+        fingerprint: 'fp-1',
+        snapshotId: 'snapshot-1',
+        status: 'ready' as const,
+        errorMessage: null,
+      };
+
+      actions.setQuerySelection(createQueryDescriptor(), queryManifest);
+
+      const setterFn = mockSet.mock.calls[0][0];
+      const result = setterFn(liveState);
+
+      expect(result.selectionVersion).toBe(8);
     });
   });
 

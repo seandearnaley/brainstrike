@@ -75,8 +75,14 @@ function buildMaterializedDirectoryCounts(
     incrementDirectoryCount(counts, filePath);
 
     let separatorIndex = filePath.lastIndexOf('/');
-    while (separatorIndex > 0) {
-      incrementDirectoryCount(counts, filePath.slice(0, separatorIndex));
+    while (separatorIndex >= 0) {
+      incrementDirectoryCount(
+        counts,
+        separatorIndex === 0 ? '/' : filePath.slice(0, separatorIndex)
+      );
+      if (separatorIndex === 0) {
+        break;
+      }
       separatorIndex = filePath.lastIndexOf('/', separatorIndex - 1);
     }
   }

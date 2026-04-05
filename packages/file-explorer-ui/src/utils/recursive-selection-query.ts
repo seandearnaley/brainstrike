@@ -632,6 +632,10 @@ function createScanBatch(args: {
   }
 
   finishedSpawning = true;
+  // Tasks may have already drained before this flag flips because their
+  // `.finally()` handlers run in later microtasks. The synchronous fallback
+  // close here keeps the queue correct in that case without relying on a
+  // specific task completion timing.
   if (activeTaskCount === 0) {
     resultQueue.close();
   }
