@@ -4,7 +4,7 @@ import type {
   SelectionModel,
   SelectionQueryDescriptor,
 } from '@brainstrike/types';
-import { getAncestorDirectoryPaths } from '@brainstrike/utils';
+import { accumulateAncestorDirectoryCounts } from '@brainstrike/utils';
 import { processFilter } from '@brainstrike/utils/filter-utils';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
@@ -63,28 +63,13 @@ function getDescriptorMatchers(descriptor: SelectionQueryDescriptor): Descriptor
   return matchers;
 }
 
-function incrementDirectoryCount(counts: Map<string, number>, path: string): void {
-  counts.set(path, (counts.get(path) ?? 0) + 1);
-}
-
 function buildMaterializedDirectoryCounts(
   materializedPaths: ReadonlySet<string>
 ): Map<string, number> {
-  const counts = new Map<string, number>();
-  const ancestorCache = new Map<string, readonly string[]>();
-
-  for (const filePath of materializedPaths) {
-    incrementDirectoryCount(counts, filePath);
-
-    for (const directoryPath of getAncestorDirectoryPaths(filePath, {
-      cache: ancestorCache,
-      includeRoot: true,
-    })) {
-      incrementDirectoryCount(counts, directoryPath);
-    }
-  }
-
-  return counts;
+  return accumulateAncestorDirectoryCounts(materializedPaths, {
+    cache: new Map<string, readonly string[]>(),
+    includeRoot: true,
+  });
 }
 
 function getMaterializedDirectoryCounts(

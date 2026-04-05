@@ -1,5 +1,5 @@
 import type { QuerySelectionManifest, SelectionQueryDescriptor } from '@brainstrike/types';
-import { getAncestorDirectoryPaths } from '@brainstrike/utils';
+import { accumulateAncestorDirectoryCounts } from '@brainstrike/utils';
 import { defaultCollator } from '@brainstrike/utils/collator';
 
 export interface ResolvedQuerySelection {
@@ -13,26 +13,6 @@ const resolvedSelectionCache = new WeakMap<
   QuerySelectionManifest,
   WeakMap<SelectionQueryDescriptor, ResolvedQuerySelection>
 >();
-
-function incrementDirectoryCounts(
-  directoryCounts: Map<string, number>,
-  filePath: string,
-  delta: number,
-  ancestorCache?: Map<string, readonly string[]>
-): void {
-  const ancestorOptions = ancestorCache
-    ? { cache: ancestorCache, includeRoot: true }
-    : { includeRoot: true };
-
-  for (const directoryPath of getAncestorDirectoryPaths(filePath, ancestorOptions)) {
-    const nextCount = (directoryCounts.get(directoryPath) ?? 0) + delta;
-    if (nextCount <= 0) {
-      directoryCounts.delete(directoryPath);
-    } else {
-      directoryCounts.set(directoryPath, nextCount);
-    }
-  }
-}
 
 function normalizeAndSortPaths(filePaths: readonly string[]): string[] {
   return Array.from(new Set(filePaths)).sort(defaultCollator.compare);
@@ -65,12 +45,10 @@ export function buildQuerySelectionManifest(args: {
   status?: QuerySelectionManifest['status'];
 }): QuerySelectionManifest {
   const normalizedPaths = normalizeAndSortPaths(args.filePaths);
-  const directoryCounts = new Map<string, number>();
-  const ancestorCache = new Map<string, readonly string[]>();
-
-  for (const filePath of normalizedPaths) {
-    incrementDirectoryCounts(directoryCounts, filePath, 1, ancestorCache);
-  }
+  const directoryCounts = accumulateAncestorDirectoryCounts(normalizedPaths, {
+    cache: new Map<string, readonly string[]>(),
+    includeRoot: true,
+  });
 
   return {
     filePaths: normalizedPaths,
@@ -127,7 +105,12 @@ function buildResolvedQuerySelection(
 
   for (const filePath of manifest.filePaths) {
     if (excludedPaths.has(filePath)) {
-      incrementDirectoryCounts(directoryCounts, filePath, -1, ancestorCache);
+      accumulateAncestorDirectoryCounts([filePath], {
+        counts: directoryCounts,
+        cache: ancestorCache,
+        delta: -1,
+        includeRoot: true,
+      });
       continue;
     }
     filePaths.push(filePath);
@@ -140,7 +123,11 @@ function buildResolvedQuerySelection(
     }
     filePaths.push(filePath);
     pathSet.add(filePath);
-    incrementDirectoryCounts(directoryCounts, filePath, 1, ancestorCache);
+    accumulateAncestorDirectoryCounts([filePath], {
+      counts: directoryCounts,
+      cache: ancestorCache,
+      includeRoot: true,
+    });
   }
 
   filePaths.sort(defaultCollator.compare);
@@ -173,11 +160,10 @@ export function resolveQuerySelection(
     manifest.snapshotId !== descriptor.manifestSnapshotId
   ) {
     const includedFilePaths = normalizeAndSortPaths(descriptor.includedPaths);
-    const directoryCounts = new Map<string, number>();
-    const ancestorCache = new Map<string, readonly string[]>();
-    for (const filePath of includedFilePaths) {
-      incrementDirectoryCounts(directoryCounts, filePath, 1, ancestorCache);
-    }
+    const directoryCounts = accumulateAncestorDirectoryCounts(includedFilePaths, {
+      cache: new Map<string, readonly string[]>(),
+      includeRoot: true,
+    });
     return {
       filePaths: includedFilePaths,
       pathSet: new Set(includedFilePaths),
