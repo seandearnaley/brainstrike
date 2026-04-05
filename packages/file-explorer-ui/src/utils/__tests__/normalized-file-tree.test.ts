@@ -257,6 +257,77 @@ describe('normalized-file-tree', () => {
     expect(getNormalizedDescendantFileCount(nextState, '/root/src')).toBe(1);
   });
 
+  it('does not loop forever if subtree child paths become cyclic during replacement', () => {
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        children: [
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/src/nested',
+            depth: 1,
+            children: [createFileNode({ name: 'a.ts', path: '/root/src/nested/a.ts', depth: 2 })],
+          }),
+        ],
+      }),
+    ]);
+
+    state.childPathsByPath.set('/root/src/nested', ['/root/src']);
+
+    const nextState = replaceNormalizedDirectoryChildren(state, '/root/src', [
+      createFileNode({ name: 'replacement.ts', path: '/root/src/replacement.ts', depth: 1 }),
+    ]);
+
+    expect(getNormalizedChildPaths(nextState, '/root/src')).toEqual(['/root/src/replacement.ts']);
+    expect(getNormalizedNode(nextState, '/root/src/nested')).toBeUndefined();
+  });
+
+  it('keeps ancestor links and counts intact when a non-root subtree has a cyclic child edge to its parent', () => {
+    const state = createNormalizedFileTreeState([
+      createDirectoryNode({
+        name: 'root',
+        path: '/root',
+        children: [
+          createDirectoryNode({
+            name: 'src',
+            path: '/root/src',
+            depth: 1,
+            children: [
+              createDirectoryNode({
+                name: 'nested',
+                path: '/root/src/nested',
+                depth: 2,
+                children: [
+                  createFileNode({
+                    name: 'a.ts',
+                    path: '/root/src/nested/a.ts',
+                    depth: 3,
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ]);
+
+    state.childPathsByPath.set('/root/src/nested', ['/root/src']);
+
+    const nextState = replaceNormalizedDirectoryChildren(state, '/root/src/nested', [
+      createFileNode({
+        name: 'replacement.ts',
+        path: '/root/src/nested/replacement.ts',
+        depth: 3,
+      }),
+    ]);
+
+    expect(getNormalizedParentPath(nextState, '/root/src/nested')).toBe('/root/src');
+    expect(getNormalizedDescendantFileCount(nextState, '/root/src/nested')).toBe(1);
+    expect(getNormalizedDescendantFileCount(nextState, '/root/src')).toBe(1);
+    expect(getNormalizedDescendantFileCount(nextState, '/root')).toBe(1);
+  });
+
   it('handles deeply nested trees without recursive stack overflow', () => {
     const depth = 12_000;
     const directoryPaths: string[] = [];
