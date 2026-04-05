@@ -286,8 +286,11 @@ export function isDirectoryCoveredByQuerySelection(
     );
   }
 
-  if (materializedPaths) {
-    return getMaterializedDirectorySelectedCount(directoryPath, materializedPaths) > 0;
+  if (
+    materializedPaths &&
+    getMaterializedDirectorySelectedCount(directoryPath, materializedPaths) > 0
+  ) {
+    return true;
   }
 
   return getDescriptorMatchers(descriptor).coveredDirectoryPaths.has(directoryPath);
@@ -306,6 +309,35 @@ export function getDirectorySelectedCount(
 
   if (isQuerySelectionManifestReady(descriptor, manifest)) {
     return resolveQuerySelection(descriptor, manifest).directoryCounts.get(directoryPath) ?? 0;
+  }
+
+  return getMaterializedDirectorySelectedCount(directoryPath, materializedPaths);
+}
+
+export function getQuerySelectionMatchingCount(
+  descriptor: SelectionQueryDescriptor | null,
+  manifest: QuerySelectionManifest | null,
+  folderId: string | null,
+  directoryPath: string,
+  materializedPaths?: ReadonlySet<string> | null
+): number {
+  if (!(descriptor && folderId && descriptor.folderId === folderId)) {
+    return 0;
+  }
+
+  if (isQuerySelectionManifestReady(descriptor, manifest)) {
+    let totalMatchingCount = manifest.directoryCounts.get(directoryPath) ?? 0;
+
+    for (const filePath of descriptor.includedPaths) {
+      if (manifest.pathSet.has(filePath)) {
+        continue;
+      }
+      if (filePath.startsWith(`${directoryPath}/`)) {
+        totalMatchingCount += 1;
+      }
+    }
+
+    return totalMatchingCount;
   }
 
   return getMaterializedDirectorySelectedCount(directoryPath, materializedPaths);

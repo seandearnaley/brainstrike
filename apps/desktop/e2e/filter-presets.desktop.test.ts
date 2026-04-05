@@ -1,6 +1,23 @@
-import type { Locator, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+
+interface ElectronE2eFileSystemFixture {
+  directoriesByPath: Record<string, unknown[]>;
+  fileContentsByPath: Record<string, string>;
+  readDirectoryCalls: string[];
+  readFileByPathCalls: string[];
+  readFileCalls: string[];
+  requestDirectoryAccessCount: number;
+  rootHandle: {
+    id: string;
+    kind: 'directory';
+    name: string;
+    path: string;
+    platform: 'electron';
+    type: 'directory';
+  };
+}
 
 async function ensureLeftPanelVisible(window: Page): Promise<void> {
   const leftPanel = window.locator('#explorer-panel');
@@ -38,6 +55,163 @@ async function resolvePresetTrigger(window: Page): Promise<Locator> {
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
   await expect(presetTrigger).toBeEnabled({ timeout: 10_000 });
   return presetTrigger;
+}
+
+async function installFilteredEmptyFolderFixture(
+  electronApp: ElectronApplication,
+  rootPath: string
+): Promise<void> {
+  const fixture: ElectronE2eFileSystemFixture = {
+    directoriesByPath: {
+      [rootPath]: [
+        {
+          name: 'apps',
+          path: `${rootPath}/apps`,
+          type: 'directory' as const,
+          depth: 0,
+          selectionState: 'unchecked' as const,
+          rootFolderId: rootPath,
+          isVisible: true,
+          children: [],
+          handle: {
+            kind: 'directory' as const,
+            name: 'apps',
+            path: `${rootPath}/apps`,
+            platform: 'electron' as const,
+          },
+        },
+        {
+          name: 'packages',
+          path: `${rootPath}/packages`,
+          type: 'directory' as const,
+          depth: 0,
+          selectionState: 'unchecked' as const,
+          rootFolderId: rootPath,
+          isVisible: true,
+          children: [],
+          handle: {
+            kind: 'directory' as const,
+            name: 'packages',
+            path: `${rootPath}/packages`,
+            platform: 'electron' as const,
+          },
+        },
+      ],
+      [`${rootPath}/apps`]: [
+        {
+          name: 'docs',
+          path: `${rootPath}/apps/docs`,
+          type: 'directory' as const,
+          depth: 0,
+          selectionState: 'unchecked' as const,
+          rootFolderId: rootPath,
+          isVisible: true,
+          children: [],
+          handle: {
+            kind: 'directory' as const,
+            name: 'docs',
+            path: `${rootPath}/apps/docs`,
+            platform: 'electron' as const,
+          },
+        },
+        {
+          name: 'web',
+          path: `${rootPath}/apps/web`,
+          type: 'directory' as const,
+          depth: 0,
+          selectionState: 'unchecked' as const,
+          rootFolderId: rootPath,
+          isVisible: true,
+          children: [],
+          handle: {
+            kind: 'directory' as const,
+            name: 'web',
+            path: `${rootPath}/apps/web`,
+            platform: 'electron' as const,
+          },
+        },
+      ],
+      [`${rootPath}/apps/docs`]: [
+        {
+          name: 'readme.md',
+          path: `${rootPath}/apps/docs/readme.md`,
+          type: 'file' as const,
+          size: 100,
+          depth: 0,
+          selectionState: 'unchecked' as const,
+          rootFolderId: rootPath,
+          isVisible: true,
+          handle: {
+            kind: 'file' as const,
+            name: 'readme.md',
+            path: `${rootPath}/apps/docs/readme.md`,
+            platform: 'electron' as const,
+          },
+        },
+      ],
+      [`${rootPath}/apps/web`]: [
+        {
+          name: 'app.ts',
+          path: `${rootPath}/apps/web/app.ts`,
+          type: 'file' as const,
+          size: 120,
+          depth: 0,
+          selectionState: 'unchecked' as const,
+          rootFolderId: rootPath,
+          isVisible: true,
+          handle: {
+            kind: 'file' as const,
+            name: 'app.ts',
+            path: `${rootPath}/apps/web/app.ts`,
+            platform: 'electron' as const,
+          },
+        },
+      ],
+      [`${rootPath}/packages`]: [
+        {
+          name: 'core.ts',
+          path: `${rootPath}/packages/core.ts`,
+          type: 'file' as const,
+          size: 80,
+          depth: 0,
+          selectionState: 'unchecked' as const,
+          rootFolderId: rootPath,
+          isVisible: true,
+          handle: {
+            kind: 'file' as const,
+            name: 'core.ts',
+            path: `${rootPath}/packages/core.ts`,
+            platform: 'electron' as const,
+          },
+        },
+      ],
+    },
+    fileContentsByPath: {
+      [`${rootPath}/apps/docs/readme.md`]: '# docs',
+      [`${rootPath}/apps/web/app.ts`]: 'export const app = 1;',
+      [`${rootPath}/packages/core.ts`]: 'export const core = 1;',
+    },
+    readDirectoryCalls: [],
+    readFileByPathCalls: [],
+    readFileCalls: [],
+    requestDirectoryAccessCount: 0,
+    rootHandle: {
+      id: 'mock-filter-empty-folder-root',
+      kind: 'directory',
+      name: 'mock-filter-empty-folder-root',
+      path: rootPath,
+      platform: 'electron',
+      type: 'directory',
+    },
+  };
+
+  await electronApp.evaluate((_electron, nextFixture) => {
+    (
+      globalThis as typeof globalThis & {
+        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
+      }
+    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
+  }, fixture);
 }
 
 async function selectMockRoot(window: Page): Promise<void> {
@@ -170,5 +344,47 @@ test.describe('Desktop filter presets', () => {
     await expect(window.getByRole('button', { name: /typescript\/javascript/i })).toBeVisible({
       timeout: 10_000,
     });
+  });
+
+  test('keeps an expanded folder visible when it has no matching children under the preset filter', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(60_000);
+
+    await installFilteredEmptyFolderFixture(electronApp.app, '/mock/filter-empty-folder-root');
+    await ensureLeftPanelVisible(window);
+    await selectMockRoot(window);
+    await ensureViewFiltersExpanded(window);
+
+    const presetTrigger = await resolvePresetTrigger(window);
+    await presetTrigger.click();
+    await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+
+    const tsPresetOption = window.getByRole('button', { name: /typescript\/javascript/i }).first();
+    await expect(tsPresetOption).toBeVisible({ timeout: 10_000 });
+    await tsPresetOption.click();
+
+    const fileTree = window.getByRole('treegrid', { name: 'File tree' });
+    await expect(fileTree.getByText('apps')).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('packages')).toBeVisible({ timeout: 10_000 });
+
+    const expandButtons = fileTree.locator('button[aria-label="Expand"]');
+    await expect(expandButtons).toHaveCount(2, { timeout: 10_000 });
+    await expandButtons.first().click({ timeout: 5000 });
+
+    await expect(fileTree.getByText('docs')).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('web')).toBeVisible({ timeout: 10_000 });
+
+    const docsRow = fileTree.getByRole('row', { name: /docs/i });
+    const webRow = fileTree.getByRole('row', { name: /web/i });
+    await expect(docsRow).toBeVisible();
+    await expect(webRow).toBeVisible();
+
+    await docsRow.getByRole('button', { name: 'Expand' }).click({ timeout: 5000 });
+
+    await expect(docsRow).toBeVisible({ timeout: 10_000 });
+    await expect(webRow).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('readme.md')).not.toBeVisible();
   });
 });

@@ -234,7 +234,7 @@ describe('useFileFilters', () => {
     expect(dirChild?.children).toHaveLength(1);
   });
 
-  it('prunes loaded directories that have no matching descendants under include filters', () => {
+  it('preserves loaded directories that have no matching descendants under include filters', () => {
     const tree: IFileNode[] = [
       dirNode(
         'root',
@@ -256,7 +256,8 @@ describe('useFileFilters', () => {
 
     const rootDir = filtered[0]!;
     const children = rootDir.children ?? [];
-    expect(children.map((child) => child.name)).toEqual(['src']);
+    expect(children.map((child) => child.name)).toEqual(['src', 'docs']);
+    expect(children.find((child) => child.name === 'docs')?.children ?? []).toHaveLength(0);
   });
 
   it('preserves unloaded directories until their descendants are known', () => {

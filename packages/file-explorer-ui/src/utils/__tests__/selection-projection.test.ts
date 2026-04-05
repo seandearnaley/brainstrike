@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   getDirectorySelectedCount,
+  getQuerySelectionMatchingCount,
   getSelectionCount,
   isDirectoryCoveredByQuerySelection,
   isQuerySelectionPathSelected,
@@ -89,6 +90,59 @@ describe('selection-projection', () => {
     );
   });
 
+  it('falls back to covered directory paths when materialized paths do not cover an ancestor during loading', () => {
+    const descriptor = createDescriptor({
+      coveredDirectoryPaths: ['/packages', '/packages/agent', '/packages/app-shell'],
+    });
+
+    expect(
+      isDirectoryCoveredByQuerySelection(
+        descriptor,
+        null,
+        'folder-1',
+        '/packages',
+        new Set(['packages/agent/index.ts', 'packages/app-shell/main.ts'])
+      )
+    ).toBe(true);
+  });
+
+  it('keeps absolute desktop-style ancestor directories covered while loading', () => {
+    const descriptor = createDescriptor({
+      folderId: '/mock/desktop-selection-root-packages',
+      coveredDirectoryPaths: [
+        '/mock',
+        '/mock/desktop-selection-root-packages',
+        '/mock/desktop-selection-root-packages/packages',
+        '/mock/desktop-selection-root-packages/packages/agent',
+        '/mock/desktop-selection-root-packages/packages/app-shell',
+      ],
+    });
+
+    const materializedPaths = new Set([
+      '/mock/desktop-selection-root-packages/packages/agent/index.ts',
+      '/mock/desktop-selection-root-packages/packages/app-shell/main.ts',
+    ]);
+
+    expect(
+      isDirectoryCoveredByQuerySelection(
+        descriptor,
+        null,
+        '/mock/desktop-selection-root-packages',
+        '/mock/desktop-selection-root-packages/packages',
+        materializedPaths
+      )
+    ).toBe(true);
+    expect(
+      getDirectorySelectedCount(
+        descriptor,
+        null,
+        '/mock/desktop-selection-root-packages',
+        '/mock/desktop-selection-root-packages/packages',
+        materializedPaths
+      )
+    ).toBe(2);
+  });
+
   it('reuses ancestor counts for repeated directory queries while the manifest is loading', () => {
     const descriptor = createDescriptor();
     const materializedPaths = new Set([
@@ -132,6 +186,18 @@ describe('selection-projection', () => {
     );
     expect(isDirectoryCoveredByQuerySelection(descriptor, manifest, 'folder-1', '/src')).toBe(true);
     expect(getDirectorySelectedCount(descriptor, manifest, 'folder-1', '/src')).toBe(2);
+  });
+
+  it('counts manually included query paths toward directory totals after the manifest is ready', () => {
+    const descriptor = createDescriptor({
+      coveredDirectoryPaths: ['/src', '/types'],
+      includedPaths: ['/types/performance.ts'],
+      totalSelectedCount: 3,
+    });
+    const manifest = createManifest();
+
+    expect(getDirectorySelectedCount(descriptor, manifest, 'folder-1', '/types')).toBe(1);
+    expect(getQuerySelectionMatchingCount(descriptor, manifest, 'folder-1', '/types')).toBe(1);
   });
 
   it('matches absolute and relative path variants against include and exclude filters', () => {

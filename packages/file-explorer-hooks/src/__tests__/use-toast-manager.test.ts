@@ -213,6 +213,7 @@ describe('useToastManager', () => {
       expect(mockToast).toHaveBeenCalledWith({
         title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.selectionLimitExceeded,
+        duration: 4000,
         variant: 'destructive',
       });
     });

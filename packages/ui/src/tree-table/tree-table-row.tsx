@@ -287,6 +287,7 @@ function TreeTableCellComponent<T>({
             <Button
               aria-label={isExpanded ? 'Collapse' : 'Expand'}
               className="h-6 w-6 flex-shrink-0 p-0"
+              disabled={node.isLoading}
               onClick={onExpandClick}
               size="sm"
               variant="ghost"

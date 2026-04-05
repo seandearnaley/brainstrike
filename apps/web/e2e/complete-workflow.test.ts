@@ -234,6 +234,38 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test('should deselect a selected folder instead of re-running recursive selection', async ({
+    page,
+  }) => {
+    await page.getByTestId('select-root-button').click();
+
+    const fileTree = getFileTree(page);
+    await expect(fileTree).toBeVisible();
+
+    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
+    await expect(srcCheckbox).toBeVisible();
+    await srcCheckbox.click({ force: true });
+
+    await expect(page.getByText('4/10')).toBeVisible({ timeout: 10_000 });
+
+    const expandAllButton = page.getByTestId('expand-all-button-small');
+    await expect(expandAllButton).toBeVisible();
+    await expandAllButton.click();
+
+    const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
+    const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
+
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
+    await expect(buttonCheckbox).toBeChecked({ timeout: 10_000 });
+    await expect(inputCheckbox).toBeChecked();
+
+    await srcCheckbox.click({ force: true });
+
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
+    await expect(buttonCheckbox).not.toBeChecked();
+    await expect(inputCheckbox).not.toBeChecked();
+  });
+
   test('should keep filtered Select All scoped to visible files and stay in manual mode', async ({
     page,
   }) => {
