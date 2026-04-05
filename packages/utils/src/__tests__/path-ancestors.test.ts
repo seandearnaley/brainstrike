@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getAncestorDirectoryPaths } from '../path-ancestors';
+import { accumulateAncestorDirectoryCounts, getAncestorDirectoryPaths } from '../path-ancestors';
 
 describe('getAncestorDirectoryPaths', () => {
   it('returns ancestor directories for nested absolute file paths', () => {
@@ -32,5 +32,45 @@ describe('getAncestorDirectoryPaths', () => {
 
   it('returns an empty array for top-level relative paths', () => {
     expect(getAncestorDirectoryPaths('index.ts')).toEqual([]);
+  });
+
+  it('accumulates ancestor directory counts for multiple files', () => {
+    const counts = accumulateAncestorDirectoryCounts(
+      ['/src/a.ts', '/src/nested/b.ts', '/README.md'],
+      {
+        cache: new Map<string, readonly string[]>(),
+        includeRoot: true,
+      }
+    );
+
+    expect(counts).toEqual(
+      new Map([
+        ['/', 3],
+        ['/src', 2],
+        ['/src/nested', 1],
+      ])
+    );
+  });
+
+  it('supports decrementing ancestor directory counts into an existing map', () => {
+    const counts = new Map<string, number>([
+      ['/', 3],
+      ['/src', 2],
+      ['/src/nested', 1],
+    ]);
+
+    accumulateAncestorDirectoryCounts(['/src/nested/b.ts'], {
+      counts,
+      cache: new Map<string, readonly string[]>(),
+      delta: -1,
+      includeRoot: true,
+    });
+
+    expect(counts).toEqual(
+      new Map([
+        ['/', 2],
+        ['/src', 1],
+      ])
+    );
   });
 });
