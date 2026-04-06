@@ -231,7 +231,8 @@ interface UseFileExplorerReturn {
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
-    currentSelectionSize: number
+    currentSelectionSize: number,
+    currentDirectorySelectionSize?: number
   ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
   /**
    * Set the access loading state.
@@ -450,10 +451,15 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const isRestoringRef = useRef(false);
   // Track the stale clearing timer ID so we can cancel it from outside the effect
   const staleClearingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentRootFolderIdRef = useRef<string | null>(currentRootFolderId);
   const restorationSkipReasonRef = useRef<string | null>(null);
   // State for restoration progress - exposed to UI for feedback
   const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
   const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
+
+  useLayoutEffect(() => {
+    currentRootFolderIdRef.current = currentRootFolderId;
+  }, [currentRootFolderId]);
 
   useLayoutEffect(() => {
     if (!(isAccessLoading && staleClearingTimerRef.current !== null)) {
@@ -526,6 +532,16 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
       const currentStoreState = store.getState();
       if (currentStoreState.isAccessLoading) {
         logger.debug('Skipping stale clearing - access loading now in progress (store check)');
+        return;
+      }
+      if (currentRootFolderIdRef.current) {
+        logger.debug('Skipping stale clearing - root directory restored before timer fired', {
+          folderId: currentRootFolderIdRef.current,
+        });
+        return;
+      }
+      if (getRootFolderId(currentStoreState.rootDirectoryHandle)) {
+        logger.debug('Skipping stale clearing - root directory handle restored before timer fired');
         return;
       }
 

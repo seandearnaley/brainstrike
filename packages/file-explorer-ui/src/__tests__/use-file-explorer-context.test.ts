@@ -539,6 +539,54 @@ describe('useFileExplorer (context)', () => {
 
       vi.useRealTimers();
     });
+
+    it('does not clear restored state when the file-system hook restores a root before the timer fires', async () => {
+      const useFileSystemMock = vi.mocked(useFileSystem);
+      useFileSystemMock.mockReturnValue({
+        rootDirectoryHandle: null,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
+      storeState.expandedDirectoryPaths = new Set(['/src']);
+      storeState.rootDirectoryHandle = null;
+
+      vi.useFakeTimers();
+
+      const { rerender } = renderHook(() => useFileExplorer());
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      useFileSystemMock.mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      act(() => {
+        rerender();
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
   });
 
   describe('isInitialLoad', () => {

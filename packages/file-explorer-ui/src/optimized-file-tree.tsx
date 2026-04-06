@@ -127,6 +127,14 @@ interface LoadedChildSelectionSummary {
   anySelected: boolean;
 }
 
+interface DirectorySelectionTraversalContext {
+  getDirectoryMetadata: (node: IFileNode) => {
+    directoryTotalFiles: number;
+    hasUnloadedDirectoryChildren: boolean;
+    immediateChildren: IFileNode[];
+  };
+}
+
 const logger = createLogger('OptimizedFileTree');
 // Bound ancestor-path cache growth for large workspaces (15k+ files) while
 // keeping hot paths resident across frequent selection changes.
@@ -557,6 +565,12 @@ function getQueryDirectorySelectionState(args: {
     selectedDirectoryCounts,
     selectionModel,
   } = args;
+  const queryRootPath = selectionModel.queryDescriptor?.rootPath ?? null;
+  const isAncestorOfQueryRoot = Boolean(
+    queryRootPath &&
+      directoryPath !== queryRootPath &&
+      queryRootPath.startsWith(`${directoryPath}/`)
+  );
   const totalMatchingCount = getQuerySelectionMatchingCount(
     selectionModel.queryDescriptor,
     querySelectionManifest,
@@ -567,6 +581,9 @@ function getQueryDirectorySelectionState(args: {
   const selectedMatchingCount = selectedDirectoryCounts.get(directoryPath) ?? 0;
   if (totalMatchingCount === 0 || selectedMatchingCount === 0) {
     return false;
+  }
+  if (isAncestorOfQueryRoot) {
+    return 'indeterminate';
   }
   return selectedMatchingCount === totalMatchingCount ? true : 'indeterminate';
 }
@@ -607,9 +624,16 @@ function getCoveredQueryDirectorySelectionState(args: {
       (selectionModel.queryDescriptor.includedPaths.length > 0 ||
         selectionModel.queryDescriptor.excludedPaths.length > 0)
   );
+  const queryRootPath = selectionModel.queryDescriptor?.rootPath ?? null;
+  const isAncestorOfQueryRoot = Boolean(
+    queryRootPath && nodePath !== queryRootPath && queryRootPath.startsWith(`${nodePath}/`)
+  );
 
   if (isKnownEmptyDirectory) {
     return false;
+  }
+  if (isAncestorOfQueryRoot) {
+    return directoryState.checkboxState === false ? 'indeterminate' : directoryState.checkboxState;
   }
   if (hasQueryOverrides) {
     return directoryState.checkboxState === false ? 'indeterminate' : directoryState.checkboxState;
@@ -641,35 +665,62 @@ function computeLoadedDirectoryCheckboxState(
   querySelectionManifest: FileExplorerState['querySelectionManifest'],
   selectionModel: FileExplorerState['selectionModel'],
   selectedDirectoryCounts: Map<string, number>,
-  _selectedFilePaths: Set<string>
+  selectedFilePaths: Set<string>,
+  directoryTraversalContext: DirectorySelectionTraversalContext
 ): boolean | 'indeterminate' {
-  if (isReadyQuerySelection(selectionModel, querySelectionManifest, folderId)) {
-    return getQueryDirectorySelectionState({
-      directoryPath: node.path,
-      folderId,
-      querySelectionManifest,
-      selectedDirectoryCounts,
-      selectionModel,
-    });
-  }
-
-  const coveredState = getCoveredQueryDirectorySelectionState({
-    directoryState: {
-      checkboxState: false,
-      selectedCount: selectedDirectoryCounts.get(node.path) ?? 0,
-    },
-    folderId,
-    isKnownEmptyDirectory: false,
-    nodePath: node.path,
-    querySelectionManifest,
-    selectionModel,
-  });
-  if (coveredState !== null) {
-    return coveredState;
-  }
+  const isQueryDirectorySelection = selectionModel.mode === 'query';
 
   const totalFiles = fileExplorer.getFolderFileCount(node).count;
   const selectedCount = selectedDirectoryCounts.get(node.path) ?? 0;
+  if (selectionModel.mode !== 'query' && totalFiles > 0 && selectedCount === totalFiles) {
+    return true;
+  }
+
+  const loadedChildSelectionSummary = summarizeLoadedChildSelection({
+    children: directoryTraversalContext.getDirectoryMetadata(node).immediateChildren,
+    directoryTraversalContext,
+    folderId,
+    parentDirectoryPath: node.path,
+    querySelectionManifest,
+    selectionModel,
+    selectedDirectoryCounts,
+    selectedFilePaths,
+  });
+
+  if (loadedChildSelectionSummary?.allSelected) {
+    return true;
+  }
+  if (loadedChildSelectionSummary?.anySelected) {
+    return 'indeterminate';
+  }
+
+  if (isQueryDirectorySelection) {
+    if (isReadyQuerySelection(selectionModel, querySelectionManifest, folderId)) {
+      return getQueryDirectorySelectionState({
+        directoryPath: node.path,
+        folderId,
+        querySelectionManifest,
+        selectedDirectoryCounts,
+        selectionModel,
+      });
+    }
+
+    const coveredState = getCoveredQueryDirectorySelectionState({
+      directoryState: {
+        checkboxState: false,
+        selectedCount: selectedDirectoryCounts.get(node.path) ?? 0,
+      },
+      folderId,
+      isKnownEmptyDirectory: false,
+      nodePath: node.path,
+      querySelectionManifest,
+      selectionModel,
+    });
+    if (coveredState !== null) {
+      return coveredState;
+    }
+  }
+
   if (totalFiles === 0) {
     return selectedCount > 0 ? 'indeterminate' : false;
   }
@@ -685,7 +736,8 @@ function computeLoadedChildCheckboxState(
   querySelectionManifest: FileExplorerState['querySelectionManifest'],
   selectionModel: FileExplorerState['selectionModel'],
   selectedDirectoryCounts: Map<string, number>,
-  selectedFilePaths: Set<string>
+  selectedFilePaths: Set<string>,
+  directoryTraversalContext: DirectorySelectionTraversalContext
 ): boolean | 'indeterminate' {
   if (node.type === 'file') {
     return computeLoadedFileCheckboxState(
@@ -702,33 +754,92 @@ function computeLoadedChildCheckboxState(
     querySelectionManifest,
     selectionModel,
     selectedDirectoryCounts,
-    selectedFilePaths
+    selectedFilePaths,
+    directoryTraversalContext
   );
 }
 
-function summarizeLoadedChildSelection(
-  node: IFileNode,
-  folderId: string,
-  querySelectionManifest: FileExplorerState['querySelectionManifest'],
-  selectionModel: FileExplorerState['selectionModel'],
-  selectedDirectoryCounts: Map<string, number>,
-  selectedFilePaths: Set<string>
-): LoadedChildSelectionSummary | null {
-  if (!(node.type === 'directory' && node.loadState === 'loaded' && node.children?.length)) {
+function shouldIgnoreLoadedQueryChildDirectory(args: {
+  child: IFileNode;
+  folderId: string;
+  parentDirectoryPath: string;
+  querySelectionManifest: FileExplorerState['querySelectionManifest'];
+  selectionModel: FileExplorerState['selectionModel'];
+}): boolean {
+  const { child, folderId, parentDirectoryPath, querySelectionManifest, selectionModel } = args;
+  const queryRootPath = selectionModel.queryDescriptor?.rootPath;
+
+  if (
+    !(
+      queryRootPath &&
+      (parentDirectoryPath === queryRootPath || parentDirectoryPath.startsWith(`${queryRootPath}/`))
+    )
+  ) {
+    return false;
+  }
+
+  return !isDirectoryCoveredByQuerySelection(
+    selectionModel.queryDescriptor,
+    querySelectionManifest,
+    folderId,
+    child.path,
+    selectionModel.materializedPaths
+  );
+}
+
+function summarizeLoadedChildSelection(args: {
+  children: IFileNode[];
+  directoryTraversalContext: DirectorySelectionTraversalContext;
+  folderId: string;
+  parentDirectoryPath: string;
+  querySelectionManifest: FileExplorerState['querySelectionManifest'];
+  selectedDirectoryCounts: Map<string, number>;
+  selectedFilePaths: Set<string>;
+  selectionModel: FileExplorerState['selectionModel'];
+}): LoadedChildSelectionSummary | null {
+  const {
+    children,
+    directoryTraversalContext,
+    folderId,
+    parentDirectoryPath,
+    querySelectionManifest,
+    selectionModel,
+    selectedDirectoryCounts,
+    selectedFilePaths,
+  } = args;
+
+  if (children.length === 0) {
     return null;
   }
 
   let anySelected = false;
   let allSelected = true;
+  let consideredChildren = 0;
 
-  for (const child of node.children) {
+  for (const child of children) {
+    if (
+      selectionModel.mode === 'query' &&
+      child.type === 'directory' &&
+      shouldIgnoreLoadedQueryChildDirectory({
+        child,
+        folderId,
+        parentDirectoryPath,
+        querySelectionManifest,
+        selectionModel,
+      })
+    ) {
+      continue;
+    }
+
+    consideredChildren += 1;
     const childState = computeLoadedChildCheckboxState(
       child,
       folderId,
       querySelectionManifest,
       selectionModel,
       selectedDirectoryCounts,
-      selectedFilePaths
+      selectedFilePaths,
+      directoryTraversalContext
     );
     if (childState !== false) {
       anySelected = true;
@@ -739,6 +850,10 @@ function summarizeLoadedChildSelection(
     if (anySelected && !allSelected) {
       break;
     }
+  }
+
+  if (consideredChildren === 0) {
+    return null;
   }
 
   return { allSelected, anySelected };
@@ -758,6 +873,7 @@ function computeDirectorySelectionState(
   directoryTotalFiles: number,
   hasUnloadedDirectoryChildren: boolean,
   immediateChildren: IFileNode[],
+  directoryTraversalContext: DirectorySelectionTraversalContext,
   folderId: string,
   querySelectionManifest: FileExplorerState['querySelectionManifest'],
   selectionModel: FileExplorerState['selectionModel'],
@@ -781,14 +897,24 @@ function computeDirectorySelectionState(
     folderId,
     selectedDirectoryCounts
   );
-  const loadedChildSelectionSummary = summarizeLoadedChildSelection(
-    node.type === 'directory' ? { ...node, children: immediateChildren } : node,
+  if (
+    selectionModel.mode !== 'query' &&
+    directoryTotalFiles > 0 &&
+    directoryState.selectedCount === directoryTotalFiles
+  ) {
+    return createQueryDirectoryNodeSelectionState(true);
+  }
+
+  const loadedChildSelectionSummary = summarizeLoadedChildSelection({
+    children: immediateChildren,
+    directoryTraversalContext,
     folderId,
+    parentDirectoryPath: node.path,
     querySelectionManifest,
     selectionModel,
     selectedDirectoryCounts,
-    selectedFilePaths
-  );
+    selectedFilePaths,
+  });
 
   if (loadedChildSelectionSummary?.allSelected) {
     return createQueryDirectoryNodeSelectionState(true);
@@ -797,28 +923,30 @@ function computeDirectorySelectionState(
     return createQueryDirectoryNodeSelectionState('indeterminate');
   }
 
-  if (isReadyQueryDirectorySelection) {
-    return createQueryDirectoryNodeSelectionState(
-      getQueryDirectorySelectionState({
-        directoryPath: node.path,
-        folderId,
-        querySelectionManifest,
-        selectedDirectoryCounts,
-        selectionModel,
-      })
-    );
-  }
+  if (selectionModel.mode === 'query') {
+    if (isReadyQueryDirectorySelection) {
+      return createQueryDirectoryNodeSelectionState(
+        getQueryDirectorySelectionState({
+          directoryPath: node.path,
+          folderId,
+          querySelectionManifest,
+          selectedDirectoryCounts,
+          selectionModel,
+        })
+      );
+    }
 
-  const coveredState = getCoveredQueryDirectorySelectionState({
-    directoryState,
-    folderId,
-    isKnownEmptyDirectory,
-    nodePath: node.path,
-    querySelectionManifest,
-    selectionModel,
-  });
-  if (coveredState !== null) {
-    return createQueryDirectoryNodeSelectionState(coveredState);
+    const coveredState = getCoveredQueryDirectorySelectionState({
+      directoryState,
+      folderId,
+      isKnownEmptyDirectory,
+      nodePath: node.path,
+      querySelectionManifest,
+      selectionModel,
+    });
+    if (coveredState !== null) {
+      return createQueryDirectoryNodeSelectionState(coveredState);
+    }
   }
 
   const unselectedCount = Math.max(0, directoryTotalFiles - directoryState.selectedCount);
@@ -830,6 +958,7 @@ function computeDirectorySelectionState(
 
 function computeNodeSelectionState(
   rowData: FileTreeRowData,
+  directoryTraversalContext: DirectorySelectionTraversalContext,
   folderId: string,
   querySelectionManifest: FileExplorerState['querySelectionManifest'],
   selectionModel: FileExplorerState['selectionModel'],
@@ -856,6 +985,7 @@ function computeNodeSelectionState(
       rowData.directoryTotalFiles,
       rowData.hasUnloadedDirectoryChildren,
       rowData.immediateChildren,
+      directoryTraversalContext,
       folderId,
       querySelectionManifest,
       selectionModel,
@@ -1409,6 +1539,7 @@ export function resetFileTreeTelemetry(): void {
  * File cells use per-path Zustand selectors instead (more granular).
  */
 interface FileTreeSelectionContextValue {
+  directoryTraversalContext: DirectorySelectionTraversalContext;
   folderId: string;
   isDirectorySelectionLocked: boolean;
   maxSelectionCount: number;
@@ -1447,6 +1578,7 @@ interface FileTreeCellContentProps {
 function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTreeCellContentProps) {
   const fileNode = rowData.fileNode;
   const {
+    directoryTraversalContext,
     folderId,
     isDirectorySelectionLocked,
     maxSelectionCount,
@@ -1459,6 +1591,7 @@ function FileTreeCellContent({ rowData, isExpanded, onSelectionChange }: FileTre
 
   const selectionState = computeNodeSelectionState(
     rowData,
+    directoryTraversalContext,
     folderId,
     querySelectionManifest,
     selectionModel,
@@ -1812,10 +1945,48 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       [fileNodeByPath, getDirectoryToggleState, reportToggleExpandError, toggleDirectoryNode]
     );
 
+    const directoryTraversalContext = useMemo<DirectorySelectionTraversalContext>(
+      () => ({
+        getDirectoryMetadata: (node: IFileNode) => {
+          if (node.type !== 'directory') {
+            return {
+              directoryTotalFiles: 0,
+              hasUnloadedDirectoryChildren: false,
+              immediateChildren: [],
+            };
+          }
+
+          if (normalizedTreeContext) {
+            return {
+              directoryTotalFiles: normalizedTreeContext.getDescendantFileCount(node.path),
+              hasUnloadedDirectoryChildren: hasNormalizedUnloadedDirectoryChildren(
+                normalizedTreeContext.normalizedTreeRef.current,
+                node.path,
+                filteredPathSet
+              ),
+              immediateChildren: getNormalizedImmediateChildren(
+                normalizedTreeContext.normalizedTreeRef.current,
+                node.path,
+                filteredPathSet
+              ),
+            };
+          }
+
+          return {
+            directoryTotalFiles: fileExplorer.getFolderFileCount(node).count,
+            hasUnloadedDirectoryChildren: hasUnloadedDirectoryChildren(node),
+            immediateChildren: node.children ?? [],
+          };
+        },
+      }),
+      [filteredPathSet, normalizedTreeContext]
+    );
+
     const getNodeSelectionState = useCallback(
       (rowData: FileTreeRowData): NodeSelectionState =>
         computeNodeSelectionState(
           rowData,
+          directoryTraversalContext,
           folderId,
           querySelectionManifest,
           selectionModel,
@@ -1825,6 +1996,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           maxSelectionCount
         ),
       [
+        directoryTraversalContext,
         folderId,
         maxSelectionCount,
         selectedCount,
@@ -1864,7 +2036,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           selectionModel,
         });
 
-        if (selectedDescendantPaths.length > 0) {
+        if (selectionState.checkboxState === true && selectedDescendantPaths.length > 0) {
           removeMultipleSelectedFiles(folderId, selectedDescendantPaths);
           return;
         }
@@ -1880,6 +2052,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         }
 
         const directorySelectedCount = selectedDirectoryCounts.get(node.path) ?? 0;
+
         const allFilePaths = normalizedTreeContext
           ? normalizedTreeContext.getDescendantFilePaths(node.path)
           : fileExplorer.getAllFilePathsInDirectory(directoryNode);
@@ -1947,6 +2120,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // because columns stays stable).
     const selectionContextValue = useMemo<FileTreeSelectionContextValue>(
       () => ({
+        directoryTraversalContext,
         folderId: folderId ?? '',
         isDirectorySelectionLocked: Boolean(isLoadingForSelection),
         maxSelectionCount,
@@ -1957,6 +2131,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         selectionModel,
       }),
       [
+        directoryTraversalContext,
         folderId,
         isLoadingForSelection,
         maxSelectionCount,

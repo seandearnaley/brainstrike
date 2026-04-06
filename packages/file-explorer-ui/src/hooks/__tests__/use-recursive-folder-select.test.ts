@@ -299,6 +299,61 @@ describe('useRecursiveFolderSelect', () => {
     expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
   });
 
+  it('commits a partially restored folder selection through query mode when the current selection is entirely inside that folder', async () => {
+    const root = createDirectory({
+      path: '/root/src',
+      loadState: 'unloaded',
+      children: [],
+    });
+    const setQuerySelection = vi.fn();
+    mockStoreState = {
+      setQuerySelection,
+    };
+    const fileSystemAdapter = createMockAdapter({
+      '/root/src': [
+        createFile({ name: 'main.ts', path: '/root/src/main.ts', depth: 1 }),
+        createDirectory({
+          name: 'nested',
+          path: '/root/src/nested',
+          depth: 1,
+          loadState: 'unloaded',
+          children: [],
+        }),
+      ],
+      '/root/src/nested': [
+        createFile({ name: 'deep.ts', path: '/root/src/nested/deep.ts', depth: 2 }),
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecursiveFolderSelect({
+        fileSystemAdapter,
+        getSubtreeByPath: (path) => findNodeByPath(root, path),
+        onError,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectFolderRecursively(root, 'folder-id', addMultipleSelectedFiles, 10, 2, 2)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(setQuerySelection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'recursive-folder',
+        folderId: 'folder-id',
+        rootPath: '/root/src',
+        totalSelectedCount: 2,
+      }),
+      expect.objectContaining({
+        filePaths: ['/root/src/main.ts', '/root/src/nested/deep.ts'],
+        status: 'ready',
+      }),
+      new Set(['/root/src/main.ts', '/root/src/nested/deep.ts'])
+    );
+    expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+  });
+
   it('applies filterTreeFn to adapter-loaded nodes', async () => {
     const root = createDirectory({
       path: '/root/src',

@@ -78,7 +78,8 @@ export interface UseRecursiveFolderSelectReturn {
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
-    currentSelectionSize: number
+    currentSelectionSize: number,
+    currentDirectorySelectionSize?: number
   ) => Promise<SelectionResult>;
 }
 
@@ -143,7 +144,8 @@ export function useRecursiveFolderSelect(
       folderId: string,
       addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
       maxSelectionCount: number,
-      currentSelectionSize: number
+      currentSelectionSize: number,
+      currentDirectorySelectionSize = 0
     ): Promise<SelectionResult> => {
       if (node.type !== 'directory') {
         return { success: false, filePaths: [], error: 'Node is not a directory' };
@@ -193,7 +195,7 @@ export function useRecursiveFolderSelect(
 
         const canUseQuerySelection =
           Boolean(setQuerySelection) &&
-          currentSelectionSize === 0 &&
+          currentSelectionSize === currentDirectorySelectionSize &&
           availableSlots >= result.filePaths.length &&
           !result.limitReached;
 

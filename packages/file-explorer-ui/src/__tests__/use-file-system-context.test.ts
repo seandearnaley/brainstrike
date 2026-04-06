@@ -1,6 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileSystem } from '../use-file-system-context';
@@ -383,5 +384,32 @@ describe('useFileSystem context hook', () => {
 
     expect(result.current.store.getState().selectionModel.mode).toBe('query');
     expect(result.current.store.getState().selectedFilePaths.size).toBe(1);
+  });
+
+  it('syncs an auto-restored root handle into the store', async () => {
+    const restoredHandle: DirectoryHandle = {
+      path: 'restored-root',
+      name: 'restored-root',
+      kind: 'directory',
+      platform: 'web',
+    } as DirectoryHandle;
+
+    const adapterWithRestore = Object.assign(new MockFileSystemAdapter(), {
+      restoreLastFolder: vi.fn(async () => restoredHandle),
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(FileExplorerTestWrapper, {
+        children,
+        mockFileSystemAdapter: adapterWithRestore,
+      });
+
+    const { result } = renderHook(() => useExposed(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.fs.rootDirectoryHandle).toEqual(restoredHandle);
+      expect(result.current.store.getState().rootDirectoryHandle).toEqual(restoredHandle);
+      expect(result.current.store.getState().currentFolderId).toBe('restored-root');
+    });
   });
 });

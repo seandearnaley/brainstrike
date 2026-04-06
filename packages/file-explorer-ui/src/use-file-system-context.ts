@@ -6,7 +6,7 @@
 
 import { useFileSystem as useCoreFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -193,7 +193,7 @@ export function useFileSystem() {
   // Sync core hook's restoration to the store (desktop auto-restore)
   // Initial one-way sync only: if the core restored a handle and the store is empty.
   // biome-ignore lint/plugin: One-time sync from core hook to store - controlled state restoration
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!storedRootDirectoryHandle && coreApi.rootDirectoryHandle) {
       setRootDirectoryHandle(coreApi.rootDirectoryHandle);
       rehydrateCurrentFolderStateIfNeeded(coreApi.rootDirectoryHandle.path);

@@ -25,6 +25,135 @@ export interface SelectionResolverState {
 
 const EMPTY_RELATIVE_PATHS: string[] = [];
 
+function buildExactMaterializedManifest(args: {
+  descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
+  materializedPaths: Set<string> | null;
+}) {
+  const { descriptor, materializedPaths } = args;
+  if (!materializedPaths) {
+    return null;
+  }
+
+  if (descriptor.excludedPaths.length > 0) {
+    return null;
+  }
+
+  const exactSelectedPaths = new Set<string>(materializedPaths);
+  for (const includedPath of descriptor.includedPaths) {
+    exactSelectedPaths.add(includedPath);
+  }
+
+  if (exactSelectedPaths.size !== descriptor.totalSelectedCount) {
+    return null;
+  }
+
+  return buildQuerySelectionManifest({
+    filePaths: Array.from(exactSelectedPaths),
+    fingerprint: descriptor.manifestFingerprint,
+    snapshotId: descriptor.manifestSnapshotId,
+  });
+}
+
+interface SelectionResolverStoreState {
+  currentFolderId: string | null;
+  querySelectionManifest: ReturnType<typeof createLoadingQuerySelectionManifest> | null;
+  selectedFilePaths: Set<string>;
+  selectionModel: {
+    explicitPaths: Set<string>;
+    materializedAt: string | null;
+    materializedPaths: Set<string> | null;
+    mode: 'explicit' | 'query' | 'rules';
+    queryDescriptor: {
+      coveredDirectoryPaths: string[];
+      excludeFilters: string[];
+      excludedPaths: string[];
+      folderId: string;
+      includedPaths: string[];
+      includeFilters: string[];
+      kind: 'recursive-folder' | 'recursive-select-all';
+      manifestFingerprint: string | null;
+      manifestSnapshotId: string | null;
+      rootPath: string | null;
+      totalSelectedCount: number;
+      useRegex: boolean;
+    } | null;
+    ruleSetJson: string | null;
+  };
+  setQuerySelectionManifest: (
+    manifest: ReturnType<typeof buildQuerySelectionManifest> | null
+  ) => void;
+}
+
+function resolveImmediateQueryManifest(args: {
+  descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
+  latestManifest: SelectionResolverStoreState['querySelectionManifest'];
+  materializedPaths: Set<string> | null;
+  setManifest: SelectionResolverStoreState['setQuerySelectionManifest'];
+}): boolean {
+  const { descriptor, latestManifest, materializedPaths, setManifest } = args;
+  const exactMaterializedManifest = buildExactMaterializedManifest({
+    descriptor,
+    materializedPaths,
+  });
+
+  if (
+    exactMaterializedManifest &&
+    (!latestManifest ||
+      latestManifest.status !== 'ready' ||
+      latestManifest.fingerprint !== descriptor.manifestFingerprint ||
+      latestManifest.snapshotId !== descriptor.manifestSnapshotId)
+  ) {
+    setManifest(exactMaterializedManifest);
+    return true;
+  }
+
+  return false;
+}
+
+function matchesDescriptorManifest(args: {
+  descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
+  manifest: SelectionResolverStoreState['querySelectionManifest'];
+  status?: 'loading' | 'ready';
+}): boolean {
+  const { descriptor, manifest, status } = args;
+  if (!manifest) {
+    return false;
+  }
+
+  if (
+    manifest.fingerprint !== descriptor.manifestFingerprint ||
+    manifest.snapshotId !== descriptor.manifestSnapshotId
+  ) {
+    return false;
+  }
+
+  return status ? manifest.status === status : true;
+}
+
+function ensureLoadingManifest(args: {
+  descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
+  latestManifest: SelectionResolverStoreState['querySelectionManifest'];
+  setManifest: SelectionResolverStoreState['setQuerySelectionManifest'];
+}): void {
+  const { descriptor, latestManifest, setManifest } = args;
+  if (
+    matchesDescriptorManifest({
+      descriptor,
+      manifest: latestManifest,
+      status: 'loading',
+    })
+  ) {
+    return;
+  }
+
+  setManifest(
+    createLoadingQuerySelectionManifest({
+      fingerprint: descriptor.manifestFingerprint,
+      snapshotId: descriptor.manifestSnapshotId,
+    })
+  );
+}
+
 export function useSelectionResolver(): SelectionResolverState {
   const db = useOptionalPGliteDatabase();
   const store = useFileExplorerStoreContext();
@@ -56,12 +185,24 @@ export function useSelectionResolver(): SelectionResolverState {
     }
 
     const latestManifest = latestState.querySelectionManifest;
-
     if (
-      latestManifest &&
-      latestManifest.fingerprint === descriptor.manifestFingerprint &&
-      latestManifest.snapshotId === descriptor.manifestSnapshotId &&
-      (latestManifest.status === 'ready' || latestManifest.status === 'loading')
+      resolveImmediateQueryManifest({
+        descriptor,
+        latestManifest,
+        materializedPaths: latestState.selectionModel.materializedPaths,
+        setManifest,
+      })
+    ) {
+      return;
+    }
+
+    const latestManifestStatus = latestManifest?.status;
+    if (
+      matchesDescriptorManifest({
+        descriptor,
+        manifest: latestManifest,
+      }) &&
+      (latestManifestStatus === 'ready' || latestManifestStatus === 'loading')
     ) {
       return;
     }
@@ -80,30 +221,19 @@ export function useSelectionResolver(): SelectionResolverState {
     }
 
     if (!db) {
-      if (
-        !(
-          latestManifest &&
-          latestManifest.fingerprint === descriptor.manifestFingerprint &&
-          latestManifest.snapshotId === descriptor.manifestSnapshotId &&
-          latestManifest.status === 'loading'
-        )
-      ) {
-        setManifest(
-          createLoadingQuerySelectionManifest({
-            fingerprint: descriptor.manifestFingerprint,
-            snapshotId: descriptor.manifestSnapshotId,
-          })
-        );
-      }
+      ensureLoadingManifest({
+        descriptor,
+        latestManifest,
+        setManifest,
+      });
       return;
     }
 
-    setManifest(
-      createLoadingQuerySelectionManifest({
-        fingerprint: descriptor.manifestFingerprint,
-        snapshotId: descriptor.manifestSnapshotId,
-      })
-    );
+    ensureLoadingManifest({
+      descriptor,
+      latestManifest,
+      setManifest,
+    });
 
     void loadQuerySelectionSnapshot(db, descriptor.manifestSnapshotId)
       .then((filePaths) => {
