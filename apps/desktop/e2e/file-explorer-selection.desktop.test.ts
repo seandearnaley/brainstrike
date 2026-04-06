@@ -1,14 +1,12 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { MemoryStorageAdapter } from '@brainstrike/storage';
+import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import type { ElectronApplication, Page } from 'playwright';
-import {
-  buildQuerySelectionFingerprint,
-  createFileExplorerStore,
-  createPersistedFileExplorerSnapshot,
-} from '../../../packages/file-explorer/src/index.ts';
+import { FILE_EXPLORER_STORAGE_VERSION } from '../../../packages/file-explorer/src/persistence/persistence-constants.ts';
+import { serializeState } from '../../../packages/file-explorer/src/persistence/state-serialization.ts';
+import { buildQuerySelectionFingerprint } from '../../../packages/file-explorer/src/utils/query-selection-manifest.ts';
 import { expect, test } from './fixtures/electron-fixture';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
@@ -84,6 +82,21 @@ async function setFileExplorerMaxSelectionCount(
   });
 }
 
+function createBaseExplorerState(rootPath: string): FileExplorerState {
+  return {
+    ...DEFAULT_STATE,
+    currentFolderId: rootPath,
+    folderStates: {},
+    folderAccessOrder: [rootPath],
+    selectedFilePaths: new Set<string>(),
+    expandedDirectoryPaths: new Set<string>(),
+    quickFilter: DEFAULT_STATE.quickFilter,
+    rootDirectoryHandle: null,
+    isAccessLoading: false,
+    querySelectionManifest: null,
+  } as unknown as FileExplorerState;
+}
+
 function createRestoredExplicitSelectionSnapshot(args: {
   expandedDirectoryPaths: string[];
   rootPath: string;
@@ -95,9 +108,8 @@ function createRestoredExplicitSelectionSnapshot(args: {
     ...createEmptySelectionModel(),
     explicitPaths: new Set(selectedCompositeKeys),
   };
-  const store = createFileExplorerStore(new MemoryStorageAdapter());
-  store.setState({
-    ...store.getState(),
+  const state: FileExplorerState = {
+    ...createBaseExplorerState(rootPath),
     currentFolderId: rootPath,
     folderStates: {
       [rootPath]: {
@@ -132,8 +144,11 @@ function createRestoredExplicitSelectionSnapshot(args: {
     selectionModel: explicitSelectionModel,
     viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
     isFiltersExpanded: DEFAULT_STATE.isFiltersExpanded,
-  });
-  return createPersistedFileExplorerSnapshot(store.getState());
+  };
+  return {
+    state: serializeState(state),
+    version: FILE_EXPLORER_STORAGE_VERSION,
+  };
 }
 
 function createRestoredQuerySelectionSnapshot(args: {
@@ -160,7 +175,6 @@ function createRestoredQuerySelectionSnapshot(args: {
     rootPath,
     selectionRootPath,
   } = args;
-  const store = createFileExplorerStore(new MemoryStorageAdapter());
   const materializedPathSet = new Set(materializedPaths);
   const uniqueSelectedPathCount = new Set([...materializedPaths, ...includedPaths]).size;
   const descriptor = {
@@ -185,8 +199,8 @@ function createRestoredQuerySelectionSnapshot(args: {
     useRegex: false,
   };
 
-  store.setState({
-    ...store.getState(),
+  const state: FileExplorerState = {
+    ...createBaseExplorerState(rootPath),
     currentFolderId: rootPath,
     folderStates: {
       [rootPath]: {
@@ -234,9 +248,12 @@ function createRestoredQuerySelectionSnapshot(args: {
     querySelectionManifest: null,
     viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
     isFiltersExpanded: DEFAULT_STATE.isFiltersExpanded,
-  });
+  };
 
-  return createPersistedFileExplorerSnapshot(store.getState());
+  return {
+    state: serializeState(state),
+    version: FILE_EXPLORER_STORAGE_VERSION,
+  };
 }
 
 async function seedRestoredExplicitSelectionState(args: {
