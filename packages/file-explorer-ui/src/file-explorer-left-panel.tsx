@@ -318,12 +318,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const handleSelectFolderRecursively = useCallback(
     async (node: IFileNode) => {
       const folderId = getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
+      const selectedDescendantCount = selectedFilesList.filter((selectionKey) =>
+        selectionKey.startsWith(`${folderId}|@|${node.path}/`)
+      ).length;
       return selectFolderRecursively(
         node,
         folderId,
         addMultipleSelectedFiles,
         maxSelectionCount,
-        selectedCount
+        selectedCount,
+        selectedDescendantCount
       );
     },
     [
@@ -333,6 +337,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       addMultipleSelectedFiles,
       maxSelectionCount,
       selectedCount,
+      selectedFilesList,
     ]
   );
 

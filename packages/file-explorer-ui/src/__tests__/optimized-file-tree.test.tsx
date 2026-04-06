@@ -4,10 +4,17 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode, useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
+import * as fileTreeProviderModule from '../file-tree-provider';
 import OptimizedFileTree, {
   fileTreeTelemetry,
   resetFileTreeTelemetry,
 } from '../optimized-file-tree';
+import {
+  createNormalizedFileTreeState,
+  getNormalizedDescendantFileCount,
+  listNormalizedDescendantFilePaths,
+  materializeNormalizedSubtree,
+} from '../utils/normalized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 type FileExplorerStore = ReturnType<typeof useFileExplorerStoreContext>;
@@ -509,6 +516,532 @@ describe('OptimizedFileTree', () => {
     });
     expect(utilsCheckbox).toHaveAttribute('data-state', 'checked');
     expect(e2eCheckbox).toHaveAttribute('data-state', 'checked');
+  });
+
+  it('marks a query-selected directory checked when all direct files and child directories are selected', async () => {
+    const loadedTree: IFileNode[] = [
+      {
+        name: 'hooks',
+        path: '/hooks',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'loaded',
+        children: [
+          {
+            name: 'src',
+            path: '/hooks/src',
+            type: 'directory',
+            isVisible: true,
+            handle: {} as FileSystemDirectoryHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+            loadState: 'loaded',
+            children: [
+              {
+                name: '__tests__',
+                path: '/hooks/src/__tests__',
+                type: 'directory',
+                isVisible: true,
+                handle: {} as FileSystemDirectoryHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+                loadState: 'unloaded',
+              },
+              {
+                name: 'create-debounce.ts',
+                path: '/hooks/src/create-debounce.ts',
+                type: 'file',
+                isVisible: true,
+                handle: {} as FileSystemFileHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+              },
+              {
+                name: 'index.ts',
+                path: '/hooks/src/index.ts',
+                type: 'file',
+                isVisible: true,
+                handle: {} as FileSystemFileHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+              },
+            ],
+          },
+          {
+            name: 'package.json',
+            path: '/hooks/package.json',
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+          {
+            name: 'tsconfig.json',
+            path: '/hooks/tsconfig.json',
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+        ],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={loadedTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().setQuerySelection(
+        {
+          kind: 'recursive-select-all',
+          folderId: 'root',
+          rootPath: null,
+          coveredDirectoryPaths: ['/hooks', '/hooks/src', '/hooks/src/__tests__'],
+          includeFilters: [],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-hooks',
+          manifestSnapshotId: 'snapshot-hooks',
+          totalSelectedCount: 5,
+          useRegex: false,
+        },
+        {
+          filePaths: [
+            '/hooks/src/__tests__/use-file-filters.test.ts',
+            '/hooks/src/create-debounce.ts',
+            '/hooks/src/index.ts',
+            '/hooks/package.json',
+            '/hooks/tsconfig.json',
+          ],
+          pathSet: new Set([
+            '/hooks/src/__tests__/use-file-filters.test.ts',
+            '/hooks/src/create-debounce.ts',
+            '/hooks/src/index.ts',
+            '/hooks/package.json',
+            '/hooks/tsconfig.json',
+          ]),
+          directoryCounts: new Map([
+            ['/hooks', 5],
+            ['/hooks/src', 3],
+            ['/hooks/src/__tests__', 1],
+          ]),
+          fingerprint: 'fp-hooks',
+          snapshotId: 'snapshot-hooks',
+          status: 'ready',
+          errorMessage: null,
+        },
+        new Set([
+          '/hooks/src/__tests__/use-file-filters.test.ts',
+          '/hooks/src/create-debounce.ts',
+          '/hooks/src/index.ts',
+          '/hooks/package.json',
+          '/hooks/tsconfig.json',
+        ])
+      );
+      readyStore.getState().toggleDirectoryExpansion('/hooks');
+      readyStore.getState().toggleDirectoryExpansion('/hooks/src');
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('Select __tests__')).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByLabelText('Select src')).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByLabelText('Select hooks')).toHaveAttribute('data-state', 'checked');
+  });
+
+  it('marks explicitly restored mixed file-and-folder directories checked when all descendants are selected', async () => {
+    const loadedTree: IFileNode[] = [
+      {
+        name: 'hooks',
+        path: '/packages/hooks',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'loaded',
+        children: [
+          {
+            name: '.turbo',
+            path: '/packages/hooks/.turbo',
+            type: 'directory',
+            isVisible: true,
+            handle: {} as FileSystemDirectoryHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+            loadState: 'loaded',
+            children: [
+              {
+                name: 'turbo-build.log',
+                path: '/packages/hooks/.turbo/turbo-build.log',
+                type: 'file',
+                isVisible: true,
+                handle: {} as FileSystemFileHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+              },
+              {
+                name: 'turbo-test.log',
+                path: '/packages/hooks/.turbo/turbo-test.log',
+                type: 'file',
+                isVisible: true,
+                handle: {} as FileSystemFileHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+              },
+              {
+                name: 'turbo-type-check.log',
+                path: '/packages/hooks/.turbo/turbo-type-check.log',
+                type: 'file',
+                isVisible: true,
+                handle: {} as FileSystemFileHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+              },
+            ],
+          },
+          {
+            name: 'src',
+            path: '/packages/hooks/src',
+            type: 'directory',
+            isVisible: true,
+            handle: {} as FileSystemDirectoryHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+            loadState: 'loaded',
+            children: [
+              {
+                name: '__tests__',
+                path: '/packages/hooks/src/__tests__',
+                type: 'directory',
+                isVisible: true,
+                handle: {} as FileSystemDirectoryHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+                loadState: 'loaded',
+                children: [
+                  {
+                    name: 'create-debounce.test.ts',
+                    path: '/packages/hooks/src/__tests__/create-debounce.test.ts',
+                    type: 'file',
+                    isVisible: true,
+                    handle: {} as FileSystemFileHandle,
+                    depth: 3,
+                    selectionState: 'unchecked',
+                    rootFolderId: 'root',
+                  },
+                  {
+                    name: 'use-debounced-value.test.tsx',
+                    path: '/packages/hooks/src/__tests__/use-debounced-value.test.tsx',
+                    type: 'file',
+                    isVisible: true,
+                    handle: {} as FileSystemFileHandle,
+                    depth: 3,
+                    selectionState: 'unchecked',
+                    rootFolderId: 'root',
+                  },
+                  {
+                    name: 'use-file-filters.test.ts',
+                    path: '/packages/hooks/src/__tests__/use-file-filters.test.ts',
+                    type: 'file',
+                    isVisible: true,
+                    handle: {} as FileSystemFileHandle,
+                    depth: 3,
+                    selectionState: 'unchecked',
+                    rootFolderId: 'root',
+                  },
+                ],
+              },
+              {
+                name: 'create-debounce.ts',
+                path: '/packages/hooks/src/create-debounce.ts',
+                type: 'file',
+                isVisible: true,
+                handle: {} as FileSystemFileHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+              },
+              {
+                name: 'index.ts',
+                path: '/packages/hooks/src/index.ts',
+                type: 'file',
+                isVisible: true,
+                handle: {} as FileSystemFileHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+              },
+            ],
+          },
+          {
+            name: 'package.json',
+            path: '/packages/hooks/package.json',
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+          {
+            name: 'tsconfig.json',
+            path: '/packages/hooks/tsconfig.json',
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+          {
+            name: 'tsup.config.ts',
+            path: '/packages/hooks/tsup.config.ts',
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+        ],
+      },
+    ];
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={loadedTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore
+        .getState()
+        .setSelectedFiles(
+          new Set([
+            encodeFileSelection('root', '/packages/hooks/.turbo/turbo-build.log'),
+            encodeFileSelection('root', '/packages/hooks/.turbo/turbo-test.log'),
+            encodeFileSelection('root', '/packages/hooks/.turbo/turbo-type-check.log'),
+            encodeFileSelection('root', '/packages/hooks/src/__tests__/create-debounce.test.ts'),
+            encodeFileSelection(
+              'root',
+              '/packages/hooks/src/__tests__/use-debounced-value.test.tsx'
+            ),
+            encodeFileSelection('root', '/packages/hooks/src/__tests__/use-file-filters.test.ts'),
+            encodeFileSelection('root', '/packages/hooks/src/create-debounce.ts'),
+            encodeFileSelection('root', '/packages/hooks/src/index.ts'),
+            encodeFileSelection('root', '/packages/hooks/package.json'),
+            encodeFileSelection('root', '/packages/hooks/tsconfig.json'),
+            encodeFileSelection('root', '/packages/hooks/tsup.config.ts'),
+          ])
+        );
+      readyStore.getState().toggleDirectoryExpansion('/packages/hooks');
+      readyStore.getState().toggleDirectoryExpansion('/packages/hooks/src');
+      readyStore.getState().toggleDirectoryExpansion('/packages/hooks/src/__tests__');
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText('Select .turbo')).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByLabelText('Select __tests__')).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByLabelText('Select src')).toHaveAttribute('data-state', 'checked');
+    expect(screen.getByLabelText('Select hooks')).toHaveAttribute('data-state', 'checked');
+  });
+
+  it('keeps explicit parent directories checked on the normalized tree path when loaded child directories are fully selected', async () => {
+    const loadedTree: IFileNode[] = [
+      {
+        name: 'hooks',
+        path: '/packages/hooks',
+        type: 'directory',
+        isVisible: true,
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        loadState: 'loaded',
+        children: [
+          {
+            name: 'src',
+            path: '/packages/hooks/src',
+            type: 'directory',
+            isVisible: true,
+            handle: {} as FileSystemDirectoryHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+            loadState: 'loaded',
+            children: [
+              {
+                name: '__tests__',
+                path: '/packages/hooks/src/__tests__',
+                type: 'directory',
+                isVisible: true,
+                handle: {} as FileSystemDirectoryHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+                loadState: 'loaded',
+                children: [
+                  {
+                    name: 'use-file-filters.test.ts',
+                    path: '/packages/hooks/src/__tests__/use-file-filters.test.ts',
+                    type: 'file',
+                    isVisible: true,
+                    handle: {} as FileSystemFileHandle,
+                    depth: 3,
+                    selectionState: 'unchecked',
+                    rootFolderId: 'root',
+                  },
+                ],
+              },
+              {
+                name: 'create-debounce.ts',
+                path: '/packages/hooks/src/create-debounce.ts',
+                type: 'file',
+                isVisible: true,
+                handle: {} as FileSystemFileHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+              },
+              {
+                name: 'index.ts',
+                path: '/packages/hooks/src/index.ts',
+                type: 'file',
+                isVisible: true,
+                handle: {} as FileSystemFileHandle,
+                depth: 2,
+                selectionState: 'unchecked',
+                rootFolderId: 'root',
+              },
+            ],
+          },
+          {
+            name: 'package.json',
+            path: '/packages/hooks/package.json',
+            type: 'file',
+            isVisible: true,
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+        ],
+      },
+    ];
+    const normalizedState = createNormalizedFileTreeState(loadedTree);
+    const normalizedContextSpy = vi
+      .spyOn(fileTreeProviderModule, 'useOptionalFileTreeNormalizedContext')
+      .mockReturnValue({
+        normalizedTreeRef: { current: normalizedState },
+        version: 1,
+        getDescendantFileCount: (path: string) =>
+          getNormalizedDescendantFileCount(normalizedState, path),
+        getDescendantFilePaths: (path: string, maxCount?: number) =>
+          listNormalizedDescendantFilePaths(normalizedState, path, maxCount),
+        materializeSubtree: (path: string) => materializeNormalizedSubtree(normalizedState, path),
+      });
+
+    let fileExplorerStore: FileExplorerStore | undefined;
+
+    try {
+      render(
+        <FileExplorerTestWrapper>
+          <StoreHandleBridge
+            onStoreReady={(store) => {
+              fileExplorerStore = store;
+            }}
+          />
+          <OptimizedFileTree fileTree={loadedTree} folderId="root" loadingFiles={new Set()} />
+        </FileExplorerTestWrapper>
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const readyStore = fileExplorerStore;
+      if (!readyStore) {
+        throw new Error('File explorer store is unavailable in test');
+      }
+
+      await act(async () => {
+        readyStore
+          .getState()
+          .setSelectedFiles(
+            new Set([
+              encodeFileSelection('root', '/packages/hooks/src/__tests__/use-file-filters.test.ts'),
+              encodeFileSelection('root', '/packages/hooks/src/create-debounce.ts'),
+              encodeFileSelection('root', '/packages/hooks/src/index.ts'),
+              encodeFileSelection('root', '/packages/hooks/package.json'),
+            ])
+          );
+        readyStore
+          .getState()
+          .setExpandedPaths(
+            new Set(['/packages/hooks', '/packages/hooks/src', '/packages/hooks/src/__tests__'])
+          );
+        await Promise.resolve();
+      });
+
+      expect(screen.getByLabelText('Select __tests__')).toHaveAttribute('data-state', 'checked');
+      expect(screen.getByLabelText('Select src')).toHaveAttribute('data-state', 'checked');
+      expect(screen.getByLabelText('Select hooks')).toHaveAttribute('data-state', 'checked');
+    } finally {
+      normalizedContextSpy.mockRestore();
+    }
   });
 
   it('marks query-selected root directories as checked even before descendant counts load', async () => {
@@ -1508,6 +2041,52 @@ describe('OptimizedFileTree', () => {
       '/src/file1.txt',
       '/src/file2.txt',
     ]);
+  });
+
+  it('continues recursive explicit selection for a partially restored directory instead of clearing selected descendants', async () => {
+    let fileExplorerStore: FileExplorerStore | undefined;
+    const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
+
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree
+          fileTree={mockFileTree}
+          folderId="root"
+          loadingFiles={new Set()}
+          onSelectFolderRecursively={onSelectFolderRecursively}
+        />
+      </FileExplorerTestWrapper>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+
+    await act(async () => {
+      readyStore.getState().setSelectedFiles(new Set(['root|@|/src/file1.txt']));
+      await Promise.resolve();
+    });
+
+    const srcCheckbox = screen.getByLabelText('Select src');
+    expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
+
+    await act(async () => {
+      fireEvent.click(srcCheckbox);
+      await Promise.resolve();
+    });
+
+    expect(onSelectFolderRecursively).toHaveBeenCalledTimes(1);
+    expect(readyStore.getState().selectedFilePaths).toEqual(new Set(['root|@|/src/file1.txt']));
   });
 
   it('blocks new file selection when max selection capacity is reached', async () => {

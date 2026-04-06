@@ -108,7 +108,8 @@ export interface CancellableFileTreeHook {
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
-    currentSelectionSize: number
+    currentSelectionSize: number,
+    currentDirectorySelectionSize?: number
   ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
   /** Worker port ref for worker-based tree flattening (BST-375) */
   workerPortRef: React.RefObject<FileTreeWorkerPort | null>;

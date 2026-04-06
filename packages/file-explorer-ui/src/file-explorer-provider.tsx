@@ -14,6 +14,28 @@ type EqualityFn<T> = (left: T, right: T) => boolean;
 const unsubscribeNoop = (): void => {};
 const subscribeNoop = (): (() => void) => unsubscribeNoop;
 
+function shouldExposeFileExplorerStoreForTests(): boolean {
+  if (
+    globalThis.process?.env?.['NODE_ENV'] === 'test' ||
+    globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true'
+  ) {
+    return true;
+  }
+  const env = (
+    import.meta as ImportMeta & {
+      env?: Record<string, unknown>;
+    }
+  ).env;
+  return env?.['MODE'] === 'test';
+}
+
+declare global {
+  interface Window {
+    // biome-ignore lint/style/useNamingConvention: Test hook uses double underscores by convention
+    __brainstrike_file_explorer_provider_store__?: FileExplorerStore | undefined;
+  }
+}
+
 // Create a context for the file explorer store
 const FileExplorerStoreContext = createContext<FileExplorerStore | null>(null);
 
@@ -40,6 +62,18 @@ export function FileExplorerProvider({
     }
     return setupInlineFixtureSubscription(store, fileSystemAdapter);
   }, [store, fileSystemAdapter]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !shouldExposeFileExplorerStoreForTests()) {
+      return;
+    }
+    window.__brainstrike_file_explorer_provider_store__ = store;
+    return () => {
+      if (window.__brainstrike_file_explorer_provider_store__ === store) {
+        window.__brainstrike_file_explorer_provider_store__ = undefined;
+      }
+    };
+  }, [store]);
 
   return (
     <FileExplorerStoreContext.Provider value={store}>{children}</FileExplorerStoreContext.Provider>
