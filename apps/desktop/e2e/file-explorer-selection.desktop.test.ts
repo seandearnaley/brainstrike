@@ -1225,7 +1225,7 @@ test.describe('Desktop file explorer selection', () => {
     );
   });
 
-  test('expanding a selected parent via the chevron keeps the parent indeterminate until child subtrees load on desktop', async ({
+  test('root Select All keeps expanded folders fully checked when all descendants are selected', async ({
     electronApp,
     window,
   }) => {
@@ -1233,6 +1233,7 @@ test.describe('Desktop file explorer selection', () => {
 
     await installNestedPackagesFixture(electronApp.app, '/mock/desktop-selection-root-packages');
     await ensureLeftPanelVisible(window);
+    await setFileExplorerMaxSelectionCount(window, 10);
 
     const selectRootButton = window.getByTestId('select-root-button');
     await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
@@ -1252,7 +1253,7 @@ test.describe('Desktop file explorer selection', () => {
     await expect(window.getByRole('button', { name: /^Deselect All$/i }).first()).toBeVisible({
       timeout: 15_000,
     });
-    await expect(packagesCheckbox).toHaveAttribute('data-state', 'indeterminate');
+    await expect(packagesCheckbox).toHaveAttribute('data-state', 'checked');
 
     const expandButtons = window.locator('button[aria-label="Expand"]');
     await expect(expandButtons).toHaveCount(2, { timeout: 15_000 });
@@ -1260,14 +1261,14 @@ test.describe('Desktop file explorer selection', () => {
 
     await expect(fileTree.getByText('agent')).toBeVisible({ timeout: 15_000 });
     await expect(fileTree.getByText('app-shell')).toBeVisible({ timeout: 15_000 });
-    await expect(packagesCheckbox).toHaveAttribute('data-state', 'indeterminate');
+    await expect(packagesCheckbox).toHaveAttribute('data-state', 'checked');
     await expect(fileTree.getByRole('checkbox', { name: 'Select agent' })).toHaveAttribute(
       'data-state',
-      'indeterminate'
+      'checked'
     );
     await expect(fileTree.getByRole('checkbox', { name: 'Select app-shell' })).toHaveAttribute(
       'data-state',
-      'indeterminate'
+      'checked'
     );
   });
 
@@ -1376,6 +1377,48 @@ test.describe('Desktop file explorer selection', () => {
     await utilsCheckbox.click({ timeout: 5000 });
     await expect(window.getByText('5/10')).toBeVisible({ timeout: 15_000 });
     await expect(e2eCheckbox).toHaveAttribute('data-state', 'checked');
+  });
+
+  test('clicking an indeterminate parent folder clears all selected descendants', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(45_000);
+
+    const rootPath = '/mock/desktop-selection-root-e2e-deselect';
+    await installIncrementalFolderSelectionFixture(electronApp.app, rootPath);
+    await ensureLeftPanelVisible(window);
+    await setFileExplorerMaxSelectionCount(window, 10);
+
+    const selectRootButton = window.getByTestId('select-root-button');
+    await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
+    await selectRootButton.click({ timeout: 5000 });
+
+    const fileTree = window.getByRole('treegrid', { name: 'File tree' });
+    await expect(fileTree).toBeVisible({ timeout: 15_000 });
+
+    const expandButtons = window.locator('button[aria-label="Expand"]');
+    await expect(expandButtons).toHaveCount(1, { timeout: 15_000 });
+    await expandButtons.first().click({ timeout: 5000 });
+
+    await expect(fileTree.getByText('page-objects')).toBeVisible({ timeout: 15_000 });
+
+    const e2eCheckbox = fileTree.getByRole('checkbox', { name: 'Select e2e' });
+    const pageObjectsCheckbox = fileTree.getByRole('checkbox', { name: 'Select page-objects' });
+    const typesCheckbox = fileTree.getByRole('checkbox', { name: 'Select types' });
+    const utilsCheckbox = fileTree.getByRole('checkbox', { name: 'Select utils' });
+
+    await pageObjectsCheckbox.click({ timeout: 5000 });
+    await expect(window.getByText('2/10')).toBeVisible({ timeout: 15_000 });
+    await expect(e2eCheckbox).toHaveAttribute('data-state', 'indeterminate');
+
+    await e2eCheckbox.click({ timeout: 5000 });
+
+    await expect(window.getByTestId('selection-count')).toHaveText('0', { timeout: 15_000 });
+    await expect(e2eCheckbox).toHaveAttribute('data-state', 'unchecked');
+    await expect(pageObjectsCheckbox).toHaveAttribute('data-state', 'unchecked');
+    await expect(typesCheckbox).toHaveAttribute('data-state', 'unchecked');
+    await expect(utilsCheckbox).toHaveAttribute('data-state', 'unchecked');
   });
 
   test('promotes explicit mixed file-and-folder parents to checked as files are selected one by one', async ({
@@ -1646,6 +1689,12 @@ test.describe('Desktop file explorer selection', () => {
       });
       await expect(appCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
+
+      await srcCheckbox.click({ timeout: 5000 });
+      await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
+        timeout: 15_000,
+      });
+      await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
 
       await srcCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('5', {
