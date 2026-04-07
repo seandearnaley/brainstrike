@@ -284,7 +284,14 @@ export function getNormalizedRootDirectoryPaths(state: NormalizedFileTreeState):
 }
 
 function isPathWithinSubtree(rootPath: string, path: string): boolean {
-  return path === rootPath || path.startsWith(`${rootPath}/`);
+  // Optimize: Avoid template string allocation (path.startsWith(`${rootPath}/`))
+  // by checking length, directory separator, and path prefix directly.
+  return (
+    path === rootPath ||
+    (path.length > rootPath.length &&
+      path.charCodeAt(rootPath.length) === 47 &&
+      path.startsWith(rootPath))
+  );
 }
 
 function collectSubtreePaths(state: NormalizedFileTreeState, path: string, out: string[]): void {

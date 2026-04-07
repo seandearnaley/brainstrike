@@ -566,10 +566,14 @@ function getQueryDirectorySelectionState(args: {
     selectionModel,
   } = args;
   const queryRootPath = selectionModel.queryDescriptor?.rootPath ?? null;
+  // Optimize: Avoid template string allocation (queryRootPath.startsWith(`${directoryPath}/`))
+  // by checking length, directory separator, and path prefix directly.
   const isAncestorOfQueryRoot = Boolean(
     queryRootPath &&
       directoryPath !== queryRootPath &&
-      queryRootPath.startsWith(`${directoryPath}/`)
+      queryRootPath.length > directoryPath.length &&
+      queryRootPath.charCodeAt(directoryPath.length) === 47 &&
+      queryRootPath.startsWith(directoryPath)
   );
   const totalMatchingCount = getQuerySelectionMatchingCount(
     selectionModel.queryDescriptor,
@@ -625,8 +629,14 @@ function getCoveredQueryDirectorySelectionState(args: {
         selectionModel.queryDescriptor.excludedPaths.length > 0)
   );
   const queryRootPath = selectionModel.queryDescriptor?.rootPath ?? null;
+  // Optimize: Avoid template string allocation (queryRootPath.startsWith(`${nodePath}/`))
+  // by checking length, directory separator, and path prefix directly.
   const isAncestorOfQueryRoot = Boolean(
-    queryRootPath && nodePath !== queryRootPath && queryRootPath.startsWith(`${nodePath}/`)
+    queryRootPath &&
+      nodePath !== queryRootPath &&
+      queryRootPath.length > nodePath.length &&
+      queryRootPath.charCodeAt(nodePath.length) === 47 &&
+      queryRootPath.startsWith(nodePath)
   );
 
   if (isKnownEmptyDirectory) {
@@ -769,10 +779,15 @@ function shouldIgnoreLoadedQueryChildDirectory(args: {
   const { child, folderId, parentDirectoryPath, querySelectionManifest, selectionModel } = args;
   const queryRootPath = selectionModel.queryDescriptor?.rootPath;
 
+  // Optimize: Avoid template string allocation (parentDirectoryPath.startsWith(`${queryRootPath}/`))
+  // by checking length, directory separator, and path prefix directly.
   if (
     !(
       queryRootPath &&
-      (parentDirectoryPath === queryRootPath || parentDirectoryPath.startsWith(`${queryRootPath}/`))
+      (parentDirectoryPath === queryRootPath ||
+        (parentDirectoryPath.length > queryRootPath.length &&
+          parentDirectoryPath.charCodeAt(queryRootPath.length) === 47 &&
+          parentDirectoryPath.startsWith(queryRootPath)))
     )
   ) {
     return false;

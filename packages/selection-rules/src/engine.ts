@@ -476,7 +476,14 @@ export class SelectionRuleEngine {
     for (const path of selection) {
       let excluded = false;
       for (const root of rule.roots) {
-        if (path === root || path.startsWith(`${root}/`)) {
+        // Optimize: Avoid template string allocation (path.startsWith(`${root}/`))
+        // by checking length, directory separator, and path prefix directly.
+        if (
+          path === root ||
+          (path.length > root.length &&
+            path.charCodeAt(root.length) === 47 &&
+            path.startsWith(root))
+        ) {
           excluded = true;
           break;
         }
@@ -652,7 +659,14 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     const normalizedRoot = root.replace(/\/$/, '');
 
     for (const path of this.files.keys()) {
-      if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
+      // Optimize: Avoid template string allocation (path.startsWith(`${normalizedRoot}/`))
+      // by checking length, directory separator, and path prefix directly.
+      if (
+        path === normalizedRoot ||
+        (path.length > normalizedRoot.length &&
+          path.charCodeAt(normalizedRoot.length) === 47 &&
+          path.startsWith(normalizedRoot))
+      ) {
         if (maxDepth !== undefined) {
           const relativePath = path.slice(normalizedRoot.length + 1);
           const depth = relativePath.split('/').length - 1;
