@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection, memoizedFileExplorer } from '@brainstrike/utils';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { StrictMode, useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
@@ -485,7 +485,15 @@ describe('OptimizedFileTree', () => {
     await act(async () => {
       readyStore.getState().clearSelectedFiles();
       readyStore.getState().setMaxSelectionCount(10);
-      readyStore.getState().toggleDirectoryExpansion('/e2e');
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      const e2eRow = screen.getByText('e2e').closest('tr');
+      if (!e2eRow) {
+        throw new Error('e2e row is unavailable in test');
+      }
+      fireEvent.click(within(e2eRow).getByRole('button', { name: 'Expand' }));
       await Promise.resolve();
     });
 
@@ -2043,7 +2051,7 @@ describe('OptimizedFileTree', () => {
     ]);
   });
 
-  it('continues recursive explicit selection for a partially restored directory instead of clearing selected descendants', async () => {
+  it('clears selected descendants for a partially restored explicit directory instead of continuing recursive selection', async () => {
     let fileExplorerStore: FileExplorerStore | undefined;
     const onSelectFolderRecursively = vi.fn(async () => ({ success: true, filePaths: [] }));
 
@@ -2085,8 +2093,9 @@ describe('OptimizedFileTree', () => {
       await Promise.resolve();
     });
 
-    expect(onSelectFolderRecursively).toHaveBeenCalledTimes(1);
-    expect(readyStore.getState().selectedFilePaths).toEqual(new Set(['root|@|/src/file1.txt']));
+    expect(onSelectFolderRecursively).not.toHaveBeenCalled();
+    expect(readyStore.getState().selectedFilePaths).toEqual(new Set());
+    expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
   });
 
   it('blocks new file selection when max selection capacity is reached', async () => {

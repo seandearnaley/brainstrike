@@ -2036,7 +2036,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           selectionModel,
         });
 
-        if (selectionState.checkboxState === true && selectedDescendantPaths.length > 0) {
+        if (selectionState.checkboxState !== false && selectedDescendantPaths.length > 0) {
           removeMultipleSelectedFiles(folderId, selectedDescendantPaths);
           return;
         }
