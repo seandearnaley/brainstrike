@@ -192,11 +192,11 @@ export function createQueueTelemetryCollector(
       .update(Buffer.from(providedKey, 'utf8'))
       .digest();
 
-    if (timingSafeEqual(providedHmac, apiKeyHmac)) {
-      return null;
+    if (providedHmac.length !== apiKeyHmac.length || !timingSafeEqual(providedHmac, apiKeyHmac)) {
+      return { status: 401, message: 'Unauthorized' };
     }
 
-    return { status: 401, message: 'Unauthorized' };
+    return null;
   };
 
   const decodePayloadBuffer = (buffer: Buffer): Record<string, unknown> | ValidationError => {
