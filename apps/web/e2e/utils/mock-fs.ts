@@ -21,6 +21,7 @@ function buildMockBrowserApisScript(payload: MockBrowserApisPayload): string {
   return `
 (() => {
   const payload = ${serializedPayload};
+  window.__brainstrike_e2e_expose_file_explorer_store__ = true;
 
   function delay(ms) {
     return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();

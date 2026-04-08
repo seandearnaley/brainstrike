@@ -21,10 +21,9 @@ function shouldExposeFileExplorerStoreForTests(): boolean {
   ) {
     return true;
   }
-  // Playwright web/desktop runs need access to the provider-backed store to assert
-  // progressive expansion state. This remains test-only exposure; production code does
-  // not read from this global and the value is removed on unmount.
-  if (typeof navigator !== 'undefined' && navigator.webdriver) {
+  // Playwright web/desktop runs explicitly opt in via an init-script flag so we do
+  // not expose the provider-backed store to arbitrary webdriver-controlled sessions.
+  if (typeof window !== 'undefined' && window.__brainstrike_e2e_expose_file_explorer_store__) {
     return true;
   }
   const env = (
@@ -37,6 +36,8 @@ function shouldExposeFileExplorerStoreForTests(): boolean {
 
 declare global {
   interface Window {
+    // biome-ignore lint/style/useNamingConvention: Test hook uses double underscores by convention
+    __brainstrike_e2e_expose_file_explorer_store__?: boolean | undefined;
     // biome-ignore lint/style/useNamingConvention: Test hook uses double underscores by convention
     __brainstrike_file_explorer_provider_store__?: FileExplorerStore | undefined;
   }

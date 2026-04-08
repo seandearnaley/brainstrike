@@ -129,6 +129,8 @@ async function runWithConcurrency<T>(args: {
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
       while (nextIndex < items.length) {
+        // Claim the next work item synchronously before awaiting so each worker
+        // gets a unique index without needing additional coordination primitives.
         const item = items[nextIndex];
         nextIndex += 1;
         if (item === undefined) {

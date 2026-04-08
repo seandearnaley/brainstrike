@@ -16,6 +16,7 @@ import { startTransition, useCallback, useRef, useState } from 'react';
 import { createDirectDirectoryTraversalSession } from './direct-directory-traversal';
 
 const logger = createLogger('ExpandAll');
+const defaultNow = (): number => performance.now();
 
 interface ExpandAllBatchConfig {
   maxBatchDurationMs?: number;
@@ -264,7 +265,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     getNodeByPath,
     getRootNodes,
     loadDirectoryPath,
-    now = () => performance.now(),
+    now = defaultNow,
     onError,
     onProgress,
     rootFolderId,
