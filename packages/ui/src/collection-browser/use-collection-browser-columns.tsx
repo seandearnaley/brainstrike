@@ -269,6 +269,7 @@ export function useCollectionBrowserColumns({
         return (
           <div className="flex items-center gap-2">
             <Progress
+              aria-label="Semantic match score"
               className={cn('h-2 w-12 flex-shrink-0', isDirectMatch ? 'bg-primary/20' : 'bg-muted')}
               value={percentage}
             />
