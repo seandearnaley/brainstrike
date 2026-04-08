@@ -848,6 +848,8 @@ export function useLazyFileTree(
         }
       } catch (err) {
         if (isAbortError(err)) {
+          // Aborted loads may fire after their controller entry was already removed by
+          // cancellation/finally cleanup, so allow the cleared-controller path here.
           handleLoadAborted(path, abortController);
           return;
         }
@@ -928,7 +930,9 @@ export function useLazyFileTree(
 
   const cancelExpandAllLoads = useCallback(() => {
     cancelAllLoading();
-    const loadingPaths = Array.from(loadingPathsRef.current);
+    const loadingPaths = Array.from(
+      new Set([...loadingPathsRef.current, ...childAbortControllersRef.current.keys()])
+    );
     if (loadingPaths.length === 0) {
       setState((s) => ({
         ...s,

@@ -119,6 +119,32 @@ describe('traverseDirectoriesDirect', () => {
     expect(maxObservedConcurrency).toBe(2);
   });
 
+  it('continues processing the remaining directories when one load throws', async () => {
+    const root = createDirectory('/root', 'loaded', [
+      createDirectory('/root/a', 'unloaded'),
+      createDirectory('/root/b', 'unloaded'),
+    ]);
+
+    const result = await traverseDirectoriesDirect(['/root/a', '/root/b'], {
+      getDirectoryByPath: (path) => findDirectoryByPath(root, path),
+      isActive: () => true,
+      loadDirectoryPath: async (path) => {
+        if (path === '/root/a') {
+          throw new Error('permission denied');
+        }
+        const target = findDirectoryByPath(root, path);
+        if (!target) {
+          throw new Error(`missing target: ${path}`);
+        }
+        target.loadState = 'loaded';
+      },
+    });
+
+    expect(result.cancelled).toBe(false);
+    expect(result.loaded).toBe(2);
+    expect(result.visitedPaths).toEqual(['/root/a', '/root/b']);
+  });
+
   it('discovers nested directories after direct loads', async () => {
     const root = createDirectory('/root', 'loaded', [createDirectory('/root/src', 'unloaded')]);
 

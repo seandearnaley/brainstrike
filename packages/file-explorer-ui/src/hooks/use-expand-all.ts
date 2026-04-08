@@ -186,6 +186,7 @@ async function runExpandAllSession(args: {
   yieldToBrowser: () => Promise<void>;
 }): Promise<{
   discoveredDirectories: number;
+  firstError: Error | undefined;
   metrics: ExpandAllMetrics;
 }> {
   const {
@@ -246,6 +247,7 @@ async function runExpandAllSession(args: {
     if (batch.complete) {
       return {
         discoveredDirectories: traversalSession.snapshot().discoveredPaths.size,
+        firstError: traversalSession.snapshot().firstError,
         metrics,
       };
     }
@@ -370,6 +372,9 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
           startedAt,
           now,
         });
+        if (result.firstError) {
+          handleExpandError(result.firstError, onError);
+        }
         setState({ isExpandingAll: false });
       } catch (err) {
         if (isAbortError(err)) {
