@@ -141,6 +141,8 @@ describe('traverseDirectoriesDirect', () => {
     });
 
     expect(result.cancelled).toBe(false);
+    expect(result.failedLoads).toBe(1);
+    expect(result.firstError).toEqual(new Error('permission denied'));
     expect(result.loaded).toBe(2);
     expect(result.visitedPaths).toEqual(['/root/a', '/root/b']);
   });

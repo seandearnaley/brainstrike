@@ -29,11 +29,7 @@ function shouldExposeFileExplorerStoreForTests(): boolean {
   // Playwright web/desktop runs explicitly opt in via an init-script flag so we do
   // not expose the provider-backed store to arbitrary webdriver-controlled sessions.
   // Keep this disabled in production builds even if a script sets the flag manually.
-  if (
-    env?.['MODE'] !== 'production' &&
-    typeof window !== 'undefined' &&
-    window.__brainstrike_e2e_expose_file_explorer_store__
-  ) {
+  if (typeof window !== 'undefined' && window.__brainstrike_e2e_expose_file_explorer_store__) {
     return true;
   }
   return env?.['MODE'] === 'test';

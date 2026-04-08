@@ -245,9 +245,10 @@ async function runExpandAllSession(args: {
     }
 
     if (batch.complete) {
+      const finalSnapshot = traversalSession.snapshot();
       return {
-        discoveredDirectories: traversalSession.snapshot().discoveredPaths.size,
-        firstError: traversalSession.snapshot().firstError,
+        discoveredDirectories: finalSnapshot.discoveredPaths.size,
+        firstError: finalSnapshot.firstError,
         metrics,
       };
     }
