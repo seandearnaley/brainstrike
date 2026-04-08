@@ -1,7 +1,10 @@
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 
-import { traverseDirectoriesDirect } from '../direct-directory-traversal';
+import {
+  createDirectDirectoryTraversalSession,
+  traverseDirectoriesDirect,
+} from '../direct-directory-traversal';
 
 function createDirectory(
   path: string,
@@ -51,6 +54,71 @@ function findDirectoryByPath(node: IFileNode, path: string): IFileNode | undefin
 }
 
 describe('traverseDirectoriesDirect', () => {
+  it('processes discovered directories across multiple batches', async () => {
+    const root = createDirectory('/root', 'loaded', [
+      createDirectory('/root/src', 'loaded', [
+        createDirectory('/root/src/nested', 'loaded'),
+        createFile('/root/src/index.ts'),
+      ]),
+    ]);
+
+    const session = createDirectDirectoryTraversalSession(['/root/src'], {
+      getDirectoryByPath: (path) => findDirectoryByPath(root, path),
+      isActive: () => true,
+      loadDirectoryPath: async () => undefined,
+      maxDirectoriesPerBatch: 1,
+    });
+
+    const firstBatch = await session.processNextBatch();
+    expect(firstBatch.cancelled).toBe(false);
+    expect(firstBatch.complete).toBe(false);
+    expect(firstBatch.loaded).toBe(1);
+    expect(firstBatch.total).toBe(2);
+    expect(firstBatch.newlyDiscoveredPaths).toEqual(['/root/src/nested']);
+    expect(firstBatch.visitedPaths).toEqual(['/root/src']);
+
+    const secondBatch = await session.processNextBatch();
+    expect(secondBatch.cancelled).toBe(false);
+    expect(secondBatch.complete).toBe(true);
+    expect(secondBatch.loaded).toBe(2);
+    expect(secondBatch.total).toBe(2);
+    expect(secondBatch.newlyDiscoveredPaths).toEqual([]);
+    expect(secondBatch.visitedPaths).toEqual(['/root/src/nested']);
+  });
+
+  it('loads directories concurrently within a batch up to the configured limit', async () => {
+    const root = createDirectory('/root', 'loaded', [
+      createDirectory('/root/a', 'unloaded'),
+      createDirectory('/root/b', 'unloaded'),
+    ]);
+
+    let inFlightLoads = 0;
+    let maxObservedConcurrency = 0;
+
+    const session = createDirectDirectoryTraversalSession(['/root/a', '/root/b'], {
+      getDirectoryByPath: (path) => findDirectoryByPath(root, path),
+      isActive: () => true,
+      loadDirectoryPath: async (path) => {
+        inFlightLoads += 1;
+        maxObservedConcurrency = Math.max(maxObservedConcurrency, inFlightLoads);
+        await Promise.resolve();
+        const target = findDirectoryByPath(root, path);
+        if (!target) {
+          throw new Error(`missing target: ${path}`);
+        }
+        target.loadState = 'loaded';
+        inFlightLoads -= 1;
+      },
+      maxConcurrentLoads: 2,
+      maxDirectoriesPerBatch: 2,
+    });
+
+    const batch = await session.processNextBatch();
+    expect(batch.cancelled).toBe(false);
+    expect(batch.complete).toBe(true);
+    expect(maxObservedConcurrency).toBe(2);
+  });
+
   it('discovers nested directories after direct loads', async () => {
     const root = createDirectory('/root', 'loaded', [createDirectory('/root/src', 'unloaded')]);
 

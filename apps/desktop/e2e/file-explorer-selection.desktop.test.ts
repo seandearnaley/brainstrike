@@ -82,6 +82,19 @@ async function setFileExplorerMaxSelectionCount(
   });
 }
 
+async function getExpandedDirectoryCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const fileExplorerStore = (
+      window as Window & {
+        __brainstrike_file_explorer_provider_store__?: {
+          getState?: () => { expandedDirectoryPaths?: Set<string> };
+        };
+      }
+    ).__brainstrike_file_explorer_provider_store__;
+    return fileExplorerStore?.getState?.().expandedDirectoryPaths?.size ?? 0;
+  });
+}
+
 function createBaseExplorerState(rootPath: string): FileExplorerState {
   return {
     ...DEFAULT_STATE,
@@ -565,6 +578,120 @@ async function installNestedFolderFixture(
       id: 'mock-directory-handle',
       kind: 'directory',
       name: 'mock-desktop-selection-root',
+      path: rootPath,
+      platform: 'electron',
+      type: 'directory',
+    },
+  };
+
+  await electronApp.evaluate((_electron, nextFixture) => {
+    (
+      globalThis as typeof globalThis & {
+        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
+      }
+    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
+  }, fixture);
+}
+
+async function installWideExpandAllFixture(
+  electronApp: ElectronApplication,
+  rootPath: string
+): Promise<void> {
+  const directoriesByPath: Record<string, unknown[]> = {};
+  const fileContentsByPath: Record<string, string> = {};
+
+  const createDirectoryEntry = (args: {
+    depth: number;
+    name: string;
+    path: string;
+    rootFolderId: string;
+  }) => ({
+    name: args.name,
+    path: args.path,
+    type: 'directory' as const,
+    size: 0,
+    depth: args.depth,
+    selectionState: 'unchecked' as const,
+    rootFolderId: args.rootFolderId,
+    isVisible: true,
+    children: [],
+    handle: {
+      kind: 'directory' as const,
+      name: args.name,
+      path: args.path,
+      platform: 'electron' as const,
+    },
+  });
+
+  const createFileEntry = (args: {
+    depth: number;
+    name: string;
+    path: string;
+    rootFolderId: string;
+  }) => ({
+    name: args.name,
+    path: args.path,
+    type: 'file' as const,
+    size: 100,
+    depth: args.depth,
+    selectionState: 'unchecked' as const,
+    rootFolderId: args.rootFolderId,
+    isVisible: true,
+    handle: {
+      kind: 'file' as const,
+      name: args.name,
+      path: args.path,
+      platform: 'electron' as const,
+    },
+  });
+
+  directoriesByPath[rootPath] = Array.from({ length: 30 }, (_, rootIndex) =>
+    createDirectoryEntry({
+      depth: 0,
+      name: `folder-${rootIndex}`,
+      path: `${rootPath}/folder-${rootIndex}`,
+      rootFolderId: rootPath,
+    })
+  );
+
+  for (let rootIndex = 0; rootIndex < 30; rootIndex += 1) {
+    const directoryPath = `${rootPath}/folder-${rootIndex}`;
+    directoriesByPath[directoryPath] = Array.from({ length: 8 }, (_, childIndex) =>
+      createDirectoryEntry({
+        depth: 1,
+        name: `child-${rootIndex}-${childIndex}`,
+        path: `${directoryPath}/child-${rootIndex}-${childIndex}`,
+        rootFolderId: rootPath,
+      })
+    );
+
+    for (let childIndex = 0; childIndex < 8; childIndex += 1) {
+      const childDirectoryPath = `${directoryPath}/child-${rootIndex}-${childIndex}`;
+      const filePath = `${childDirectoryPath}/file-${rootIndex}-${childIndex}.ts`;
+      directoriesByPath[childDirectoryPath] = [
+        createFileEntry({
+          depth: 2,
+          name: `file-${rootIndex}-${childIndex}.ts`,
+          path: filePath,
+          rootFolderId: rootPath,
+        }),
+      ];
+      fileContentsByPath[filePath] =
+        `export const value${rootIndex}_${childIndex} = ${rootIndex + childIndex};`;
+    }
+  }
+
+  const fixture: ElectronE2eFileSystemFixture = {
+    directoriesByPath,
+    fileContentsByPath,
+    readDirectoryCalls: [],
+    readFileByPathCalls: [],
+    readFileCalls: [],
+    requestDirectoryAccessCount: 0,
+    rootHandle: {
+      id: 'mock-wide-expand-all-handle',
+      kind: 'directory',
+      name: 'mock-wide-expand-all-root',
       path: rootPath,
       platform: 'electron',
       type: 'directory',
@@ -1147,6 +1274,55 @@ test.describe('Desktop file explorer selection', () => {
     });
     await expect(rootFileCheckbox).toBeChecked();
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
+  });
+
+  test('expand all progressively reveals directories and cancel leaves a valid partial tree on desktop', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(60_000);
+
+    await installWideExpandAllFixture(electronApp.app, '/mock/desktop-expand-all-progressive');
+    await ensureLeftPanelVisible(window);
+
+    const selectRootButton = window.getByTestId('select-root-button');
+    await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
+    await selectRootButton.click({ timeout: 5000 });
+
+    await expect(window.getByRole('treegrid', { name: 'File tree' })).toBeVisible({
+      timeout: 15_000,
+    });
+    const initialExpandedCount = await getExpandedDirectoryCount(window);
+    const expandAllButton = window.getByTestId('expand-all-button-small');
+    await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
+    await expandAllButton.click({ timeout: 5000 });
+
+    const cancelButton = window.getByRole('button', { name: 'Cancel operation' });
+    await expect(cancelButton).toBeVisible({ timeout: 15_000 });
+    await window.waitForFunction((previousExpandedCount) => {
+      const testWindow = (
+        globalThis as typeof globalThis & {
+          window?: Window & {
+            __brainstrike_file_explorer_provider_store__?: {
+              getState?: () => { expandedDirectoryPaths?: Set<string> };
+            };
+          };
+        }
+      ).window;
+      const expandedDirectoryCount =
+        testWindow?.__brainstrike_file_explorer_provider_store__?.getState?.()
+          .expandedDirectoryPaths?.size ?? 0;
+      return expandedDirectoryCount > previousExpandedCount;
+    }, initialExpandedCount);
+    await expect(expandAllButton).toBeDisabled();
+
+    await cancelButton.click({ timeout: 5000 });
+
+    await expect(window.getByTestId('inline-scanning-indicator')).not.toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(expandAllButton).toBeEnabled();
+    expect(await getExpandedDirectoryCount(window)).toBeGreaterThan(initialExpandedCount);
   });
 
   test('unchecking a selected folder removes its files from the context explorer on desktop', async ({

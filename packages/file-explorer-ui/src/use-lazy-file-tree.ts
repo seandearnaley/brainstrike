@@ -451,8 +451,8 @@ export interface UseLazyFileTreeOptions {
 /**
  * Hook for managing lazily-loaded file tree state.
  *
- * Uses a Web Worker for CPU-bound tree operations (expand-all BFS)
- * while keeping I/O operations on the main thread (FileSystemHandle access).
+ * Uses worker-backed helpers for canonical tree flattening while keeping
+ * directory I/O and progressive expand-all traversal in the renderer.
  *
  * @param rootDirectoryHandle - The root directory to load
  * @param options - Optional configuration including filterTreeFn for workspace filters
@@ -487,6 +487,8 @@ export function useLazyFileTree(
   // Use ref to access current tree without adding it as a dependency
   const fileTreeRef = useRef(state.fileTree);
   fileTreeRef.current = state.fileTree;
+  const loadingPathsRef = useRef(state.loadingPaths);
+  loadingPathsRef.current = state.loadingPaths;
   const normalizedTreeRef = useRef<NormalizedFileTreeState>(createEmptyNormalizedFileTreeState());
   const [normalizedTreeVersion, setNormalizedTreeVersion] = useState(0);
   const inFlightChildLoadsRef = useRef<Map<string, Promise<void>>>(new Map());
@@ -533,8 +535,13 @@ export function useLazyFileTree(
   }, []);
 
   // Abort controller management
-  const { createAbortController, cancelAllLoading, cancelChildLoading, removeChildController } =
-    useAbortControllers();
+  const {
+    childAbortControllersRef,
+    createAbortController,
+    cancelAllLoading,
+    cancelChildLoading,
+    removeChildController,
+  } = useAbortControllers();
 
   // Worker and handle map management - pass progress handler
   const { portRef, handleMapRef, setRootHandle } = useFileTreeWorker({
@@ -564,27 +571,6 @@ export function useLazyFileTree(
     },
     [syncNormalizedTree]
   );
-
-  const {
-    isExpandingAll,
-    expandAllProgressively: expandAllFromHook,
-    cancelExpandAll,
-    isExpandingAllRef,
-  } = useExpandAll({
-    cancelLoadOperations: cancelAllLoading,
-    getNodeByPath: (path: string) =>
-      materializeNormalizedShallowNode(normalizedTreeRef.current, path),
-    getRootNodes: () => {
-      const dirPaths = getNormalizedRootDirectoryPaths(normalizedTreeRef.current);
-      return dirPaths
-        .map((p) => materializeNormalizedShallowNode(normalizedTreeRef.current, p))
-        .filter((n): n is import('@brainstrike/types').IFileNode => n !== undefined);
-    },
-    loadDirectoryPath: (path: string) => loadChildrenRef.current(path),
-    onError: handleWorkerError,
-    onProgress: handleProgress,
-    rootFolderId: getRootFolderId(rootDirectoryHandle) ?? '',
-  });
 
   const filterTreeOption = filterTreeFn ? { filterTreeFn } : {};
 
@@ -717,8 +703,23 @@ export function useLazyFileTree(
   /**
    * Handle successful directory load.
    */
+  const shouldApplyChildLoadResult = useCallback(
+    (path: string, abortController: AbortController, allowClearedController = false): boolean => {
+      const currentController = childAbortControllersRef.current.get(path);
+      if (!currentController) {
+        return allowClearedController;
+      }
+      return currentController === abortController;
+    },
+    [childAbortControllersRef]
+  );
+
   const handleLoadSuccess = useCallback(
-    (path: string, children: IFileNode[]) => {
+    (path: string, children: IFileNode[], abortController: AbortController) => {
+      if (!shouldApplyChildLoadResult(path, abortController)) {
+        return;
+      }
+
       // Add handles to map
       for (const child of children) {
         if (child.handle) {
@@ -750,14 +751,18 @@ export function useLazyFileTree(
         onNodesIndexedRef.current(children, path);
       }
     },
-    [commitNormalizedTree, handleMapRef, portRef]
+    [commitNormalizedTree, handleMapRef, onNodesIndexedRef, portRef, shouldApplyChildLoadResult]
   );
 
   /**
    * Handle directory load error.
    */
   const handleLoadError = useCallback(
-    (path: string, errorMsg: string) => {
+    (path: string, errorMsg: string, abortController: AbortController) => {
+      if (!shouldApplyChildLoadResult(path, abortController)) {
+        return;
+      }
+
       const nextTree = commitNormalizedTree((currentTree) =>
         setNormalizedNodeLoadState(currentTree, path, 'error', errorMsg)
       );
@@ -771,7 +776,29 @@ export function useLazyFileTree(
         };
       });
     },
-    [commitNormalizedTree]
+    [commitNormalizedTree, shouldApplyChildLoadResult]
+  );
+
+  const handleLoadAborted = useCallback(
+    (path: string, abortController: AbortController) => {
+      if (!shouldApplyChildLoadResult(path, abortController, true)) {
+        return;
+      }
+
+      const nextTree = commitNormalizedTree((currentTree) =>
+        setNormalizedNodeLoadState(currentTree, path, 'unloaded')
+      );
+      setState((s) => {
+        const newLoadingPaths = new Set(s.loadingPaths);
+        newLoadingPaths.delete(path);
+        return {
+          ...s,
+          fileTree: nextTree,
+          loadingPaths: newLoadingPaths,
+        };
+      });
+    },
+    [commitNormalizedTree, shouldApplyChildLoadResult]
   );
 
   /**
@@ -799,7 +826,7 @@ export function useLazyFileTree(
 
               if (meta.done) {
                 // Final batch: update tree with complete sorted children
-                handleLoadSuccess(path, nodes);
+                handleLoadSuccess(path, nodes, abortController);
               }
               // Intermediate batches: could update progress UI here
               // For now, the loading state is sufficient indication
@@ -816,17 +843,19 @@ export function useLazyFileTree(
             sortFileNodes,
           });
           if (!abortController.signal.aborted) {
-            handleLoadSuccess(path, children);
+            handleLoadSuccess(path, children, abortController);
           }
         }
       } catch (err) {
-        if (!isAbortError(err)) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          handleLoadError(path, errorMsg);
+        if (isAbortError(err)) {
+          handleLoadAborted(path, abortController);
+          return;
         }
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        handleLoadError(path, errorMsg, abortController);
       }
     },
-    [handleLoadSuccess, handleLoadError]
+    [handleLoadSuccess, handleLoadError, handleLoadAborted]
   );
 
   /**
@@ -897,6 +926,32 @@ export function useLazyFileTree(
     }));
   }, [cancelAllLoading]);
 
+  const cancelExpandAllLoads = useCallback(() => {
+    cancelAllLoading();
+    const loadingPaths = Array.from(loadingPathsRef.current);
+    if (loadingPaths.length === 0) {
+      setState((s) => ({
+        ...s,
+        loadingPaths: new Set(),
+      }));
+      return;
+    }
+
+    const nextTree = commitNormalizedTree((currentTree) => {
+      let nextTreeState = currentTree;
+      for (const path of loadingPaths) {
+        nextTreeState = setNormalizedNodeLoadState(nextTreeState, path, 'unloaded');
+      }
+      return nextTreeState;
+    });
+
+    setState((s) => ({
+      ...s,
+      fileTree: nextTree,
+      loadingPaths: new Set(),
+    }));
+  }, [cancelAllLoading, commitNormalizedTree]);
+
   /**
    * Cancel loading for a specific directory (e.g., when collapsing a folder).
    * Aborts the streaming/loading operation and resets the node to unloaded state.
@@ -923,6 +978,27 @@ export function useLazyFileTree(
     },
     [cancelChildLoading, commitNormalizedTree]
   );
+
+  const {
+    isExpandingAll,
+    expandAllProgressively: expandAllFromHook,
+    cancelExpandAll,
+    isExpandingAllRef,
+  } = useExpandAll({
+    cancelLoadOperations: cancelExpandAllLoads,
+    getNodeByPath: (path: string) =>
+      materializeNormalizedShallowNode(normalizedTreeRef.current, path),
+    getRootNodes: () => {
+      const dirPaths = getNormalizedRootDirectoryPaths(normalizedTreeRef.current);
+      return dirPaths
+        .map((p) => materializeNormalizedShallowNode(normalizedTreeRef.current, p))
+        .filter((n): n is import('@brainstrike/types').IFileNode => n !== undefined);
+    },
+    loadDirectoryPath: (path: string) => loadChildrenRef.current(path),
+    onError: handleWorkerError,
+    onProgress: handleProgress,
+    rootFolderId: getRootFolderId(rootDirectoryHandle) ?? '',
+  });
 
   /**
    * Force refresh a specific directory

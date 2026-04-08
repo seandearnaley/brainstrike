@@ -107,7 +107,8 @@ describe('useExpandAll', () => {
           ],
         }),
       ];
-    }
+    },
+    overrides: Partial<Parameters<typeof useExpandAll>[0]> = {}
   ) {
     return renderHook(() =>
       useExpandAll({
@@ -124,6 +125,7 @@ describe('useExpandAll', () => {
           onProgressMock(loaded, total);
         },
         rootFolderId: 'root',
+        ...overrides,
       })
     );
   }
@@ -193,12 +195,59 @@ describe('useExpandAll', () => {
 
     expect(loadDirectoryPath).toHaveBeenCalledWith('/root/src');
     expect(onProgressMock).toHaveBeenCalled();
-    const updater = setExpandedPaths.mock.calls[0]?.[0] as
-      | ((prev: Set<string>) => Set<string>)
-      | undefined;
-    expect(updater).toBeTypeOf('function');
-    const expandedPaths = updater?.(new Set()) ?? new Set<string>();
+    let expandedPaths = new Set<string>();
+    for (const [updater] of setExpandedPaths.mock.calls as [(prev: Set<string>) => Set<string>][]) {
+      expandedPaths = updater(expandedPaths);
+    }
     expect(expandedPaths).toEqual(new Set(['/root/src', '/root/src/nested']));
+  });
+
+  it('commits expanded paths incrementally across multiple batches', async () => {
+    rootNodesRef.current = [
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        loadState: 'loaded',
+        children: [
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/src/nested',
+            depth: 1,
+            loadState: 'loaded',
+            children: [
+              createDirectoryNode({
+                name: 'deep',
+                path: '/root/src/nested/deep',
+                depth: 2,
+                loadState: 'loaded',
+              }),
+            ],
+          }),
+        ],
+      }),
+    ];
+
+    const yieldToBrowser = vi.fn(async () => undefined);
+    const { result } = renderExpandAllHook(async () => undefined, {
+      batchConfig: { maxDirectoriesPerBatch: 1 },
+      yieldToBrowser,
+    });
+    const setExpandedPaths = vi.fn();
+
+    await act(async () => {
+      await result.current.expandAllProgressively(setExpandedPaths);
+    });
+
+    expect(setExpandedPaths).toHaveBeenCalledTimes(3);
+    expect(yieldToBrowser).toHaveBeenCalledTimes(2);
+
+    let expandedPaths = new Set<string>();
+    for (const [updater] of setExpandedPaths.mock.calls as [(prev: Set<string>) => Set<string>][]) {
+      expandedPaths = updater(expandedPaths);
+    }
+    expect(expandedPaths).toEqual(
+      new Set(['/root/src', '/root/src/nested', '/root/src/nested/deep'])
+    );
   });
 
   it('cancels expand-all via cancelExpandAll', async () => {
@@ -210,6 +259,55 @@ describe('useExpandAll', () => {
 
     expect(cancelLoadOperationsMock).toHaveBeenCalled();
     expect(result.current.isExpandingAll).toBe(false);
+  });
+
+  it('leaves a valid partial expansion state when cancelled between batches', async () => {
+    rootNodesRef.current = [
+      createDirectoryNode({
+        name: 'src',
+        path: '/root/src',
+        loadState: 'loaded',
+        children: [
+          createDirectoryNode({
+            name: 'nested',
+            path: '/root/src/nested',
+            depth: 1,
+            loadState: 'loaded',
+            children: [
+              createDirectoryNode({
+                name: 'deep',
+                path: '/root/src/nested/deep',
+                depth: 2,
+                loadState: 'loaded',
+              }),
+            ],
+          }),
+        ],
+      }),
+    ];
+
+    let cancelAfterFirstYield = false;
+    const { result } = renderExpandAllHook(async () => undefined, {
+      batchConfig: { maxDirectoriesPerBatch: 1 },
+      yieldToBrowser: async () => {
+        if (!cancelAfterFirstYield) {
+          cancelAfterFirstYield = true;
+          result.current.cancelExpandAll();
+        }
+      },
+    });
+    const setExpandedPaths = vi.fn();
+
+    await act(async () => {
+      await result.current.expandAllProgressively(setExpandedPaths);
+    });
+
+    expect(setExpandedPaths).toHaveBeenCalledTimes(2);
+    let expandedPaths = new Set<string>();
+    for (const [updater] of setExpandedPaths.mock.calls as [(prev: Set<string>) => Set<string>][]) {
+      expandedPaths = updater(expandedPaths);
+    }
+    expect(expandedPaths).toEqual(new Set(['/root/src', '/root/src/nested']));
   });
 
   it('prevents double-clicks from starting multiple operations', async () => {
@@ -283,6 +381,6 @@ describe('useExpandAll', () => {
     });
 
     expect(loadDirectoryPath).not.toHaveBeenCalled();
-    expect(setExpandedPaths).toHaveBeenCalled();
+    expect(setExpandedPaths).not.toHaveBeenCalled();
   });
 });

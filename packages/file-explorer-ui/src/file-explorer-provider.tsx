@@ -21,6 +21,9 @@ function shouldExposeFileExplorerStoreForTests(): boolean {
   ) {
     return true;
   }
+  if (typeof navigator !== 'undefined' && navigator.webdriver) {
+    return true;
+  }
   const env = (
     import.meta as ImportMeta & {
       env?: Record<string, unknown>;

@@ -666,6 +666,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
         const currentPaths = store.getState().expandedDirectoryPaths;
         const newPaths = updater(currentPaths);
+        if (newPaths === currentPaths) {
+          return;
+        }
         store.getState().setExpandedPaths(newPaths);
       };
       void expandAllProgressively(setExpandedPaths);

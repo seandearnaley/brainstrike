@@ -387,4 +387,45 @@ test.describe('Desktop filter presets', () => {
     await expect(webRow).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('readme.md')).not.toBeVisible();
   });
+
+  test('expand all does not leave filtered empty folders stuck in a loading state', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(60_000);
+
+    await installFilteredEmptyFolderFixture(electronApp.app, '/mock/filter-empty-folder-root');
+    await ensureLeftPanelVisible(window);
+    await selectMockRoot(window);
+    await ensureViewFiltersExpanded(window);
+
+    const presetTrigger = await resolvePresetTrigger(window);
+    await presetTrigger.click();
+    await expect(window.getByText('Loading presets...')).toBeHidden({ timeout: 10_000 });
+
+    const tsPresetOption = window.getByRole('button', { name: /typescript\/javascript/i }).first();
+    await expect(tsPresetOption).toBeVisible({ timeout: 10_000 });
+    await tsPresetOption.click();
+
+    const expandAllButton = window.getByTestId('expand-all-button-small');
+    await expect(expandAllButton).toBeVisible({ timeout: 10_000 });
+    await expandAllButton.click();
+
+    await expect(window.getByTestId('inline-scanning-indicator')).not.toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(expandAllButton).toBeEnabled({ timeout: 10_000 });
+
+    const fileTree = window.getByRole('treegrid', { name: 'File tree' });
+    await expect(fileTree.getByText('apps')).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('packages')).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('docs')).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('web')).toBeVisible({ timeout: 10_000 });
+
+    await expect(
+      fileTree.locator(
+        'button[disabled][aria-label="Expand"], button[disabled][aria-label="Collapse"]'
+      )
+    ).toHaveCount(0);
+  });
 });

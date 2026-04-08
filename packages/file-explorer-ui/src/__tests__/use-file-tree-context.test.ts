@@ -58,6 +58,42 @@ const createNestedMockFileSystem = () => ({
   },
 });
 
+const createExpandAllMockFileSystem = () => ({
+  alpha: {
+    name: 'alpha',
+    type: 'directory' as const,
+    children: {
+      'alpha.test.ts': {
+        name: 'alpha.test.ts',
+        type: 'file' as const,
+        content: 'alpha test',
+      },
+    },
+  },
+  beta: {
+    name: 'beta',
+    type: 'directory' as const,
+    children: {
+      nested: {
+        name: 'nested',
+        type: 'directory' as const,
+        children: {
+          'nested.spec.ts': {
+            name: 'nested.spec.ts',
+            type: 'file' as const,
+            content: 'nested spec',
+          },
+        },
+      },
+    },
+  },
+  gamma: {
+    name: 'gamma',
+    type: 'directory' as const,
+    children: {},
+  },
+});
+
 describe('useFileTree (lazy loading version)', () => {
   let mockAdapter: MockFileSystemAdapter;
 
@@ -659,6 +695,60 @@ describe('useFileTree (lazy loading version)', () => {
       expect(readDirectoryStreamingSpy).not.toHaveBeenCalled();
       expect(progress).toHaveBeenNthCalledWith(1, 0, 1, parentDir?.path ?? 'parent');
       expect(progress).toHaveBeenNthCalledWith(2, 1, 1, parentDir?.path ?? 'parent');
+    });
+
+    it('completes expand-all without leaving directories stuck in loading state', async () => {
+      const mockFS = createExpandAllMockFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+      mockAdapter.setStreamingDelay(10);
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      const { result } = renderHook(() => useFileTree(handle), {
+        wrapper: TestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      let expandedPaths = new Set<string>();
+
+      await act(async () => {
+        await result.current.expandAllProgressively((updater) => {
+          expandedPaths = updater(expandedPaths);
+        });
+      });
+
+      await waitFor(() => {
+        expect(result.current.isExpandingAll).toBe(false);
+        expect(result.current.loadingPaths.size).toBe(0);
+      });
+
+      expect(expandedPaths).toEqual(
+        new Set(['mock-root/alpha', 'mock-root/beta', 'mock-root/gamma', 'mock-root/beta/nested'])
+      );
+
+      const rootDirectories = result.current.fileTree.filter((node) => node.type === 'directory');
+      expect(rootDirectories).toHaveLength(3);
+      for (const directory of rootDirectories) {
+        expect(directory.loadState).toBe('loaded');
+      }
+
+      const betaDirectory = result.current.fileTree.find((node) => node.path === 'mock-root/beta');
+      expect(betaDirectory?.type).toBe('directory');
+      if (!betaDirectory || betaDirectory.type !== 'directory') {
+        throw new Error('Expected beta directory to be present');
+      }
+      const nestedDirectory = betaDirectory.children?.find(
+        (node) => node.path === 'mock-root/beta/nested'
+      );
+      expect(nestedDirectory?.type).toBe('directory');
+      if (!nestedDirectory || nestedDirectory.type !== 'directory') {
+        throw new Error('Expected nested directory to be present');
+      }
+      expect(nestedDirectory.loadState).toBe('loaded');
     });
   });
 });
