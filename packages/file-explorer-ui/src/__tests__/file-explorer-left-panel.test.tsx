@@ -691,6 +691,80 @@ describe('FileExplorerLeftPanel', () => {
     expect(collapseAllDirectories).toHaveBeenCalled();
   });
 
+  it('skips store expansion writes when expand-all returns the existing expanded set', async () => {
+    const user = userEvent.setup();
+    const cancelExpandAllMock = vi.fn();
+    const storeState = {
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      viewFilterPresetId: null,
+      setFilters: vi.fn(),
+      setUseRegex: vi.fn(),
+      setViewFilterPresetId: vi.fn(),
+      currentFolderId: 'root',
+      setCurrentFolderId: vi.fn(),
+      maxSelectionCount: 5,
+      includeProjectTree: true,
+      setIncludeProjectTree: vi.fn(),
+      folderSummaryThreshold: 5,
+      expandAllDirectories: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      expandedDirectoryPaths: new Set<string>(['/dir']),
+      setExpandedPaths: vi.fn(),
+      quickFilter: '',
+      setQuickFilter: vi.fn(),
+      clearQuickFilter: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      selectionModel: {
+        mode: 'explicit' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      },
+      setMaterializedPaths: vi.fn(),
+    };
+
+    const mockStore = Object.assign(
+      (selector?: (s: Partial<FileExplorerState>) => unknown) =>
+        typeof selector === 'function' ? selector(storeState) : storeState,
+      { getState: () => storeState }
+    );
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(mockStore as any);
+
+    const expandAllProgressivelyMock = vi.fn(
+      async (setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void) => {
+        setExpandedPaths((previous) => previous);
+      }
+    );
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      expandAllProgressively: expandAllProgressivelyMock,
+      cancelExpandAll: cancelExpandAllMock,
+      fileTree: [
+        {
+          path: '/dir',
+          name: 'dir',
+          type: 'directory',
+          handle: {} as any,
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+        },
+      ],
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    await user.click(screen.getByTestId('expand-all-button-small'));
+
+    expect(expandAllProgressivelyMock).toHaveBeenCalled();
+    expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+  });
+
   it('filters the tree correctly with quick filter', async () => {
     const storeState = {
       includeFilters: [],

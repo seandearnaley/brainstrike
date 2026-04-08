@@ -2,8 +2,8 @@
  * Expand All Hook
  *
  * Manages expand-all operation state and orchestration.
- * Works with the file tree worker to progressively expand all directories.
- * Includes error handling and abort support.
+ * Uses a batched renderer-side traversal session so large trees progressively
+ * reveal expanded directories instead of waiting for one final commit.
  *
  * @module use-expand-all
  */
@@ -13,14 +13,30 @@ import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { startTransition, useCallback, useRef, useState } from 'react';
 
-import { traverseDirectoriesDirect } from './direct-directory-traversal';
+import { createDirectDirectoryTraversalSession } from './direct-directory-traversal';
 
 const logger = createLogger('ExpandAll');
+const defaultNow = (): number => performance.now();
 
-/**
- * Check if expand-all can proceed. Returns true if should skip.
- * Extracted to reduce cognitive complexity.
- */
+interface ExpandAllBatchConfig {
+  maxBatchDurationMs?: number;
+  maxConcurrentLoads?: number;
+  maxDirectories?: number;
+  maxDirectoriesPerBatch?: number;
+}
+
+interface ExpandAllMetrics {
+  batchCount: number;
+  commitDurationMs: number;
+  committedBatchCount: number;
+  discoveryDurationMs: number;
+}
+
+const defaultYieldToBrowser = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
 function shouldSkipExpandAll(isAlreadyStarting: boolean): { skip: boolean; reason?: string } {
   if (isAlreadyStarting) {
     return { skip: true, reason: 'blocked by double-click guard' };
@@ -28,64 +44,216 @@ function shouldSkipExpandAll(isAlreadyStarting: boolean): { skip: boolean; reaso
   return { skip: false };
 }
 
-/**
- * Handle expand-all error with proper logging and callback.
- * Extracted to reduce cognitive complexity.
- */
 function handleExpandError(err: unknown, onError?: (error: Error) => void): void {
-  logger.error('expandAllProgressively: error', {
-    error: err instanceof Error ? err.message : String(err),
-    stack: err instanceof Error ? err.stack : undefined,
-  });
   const isCancelled = isAbortError(err);
+  if (!isCancelled) {
+    logger.error('expandAllProgressively: error', {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+  }
   if (!isCancelled && onError) {
     onError(err instanceof Error ? err : new Error(String(err)));
   }
 }
 
-function applyExpandedPaths(
-  expandedPaths: Set<string>,
-  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
-): void {
+function commitExpandedPathsBatch(args: {
+  committedPaths: Set<string>;
+  paths: readonly string[];
+  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void;
+}): boolean {
+  const { committedPaths, paths, setExpandedPaths } = args;
+  if (paths.length === 0) {
+    return false;
+  }
+
+  let hasNewPaths = false;
+  const batchPaths: string[] = [];
+  for (const path of paths) {
+    if (committedPaths.has(path)) {
+      continue;
+    }
+    // The caller-owned set tracks session-level commits so later batches can skip
+    // both store updates and transition scheduling for already-committed paths.
+    committedPaths.add(path);
+    batchPaths.push(path);
+    hasNewPaths = true;
+  }
+
+  if (!hasNewPaths) {
+    return false;
+  }
+
   startTransition(() => {
-    setExpandedPaths(() => new Set(expandedPaths));
+    setExpandedPaths((previousPaths) => {
+      let nextPaths: Set<string> | null = null;
+      for (const path of batchPaths) {
+        if ((nextPaths ?? previousPaths).has(path)) {
+          continue;
+        }
+        if (!nextPaths) {
+          nextPaths = new Set(previousPaths);
+        }
+        nextPaths.add(path);
+      }
+      return nextPaths ?? previousPaths;
+    });
   });
+
+  return true;
 }
 
-function beginExpandAllOperation(
-  isExpandAllStartingRef: React.RefObject<boolean>,
-  isExpandingAllRef: React.RefObject<boolean>,
-  setExpandedPathsRef: React.RefObject<
-    ((updater: (prev: Set<string>) => Set<string>) => void) | null
-  >,
-  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
-  setState: React.Dispatch<React.SetStateAction<ExpandAllState>>
-): void {
+function beginExpandAllOperation(args: {
+  isExpandAllStartingRef: React.RefObject<boolean>;
+  isExpandingAllRef: React.RefObject<boolean>;
+  setState: React.Dispatch<React.SetStateAction<ExpandAllState>>;
+}): void {
+  const { isExpandAllStartingRef, isExpandingAllRef, setState } = args;
   isExpandAllStartingRef.current = true;
   isExpandingAllRef.current = true;
-  setExpandedPathsRef.current = setExpandedPaths;
   setState({ isExpandingAll: true });
 }
 
-function completeExpandAllOperation(
-  expandedPaths: Set<string>,
-  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
-  setState: React.Dispatch<React.SetStateAction<ExpandAllState>>
-): void {
-  applyExpandedPaths(expandedPaths, setExpandedPaths);
-  setState({ isExpandingAll: false });
-}
-
-function resetExpandAllOperation(
-  isExpandAllStartingRef: React.RefObject<boolean>,
-  isExpandingAllRef: React.RefObject<boolean>,
-  setExpandedPathsRef: React.RefObject<
-    ((updater: (prev: Set<string>) => Set<string>) => void) | null
-  >
-): void {
+function resetExpandAllOperation(args: {
+  isExpandAllStartingRef: React.RefObject<boolean>;
+  isExpandingAllRef: React.RefObject<boolean>;
+}): void {
+  const { isExpandAllStartingRef, isExpandingAllRef } = args;
   isExpandAllStartingRef.current = false;
   isExpandingAllRef.current = false;
-  setExpandedPathsRef.current = null;
+}
+
+function createEmptyExpandAllMetrics(): ExpandAllMetrics {
+  return {
+    batchCount: 0,
+    commitDurationMs: 0,
+    committedBatchCount: 0,
+    discoveryDurationMs: 0,
+  };
+}
+
+function buildExpandAllBatchConfig(config: {
+  maxBatchDurationMs: number | undefined;
+  maxConcurrentLoads: number | undefined;
+  maxDirectories: number | undefined;
+  maxDirectoriesPerBatch: number | undefined;
+}): ExpandAllBatchConfig | undefined {
+  const nextConfig: ExpandAllBatchConfig = {};
+  if (config.maxBatchDurationMs !== undefined) {
+    nextConfig.maxBatchDurationMs = config.maxBatchDurationMs;
+  }
+  if (config.maxConcurrentLoads !== undefined) {
+    nextConfig.maxConcurrentLoads = config.maxConcurrentLoads;
+  }
+  if (config.maxDirectories !== undefined) {
+    nextConfig.maxDirectories = config.maxDirectories;
+  }
+  if (config.maxDirectoriesPerBatch !== undefined) {
+    nextConfig.maxDirectoriesPerBatch = config.maxDirectoriesPerBatch;
+  }
+  return Object.keys(nextConfig).length > 0 ? nextConfig : undefined;
+}
+
+function logExpandAllOutcome(args: {
+  discoveredDirectories: number;
+  metrics: ExpandAllMetrics;
+  outcome: 'cancelled' | 'completed';
+  rootFolderId: string;
+  startedAt: number;
+  now: () => number;
+}): void {
+  const { discoveredDirectories, metrics, outcome, rootFolderId, startedAt, now } = args;
+  logger.info(`expandAllProgressively: ${outcome}`, {
+    ...metrics,
+    discoveredDirectories,
+    rootFolderId,
+    totalDurationMs: now() - startedAt,
+  });
+}
+
+async function runExpandAllSession(args: {
+  batchConfig: ExpandAllBatchConfig | undefined;
+  committedPaths: Set<string>;
+  getNodeByPath: (path: string) => IFileNode | undefined;
+  getRootNodes: () => IFileNode[];
+  isExpandingAllRef: React.RefObject<boolean>;
+  loadDirectoryPath: (path: string) => Promise<void>;
+  now: () => number;
+  onProgress?: ((loaded: number, total: number) => void) | undefined;
+  sessionId: number;
+  sessionIdRef: React.RefObject<number>;
+  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void;
+  yieldToBrowser: () => Promise<void>;
+}): Promise<{
+  discoveredDirectories: number;
+  metrics: ExpandAllMetrics;
+}> {
+  const {
+    batchConfig,
+    committedPaths,
+    getNodeByPath,
+    getRootNodes,
+    isExpandingAllRef,
+    loadDirectoryPath,
+    now,
+    onProgress,
+    sessionId,
+    sessionIdRef,
+    setExpandedPaths,
+    yieldToBrowser,
+  } = args;
+  const initialPaths = getRootNodes()
+    .filter((node) => node.type === 'directory')
+    .map((node) => node.path);
+  const metrics = createEmptyExpandAllMetrics();
+
+  commitExpandedPathsBatch({
+    committedPaths,
+    paths: initialPaths,
+    setExpandedPaths,
+  });
+
+  const traversalSession = createDirectDirectoryTraversalSession(initialPaths, {
+    getDirectoryByPath: getNodeByPath,
+    isActive: () => isExpandingAllRef.current && sessionIdRef.current === sessionId,
+    loadDirectoryPath,
+    now,
+    onProgress,
+    ...batchConfig,
+  });
+
+  while (isExpandingAllRef.current && sessionIdRef.current === sessionId) {
+    const batchStartedAt = now();
+    const batch = await traversalSession.processNextBatch();
+    metrics.discoveryDurationMs += now() - batchStartedAt;
+
+    if (batch.cancelled) {
+      throw new DOMException('Operation aborted', 'AbortError');
+    }
+
+    metrics.batchCount += 1;
+    const commitStartedAt = now();
+    const committedBatch = commitExpandedPathsBatch({
+      committedPaths,
+      paths: batch.newlyDiscoveredPaths,
+      setExpandedPaths,
+    });
+    metrics.commitDurationMs += now() - commitStartedAt;
+    if (committedBatch) {
+      metrics.committedBatchCount += 1;
+    }
+
+    if (batch.complete) {
+      return {
+        discoveredDirectories: traversalSession.snapshot().discoveredPaths.size,
+        metrics,
+      };
+    }
+
+    await yieldToBrowser();
+  }
+
+  throw new DOMException('Operation aborted', 'AbortError');
 }
 
 export interface ExpandAllState {
@@ -93,94 +261,68 @@ export interface ExpandAllState {
 }
 
 export interface UseExpandAllOptions {
-  /** Cancel in-flight directory load operations */
+  batchConfig?: ExpandAllBatchConfig;
   cancelLoadOperations: () => void;
-  /** Look up current directory node state by path */
   getNodeByPath: (path: string) => IFileNode | undefined;
-  /** Get current root nodes from canonical tree state */
   getRootNodes: () => IFileNode[];
-  /** Load one directory into canonical tree state */
   loadDirectoryPath: (path: string) => Promise<void>;
-  /** Callback when error occurs */
+  now?: () => number;
   onError?: (error: Error) => void;
-  /** Emit progress updates for UI feedback */
   onProgress?: (loaded: number, total: number) => void;
-  /** Root folder ID for expand-all scope */
   rootFolderId: string;
+  yieldToBrowser?: () => Promise<void>;
 }
 
 export interface UseExpandAllReturn {
-  /** Cancel expand-all operation */
   cancelExpandAll: () => void;
-  /** Start expand-all operation */
   expandAllProgressively: (
     setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
   ) => Promise<void>;
-  /** Whether expand-all is in progress */
   isExpandingAll: boolean;
-  /** Ref to check if expand-all is active (for use in effects) */
   isExpandingAllRef: React.RefObject<boolean>;
 }
 
-/**
- * Hook for managing expand-all operation.
- *
- * Orchestrates the expand-all process:
- * 1. Sends expandAll command to worker
- * 2. Worker requests directory loads as needed (handled by useFileTreeWorker)
- * 3. On completion, rehydrates tree with file handles
- * 4. Updates expanded paths in store
- *
- * @param options - Configuration options
- * @returns Expand-all state and controls
- */
 export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
   const {
+    batchConfig,
     cancelLoadOperations,
     getNodeByPath,
     getRootNodes,
     loadDirectoryPath,
+    now = defaultNow,
     onError,
     onProgress,
+    rootFolderId,
+    yieldToBrowser = defaultYieldToBrowser,
   } = options;
 
-  // State
   const [state, setState] = useState<ExpandAllState>({
     isExpandingAll: false,
   });
 
-  // Guard against double-clicks
+  const maxBatchDurationMs = batchConfig?.maxBatchDurationMs;
+  const maxConcurrentLoads = batchConfig?.maxConcurrentLoads;
+  const maxDirectories = batchConfig?.maxDirectories;
+  const maxDirectoriesPerBatch = batchConfig?.maxDirectoriesPerBatch;
+
   const isExpandAllStartingRef = useRef(false);
-
-  // Ref for checking expand-all state in effects
   const isExpandingAllRef = useRef(false);
+  const sessionIdRef = useRef(0);
 
-  // Ref to store setExpandedPaths callback
-  const setExpandedPathsRef = useRef<
-    ((updater: (prev: Set<string>) => Set<string>) => void) | null
-  >(null);
-
-  /**
-   * Cancel expand-all operation.
-   */
   const cancelExpandAll = useCallback(() => {
+    sessionIdRef.current += 1;
     cancelLoadOperations();
-    isExpandAllStartingRef.current = false;
-    isExpandingAllRef.current = false;
-    setExpandedPathsRef.current = null;
+    resetExpandAllOperation({
+      isExpandAllStartingRef,
+      isExpandingAllRef,
+    });
     setState({ isExpandingAll: false });
   }, [cancelLoadOperations]);
 
-  /**
-   * Progressively expand all directories using the Web Worker.
-   *
-   * @param setExpandedPaths - Function to update expanded paths in the store
-   */
   const expandAllProgressively = useCallback(
     async (
       setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
     ): Promise<void> => {
-      // Check if we should skip (pre-flight checks)
       const skipCheck = shouldSkipExpandAll(isExpandAllStartingRef.current);
       if (skipCheck.skip) {
         if (skipCheck.reason) {
@@ -189,38 +331,80 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
         return;
       }
 
-      beginExpandAllOperation(
+      beginExpandAllOperation({
         isExpandAllStartingRef,
         isExpandingAllRef,
-        setExpandedPathsRef,
-        setExpandedPaths,
-        setState
-      );
+        setState,
+      });
+      const startedAt = now();
+      const sessionId = sessionIdRef.current + 1;
+      sessionIdRef.current = sessionId;
+
+      const committedPaths = new Set<string>();
 
       try {
-        const initialPaths = getRootNodes()
-          .filter((node) => node.type === 'directory')
-          .map((node) => node.path);
-        const traversalResult = await traverseDirectoriesDirect(initialPaths, {
-          getDirectoryByPath: getNodeByPath,
-          isActive: () => isExpandingAllRef.current,
+        const result = await runExpandAllSession({
+          batchConfig: buildExpandAllBatchConfig({
+            maxBatchDurationMs,
+            maxConcurrentLoads,
+            maxDirectories,
+            maxDirectoriesPerBatch,
+          }),
+          committedPaths,
+          getNodeByPath,
+          getRootNodes,
+          isExpandingAllRef,
           loadDirectoryPath,
+          now,
           onProgress,
+          sessionId,
+          sessionIdRef,
+          setExpandedPaths,
+          yieldToBrowser,
         });
-
-        if (traversalResult.cancelled) {
-          throw new DOMException('Operation aborted', 'AbortError');
-        }
-
-        completeExpandAllOperation(traversalResult.discoveredPaths, setExpandedPaths, setState);
+        logExpandAllOutcome({
+          discoveredDirectories: result.discoveredDirectories,
+          metrics: result.metrics,
+          outcome: 'completed',
+          rootFolderId,
+          startedAt,
+          now,
+        });
+        setState({ isExpandingAll: false });
       } catch (err) {
+        if (isAbortError(err)) {
+          logExpandAllOutcome({
+            discoveredDirectories: committedPaths.size,
+            metrics: createEmptyExpandAllMetrics(),
+            outcome: 'cancelled',
+            rootFolderId,
+            startedAt,
+            now,
+          });
+        }
         handleExpandError(err, onError);
         setState({ isExpandingAll: false });
       } finally {
-        resetExpandAllOperation(isExpandAllStartingRef, isExpandingAllRef, setExpandedPathsRef);
+        resetExpandAllOperation({
+          isExpandAllStartingRef,
+          isExpandingAllRef,
+        });
       }
     },
-    [getRootNodes, getNodeByPath, loadDirectoryPath, onError, onProgress]
+    [
+      getNodeByPath,
+      getRootNodes,
+      loadDirectoryPath,
+      maxBatchDurationMs,
+      maxConcurrentLoads,
+      maxDirectories,
+      maxDirectoriesPerBatch,
+      now,
+      onError,
+      onProgress,
+      rootFolderId,
+      yieldToBrowser,
+    ]
   );
 
   return {

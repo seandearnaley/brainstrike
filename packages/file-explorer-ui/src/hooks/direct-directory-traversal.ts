@@ -4,7 +4,11 @@ export interface DirectDirectoryTraversalOptions {
   getDirectoryByPath: (path: string) => IFileNode | undefined;
   isActive: () => boolean;
   loadDirectoryPath: (path: string) => Promise<void>;
+  maxBatchDurationMs?: number;
+  maxConcurrentLoads?: number;
   maxDirectories?: number;
+  maxDirectoriesPerBatch?: number;
+  now?: () => number;
   onProgress?: ((loaded: number, total: number) => void) | undefined;
 }
 
@@ -16,7 +20,33 @@ export interface DirectDirectoryTraversalResult {
   visitedPaths: string[];
 }
 
+export interface DirectDirectoryTraversalBatchResult {
+  cancelled: boolean;
+  complete: boolean;
+  loaded: number;
+  newlyDiscoveredPaths: string[];
+  total: number;
+  visitedPaths: string[];
+}
+
+export interface DirectDirectoryTraversalSession {
+  processNextBatch: () => Promise<DirectDirectoryTraversalBatchResult>;
+  snapshot: () => DirectDirectoryTraversalResult;
+}
+
+const DEFAULT_MAX_BATCH_DURATION_MS = 8;
+const DEFAULT_MAX_CONCURRENT_LOADS = 8;
 const DEFAULT_MAX_DIRECTORIES = 100_000;
+const DEFAULT_MAX_DIRECTORIES_PER_BATCH = 50;
+
+interface DirectDirectoryTraversalSessionState {
+  discoveredPaths: Set<string>;
+  loaded: number;
+  queue: string[];
+  queueIndex: number;
+  total: number;
+  visitedPaths: string[];
+}
 
 function assertDirectoryTraversalWithinLimit(
   discoveredCount: number,
@@ -27,18 +57,21 @@ function assertDirectoryTraversalWithinLimit(
   }
 }
 
-function enqueueChildDirectories(
-  node: IFileNode,
-  queue: string[],
-  discoveredPaths: Set<string>,
-  maxDirectories: number
-): number {
+function enqueueChildDirectories(args: {
+  discoveredPaths: Set<string>;
+  maxDirectories: number;
+  newlyDiscoveredPaths: string[];
+  node: IFileNode;
+  queue: string[];
+}): number {
+  const { discoveredPaths, maxDirectories, newlyDiscoveredPaths, node, queue } = args;
   let added = 0;
   for (const child of node.children ?? []) {
     if (child.type !== 'directory' || discoveredPaths.has(child.path)) {
       continue;
     }
     discoveredPaths.add(child.path);
+    newlyDiscoveredPaths.push(child.path);
     assertDirectoryTraversalWithinLimit(discoveredPaths.size, maxDirectories);
     queue.push(child.path);
     added += 1;
@@ -50,69 +83,255 @@ function isReadyDirectoryNode(node: IFileNode | undefined): node is IFileNode {
   return Boolean(node && node.type === 'directory' && node.loadState === 'loaded');
 }
 
-export async function traverseDirectoriesDirect(
-  initialPaths: string[],
-  options: DirectDirectoryTraversalOptions
-): Promise<DirectDirectoryTraversalResult> {
-  const {
-    getDirectoryByPath,
-    isActive,
-    loadDirectoryPath,
-    maxDirectories = DEFAULT_MAX_DIRECTORIES,
-    onProgress,
-  } = options;
-  const queue = [...initialPaths];
-  let queueIndex = 0;
-  const discoveredPaths = new Set(queue);
-  assertDirectoryTraversalWithinLimit(discoveredPaths.size, maxDirectories);
-  const visitedPaths: string[] = [];
-  let loaded = 0;
-  let total = queue.length;
+function buildInitialQueue(initialPaths: string[]): string[] {
+  return Array.from(new Set(initialPaths.filter(Boolean)));
+}
 
-  onProgress?.(loaded, total);
+function takeBatchPaths(args: {
+  maxBatchDurationMs: number;
+  maxDirectoriesPerBatch: number;
+  now: () => number;
+  state: DirectDirectoryTraversalSessionState;
+}): string[] {
+  const { maxBatchDurationMs, maxDirectoriesPerBatch, now, state } = args;
+  const batchPaths: string[] = [];
+  const batchStartedAt = now();
 
-  while (queueIndex < queue.length) {
-    if (!isActive()) {
-      return { cancelled: true, discoveredPaths, loaded, total, visitedPaths };
+  while (state.queueIndex < state.queue.length && batchPaths.length < maxDirectoriesPerBatch) {
+    // This budget only bounds synchronous queue claiming so a large frontier cannot
+    // monopolize the renderer before we yield. Async directory loads are bounded
+    // separately by maxConcurrentLoads and settle after the batch is assembled.
+    if (batchPaths.length > 0 && now() - batchStartedAt >= maxBatchDurationMs) {
+      break;
     }
 
-    const currentPath = queue[queueIndex++];
+    const currentPath = state.queue[state.queueIndex++];
     if (!currentPath) {
       continue;
     }
 
-    visitedPaths.push(currentPath);
-    let currentNode = getDirectoryByPath(currentPath);
-    if (!(currentNode && currentNode.type === 'directory')) {
-      loaded += 1;
-      onProgress?.(loaded, total);
-      continue;
-    }
-
-    if (currentNode.loadState !== 'loaded') {
-      await loadDirectoryPath(currentPath);
-      if (!isActive()) {
-        return { cancelled: true, discoveredPaths, loaded, total, visitedPaths };
-      }
-      currentNode = getDirectoryByPath(currentPath);
-    }
-
-    if (!isReadyDirectoryNode(currentNode)) {
-      loaded += 1;
-      onProgress?.(loaded, total);
-      continue;
-    }
-
-    total += enqueueChildDirectories(currentNode, queue, discoveredPaths, maxDirectories);
-    loaded += 1;
-    onProgress?.(loaded, total);
+    state.visitedPaths.push(currentPath);
+    batchPaths.push(currentPath);
   }
 
+  return batchPaths;
+}
+
+async function runWithConcurrency<T>(args: {
+  items: T[];
+  limit: number;
+  run: (item: T) => Promise<void>;
+}): Promise<void> {
+  const { items, limit, run } = args;
+  if (items.length === 0) {
+    return;
+  }
+
+  let nextIndex = 0;
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        // Claim the next work item synchronously before awaiting so each worker
+        // gets a unique index without needing additional coordination primitives.
+        // `run` is expected to handle per-item failures internally. If it throws,
+        // Promise.all will reject the batch and abandon the remaining workers.
+        const item = items[nextIndex];
+        nextIndex += 1;
+        if (item === undefined) {
+          continue;
+        }
+        await run(item);
+      }
+    })
+  );
+}
+
+async function loadBatchDirectories(args: {
+  batchPaths: string[];
+  getDirectoryByPath: (path: string) => IFileNode | undefined;
+  isActive: () => boolean;
+  loadDirectoryPath: (path: string) => Promise<void>;
+  maxConcurrentLoads: number;
+}): Promise<void> {
+  const { batchPaths, getDirectoryByPath, isActive, loadDirectoryPath, maxConcurrentLoads } = args;
+  const pendingLoads: string[] = [];
+
+  for (const path of batchPaths) {
+    const node = getDirectoryByPath(path);
+    if (node && node.type === 'directory' && node.loadState !== 'loaded') {
+      pendingLoads.push(path);
+    }
+  }
+
+  await runWithConcurrency({
+    items: pendingLoads,
+    limit: maxConcurrentLoads,
+    run: async (path) => {
+      if (!isActive()) {
+        return;
+      }
+      await loadDirectoryPath(path);
+    },
+  });
+}
+
+function createSnapshot(
+  state: DirectDirectoryTraversalSessionState,
+  cancelled: boolean
+): DirectDirectoryTraversalResult {
   return {
-    cancelled: false,
-    discoveredPaths,
-    loaded,
-    total,
-    visitedPaths,
+    cancelled,
+    discoveredPaths: new Set(state.discoveredPaths),
+    loaded: state.loaded,
+    total: state.total,
+    visitedPaths: [...state.visitedPaths],
   };
+}
+
+export function createDirectDirectoryTraversalSession(
+  initialPaths: string[],
+  options: DirectDirectoryTraversalOptions
+): DirectDirectoryTraversalSession {
+  const {
+    getDirectoryByPath,
+    isActive,
+    loadDirectoryPath,
+    maxBatchDurationMs = DEFAULT_MAX_BATCH_DURATION_MS,
+    maxConcurrentLoads = DEFAULT_MAX_CONCURRENT_LOADS,
+    maxDirectories = DEFAULT_MAX_DIRECTORIES,
+    maxDirectoriesPerBatch = DEFAULT_MAX_DIRECTORIES_PER_BATCH,
+    now = () => performance.now(),
+    onProgress,
+  } = options;
+
+  const queue = buildInitialQueue(initialPaths);
+  const state: DirectDirectoryTraversalSessionState = {
+    discoveredPaths: new Set(queue),
+    loaded: 0,
+    queue,
+    queueIndex: 0,
+    total: queue.length,
+    visitedPaths: [],
+  };
+
+  assertDirectoryTraversalWithinLimit(state.discoveredPaths.size, maxDirectories);
+  onProgress?.(state.loaded, state.total);
+
+  return {
+    processNextBatch: async (): Promise<DirectDirectoryTraversalBatchResult> => {
+      if (!isActive()) {
+        const snapshot = createSnapshot(state, true);
+        return {
+          cancelled: true,
+          complete: false,
+          loaded: snapshot.loaded,
+          newlyDiscoveredPaths: [],
+          total: snapshot.total,
+          visitedPaths: [],
+        };
+      }
+
+      if (state.queueIndex >= state.queue.length) {
+        return {
+          cancelled: false,
+          complete: true,
+          loaded: state.loaded,
+          newlyDiscoveredPaths: [],
+          total: state.total,
+          visitedPaths: [],
+        };
+      }
+
+      const batchPaths = takeBatchPaths({
+        maxBatchDurationMs,
+        maxDirectoriesPerBatch,
+        now,
+        state,
+      });
+
+      const visitedPaths = [...batchPaths];
+
+      await loadBatchDirectories({
+        batchPaths,
+        getDirectoryByPath,
+        isActive,
+        loadDirectoryPath,
+        maxConcurrentLoads,
+      });
+
+      if (!isActive()) {
+        return {
+          cancelled: true,
+          complete: false,
+          loaded: state.loaded,
+          newlyDiscoveredPaths: [],
+          total: state.total,
+          visitedPaths,
+        };
+      }
+
+      const newlyDiscoveredPaths: string[] = [];
+
+      for (const currentPath of batchPaths) {
+        if (!isActive()) {
+          return {
+            cancelled: true,
+            complete: false,
+            loaded: state.loaded,
+            newlyDiscoveredPaths,
+            total: state.total,
+            visitedPaths,
+          };
+        }
+
+        const currentNode = getDirectoryByPath(currentPath);
+        if (!(currentNode && currentNode.type === 'directory')) {
+          state.loaded += 1;
+          onProgress?.(state.loaded, state.total);
+          continue;
+        }
+
+        if (isReadyDirectoryNode(currentNode)) {
+          state.total += enqueueChildDirectories({
+            discoveredPaths: state.discoveredPaths,
+            maxDirectories,
+            newlyDiscoveredPaths,
+            node: currentNode,
+            queue: state.queue,
+          });
+        }
+
+        state.loaded += 1;
+        onProgress?.(state.loaded, state.total);
+      }
+
+      return {
+        cancelled: false,
+        complete: state.queueIndex >= state.queue.length,
+        loaded: state.loaded,
+        newlyDiscoveredPaths,
+        total: state.total,
+        visitedPaths,
+      };
+    },
+    snapshot: (): DirectDirectoryTraversalResult => createSnapshot(state, false),
+  };
+}
+
+export async function traverseDirectoriesDirect(
+  initialPaths: string[],
+  options: DirectDirectoryTraversalOptions
+): Promise<DirectDirectoryTraversalResult> {
+  const session = createDirectDirectoryTraversalSession(initialPaths, options);
+
+  while (true) {
+    const batch = await session.processNextBatch();
+    if (batch.cancelled || batch.complete) {
+      return {
+        ...session.snapshot(),
+        cancelled: batch.cancelled,
+      };
+    }
+  }
 }

@@ -6,9 +6,11 @@ export interface FileTree {
 
 interface Options {
   clipboard?: boolean;
+  directoryReadDelayMs?: number;
 }
 
 interface MockBrowserApisPayload {
+  directoryReadDelayMs: number;
   enableClipboard: boolean;
   rootName: string;
   tree: FileTree;
@@ -19,6 +21,11 @@ function buildMockBrowserApisScript(payload: MockBrowserApisPayload): string {
   return `
 (() => {
   const payload = ${serializedPayload};
+  window.__brainstrike_e2e_expose_file_explorer_store__ = true;
+
+  function delay(ms) {
+    return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+  }
 
   function buildFs(name, obj) {
     if (obj && typeof obj === 'object') {
@@ -96,6 +103,7 @@ function buildMockBrowserApisScript(payload: MockBrowserApisPayload): string {
     }
 
     async *entries() {
+      await delay(payload.directoryReadDelayMs);
       for (const [name, entry] of Object.entries(this.node._entries)) {
         yield [name, createHandle(entry)];
       }
@@ -179,6 +187,7 @@ export async function mockBrowserApis(
   options: Options = {}
 ): Promise<void> {
   const payload: MockBrowserApisPayload = {
+    directoryReadDelayMs: options.directoryReadDelayMs ?? 0,
     rootName,
     tree,
     enableClipboard: options.clipboard ?? false,

@@ -150,6 +150,31 @@ describe('useAbortControllers', () => {
     expect(result.current.childAbortControllersRef.current.has('/completed/path')).toBe(false);
   });
 
+  it('removeChildController does not clear a newer controller for the same path', () => {
+    const { result } = renderHook(() => useAbortControllers());
+
+    let firstController: AbortController;
+    let secondController: AbortController;
+    act(() => {
+      firstController = result.current.createAbortController('/completed/path');
+      secondController = result.current.createAbortController('/completed/path');
+    });
+
+    act(() => {
+      result.current.removeChildController('/completed/path', firstController);
+    });
+
+    expect(result.current.childAbortControllersRef.current.get('/completed/path')).toBe(
+      secondController!
+    );
+
+    act(() => {
+      result.current.removeChildController('/completed/path', secondController);
+    });
+
+    expect(result.current.childAbortControllersRef.current.has('/completed/path')).toBe(false);
+  });
+
   it('cancelChildLoading handles non-existent path gracefully', () => {
     const { result } = renderHook(() => useAbortControllers());
 
