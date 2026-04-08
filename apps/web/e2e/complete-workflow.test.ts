@@ -299,4 +299,110 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await expect(fileTree.getByRole('checkbox', { name: 'Select test.ts' })).toBeChecked();
     await expect(fileTree.getByRole('checkbox', { name: 'Select test2.ts' })).toBeChecked();
   });
+
+  test('unchecking a selected folder removes its files from the context explorer', async ({
+    page,
+  }) => {
+    await page.getByTestId('select-root-button').click();
+
+    const fileTree = getFileTree(page);
+    await expect(fileTree).toBeVisible();
+
+    const selectAllButton = page.getByRole('button', { name: 'Select All' });
+    await expect(selectAllButton).toBeEnabled();
+    await selectAllButton.click();
+
+    await expect(page.getByText('6 files', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Button.tsx' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Input.tsx' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'helpers.ts' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'index.ts' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'test.ts' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'test2.ts' })).toBeVisible();
+
+    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
+    await srcCheckbox.click({ force: true });
+
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
+    await expect(page.getByText('2 files', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'test.ts' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'test2.ts' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Button.tsx' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'Input.tsx' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'helpers.ts' })).not.toBeVisible();
+    await expect(page.getByRole('button', { name: 'index.ts' })).not.toBeVisible();
+  });
+
+  test('unchecking a selected folder removes its files from the grouped context explorer', async ({
+    page,
+  }) => {
+    await page.getByTestId('select-root-button').click();
+
+    const fileTree = getFileTree(page);
+    await expect(fileTree).toBeVisible();
+
+    const selectAllButton = page.getByRole('button', { name: 'Select All' });
+    await expect(selectAllButton).toBeEnabled();
+    await selectAllButton.click();
+
+    await page.locator('select').first().selectOption({ label: 'By Directory' });
+
+    const contextTree = page.getByRole('treegrid', { name: 'Context explorer table' });
+    await expect(contextTree).toBeVisible();
+    await expect(
+      contextTree.getByRole('checkbox', {
+        name: 'Select all files in group test-root/src/components',
+        exact: true,
+      })
+    ).toBeVisible();
+    await expect(
+      contextTree.getByRole('checkbox', {
+        name: 'Select all files in group test-root/src/utils',
+        exact: true,
+      })
+    ).toBeVisible();
+    await expect(
+      contextTree.getByRole('checkbox', {
+        name: 'Select all files in group test-root/src',
+        exact: true,
+      })
+    ).toBeVisible();
+    await expect(
+      contextTree.getByRole('checkbox', {
+        name: 'Select all files in group test-root',
+        exact: true,
+      })
+    ).toBeVisible();
+
+    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
+    await srcCheckbox.click({ force: true });
+
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
+    await expect(
+      contextTree.getByRole('checkbox', {
+        name: 'Select all files in group test-root',
+        exact: true,
+      })
+    ).toBeVisible();
+    await expect(
+      contextTree.getByRole('checkbox', {
+        name: 'Select all files in group test-root/src/components',
+        exact: true,
+      })
+    ).not.toBeVisible();
+    await expect(
+      contextTree.getByRole('checkbox', {
+        name: 'Select all files in group test-root/src/utils',
+        exact: true,
+      })
+    ).not.toBeVisible();
+    await expect(
+      contextTree.getByRole('checkbox', {
+        name: 'Select all files in group test-root/src',
+        exact: true,
+      })
+    ).not.toBeVisible();
+  });
 });

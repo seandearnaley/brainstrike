@@ -25,6 +25,30 @@ export interface SelectionResolverState {
 
 const EMPTY_RELATIVE_PATHS: string[] = [];
 
+function buildMaterializedFallbackPaths(args: {
+  descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
+  materializedPaths: Set<string> | null;
+}): string[] {
+  const { descriptor, materializedPaths } = args;
+  if (!materializedPaths || materializedPaths.size === 0) {
+    return EMPTY_RELATIVE_PATHS;
+  }
+
+  const nextPaths = new Set(materializedPaths);
+  for (const excludedPath of descriptor.excludedPaths) {
+    nextPaths.delete(excludedPath);
+  }
+  for (const includedPath of descriptor.includedPaths) {
+    nextPaths.add(includedPath);
+  }
+
+  if (nextPaths.size === 0) {
+    return EMPTY_RELATIVE_PATHS;
+  }
+
+  return Array.from(nextPaths).sort(defaultCollator.compare);
+}
+
 function buildExactMaterializedManifest(args: {
   descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
   materializedPaths: Set<string> | null;
@@ -296,18 +320,41 @@ export function useSelectionResolver(): SelectionResolverState {
     return Array.from(selectionModel.materializedPaths).sort(defaultCollator.compare);
   }, [selectionModel.materializedPaths]);
 
+  const queryMaterializedFallbackPaths = useMemo(() => {
+    const descriptor = selectionModel.queryDescriptor;
+    if (!(selectionModel.mode === 'query' && descriptor)) {
+      return EMPTY_RELATIVE_PATHS;
+    }
+
+    return buildMaterializedFallbackPaths({
+      descriptor,
+      materializedPaths: selectionModel.materializedPaths,
+    });
+  }, [
+    selectionModel.materializedPaths,
+    selectionModel.mode,
+    selectionModel.queryDescriptor?.includedPaths,
+    selectionModel.queryDescriptor?.excludedPaths,
+  ]);
+
   const effectiveRelativePaths = useMemo(() => {
     if (selectionModel.mode === 'rules') {
       return sortedMaterializedPaths;
     }
     if (selectionModel.mode === 'query') {
-      if (resolvedQuerySelection.filePaths.length === 0 && sortedMaterializedPaths.length > 0) {
-        return sortedMaterializedPaths;
+      if (!isQuerySelectionReady && queryMaterializedFallbackPaths.length > 0) {
+        return queryMaterializedFallbackPaths;
       }
       return resolvedQuerySelection.filePaths;
     }
     return EMPTY_RELATIVE_PATHS;
-  }, [resolvedQuerySelection.filePaths, selectionModel.mode, sortedMaterializedPaths]);
+  }, [
+    isQuerySelectionReady,
+    queryMaterializedFallbackPaths,
+    resolvedQuerySelection.filePaths,
+    selectionModel.mode,
+    sortedMaterializedPaths,
+  ]);
 
   const effectiveSelection = useMemo(() => {
     if (selectionModel.mode === 'explicit' || !currentFolderId) {
