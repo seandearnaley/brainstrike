@@ -21,6 +21,9 @@ function shouldExposeFileExplorerStoreForTests(): boolean {
   ) {
     return true;
   }
+  // Playwright web/desktop runs need access to the provider-backed store to assert
+  // progressive expansion state. This remains test-only exposure; production code does
+  // not read from this global and the value is removed on unmount.
   if (typeof navigator !== 'undefined' && navigator.webdriver) {
     return true;
   }

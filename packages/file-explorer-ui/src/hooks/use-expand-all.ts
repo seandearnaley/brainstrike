@@ -313,36 +313,20 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       const committedPaths = new Set<string>();
 
       try {
-        const result = await runExpandAllSession(
-          onProgress
-            ? {
-                batchConfig,
-                committedPaths,
-                getNodeByPath,
-                getRootNodes,
-                isExpandingAllRef,
-                loadDirectoryPath,
-                now,
-                onProgress,
-                sessionId,
-                sessionIdRef,
-                setExpandedPaths,
-                yieldToBrowser,
-              }
-            : {
-                batchConfig,
-                committedPaths,
-                getNodeByPath,
-                getRootNodes,
-                isExpandingAllRef,
-                loadDirectoryPath,
-                now,
-                sessionId,
-                sessionIdRef,
-                setExpandedPaths,
-                yieldToBrowser,
-              }
-        );
+        const result = await runExpandAllSession({
+          batchConfig,
+          committedPaths,
+          getNodeByPath,
+          getRootNodes,
+          isExpandingAllRef,
+          loadDirectoryPath,
+          now,
+          onProgress,
+          sessionId,
+          sessionIdRef,
+          setExpandedPaths,
+          yieldToBrowser,
+        });
         logExpandAllOutcome({
           discoveredDirectories: result.discoveredDirectories,
           metrics: result.metrics,

@@ -21,7 +21,7 @@ export interface UseAbortControllersReturn {
   /** Create and register an abort controller for a path */
   createAbortController: (path: string | null) => AbortController;
   /** Remove a child abort controller after completion */
-  removeChildController: (path: string) => void;
+  removeChildController: (path: string, controller?: AbortController) => void;
   /** Abort controller for root loading operation */
   rootAbortControllerRef: React.RefObject<AbortController | null>;
 }
@@ -98,7 +98,14 @@ export function useAbortControllers(): UseAbortControllersReturn {
   /**
    * Remove a child abort controller after operation completes.
    */
-  const removeChildController = useCallback((path: string) => {
+  const removeChildController = useCallback((path: string, controller?: AbortController) => {
+    const currentController = childAbortControllersRef.current.get(path);
+    if (!currentController) {
+      return;
+    }
+    if (controller && currentController !== controller) {
+      return;
+    }
     childAbortControllersRef.current.delete(path);
   }, []);
 

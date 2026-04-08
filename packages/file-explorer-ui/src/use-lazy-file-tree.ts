@@ -899,7 +899,7 @@ export function useLazyFileTree(
           await performDirectoryLoad(path, node, abortController, fileSystemAdapter);
         } finally {
           inFlightChildLoadsRef.current.delete(path);
-          removeChildController(path);
+          removeChildController(path, abortController);
         }
       })();
 
