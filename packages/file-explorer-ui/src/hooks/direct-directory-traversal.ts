@@ -98,6 +98,9 @@ function takeBatchPaths(args: {
   const batchStartedAt = now();
 
   while (state.queueIndex < state.queue.length && batchPaths.length < maxDirectoriesPerBatch) {
+    // This budget only bounds synchronous queue claiming so a large frontier cannot
+    // monopolize the renderer before we yield. Async directory loads are bounded
+    // separately by maxConcurrentLoads and settle after the batch is assembled.
     if (batchPaths.length > 0 && now() - batchStartedAt >= maxBatchDurationMs) {
       break;
     }
@@ -131,6 +134,8 @@ async function runWithConcurrency<T>(args: {
       while (nextIndex < items.length) {
         // Claim the next work item synchronously before awaiting so each worker
         // gets a unique index without needing additional coordination primitives.
+        // `run` is expected to handle per-item failures internally. If it throws,
+        // Promise.all will reject the batch and abandon the remaining workers.
         const item = items[nextIndex];
         nextIndex += 1;
         if (item === undefined) {

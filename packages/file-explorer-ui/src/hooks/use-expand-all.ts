@@ -73,6 +73,8 @@ function commitExpandedPathsBatch(args: {
     if (committedPaths.has(path)) {
       continue;
     }
+    // The caller-owned set tracks session-level commits so later batches can skip
+    // both store updates and transition scheduling for already-committed paths.
     committedPaths.add(path);
     batchPaths.push(path);
     hasNewPaths = true;
@@ -128,6 +130,28 @@ function createEmptyExpandAllMetrics(): ExpandAllMetrics {
     committedBatchCount: 0,
     discoveryDurationMs: 0,
   };
+}
+
+function buildExpandAllBatchConfig(config: {
+  maxBatchDurationMs: number | undefined;
+  maxConcurrentLoads: number | undefined;
+  maxDirectories: number | undefined;
+  maxDirectoriesPerBatch: number | undefined;
+}): ExpandAllBatchConfig | undefined {
+  const nextConfig: ExpandAllBatchConfig = {};
+  if (config.maxBatchDurationMs !== undefined) {
+    nextConfig.maxBatchDurationMs = config.maxBatchDurationMs;
+  }
+  if (config.maxConcurrentLoads !== undefined) {
+    nextConfig.maxConcurrentLoads = config.maxConcurrentLoads;
+  }
+  if (config.maxDirectories !== undefined) {
+    nextConfig.maxDirectories = config.maxDirectories;
+  }
+  if (config.maxDirectoriesPerBatch !== undefined) {
+    nextConfig.maxDirectoriesPerBatch = config.maxDirectoriesPerBatch;
+  }
+  return Object.keys(nextConfig).length > 0 ? nextConfig : undefined;
 }
 
 function logExpandAllOutcome(args: {
@@ -276,6 +300,11 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     isExpandingAll: false,
   });
 
+  const maxBatchDurationMs = batchConfig?.maxBatchDurationMs;
+  const maxConcurrentLoads = batchConfig?.maxConcurrentLoads;
+  const maxDirectories = batchConfig?.maxDirectories;
+  const maxDirectoriesPerBatch = batchConfig?.maxDirectoriesPerBatch;
+
   const isExpandAllStartingRef = useRef(false);
   const isExpandingAllRef = useRef(false);
   const sessionIdRef = useRef(0);
@@ -315,7 +344,12 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
 
       try {
         const result = await runExpandAllSession({
-          batchConfig,
+          batchConfig: buildExpandAllBatchConfig({
+            maxBatchDurationMs,
+            maxConcurrentLoads,
+            maxDirectories,
+            maxDirectoriesPerBatch,
+          }),
           committedPaths,
           getNodeByPath,
           getRootNodes,
@@ -358,10 +392,13 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       }
     },
     [
-      batchConfig,
       getNodeByPath,
       getRootNodes,
       loadDirectoryPath,
+      maxBatchDurationMs,
+      maxConcurrentLoads,
+      maxDirectories,
+      maxDirectoriesPerBatch,
       now,
       onError,
       onProgress,
