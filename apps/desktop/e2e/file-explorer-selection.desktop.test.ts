@@ -1149,6 +1149,42 @@ test.describe('Desktop file explorer selection', () => {
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
   });
 
+  test('unchecking a selected folder removes its files from the context explorer on desktop', async ({
+    electronApp,
+    window,
+  }) => {
+    test.setTimeout(45_000);
+
+    await installNestedFolderFixture(electronApp.app, '/mock/desktop-context-deselect');
+    await ensureLeftPanelVisible(window);
+
+    const selectRootButton = window.getByTestId('select-root-button');
+    await expect(selectRootButton).toBeVisible({ timeout: 15_000 });
+    await selectRootButton.click({ timeout: 5000 });
+
+    const fileTree = window.getByRole('treegrid', { name: 'File tree' });
+    await expect(fileTree).toBeVisible({ timeout: 15_000 });
+
+    const selectAllButton = window.getByRole('button', { name: /^Select All$/i }).first();
+    await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
+    await selectAllButton.click({ timeout: 5000 });
+
+    await expect(window.getByText('3 files', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(window.getByRole('button', { name: 'index.ts' })).toBeVisible();
+    await expect(window.getByRole('button', { name: 'extra.ts' })).toBeVisible();
+    await expect(window.getByRole('button', { name: 'mock-file1.ts' })).toBeVisible();
+
+    const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
+    await srcCheckbox.click({ timeout: 5000 });
+
+    await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
+    await expect(window.getByText('1 files', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(window.getByRole('button', { name: 'mock-file1.ts' })).toBeVisible();
+    await expect(window.getByRole('button', { name: 'index.ts' })).not.toBeVisible();
+    await expect(window.getByRole('button', { name: 'extra.ts' })).not.toBeVisible();
+  });
+
   test('root capped Select All marks visible folders indeterminate when only some descendants are selected', async ({
     electronApp,
     window,
@@ -1675,6 +1711,8 @@ test.describe('Desktop file explorer selection', () => {
       await expect(mainCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(viteCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(appCheckbox).toHaveAttribute('data-state', 'unchecked');
+      await expect(restartedWindow.getByRole('button', { name: 'main.tsx' })).toBeVisible();
+      await expect(restartedWindow.getByRole('button', { name: 'vite-env.d.ts' })).toBeVisible();
 
       await mainCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('1', {
@@ -1682,6 +1720,8 @@ test.describe('Desktop file explorer selection', () => {
       });
       await expect(mainCheckbox).toHaveAttribute('data-state', 'unchecked');
       await expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
+      await expect(restartedWindow.getByRole('button', { name: 'vite-env.d.ts' })).toBeVisible();
+      await expect(restartedWindow.getByRole('button', { name: 'main.tsx' })).not.toBeVisible();
 
       await appCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('2', {
@@ -1689,18 +1729,27 @@ test.describe('Desktop file explorer selection', () => {
       });
       await expect(appCheckbox).toHaveAttribute('data-state', 'checked');
       await expect(srcCheckbox).toHaveAttribute('data-state', 'indeterminate');
+      await expect(restartedWindow.getByRole('button', { name: 'App.tsx' })).toBeVisible();
 
       await srcCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {
         timeout: 15_000,
       });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
+      await expect(restartedWindow.getByRole('button', { name: 'main.tsx' })).not.toBeVisible();
+      await expect(
+        restartedWindow.getByRole('button', { name: 'vite-env.d.ts' })
+      ).not.toBeVisible();
+      await expect(restartedWindow.getByRole('button', { name: 'App.tsx' })).not.toBeVisible();
 
       await srcCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('5', {
         timeout: 15_000,
       });
       await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
+      await expect(restartedWindow.getByRole('button', { name: 'main.tsx' })).toBeVisible();
+      await expect(restartedWindow.getByRole('button', { name: 'vite-env.d.ts' })).toBeVisible();
+      await expect(restartedWindow.getByRole('button', { name: 'App.tsx' })).toBeVisible();
 
       await srcCheckbox.click({ timeout: 5000 });
       await expect(restartedWindow.getByTestId('selection-count')).toHaveText('0', {

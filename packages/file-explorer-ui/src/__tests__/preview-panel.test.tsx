@@ -610,6 +610,32 @@ describe('PreviewPanel', () => {
       expect(headerCheckbox).toBeChecked();
     });
 
+    it('should allow deselecting a single context row after select-all on page', async () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      const headerCheckbox = screen.getByLabelText('Select all files on current page');
+      fireEvent.click(headerCheckbox);
+
+      const file1Checkbox = screen.getByLabelText('Select path/to/file1.txt');
+      const file2Checkbox = screen.getByLabelText('Select path/to/file2.txt');
+      const file3Checkbox = screen.getByLabelText('Select path/to/file3.txt');
+
+      expect(file1Checkbox).toBeChecked();
+      expect(file2Checkbox).toBeChecked();
+      expect(file3Checkbox).toBeChecked();
+
+      fireEvent.click(file2Checkbox);
+
+      expect(file1Checkbox).toBeChecked();
+      expect(file2Checkbox).not.toBeChecked();
+      expect(file3Checkbox).toBeChecked();
+
+      await waitFor(() => {
+        const bulkActionBar = screen.getByTestId('bulk-action-bar');
+        expect(within(bulkActionBar).getByText('2 selected')).toBeInTheDocument();
+      });
+    });
+
     it('should handle batch removal', async () => {
       render(<PreviewPanel {...mockProps} />);
 

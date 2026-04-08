@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ColumnVisibility } from '../hooks/use-preview-panel-persistence';
 import { PreviewTable } from '../preview-table';
@@ -258,6 +259,141 @@ describe('PreviewTable grouped mode', () => {
     );
 
     expect(screen.getByLabelText('Select src/file-one.ts')).toBeChecked();
+  });
+
+  it('updates grouped item checkbox state after deselecting a checked row', () => {
+    function PreviewTableSelectionHarness() {
+      const [previewSelections, setPreviewSelections] = useState<Set<string>>(
+        new Set<string>([FILE_ONE.compositeKey])
+      );
+
+      return (
+        <PreviewTable
+          collapsedGroups={new Set<string>()}
+          columnVisibility={DEFAULT_COLUMN_VISIBILITY}
+          currentPageData={[]}
+          groupedData={[DEFAULT_GROUP]}
+          groupingConfig="directory"
+          handleGroupDeselectAll={vi.fn()}
+          handleGroupSelectAll={vi.fn()}
+          isAllSelected={() => false}
+          isGroupFullySelected={() => false}
+          isGroupPartiallySelected={() => false}
+          onDeselectAll={vi.fn()}
+          onFileClick={vi.fn()}
+          onSelectAllOnPage={vi.fn()}
+          onSort={vi.fn()}
+          onToggleSelection={(compositeKey, checked) => {
+            setPreviewSelections((previous) => {
+              const next = new Set(previous);
+              if (checked) {
+                next.add(compositeKey);
+              } else {
+                next.delete(compositeKey);
+              }
+              return next;
+            });
+          }}
+          pagination={{ startIndex: 0, endIndex: 20 }}
+          previewSelections={previewSelections}
+          sortDirection="asc"
+          sortField="path"
+          toggleGroupCollapse={vi.fn()}
+          visibleFilesOnPage={[FILE_ONE, FILE_TWO]}
+        />
+      );
+    }
+
+    render(<PreviewTableSelectionHarness />);
+
+    const fileOneCheckbox = screen.getByLabelText('Select src/file-one.ts');
+    expect(fileOneCheckbox).toBeChecked();
+
+    fireEvent.click(fileOneCheckbox);
+
+    expect(fileOneCheckbox).not.toBeChecked();
+  });
+
+  it('updates grouped item checkbox state after selecting a group and then deselecting one row', () => {
+    function GroupSelectionHarness() {
+      const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set<string>());
+
+      const handleSelectionChange = (compositeKey: string, checked: boolean) => {
+        setPreviewSelections((previous) => {
+          const next = new Set(previous);
+          if (checked) {
+            next.add(compositeKey);
+          } else {
+            next.delete(compositeKey);
+          }
+          return next;
+        });
+      };
+
+      return (
+        <PreviewTable
+          collapsedGroups={new Set<string>()}
+          columnVisibility={DEFAULT_COLUMN_VISIBILITY}
+          currentPageData={[]}
+          groupedData={[DEFAULT_GROUP]}
+          groupingConfig="directory"
+          handleGroupDeselectAll={(group) => {
+            setPreviewSelections((previous) => {
+              const next = new Set(previous);
+              for (const item of group.items) {
+                next.delete(item.compositeKey);
+              }
+              return next;
+            });
+          }}
+          handleGroupSelectAll={(group) => {
+            setPreviewSelections((previous) => {
+              const next = new Set(previous);
+              for (const item of group.items) {
+                next.add(item.compositeKey);
+              }
+              return next;
+            });
+          }}
+          isAllSelected={() => false}
+          isGroupFullySelected={(group) =>
+            group.items.every((item) => previewSelections.has(item.compositeKey))
+          }
+          isGroupPartiallySelected={(group) =>
+            group.items.some((item) => previewSelections.has(item.compositeKey)) &&
+            !group.items.every((item) => previewSelections.has(item.compositeKey))
+          }
+          onDeselectAll={vi.fn()}
+          onFileClick={vi.fn()}
+          onSelectAllOnPage={vi.fn()}
+          onSort={vi.fn()}
+          onToggleSelection={handleSelectionChange}
+          pagination={{ startIndex: 0, endIndex: 20 }}
+          previewSelections={previewSelections}
+          sortDirection="asc"
+          sortField="path"
+          toggleGroupCollapse={vi.fn()}
+          visibleFilesOnPage={[FILE_ONE, FILE_TWO]}
+        />
+      );
+    }
+
+    render(<GroupSelectionHarness />);
+
+    const groupCheckbox = screen.getByLabelText('Select all files in group src');
+    const fileOneCheckbox = screen.getByLabelText('Select src/file-one.ts');
+    const fileTwoCheckbox = screen.getByLabelText('Select src/file-two.tsx');
+
+    fireEvent.click(groupCheckbox);
+
+    expect(fileOneCheckbox).toBeChecked();
+    expect(fileTwoCheckbox).toBeChecked();
+
+    fireEvent.click(fileOneCheckbox);
+
+    expect(fileOneCheckbox).not.toBeChecked();
+    expect(fileTwoCheckbox).toBeChecked();
+    expect(groupCheckbox).toBePartiallyChecked();
   });
 
   describe('group row column placement', () => {
