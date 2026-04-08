@@ -15,6 +15,11 @@ const unsubscribeNoop = (): void => {};
 const subscribeNoop = (): (() => void) => unsubscribeNoop;
 
 function shouldExposeFileExplorerStoreForTests(): boolean {
+  const env = (
+    import.meta as ImportMeta & {
+      env?: Record<string, unknown>;
+    }
+  ).env;
   if (
     globalThis.process?.env?.['NODE_ENV'] === 'test' ||
     globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true'
@@ -23,14 +28,10 @@ function shouldExposeFileExplorerStoreForTests(): boolean {
   }
   // Playwright web/desktop runs explicitly opt in via an init-script flag so we do
   // not expose the provider-backed store to arbitrary webdriver-controlled sessions.
+  // Keep this disabled in production builds even if a script sets the flag manually.
   if (typeof window !== 'undefined' && window.__brainstrike_e2e_expose_file_explorer_store__) {
     return true;
   }
-  const env = (
-    import.meta as ImportMeta & {
-      env?: Record<string, unknown>;
-    }
-  ).env;
   return env?.['MODE'] === 'test';
 }
 

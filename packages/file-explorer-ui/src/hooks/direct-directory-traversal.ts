@@ -1,4 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
+import { isAbortError } from '@brainstrike/utils/error-utils';
+import { createLogger } from '@brainstrike/utils/logger';
 
 export interface DirectDirectoryTraversalOptions {
   getDirectoryByPath: (path: string) => IFileNode | undefined;
@@ -15,6 +17,8 @@ export interface DirectDirectoryTraversalOptions {
 export interface DirectDirectoryTraversalResult {
   cancelled: boolean;
   discoveredPaths: Set<string>;
+  failedLoads: number;
+  firstError: Error | undefined;
   loaded: number;
   total: number;
   visitedPaths: string[];
@@ -23,6 +27,8 @@ export interface DirectDirectoryTraversalResult {
 export interface DirectDirectoryTraversalBatchResult {
   cancelled: boolean;
   complete: boolean;
+  failedLoads: number;
+  firstError: Error | undefined;
   loaded: number;
   newlyDiscoveredPaths: string[];
   total: number;
@@ -38,9 +44,12 @@ const DEFAULT_MAX_BATCH_DURATION_MS = 8;
 const DEFAULT_MAX_CONCURRENT_LOADS = 8;
 const DEFAULT_MAX_DIRECTORIES = 100_000;
 const DEFAULT_MAX_DIRECTORIES_PER_BATCH = 50;
+const logger = createLogger('DirectDirectoryTraversal');
 
 interface DirectDirectoryTraversalSessionState {
   discoveredPaths: Set<string>;
+  failedLoads: number;
+  firstError: Error | undefined;
   loaded: number;
   queue: string[];
   queueIndex: number;
@@ -153,9 +162,11 @@ async function loadBatchDirectories(args: {
   isActive: () => boolean;
   loadDirectoryPath: (path: string) => Promise<void>;
   maxConcurrentLoads: number;
-}): Promise<void> {
+}): Promise<{ failedLoads: number; firstError: Error | undefined }> {
   const { batchPaths, getDirectoryByPath, isActive, loadDirectoryPath, maxConcurrentLoads } = args;
   const pendingLoads: string[] = [];
+  let failedLoads = 0;
+  let firstError: Error | undefined;
 
   for (const path of batchPaths) {
     const node = getDirectoryByPath(path);
@@ -171,9 +182,23 @@ async function loadBatchDirectories(args: {
       if (!isActive()) {
         return;
       }
-      await loadDirectoryPath(path);
+      try {
+        await loadDirectoryPath(path);
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+        failedLoads += 1;
+        firstError ??= error instanceof Error ? error : new Error(String(error));
+        logger.warn('Skipping failed directory during batched traversal', {
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     },
   });
+
+  return { failedLoads, firstError };
 }
 
 function createSnapshot(
@@ -183,6 +208,8 @@ function createSnapshot(
   return {
     cancelled,
     discoveredPaths: new Set(state.discoveredPaths),
+    failedLoads: state.failedLoads,
+    firstError: state.firstError,
     loaded: state.loaded,
     total: state.total,
     visitedPaths: [...state.visitedPaths],
@@ -208,6 +235,8 @@ export function createDirectDirectoryTraversalSession(
   const queue = buildInitialQueue(initialPaths);
   const state: DirectDirectoryTraversalSessionState = {
     discoveredPaths: new Set(queue),
+    failedLoads: 0,
+    firstError: undefined,
     loaded: 0,
     queue,
     queueIndex: 0,
@@ -225,6 +254,8 @@ export function createDirectDirectoryTraversalSession(
         return {
           cancelled: true,
           complete: false,
+          failedLoads: snapshot.failedLoads,
+          firstError: snapshot.firstError,
           loaded: snapshot.loaded,
           newlyDiscoveredPaths: [],
           total: snapshot.total,
@@ -236,6 +267,8 @@ export function createDirectDirectoryTraversalSession(
         return {
           cancelled: false,
           complete: true,
+          failedLoads: state.failedLoads,
+          firstError: state.firstError,
           loaded: state.loaded,
           newlyDiscoveredPaths: [],
           total: state.total,
@@ -252,18 +285,22 @@ export function createDirectDirectoryTraversalSession(
 
       const visitedPaths = [...batchPaths];
 
-      await loadBatchDirectories({
+      const loadResult = await loadBatchDirectories({
         batchPaths,
         getDirectoryByPath,
         isActive,
         loadDirectoryPath,
         maxConcurrentLoads,
       });
+      state.failedLoads += loadResult.failedLoads;
+      state.firstError ??= loadResult.firstError;
 
       if (!isActive()) {
         return {
           cancelled: true,
           complete: false,
+          failedLoads: state.failedLoads,
+          firstError: state.firstError,
           loaded: state.loaded,
           newlyDiscoveredPaths: [],
           total: state.total,
@@ -278,6 +315,8 @@ export function createDirectDirectoryTraversalSession(
           return {
             cancelled: true,
             complete: false,
+            failedLoads: state.failedLoads,
+            firstError: state.firstError,
             loaded: state.loaded,
             newlyDiscoveredPaths,
             total: state.total,
@@ -309,6 +348,8 @@ export function createDirectDirectoryTraversalSession(
       return {
         cancelled: false,
         complete: state.queueIndex >= state.queue.length,
+        failedLoads: state.failedLoads,
+        firstError: state.firstError,
         loaded: state.loaded,
         newlyDiscoveredPaths,
         total: state.total,
