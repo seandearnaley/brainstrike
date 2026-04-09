@@ -645,12 +645,10 @@ export class SelectionRuleEngine {
 export class InMemoryTreeAdapter implements TreeAdapter {
   private readonly files: Map<string, FileNode>;
   private readonly directories: Set<string>;
-  private readonly implicitDirectories: Set<string>;
 
   constructor(nodes: FileNode[]) {
     this.files = new Map();
     this.directories = new Set();
-    this.implicitDirectories = new Set();
 
     for (const node of nodes) {
       if (node.isDirectory) {
@@ -663,13 +661,9 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     // Add implicit parent directories
     for (const path of this.files.keys()) {
       const parts = path.split('/');
-      for (let i = 1; i < parts.length; i++) {
+      for (let i = 1; i < parts.length; i += 1) {
         const parentPath = parts.slice(0, i).join('/');
-        if (this.implicitDirectories.has(parentPath)) {
-          continue;
-        }
         this.directories.add(parentPath);
-        this.implicitDirectories.add(parentPath);
       }
     }
   }
