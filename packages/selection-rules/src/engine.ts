@@ -111,6 +111,11 @@ const RULE_TYPE_PRECEDENCE: Record<SelectionRule['type'], number> = {
 const GLOB_MATCH_OPTIONS = { dot: true } as const;
 const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
 
+/**
+ * Equivalent to `path === root || isDescendantPath(path, root)` from
+ * `@brainstrike/utils/tree-operations` — duplicated here to avoid
+ * introducing a cross-package dependency in this leaf package.
+ */
 function isEqualOrDescendantPath(path: string, root: string): boolean {
   return (
     path === root ||
