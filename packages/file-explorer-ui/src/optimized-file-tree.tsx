@@ -9,6 +9,7 @@ import {
   TreeTable,
   type TreeTableColumn,
 } from '@brainstrike/ui';
+import { isDescendantPath } from '@brainstrike/utils';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/utils/file-explorer-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
@@ -566,14 +567,10 @@ function getQueryDirectorySelectionState(args: {
     selectionModel,
   } = args;
   const queryRootPath = selectionModel.queryDescriptor?.rootPath ?? null;
-  // Optimize: Avoid template string allocation (queryRootPath.startsWith(`${directoryPath}/`))
-  // by checking length, directory separator, and path prefix directly.
   const isAncestorOfQueryRoot = Boolean(
     queryRootPath &&
       directoryPath !== queryRootPath &&
-      queryRootPath.length > directoryPath.length &&
-      queryRootPath.charCodeAt(directoryPath.length) === 47 &&
-      queryRootPath.startsWith(directoryPath)
+      isDescendantPath(queryRootPath, directoryPath)
   );
   const totalMatchingCount = getQuerySelectionMatchingCount(
     selectionModel.queryDescriptor,
@@ -629,14 +626,8 @@ function getCoveredQueryDirectorySelectionState(args: {
         selectionModel.queryDescriptor.excludedPaths.length > 0)
   );
   const queryRootPath = selectionModel.queryDescriptor?.rootPath ?? null;
-  // Optimize: Avoid template string allocation (queryRootPath.startsWith(`${nodePath}/`))
-  // by checking length, directory separator, and path prefix directly.
   const isAncestorOfQueryRoot = Boolean(
-    queryRootPath &&
-      nodePath !== queryRootPath &&
-      queryRootPath.length > nodePath.length &&
-      queryRootPath.charCodeAt(nodePath.length) === 47 &&
-      queryRootPath.startsWith(nodePath)
+    queryRootPath && nodePath !== queryRootPath && isDescendantPath(queryRootPath, nodePath)
   );
 
   if (isKnownEmptyDirectory) {
@@ -779,15 +770,11 @@ function shouldIgnoreLoadedQueryChildDirectory(args: {
   const { child, folderId, parentDirectoryPath, querySelectionManifest, selectionModel } = args;
   const queryRootPath = selectionModel.queryDescriptor?.rootPath;
 
-  // Optimize: Avoid template string allocation (parentDirectoryPath.startsWith(`${queryRootPath}/`))
-  // by checking length, directory separator, and path prefix directly.
   if (
     !(
       queryRootPath &&
       (parentDirectoryPath === queryRootPath ||
-        (parentDirectoryPath.length > queryRootPath.length &&
-          parentDirectoryPath.charCodeAt(queryRootPath.length) === 47 &&
-          parentDirectoryPath.startsWith(queryRootPath)))
+        isDescendantPath(parentDirectoryPath, queryRootPath))
     )
   ) {
     return false;

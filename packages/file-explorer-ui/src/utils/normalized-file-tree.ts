@@ -1,4 +1,5 @@
 import type { DirectoryLoadState, IFileNode } from '@brainstrike/types';
+import { isDescendantPath } from '@brainstrike/utils';
 
 export interface NormalizedFileTreeNode extends Omit<IFileNode, 'children'> {}
 
@@ -284,14 +285,7 @@ export function getNormalizedRootDirectoryPaths(state: NormalizedFileTreeState):
 }
 
 function isPathWithinSubtree(rootPath: string, path: string): boolean {
-  // Optimize: Avoid template string allocation (path.startsWith(`${rootPath}/`))
-  // by checking length, directory separator, and path prefix directly.
-  return (
-    path === rootPath ||
-    (path.length > rootPath.length &&
-      path.charCodeAt(rootPath.length) === 47 &&
-      path.startsWith(rootPath))
-  );
+  return path === rootPath || isDescendantPath(path, rootPath);
 }
 
 function collectSubtreePaths(state: NormalizedFileTreeState, path: string, out: string[]): void {

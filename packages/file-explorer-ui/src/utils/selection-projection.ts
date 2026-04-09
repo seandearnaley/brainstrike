@@ -4,7 +4,7 @@ import type {
   SelectionModel,
   SelectionQueryDescriptor,
 } from '@brainstrike/types';
-import { accumulateAncestorDirectoryCounts } from '@brainstrike/utils';
+import { accumulateAncestorDirectoryCounts, isDescendantPath } from '@brainstrike/utils';
 import { processFilter } from '@brainstrike/utils/filter-utils';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
@@ -93,14 +93,7 @@ function isPathWithinRoot(path: string, rootPath: string | null): boolean {
   if (!rootPath) {
     return true;
   }
-  // Optimize: Avoid template string allocation (path.startsWith(`${rootPath}/`))
-  // by checking length, directory separator, and path prefix directly.
-  return (
-    path === rootPath ||
-    (path.length > rootPath.length &&
-      path.charCodeAt(rootPath.length) === 47 &&
-      path.startsWith(rootPath))
-  );
+  return path === rootPath || isDescendantPath(path, rootPath);
 }
 
 function isQuerySelectionManifestReady(
@@ -303,13 +296,7 @@ export function getQuerySelectionMatchingCount(
       if (manifest.pathSet.has(filePath)) {
         continue;
       }
-      // Optimize: Avoid template string allocation (filePath.startsWith(`${directoryPath}/`))
-      // by checking length, directory separator, and path prefix directly.
-      if (
-        filePath.length > directoryPath.length &&
-        filePath.charCodeAt(directoryPath.length) === 47 &&
-        filePath.startsWith(directoryPath)
-      ) {
+      if (isDescendantPath(filePath, directoryPath)) {
         totalMatchingCount += 1;
       }
     }

@@ -109,6 +109,30 @@ const RULE_TYPE_PRECEDENCE: Record<SelectionRule['type'], number> = {
 };
 
 const GLOB_MATCH_OPTIONS = { dot: true } as const;
+const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
+
+function isEqualOrDescendantPath(path: string, root: string): boolean {
+  return (
+    path === root ||
+    (path.length > root.length &&
+      path.charCodeAt(root.length) === PATH_SEPARATOR_CODE &&
+      path.startsWith(root))
+  );
+}
+
+function countRelativeDepth(relativePath: string, maxDepth?: number): number {
+  let depth = 0;
+  for (let i = 0; i < relativePath.length; i += 1) {
+    if (relativePath.charCodeAt(i) !== PATH_SEPARATOR_CODE) {
+      continue;
+    }
+    depth += 1;
+    if (maxDepth !== undefined && depth > maxDepth) {
+      return depth;
+    }
+  }
+  return depth;
+}
 
 /**
  * Sort rules by type precedence, then by priority within type.
@@ -476,14 +500,7 @@ export class SelectionRuleEngine {
     for (const path of selection) {
       let excluded = false;
       for (const root of rule.roots) {
-        // Optimize: Avoid template string allocation (path.startsWith(`${root}/`))
-        // by checking length, directory separator, and path prefix directly.
-        if (
-          path === root ||
-          (path.length > root.length &&
-            path.charCodeAt(root.length) === 47 &&
-            path.startsWith(root))
-        ) {
+        if (isEqualOrDescendantPath(path, root)) {
           excluded = true;
           break;
         }
@@ -628,10 +645,12 @@ export class SelectionRuleEngine {
 export class InMemoryTreeAdapter implements TreeAdapter {
   private readonly files: Map<string, FileNode>;
   private readonly directories: Set<string>;
+  private readonly implicitDirectories: Set<string>;
 
   constructor(nodes: FileNode[]) {
     this.files = new Map();
     this.directories = new Set();
+    this.implicitDirectories = new Set();
 
     for (const node of nodes) {
       if (node.isDirectory) {
@@ -645,7 +664,12 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     for (const path of this.files.keys()) {
       const parts = path.split('/');
       for (let i = 1; i < parts.length; i++) {
-        this.directories.add(parts.slice(0, i).join('/'));
+        const parentPath = parts.slice(0, i).join('/');
+        if (this.implicitDirectories.has(parentPath)) {
+          continue;
+        }
+        this.directories.add(parentPath);
+        this.implicitDirectories.add(parentPath);
       }
     }
   }
@@ -659,17 +683,10 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     const normalizedRoot = root.replace(/\/$/, '');
 
     for (const path of this.files.keys()) {
-      // Optimize: Avoid template string allocation (path.startsWith(`${normalizedRoot}/`))
-      // by checking length, directory separator, and path prefix directly.
-      if (
-        path === normalizedRoot ||
-        (path.length > normalizedRoot.length &&
-          path.charCodeAt(normalizedRoot.length) === 47 &&
-          path.startsWith(normalizedRoot))
-      ) {
+      if (isEqualOrDescendantPath(path, normalizedRoot)) {
         if (maxDepth !== undefined) {
           const relativePath = path.slice(normalizedRoot.length + 1);
-          const depth = relativePath.split('/').length - 1;
+          const depth = countRelativeDepth(relativePath, maxDepth);
           if (depth > maxDepth) {
             continue;
           }
