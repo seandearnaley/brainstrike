@@ -99,7 +99,7 @@ export function useCollectionBrowserColumns({
 
           return (
             <TooltipProvider delayDuration={300}>
-              <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
+              <div className="flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden">
                 <NodeIcon type={type} />
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <Tooltip>
@@ -269,6 +269,7 @@ export function useCollectionBrowserColumns({
         return (
           <div className="flex items-center gap-2">
             <Progress
+              aria-label="Semantic match score"
               className={cn('h-2 w-12 flex-shrink-0', isDirectMatch ? 'bg-primary/20' : 'bg-muted')}
               value={percentage}
             />

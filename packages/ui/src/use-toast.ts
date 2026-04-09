@@ -18,6 +18,8 @@ const actionTypes = {
 } as const;
 
 let count = 0;
+const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const TOAST_REMOVE_DELAY_MS = 100;
 
 function genId() {
   count = (count + 1) % Number.MAX_SAFE_INTEGER;
@@ -102,6 +104,27 @@ function dispatch(action: Action) {
   }
 }
 
+function clearToastTimeout(toastId: string): void {
+  const timeoutId = toastTimeouts.get(toastId);
+  if (!timeoutId) {
+    return;
+  }
+  clearTimeout(timeoutId);
+  toastTimeouts.delete(toastId);
+}
+
+function scheduleToastAutoDismiss(toastId: string, duration: number): void {
+  clearToastTimeout(toastId);
+  const timeoutId = setTimeout(() => {
+    dispatch({ type: 'DISMISS_TOAST', toastId });
+    setTimeout(() => {
+      dispatch({ type: 'REMOVE_TOAST', toastId });
+      clearToastTimeout(toastId);
+    }, TOAST_REMOVE_DELAY_MS);
+  }, duration);
+  toastTimeouts.set(toastId, timeoutId);
+}
+
 type Toast = Omit<ToasterToast, 'id'>;
 
 function toast({ ...props }: Toast) {
@@ -126,11 +149,16 @@ function toast({ ...props }: Toast) {
           // Remove toast after animation
           setTimeout(() => {
             dispatch({ type: 'REMOVE_TOAST', toastId: id });
+            clearToastTimeout(id);
           }, 100);
         }
       },
     },
   });
+
+  if (typeof props.duration === 'number' && props.duration > 0) {
+    scheduleToastAutoDismiss(id, props.duration);
+  }
 
   return {
     id,

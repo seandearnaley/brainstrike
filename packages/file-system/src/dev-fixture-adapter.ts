@@ -105,9 +105,7 @@ function buildFixtureState(
   const fileContents = new Map<string, { content: string; size: number; lastModified: number }>();
   const timestamp = Date.now();
 
-  // For web, use empty string as root path (relative paths)
-  // For electron, use the definition name (absolute paths)
-  const rootPath = platform === 'web' ? '' : definition.name;
+  const rootPath = definition.name;
 
   const rootHandle: DirectoryHandle = {
     path: rootPath,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   detectEnvironment,
   getCILaunchArgs,
@@ -6,6 +6,7 @@ import {
   getGlobalTimeout,
   getRetryCount,
   getWorkerCount,
+  harmonizeColorEnvironment,
   logEnvironmentConfig,
   validateEnvironmentConfig,
 } from '../src/playwright-environment';
@@ -75,9 +76,39 @@ describe('playwright-environment helpers', () => {
   it('returns environment config and validates warnings', () => {
     const cfg = getEnvironmentConfig();
     expect(typeof cfg.headless).toBe('boolean');
-    // Quiet logger (no-op) call for coverage
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
     logEnvironmentConfig('app', cfg);
     const warnings = validateEnvironmentConfig({ ...cfg, isCodex: true });
+
     expect(Array.isArray(warnings)).toBe(true);
+    expect(stdoutSpy).toHaveBeenCalled();
+    expect(stderrSpy).toHaveBeenCalled();
+  });
+
+  it('removes NO_COLOR when FORCE_COLOR is set', () => {
+    const originalForceColor = process.env['FORCE_COLOR'];
+    const originalNoColor = process.env['NO_COLOR'];
+
+    process.env['FORCE_COLOR'] = '1';
+    process.env['NO_COLOR'] = '1';
+
+    harmonizeColorEnvironment();
+
+    expect(process.env['FORCE_COLOR']).toBe('1');
+    expect(process.env['NO_COLOR']).toBeUndefined();
+
+    if (typeof originalForceColor === 'string') {
+      process.env['FORCE_COLOR'] = originalForceColor;
+    } else {
+      Reflect.deleteProperty(process.env, 'FORCE_COLOR');
+    }
+
+    if (typeof originalNoColor === 'string') {
+      process.env['NO_COLOR'] = originalNoColor;
+    } else {
+      Reflect.deleteProperty(process.env, 'NO_COLOR');
+    }
   });
 });

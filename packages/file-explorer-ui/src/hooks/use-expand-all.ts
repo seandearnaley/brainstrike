@@ -2,163 +2,261 @@
  * Expand All Hook
  *
  * Manages expand-all operation state and orchestration.
- * Works with the file tree worker to progressively expand all directories.
- * Includes error handling and abort support.
+ * Uses a batched renderer-side traversal session so large trees progressively
+ * reveal expanded directories instead of waiting for one final commit.
  *
  * @module use-expand-all
  */
 
-import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { startTransition, useCallback, useRef, useState } from 'react';
 
-import type { FileSystemHandle } from '../utils/worker-node-conversion';
-import { rehydrateTree } from '../utils/worker-node-conversion';
+import { createDirectDirectoryTraversalSession } from './direct-directory-traversal';
 
 const logger = createLogger('ExpandAll');
+const defaultNow = (): number => performance.now();
 
-/**
- * Count total nodes in a tree (used for logging).
- */
-function countNodes(nodes: { children?: unknown[] }[]): number {
-  let count = 0;
-  for (const node of nodes) {
-    count += 1;
-    if (node.children) {
-      count += countNodes(node.children as { children?: unknown[] }[]);
-    }
-  }
-  return count;
+interface ExpandAllBatchConfig {
+  maxBatchDurationMs?: number;
+  maxConcurrentLoads?: number;
+  maxDirectories?: number;
+  maxDirectoriesPerBatch?: number;
 }
 
-/**
- * Count files without handles (used for logging rehydration issues).
- */
-function countFilesWithoutHandles(nodes: IFileNode[]): number {
-  let count = 0;
-  for (const node of nodes) {
-    if (node.type === 'file' && !node.handle) {
-      count += 1;
-    }
-    if (node.children) {
-      count += countFilesWithoutHandles(node.children);
-    }
-  }
-  return count;
+interface ExpandAllMetrics {
+  batchCount: number;
+  commitDurationMs: number;
+  committedBatchCount: number;
+  discoveryDurationMs: number;
 }
 
-/**
- * Log and check for files without handles after tree rehydration.
- */
-function logRehydrationResult(
-  operation: string,
-  handleMapSize: number,
-  workerTreeNodes: number,
-  rehydratedNodes: number,
-  rehydratedTree: IFileNode[]
-): void {
-  logger.debug(`${operation} complete`, { handleMapSize, workerTreeNodes });
-  logger.debug(`${operation} rehydrated`, { rehydratedNodes });
-
-  const filesWithoutHandles = countFilesWithoutHandles(rehydratedTree);
-  if (filesWithoutHandles > 0) {
-    logger.warn(`${operation} files missing handles`, { filesWithoutHandles });
-  }
-}
-
-/**
- * Process expand-all result - handle rehydration if needed.
- * Extracted to reduce complexity of main function.
- *
- * Uses startTransition to make tree update non-urgent, allowing React to
- * yield to browser for user input during large tree renders.
- *
- * @param result - The result from worker.expandAll()
- * @param handleMap - Map of path to FileSystemHandle
- * @param setExpandedPaths - Function to update expanded paths
- * @param onTreeUpdate - Callback to update tree state
- * @param onNodesIndexed - Optional callback to index nodes (for FileTreeIndex)
- */
-function processExpandResult(
-  result: { tree: unknown[]; expandedPaths: string[]; loadedCount: number },
-  handleMap: Parameters<typeof rehydrateTree>[1],
-  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
-  onTreeUpdate: (tree: IFileNode[]) => void,
-  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void
-): void {
-  // Skip rehydration when all directories were already cached
-  if (result.loadedCount === 0) {
-    logger.debug('expandAllProgressively: skipping rehydration (all cached)', {
-      expandedPathsCount: result.expandedPaths.length,
-    });
-    // Use startTransition even for cached case - expanding many paths triggers re-renders
-    startTransition(() => {
-      setExpandedPaths(() => new Set(result.expandedPaths));
-    });
-    return;
-  }
-
-  // Rehydrate tree with handles and update - cast to expected type
-  const rehydratedTree = rehydrateTree(
-    result.tree as Parameters<typeof rehydrateTree>[0],
-    handleMap
-  );
-  logRehydrationResult(
-    'expand-all',
-    handleMap.size,
-    countNodes(result.tree as { children?: unknown[] }[]),
-    countNodes(rehydratedTree),
-    rehydratedTree
-  );
-
-  // Index all nodes from the rehydrated tree (FileTreeIndex.addNodes is recursive)
-  if (onNodesIndexed && rehydratedTree.length > 0) {
-    logger.debug('expandAllProgressively: indexing rehydrated nodes', {
-      rootCount: rehydratedTree.length,
-    });
-    onNodesIndexed(rehydratedTree, null);
-  }
-
-  // Use startTransition to make tree update non-urgent - React can interrupt
-  // and yield to browser for user input during large tree renders
-  startTransition(() => {
-    onTreeUpdate(rehydratedTree);
-    setExpandedPaths(() => new Set(result.expandedPaths));
+const defaultYieldToBrowser = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
   });
-}
 
-/**
- * Check if expand-all can proceed. Returns true if should skip.
- * Extracted to reduce cognitive complexity.
- */
-function shouldSkipExpandAll(
-  workerPort: FileTreeWorkerPort | null,
-  isAlreadyStarting: boolean
-): { skip: boolean; reason?: string } {
-  if (!workerPort) {
-    return { skip: true, reason: 'worker not ready' };
-  }
+function shouldSkipExpandAll(isAlreadyStarting: boolean): { skip: boolean; reason?: string } {
   if (isAlreadyStarting) {
     return { skip: true, reason: 'blocked by double-click guard' };
   }
   return { skip: false };
 }
 
-/**
- * Handle expand-all error with proper logging and callback.
- * Extracted to reduce cognitive complexity.
- */
 function handleExpandError(err: unknown, onError?: (error: Error) => void): void {
-  logger.error('expandAllProgressively: error', {
-    error: err instanceof Error ? err.message : String(err),
-    stack: err instanceof Error ? err.stack : undefined,
-  });
   const isCancelled = isAbortError(err);
+  if (!isCancelled) {
+    logger.error('expandAllProgressively: error', {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+  }
   if (!isCancelled && onError) {
     onError(err instanceof Error ? err : new Error(String(err)));
   }
+}
+
+function commitExpandedPathsBatch(args: {
+  committedPaths: Set<string>;
+  paths: readonly string[];
+  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void;
+}): boolean {
+  const { committedPaths, paths, setExpandedPaths } = args;
+  if (paths.length === 0) {
+    return false;
+  }
+
+  let hasNewPaths = false;
+  const batchPaths: string[] = [];
+  for (const path of paths) {
+    if (committedPaths.has(path)) {
+      continue;
+    }
+    // The caller-owned set tracks session-level commits so later batches can skip
+    // both store updates and transition scheduling for already-committed paths.
+    committedPaths.add(path);
+    batchPaths.push(path);
+    hasNewPaths = true;
+  }
+
+  if (!hasNewPaths) {
+    return false;
+  }
+
+  startTransition(() => {
+    setExpandedPaths((previousPaths) => {
+      let nextPaths: Set<string> | null = null;
+      for (const path of batchPaths) {
+        if ((nextPaths ?? previousPaths).has(path)) {
+          continue;
+        }
+        if (!nextPaths) {
+          nextPaths = new Set(previousPaths);
+        }
+        nextPaths.add(path);
+      }
+      return nextPaths ?? previousPaths;
+    });
+  });
+
+  return true;
+}
+
+function beginExpandAllOperation(args: {
+  isExpandAllStartingRef: React.RefObject<boolean>;
+  isExpandingAllRef: React.RefObject<boolean>;
+  setState: React.Dispatch<React.SetStateAction<ExpandAllState>>;
+}): void {
+  const { isExpandAllStartingRef, isExpandingAllRef, setState } = args;
+  isExpandAllStartingRef.current = true;
+  isExpandingAllRef.current = true;
+  setState({ isExpandingAll: true });
+}
+
+function resetExpandAllOperation(args: {
+  isExpandAllStartingRef: React.RefObject<boolean>;
+  isExpandingAllRef: React.RefObject<boolean>;
+}): void {
+  const { isExpandAllStartingRef, isExpandingAllRef } = args;
+  isExpandAllStartingRef.current = false;
+  isExpandingAllRef.current = false;
+}
+
+function createEmptyExpandAllMetrics(): ExpandAllMetrics {
+  return {
+    batchCount: 0,
+    commitDurationMs: 0,
+    committedBatchCount: 0,
+    discoveryDurationMs: 0,
+  };
+}
+
+function buildExpandAllBatchConfig(config: {
+  maxBatchDurationMs: number | undefined;
+  maxConcurrentLoads: number | undefined;
+  maxDirectories: number | undefined;
+  maxDirectoriesPerBatch: number | undefined;
+}): ExpandAllBatchConfig | undefined {
+  const nextConfig: ExpandAllBatchConfig = {};
+  if (config.maxBatchDurationMs !== undefined) {
+    nextConfig.maxBatchDurationMs = config.maxBatchDurationMs;
+  }
+  if (config.maxConcurrentLoads !== undefined) {
+    nextConfig.maxConcurrentLoads = config.maxConcurrentLoads;
+  }
+  if (config.maxDirectories !== undefined) {
+    nextConfig.maxDirectories = config.maxDirectories;
+  }
+  if (config.maxDirectoriesPerBatch !== undefined) {
+    nextConfig.maxDirectoriesPerBatch = config.maxDirectoriesPerBatch;
+  }
+  return Object.keys(nextConfig).length > 0 ? nextConfig : undefined;
+}
+
+function logExpandAllOutcome(args: {
+  discoveredDirectories: number;
+  metrics: ExpandAllMetrics;
+  outcome: 'cancelled' | 'completed';
+  rootFolderId: string;
+  startedAt: number;
+  now: () => number;
+}): void {
+  const { discoveredDirectories, metrics, outcome, rootFolderId, startedAt, now } = args;
+  logger.info(`expandAllProgressively: ${outcome}`, {
+    ...metrics,
+    discoveredDirectories,
+    rootFolderId,
+    totalDurationMs: now() - startedAt,
+  });
+}
+
+async function runExpandAllSession(args: {
+  batchConfig: ExpandAllBatchConfig | undefined;
+  committedPaths: Set<string>;
+  getNodeByPath: (path: string) => IFileNode | undefined;
+  getRootNodes: () => IFileNode[];
+  isExpandingAllRef: React.RefObject<boolean>;
+  loadDirectoryPath: (path: string) => Promise<void>;
+  now: () => number;
+  onProgress?: ((loaded: number, total: number) => void) | undefined;
+  sessionId: number;
+  sessionIdRef: React.RefObject<number>;
+  setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void;
+  yieldToBrowser: () => Promise<void>;
+}): Promise<{
+  discoveredDirectories: number;
+  firstError: Error | undefined;
+  metrics: ExpandAllMetrics;
+}> {
+  const {
+    batchConfig,
+    committedPaths,
+    getNodeByPath,
+    getRootNodes,
+    isExpandingAllRef,
+    loadDirectoryPath,
+    now,
+    onProgress,
+    sessionId,
+    sessionIdRef,
+    setExpandedPaths,
+    yieldToBrowser,
+  } = args;
+  const initialPaths = getRootNodes()
+    .filter((node) => node.type === 'directory')
+    .map((node) => node.path);
+  const metrics = createEmptyExpandAllMetrics();
+
+  commitExpandedPathsBatch({
+    committedPaths,
+    paths: initialPaths,
+    setExpandedPaths,
+  });
+
+  const traversalSession = createDirectDirectoryTraversalSession(initialPaths, {
+    getDirectoryByPath: getNodeByPath,
+    isActive: () => isExpandingAllRef.current && sessionIdRef.current === sessionId,
+    loadDirectoryPath,
+    now,
+    onProgress,
+    ...batchConfig,
+  });
+
+  while (isExpandingAllRef.current && sessionIdRef.current === sessionId) {
+    const batchStartedAt = now();
+    const batch = await traversalSession.processNextBatch();
+    metrics.discoveryDurationMs += now() - batchStartedAt;
+
+    if (batch.cancelled) {
+      throw new DOMException('Operation aborted', 'AbortError');
+    }
+
+    metrics.batchCount += 1;
+    const commitStartedAt = now();
+    const committedBatch = commitExpandedPathsBatch({
+      committedPaths,
+      paths: batch.newlyDiscoveredPaths,
+      setExpandedPaths,
+    });
+    metrics.commitDurationMs += now() - commitStartedAt;
+    if (committedBatch) {
+      metrics.committedBatchCount += 1;
+    }
+
+    if (batch.complete) {
+      const finalSnapshot = traversalSession.snapshot();
+      return {
+        discoveredDirectories: finalSnapshot.discoveredPaths.size,
+        firstError: finalSnapshot.firstError,
+        metrics,
+      };
+    }
+
+    await yieldToBrowser();
+  }
+
+  throw new DOMException('Operation aborted', 'AbortError');
 }
 
 export interface ExpandAllState {
@@ -166,123 +264,153 @@ export interface ExpandAllState {
 }
 
 export interface UseExpandAllOptions {
-  /** Ref to handle map for rehydrating worker tree */
-  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
-  /** Callback when error occurs */
+  batchConfig?: ExpandAllBatchConfig;
+  cancelLoadOperations: () => void;
+  getNodeByPath: (path: string) => IFileNode | undefined;
+  getRootNodes: () => IFileNode[];
+  loadDirectoryPath: (path: string) => Promise<void>;
+  now?: () => number;
   onError?: (error: Error) => void;
-  /**
-   * Callback invoked when nodes are indexed after expand-all.
-   * Used by FileTreeIndex for incremental indexing.
-   * @param nodes - The root-level nodes (FileTreeIndex.addNodes is recursive)
-   * @param parentPath - Always null for expand-all (starts from root)
-   */
-  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
-  /** Callback when tree is updated after expand-all */
-  onTreeUpdate: (tree: IFileNode[]) => void;
-  /** Root folder ID for expand-all scope */
+  onProgress?: (loaded: number, total: number) => void;
   rootFolderId: string;
-  /** Ref to worker port for expand-all commands (use ref to get current value at call time) */
-  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
+  yieldToBrowser?: () => Promise<void>;
 }
 
 export interface UseExpandAllReturn {
-  /** Cancel expand-all operation */
   cancelExpandAll: () => void;
-  /** Start expand-all operation */
   expandAllProgressively: (
     setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
   ) => Promise<void>;
-  /** Whether expand-all is in progress */
   isExpandingAll: boolean;
-  /** Ref to check if expand-all is active (for use in effects) */
   isExpandingAllRef: React.RefObject<boolean>;
 }
 
-/**
- * Hook for managing expand-all operation.
- *
- * Orchestrates the expand-all process:
- * 1. Sends expandAll command to worker
- * 2. Worker requests directory loads as needed (handled by useFileTreeWorker)
- * 3. On completion, rehydrates tree with file handles
- * 4. Updates expanded paths in store
- *
- * @param options - Configuration options
- * @returns Expand-all state and controls
- */
 export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
-  const { workerPortRef, handleMapRef, rootFolderId, onTreeUpdate, onError, onNodesIndexed } =
-    options;
+  const {
+    batchConfig,
+    cancelLoadOperations,
+    getNodeByPath,
+    getRootNodes,
+    loadDirectoryPath,
+    now = defaultNow,
+    onError,
+    onProgress,
+    rootFolderId,
+    yieldToBrowser = defaultYieldToBrowser,
+  } = options;
 
-  // State
   const [state, setState] = useState<ExpandAllState>({
     isExpandingAll: false,
   });
 
-  // Guard against double-clicks
+  const maxBatchDurationMs = batchConfig?.maxBatchDurationMs;
+  const maxConcurrentLoads = batchConfig?.maxConcurrentLoads;
+  const maxDirectories = batchConfig?.maxDirectories;
+  const maxDirectoriesPerBatch = batchConfig?.maxDirectoriesPerBatch;
+
   const isExpandAllStartingRef = useRef(false);
-
-  // Ref for checking expand-all state in effects
   const isExpandingAllRef = useRef(false);
+  const sessionIdRef = useRef(0);
 
-  // Ref to store setExpandedPaths callback
-  const setExpandedPathsRef = useRef<
-    ((updater: (prev: Set<string>) => Set<string>) => void) | null
-  >(null);
-
-  /**
-   * Cancel expand-all operation.
-   */
   const cancelExpandAll = useCallback(() => {
-    workerPortRef.current?.abort();
-    isExpandAllStartingRef.current = false;
-    isExpandingAllRef.current = false;
-    setExpandedPathsRef.current = null;
+    sessionIdRef.current += 1;
+    cancelLoadOperations();
+    resetExpandAllOperation({
+      isExpandAllStartingRef,
+      isExpandingAllRef,
+    });
     setState({ isExpandingAll: false });
-  }, [workerPortRef]);
+  }, [cancelLoadOperations]);
 
-  /**
-   * Progressively expand all directories using the Web Worker.
-   *
-   * @param setExpandedPaths - Function to update expanded paths in the store
-   */
   const expandAllProgressively = useCallback(
     async (
       setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
     ): Promise<void> => {
-      // Get current values from refs at call time
-      const workerPort = workerPortRef.current;
-      const handleMap = handleMapRef.current;
-
-      // Check if we should skip (pre-flight checks)
-      const skipCheck = shouldSkipExpandAll(workerPort, isExpandAllStartingRef.current);
-      if (skipCheck.skip || !workerPort) {
+      const skipCheck = shouldSkipExpandAll(isExpandAllStartingRef.current);
+      if (skipCheck.skip) {
         if (skipCheck.reason) {
           logger.debug(`expandAllProgressively: ${skipCheck.reason}`);
         }
         return;
       }
 
-      // Set guards and state
-      isExpandAllStartingRef.current = true;
-      isExpandingAllRef.current = true;
-      setExpandedPathsRef.current = setExpandedPaths;
-      setState({ isExpandingAll: true });
+      beginExpandAllOperation({
+        isExpandAllStartingRef,
+        isExpandingAllRef,
+        setState,
+      });
+      const startedAt = now();
+      const sessionId = sessionIdRef.current + 1;
+      sessionIdRef.current = sessionId;
+
+      const committedPaths = new Set<string>();
 
       try {
-        const result = await workerPort.expandAll(rootFolderId);
-        processExpandResult(result, handleMap, setExpandedPaths, onTreeUpdate, onNodesIndexed);
+        const result = await runExpandAllSession({
+          batchConfig: buildExpandAllBatchConfig({
+            maxBatchDurationMs,
+            maxConcurrentLoads,
+            maxDirectories,
+            maxDirectoriesPerBatch,
+          }),
+          committedPaths,
+          getNodeByPath,
+          getRootNodes,
+          isExpandingAllRef,
+          loadDirectoryPath,
+          now,
+          onProgress,
+          sessionId,
+          sessionIdRef,
+          setExpandedPaths,
+          yieldToBrowser,
+        });
+        logExpandAllOutcome({
+          discoveredDirectories: result.discoveredDirectories,
+          metrics: result.metrics,
+          outcome: 'completed',
+          rootFolderId,
+          startedAt,
+          now,
+        });
+        if (result.firstError) {
+          handleExpandError(result.firstError, onError);
+        }
         setState({ isExpandingAll: false });
       } catch (err) {
+        if (isAbortError(err)) {
+          logExpandAllOutcome({
+            discoveredDirectories: committedPaths.size,
+            metrics: createEmptyExpandAllMetrics(),
+            outcome: 'cancelled',
+            rootFolderId,
+            startedAt,
+            now,
+          });
+        }
         handleExpandError(err, onError);
         setState({ isExpandingAll: false });
       } finally {
-        isExpandAllStartingRef.current = false;
-        isExpandingAllRef.current = false;
-        setExpandedPathsRef.current = null;
+        resetExpandAllOperation({
+          isExpandAllStartingRef,
+          isExpandingAllRef,
+        });
       }
     },
-    [workerPortRef, handleMapRef, rootFolderId, onTreeUpdate, onError, onNodesIndexed]
+    [
+      getNodeByPath,
+      getRootNodes,
+      loadDirectoryPath,
+      maxBatchDurationMs,
+      maxConcurrentLoads,
+      maxDirectories,
+      maxDirectoriesPerBatch,
+      now,
+      onError,
+      onProgress,
+      rootFolderId,
+      yieldToBrowser,
+    ]
   );
 
   return {

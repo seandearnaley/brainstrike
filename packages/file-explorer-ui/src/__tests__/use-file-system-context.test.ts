@@ -1,6 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileSystem } from '../use-file-system-context';
@@ -313,5 +314,102 @@ describe('useFileSystem context hook', () => {
     expect((thrown as Error).message).toBe(
       'An unexpected error occurred while selecting the directory. Please try again.'
     );
+  });
+
+  it('rehydrates persisted folder state when restoring a handle for the already-current folder id', () => {
+    const restoredHandle: DirectoryHandle = {
+      path: 'restored-root',
+      name: 'restored-root',
+      kind: 'directory',
+      platform: 'web',
+    } as DirectoryHandle;
+
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    act(() => {
+      result.current.store.setState({
+        currentFolderId: 'restored-root',
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          mode: 'explicit',
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+        folderStates: {
+          'restored-root': {
+            selectedFilePaths: new Set<string>(['restored-root|@|file-0.ts']),
+            selectionModel: {
+              mode: 'query',
+              explicitPaths: new Set<string>(),
+              ruleSetJson: null,
+              materializedPaths: new Set<string>(['file-0.ts']),
+              materializedAt: new Date().toISOString(),
+              queryDescriptor: {
+                kind: 'recursive-select-all',
+                folderId: 'restored-root',
+                rootPath: null,
+                coveredDirectoryPaths: [],
+                includeFilters: ['*.ts'],
+                excludeFilters: [],
+                includedPaths: [],
+                excludedPaths: [],
+                manifestFingerprint: 'fingerprint',
+                manifestSnapshotId: 'snapshot-id',
+                useRegex: false,
+                totalSelectedCount: 600,
+              },
+            },
+            expandedDirectoryPaths: new Set<string>(),
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: true,
+            tokenBudget: 100_000,
+            folderSummaryThreshold: 5,
+            maxSelectionCount: 1000,
+            lastActiveTab: 'files',
+            lastAccessed: Date.now(),
+            viewFilterPresetId: null,
+          },
+        },
+      });
+    });
+
+    act(() => {
+      result.current.fs.setRootDirectoryHandle(restoredHandle);
+    });
+
+    expect(result.current.store.getState().selectionModel.mode).toBe('query');
+    expect(result.current.store.getState().selectedFilePaths.size).toBe(1);
+  });
+
+  it('syncs an auto-restored root handle into the store', async () => {
+    const restoredHandle: DirectoryHandle = {
+      path: 'restored-root',
+      name: 'restored-root',
+      kind: 'directory',
+      platform: 'web',
+    } as DirectoryHandle;
+
+    const adapterWithRestore = Object.assign(new MockFileSystemAdapter(), {
+      restoreLastFolder: vi.fn(async () => restoredHandle),
+    });
+
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(FileExplorerTestWrapper, {
+        children,
+        mockFileSystemAdapter: adapterWithRestore,
+      });
+
+    const { result } = renderHook(() => useExposed(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.fs.rootDirectoryHandle).toEqual(restoredHandle);
+      expect(result.current.store.getState().rootDirectoryHandle).toEqual(restoredHandle);
+      expect(result.current.store.getState().currentFolderId).toBe('restored-root');
+    });
   });
 });

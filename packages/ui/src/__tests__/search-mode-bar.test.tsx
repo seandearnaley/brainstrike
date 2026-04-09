@@ -179,6 +179,33 @@ describe('SearchModeBar', () => {
     expect(wrapper).toHaveClass('custom-class');
   });
 
+  describe('single-line constraint for semantic query textarea', () => {
+    let scrollHeightSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      // Simulate content that would normally expand a multi-row textarea
+      scrollHeightSpy = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(200);
+    });
+
+    afterEach(() => {
+      scrollHeightSpy.mockRestore();
+    });
+
+    it('limits the semantic search textarea to a single row height even with large content', () => {
+      render(
+        <SearchModeBar
+          {...createProps({ semanticQuery: 'a very long query that\ncould span\nmultiple lines' })}
+        />
+      );
+
+      const textarea = screen.getByRole('textbox', { name: 'Semantic search query' });
+      // With maxRows=6 (before fix): calculatedMaxHeight = 120px → height = 120px
+      // With maxRows=1 (after fix):  calculatedMaxHeight = 36px  → height = 36px
+      const height = Number.parseInt((textarea as HTMLTextAreaElement).style.height, 10);
+      expect(height).toBeLessThanOrEqual(36);
+    });
+  });
+
   it('shows filter toggle and settings buttons', () => {
     render(<SearchModeBar {...createProps()} />);
 

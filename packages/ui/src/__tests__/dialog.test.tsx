@@ -145,4 +145,24 @@ describe('Dialog Component', () => {
     const contentElement = screen.getByText('Custom content').closest('[role="dialog"]');
     expect(contentElement).toHaveClass('custom-content-class');
   });
+
+  it('stacks dialog content above the overlay so primary actions receive pointer events', () => {
+    render(
+      <Dialog defaultOpen>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Stacking</DialogTitle>
+            <DialogDescription>Verify z-index</DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    );
+
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]');
+    expect(overlay).toBeTruthy();
+    expect(overlay?.className).toMatch(/\bz-50\b/);
+
+    const content = screen.getByRole('dialog');
+    expect(content.className).toContain('z-[51]');
+  });
 });

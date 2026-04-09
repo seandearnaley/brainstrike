@@ -226,6 +226,87 @@ describe('BulkActionBar', () => {
     expect(screen.getByRole('button', { name: 'Export All' })).toBeInTheDocument();
   });
 
+  it('renders action buttons with title attribute for discoverability', () => {
+    render(
+      <BulkActionBar
+        actions={mockActions}
+        nodeTypes={mockNodeTypes}
+        onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
+      />
+    );
+
+    const embedButton = screen.getByRole('button', { name: 'Embed' });
+    expect(embedButton).toHaveAttribute('title', 'Embed');
+  });
+
+  it('renders compact mode with action labels still present in DOM', () => {
+    render(
+      <BulkActionBar
+        actions={mockActions}
+        compact
+        nodeTypes={mockNodeTypes}
+        onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1', 'chunk-1'])}
+      />
+    );
+
+    // Buttons should still be findable and functional
+    expect(screen.getByText('Embed')).toBeInTheDocument();
+    expect(screen.getByText('Delete')).toBeInTheDocument();
+    expect(screen.getByText('Clear')).toBeInTheDocument();
+  });
+
+  it('uses compactLabel when compact mode is enabled', () => {
+    const actionsWithCompactLabel: BulkAction[] = [
+      {
+        id: 'remove',
+        label: 'Remove Selected from Project',
+        compactLabel: 'Remove',
+        onAction: vi.fn(),
+      },
+    ];
+
+    render(
+      <BulkActionBar
+        actions={actionsWithCompactLabel}
+        compact
+        nodeTypes={mockNodeTypes}
+        onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
+      />
+    );
+
+    // Should show compactLabel text, not full label
+    expect(screen.getByText('Remove')).toBeInTheDocument();
+    expect(screen.queryByText('Remove Selected from Project')).not.toBeInTheDocument();
+    // Full label should be in title attribute for discoverability
+    const button = screen.getByRole('button', { name: 'Remove' });
+    expect(button).toHaveAttribute('title', 'Remove Selected from Project');
+  });
+
+  it('falls back to label when compactLabel is not provided in compact mode', () => {
+    const actionsWithoutCompactLabel: BulkAction[] = [
+      {
+        id: 'export',
+        label: 'Export',
+        onAction: vi.fn(),
+      },
+    ];
+
+    render(
+      <BulkActionBar
+        actions={actionsWithoutCompactLabel}
+        compact
+        nodeTypes={mockNodeTypes}
+        onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
+      />
+    );
+
+    expect(screen.getByText('Export')).toBeInTheDocument();
+  });
+
   it('renders disabled actions correctly', () => {
     const actionsWithDisabled: BulkAction[] = [
       {

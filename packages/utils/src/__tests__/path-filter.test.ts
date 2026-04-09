@@ -204,6 +204,16 @@ describe('fileFilter', () => {
       expect(mockLogger.warn).toHaveBeenCalledTimes(invalidPatterns.length);
     });
 
+    it('rejects unsafe regex patterns that could cause pathological backtracking', () => {
+      mockLogger.warn.mockClear();
+
+      expect(fileFilter.matchRegex('aaaaaaaaaa!', '(a+)+$')).toBe(false);
+      expect(fileFilter.matchRegex('aaaaaaaaaa!', '\\1unsafe-backreference')).toBe(false);
+      expect(fileFilter.matchRegex('aaaaaaaaaa!', '(?<=unsafe-lookbehind)a+')).toBe(false);
+
+      expect(mockLogger.warn).toHaveBeenCalledTimes(3);
+    });
+
     it('should only warn once for repeated invalid regex patterns', () => {
       mockLogger.warn.mockClear();
 

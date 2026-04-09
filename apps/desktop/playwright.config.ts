@@ -1,10 +1,13 @@
 import {
   getCILaunchArgs,
   getEnvironmentConfig,
+  harmonizeColorEnvironment,
   logEnvironmentConfig,
   validateEnvironmentConfig,
 } from '@brainstrike/config/playwright-environment';
 import type { PlaywrightTestConfig } from '@playwright/test';
+
+harmonizeColorEnvironment();
 
 // Get environment configuration
 const config = getEnvironmentConfig();

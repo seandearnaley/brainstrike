@@ -15,7 +15,15 @@ import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   useFileExplorerStoreContext,
@@ -28,6 +36,21 @@ import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 import { getRootFolderId } from './utils/get-root-folder-id';
 
 const logger = createLogger('FileExplorerContext');
+
+const selectIncludeFilters = (state: FileExplorerState) => state.includeFilters;
+const selectExcludeFilters = (state: FileExplorerState) => state.excludeFilters;
+const selectUseRegex = (state: FileExplorerState) => state.useRegex;
+const selectSetFilters = (state: FileExplorerState) => state.setFilters;
+const selectSetUseRegex = (state: FileExplorerState) => state.setUseRegex;
+const selectClearFileContents = (state: FileExplorerState) => state.clearFileContents;
+const selectClearSelectedFiles = (state: FileExplorerState) => state.clearSelectedFiles;
+const selectSetExpandedPaths = (state: FileExplorerState) => state.setExpandedPaths;
+const selectSelectedFilePaths = (state: FileExplorerState) => state.selectedFilePaths;
+const selectExpandedDirectoryPaths = (state: FileExplorerState) => state.expandedDirectoryPaths;
+const selectIsAccessLoading = (state: FileExplorerState) => state.isAccessLoading;
+const selectSetIsAccessLoading = (state: FileExplorerState) => state.setIsAccessLoading;
+const selectDisabledIncludeFilters = (state: FileExplorerState) => state.disabledIncludeFilters;
+const selectDisabledExcludeFilters = (state: FileExplorerState) => state.disabledExcludeFilters;
 
 /**
  * Module-level lock for restoration to prevent concurrent runs.
@@ -208,7 +231,8 @@ interface UseFileExplorerReturn {
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number,
-    currentSelectionSize: number
+    currentSelectionSize: number,
+    currentDirectorySelectionSize?: number
   ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
   /**
    * Set the access loading state.
@@ -224,25 +248,6 @@ interface UseFileExplorerReturn {
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
-  // Split Zustand selectors and hoist them to avoid recreating selector lambdas per render
-  const selectIncludeFilters = (s: FileExplorerState) => s.includeFilters;
-  const selectExcludeFilters = (s: FileExplorerState) => s.excludeFilters;
-  const selectUseRegex = (s: FileExplorerState) => s.useRegex;
-  const selectSetFilters = (s: FileExplorerState) => s.setFilters;
-  const selectSetUseRegex = (s: FileExplorerState) => s.setUseRegex;
-  const selectClearFileContents = (s: FileExplorerState) => s.clearFileContents;
-  const selectClearSelectedFiles = (s: FileExplorerState) => s.clearSelectedFiles;
-  const selectSetExpandedPaths = (s: FileExplorerState) => s.setExpandedPaths;
-  // Subscribe to selection/expansion state for stale state detection
-  const selectSelectedFilePaths = (s: FileExplorerState) => s.selectedFilePaths;
-  const selectExpandedDirectoryPaths = (s: FileExplorerState) => s.expandedDirectoryPaths;
-  // Subscribe to isAccessLoading from store (shared across all components)
-  const selectIsAccessLoading = (s: FileExplorerState) => s.isAccessLoading;
-  const selectSetIsAccessLoading = (s: FileExplorerState) => s.setIsAccessLoading;
-  // Subscribe to disabled filter sets for toggle functionality
-  const selectDisabledIncludeFilters = (s: FileExplorerState) => s.disabledIncludeFilters;
-  const selectDisabledExcludeFilters = (s: FileExplorerState) => s.disabledExcludeFilters;
-
   const store = useFileExplorerStoreContext();
   const includeFilters = useFileExplorerStoreSelector(selectIncludeFilters);
   const excludeFilters = useFileExplorerStoreSelector(selectExcludeFilters);
@@ -437,7 +442,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const displayError = deriveDisplayError();
 
   // Initial load is when we have a root but tree is still loading
-  const isInitialLoad = !rootDirectoryHandle && isTreeLoading;
+  const isInitialLoad = Boolean(rootDirectoryHandle) && isTreeLoading;
   const currentRootFolderId = getRootFolderId(rootDirectoryHandle);
 
   // Track which folder we've already restored expanded paths for
@@ -446,18 +451,24 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const isRestoringRef = useRef(false);
   // Track the stale clearing timer ID so we can cancel it from outside the effect
   const staleClearingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentRootFolderIdRef = useRef<string | null>(currentRootFolderId);
   const restorationSkipReasonRef = useRef<string | null>(null);
   // State for restoration progress - exposed to UI for feedback
   const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
   const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
 
-  // CRITICAL: Cancel the stale clearing timer immediately when isAccessLoading becomes true.
-  // This runs synchronously on every render, ensuring the timer is cancelled before it can fire.
-  if (isAccessLoading && staleClearingTimerRef.current !== null) {
+  useLayoutEffect(() => {
+    currentRootFolderIdRef.current = currentRootFolderId;
+  }, [currentRootFolderId]);
+
+  useLayoutEffect(() => {
+    if (!(isAccessLoading && staleClearingTimerRef.current !== null)) {
+      return;
+    }
     logger.debug('Cancelling stale clearing timer - isAccessLoading became true');
     clearTimeout(staleClearingTimerRef.current);
     staleClearingTimerRef.current = null;
-  }
+  }, [isAccessLoading]);
 
   /**
    * Clear stale selection and expansion state when there's no root directory handle.
@@ -523,16 +534,29 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
         logger.debug('Skipping stale clearing - access loading now in progress (store check)');
         return;
       }
+      if (currentRootFolderIdRef.current) {
+        logger.debug('Skipping stale clearing - root directory restored before timer fired', {
+          folderId: currentRootFolderIdRef.current,
+        });
+        return;
+      }
+      if (getRootFolderId(currentStoreState.rootDirectoryHandle)) {
+        logger.debug('Skipping stale clearing - root directory handle restored before timer fired');
+        return;
+      }
+
+      const currentHasStaleSelection = currentStoreState.selectedFilePaths.size > 0;
+      const currentHasStaleExpansion = currentStoreState.expandedDirectoryPaths.size > 0;
 
       logger.info('Clearing stale file explorer state - no root directory handle', {
-        staleSelectedFiles: selectedFilePaths.size,
-        staleExpandedPaths: expandedDirectoryPaths.size,
+        staleSelectedFiles: currentStoreState.selectedFilePaths.size,
+        staleExpandedPaths: currentStoreState.expandedDirectoryPaths.size,
       });
 
-      if (hasStaleSelection) {
+      if (currentHasStaleSelection) {
         clearSelectedFiles();
       }
-      if (hasStaleExpansion) {
+      if (currentHasStaleExpansion) {
         setExpandedPaths(new Set());
       }
     }, 1500);
@@ -604,6 +628,10 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     const storeState = store.getState();
     const expandedPaths = storeState.expandedDirectoryPaths;
     const selectedFiles = storeState.selectedFilePaths;
+    const queryCoveredDirectories =
+      storeState.selectionModel.mode === 'query'
+        ? new Set(storeState.selectionModel.queryDescriptor?.coveredDirectoryPaths ?? [])
+        : new Set<string>();
 
     // BST-308/BST-310: Include ALL ancestor directories of selected files in restoration.
     // When files are restored from persistence, their ancestor directories must be loaded
@@ -615,13 +643,18 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     const parentDirectoriesOfSelectedFiles = getParentDirectoriesForSelectedFiles(selectedFiles);
 
     // Merge expanded paths with parent directories of selected files
-    const allPathsToRestore = new Set([...expandedPaths, ...parentDirectoriesOfSelectedFiles]);
+    const allPathsToRestore = new Set([
+      ...expandedPaths,
+      ...parentDirectoriesOfSelectedFiles,
+      ...queryCoveredDirectories,
+    ]);
 
     logger.debug('[Restoration Effect] Paths to restore', {
       folderId: currentRootFolderId,
       expandedPathCount: expandedPaths.size,
       selectedFileCount: selectedFiles.size,
       parentDirsOfSelectedFiles: parentDirectoriesOfSelectedFiles.size,
+      queryCoveredDirectoryCount: queryCoveredDirectories.size,
       totalPathsToRestore: allPathsToRestore.size,
       expandedPaths: [...expandedPaths].slice(0, 5),
       parentDirs: [...parentDirectoriesOfSelectedFiles].slice(0, 5),
@@ -668,6 +701,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
           const newExpandedPaths = new Set([
             ...currentExpandedPaths,
             ...parentDirectoriesOfSelectedFiles,
+            ...queryCoveredDirectories,
           ]);
           logger.debug('[Restoration Effect] Expanding parent directories of selected files', {
             count: parentDirectoriesOfSelectedFiles.size,

@@ -25,7 +25,15 @@ type StoreWithPersist<T> = UseBoundStoreWithEqualityFn<StoreApi<T>> & {
 };
 
 import * as React from 'react';
-import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import ActionButtons from './action-buttons-array-facade';
 import { RestoreAccessModal } from './components/restore-access-modal';
 import { TreeActionButtons } from './components/tree-action-buttons';
@@ -38,7 +46,6 @@ import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
-import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
 import { useRuleMaterialization } from './hooks/use-rule-materialization';
 import { RestorationStatus } from './restoration-status';
 import { SelectionCounter } from './selection-counter';
@@ -124,7 +131,6 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
   }
 }
 
-const EMPTY_DISPLAYED_FILES = new Set<string>();
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
 
@@ -135,7 +141,7 @@ interface FileExplorerTestSnapshot {
   rootDirectoryPath: string | null;
   selectedFilePathCount: number;
   selectedFilePathSamples: string[];
-  selectionMode: 'explicit' | 'rules';
+  selectionMode: 'explicit' | 'query' | 'rules';
   treeRootCount: number;
   treeSamples: Array<{
     childCount: number;
@@ -175,9 +181,10 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setUseRegex,
     currentFolderId,
     setCurrentFolderId,
+    hydrateFolderState,
     maxSelectionCount,
     setMaxSelectionCount,
-    devInlineFixtureEnabled,
+    _devInlineFixtureEnabled,
     setDevInlineFixtureEnabled,
     disabledIncludeFilters,
     disabledExcludeFilters,
@@ -194,6 +201,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.setUseRegex,
         s.currentFolderId,
         s.setCurrentFolderId,
+        s.hydrateFolderState,
         s.maxSelectionCount,
         s.setMaxSelectionCount,
         s.devInlineFixtureEnabled,
@@ -221,6 +229,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRulesEditorOpen, setIsRulesEditorOpen] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const previousRootFolderIdRef = useRef<string | null>(null);
 
   const {
     fileTree,
@@ -237,7 +246,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancellable,
     cancelOperation,
     isCancelling,
-    clearRootDirectory,
+    clearRootDirectory: _clearRootDirectory,
     setRootDirectoryHandle,
     loadingPaths,
     loadChildren,
@@ -270,13 +279,24 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // CRITICAL: Block stale clearing effect as soon as restore modal becomes visible.
   // The stale clearing effect runs after 1500ms if no rootDirectoryHandle exists.
   // If we wait until the user clicks "Restore Access" to set isAccessLoading,
-  // the expanded paths will already have been cleared by then.
-  // biome-ignore lint/plugin: setAccessLoading is a stable Zustand action - calling it conditionally on restore state is intentional
+  // the expanded paths will already have been cleared by then. Also block stale
+  // clearing while we are still checking IndexedDB for stored handles.
   useEffect(() => {
-    if (pendingRestore || showDeniedBanner || showStaleBanner) {
+    if (isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner) {
       setAccessLoading(true);
+      return;
     }
-  }, [pendingRestore, showDeniedBanner, showStaleBanner, setAccessLoading]);
+    if (!rootDirectoryHandle) {
+      setAccessLoading(false);
+    }
+  }, [
+    isCheckingStoredHandles,
+    pendingRestore,
+    showDeniedBanner,
+    showStaleBanner,
+    rootDirectoryHandle,
+    setAccessLoading,
+  ]);
 
   const {
     showToast,
@@ -288,19 +308,26 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   // Get store actions for recursive folder selection
   const addMultipleSelectedFiles = useFileExplorerStoreSelector((s) => s.addMultipleSelectedFiles);
-  const selectedFilePaths = useFileExplorerStoreSelector((s) => s.selectedFilePaths);
+  const { selectedCount, selectedFilePaths, selectedFilesList, setSelectedFilesFromList } =
+    useSelectionManager({
+      onSelectionLimitExceeded: handleSelectionLimitError,
+    });
 
   // Wrapper for recursive folder selection that binds store actions
   // This allows FileExplorerSidebar to call with just the node
   const handleSelectFolderRecursively = useCallback(
     async (node: IFileNode) => {
       const folderId = getRootFolderId(rootDirectoryHandle) ?? currentFolderId ?? '';
+      const selectedDescendantCount = selectedFilesList.filter((selectionKey) =>
+        selectionKey.startsWith(`${folderId}|@|${node.path}/`)
+      ).length;
       return selectFolderRecursively(
         node,
         folderId,
         addMultipleSelectedFiles,
         maxSelectionCount,
-        selectedFilePaths.size
+        selectedCount,
+        selectedDescendantCount
       );
     },
     [
@@ -309,33 +336,10 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       currentFolderId,
       addMultipleSelectedFiles,
       maxSelectionCount,
-      selectedFilePaths,
+      selectedCount,
+      selectedFilesList,
     ]
   );
-
-  const { selectedFilesList, setSelectedFilesFromList } = useSelectionManager({
-    onSelectionLimitExceeded: handleSelectionLimitError,
-  });
-
-  // Inline fixture state management - extracted to reduce component complexity
-  // The hook manages side effects for inline fixture mode (dev only).
-  // Settings UI has moved to the main Settings page, so we don't need the return values here.
-  useInlineFixtureEffect({
-    fileSystemAdapter,
-    devInlineFixtureEnabled,
-    setDevInlineFixtureEnabled,
-    setRootDirectoryHandle,
-    clearRootDirectory,
-    showToast,
-    strings: {
-      successTitle: FileExplorerStrings.success.title,
-      errorTitle: FileExplorerStrings.error.title,
-      enableSuccess: FileExplorerStrings.inlineFixture.enableSuccess,
-      disableSuccess: FileExplorerStrings.inlineFixture.disableSuccess,
-      enableError: FileExplorerStrings.inlineFixture.enableError,
-      disableError: FileExplorerStrings.inlineFixture.disableError,
-    },
-  });
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
@@ -358,28 +362,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // Get selection model for rules-based mode token counting and display
   const selectionModel = useFileExplorerStoreSelector((s) => s.selectionModel);
 
-  // Background token indexing - processes selected files off the main thread
-  // IMPORTANT: Convert materializedPaths to composite keys when in rules mode
-  // The indexer expects composite keys (folderId|@|path format), not relative paths
-  const selectedFilesSet = useMemo(() => {
-    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths && currentFolderId) {
-      const compositeKeys = new Set<string>();
-      for (const relativePath of selectionModel.materializedPaths) {
-        compositeKeys.add(encodeFileSelection(currentFolderId, relativePath));
-      }
-      return compositeKeys;
-    }
-    return new Set(selectedFilesList);
-  }, [selectionModel.mode, selectionModel.materializedPaths, currentFolderId, selectedFilesList]);
-
-  // Selection count - mode-aware for display purposes
-  const selectedCount = useMemo(() => {
-    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths) {
-      return selectionModel.materializedPaths.size;
-    }
-    return selectedFilesList.length;
-  }, [selectionModel.mode, selectionModel.materializedPaths, selectedFilesList]);
-
   const largeSelectionDiagnosticSignatureRef = React.useRef<string | null>(null);
 
   useEffect(() => {
@@ -388,22 +370,24 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     }
 
     window.__brainstrikeFileExplorerTestHooks__ = {
-      getSnapshot: () => ({
-        currentFolderId,
-        rootDirectoryPath: rootDirectoryHandle?.path ?? null,
-        selectionMode: selectionModel.mode,
-        selectedFilePathCount: selectedFilePaths.size,
-        selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
-        materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
-        materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
-        treeRootCount: stableFileTree.length,
-        treeSamples: stableFileTree.slice(0, 5).map((node) => ({
-          path: node.path,
-          type: node.type,
-          rootFolderId: node.rootFolderId ?? null,
-          childCount: node.children?.length ?? 0,
-        })),
-      }),
+      getSnapshot: () => {
+        return {
+          currentFolderId,
+          rootDirectoryPath: rootDirectoryHandle?.path ?? null,
+          selectionMode: selectionModel.mode,
+          selectedFilePathCount: selectedFilePaths.size,
+          selectedFilePathSamples: Array.from(selectedFilePaths).slice(0, 5),
+          materializedPathCount: selectionModel.materializedPaths?.size ?? 0,
+          materializedPathSamples: Array.from(selectionModel.materializedPaths ?? []).slice(0, 5),
+          treeRootCount: stableFileTree.length,
+          treeSamples: stableFileTree.slice(0, 5).map((node) => ({
+            path: node.path,
+            type: node.type,
+            rootFolderId: node.rootFolderId ?? null,
+            childCount: node.children?.length ?? 0,
+          })),
+        };
+      },
     };
 
     return () => {
@@ -429,7 +413,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // This hook automatically indexes selected files when TokenCacheProvider is present
   useBackgroundTokenIndexerIntegration({
     fileTree: stableFileTree,
-    selectedFiles: selectedFilesSet,
+    selectedFiles: selectedFilePaths,
     electronFileReader,
   });
 
@@ -463,6 +447,14 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     return filterTreeByPatterns(stableFileTree, includesLower, excludesLower);
   }, [deferredQuickFilter, stableFileTree]);
 
+  const visibleFilePaths = useMemo(() => {
+    const visible = new Set<string>();
+    if (quickFilteredTree) {
+      collectVisibleFiles(quickFilteredTree, visible);
+    }
+    return Array.from(visible);
+  }, [quickFilteredTree]);
+
   // displayedFiles are only needed by the legacy "fallback select-all" path.
   // In desktop, recursive select-all should always be available and this stays false.
   // Keep a runtime capability check so tests and non-desktop adapters can still exercise fallback.
@@ -471,22 +463,12 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     typeof (addMultipleSelectedFiles as unknown) === 'function';
   const useFallbackDisplayedFiles = !hasRecursiveSelectAll;
 
-  const displayedFiles = useMemo(() => {
-    if (!useFallbackDisplayedFiles) {
-      return EMPTY_DISPLAYED_FILES;
-    }
-    const visible = new Set<string>();
-    if (quickFilteredTree) {
-      collectVisibleFiles(quickFilteredTree, visible);
-    }
-    return visible;
-  }, [quickFilteredTree, useFallbackDisplayedFiles]);
   const displayedFileList = useMemo(() => {
     if (!useFallbackDisplayedFiles) {
       return EMPTY_DISPLAYED_FILE_LIST;
     }
-    return Array.from(displayedFiles);
-  }, [displayedFiles, useFallbackDisplayedFiles]);
+    return visibleFilePaths;
+  }, [visibleFilePaths, useFallbackDisplayedFiles]);
 
   useEffect(() => {
     const materializedPathCount = selectionModel.materializedPaths?.size ?? 0;
@@ -504,7 +486,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       selectionModel.mode,
       currentFolderId ?? 'none',
       selectedCount,
-      selectedFilesSet.size,
       selectedFilePaths.size,
       materializedPathCount,
       treeRootCount,
@@ -520,7 +501,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       selectionMode: selectionModel.mode,
       currentFolderId,
       selectedCount,
-      selectedFilesSetCount: selectedFilesSet.size,
       selectedFilePathsCount: selectedFilePaths.size,
       materializedPathCount,
       treeRootCount,
@@ -545,7 +525,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     quickFilteredTree,
     selectedCount,
     selectedFilePaths,
-    selectedFilesSet,
     selectionModel.materializedPaths,
     selectionModel.mode,
     stableFileTree.length,
@@ -574,6 +553,18 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const handleDirectorySelect = useCallback(async () => {
     const { supported, reason } = isFileSystemAccessSupported();
     if (!supported) {
+      // Fall back to inline fixture demo mode when the directory picker is unavailable.
+      // Check for loadInlineFixture to detect a fixture-capable adapter without importing
+      // from @brainstrike/file-system (avoids circular dep in this package boundary).
+      const adapterAsFixture = fileSystemAdapter as { loadInlineFixture?: unknown };
+      if (typeof adapterAsFixture.loadInlineFixture === 'function') {
+        setDevInlineFixtureEnabled(true);
+        showToast({
+          title: FileExplorerStrings.inlineFixture.noAccessFallbackTitle,
+          description: FileExplorerStrings.inlineFixture.noAccessFallbackDescription,
+        });
+        return;
+      }
       handleBrowserCompatibilityError(reason);
       return;
     }
@@ -593,6 +584,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
     isFileSystemAccessSupported,
+    fileSystemAdapter,
+    setDevInlineFixtureEnabled,
+    showToast,
   ]);
 
   const handleFilterChange = useCallback(
@@ -616,12 +610,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         });
         return;
       }
+      const previousRootFolderId = previousRootFolderIdRef.current;
+      previousRootFolderIdRef.current = id;
       const currentState = store.getState();
       if (currentState.currentFolderId !== id) {
         // set id synchronously (no extra async)
         setCurrentFolderId(id);
+      } else if (previousRootFolderId === null && currentState.folderStates[id]) {
+        // Rehydrate the persisted folder state when the root handle is restored after
+        // top-level selection state may have been cleared during the no-handle window.
+        hydrateFolderState(id);
       }
     } else {
+      previousRootFolderIdRef.current = null;
       // CRITICAL: Don't clear currentFolderId if we're waiting for restore access.
       // When the page loads with stored handles but no permission yet, we need to
       // preserve the currentFolderId so that the per-folder expandedDirectoryPaths
@@ -639,6 +640,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [
     rootDirectoryHandle,
     setCurrentFolderId,
+    hydrateFolderState,
     store,
     isCheckingStoredHandles,
     pendingRestore,
@@ -664,6 +666,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
         const currentPaths = store.getState().expandedDirectoryPaths;
         const newPaths = updater(currentPaths);
+        if (newPaths === currentPaths) {
+          return;
+        }
         store.getState().setExpandedPaths(newPaths);
       };
       void expandAllProgressively(setExpandedPaths);
@@ -836,13 +841,15 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
               filteredTree={quickFilteredTree ?? []}
+              hasActiveQuickFilter={deferredQuickFilter.trim().length > 0}
               hasFilesInTree={fileTree.length > 0}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
-              onSelectionLimitExceeded={() => {}}
+              onSelectionLimitExceeded={handleSelectionLimitError}
               selectAllRecursively={selectAllRecursively}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}
+              visibleFilePaths={visibleFilePaths}
             />
             {/* Selection controls - mode toggle and count */}
             <div className="flex items-center gap-2">

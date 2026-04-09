@@ -135,7 +135,7 @@ export function installElectronModuleMocks(parts?: {
   const contextBridge = parts?.contextBridge ?? createContextBridgeMock();
   const screen = parts?.screen ?? createScreenMock();
 
-  vi.mock('electron', () => ({
+  vi.doMock('electron', () => ({
     app,
     ipcMain,
     ipcRenderer,

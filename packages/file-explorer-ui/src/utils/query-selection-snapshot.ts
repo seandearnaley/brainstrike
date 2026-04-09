@@ -1,0 +1,162 @@
+import type { DbHandle } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/utils/logger';
+
+import { defaultCollator } from './file-node-collator';
+
+const QUERY_SELECTION_SNAPSHOT_TTL_HOURS = 24;
+const SNAPSHOT_WRITE_TIMEOUT_MS = 30_000;
+const logger = createLogger('QuerySelectionSnapshot');
+const snapshotWriteLocks = new WeakMap<object, { tail: Promise<void> }>();
+
+interface QueryResultRow {
+  filePath?: string;
+  id?: string;
+}
+
+function normalizeSnapshotRows(rows: unknown[]): string[] {
+  return rows
+    .map((row) => {
+      if (!(row && typeof row === 'object')) {
+        return undefined;
+      }
+      const filePath = (row as Record<string, unknown>)['file_path'];
+      return typeof filePath === 'string' ? filePath : (row as QueryResultRow).filePath;
+    })
+    .filter((value): value is string => typeof value === 'string')
+    .sort(defaultCollator.compare);
+}
+
+function createTimeoutError(message: string): Error {
+  return new Error(message);
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(createTimeoutError(message));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+export function primeSerializedSnapshotWriteLockForTests(db: DbHandle, tail: Promise<void>): void {
+  snapshotWriteLocks.set(db as object, { tail });
+}
+
+export async function withSerializedSnapshotWrite<T>(
+  db: DbHandle,
+  operation: () => Promise<T>
+): Promise<T> {
+  const lockEntry = snapshotWriteLocks.get(db as object) ?? {
+    tail: Promise.resolve(),
+  };
+  snapshotWriteLocks.set(db as object, lockEntry);
+
+  const priorLock = lockEntry.tail.catch(() => undefined);
+  let releaseLock: () => void = () => {};
+  const nextLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  lockEntry.tail = priorLock.then(() => nextLock);
+
+  try {
+    await withTimeout(
+      priorLock,
+      SNAPSHOT_WRITE_TIMEOUT_MS,
+      'Selection snapshot write lock timed out'
+    );
+    return await withTimeout(
+      operation(),
+      SNAPSHOT_WRITE_TIMEOUT_MS,
+      'Selection snapshot write timed out'
+    );
+  } finally {
+    releaseLock();
+  }
+}
+
+export async function createQuerySelectionSnapshot(
+  db: DbHandle | null,
+  filePaths: readonly string[]
+): Promise<string | null> {
+  if (!(db && filePaths.length > 0)) {
+    return null;
+  }
+
+  return withSerializedSnapshotWrite(db, async () => {
+    await db.query('BEGIN');
+    try {
+      await db.query(
+        `DELETE FROM selection_snapshots
+         WHERE expires_at IS NOT NULL
+           AND expires_at <= NOW()`
+      );
+
+      const snapshotResult = (await db.query(
+        `INSERT INTO selection_snapshots (expires_at)
+         VALUES (NOW() + ($1::int * INTERVAL '1 hour'))
+         RETURNING id`,
+        [QUERY_SELECTION_SNAPSHOT_TTL_HOURS]
+      )) as { rows: QueryResultRow[] };
+      const snapshotId = snapshotResult.rows[0]?.id;
+      if (!snapshotId) {
+        logger.error('Selection snapshot insert did not return an id');
+        throw new Error('Selection snapshot insert did not return an id');
+      }
+
+      await db.query(
+        `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
+         SELECT $1, UNNEST($2::text[])`,
+        [snapshotId, Array.from(filePaths)]
+      );
+
+      await db.query('COMMIT');
+      return snapshotId;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === 'Selection snapshot write timed out' ||
+          error.message === 'Selection snapshot write lock timed out')
+      ) {
+        logger.warn('Selection snapshot write timed out', { errorMessage: error.message });
+      }
+      try {
+        await db.query('ROLLBACK');
+      } catch (rollbackError) {
+        logger.warn('Selection snapshot rollback failed', { rollbackError });
+      }
+      throw error;
+    }
+  });
+}
+
+export async function loadQuerySelectionSnapshot(
+  db: DbHandle | null,
+  snapshotId: string
+): Promise<string[]> {
+  if (!db) {
+    return [];
+  }
+
+  const result = (await db.query(
+    `SELECT ssf.file_path
+     FROM selection_snapshot_files ssf
+     JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id
+     WHERE ssf.snapshot_id = $1
+       AND (ss.expires_at IS NULL OR ss.expires_at > NOW())
+     ORDER BY file_path ASC`,
+    [snapshotId]
+  )) as { rows: QueryResultRow[] };
+
+  return normalizeSnapshotRows(result.rows);
+}

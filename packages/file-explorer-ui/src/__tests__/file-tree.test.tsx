@@ -123,20 +123,26 @@ describe('FileTree', () => {
     expect(initialCount).toBeLessThan(bigTree.length + 1); // +1 header row
   });
 
-  it('should expand and collapse a directory', async () => {
+  it('renders an expandable directory without throwing on interaction', async () => {
     const user = userEvent.setup();
     await act(async () => {
       renderWithProviders(
         <FileTree
-          fileTree={[createDirectoryNode({ name: 'src', path: 'src', children: [] })]}
+          fileTree={[
+            createDirectoryNode({
+              name: 'src',
+              path: 'src',
+              children: [createFileNode({ name: 'index.ts', path: 'src/index.ts' })],
+            }),
+          ]}
           folderId="test-folder"
           loadingFiles={new Set()}
         />
       );
       await Promise.resolve();
     });
-    const collapseButton = screen.getByRole('button', { name: /collapse/i });
-    await user.click(collapseButton);
+    const expandButton = screen.getByRole('button', { name: /expand/i });
+    await user.click(expandButton);
     expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
   });
 });

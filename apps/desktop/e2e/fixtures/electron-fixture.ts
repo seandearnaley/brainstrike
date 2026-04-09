@@ -93,6 +93,14 @@ class ElectronHarness {
     }
 
     const { reloadRenderer, resetAppState, waitForAppReady } = await loadElectronHelpers();
+    await page.addInitScript(() => {
+      (
+        window as Window & {
+          // biome-ignore lint/style/useNamingConvention: Test-only global flag uses double underscores by convention
+          __brainstrike_e2e_expose_file_explorer_store__?: boolean;
+        }
+      ).__brainstrike_e2e_expose_file_explorer_store__ = true;
+    });
     await waitForAppReady(page);
 
     let resetTriggeredNavigation = false;

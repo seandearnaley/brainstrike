@@ -1,24 +1,11 @@
-/**
- * Tests for the useRecursiveSelectAll hook.
- *
- * Coverage includes:
- * - Fast path (fully loaded tree)
- * - Slow path (tree needs loading)
- * - Mixed loaded/unloaded directories
- * - Cancellation during worker load
- * - Double-click guard (rapid clicks)
- * - Behavior when filterTreeFn is undefined
- * - Partial failure handling in loadSubtree
- */
-
-import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
-import type { IFileNode } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useRecursiveSelectAll } from '../../hooks/use-recursive-select-all';
-import type { FileSystemHandle } from '../../utils/worker-node-conversion';
 
-// Mock the hooks module
+import { useRecursiveSelectAll } from '../../hooks/use-recursive-select-all';
+
+let mockStoreState: Record<string, unknown> | null = null;
+
 vi.mock('@brainstrike/hooks', () => ({
   useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
     callback,
@@ -27,14 +14,32 @@ vi.mock('@brainstrike/hooks', () => ({
   }),
 }));
 
-// Mock the file explorer provider - optional context
-vi.mock('../../file-explorer-provider', () => ({
-  useOptionalFileExplorerStoreContext: () => null,
-  useOptionalFileExplorerStoreSelector: (_selector: unknown, fallbackValue: unknown) =>
-    fallbackValue,
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useAdapters: () => ({
+    storageAdapter: {
+      getItem: vi.fn(),
+      setItem: vi.fn(async () => undefined),
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+      getAllKeys: vi.fn(),
+    },
+  }),
 }));
 
-// Mock the logger to avoid noise in tests
+vi.mock('../../file-explorer-provider', () => ({
+  useOptionalFileExplorerStoreContext: () => (mockStoreState ? {} : null),
+  useOptionalFileExplorerStoreSelector: (
+    selector: ((state: Record<string, unknown>) => unknown) | unknown,
+    fallbackValue: unknown
+  ) => {
+    if (!(mockStoreState && typeof selector === 'function')) {
+      return fallbackValue;
+    }
+    const selectedValue = selector(mockStoreState);
+    return selectedValue === undefined ? fallbackValue : selectedValue;
+  },
+}));
+
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();
   return {
@@ -48,1029 +53,463 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   };
 });
 
-// Helper to create a mock worker port
-function createMockWorkerPort(options?: {
-  loadSubtreeDelay?: number;
-  loadSubtreeError?: Error;
-  loadSubtreeResults?: Map<
-    string,
-    { tree: WorkerFileNode[]; expandedPaths: string[]; loadedCount: number }
-  >;
-}): FileTreeWorkerPort {
-  const progressCallbacks: Array<(loaded: number, total: number) => void> = [];
-
-  return {
-    loadSubtree: vi.fn(async (path: string) => {
-      if (options?.loadSubtreeDelay) {
-        await new Promise((resolve) => setTimeout(resolve, options.loadSubtreeDelay));
-      }
-      if (options?.loadSubtreeError) {
-        throw options.loadSubtreeError;
-      }
-      if (options?.loadSubtreeResults?.has(path)) {
-        return options.loadSubtreeResults.get(path)!;
-      }
-      // Default result
-      return {
-        tree: [],
-        expandedPaths: [path],
-        loadedCount: 1,
-      };
-    }),
-    abort: vi.fn(),
-    onProgress: vi.fn((callback) => {
-      progressCallbacks.push(callback);
-      return () => {
-        const index = progressCallbacks.indexOf(callback);
-        if (index >= 0) {
-          progressCallbacks.splice(index, 1);
-        }
-      };
-    }),
-    triggerProgress: (loaded: number, total: number) => {
-      for (const cb of progressCallbacks) {
-        cb(loaded, total);
-      }
-    },
-  } as unknown as FileTreeWorkerPort & { triggerProgress: (loaded: number, total: number) => void };
-}
-
-// Helper to create mock file nodes (IFileNode)
-function createMockFileNode(
+function createFileNode(
   overrides: Partial<IFileNode> & { name: string; path: string; type: 'file' | 'directory' }
 ): IFileNode {
   return {
-    handle: {} as FileSystemFileHandle,
+    handle:
+      overrides.type === 'directory'
+        ? ({} as FileSystemDirectoryHandle)
+        : ({} as FileSystemFileHandle),
     depth: 0,
     selectionState: 'unchecked',
     rootFolderId: 'folder-1',
     loadState: 'loaded',
+    isVisible: true,
     ...overrides,
   };
 }
 
-// Helper to create mock worker file nodes (WorkerFileNode - for loadSubtree results)
-function createMockWorkerFileNode(
-  overrides: Partial<WorkerFileNode> & { name: string; path: string; type: 'file' | 'directory' }
-): WorkerFileNode {
+function createMockAdapter(directoryMap: Record<string, IFileNode[]>): FileSystemAdapter {
+  const readDirectory = vi.fn(async (handle: DirectoryHandle) => directoryMap[handle.path] ?? []);
+
   return {
-    depth: 0,
-    rootFolderId: 'folder-1',
-    loadState: 'loaded',
-    ...overrides,
-  };
+    requestDirectoryAccess: vi.fn(),
+    readDirectory,
+    readFile: vi.fn(),
+    exists: vi.fn(),
+  } as unknown as FileSystemAdapter;
 }
 
-// Helper to create a fully loaded tree
-function createFullyLoadedTree(): IFileNode[] {
+function createLoadedTree(): IFileNode[] {
   return [
-    createMockFileNode({
+    createFileNode({
       name: 'src',
       path: '/src',
       type: 'directory',
-      loadState: 'loaded',
       children: [
-        createMockFileNode({
-          name: 'file1.ts',
-          path: '/src/file1.ts',
-          type: 'file',
-          depth: 1,
-        }),
-        createMockFileNode({
-          name: 'file2.ts',
-          path: '/src/file2.ts',
-          type: 'file',
-          depth: 1,
-        }),
+        createFileNode({ name: 'index.ts', path: '/src/index.ts', type: 'file', depth: 1 }),
+        createFileNode({ name: 'utils.ts', path: '/src/utils.ts', type: 'file', depth: 1 }),
       ],
     }),
-    createMockFileNode({
-      name: 'README.md',
-      path: '/README.md',
-      type: 'file',
-    }),
+    createFileNode({ name: 'README.md', path: '/README.md', type: 'file' }),
   ];
 }
 
-// Helper to create a tree with unloaded directories
 function createPartiallyLoadedTree(): IFileNode[] {
   return [
-    createMockFileNode({
+    createFileNode({
       name: 'src',
       path: '/src',
       type: 'directory',
       loadState: 'unloaded',
       children: [],
     }),
-    createMockFileNode({
-      name: 'tests',
-      path: '/tests',
-      type: 'directory',
-      loadState: 'loaded',
-      children: [
-        createMockFileNode({
-          name: 'test1.ts',
-          path: '/tests/test1.ts',
-          type: 'file',
-          depth: 1,
-        }),
-      ],
-    }),
-    createMockFileNode({
-      name: 'README.md',
-      path: '/README.md',
+    createFileNode({
+      name: 'notes.md',
+      path: '/notes.md',
       type: 'file',
     }),
   ];
 }
 
-// Helper to create a mixed tree (some loaded, some unloaded subdirectories)
-function createMixedLoadedTree(): IFileNode[] {
-  return [
-    createMockFileNode({
-      name: 'src',
-      path: '/src',
-      type: 'directory',
-      loadState: 'loaded',
-      children: [
-        createMockFileNode({
-          name: 'utils',
-          path: '/src/utils',
-          type: 'directory',
-          loadState: 'unloaded',
-          depth: 1,
-          children: [],
-        }),
-        createMockFileNode({
-          name: 'index.ts',
-          path: '/src/index.ts',
-          type: 'file',
-          depth: 1,
-        }),
-      ],
-    }),
-  ];
-}
-
 describe('useRecursiveSelectAll', () => {
-  const mockOnTreeUpdate = vi.fn();
-  const mockOnError = vi.fn();
-  const mockAddMultipleSelectedFiles = vi.fn();
+  const onTreeUpdate = vi.fn();
+  const onError = vi.fn();
+  const addMultipleSelectedFiles = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStoreState = null;
   });
 
-  describe('fast path - fully loaded tree', () => {
-    it('should select all files immediately when tree is fully loaded', async () => {
-      const workerPort = createMockWorkerPort();
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
+  it('selects all visible files from loaded roots without adapter reads', async () => {
+    const currentTree = createLoadedTree();
+    const fileSystemAdapter = createMockAdapter({});
 
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-          onError: mockOnError,
-        })
-      );
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+        onError,
+      })
+    );
 
-      const tree = createFullyLoadedTree();
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
 
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
+    expect(selectionResult.success).toBe(true);
+    expect(selectionResult.filePaths).toEqual(['/src/index.ts', '/src/utils.ts', '/README.md']);
+    expect(addMultipleSelectedFiles).toHaveBeenCalledWith('folder-1', [
+      '/src/index.ts',
+      '/src/utils.ts',
+      '/README.md',
+    ]);
+    expect(fileSystemAdapter.readDirectory).not.toHaveBeenCalled();
+    expect(onTreeUpdate).toHaveBeenCalledWith(currentTree);
+  });
 
-      expect(selectResult!.success).toBe(true);
-      expect(selectResult!.filePaths).toHaveLength(3);
-      expect(selectResult!.filePaths).toContain('/src/file1.ts');
-      expect(selectResult!.filePaths).toContain('/src/file2.ts');
-      expect(selectResult!.filePaths).toContain('/README.md');
-      expect(mockAddMultipleSelectedFiles).toHaveBeenCalledWith('folder-1', expect.any(Array));
+  it('respects visibility and maxSelectionCount in the canonical query path', async () => {
+    const currentTree: IFileNode[] = [
+      createFileNode({ name: 'a.ts', path: '/a.ts', type: 'file', isVisible: true }),
+      createFileNode({ name: 'b.ts', path: '/b.ts', type: 'file', isVisible: false }),
+      createFileNode({ name: 'c.ts', path: '/c.ts', type: 'file', isVisible: true }),
+    ];
 
-      // Worker should not be called for fully loaded tree
-      expect(workerPort.loadSubtree).not.toHaveBeenCalled();
-    });
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter: createMockAdapter({}),
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
 
-    it('should respect maxSelectionCount in fast path', async () => {
-      const workerPortRef = { current: createMockWorkerPort() };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 1)
+    );
 
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
+    expect(selectionResult.filePaths).toEqual(['/a.ts']);
+    expect(selectionResult.totalAvailable).toBe(1);
+  });
 
-      const tree = createFullyLoadedTree();
-
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          2
-        );
-      });
-
-      expect(selectResult!.success).toBe(true);
-      expect(selectResult!.filePaths).toHaveLength(2);
-      // Note: With early exit optimization for memory efficiency, we can't accurately
-      // determine limitReached or totalAvailable since we stop traversing at maxSelectionCount
-      expect(selectResult!.totalAvailable).toBe(2);
-    });
-
-    it('should exclude files with isVisible=false', async () => {
-      const workerPortRef = { current: createMockWorkerPort() };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      const tree: IFileNode[] = [
-        createMockFileNode({
-          name: 'visible.ts',
-          path: '/visible.ts',
+  it('reads unloaded directories from the adapter without mutating tree state for selection', async () => {
+    const currentTree = createPartiallyLoadedTree();
+    const fileSystemAdapter = createMockAdapter({
+      '/src': [
+        createFileNode({ name: 'main.ts', path: '/src/main.ts', type: 'file', depth: 1 }),
+        createFileNode({
+          name: 'nested',
+          path: '/src/nested',
+          type: 'directory',
+          depth: 1,
+          loadState: 'unloaded',
+          children: [],
+        }),
+      ],
+      '/src/nested': [
+        createFileNode({
+          name: 'deep.ts',
+          path: '/src/nested/deep.ts',
           type: 'file',
-          isVisible: true,
+          depth: 2,
         }),
-        createMockFileNode({
-          name: 'hidden.ts',
-          path: '/hidden.ts',
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
+
+    expect(fileSystemAdapter.readDirectory).toHaveBeenCalledTimes(2);
+    expect(selectionResult.filePaths).toEqual(['/notes.md', '/src/main.ts', '/src/nested/deep.ts']);
+    expect(currentTree[0]?.loadState).toBe('unloaded');
+  });
+
+  it('commits full-result recursive select-all through query selection even for small trees', async () => {
+    const currentTree = createPartiallyLoadedTree();
+    const setQuerySelection = vi.fn();
+    mockStoreState = {
+      setQuerySelection,
+    };
+    const fileSystemAdapter = createMockAdapter({
+      '/src': [
+        createFileNode({ name: 'main.ts', path: '/src/main.ts', type: 'file', depth: 1 }),
+        createFileNode({
+          name: 'nested',
+          path: '/src/nested',
+          type: 'directory',
+          depth: 1,
+          loadState: 'unloaded',
+          children: [],
+        }),
+      ],
+      '/src/nested': [
+        createFileNode({
+          name: 'deep.ts',
+          path: '/src/nested/deep.ts',
           type: 'file',
-          isVisible: false,
+          depth: 2,
         }),
-      ];
+      ],
+    });
 
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
 
-      expect(selectResult!.filePaths).toHaveLength(1);
-      expect(selectResult!.filePaths).toContain('/visible.ts');
-      expect(selectResult!.filePaths).not.toContain('/hidden.ts');
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
+
+    expect(selectionResult.success).toBe(true);
+    expect(selectionResult.filePaths).toEqual(['/notes.md', '/src/main.ts', '/src/nested/deep.ts']);
+    expect(setQuerySelection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'recursive-select-all',
+        folderId: 'folder-1',
+        rootPath: null,
+        coveredDirectoryPaths: ['/src', '/src/nested'],
+        includeFilters: [],
+        excludeFilters: [],
+        includedPaths: [],
+        excludedPaths: [],
+        manifestSnapshotId: null,
+        useRegex: false,
+        totalSelectedCount: 3,
+      }),
+      expect.objectContaining({
+        filePaths: ['/notes.md', '/src/main.ts', '/src/nested/deep.ts'],
+        snapshotId: null,
+        status: 'ready',
+      }),
+      new Set(['/notes.md', '/src/main.ts', '/src/nested/deep.ts'])
+    );
+    expect(addMultipleSelectedFiles).not.toHaveBeenCalled();
+  });
+
+  it('stops adapter traversal once the visible frontier satisfies the cap', async () => {
+    const currentTree = createPartiallyLoadedTree();
+    const fileSystemAdapter = createMockAdapter({
+      '/src': [
+        createFileNode({ name: 'a.ts', path: '/src/a.ts', type: 'file', depth: 1 }),
+        createFileNode({ name: 'b.ts', path: '/src/b.ts', type: 'file', depth: 1 }),
+        createFileNode({
+          name: 'nested',
+          path: '/src/nested',
+          type: 'directory',
+          depth: 1,
+          loadState: 'unloaded',
+          children: [],
+        }),
+      ],
+      '/src/nested': [
+        createFileNode({
+          name: 'deep.ts',
+          path: '/src/nested/deep.ts',
+          type: 'file',
+          depth: 2,
+        }),
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 2)
+    );
+
+    expect(fileSystemAdapter.readDirectory).toHaveBeenCalledTimes(1);
+    expect(selectionResult.filePaths).toEqual(['/notes.md', '/src/a.ts']);
+  });
+
+  it('applies filterTreeFn while traversing adapter-loaded nodes', async () => {
+    const currentTree = createPartiallyLoadedTree();
+    const fileSystemAdapter = createMockAdapter({
+      '/src': [
+        createFileNode({ name: 'keep.ts', path: '/src/keep.ts', type: 'file', depth: 1 }),
+        createFileNode({ name: 'skip.md', path: '/src/skip.md', type: 'file', depth: 1 }),
+      ],
+    });
+
+    const filterTreeFn = vi.fn((nodes: IFileNode[]): IFileNode[] =>
+      nodes.filter((node) => (node.type === 'directory' ? true : node.path.endsWith('.ts')))
+    );
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        filterTreeFn,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
+
+    expect(filterTreeFn).toHaveBeenCalled();
+    expect(selectionResult.filePaths).toEqual(['/src/keep.ts']);
+  });
+
+  it('blocks concurrent select-all operations', async () => {
+    const currentTree = createPartiallyLoadedTree();
+    let resolveRead: (() => void) | null = null;
+    const fileSystemAdapter = {
+      requestDirectoryAccess: vi.fn(),
+      readDirectory: vi.fn(
+        () =>
+          new Promise<IFileNode[]>((resolve) => {
+            resolveRead = () => {
+              resolve([
+                createFileNode({ name: 'done.ts', path: '/src/done.ts', type: 'file', depth: 1 }),
+              ]);
+            };
+          })
+      ),
+      readFile: vi.fn(),
+      exists: vi.fn(),
+    } as unknown as FileSystemAdapter;
+
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
+
+    act(() => {
+      void result.current.selectAllRecursively(
+        currentTree,
+        'folder-1',
+        addMultipleSelectedFiles,
+        10
+      );
+    });
+
+    const secondResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
+
+    expect(secondResult).toEqual({
+      success: false,
+      filePaths: [],
+      error: 'Operation already in progress',
+    });
+
+    act(() => {
+      resolveRead?.();
     });
   });
 
-  describe('slow path - tree needs loading', () => {
-    it('should load unloaded directories before selecting', async () => {
-      const loadSubtreeResults = new Map([
-        [
-          '/src',
-          {
-            tree: [
-              createMockWorkerFileNode({
-                name: 'src',
-                path: '/src',
-                type: 'directory',
-                loadState: 'loaded',
-                children: [
-                  createMockWorkerFileNode({
-                    name: 'file1.ts',
-                    path: '/src/file1.ts',
-                    type: 'file',
-                    depth: 1,
-                  }),
-                ],
-              }),
-            ],
-            expandedPaths: ['/src'],
-            loadedCount: 1,
-          },
-        ],
-      ]);
+  it('returns a cancelled result when cancellation happens during adapter traversal', async () => {
+    const currentTree = createPartiallyLoadedTree();
+    let resolveRead: (() => void) | null = null;
+    const fileSystemAdapter = {
+      requestDirectoryAccess: vi.fn(),
+      readDirectory: vi.fn(
+        () =>
+          new Promise<IFileNode[]>((resolve) => {
+            resolveRead = () => {
+              resolve([
+                createFileNode({ name: 'done.ts', path: '/src/done.ts', type: 'file', depth: 1 }),
+              ]);
+            };
+          })
+      ),
+      readFile: vi.fn(),
+      exists: vi.fn(),
+    } as unknown as FileSystemAdapter;
+    const cancelLoadOperations = vi.fn();
 
-      const workerPort = createMockWorkerPort({ loadSubtreeResults });
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        cancelLoadOperations,
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onTreeUpdate,
+      })
+    );
 
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
+    let selectionPromise:
+      | Promise<Awaited<ReturnType<typeof result.current.selectAllRecursively>>>
+      | undefined;
+
+    act(() => {
+      selectionPromise = result.current.selectAllRecursively(
+        currentTree,
+        'folder-1',
+        addMultipleSelectedFiles,
+        10
       );
-
-      const tree = createPartiallyLoadedTree();
-
-      await act(async () => {
-        await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      expect(workerPort.loadSubtree).toHaveBeenCalledWith('/src');
-      expect(mockOnTreeUpdate).toHaveBeenCalled();
     });
 
-    it('should handle mixed loaded/unloaded directories', async () => {
-      const loadSubtreeResults = new Map([
-        [
-          '/src',
-          {
-            tree: [
-              createMockWorkerFileNode({
-                name: 'src',
-                path: '/src',
-                type: 'directory',
-                loadState: 'loaded',
-                children: [
-                  createMockWorkerFileNode({
-                    name: 'utils',
-                    path: '/src/utils',
-                    type: 'directory',
-                    loadState: 'loaded',
-                    depth: 1,
-                    children: [
-                      createMockWorkerFileNode({
-                        name: 'helper.ts',
-                        path: '/src/utils/helper.ts',
-                        type: 'file',
-                        depth: 2,
-                      }),
-                    ],
-                  }),
-                  createMockWorkerFileNode({
-                    name: 'index.ts',
-                    path: '/src/index.ts',
-                    type: 'file',
-                    depth: 1,
-                  }),
-                ],
-              }),
-            ],
-            expandedPaths: ['/src', '/src/utils'],
-            loadedCount: 2,
-          },
-        ],
-      ]);
-
-      const workerPort = createMockWorkerPort({ loadSubtreeResults });
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      // Tree with /src/utils unloaded
-      const tree = createMixedLoadedTree();
-
-      await act(async () => {
-        await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      // Should load the /src directory to get the nested unloaded utils
-      expect(workerPort.loadSubtree).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(result.current.isLoadingForSelectAllRef.current).toBe(true);
     });
+
+    act(() => {
+      result.current.cancelSelectAll();
+      resolveRead?.();
+    });
+
+    const selectionResult = await act(async () => selectionPromise!);
+
+    expect(cancelLoadOperations).toHaveBeenCalled();
+    expect(selectionResult.cancelled).toBe(true);
+    expect(selectionResult.success).toBe(false);
+    expect(selectionResult.error).toBeUndefined();
   });
 
-  describe('cancellation', () => {
-    it('should cancel operation when cancelSelectAll is called during load', async () => {
-      const workerPort = createMockWorkerPort({ loadSubtreeDelay: 100 });
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
+  it('surfaces adapter errors through onError', async () => {
+    const currentTree = createPartiallyLoadedTree();
+    const fileSystemAdapter = {
+      requestDirectoryAccess: vi.fn(),
+      readDirectory: vi.fn(async () => {
+        throw new Error('Load failed');
+      }),
+      readFile: vi.fn(),
+      exists: vi.fn(),
+    } as unknown as FileSystemAdapter;
 
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => currentTree,
+        onError,
+        onTreeUpdate,
+      })
+    );
 
-      const tree = createPartiallyLoadedTree();
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively(currentTree, 'folder-1', addMultipleSelectedFiles, 10)
+    );
 
-      // Start async operation (don't await)
-      act(() => {
-        void result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      // Cancel during the load
-      await act(async () => {
-        result.current.cancelSelectAll();
-      });
-
-      expect(workerPort.abort).toHaveBeenCalled();
-      expect(result.current.isLoadingForSelectAll).toBe(false);
-    });
-
-    it('should return cancelled result when operation is cancelled', async () => {
-      const workerPort = createMockWorkerPort({ loadSubtreeDelay: 50 });
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result, unmount } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      const tree = createPartiallyLoadedTree();
-
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>> | undefined;
-
-      try {
-        // Start the selection and immediately cancel
-        await act(async () => {
-          const promise = result.current.selectAllRecursively(
-            tree,
-            'folder-1',
-            mockAddMultipleSelectedFiles,
-            100
-          );
-
-          // Small delay to let the operation start
-          await new Promise((resolve) => setTimeout(resolve, 10));
-          result.current.cancelSelectAll();
-
-          selectResult = await promise;
-        });
-
-        // The operation should detect cancellation and return appropriately
-        expect(selectResult?.cancelled).toBe(true);
-        expect(selectResult?.success).toBe(false);
-      } finally {
-        // Ensure cleanup even if test assertions fail
-        unmount();
-      }
-    });
+    expect(selectionResult.success).toBe(false);
+    expect(selectionResult.error).toBe('Load failed');
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Load failed' }));
   });
 
-  describe('double-click guard', () => {
-    it('should block rapid consecutive calls', async () => {
-      const workerPort = createMockWorkerPort({ loadSubtreeDelay: 100 });
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
+  it('returns an error for an empty tree before any adapter work', async () => {
+    const fileSystemAdapter = createMockAdapter({});
+    const { result } = renderHook(() =>
+      useRecursiveSelectAll({
+        fileSystemAdapter,
+        getCurrentTree: () => [],
+        onTreeUpdate,
+      })
+    );
 
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
+    const selectionResult = await act(async () =>
+      result.current.selectAllRecursively([], 'folder-1', addMultipleSelectedFiles, 10)
+    );
 
-      // Use a tree with just one unloaded directory for cleaner test
-      const tree: IFileNode[] = [
-        createMockFileNode({
-          name: 'src',
-          path: '/src',
-          type: 'directory',
-          loadState: 'unloaded',
-          children: [],
-        }),
-      ];
-
-      let secondResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>> | undefined;
-
-      await act(async () => {
-        // Start first call
-        const firstPromise = result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-
-        // Immediately try second call (simulating double-click)
-        secondResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-
-        // Wait for first to complete (not used but ensures cleanup)
-        await firstPromise;
-      });
-
-      // Second call should be blocked
-      expect(secondResult?.success).toBe(false);
-      expect(secondResult?.error).toBe('Operation already in progress');
-
-      // Worker should only be called once (by first call)
-      expect(workerPort.loadSubtree).toHaveBeenCalledTimes(1);
+    expect(selectionResult).toEqual({
+      success: false,
+      filePaths: [],
+      error: 'No files in tree',
     });
-
-    it('should allow new call after previous completes', async () => {
-      const workerPort = createMockWorkerPort();
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      // Use a tree with just one unloaded directory for cleaner test
-      const tree: IFileNode[] = [
-        createMockFileNode({
-          name: 'src',
-          path: '/src',
-          type: 'directory',
-          loadState: 'unloaded',
-          children: [],
-        }),
-      ];
-
-      // First call
-      await act(async () => {
-        await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      // Second call after first completes
-      await act(async () => {
-        await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      // Both should execute (worker called once per call = twice total)
-      expect(workerPort.loadSubtree).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  describe('filterTreeFn behavior', () => {
-    it('should apply provided filterTreeFn in slow path', async () => {
-      const mockFilterTreeFn = vi.fn((tree: IFileNode[]) =>
-        tree.filter((node) => node.name !== 'hidden-dir')
-      );
-
-      const loadSubtreeResults = new Map([
-        [
-          '/src',
-          {
-            tree: [
-              createMockWorkerFileNode({
-                name: 'src',
-                path: '/src',
-                type: 'directory',
-                loadState: 'loaded',
-                children: [
-                  createMockWorkerFileNode({
-                    name: 'file.ts',
-                    path: '/src/file.ts',
-                    type: 'file',
-                    depth: 1,
-                  }),
-                ],
-              }),
-            ],
-            expandedPaths: ['/src'],
-            loadedCount: 1,
-          },
-        ],
-      ]);
-
-      const workerPort = createMockWorkerPort({ loadSubtreeResults });
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-          filterTreeFn: mockFilterTreeFn,
-        })
-      );
-
-      const tree = createPartiallyLoadedTree();
-
-      await act(async () => {
-        await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      // filterTreeFn should have been called
-      expect(mockFilterTreeFn).toHaveBeenCalled();
-    });
-
-    it('should work without filterTreeFn in slow path', async () => {
-      const loadSubtreeResults = new Map([
-        [
-          '/src',
-          {
-            tree: [
-              createMockWorkerFileNode({
-                name: 'src',
-                path: '/src',
-                type: 'directory',
-                loadState: 'loaded',
-                children: [
-                  createMockWorkerFileNode({
-                    name: 'file.ts',
-                    path: '/src/file.ts',
-                    type: 'file',
-                    depth: 1,
-                  }),
-                ],
-              }),
-            ],
-            expandedPaths: ['/src'],
-            loadedCount: 1,
-          },
-        ],
-      ]);
-
-      const workerPort = createMockWorkerPort({ loadSubtreeResults });
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      // No filterTreeFn provided
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-          // filterTreeFn is undefined
-        })
-      );
-
-      // Use a tree with just the /src directory that we have results for
-      const tree: IFileNode[] = [
-        createMockFileNode({
-          name: 'src',
-          path: '/src',
-          type: 'directory',
-          loadState: 'unloaded',
-          children: [],
-        }),
-      ];
-
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      // Should work - onTreeUpdate called with loaded tree
-      expect(selectResult!.success).toBe(true);
-      expect(mockOnTreeUpdate).toHaveBeenCalled();
-    });
-  });
-
-  describe('partial failure handling', () => {
-    it('should continue with partial results when some loadSubtree calls fail', async () => {
-      // Create a worker that fails for /src but succeeds for /tests
-      const workerPort = {
-        loadSubtree: vi.fn(async (path: string) => {
-          if (path === '/src') {
-            throw new Error('Permission denied');
-          }
-          return {
-            tree: [
-              {
-                name: 'tests',
-                path: '/tests',
-                type: 'directory' as const,
-                loadState: 'loaded' as const,
-                children: [{ name: 'test.ts', path: '/tests/test.ts', type: 'file' as const }],
-              },
-            ],
-            expandedPaths: [path],
-            loadedCount: 1,
-          };
-        }),
-        abort: vi.fn(),
-        onProgress: vi.fn(() => () => {}),
-      } as unknown as FileTreeWorkerPort;
-
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      // Tree with two unloaded directories
-      const tree: IFileNode[] = [
-        createMockFileNode({
-          name: 'src',
-          path: '/src',
-          type: 'directory',
-          loadState: 'unloaded',
-          children: [],
-        }),
-        createMockFileNode({
-          name: 'tests',
-          path: '/tests',
-          type: 'directory',
-          loadState: 'unloaded',
-          children: [],
-        }),
-      ];
-
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      // Should have called both directories
-      expect(workerPort.loadSubtree).toHaveBeenCalledTimes(2);
-
-      // Should succeed with partial results (tests directory succeeded)
-      expect(selectResult!.success).toBe(true);
-      expect(mockOnTreeUpdate).toHaveBeenCalled();
-    });
-
-    it('should return failure when all loadSubtree calls fail', async () => {
-      const workerPort = {
-        loadSubtree: vi.fn(async () => {
-          throw new Error('Network error');
-        }),
-        abort: vi.fn(),
-        onProgress: vi.fn(() => () => {}),
-      } as unknown as FileTreeWorkerPort;
-
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-          onError: mockOnError,
-        })
-      );
-
-      const tree: IFileNode[] = [
-        createMockFileNode({
-          name: 'src',
-          path: '/src',
-          type: 'directory',
-          loadState: 'unloaded',
-          children: [],
-        }),
-      ];
-
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      // When all fail, we get the fallback behavior (select from unloaded tree = 0 files)
-      // This is expected because no directories could be loaded
-      expect(selectResult!.success).toBe(true);
-      expect(selectResult!.filePaths).toHaveLength(0);
-    });
-  });
-
-  describe('edge cases', () => {
-    it('should handle empty tree', async () => {
-      const workerPortRef = { current: createMockWorkerPort() };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          [],
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      expect(selectResult!.success).toBe(false);
-      expect(selectResult!.error).toBe('No files in tree');
-    });
-
-    it('should handle tree with only directories (no files)', async () => {
-      const workerPortRef = { current: createMockWorkerPort() };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      const tree: IFileNode[] = [
-        createMockFileNode({
-          name: 'src',
-          path: '/src',
-          type: 'directory',
-          loadState: 'loaded',
-          children: [
-            createMockFileNode({
-              name: 'utils',
-              path: '/src/utils',
-              type: 'directory',
-              loadState: 'loaded',
-              depth: 1,
-              children: [],
-            }),
-          ],
-        }),
-      ];
-
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      expect(selectResult!.success).toBe(true);
-      expect(selectResult!.filePaths).toHaveLength(0);
-      expect(selectResult!.totalAvailable).toBe(0);
-    });
-
-    it('should fail gracefully when worker is not ready', async () => {
-      const workerPortRef = { current: null };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      // Tree needs loading but worker is not ready
-      const tree = createPartiallyLoadedTree();
-
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      expect(selectResult!.success).toBe(false);
-      expect(selectResult!.error).toBe('Worker not ready');
-    });
-
-    it('should fail gracefully when handle map is not ready', async () => {
-      const workerPortRef = { current: createMockWorkerPort() };
-      const handleMapRef = { current: null } as React.RefObject<Map<
-        string,
-        FileSystemHandle
-      > | null>;
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef: handleMapRef as React.RefObject<Map<string, FileSystemHandle>>,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      const tree = createPartiallyLoadedTree();
-
-      let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>>;
-      await act(async () => {
-        selectResult = await result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-      });
-
-      expect(selectResult!.success).toBe(false);
-      expect(selectResult!.error).toBe('Handle map not ready');
-    });
-
-    it('should set and clear loading state correctly', async () => {
-      const workerPort = createMockWorkerPort({ loadSubtreeDelay: 100 });
-      const workerPortRef = { current: workerPort };
-      const handleMapRef = { current: new Map<string, FileSystemHandle>() };
-
-      const { result } = renderHook(() =>
-        useRecursiveSelectAll({
-          workerPortRef,
-          handleMapRef,
-          onTreeUpdate: mockOnTreeUpdate,
-        })
-      );
-
-      expect(result.current.isLoadingForSelectAll).toBe(false);
-
-      // Use a tree with just one unloaded directory
-      const tree: IFileNode[] = [
-        createMockFileNode({
-          name: 'src',
-          path: '/src',
-          type: 'directory',
-          loadState: 'unloaded',
-          children: [],
-        }),
-      ];
-
-      // Check state via the ref which is synchronously updated
-      let loadingDuringOp = false;
-      await act(async () => {
-        const promise = result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
-
-        // Give time for the state to be set and check the ref directly
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        loadingDuringOp = result.current.isLoadingForSelectAllRef.current;
-
-        await promise;
-      });
-
-      expect(loadingDuringOp).toBe(true);
-      expect(result.current.isLoadingForSelectAll).toBe(false);
-      expect(result.current.isLoadingForSelectAllRef.current).toBe(false);
-    });
+    expect(fileSystemAdapter.readDirectory).not.toHaveBeenCalled();
   });
 });

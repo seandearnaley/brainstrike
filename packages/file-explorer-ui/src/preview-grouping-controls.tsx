@@ -1,5 +1,5 @@
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { memo } from 'react';
 import { GROUPING_CONFIGS, type GroupedData, type TableRowData } from './utils/grouping-configs';
 
@@ -35,20 +35,18 @@ export const PreviewGroupingControls = memo<PreviewGroupingControlsProps>(
         </select>
 
         {groupingConfig !== 'none' && groupedData.length > 1 && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   aria-label="Expand all groups"
-                  className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                  className="h-8 w-8 p-0"
                   data-testid="expand-all-groups-button"
                   onClick={onExpandAllGroups}
                   size="sm"
-                  variant="outline"
+                  variant="ghost"
                 >
-                  <Maximize2 className="@[600px]:mr-2 size-3.5" />
-                  <span className="@[800px]:inline hidden">Expand All Groups</span>
-                  <span className="@[600px]:inline @[800px]:hidden hidden">Expand All</span>
+                  <ChevronsUpDown className="size-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Expand all groups</TooltipContent>
@@ -58,15 +56,13 @@ export const PreviewGroupingControls = memo<PreviewGroupingControlsProps>(
               <TooltipTrigger asChild>
                 <Button
                   aria-label="Collapse all groups"
-                  className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                  className="h-8 w-8 p-0"
                   data-testid="collapse-all-groups-button"
                   onClick={onCollapseAllGroups}
                   size="sm"
-                  variant="outline"
+                  variant="ghost"
                 >
-                  <Minimize2 className="@[600px]:mr-2 size-3.5" />
-                  <span className="@[800px]:inline hidden">Collapse All Groups</span>
-                  <span className="@[600px]:inline @[800px]:hidden hidden">Collapse All</span>
+                  <ChevronsDownUp className="size-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Collapse all groups</TooltipContent>

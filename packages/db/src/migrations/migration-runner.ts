@@ -96,8 +96,9 @@ export class MigrationRunner {
       const checksum = this.calculateChecksum(
         typeof migration.up === 'string' ? migration.up : migration.name
       );
-      await dbi.exec(
-        `INSERT INTO ${MigrationRunner.MIGRATION_TABLE} (version, name, checksum) VALUES (${migration.version}, '${migration.name}', '${checksum}')`
+      await dbi.query(
+        `INSERT INTO ${MigrationRunner.MIGRATION_TABLE} (version, name, checksum) VALUES ($1, $2, $3)`,
+        [migration.version, migration.name, checksum]
       );
     };
 
@@ -186,9 +187,9 @@ export class MigrationRunner {
       }
 
       await dbi.exec(downSql);
-      await dbi.exec(
-        `DELETE FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = ${migration.version}`
-      );
+      await dbi.query(`DELETE FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`, [
+        migration.version,
+      ]);
     };
 
     if (hasTx) {

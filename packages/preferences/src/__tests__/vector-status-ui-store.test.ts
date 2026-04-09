@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetVectorStatusUIStoreForTests,
   type CachedCollection,
@@ -13,6 +13,13 @@ import {
  */
 describe('vector-status-ui-store', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(
+      window as Window & {
+        electronAPI?: unknown;
+      },
+      'electronAPI'
+    );
     __resetVectorStatusUIStoreForTests();
   });
 
@@ -251,6 +258,52 @@ describe('vector-status-ui-store', () => {
       });
 
       expect(store.getState()).toBe(before);
+    });
+  });
+
+  describe('persistence storage', () => {
+    it('uses the Electron storage bridge when available', async () => {
+      const electronStorage = {
+        getItem: vi.fn(async () => null),
+        setItem: vi.fn(async () => undefined),
+        removeItem: vi.fn(async () => undefined),
+      };
+      Object.defineProperty(window, 'electronAPI', {
+        configurable: true,
+        value: { storage: electronStorage },
+      });
+
+      vi.resetModules();
+      const module = await import('../stores/vector-status-ui-store');
+      const persistApi = (
+        module.useVectorStatusUIStore as typeof module.useVectorStatusUIStore & {
+          persist?: {
+            getOptions?: () => {
+              name?: string;
+              storage?: {
+                getItem: (key: string) => unknown;
+                removeItem: (key: string) => unknown;
+                setItem: (key: string, value: unknown) => unknown;
+              };
+            };
+          };
+        }
+      ).persist;
+      const options = persistApi?.getOptions?.();
+      if (!(options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+
+      await options.storage.setItem(options.name, { state: { activeEmbeddingSetId: 'set-1' } });
+      await options.storage.getItem(options.name);
+      await options.storage.removeItem(options.name);
+
+      expect(electronStorage.setItem).toHaveBeenCalledWith(
+        options.name,
+        JSON.stringify({ state: { activeEmbeddingSetId: 'set-1' } })
+      );
+      expect(electronStorage.getItem).toHaveBeenCalledWith(options.name);
+      expect(electronStorage.removeItem).toHaveBeenCalledWith(options.name);
     });
   });
 });

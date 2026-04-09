@@ -1,5 +1,5 @@
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
-import { DEFAULT_STATE } from '@brainstrike/types';
+import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock console spies for all tests in this file
@@ -43,6 +43,7 @@ const testDefaultFolderState: FolderState = {
   maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
   lastActiveTab: DEFAULT_STATE.lastActiveTab,
   lastAccessed: 0, // Default lastAccessed
+  selectionModel: createEmptySelectionModel(),
   viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
 };
 
@@ -61,7 +62,7 @@ describe('file-explorer-persistence', () => {
       const persistOptions = await getFreshPersistOptions();
 
       expect(persistOptions.name).toBe('file-explorer-storage-v4');
-      expect(persistOptions.version).toBe(1);
+      expect(persistOptions.version).toBe(2);
       expect(persistOptions.storage).toBeDefined();
       expect(persistOptions.partialize).toBeDefined();
       expect(persistOptions.migrate).toBeDefined();
@@ -190,9 +191,21 @@ describe('file-explorer-persistence', () => {
       migrateFn = persistOptions.migrate;
     });
 
-    it('should return undefined if raw persisted state is null or undefined', () => {
-      expect(migrateFn(null, 1)).toBeNull();
-      expect(migrateFn(undefined, 1)).toBeUndefined();
+    it('should replace nullish raw persisted state with a safe empty serialized state', () => {
+      expect(migrateFn(null, 1)).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
+      });
+      expect(migrateFn(undefined, 1)).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
+      });
     });
 
     it('should unwrap state from { state, version } wrapper', () => {
@@ -212,7 +225,17 @@ describe('file-explorer-persistence', () => {
       };
       const wrappedState = { state: actualState, version: 1 };
       const result = migrateFn(wrappedState, 1);
-      expect(result).toEqual(actualState);
+      expect(result).toEqual({
+        ...actualState,
+        selectionModel: {
+          mode: 'explicit',
+          explicitPaths: ['file.ts'],
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+      });
     });
 
     it('should return state as is if not wrapped', () => {
@@ -231,20 +254,93 @@ describe('file-explorer-persistence', () => {
         lastActiveTab: 'files',
       };
       const result = migrateFn(actualState, 1);
-      expect(result).toEqual(actualState);
+      expect(result).toEqual({
+        ...actualState,
+        selectionModel: {
+          mode: 'explicit',
+          explicitPaths: ['file.js'],
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+          queryDescriptor: null,
+        },
+      });
     });
 
-    it('should return wrapper unchanged when state is undefined', () => {
+    it('should backfill selectionModel for legacy persisted state versions', () => {
+      const legacyState = {
+        currentFolderId: 'folder-abc',
+        selectedFilePaths: ['folder-abc|@|file.ts'],
+        folderStates: {
+          'folder-abc': {
+            selectedFilePaths: ['folder-abc|@|file.ts'],
+            expandedDirectoryPaths: [],
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: false,
+            tokenBudget: 100,
+            folderSummaryThreshold: 10,
+            maxSelectionCount: 50,
+            lastActiveTab: 'files',
+            lastAccessed: 1,
+            viewFilterPresetId: null,
+          },
+        },
+        folderAccessOrder: ['folder-abc'],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+      } as unknown as SerializedState;
+
+      const result = migrateFn(legacyState, 1);
+
+      expect(result.selectionModel).toEqual({
+        mode: 'explicit',
+        explicitPaths: ['folder-abc|@|file.ts'],
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      });
+      expect(result.folderStates['folder-abc']?.selectionModel).toEqual({
+        mode: 'explicit',
+        explicitPaths: ['folder-abc|@|file.ts'],
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+        queryDescriptor: null,
+      });
+    });
+
+    it('should discard wrappers when state is undefined', () => {
       const wrapper = { state: undefined, version: 1 } as unknown as SerializedState;
       const result = migrateFn(wrapper, 1);
-      expect(result).toEqual(wrapper);
+      expect(result).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
+      });
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
 
-    it('should handle object missing state property gracefully', () => {
+    it('should replace malformed objects with a safe empty serialized state', () => {
       const malformed = { version: 1 } as unknown as SerializedState;
       const result = migrateFn(malformed as unknown as SerializedState, 1);
-      expect(result).toEqual(malformed as unknown as SerializedState);
+      expect(result).toMatchObject({
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        quickFilter: '',
+      });
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
   });
@@ -521,9 +617,11 @@ describe('file-explorer-persistence', () => {
       onRehydrateStorageFn = persistOptions.onRehydrateStorage;
     });
 
-    it('should be called with the rehydrated state but not log in test environment', () => {
+    it('returns a completion callback and stays silent in test environment', () => {
       const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
-      onRehydrateStorageFn(mockHydratedState);
+      const afterRehydrate = onRehydrateStorageFn(mockHydratedState);
+      expect(typeof afterRehydrate).toBe('function');
+      afterRehydrate?.(mockHydratedState, undefined);
       // In test environment, logs should be silenced even when NODE_ENV is development
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
@@ -537,16 +635,15 @@ describe('file-explorer-persistence', () => {
       }
 
       const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
-      prodOnRehydrate(mockHydratedState);
+      const afterRehydrate = prodOnRehydrate(mockHydratedState);
+      afterRehydrate?.(mockHydratedState, undefined);
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
 
-    it('should log when in development and not running tests', async () => {
-      // Simply test that the function can be called without errors
-      // The actual logging behavior depends on environment variables which are complex to mock
+    it('should not throw when rehydration completes with an error', async () => {
       const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
-      expect(() => onRehydrateStorageFn(mockHydratedState)).not.toThrow();
-      // Note: In test environment, logging is typically suppressed regardless of NODE_ENV
+      const afterRehydrate = onRehydrateStorageFn(mockHydratedState);
+      expect(() => afterRehydrate?.(undefined, new Error('rehydration failed'))).not.toThrow();
     });
   });
 });

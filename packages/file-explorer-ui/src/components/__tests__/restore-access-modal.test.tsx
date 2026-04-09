@@ -19,6 +19,13 @@ describe('RestoreAccessModal', () => {
     expect(screen.getByText(/"test-folder"/)).toBeInTheDocument();
   });
 
+  it('stacks modal content above the overlay so Restore Access stays clickable', () => {
+    render(<RestoreAccessModal {...defaultProps} />);
+
+    const surface = screen.getByRole('alertdialog');
+    expect(surface.className).toContain('z-[51]');
+  });
+
   it('does not render when closed', () => {
     render(<RestoreAccessModal {...defaultProps} isOpen={false} />);
 

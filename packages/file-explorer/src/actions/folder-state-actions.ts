@@ -24,6 +24,8 @@ function buildRestoreState(
     folderStates,
     folderAccessOrder: order,
     selectedFilePaths: new Set(folderState.selectedFilePaths),
+    selectionModel: folderState.selectionModel,
+    querySelectionManifest: null,
     expandedDirectoryPaths: new Set(folderState.expandedDirectoryPaths),
     includeFilters: folderState.includeFilters,
     excludeFilters: folderState.excludeFilters,
@@ -48,6 +50,8 @@ function buildNewFolderState(
     folderStates,
     folderAccessOrder: order,
     selectedFilePaths: new Set<string>(),
+    selectionModel: createNewFolderState().selectionModel,
+    querySelectionManifest: null,
     expandedDirectoryPaths: new Set<string>(),
   };
 }
@@ -62,6 +66,8 @@ function buildResetState(
     folderStates,
     folderAccessOrder: order,
     selectedFilePaths: new Set<string>(),
+    selectionModel: createNewFolderState().selectionModel,
+    querySelectionManifest: null,
     expandedDirectoryPaths: new Set<string>(),
   };
 }
@@ -147,6 +153,8 @@ export const createFolderStateActions = (
         folderStates: { ...state.folderStates, [folderId]: updatedFolderState },
         folderAccessOrder: order,
         selectedFilePaths: new Set(folderState.selectedFilePaths),
+        selectionModel: folderState.selectionModel,
+        querySelectionManifest: null,
         expandedDirectoryPaths: new Set(folderState.expandedDirectoryPaths),
         includeFilters: folderState.includeFilters,
         excludeFilters: folderState.excludeFilters,

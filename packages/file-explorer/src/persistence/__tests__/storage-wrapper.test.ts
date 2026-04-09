@@ -2,6 +2,7 @@ import type { StorageAdapter } from '@brainstrike/storage';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStorageWrapper } from '../storage-wrapper';
+import type { WorkerStorage } from '../worker-storage';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
@@ -19,6 +20,7 @@ vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
 describe('StorageWrapper', () => {
   let mockStorage: StorageAdapter;
   let errorStorage: StorageAdapter;
+  let mockWorkerStorage: Pick<WorkerStorage, 'getItem' | 'setItem'>;
 
   beforeEach(() => {
     mockStorage = new MemoryStorageAdapter();
@@ -30,6 +32,11 @@ describe('StorageWrapper', () => {
       removeItem: vi.fn().mockRejectedValue(new Error('Remove error')),
       clear: vi.fn().mockRejectedValue(new Error('Clear error')),
       getAllKeys: vi.fn().mockRejectedValue(new Error('GetAllKeys error')),
+    };
+
+    mockWorkerStorage = {
+      getItem: vi.fn(),
+      setItem: vi.fn(),
     };
 
     mockLogger.error.mockClear();
@@ -71,6 +78,89 @@ describe('StorageWrapper', () => {
       expect(result2).toBe('test-value');
       expect(mockLogger.error).not.toHaveBeenCalled();
     });
+
+    it('uses worker storage when enabled and parses worker JSON strings', async () => {
+      vi.mocked(mockWorkerStorage.getItem).mockResolvedValueOnce(JSON.stringify({ ok: true }));
+      const wrapper = createStorageWrapper(
+        mockStorage,
+        true,
+        mockWorkerStorage as WorkerStorage,
+        true
+      );
+
+      const result = await wrapper.getItem('test-key');
+
+      expect(result).toEqual({ ok: true });
+      expect(mockWorkerStorage.getItem).toHaveBeenCalledWith('test-key');
+    });
+
+    it('falls back to adapter storage when worker getItem throws', async () => {
+      await mockStorage.setItem('test-key', JSON.stringify({ source: 'adapter' }));
+      vi.mocked(mockWorkerStorage.getItem).mockRejectedValueOnce(new Error('worker failed'));
+      const wrapper = createStorageWrapper(
+        mockStorage,
+        true,
+        mockWorkerStorage as WorkerStorage,
+        true
+      );
+
+      const result = await wrapper.getItem('test-key');
+
+      expect(result).toEqual({ source: 'adapter' });
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Worker getItem failed, falling back to main thread:',
+        expect.any(Error)
+      );
+    });
+
+    it('clears invalid adapter JSON and logs the parse failure', async () => {
+      await mockStorage.setItem('bad-json', '{not valid json');
+      const wrapper = createStorageWrapper(mockStorage, false, null, true);
+
+      const result = await wrapper.getItem('bad-json');
+
+      expect(result).toBeNull();
+      expect(await mockStorage.getItem('bad-json')).toBeNull();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Invalid JSON from storage adapter; clearing value',
+        expect.objectContaining({ name: 'bad-json', error: expect.any(SyntaxError) })
+      );
+    });
+
+    it('logs when invalid adapter JSON cannot be removed', async () => {
+      const removeFailingStorage: StorageAdapter = {
+        ...mockStorage,
+        getItem: vi.fn().mockResolvedValue('{invalid'),
+        removeItem: vi.fn().mockRejectedValue(new Error('remove failed')),
+      };
+      const wrapper = createStorageWrapper(removeFailingStorage, false, null, true);
+
+      const result = await wrapper.getItem('bad-json');
+
+      expect(result).toBeNull();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Failed to remove invalid storage entry',
+        expect.objectContaining({ name: 'bad-json', error: expect.any(Error) })
+      );
+    });
+
+    it('returns null for invalid worker JSON and logs the parse failure', async () => {
+      vi.mocked(mockWorkerStorage.getItem).mockResolvedValueOnce('{nope');
+      const wrapper = createStorageWrapper(
+        mockStorage,
+        true,
+        mockWorkerStorage as WorkerStorage,
+        true
+      );
+
+      const result = await wrapper.getItem('bad-json');
+
+      expect(result).toBeNull();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Invalid JSON from worker storage; ignoring value',
+        expect.objectContaining({ name: 'bad-json', error: expect.any(SyntaxError) })
+      );
+    });
   });
 
   describe('setItem with shouldLog=true', () => {
@@ -108,6 +198,62 @@ describe('StorageWrapper', () => {
       expect(await mockStorage.getItem('key1')).toBe(JSON.stringify('value1'));
       expect(await mockStorage.getItem('key2')).toBe(JSON.stringify('value2'));
       expect(mockLogger.error).not.toHaveBeenCalled();
+    });
+
+    it('uses worker storage when enabled and returns success', async () => {
+      vi.mocked(mockWorkerStorage.setItem).mockResolvedValueOnce(undefined);
+      const wrapper = createStorageWrapper(
+        mockStorage,
+        true,
+        mockWorkerStorage as WorkerStorage,
+        true
+      );
+
+      const result = await wrapper.setItem('test-key', { ok: true });
+
+      expect(result).toEqual({ success: true });
+      expect(mockWorkerStorage.setItem).toHaveBeenCalledWith('test-key', { ok: true });
+    });
+
+    it('falls back to adapter storage when worker setItem throws', async () => {
+      vi.mocked(mockWorkerStorage.setItem).mockRejectedValueOnce(new Error('worker failed'));
+      const wrapper = createStorageWrapper(
+        mockStorage,
+        true,
+        mockWorkerStorage as WorkerStorage,
+        true
+      );
+
+      const result = await wrapper.setItem('test-key', { ok: true });
+
+      expect(result).toEqual({ success: true });
+      expect(await mockStorage.getItem('test-key')).toBe(JSON.stringify({ ok: true }));
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Worker setItem failed, falling back to immediate approach:',
+        expect.any(Error)
+      );
+    });
+
+    it('returns a failure result when worker and adapter setItem both fail', async () => {
+      vi.mocked(mockWorkerStorage.setItem).mockRejectedValueOnce(new Error('worker failed'));
+      const wrapper = createStorageWrapper(
+        errorStorage,
+        true,
+        mockWorkerStorage as WorkerStorage,
+        true
+      );
+
+      const result = await wrapper.setItem('test-key', { ok: true });
+
+      expect(result).toEqual({
+        success: false,
+        message: 'Set error',
+        error: expect.any(Error),
+      });
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error setting item in storage:',
+        expect.any(Error)
+      );
     });
   });
 

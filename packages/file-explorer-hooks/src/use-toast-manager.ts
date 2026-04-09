@@ -26,6 +26,7 @@ import { useCallback } from 'react';
  *  - `handleSelectionLimitError`: Handles toasts for selection limits.
  */
 const logger = createLogger('ToastManager');
+const SELECTION_LIMIT_TOAST_DURATION_MS = 4000;
 
 export const useToastManager = () => {
   const { toast } = useToast();
@@ -124,6 +125,7 @@ export const useToastManager = () => {
     toast({
       title: FileExplorerStrings.error.title,
       description: FileExplorerStrings.error.selectionLimitExceeded,
+      duration: SELECTION_LIMIT_TOAST_DURATION_MS,
       variant: 'destructive',
     });
   }, [toast]);

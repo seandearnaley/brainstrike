@@ -15,14 +15,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { mergeState, serializeState } from '../state-serialization';
 
 // Mock the logger
-vi.mock('@brainstrike/utils/logger', () => ({
-  createLogger: vi.fn(() => ({
+const { mockLogger } = vi.hoisted(() => ({
+  mockLogger: {
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
-  })),
+  },
 }));
+
+vi.mock('@brainstrike/utils/logger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils/logger')>();
+  return {
+    ...actual,
+    createLogger: vi.fn(() => mockLogger),
+  };
+});
 
 /** Helper to build a minimal FileExplorerState for testing. */
 function buildState(overrides: Partial<FileExplorerState> = {}): FileExplorerState {
@@ -39,6 +47,42 @@ function buildState(overrides: Partial<FileExplorerState> = {}): FileExplorerSta
 }
 
 describe('state-serialization', () => {
+  it('preserves the current folder fallback entry with expansion and filter state', () => {
+    const state = buildState({
+      currentFolderId: 'folder-1',
+      selectedFilePaths: new Set(['folder-1|@|src/index.ts']),
+      expandedDirectoryPaths: new Set(['/src', '/src/utils']),
+      includeFilters: ['**/*.ts'],
+      excludeFilters: ['**/*.test.ts'],
+      useRegex: true,
+      includeProjectTree: false,
+      tokenBudget: 250,
+      folderSummaryThreshold: 12,
+      maxSelectionCount: 999,
+      lastActiveTab: 'preview',
+      viewFilterPresetId: 'ts-js',
+      folderStates: {},
+    });
+
+    const result = serializeState(state);
+
+    expect(result.folderStates['folder-1']).toEqual(
+      expect.objectContaining({
+        selectedFilePaths: ['folder-1|@|src/index.ts'],
+        expandedDirectoryPaths: ['/src', '/src/utils'],
+        includeFilters: ['**/*.ts'],
+        excludeFilters: ['**/*.test.ts'],
+        useRegex: true,
+        includeProjectTree: false,
+        tokenBudget: 250,
+        folderSummaryThreshold: 12,
+        maxSelectionCount: 999,
+        lastActiveTab: 'preview',
+        viewFilterPresetId: 'ts-js',
+      })
+    );
+  });
+
   describe('cachedSetToArray – WeakMap cache hit', () => {
     it('should return the cached array on the second serialization with the same Set reference', () => {
       // The WeakMap cache is module-level state. Calling serializeState twice with the
@@ -163,6 +207,7 @@ describe('state-serialization', () => {
           ruleSetJson: null,
           materializedPaths: null,
           materializedAt: null,
+          queryDescriptor: null,
         },
       });
 
@@ -170,6 +215,76 @@ describe('state-serialization', () => {
 
       expect(result.selectionModel?.materializedPaths).toBeNull();
       expect(result.selectionModel?.materializedAt).toBeNull();
+    });
+
+    it('should serialize query-backed selection descriptors without persisting giant explicit selections', () => {
+      const state = buildState({
+        selectedFilePaths: new Set(['folder1|@|src/index.ts']),
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: new Set(),
+          ruleSetJson: null,
+          materializedPaths: new Set(['src/index.ts']),
+          materializedAt: '2024-01-01T00:00:00Z',
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder1',
+            rootPath: null,
+            coveredDirectoryPaths: ['src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: ['node_modules'],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fp-1',
+            manifestSnapshotId: 'snapshot-1',
+            useRegex: false,
+            totalSelectedCount: 5000,
+          },
+        },
+      });
+
+      const result = serializeState(state);
+
+      expect(result.selectionModel).toEqual({
+        mode: 'query',
+        explicitPaths: [],
+        ruleSetJson: null,
+        materializedPaths: ['src/index.ts'],
+        materializedAt: '2024-01-01T00:00:00Z',
+        queryDescriptor: {
+          kind: 'recursive-select-all',
+          folderId: 'folder1',
+          rootPath: null,
+          coveredDirectoryPaths: ['src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: ['node_modules'],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          useRegex: false,
+          totalSelectedCount: 5000,
+        },
+      });
+    });
+
+    it('should coerce non-finite numbers to fallbacks during merge', () => {
+      const current = buildState({
+        tokenBudget: 1234,
+      });
+      const persisted = {
+        tokenBudget: Number.NaN,
+        folderStates: {
+          root: {
+            tokenBudget: Number.POSITIVE_INFINITY,
+          },
+        },
+      } as unknown as SerializedState;
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.tokenBudget).toBe(1234);
+      expect(result.folderStates['root']?.tokenBudget).toBe(1234);
     });
   });
 
@@ -508,6 +623,198 @@ describe('state-serialization', () => {
       expect(result.selectionModel.materializedAt).toBe('2024-01-01');
     });
 
+    it('should deserialize query-backed selection descriptors', () => {
+      const current = buildState();
+      const persisted: SerializedState = {
+        currentFolderId: 'folder1',
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: [],
+          ruleSetJson: null,
+          materializedPaths: ['src/index.ts'],
+          materializedAt: '2024-01-01',
+          queryDescriptor: {
+            kind: 'recursive-folder',
+            folderId: 'folder1',
+            rootPath: 'src',
+            coveredDirectoryPaths: ['src'],
+            includeFilters: ['**/*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: null,
+            manifestSnapshotId: null,
+            useRegex: false,
+            totalSelectedCount: 2500,
+          },
+        },
+      };
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.selectionModel.mode).toBe('query');
+      expect(result.selectionModel.explicitPaths).toEqual(new Set());
+      expect(result.selectionModel.materializedPaths).toEqual(new Set(['src/index.ts']));
+      expect(result.selectionModel.queryDescriptor).toEqual({
+        kind: 'recursive-folder',
+        folderId: 'folder1',
+        rootPath: 'src',
+        coveredDirectoryPaths: ['src'],
+        includeFilters: ['**/*.ts'],
+        excludeFilters: [],
+        includedPaths: [],
+        excludedPaths: [],
+        manifestFingerprint: null,
+        manifestSnapshotId: null,
+        useRegex: false,
+        totalSelectedCount: 2500,
+      });
+    });
+
+    it('drops malformed query descriptor arrays and coerces invalid fields during deserialize', () => {
+      const current = buildState();
+      const persisted = {
+        currentFolderId: 'folder1',
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: [],
+          ruleSetJson: null,
+          materializedPaths: ['src/index.ts', 42],
+          materializedAt: '2024-01-01',
+          queryDescriptor: {
+            kind: 'recursive-folder',
+            folderId: 'folder1',
+            rootPath: 123,
+            coveredDirectoryPaths: ['src', 7],
+            includeFilters: ['**/*.ts', false],
+            excludeFilters: [null],
+            includedPaths: ['src/index.ts', {}],
+            excludedPaths: [99],
+            manifestFingerprint: 42,
+            manifestSnapshotId: {},
+            useRegex: 'yes',
+            totalSelectedCount: 'bad-count',
+          },
+        },
+      } as unknown as SerializedState;
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.selectionModel.mode).toBe('query');
+      expect(result.selectionModel.materializedPaths).toEqual(new Set(['src/index.ts']));
+      expect(result.selectionModel.queryDescriptor).toEqual({
+        kind: 'recursive-folder',
+        folderId: 'folder1',
+        rootPath: null,
+        coveredDirectoryPaths: ['src'],
+        includeFilters: ['**/*.ts'],
+        excludeFilters: [],
+        includedPaths: ['src/index.ts'],
+        excludedPaths: [],
+        manifestFingerprint: null,
+        manifestSnapshotId: null,
+        useRegex: false,
+        totalSelectedCount: 0,
+      });
+    });
+
+    it('truncates oversized persisted string arrays during deserialize', () => {
+      const current = buildState();
+      const oversizedPaths = Array.from({ length: 50_100 }, (_, index) => `src/file-${index}.ts`);
+      const persisted = {
+        currentFolderId: 'folder1',
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: oversizedPaths,
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+      } as unknown as SerializedState;
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.selectedFilePaths.size).toBe(50_000);
+    });
+
+    it('falls back to explicit mode when a persisted query descriptor is malformed', () => {
+      mockLogger.warn.mockClear();
+      const current = buildState();
+      const persisted = {
+        currentFolderId: 'folder1',
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: ['folder1|@|src/index.ts'],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 50,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: ['folder1|@|src/index.ts'],
+          ruleSetJson: null,
+          materializedPaths: ['src/index.ts'],
+          materializedAt: '2024-01-01',
+          queryDescriptor: {
+            kind: 'unknown-kind',
+            folderId: 42,
+            totalSelectedCount: 'bad-count',
+          },
+        },
+      } as unknown as SerializedState;
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.selectionModel.mode).toBe('explicit');
+      expect(result.selectionModel.queryDescriptor).toBeNull();
+      expect(result.selectionModel.explicitPaths).toEqual(new Set(['folder1|@|src/index.ts']));
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Dropping malformed persisted query selection descriptor during deserialization'
+      );
+    });
+
     it('should default mode to explicit when mode is not "rules"', () => {
       const current = buildState();
       const persisted: SerializedState = {
@@ -712,6 +1019,77 @@ describe('state-serialization', () => {
 
       // folder-2 is NOT the current folder, so it should keep its empty selections
       expect(result.folderStates['folder-2']?.selectedFilePaths).toEqual(new Set());
+    });
+
+    it('should prefer the top-level query selection model for the current folder even when explicit selections are empty', () => {
+      const current = buildState();
+      const persisted: SerializedState = {
+        currentFolderId: 'folder-1',
+        folderStates: {
+          'folder-1': {
+            selectedFilePaths: [],
+            selectionModel: {
+              mode: 'explicit',
+              explicitPaths: [],
+              ruleSetJson: null,
+              materializedPaths: null,
+              materializedAt: null,
+              queryDescriptor: null,
+            },
+            expandedDirectoryPaths: [],
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: false,
+            tokenBudget: 100,
+            folderSummaryThreshold: 10,
+            maxSelectionCount: 1000,
+            lastActiveTab: 'files',
+            lastAccessed: 0,
+          },
+        },
+        folderAccessOrder: [],
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        tokenBudget: 100,
+        folderSummaryThreshold: 10,
+        maxSelectionCount: 1000,
+        lastActiveTab: 'files',
+        quickFilter: '',
+        devInlineFixtureEnabled: false,
+        selectionModel: {
+          mode: 'query',
+          explicitPaths: [],
+          ruleSetJson: null,
+          materializedPaths: ['file-0.ts'],
+          materializedAt: '2024-01-01T00:00:00Z',
+          queryDescriptor: {
+            kind: 'recursive-select-all',
+            folderId: 'folder-1',
+            rootPath: null,
+            coveredDirectoryPaths: [],
+            includeFilters: ['*.ts'],
+            excludeFilters: [],
+            includedPaths: [],
+            excludedPaths: [],
+            manifestFingerprint: 'fingerprint',
+            manifestSnapshotId: 'snapshot-id',
+            useRegex: false,
+            totalSelectedCount: 600,
+          },
+        },
+      };
+
+      const result = mergeState(persisted, current, false);
+
+      expect(result.folderStates['folder-1']?.selectionModel.mode).toBe('query');
+      expect(
+        result.folderStates['folder-1']?.selectionModel.queryDescriptor?.totalSelectedCount
+      ).toBe(600);
     });
   });
 });

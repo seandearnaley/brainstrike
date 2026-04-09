@@ -186,6 +186,7 @@ describe('ElectronFileSystemAdapter', () => {
   });
 
   it('should throw error when electron import fails', async () => {
+    vi.resetModules();
     vi.doMock('electron', () => {
       throw new Error('fail');
     });
@@ -197,6 +198,7 @@ describe('ElectronFileSystemAdapter', () => {
     await expect(failing.requestDirectoryAccess()).rejects.toThrow(
       'Electron is not available - this adapter should only be used in the main process'
     );
+    vi.doUnmock('electron');
     vi.doMock('electron', () => ({
       dialog: { showOpenDialog: vi.fn() },
     }));

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
@@ -19,6 +19,34 @@ test.describe('Performance: Tree Rendering', () => {
 
     return tree;
   };
+
+  const createExpandAllPerfTree = (rootDirectoryCount: number, childDirectoryCount: number) => {
+    const tree: FileTree = {};
+
+    for (let rootIndex = 0; rootIndex < rootDirectoryCount; rootIndex += 1) {
+      const childTree: FileTree = {};
+      for (let childIndex = 0; childIndex < childDirectoryCount; childIndex += 1) {
+        childTree[`child-${rootIndex}-${childIndex}`] = {
+          [`file-${rootIndex}-${childIndex}.ts`]: null,
+        };
+      }
+      tree[`folder-${rootIndex}`] = childTree;
+    }
+
+    return tree;
+  };
+
+  const getExpandedDirectoryCount = async (page: Page) =>
+    page.evaluate(() => {
+      const fileExplorerStore = (
+        window as Window & {
+          __brainstrike_file_explorer_provider_store__?: {
+            getState?: () => { expandedDirectoryPaths?: Set<string> };
+          };
+        }
+      ).__brainstrike_file_explorer_provider_store__;
+      return fileExplorerStore?.getState?.().expandedDirectoryPaths?.size ?? 0;
+    });
 
   test.beforeEach(async ({ page }) => {
     // Create a moderately large tree (3 levels, ~100 total files)
@@ -205,5 +233,92 @@ test.describe('Performance: Tree Rendering', () => {
     // Assert reasonable performance under stress
     expect(stressTime).toBeLessThan(PERFORMANCE_THRESHOLDS.LARGE_TREE_LOAD_MAX_MS);
     expect(memoryIncrease).toBeLessThan(stressMemoryThreshold * 1024 * 1024);
+  });
+
+  test('expand-all progressively reveals nested directories before completion', async ({
+    page,
+  }) => {
+    const tree = createExpandAllPerfTree(12, 6);
+    await mockBrowserApis(page, 'expand-all-performance-test', tree, {
+      directoryReadDelayMs: 25,
+    });
+
+    const home = new HomePage(page);
+    await home.goto();
+
+    const explorer = new FileExplorerPage(page);
+    await explorer.selectRoot();
+
+    const expandAllButton = page.getByTestId('expand-all-button-small');
+    const initialExpandedCount = await getExpandedDirectoryCount(page);
+
+    await expandAllButton.click();
+    await expect(expandAllButton).toBeDisabled();
+
+    await page.waitForFunction(
+      ({ initialExpandedCount }) => {
+        const fileExplorerStore = (
+          window as Window & {
+            __brainstrike_file_explorer_provider_store__?: {
+              getState?: () => { expandedDirectoryPaths?: Set<string> };
+            };
+          }
+        ).__brainstrike_file_explorer_provider_store__;
+        const expandedDirectoryCount =
+          fileExplorerStore?.getState?.().expandedDirectoryPaths?.size ?? 0;
+        const expandButton = document.querySelector('[data-testid="expand-all-button-small"]');
+        return (
+          expandedDirectoryCount > initialExpandedCount &&
+          expandButton?.getAttribute('aria-label') === 'Expanding...'
+        );
+      },
+      { initialExpandedCount }
+    );
+
+    expect(await getExpandedDirectoryCount(page)).toBeGreaterThan(initialExpandedCount);
+    await expect(expandAllButton).toBeDisabled();
+  });
+
+  test('cancel during expand-all leaves a valid partially expanded tree', async ({ page }) => {
+    const tree = createExpandAllPerfTree(12, 6);
+    await mockBrowserApis(page, 'expand-all-cancel-test', tree, {
+      directoryReadDelayMs: 25,
+    });
+
+    const home = new HomePage(page);
+    await home.goto();
+
+    const explorer = new FileExplorerPage(page);
+    await explorer.selectRoot();
+
+    const expandAllButton = page.getByTestId('expand-all-button-small');
+    const cancelButton = page.getByRole('button', { name: 'Cancel operation' });
+    const initialExpandedCount = await getExpandedDirectoryCount(page);
+
+    await expandAllButton.click();
+
+    await expect(cancelButton).toBeVisible();
+    await page.waitForFunction(
+      ({ initialExpandedCount }) => {
+        const fileExplorerStore = (
+          window as Window & {
+            __brainstrike_file_explorer_provider_store__?: {
+              getState?: () => { expandedDirectoryPaths?: Set<string> };
+            };
+          }
+        ).__brainstrike_file_explorer_provider_store__;
+        const expandedDirectoryCount =
+          fileExplorerStore?.getState?.().expandedDirectoryPaths?.size ?? 0;
+        return expandedDirectoryCount > initialExpandedCount;
+      },
+      { initialExpandedCount }
+    );
+    await cancelButton.click();
+
+    await expect(page.getByTestId('inline-scanning-indicator')).not.toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(expandAllButton).toBeEnabled();
+    expect(await getExpandedDirectoryCount(page)).toBeGreaterThan(initialExpandedCount);
   });
 });

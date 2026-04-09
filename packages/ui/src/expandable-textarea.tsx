@@ -100,7 +100,9 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
     // Calculate min and max heights
     // Use provided minHeight prop if available, otherwise calculate from minRows
     const calculatedMinHeight = minHeight ?? currentLineHeight * minRows + verticalPadding;
-    const calculatedMaxHeight = currentLineHeight * maxRows + verticalPadding;
+    const rawMaxHeight = currentLineHeight * maxRows + verticalPadding;
+    // Ensure max is never below min to avoid conflicting constraints (e.g. maxRows=1 with minHeight=36)
+    const calculatedMaxHeight = Math.max(rawMaxHeight, calculatedMinHeight);
 
     // Reset height to auto to get accurate scrollHeight
     textarea.style.height = 'auto';
@@ -127,6 +129,12 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
     [onChange]
   );
 
+  // Native default is rows=2 (~56px with py-2 + text-sm), which fights minHeight/maxRows=1.
+  // rows=minRows keeps intrinsic height to one row until the measure effect sets inline height.
+  // Do not mirror minHeight into style before that effect: the effect sets height to "auto" on the
+  // DOM node; if the next render passes the same numeric height, React may skip patching inline
+  // style and leave height stuck at "auto".
+
   return (
     <textarea
       aria-label={ariaLabel}
@@ -146,6 +154,7 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
       onKeyDown={onKeyDown}
       placeholder={placeholder}
       ref={textareaRef}
+      rows={minRows}
       style={{ height }}
       value={value}
     />

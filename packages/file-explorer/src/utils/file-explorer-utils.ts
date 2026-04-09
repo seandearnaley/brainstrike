@@ -1,8 +1,10 @@
-import type { FileExplorerData, FolderState } from '@brainstrike/types';
 import {
+  createEmptySelectionModel,
   DEFAULT_FOLDER_SUMMARY_THRESHOLD,
   DEFAULT_MAX_SELECTION_COUNT,
   DEFAULT_TOKEN_BUDGET,
+  type FileExplorerData,
+  type FolderState,
   MAX_FOLDER_STATES,
 } from '@brainstrike/types';
 
@@ -14,6 +16,7 @@ export const saveFolderState = (
 ): Record<string, FolderState> => {
   const folderState: FolderState = {
     selectedFilePaths: state.selectedFilePaths,
+    selectionModel: state.selectionModel ?? createEmptySelectionModel(),
     expandedDirectoryPaths: state.expandedDirectoryPaths,
     includeFilters: state.includeFilters,
     excludeFilters: state.excludeFilters,
@@ -86,6 +89,7 @@ export const createNewFolderState = (
 
   return {
     selectedFilePaths: new Set<string>(),
+    selectionModel: createEmptySelectionModel(),
     expandedDirectoryPaths: new Set<string>(),
     includeFilters: state ? [...state.includeFilters] : [],
     excludeFilters: state ? [...state.excludeFilters] : [],

@@ -27,6 +27,7 @@ const defaultSelectionModel = {
   ruleSetJson: null,
   materializedPaths: null,
   materializedAt: null,
+  queryDescriptor: null,
 };
 
 function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
@@ -35,7 +36,9 @@ function createMockStore(overrides: Partial<Record<string, unknown>> = {}) {
     selectedFilePaths: new Set<string>(),
     maxSelectionCount: 10,
     setSelectedFiles,
+    setQuerySelectionManifest: vi.fn(),
     selectionModel: defaultSelectionModel,
+    querySelectionManifest: null,
     currentFolderId: 'root',
     ...overrides,
   };
@@ -89,6 +92,7 @@ describe('useSelectionManager', () => {
         ruleSetJson: '{}',
         materializedPaths: new Set(['/src/index.ts', '/src/utils.ts']),
         materializedAt: new Date().toISOString(),
+        queryDescriptor: null,
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
@@ -112,6 +116,7 @@ describe('useSelectionManager', () => {
         ruleSetJson: '{}',
         materializedPaths: null,
         materializedAt: null,
+        queryDescriptor: null,
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
@@ -132,6 +137,7 @@ describe('useSelectionManager', () => {
         ruleSetJson: '{}',
         materializedPaths: new Set(['/src/file.ts']),
         materializedAt: new Date().toISOString(),
+        queryDescriptor: null,
       },
     });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
@@ -139,5 +145,92 @@ describe('useSelectionManager', () => {
     const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded: vi.fn() }));
 
     expect(result.current.effectiveSelection).toBe(selectedFilePaths);
+  });
+
+  it('uses the exact query manifest in query mode and exposes the canonical selected count', () => {
+    const { store } = createMockStore({
+      currentFolderId: 'my-folder',
+      selectedFilePaths: new Set(),
+      querySelectionManifest: {
+        filePaths: ['/src/index.ts', '/src/utils.ts'],
+        pathSet: new Set(['/src/index.ts', '/src/utils.ts']),
+        directoryCounts: new Map([['/src', 2]]),
+        fingerprint: 'query-fingerprint',
+        snapshotId: 'snapshot-1',
+        status: 'ready' as const,
+        errorMessage: null,
+      },
+      selectionModel: {
+        mode: 'query' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: new Set(['/src/index.ts']),
+        materializedAt: new Date().toISOString(),
+        queryDescriptor: {
+          kind: 'recursive-select-all' as const,
+          folderId: 'my-folder',
+          rootPath: null,
+          coveredDirectoryPaths: ['/src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'query-fingerprint',
+          manifestSnapshotId: 'snapshot-1',
+          useRegex: false,
+          totalSelectedCount: 2,
+        },
+      },
+    });
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+    const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded: vi.fn() }));
+
+    expect(result.current.isQueryMode).toBe(true);
+    expect(result.current.selectedCount).toBe(2);
+    expect(result.current.selectedFilesList).toEqual([
+      'my-folder|@|/src/index.ts',
+      'my-folder|@|/src/utils.ts',
+    ]);
+    expect(result.current.effectiveSelection).toEqual(
+      new Set(['my-folder|@|/src/index.ts', 'my-folder|@|/src/utils.ts'])
+    );
+  });
+
+  it('uses the stored materialized paths while a query manifest snapshot is still loading', () => {
+    const { store } = createMockStore({
+      currentFolderId: 'my-folder',
+      selectedFilePaths: new Set(),
+      querySelectionManifest: null,
+      selectionModel: {
+        mode: 'query' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: new Set(['/src/index.ts']),
+        materializedAt: new Date().toISOString(),
+        queryDescriptor: {
+          kind: 'recursive-select-all' as const,
+          folderId: 'my-folder',
+          rootPath: null,
+          coveredDirectoryPaths: ['/src'],
+          includeFilters: ['**/*.ts'],
+          excludeFilters: [],
+          includedPaths: [],
+          excludedPaths: [],
+          manifestFingerprint: 'query-fingerprint',
+          manifestSnapshotId: 'snapshot-1',
+          useRegex: false,
+          totalSelectedCount: 600,
+        },
+      },
+    });
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+    const { result } = renderHook(() => useSelectionManager({ onSelectionLimitExceeded: vi.fn() }));
+
+    expect(result.current.isQueryMode).toBe(true);
+    expect(result.current.selectedCount).toBe(600);
+    expect(result.current.selectedFilesList).toEqual(['my-folder|@|/src/index.ts']);
+    expect(result.current.effectiveSelection).toEqual(new Set(['my-folder|@|/src/index.ts']));
   });
 });

@@ -50,7 +50,7 @@ export function normalizeNodePath(path: string): string {
 function processDirectoryNode(
   node: IFileNode,
   processTree: (nodes: IFileNode[]) => IFileNode[]
-): IFileNode {
+): IFileNode | null {
   const cloned = cloneNode(node, false);
   if (node.children && node.children.length > 0) {
     cloned.children = processTree(node.children);
@@ -146,7 +146,10 @@ export function createProcessTreeFunction(
       }
 
       if (node.type === 'directory') {
-        result.push(processDirectoryNode(node, processTree));
+        const processedDirectory = processDirectoryNode(node, processTree);
+        if (processedDirectory) {
+          result.push(processedDirectory);
+        }
       } else if (node.type === 'file') {
         const processedFile = processFileNode(node, path, matchesInclude);
         if (processedFile) {

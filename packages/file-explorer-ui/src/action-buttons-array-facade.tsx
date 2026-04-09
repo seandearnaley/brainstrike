@@ -16,6 +16,7 @@ interface Props {
    * Pass quickFilteredTree to respect workspace include/exclude filters.
    */
   filteredTree?: IFileNode[];
+  hasActiveQuickFilter?: boolean;
   /** Whether the tree has any files (used to enable/disable Select All) */
   hasFilesInTree?: boolean;
   /** Whether the tree is being loaded for select all */
@@ -34,6 +35,7 @@ interface Props {
   ) => Promise<SelectAllResult>;
   selectedFiles: readonly string[];
   setSelectedFiles: (next: readonly string[]) => void;
+  visibleFilePaths?: readonly string[];
 }
 
 const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
@@ -58,6 +60,7 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
       displayedFiles={displayedSet}
       encodeFileSelection={props.encodeFileSelection}
       filteredTree={props.filteredTree}
+      hasActiveQuickFilter={props.hasActiveQuickFilter}
       hasFilesInTree={props.hasFilesInTree}
       isLoadingForSelectAll={props.isLoadingForSelectAll}
       maxSelectionCount={props.maxSelectionCount}
@@ -65,6 +68,7 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
       selectAllRecursively={props.selectAllRecursively}
       selectedFilePaths={selectedSet}
       setSelectedFiles={setSelectedSet}
+      visibleFilePaths={props.visibleFilePaths}
     />
   );
 };

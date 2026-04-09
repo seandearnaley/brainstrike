@@ -1,9 +1,11 @@
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
+import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState } from '@brainstrike/types';
-import { createContext, useContext, useMemo, useRef, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand';
 import { type UseBoundStoreWithEqualityFn, useStoreWithEqualityFn } from 'zustand/traditional';
+import { setupInlineFixtureSubscription } from './setup-inline-fixture-subscription';
 
 type FileExplorerStore = UseBoundStoreWithEqualityFn<StoreApi<FileExplorerState>>;
 type FileExplorerStoreSelector<T> = (state: FileExplorerState) => T;
@@ -12,17 +14,74 @@ type EqualityFn<T> = (left: T, right: T) => boolean;
 const unsubscribeNoop = (): void => {};
 const subscribeNoop = (): (() => void) => unsubscribeNoop;
 
+function shouldExposeFileExplorerStoreForTests(): boolean {
+  const env = (
+    import.meta as ImportMeta & {
+      env?: Record<string, unknown>;
+    }
+  ).env;
+  if (
+    globalThis.process?.env?.['NODE_ENV'] === 'test' ||
+    globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true'
+  ) {
+    return true;
+  }
+  // Playwright web/desktop runs explicitly opt in via an init-script flag so we do
+  // not expose the provider-backed store to arbitrary webdriver-controlled sessions.
+  // Keep this disabled in production builds even if a script sets the flag manually.
+  if (typeof window !== 'undefined' && window.__brainstrike_e2e_expose_file_explorer_store__) {
+    return true;
+  }
+  return env?.['MODE'] === 'test';
+}
+
+declare global {
+  interface Window {
+    // biome-ignore lint/style/useNamingConvention: Test hook uses double underscores by convention
+    __brainstrike_e2e_expose_file_explorer_store__?: boolean | undefined;
+    // biome-ignore lint/style/useNamingConvention: Test hook uses double underscores by convention
+    __brainstrike_file_explorer_provider_store__?: FileExplorerStore | undefined;
+  }
+}
+
 // Create a context for the file explorer store
 const FileExplorerStoreContext = createContext<FileExplorerStore | null>(null);
 
 export interface FileExplorerProviderProps {
   children: React.ReactNode;
+  /** Optional file system adapter — when provided, enables inline fixture subscription */
+  fileSystemAdapter?: FileSystemAdapter;
   storageAdapter: StorageAdapter;
 }
 
-export function FileExplorerProvider({ storageAdapter, children }: FileExplorerProviderProps) {
+export function FileExplorerProvider({
+  storageAdapter,
+  fileSystemAdapter,
+  children,
+}: FileExplorerProviderProps) {
   // Create store instance with the provided storage adapter
   const store = useMemo(() => createFileExplorerStore(storageAdapter), [storageAdapter]);
+
+  // Set up inline fixture subscription when adapter is available.
+  // Runs once on mount, outside the React render cycle.
+  useEffect(() => {
+    if (!fileSystemAdapter) {
+      return;
+    }
+    return setupInlineFixtureSubscription(store, fileSystemAdapter);
+  }, [store, fileSystemAdapter]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !shouldExposeFileExplorerStoreForTests()) {
+      return;
+    }
+    window.__brainstrike_file_explorer_provider_store__ = store;
+    return () => {
+      if (window.__brainstrike_file_explorer_provider_store__ === store) {
+        window.__brainstrike_file_explorer_provider_store__ = undefined;
+      }
+    };
+  }, [store]);
 
   return (
     <FileExplorerStoreContext.Provider value={store}>{children}</FileExplorerStoreContext.Provider>
