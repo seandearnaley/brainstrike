@@ -226,7 +226,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
                 <div className="mx-0.5 h-5 w-px bg-border" />
                 <Button
                   aria-label="Toggle multi-select"
-                  aria-pressed={multiSelectEnabled}
+                  aria-pressed={Boolean(multiSelectEnabled)}
                   className={cn(
                     'h-9 w-9 p-0',
                     multiSelectEnabled && 'bg-accent text-accent-foreground'
