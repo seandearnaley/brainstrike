@@ -109,6 +109,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
       filters.embeddingStatus !== 'all'
     );
   }, [filters]);
+  const filterToggleLabel = hasActiveFilters ? 'Toggle filters (active)' : 'Toggle filters';
 
   return (
     <div className={cn('bg-background', className)}>
@@ -190,8 +191,8 @@ export const SearchModeBar = React.memo(function SearchModeBar({
 
             <div className="relative">
               <Button
-                aria-label="Toggle filters"
-                aria-pressed={isFilterVisible || hasActiveFilters}
+                aria-label={filterToggleLabel}
+                aria-pressed={isFilterVisible}
                 className={cn(
                   'h-9 w-9 p-0',
                   (isFilterVisible || hasActiveFilters) && 'bg-accent text-accent-foreground'

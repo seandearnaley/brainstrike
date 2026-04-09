@@ -213,6 +213,35 @@ describe('SearchModeBar', () => {
     expect(screen.getByRole('button', { name: 'Toggle search settings' })).toBeInTheDocument();
   });
 
+  it('uses aria-pressed to reflect filter panel visibility', () => {
+    render(<SearchModeBar {...createProps({ isFilterVisible: true })} />);
+
+    expect(screen.getByRole('button', { name: 'Toggle filters' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
+
+  it('keeps the filter toggle unpressed when filters are active but the panel is closed', () => {
+    render(
+      <SearchModeBar
+        {...createProps({
+          filters: {
+            embeddingStatus: 'all',
+            nodeTypes: new Set(['collection', 'file', 'chunk']),
+            searchMatchesOnly: false,
+            searchQuery: '',
+          },
+          isFilterVisible: false,
+        })}
+      />
+    );
+
+    const filterToggle = screen.getByRole('button', { name: 'Toggle filters (active)' });
+    expect(filterToggle).toHaveAttribute('aria-pressed', 'false');
+    expect(filterToggle.className).toContain('bg-accent');
+  });
+
   it('renders multi-select toggle when onMultiSelectToggle is provided', () => {
     const onMultiSelectToggle = vi.fn();
     render(<SearchModeBar {...createProps({ onMultiSelectToggle })} />);
