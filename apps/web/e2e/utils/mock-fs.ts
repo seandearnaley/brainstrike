@@ -36,13 +36,13 @@ function buildMockBrowserApisScript(payload: MockBrowserApisPayload): string {
       resolve(loadFixture);
       return;
     }
-    if (attempts > 1000) {
+    if (attempts > 200) {
       reject(new Error('Fixture testing API was not exposed in time'));
       return;
     }
     setTimeout(() => {
       void waitForFixtureLoader(attempts + 1).then(resolve, reject);
-    }, 0);
+    }, 10);
   });
 
   window.showDirectoryPicker = async () => {

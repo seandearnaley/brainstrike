@@ -158,6 +158,33 @@ describe('AssistantDataStreamSession', () => {
     expect(finish?.usage).toStrictEqual({ inputTokens: 5, outputTokens: 7 });
   });
 
+  it('prefers data-stream usage fields over legacy prompt/completion aliases', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: 'Hello' },
+      {
+        type: 'finish',
+        usage: {
+          inputTokens: 11,
+          outputTokens: 13,
+          promptTokens: 5,
+          completionTokens: 7,
+        },
+      },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'usage-precedence',
+      messageId: 'msg-usage-precedence',
+    });
+
+    const events = parseLines(await readResponse(session.createResponse()));
+    const finish = events.at(-1)?.value as {
+      usage: DataStreamUsage;
+    };
+
+    expect(finish?.usage).toStrictEqual({ inputTokens: 11, outputTokens: 13 });
+  });
+
   it('supports resuming from Last-Event-ID', async () => {
     const chunks: StreamChunk[] = [
       { type: 'text-delta', value: 'First ' },

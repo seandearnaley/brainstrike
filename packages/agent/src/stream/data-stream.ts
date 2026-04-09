@@ -49,7 +49,7 @@ export class AssistantDataStreamSession {
     this.id = resolved.sessionId ?? createRandomId('sess');
     this.messageId = resolved.messageId ?? createRandomId('msg');
     this.cleanupDelayMs = resolved.cleanupDelayMs ?? DEFAULT_CLEANUP_DELAY_MS;
-    this.mapper = new DataStreamMapper(this.id, this.messageId);
+    this.mapper = new DataStreamMapper(this.messageId);
     for (const chunk of this.mapper.initialChunks()) {
       this.recordChunk(chunk);
     }

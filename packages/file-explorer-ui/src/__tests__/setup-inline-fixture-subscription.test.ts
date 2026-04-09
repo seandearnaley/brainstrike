@@ -97,6 +97,13 @@ describe('setup-inline-fixture-subscription', () => {
   beforeEach(() => {
     import.meta.env.DEV = true;
     (import.meta.env as ImportMetaEnv & { VITEST?: boolean }).VITEST = true;
+    window.__brainstrike_e2e_expose_file_explorer_store__ = undefined;
+    window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
+    window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
+    Object.defineProperty(window.navigator, 'webdriver', {
+      configurable: true,
+      value: undefined,
+    });
     loggerMocks.debug.mockReset();
     loggerMocks.error.mockReset();
     loggerMocks.info.mockReset();
@@ -108,6 +115,13 @@ describe('setup-inline-fixture-subscription', () => {
     import.meta.env.DEV = true;
     import.meta.env.MODE = 'test';
     (import.meta.env as ImportMetaEnv & { VITEST?: boolean }).VITEST = true;
+    window.__brainstrike_e2e_expose_file_explorer_store__ = undefined;
+    window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;
+    window.__BRAINSTRIKE_CLEAR_FIXTURE__ = undefined;
+    Object.defineProperty(window.navigator, 'webdriver', {
+      configurable: true,
+      value: undefined,
+    });
   });
 
   it('logs and contains rollback failures instead of leaking an unhandled rejection', async () => {
@@ -246,6 +260,10 @@ describe('setup-inline-fixture-subscription', () => {
     (import.meta.env as ImportMetaEnv & { VITEST?: boolean }).VITEST = false;
     vi.stubEnv('NODE_ENV', 'production');
     window.__brainstrike_e2e_expose_file_explorer_store__ = true;
+    Object.defineProperty(window.navigator, 'webdriver', {
+      configurable: true,
+      value: true,
+    });
 
     const adapter = createFixtureCapableAdapter();
     const store = createFixtureStore(false);
@@ -254,6 +272,29 @@ describe('setup-inline-fixture-subscription', () => {
 
     expect(window.__BRAINSTRIKE_LOAD_FIXTURE__).toBeTypeOf('function');
     expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeTypeOf('function');
+
+    unsubscribe();
+    window.__brainstrike_e2e_expose_file_explorer_store__ = undefined;
+  });
+
+  it('keeps fixture globals hidden in production when page code sets the flag without webdriver control', () => {
+    import.meta.env.DEV = false;
+    import.meta.env.MODE = 'production';
+    (import.meta.env as ImportMetaEnv & { VITEST?: boolean }).VITEST = false;
+    vi.stubEnv('NODE_ENV', 'production');
+    window.__brainstrike_e2e_expose_file_explorer_store__ = true;
+    Object.defineProperty(window.navigator, 'webdriver', {
+      configurable: true,
+      value: false,
+    });
+
+    const adapter = createFixtureCapableAdapter();
+    const store = createFixtureStore(false);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+
+    expect(window.__BRAINSTRIKE_LOAD_FIXTURE__).toBeUndefined();
+    expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeUndefined();
 
     unsubscribe();
     window.__brainstrike_e2e_expose_file_explorer_store__ = undefined;

@@ -21,6 +21,7 @@ export interface ToolFilterConfig {
 }
 
 const TOOL_PATTERN_CACHE = new Map<string, RegExp>();
+const TOOL_PATTERN_CACHE_LIMIT = 256;
 
 function matchToolPattern(toolId: string, pattern: string): boolean {
   if (pattern === '*' || pattern === toolId) {
@@ -32,6 +33,12 @@ function matchToolPattern(toolId: string, pattern: string): boolean {
     const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
     const regexPattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
     regex = new RegExp(`^${regexPattern}$`);
+    if (TOOL_PATTERN_CACHE.size >= TOOL_PATTERN_CACHE_LIMIT) {
+      const oldestPattern = TOOL_PATTERN_CACHE.keys().next().value;
+      if (oldestPattern !== undefined) {
+        TOOL_PATTERN_CACHE.delete(oldestPattern);
+      }
+    }
     TOOL_PATTERN_CACHE.set(pattern, regex);
   }
 
@@ -231,6 +238,7 @@ export class ToolRegistry {
   clear(): void {
     this.tools.clear();
     this.toolsByServer.clear();
+    TOOL_PATTERN_CACHE.clear();
     logger.info('registry cleared', { code: 'registry_cleared' });
     this.notifyListeners();
   }

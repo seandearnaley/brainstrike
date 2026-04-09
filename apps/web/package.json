@@ -100,7 +100,7 @@
     "format": "biome format --write .",
     "lint": "pnpm run --filter brainstrike lint",
     "prebuild": "pnpm turbo build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent",
-    "predev": "[ -f ../../packages/file-explorer/dist/index.mjs ] && [ -f ../../packages/build-utils/dist/index.mjs ] && [ -f ../../packages/agent/dist/index.mjs ] || pnpm turbo build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent",
+    "predev": "if [ -f ../../packages/file-explorer/dist/index.mjs ] && [ -f ../../packages/build-utils/dist/index.mjs ] && [ -f ../../packages/agent/dist/index.mjs ]; then true; else pnpm turbo build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent; fi",
     "serve-static": "serve dist -p 8080",
     "start": "unset NO_COLOR; vite preview --port 8080 --host",
     "test": "vitest run",

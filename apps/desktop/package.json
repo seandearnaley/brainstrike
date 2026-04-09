@@ -126,7 +126,7 @@
     "build:renderer": "vite build",
     "clean:db": "rm -rf \"$HOME/Library/Application Support/@brainstrike/desktop/IndexedDB\" || true",
     "prebuild": "pnpm turbo build --filter=@brainstrike/build-utils --filter=@brainstrike/agent",
-    "predev": "[ -f ../../packages/build-utils/dist/index.mjs ] && [ -f ../../packages/agent/dist/index.mjs ] || pnpm turbo build --filter=@brainstrike/build-utils --filter=@brainstrike/agent",
+    "predev": "if [ -f ../../packages/build-utils/dist/index.mjs ] && [ -f ../../packages/agent/dist/index.mjs ]; then true; else pnpm turbo build --filter=@brainstrike/build-utils --filter=@brainstrike/agent; fi",
     "dev": "concurrently --kill-others \"pnpm dev:renderer\" \"pnpm dev:electron\"",
     "dev:electron": "pnpm build:main && wait-on http://localhost:8081 && electron . --no-sandbox",
     "dev:main": "tsc --project tsconfig.main.json",

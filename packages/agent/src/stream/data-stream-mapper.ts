@@ -42,10 +42,10 @@ function toDataStreamUsage(raw?: {
   outputTokens?: unknown;
   promptTokens?: unknown;
 }): DataStreamUsage {
-  const inputTokensRaw = raw?.promptTokens ?? raw?.inputTokens;
+  const inputTokensRaw = raw?.inputTokens ?? raw?.promptTokens;
   const inputTokens =
     typeof inputTokensRaw === 'number' && Number.isFinite(inputTokensRaw) ? inputTokensRaw : 0;
-  const outputTokensRaw = raw?.completionTokens ?? raw?.outputTokens;
+  const outputTokensRaw = raw?.outputTokens ?? raw?.completionTokens;
   const outputTokens =
     typeof outputTokensRaw === 'number' && Number.isFinite(outputTokensRaw) ? outputTokensRaw : 0;
   return { inputTokens, outputTokens };
@@ -144,7 +144,7 @@ export class DataStreamMapper {
   private finishEmitted = false;
   private startNewStepForNextText = false;
 
-  constructor(_sessionId: string, messageId: string) {
+  constructor(messageId: string) {
     this.messageId = messageId;
   }
 
