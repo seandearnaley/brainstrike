@@ -391,7 +391,7 @@ async function computeKeysInChunks(
     computedKeys,
     processedCount,
     cancelled,
-    wasCapped: exhaustedBudget,
+    wasCapped: exhaustedBudget && processedCount < paths.length,
   };
 }
 

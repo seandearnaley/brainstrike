@@ -7,12 +7,14 @@ import type {
 } from '../../src/assistant-ui-panel/assistant-ui-panel';
 import { AssistantUiPanel } from '../../src/assistant-ui-panel/assistant-ui-panel';
 
+const useDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({ runtime: 'test-runtime' }));
+
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
 vi.mock('@assistant-ui/react-data-stream', () => ({
-  useDataStreamRuntime: () => ({ runtime: 'test-runtime' }),
+  useDataStreamRuntime: (options: unknown) => useDataStreamRuntimeMock(options),
 }));
 
 vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
@@ -222,6 +224,17 @@ describe('AssistantUiPanel model picker', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('uses the legacy data-stream protocol for hosted providers', () => {
+    render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+    expect(useDataStreamRuntimeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        api: '/api/assistant',
+        protocol: 'data-stream',
+      })
+    );
   });
 
   it('renders the model picker with provider summary', async () => {
