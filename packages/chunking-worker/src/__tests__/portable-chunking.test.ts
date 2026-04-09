@@ -1,5 +1,8 @@
+import {
+  splitByBlankLines,
+  splitMarkdownIntoBlocks,
+} from '@brainstrike/text-splitter/chunking-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { splitByBlankLines, splitMarkdownIntoBlocks } from '@brainstrike/text-splitter/chunking-core';
 import { CHUNKING_CONFIG } from '../chunking-config';
 import { chunkContent } from '../portable-chunking';
 
