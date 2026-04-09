@@ -20,6 +20,7 @@ export function buildNodeFromPath(
   let relativePath = path;
   if (
     path === normalizedRootPath ||
+    // Check the next byte before startsWith so "/rootExtra" does not match "/root".
     (path.length > normalizedRootPath.length &&
       path.charCodeAt(normalizedRootPath.length) === SLASH &&
       path.startsWith(normalizedRootPath))
@@ -32,7 +33,7 @@ export function buildNodeFromPath(
     end -= 1;
   }
 
-  const lastSlashIndex = relativePath.lastIndexOf('/', end - 1);
+  const lastSlashIndex = end === 0 ? -1 : relativePath.lastIndexOf('/', end - 1);
   const name =
     lastSlashIndex !== -1
       ? relativePath.slice(lastSlashIndex + 1, end)

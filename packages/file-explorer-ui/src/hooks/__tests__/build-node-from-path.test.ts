@@ -51,4 +51,18 @@ describe('buildNodeFromPath', () => {
     expect(node.name).toBe('b');
     expect(node.depth).toBe(1);
   });
+
+  it('handles a single-segment child when the root path is slash', () => {
+    const node = buildNodeFromPath('/a', '/', 'root-folder', directoryHandle);
+
+    expect(node.name).toBe('a');
+    expect(node.depth).toBe(0);
+  });
+
+  it('keeps the absolute root node stable when both path and root are slash', () => {
+    const node = buildNodeFromPath('/', '/', 'root-folder', directoryHandle);
+
+    expect(node.name).toBe('');
+    expect(node.depth).toBe(0);
+  });
 });
