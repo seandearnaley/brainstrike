@@ -38,6 +38,13 @@ describe('buildNodeFromPath', () => {
     expect(node.depth).toBe(2);
   });
 
+  it('normalizes a root path with a trailing slash before stripping it', () => {
+    const node = buildNodeFromPath('/root/a/b', '/root/', 'root-folder', directoryHandle);
+
+    expect(node.name).toBe('b');
+    expect(node.depth).toBe(1);
+  });
+
   it('normalizes a trailing slash before deriving the name and depth', () => {
     const node = buildNodeFromPath('/root/a/b/', '/root', 'root-folder', directoryHandle);
 
