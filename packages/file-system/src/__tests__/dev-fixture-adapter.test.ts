@@ -31,6 +31,13 @@ const FIXTURE: FixtureDefinition = {
   },
 };
 
+const NULL_SHORTHAND_FIXTURE: FixtureDefinition = {
+  name: 'null-root',
+  tree: {
+    'example.ts': null,
+  },
+};
+
 function createBaseAdapter(options: AdapterOptions = {}): FileSystemAdapter {
   const includeRestoreLastFolder = options.includeRestoreLastFolder ?? true;
   const includeStreaming = options.includeStreaming ?? true;
@@ -193,6 +200,77 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     expect(baseReadDirectory).toHaveBeenCalled();
     await adapter.readFile(fileHandle);
     expect(baseReadFile).toHaveBeenCalled();
+  });
+
+  it('supports delayed fixture directory reads for browser-driven E2E flows', async () => {
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    await adapter.loadInlineFixture(FIXTURE);
+    adapter.setInlineFixtureOptions?.({ directoryReadDelayMs: 25 });
+
+    vi.useFakeTimers();
+    const readPromise = adapter.readDirectory({
+      path: 'fixture-root/src',
+      name: 'src',
+      kind: 'directory',
+      platform: 'web',
+    });
+
+    let settled = false;
+    void readPromise.then(() => {
+      settled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(24);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const entries = await readPromise;
+    vi.useRealTimers();
+
+    expect(entries.map((entry) => entry.name)).toEqual(['nested', 'a.ts']);
+  });
+
+  it('reads fixture files by path when the wrapped adapter supports direct path reads', async () => {
+    const base = createBaseAdapter() as ReturnType<typeof createBaseAdapter> & {
+      readFileByPath: ReturnType<typeof vi.fn>;
+    };
+    base.readFileByPath = vi.fn(async (path: string) => `base:${path}`);
+
+    const adapter = createFixtureCapableAdapter(base, {
+      platform: 'web',
+    }) as FileSystemAdapter &
+      FixtureControls & {
+        readFileByPath: (path: string) => Promise<string>;
+      };
+    await adapter.loadInlineFixture(FIXTURE);
+
+    await expect(adapter.readFileByPath('fixture-root/README.md')).resolves.toBe('# fixture');
+
+    await adapter.clearInlineFixture();
+    await expect(adapter.readFileByPath('outside.txt')).resolves.toBe('base:outside.txt');
+  });
+
+  it('treats null file leaves as fixture files with stable default content', async () => {
+    const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
+    await adapter.loadInlineFixture(NULL_SHORTHAND_FIXTURE);
+
+    const entries = await adapter.readDirectory({
+      path: 'null-root',
+      name: 'null-root',
+      kind: 'directory',
+      platform: 'web',
+    });
+    expect(entries.map((entry) => `${entry.type}:${entry.name}`)).toEqual(['file:example.ts']);
+
+    await expect(
+      adapter.readFile({
+        path: 'null-root/example.ts',
+        name: 'example.ts',
+        kind: 'file',
+        platform: 'web',
+        size: 0,
+      })
+    ).resolves.toBe('example.ts content');
   });
 
   it('returns empty directory listings for unknown fixture paths and can short-circuit streaming when aborted', async () => {

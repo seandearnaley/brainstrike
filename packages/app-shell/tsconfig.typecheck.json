@@ -24,6 +24,12 @@
       "@brainstrike/db/*": [
         "../db/src/*"
       ],
+      "@brainstrike/agent": [
+        "../agent/src/index.ts"
+      ],
+      "@brainstrike/agent/*": [
+        "../agent/src/*"
+      ],
       "@brainstrike/embeddings": [
         "../embeddings/src/index.ts"
       ],

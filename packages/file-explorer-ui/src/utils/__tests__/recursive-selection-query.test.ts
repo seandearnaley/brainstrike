@@ -123,6 +123,77 @@ describe('recursive-selection-query', () => {
     );
   });
 
+  it('does not mark the limit reached when matches exactly fill the requested cap', async () => {
+    const adapter = createMockAdapter({
+      '/root': [
+        createFileNode({ path: '/root/file-1.ts', name: 'file-1.ts', depth: 1 }),
+        createFileNode({ path: '/root/file-2.ts', name: 'file-2.ts', depth: 1 }),
+      ],
+    });
+
+    const root = createDirectoryNode({
+      path: '/root',
+      name: 'root',
+      loadState: 'unloaded',
+    });
+
+    const result = await querySelectableFiles({
+      roots: [root],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      excludeFilters: [],
+      maxResults: 2,
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toEqual(['/root/file-1.ts', '/root/file-2.ts']);
+    expect(result.limitReached).toBe(false);
+    expect(adapter.readDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mark the limit reached when throughput scanning exactly fills the cap', async () => {
+    const makeFiles = (prefix: string, count: number): IFileNode[] =>
+      Array.from({ length: count }, (_, index) =>
+        createFileNode({
+          path: `${prefix}/file-${index}.ts`,
+          name: `file-${index}.ts`,
+          depth: 2,
+        })
+      );
+
+    const adapter = createMockAdapter({
+      '/root': [
+        createDirectoryNode({ path: '/root/a', name: 'a', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/b', name: 'b', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/c', name: 'c', depth: 1, loadState: 'unloaded' }),
+        createDirectoryNode({ path: '/root/d', name: 'd', depth: 1, loadState: 'unloaded' }),
+      ],
+      '/root/a': makeFiles('/root/a', 40),
+      '/root/b': makeFiles('/root/b', 40),
+      '/root/c': makeFiles('/root/c', 40),
+      '/root/d': makeFiles('/root/d', 40),
+    });
+
+    const root = createDirectoryNode({
+      path: '/root',
+      name: 'root',
+      loadState: 'unloaded',
+    });
+
+    const result = await querySelectableFiles({
+      roots: [root],
+      fileSystemAdapter: adapter,
+      includeFilters: [],
+      excludeFilters: [],
+      maxResults: 160,
+      concurrency: 4,
+      useRegex: false,
+    });
+
+    expect(result.filePaths).toHaveLength(160);
+    expect(result.limitReached).toBe(false);
+  });
+
   it('does not revisit the same directory path when traversal encounters a cycle', async () => {
     const adapter = createMockAdapter({
       '/root': [

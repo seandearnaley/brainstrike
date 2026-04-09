@@ -295,4 +295,57 @@ describe('ipc-mcp tool preference loading', () => {
     );
     expect(loadToolPreferencesMock).toHaveBeenCalledTimes(1);
   });
+
+  it('discards legacy sanitized preference ids instead of applying them', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      enabledTools: ['filesystem_read_file'],
+      disabledTools: ['filesystem_list_directory'],
+      version: 1,
+      lastUpdated: 0,
+    });
+    getAllToolsMock.mockReturnValueOnce({
+      filesystem: [
+        { id: 'filesystem.read_file', enabled: true },
+        { id: 'filesystem.list_directory', enabled: true },
+      ],
+    });
+
+    registerMcpIpcHandlers();
+
+    await waitForPreferencesCall();
+
+    expect(mcpToolRegistry.enableTools).not.toHaveBeenCalled();
+    expect(mcpToolRegistry.disableTools).not.toHaveBeenCalled();
+    expect(saveToolPreferencesMock).toHaveBeenCalledWith(
+      'mock-user-data',
+      expect.objectContaining({
+        enabledTools: [],
+        disabledTools: [],
+      })
+    );
+  });
+
+  it('still applies valid preferences when persisting cleaned ids fails', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      enabledTools: ['server.tool.enable', 'filesystem_read_file'],
+      disabledTools: ['server.tool.disable', 'filesystem_list_directory'],
+      version: 1,
+      lastUpdated: 0,
+    });
+    saveToolPreferencesMock.mockRejectedValueOnce(new Error('disk full'));
+    getAllToolsMock.mockReturnValueOnce({
+      'mock-server': [
+        { id: 'server.tool.enable', enabled: true },
+        { id: 'server.tool.disable', enabled: false },
+      ],
+    });
+
+    registerMcpIpcHandlers();
+
+    await waitForPreferencesCall();
+
+    expect(saveToolPreferencesMock).toHaveBeenCalledTimes(1);
+    expect(mcpToolRegistry.disableTools).toHaveBeenCalledWith(['server.tool.disable']);
+    expect(mcpToolRegistry.enableTools).toHaveBeenCalledWith(['server.tool.enable']);
+  });
 });

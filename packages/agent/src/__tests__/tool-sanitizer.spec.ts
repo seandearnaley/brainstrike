@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeTools, type ToolsInput } from '../mastra/tool-sanitizer';
+import {
+  createSanitizedToolNameMap,
+  sanitizeTools,
+  type ToolsInput,
+} from '../mastra/tool-sanitizer';
 
 describe('tool-sanitizer', () => {
   describe('sanitizeTools', () => {
@@ -233,6 +237,26 @@ describe('tool-sanitizer', () => {
       expect(sanitizedTool).toBeDefined();
       expect(typeof sanitizedTool?.execute).toBe('function');
       expect(sanitizedTool?.execute()).toBe('executed');
+    });
+  });
+
+  describe('createSanitizedToolNameMap', () => {
+    it('maps sanitized names back to their original tool ids', () => {
+      const result = createSanitizedToolNameMap([
+        'filesystem.read_file',
+        'filesystem.list_directory',
+      ]);
+
+      expect(result.get('filesystem_read_file')).toBe('filesystem.read_file');
+      expect(result.get('filesystem_list_directory')).toBe('filesystem.list_directory');
+    });
+
+    it('preserves collision-safe hash suffixes', () => {
+      const result = createSanitizedToolNameMap(['web.search', 'web/search']);
+
+      expect(result.get('web_search')).toBe('web.search');
+      const hashedEntry = Array.from(result.entries()).find(([key]) => key !== 'web_search');
+      expect(hashedEntry?.[1]).toBe('web/search');
     });
   });
 });

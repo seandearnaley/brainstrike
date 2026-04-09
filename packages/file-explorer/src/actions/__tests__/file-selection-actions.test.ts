@@ -1533,6 +1533,39 @@ describe('file-selection-actions', () => {
       expect(currentState.selectedFilePaths.size).toBe(50);
     });
 
+    it('does not report limitReached when chunked additions exactly fill the remaining budget', async () => {
+      let currentState = createMockState({
+        selectedFilePaths: new Set<string>(),
+        maxSelectionCount: 160,
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = Array.from({ length: 160 }, (_, i) => `file${i}.ts`);
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+        }
+      });
+
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
+        'folder1',
+        pathsToAdd,
+        {
+          chunkSize: 50,
+        }
+      );
+
+      expect(result.addedCount).toBe(160);
+      expect(result.limitReached).toBe(false);
+      expect(currentState.selectedFilePaths.size).toBe(160);
+    });
+
     it('should support cancellation via AbortSignal', async () => {
       // Arrange
       let currentState = createMockState({

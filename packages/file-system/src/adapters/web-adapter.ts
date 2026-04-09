@@ -28,6 +28,11 @@ declare global {
 
   interface FileSystemDirectoryHandle extends FileSystemHandle {
     entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
+    getDirectoryHandle(
+      name: string,
+      options?: { create?: boolean }
+    ): Promise<FileSystemDirectoryHandle>;
+    getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle>;
     readonly kind: 'directory';
     readonly name: string;
   }
@@ -169,6 +174,36 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     return this.handleCache;
   }
 
+  private resolveRootFolderId(path: string): string | null {
+    const rootFromPath = path.split('/').find((segment) => segment.length > 0) ?? null;
+    if (!rootFromPath) {
+      return this.lastRootFolderId;
+    }
+
+    // Web tree paths can be root-relative (`src/file.ts`) while the cached handle
+    // key remains the selected root folder id (`project-root`). Preserve the active
+    // root for those relative paths instead of treating the first segment as a root id.
+    if (this.lastRootFolderId && rootFromPath !== this.lastRootFolderId) {
+      return this.lastRootFolderId;
+    }
+
+    return rootFromPath;
+  }
+
+  private cacheFileHandleForPath(path: string, fileHandle: FileSystemFileHandle): void {
+    const folderId = this.resolveRootFolderId(path);
+    if (!folderId) {
+      return;
+    }
+
+    void this.handleCache.storeFileHandle(folderId, path, fileHandle).catch((err) => {
+      logger.debug('cacheFileHandleForPath: best-effort file handle persistence failed', {
+        path,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     if (!('showDirectoryPicker' in window)) {
       throw new Error('File System Access API not supported');
@@ -225,6 +260,8 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
         });
       } else {
         const fileHandle = entryHandle as FileSystemFileHandle;
+        const filePath = `${handle.path}/${name}`;
+        this.cacheFileHandleForPath(filePath, fileHandle);
         if (includeMetadata) {
           fileWorks.push(
             limiter(async () => {
@@ -232,7 +269,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
                 const file = await fileHandle.getFile();
                 return {
                   name,
-                  path: `${handle.path}/${name}`,
+                  path: filePath,
                   type: 'file',
                   handle: fileHandle,
                   depth: 0, // This should be calculated by the caller
@@ -250,7 +287,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
         } else {
           dirNodes.push({
             name,
-            path: `${handle.path}/${name}`,
+            path: filePath,
             type: 'file',
             handle: fileHandle,
             depth: 0, // This should be calculated by the caller
@@ -312,6 +349,46 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     }
 
     return await file.text();
+  }
+
+  async readFileByPath(path: string): Promise<string> {
+    const rootFolderId = this.resolveRootFolderId(path);
+    if (!rootFolderId) {
+      throw new AccessError('Root directory handle is not available', path, 'read');
+    }
+
+    const rootHandle = await this.handleCache.getRootHandle(rootFolderId);
+    if (!rootHandle) {
+      throw new AccessError('Root directory handle is not available', path, 'read');
+    }
+
+    const normalizedSegments = path.split('/').filter((segment) => segment.length > 0);
+    const relativeSegments =
+      normalizedSegments[0] === rootFolderId ? normalizedSegments.slice(1) : normalizedSegments;
+
+    if (relativeSegments.length === 0) {
+      throw new AccessError('Path does not reference a file', path, 'read');
+    }
+
+    let currentDirectoryHandle = rootHandle;
+    for (const segment of relativeSegments.slice(0, -1)) {
+      currentDirectoryHandle = await currentDirectoryHandle.getDirectoryHandle(segment);
+    }
+
+    const fileName = relativeSegments.at(-1);
+    if (!fileName) {
+      throw new AccessError('Path does not reference a file', path, 'read');
+    }
+
+    const fileHandle = await currentDirectoryHandle.getFileHandle(fileName);
+    return this.readFile({
+      path,
+      name: fileName,
+      kind: 'file',
+      platform: 'web',
+      rootFolderId,
+      _internal: fileHandle,
+    });
   }
 
   async exists(_path: string): Promise<boolean> {
@@ -430,6 +507,10 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
               handle.name,
               includeMetadata
             );
+
+      if (entryHandle.kind === 'file') {
+        this.cacheFileHandleForPath(node.path, entryHandle as FileSystemFileHandle);
+      }
 
       batch.push(node);
       total++;

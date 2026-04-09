@@ -49,7 +49,7 @@ export class AssistantDataStreamSession {
     this.id = resolved.sessionId ?? createRandomId('sess');
     this.messageId = resolved.messageId ?? createRandomId('msg');
     this.cleanupDelayMs = resolved.cleanupDelayMs ?? DEFAULT_CLEANUP_DELAY_MS;
-    this.mapper = new DataStreamMapper(this.id, this.messageId);
+    this.mapper = new DataStreamMapper(this.messageId);
     for (const chunk of this.mapper.initialChunks()) {
       this.recordChunk(chunk);
     }
@@ -68,7 +68,6 @@ export class AssistantDataStreamSession {
     responseHeaders.set('Cache-Control', 'no-store');
     responseHeaders.set('Connection', 'close');
     responseHeaders.set('x-vercel-ai-data-stream', 'v1');
-    responseHeaders.set('x-vercel-ai-ui-message-stream', 'v1');
     if (headers) {
       const init = new Headers(headers);
       for (const [key, value] of init.entries()) {

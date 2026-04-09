@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, fileNodeCollator } from '@brainstrike/utils';
-import type { FixtureDefinition, FixtureTree } from './dev-fixture-types';
+import type { FixtureDefinition, FixtureLoadOptions, FixtureTree } from './dev-fixture-types';
 import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture';
 import type {
   DirectoryHandle,
@@ -29,6 +29,7 @@ export interface FixtureControls {
   clearInlineFixture: () => Promise<void>;
   isInlineFixtureActive: () => boolean;
   loadInlineFixture: (fixture?: FixtureDefinition) => Promise<DirectoryHandle>;
+  setInlineFixtureOptions?: (options?: FixtureLoadOptions) => void;
 }
 
 export type FixtureCapableFileSystemAdapter = FileSystemAdapter & FixtureControls;
@@ -97,6 +98,15 @@ function streamNodesInBatches(
   }
 }
 
+async function waitForFixtureDelay(delayMs: number): Promise<void> {
+  if (delayMs <= 0) {
+    return;
+  }
+  await new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
 function buildFixtureState(
   definition: FixtureDefinition,
   platform: DirectoryHandle['platform']
@@ -129,14 +139,17 @@ function buildFixtureState(
     size,
   });
 
+  const getDefaultFileContent = (name: string): string => `${name} content`;
+
   const walk = (tree: FixtureTree, currentPath: string, rootFolderId: string): void => {
     const entries: IFileNode[] = [];
 
     for (const [name, value] of Object.entries(tree)) {
       const fullPath = joinPath(currentPath, name);
-      if (typeof value === 'string') {
-        const size = value.length;
-        fileContents.set(fullPath, { content: value, size, lastModified: timestamp });
+      if (typeof value === 'string' || value === null) {
+        const content = typeof value === 'string' ? value : getDefaultFileContent(name);
+        const size = content.length;
+        fileContents.set(fullPath, { content, size, lastModified: timestamp });
         entries.push({
           name,
           path: fullPath,
@@ -188,11 +201,15 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const platform = options.platform;
   const defaultFixture = options.defaultFixture ?? DEV_INLINE_FIXTURE;
   let fixtureState: FixtureState | null = null;
+  let fixtureLoadOptions: FixtureLoadOptions = {};
 
   const originalRequestDirectoryAccess = adapter.requestDirectoryAccess.bind(adapter);
   const originalReadDirectory = adapter.readDirectory.bind(adapter);
   const originalReadFile = adapter.readFile.bind(adapter);
   const originalExists = adapter.exists.bind(adapter);
+  const originalReadFileByPath = (
+    adapter as { readFileByPath?: ((path: string) => Promise<string>) | undefined }
+  ).readFileByPath?.bind(adapter);
   const originalRestoreLastFolder = adapter.restoreLastFolder?.bind(adapter);
   const originalReadDirectoryStreaming = adapter.readDirectoryStreaming?.bind(adapter);
 
@@ -208,6 +225,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     optionsArg?: DirectoryReadOptions
   ): Promise<IFileNode[]> {
     if (fixtureState) {
+      await waitForFixtureDelay(fixtureLoadOptions.directoryReadDelayMs ?? 0);
       // When fixture is active, only serve data from the fixture
       if (fixtureState.directories.has(handle.path)) {
         return cloneNodes(fixtureState.directories.get(handle.path) ?? []);
@@ -244,12 +262,27 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     return originalExists(path);
   }
 
+  async function readFileByPath(path: string): Promise<string> {
+    if (fixtureState) {
+      const record = fixtureState.fileContents.get(path);
+      if (record) {
+        return record.content;
+      }
+      throw new Error(`File not found in fixture: ${path}`);
+    }
+    if (!originalReadFileByPath) {
+      throw new Error('Direct path reads are not supported by this adapter');
+    }
+    return originalReadFileByPath(path);
+  }
+
   async function readDirectoryStreaming(
     handle: DirectoryHandle,
     onBatch: DirectoryStreamCallback,
     optionsArg?: StreamingDirectoryReadOptions
   ): Promise<void> {
     if (fixtureState) {
+      await waitForFixtureDelay(fixtureLoadOptions.directoryReadDelayMs ?? 0);
       streamNodesInBatches(
         cloneNodes(fixtureState.directories.get(handle.path) ?? []),
         onBatch,
@@ -291,6 +324,10 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     return fixtureState !== null;
   }
 
+  function setInlineFixtureOptions(nextOptions?: FixtureLoadOptions): void {
+    fixtureLoadOptions = nextOptions ?? {};
+  }
+
   const decorated = adapter as T & FixtureControls;
   decorated.requestDirectoryAccess = requestDirectoryAccess;
   decorated.readDirectory = readDirectory;
@@ -302,6 +339,13 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   }
   decorated.readFile = readFile;
   decorated.exists = exists;
+  if (originalReadFileByPath) {
+    (
+      decorated as T & {
+        readFileByPath?: (path: string) => Promise<string>;
+      }
+    ).readFileByPath = readFileByPath;
+  }
   if (adapter.restoreLastFolder) {
     decorated.restoreLastFolder = restoreLastFolder;
   }
@@ -309,6 +353,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   decorated.clearInlineFixture = clearInlineFixture;
   decorated.isInlineFixtureActive = isInlineFixtureActive;
   decorated.canLoadInlineFixture = true;
+  decorated.setInlineFixtureOptions = setInlineFixtureOptions;
 
   // Forward getHandleCache if available (required for web persistence via useRestoreAccess)
   const adapterWithCache = adapter as { getHandleCache?: () => unknown };
