@@ -533,17 +533,30 @@ export async function splitCodeByFunctionRanges(
 export function splitByBlankLines(text: string): string[] {
   const parts: string[] = [];
   let buffer: string[] = [];
-  const lines = text.split(/\r?\n/);
 
-  for (const line of lines) {
+  let startIndex = 0;
+  while (startIndex <= text.length) {
+    let newlineIndex = text.indexOf('\n', startIndex);
+    if (newlineIndex === -1) {
+      newlineIndex = text.length;
+    }
+
+    let lineEnd = newlineIndex;
+    if (lineEnd > startIndex && text.charCodeAt(lineEnd - 1) === 13) {
+      lineEnd--;
+    }
+
+    const line = text.slice(startIndex, lineEnd);
     if (line.trim() === '') {
       if (buffer.length > 0) {
         parts.push(buffer.join('\n'));
         buffer = [];
       }
-      continue;
+    } else {
+      buffer.push(line);
     }
-    buffer.push(line);
+
+    startIndex = newlineIndex + 1;
   }
 
   if (buffer.length > 0) {
@@ -633,7 +646,24 @@ function captureParagraph(lines: readonly (string | undefined)[], start: number)
 
 export function splitMarkdownIntoBlocks(content: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
-  const lines = content.split(/\r?\n/);
+  const lines: string[] = [];
+
+  let startIndex = 0;
+  while (startIndex <= content.length) {
+    let newlineIndex = content.indexOf('\n', startIndex);
+    if (newlineIndex === -1) {
+      newlineIndex = content.length;
+    }
+
+    let lineEnd = newlineIndex;
+    if (lineEnd > startIndex && content.charCodeAt(lineEnd - 1) === 13) {
+      lineEnd--;
+    }
+
+    lines.push(content.slice(startIndex, lineEnd));
+    startIndex = newlineIndex + 1;
+  }
+
   let index = 0;
 
   while (index < lines.length) {

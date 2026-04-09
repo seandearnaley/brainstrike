@@ -155,9 +155,27 @@ function shouldSkipChunking(
   }
 
   // Check for very repetitive content (common in generated files)
-  const allLines = content.split('\n');
-  const uniqueLines = new Set(allLines).size;
-  const totalLines = allLines.length;
+  let totalLines = 0;
+  const uniqueLinesSet = new Set<string>();
+
+  let startIndex = 0;
+  while (startIndex <= content.length) {
+    let newlineIndex = content.indexOf('\n', startIndex);
+    if (newlineIndex === -1) {
+      newlineIndex = content.length;
+    }
+
+    let lineEnd = newlineIndex;
+    if (lineEnd > startIndex && content.charCodeAt(lineEnd - 1) === 13) {
+      lineEnd--;
+    }
+
+    uniqueLinesSet.add(content.slice(startIndex, lineEnd));
+    totalLines++;
+    startIndex = newlineIndex + 1;
+  }
+
+  const uniqueLines = uniqueLinesSet.size;
   if (totalLines > 1000 && uniqueLines / totalLines < 0.1) {
     return {
       skip: true,
@@ -566,21 +584,37 @@ async function splitCodeByFunctions(
 // Markdown helpers
 function splitByBlankLines(text: string): string[] {
   const parts: string[] = [];
-  let buf: string[] = [];
-  const lines = text.split(/\r?\n/);
-  for (const line of lines) {
+  let buffer: string[] = [];
+
+  let startIndex = 0;
+  while (startIndex <= text.length) {
+    let newlineIndex = text.indexOf('\n', startIndex);
+    if (newlineIndex === -1) {
+      newlineIndex = text.length;
+    }
+
+    let lineEnd = newlineIndex;
+    if (lineEnd > startIndex && text.charCodeAt(lineEnd - 1) === 13) {
+      lineEnd--;
+    }
+
+    const line = text.slice(startIndex, lineEnd);
     if (line.trim() === '') {
-      if (buf.length) {
-        parts.push(buf.join('\n'));
-        buf = [];
+      if (buffer.length > 0) {
+        parts.push(buffer.join('\n'));
+        buffer = [];
       }
     } else {
-      buf.push(line);
+      buffer.push(line);
     }
+
+    startIndex = newlineIndex + 1;
   }
-  if (buf.length) {
-    parts.push(buf.join('\n'));
+
+  if (buffer.length > 0) {
+    parts.push(buffer.join('\n'));
   }
+
   return parts;
 }
 
@@ -655,7 +689,24 @@ function captureParagraph(lines: (string | undefined)[], start: number) {
 
 function splitMarkdownIntoBlocks(content: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
-  const lines = content.split(/\r?\n/);
+  const lines: string[] = [];
+
+  let startIndex = 0;
+  while (startIndex <= content.length) {
+    let newlineIndex = content.indexOf('\n', startIndex);
+    if (newlineIndex === -1) {
+      newlineIndex = content.length;
+    }
+
+    let lineEnd = newlineIndex;
+    if (lineEnd > startIndex && content.charCodeAt(lineEnd - 1) === 13) {
+      lineEnd--;
+    }
+
+    lines.push(content.slice(startIndex, lineEnd));
+    startIndex = newlineIndex + 1;
+  }
+
   let i = 0;
   while (i < lines.length) {
     const fence = captureFence(lines, i);
