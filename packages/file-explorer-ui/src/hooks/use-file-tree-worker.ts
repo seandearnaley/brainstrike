@@ -19,7 +19,6 @@ import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
-
 import { runWithConcurrency } from '../utils/concurrency';
 import { fileNodeCollator } from '../utils/file-node-collator';
 import { loadDirectoryChildren } from '../utils/lazy-tree-loader';
@@ -28,14 +27,12 @@ import {
   type FileSystemHandle,
   toWorkerFileNodes,
 } from '../utils/worker-node-conversion';
+import { buildNodeFromPath } from './build-node-from-path';
 
 const logger = createLogger('FileTreeWorker');
 
 /** Maximum concurrent directory loads to prevent overwhelming the browser */
 const MAX_CONCURRENT_LOADS = 5;
-
-/** Character code for '/' used in low-level path parsing */
-const SLASH = 47;
 
 /**
  * Sort nodes: directories first, then alphabetically.
@@ -47,58 +44,6 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
     }
     return fileNodeCollator.compare(a.name, b.name);
   });
-}
-
-/**
- * Build minimal node info from a path and root info.
- */
-function buildNodeFromPath(
-  path: string,
-  rootPath: string,
-  rootFolderId: string,
-  handle: FileSystemHandle
-): IFileNode {
-  let relativePath = path;
-  if (path.startsWith(rootPath)) {
-    relativePath = path.slice(rootPath.length);
-  }
-
-  // Calculate name by finding the last segment
-  let name = '';
-  // Normalize by stripping trailing slash if present (though not expected in clean paths)
-  let searchEnd = relativePath.length;
-  if (searchEnd > 0 && relativePath.charCodeAt(searchEnd - 1) === SLASH) {
-    searchEnd--;
-  }
-
-  const lastSlashIndex = relativePath.lastIndexOf('/', searchEnd - 1);
-  if (lastSlashIndex !== -1) {
-    name = relativePath.slice(lastSlashIndex + 1, searchEnd);
-  } else {
-    name = relativePath.slice(0, searchEnd);
-  }
-
-  // Calculate depth by counting interior slashes
-  let depth = 0;
-  const start = relativePath.length > 0 && relativePath.charCodeAt(0) === SLASH ? 1 : 0;
-  const end = relativePath.length > 1 && relativePath.charCodeAt(relativePath.length - 1) === SLASH
-    ? relativePath.length - 1
-    : relativePath.length;
-  for (let i = start; i < end; i++) {
-    if (relativePath.charCodeAt(i) === SLASH) {
-      depth++;
-    }
-  }
-
-  return {
-    name,
-    path,
-    type: 'directory',
-    depth,
-    rootFolderId,
-    handle: handle as FileSystemDirectoryHandle,
-    selectionState: 'unchecked',
-  };
 }
 
 /**
@@ -117,7 +62,7 @@ async function loadSingleDirectory(
     return { path, error: 'Handle not found' };
   }
 
-  const node = buildNodeFromPath(path, rootPath, rootFolderId, handle);
+  const node = buildNodeFromPath(path, rootPath, rootFolderId, handle as FileSystemDirectoryHandle);
 
   try {
     const children = await loadDirectoryChildren(fileSystemAdapter, node, {
