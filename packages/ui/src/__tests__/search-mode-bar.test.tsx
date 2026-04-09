@@ -222,6 +222,15 @@ describe('SearchModeBar', () => {
     );
   });
 
+  it('uses aria-pressed to reflect search settings expansion', () => {
+    render(<SearchModeBar {...createProps({ isConfigExpanded: true })} />);
+
+    expect(screen.getByRole('button', { name: 'Toggle search settings' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
+
   it('keeps the filter toggle unpressed when filters are active but the panel is closed', () => {
     render(
       <SearchModeBar
@@ -239,7 +248,7 @@ describe('SearchModeBar', () => {
 
     const filterToggle = screen.getByRole('button', { name: 'Toggle filters (active)' });
     expect(filterToggle).toHaveAttribute('aria-pressed', 'false');
-    expect(filterToggle.className).toContain('bg-accent');
+    expect(filterToggle).toHaveClass('bg-accent');
   });
 
   it('renders multi-select toggle when onMultiSelectToggle is provided', () => {
@@ -269,6 +278,7 @@ describe('SearchModeBar', () => {
     render(<SearchModeBar {...createProps({ multiSelectEnabled: true, onMultiSelectToggle })} />);
 
     const toggle = screen.getByRole('button', { name: 'Toggle multi-select' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
     expect(toggle.className).toContain('bg-accent');
   });
 
