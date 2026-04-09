@@ -15,7 +15,10 @@
 
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import {
+  type DirectoryHandle,
   type FixtureCapableFileSystemAdapter,
+  type FixtureDefinition,
+  type FixtureLoadOptions,
   isFixtureCapableAdapter,
 } from '@brainstrike/file-system';
 import type { FileExplorerState } from '@brainstrike/types';
@@ -25,6 +28,9 @@ import type { StoreApi } from 'zustand';
 const logger = createLogger('InlineFixtureSubscription');
 
 function shouldExposeFixtureTestingApi(): boolean {
+  if (typeof window !== 'undefined' && window.__brainstrike_e2e_expose_file_explorer_store__) {
+    return true;
+  }
   if (globalThis.process?.env?.['NODE_ENV'] === 'production') {
     return false;
   }
@@ -40,10 +46,17 @@ declare global {
   interface Window {
     /** Clear the dev fixture and reset the file explorer */
     // biome-ignore lint/style/useNamingConvention: Global test API uses double underscores for clarity
-    __BRAINSTRIKE_CLEAR_FIXTURE__?: (() => void) | undefined;
+    __BRAINSTRIKE_CLEAR_FIXTURE__?: (() => void | Promise<void>) | undefined;
     /** Load the built-in dev fixture into the file explorer (bypasses native directory picker) */
     // biome-ignore lint/style/useNamingConvention: Global test API uses double underscores for clarity
-    __BRAINSTRIKE_LOAD_FIXTURE__?: (() => void) | undefined;
+    __BRAINSTRIKE_LOAD_FIXTURE__?:
+      | ((
+          fixture?: FixtureDefinition,
+          options?: FixtureLoadOptions
+        ) => DirectoryHandle | Promise<DirectoryHandle | null> | null | undefined)
+      | undefined;
+    // biome-ignore lint/style/useNamingConvention: E2E init-script flag uses double underscores by convention
+    __brainstrike_e2e_expose_file_explorer_store__?: boolean | undefined;
   }
 }
 
@@ -66,34 +79,46 @@ export function setupInlineFixtureSubscription(
   let isProcessing = false;
   let suppressNextSubscription = false;
 
-  const applyFixtureState = async (enabled: boolean) => {
+  const applyFixtureState = async (
+    enabled: boolean,
+    fixture?: FixtureDefinition,
+    options?: FixtureLoadOptions
+  ): Promise<DirectoryHandle | null> => {
     if (isProcessing) {
-      return;
+      return enabled ? store.getState().rootDirectoryHandle : null;
     }
     isProcessing = true;
 
     try {
       if (enabled) {
-        const handle = await adapter.loadInlineFixture();
+        adapter.setInlineFixtureOptions?.(options);
+        const handle = await adapter.loadInlineFixture(fixture);
         store.getState().setRootDirectoryHandle(handle);
         logger.info('Inline fixture loaded');
-      } else {
-        await adapter.clearInlineFixture();
-        store.getState().setRootDirectoryHandle(null);
-        logger.info('Inline fixture cleared');
+        return handle;
       }
+      await adapter.clearInlineFixture();
+      adapter.setInlineFixtureOptions?.();
+      store.getState().setRootDirectoryHandle(null);
+      logger.info('Inline fixture cleared');
+      return null;
     } catch (error) {
       logger.warn('Failed to toggle inline fixture', { error, enabled });
       // Roll back the toggle without re-entering the subscription loop.
       suppressNextSubscription = true;
       store.getState().setDevInlineFixtureEnabled(!enabled);
+      return null;
     } finally {
       isProcessing = false;
     }
   };
 
-  const safelyApplyFixtureState = (enabled: boolean): void => {
-    void applyFixtureState(enabled).catch((error) => {
+  const safelyApplyFixtureState = (
+    enabled: boolean,
+    fixture?: FixtureDefinition,
+    options?: FixtureLoadOptions
+  ): void => {
+    void applyFixtureState(enabled, fixture, options).catch((error) => {
       logger.error('Inline fixture toggle crashed outside guarded flow', { error, enabled });
     });
   };
@@ -124,11 +149,18 @@ export function setupInlineFixtureSubscription(
   // Expose global testing API
   if (typeof window !== 'undefined') {
     if (shouldExposeFixtureTestingApi()) {
-      window.__BRAINSTRIKE_LOAD_FIXTURE__ = () => {
+      window.__BRAINSTRIKE_LOAD_FIXTURE__ = async (
+        fixture?: FixtureDefinition,
+        options?: FixtureLoadOptions
+      ) => {
+        suppressNextSubscription = true;
         store.getState().setDevInlineFixtureEnabled(true);
+        return await applyFixtureState(true, fixture, options);
       };
-      window.__BRAINSTRIKE_CLEAR_FIXTURE__ = () => {
+      window.__BRAINSTRIKE_CLEAR_FIXTURE__ = async () => {
+        suppressNextSubscription = true;
         store.getState().setDevInlineFixtureEnabled(false);
+        await applyFixtureState(false);
       };
     } else {
       window.__BRAINSTRIKE_LOAD_FIXTURE__ = undefined;

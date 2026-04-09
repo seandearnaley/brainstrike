@@ -27,27 +27,25 @@ test.describe('Refresh Workflow', { tag: '@smoke' }, () => {
 
     // Initial tree is visible already; proceed without arbitrary sleep
 
-    // Update the mocked file system with a new file after initial load
+    // Update the official fixture backing with a new file after initial load.
+    // The refresh action should pick up the updated tree and surface the success toast.
     await page.evaluate(async () => {
       const w = window as unknown as {
-        showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>;
+        __BRAINSTRIKE_LOAD_FIXTURE__?: (fixture: {
+          name: string;
+          tree: Record<string, null | string>;
+        }) => Promise<unknown>;
       };
-      const root = await w.showDirectoryPicker();
-
-      // Add artificial delay when iterating directory entries to ensure loading state is visible
-      const origEntries = root.entries.bind(root);
-      root.entries = async function* () {
-        await new Promise((r) => setTimeout(r, 200)); // Increased delay for CI reliability
-        for await (const item of origEntries()) {
-          // Yield original items - they're already the correct tuple type [string, FileSystemHandle]
-          yield item;
-        }
-      };
-
-      const handle = await root.getFileHandle('new-file.ts', { create: true });
-      const writable = await handle.createWritable();
-      await writable.write('test content');
-      await writable.close();
+      if (typeof w.__BRAINSTRIKE_LOAD_FIXTURE__ !== 'function') {
+        throw new Error('Fixture testing API not available');
+      }
+      await w.__BRAINSTRIKE_LOAD_FIXTURE__({
+        name: 'test-root',
+        tree: {
+          'old-file.ts': null,
+          'new-file.ts': 'test content',
+        },
+      });
     });
 
     // Trigger refresh

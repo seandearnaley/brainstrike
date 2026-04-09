@@ -13,7 +13,10 @@ import type {
 import { ImportProgressTracker } from './progress-tracker';
 
 interface PendingFile {
-  fileNode: IFileNode;
+  fileNode: IFileNode | null;
+  folderId: string;
+  name: string;
+  path: string;
 }
 
 interface ErrorEntry {
@@ -73,22 +76,19 @@ function prepareRequestsFromCache(
 
     const fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
 
-    if (!fileNode || fileNode.type !== 'file') {
-      tracker.addError({
-        file: path,
-        error: 'File not found in tree and no cached content available',
-      });
-      continue;
-    }
-
-    pending.push({ fileNode });
+    pending.push({
+      fileNode: fileNode?.type === 'file' ? fileNode : null,
+      folderId,
+      name: path.split('/').pop() ?? 'unknown',
+      path,
+    });
   }
 
   return { requests, pending };
 }
 
 function createImportRequest(
-  fileNode: IFileNode,
+  fileNode: Pick<IFileNode, 'name' | 'path' | 'size'>,
   content: string,
   embeddingSetId?: string
 ): FileImportRequest {
@@ -106,12 +106,8 @@ function createImportRequest(
   return request;
 }
 
-async function readTextFile(
-  fileNode: IFileNode,
-  fileSystem: NonNullable<FileImportDependencies['fileSystem']>
-): Promise<string> {
-  const content = await fileSystem.readFile(fileNode);
-  const extension = fileExplorer.getFileExtension(fileNode.path);
+function validateTextContent(path: string, content: string): void {
+  const extension = fileExplorer.getFileExtension(path);
 
   if (fileContent.isBinaryExtension(extension)) {
     throw new FileImportError('unsupported-content', BINARY_FILE_ERROR_MESSAGE);
@@ -120,7 +116,14 @@ async function readTextFile(
   if (!(fileContent.isTextExtension(extension) || fileContent.isTextContent(content))) {
     throw new FileImportError('unsupported-content', BINARY_FILE_ERROR_MESSAGE);
   }
+}
 
+async function readTextFile(
+  fileNode: IFileNode,
+  fileSystem: NonNullable<FileImportDependencies['fileSystem']>
+): Promise<string> {
+  const content = await fileSystem.readFile(fileNode);
+  validateTextContent(fileNode.path, content);
   return content;
 }
 
@@ -157,15 +160,43 @@ async function loadMissingFileContents(
     });
   }
 
-  for (const { fileNode } of pending) {
-    tracker.update(tracker.errorCount, fileNode.name);
+  for (const pendingFile of pending) {
+    tracker.update(tracker.errorCount, pendingFile.name);
 
     try {
-      const content = await readTextFile(fileNode, fileSystem);
-      requests.push(createImportRequest(fileNode, content, embeddingSetId));
+      if (pendingFile.fileNode) {
+        const content = await readTextFile(pendingFile.fileNode, fileSystem);
+        requests.push(createImportRequest(pendingFile.fileNode, content, embeddingSetId));
+        continue;
+      }
+
+      const resolved = await fileSystem.readFileBySelection?.(
+        pendingFile.folderId,
+        pendingFile.path
+      );
+      if (!resolved) {
+        tracker.addError({
+          file: pendingFile.path,
+          error: 'File not found in tree and no cached content available',
+        });
+        continue;
+      }
+
+      validateTextContent(resolved.path, resolved.content);
+      requests.push(
+        createImportRequest(
+          {
+            name: resolved.name,
+            path: resolved.path,
+            size: resolved.size,
+          },
+          resolved.content,
+          embeddingSetId
+        )
+      );
     } catch (error) {
       tracker.addError({
-        file: fileNode.path,
+        file: pendingFile.path,
         error: resolveReadError(error),
       });
     }

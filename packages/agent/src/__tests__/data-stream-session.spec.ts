@@ -129,7 +129,6 @@ describe('AssistantDataStreamSession', () => {
     const lines = await readResponse(session.createResponse());
     const codes = lines.map((line) => line.slice(0, 1));
     expect(codes).toStrictEqual([
-      '2', // start metadata
       'f', // start-step
       '0',
       '0',
@@ -146,13 +145,6 @@ describe('AssistantDataStreamSession', () => {
     ]);
 
     const events = parseLines(lines);
-    const metadata = events[0]?.value as [{ type: string; messageId: string; sessionId: string }];
-    expect(metadata?.[0]).toMatchObject({
-      type: 'start',
-      messageId: 'msg-test',
-      sessionId: 'sess-test',
-    });
-
     const toolResult = events.find((evt) => evt.code === 'a')?.value as {
       toolCallId: string;
       result: { tempC: number };
@@ -161,9 +153,9 @@ describe('AssistantDataStreamSession', () => {
 
     const finish = events.at(-1)?.value as {
       finishReason: string;
-      usage: Usage;
+      usage: DataStreamUsage;
     };
-    expect(finish?.usage).toStrictEqual({ promptTokens: 5, completionTokens: 7 });
+    expect(finish?.usage).toStrictEqual({ inputTokens: 5, outputTokens: 7 });
   });
 
   it('supports resuming from Last-Event-ID', async () => {
@@ -729,7 +721,7 @@ describe('AssistantDataStreamSession', () => {
   });
 });
 
-interface Usage {
-  completionTokens: number;
-  promptTokens: number;
+interface DataStreamUsage {
+  inputTokens: number;
+  outputTokens: number;
 }

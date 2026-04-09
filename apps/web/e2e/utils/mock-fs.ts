@@ -22,139 +22,37 @@ function buildMockBrowserApisScript(payload: MockBrowserApisPayload): string {
 (() => {
   const payload = ${serializedPayload};
   window.__brainstrike_e2e_expose_file_explorer_store__ = true;
+  const fixture = {
+    name: payload.rootName,
+    tree: payload.tree,
+  };
+  const fixtureOptions = payload.directoryReadDelayMs > 0
+    ? { directoryReadDelayMs: payload.directoryReadDelayMs }
+    : undefined;
 
-  function delay(ms) {
-    return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
-  }
-
-  function buildFs(name, obj) {
-    if (obj && typeof obj === 'object') {
-      const children = {};
-      for (const [childName, child] of Object.entries(obj)) {
-        children[childName] = buildFs(childName, child);
-      }
-      return { kind: 'directory', name, _entries: children };
+  const waitForFixtureLoader = (attempts = 0) => new Promise((resolve, reject) => {
+    const loadFixture = window.__BRAINSTRIKE_LOAD_FIXTURE__;
+    if (typeof loadFixture === 'function') {
+      resolve(loadFixture);
+      return;
     }
-    const content = typeof obj === 'string' ? obj : \`\${name} content\`;
-    return { kind: 'file', name, _content: content };
-  }
-
-  class FileSystemFileHandle {
-    constructor(node) {
-      this.node = node;
-      this.kind = 'file';
-      this.name = node.name;
+    if (attempts > 1000) {
+      reject(new Error('Fixture testing API was not exposed in time'));
+      return;
     }
+    setTimeout(() => {
+      void waitForFixtureLoader(attempts + 1).then(resolve, reject);
+    }, 0);
+  });
 
-    async getFile() {
-      return new File([this.node._content], this.node.name);
+  window.showDirectoryPicker = async () => {
+    const loadFixture = await waitForFixtureLoader();
+    const handle = await loadFixture(fixture, fixtureOptions);
+    if (!handle) {
+      throw new Error('Fixture testing API did not return a directory handle');
     }
-
-    async createWritable() {
-      const handle = this.node;
-      let data = '';
-
-      const tryString = (chunk) => (typeof chunk === 'string' ? chunk : undefined);
-      const tryBlob = async (chunk) => (chunk instanceof Blob ? await chunk.text() : undefined);
-      const tryArrayBuffer = (chunk) =>
-        chunk instanceof ArrayBuffer ? new TextDecoder().decode(chunk) : undefined;
-      const tryArrayBufferView = (chunk) =>
-        ArrayBuffer.isView(chunk) ? new TextDecoder().decode(chunk.buffer) : undefined;
-
-      function isRecord(value) {
-        return typeof value === 'object' && value !== null;
-      }
-
-      function isWriteChunk(value) {
-        return isRecord(value) && value.type === 'write' && 'data' in value;
-      }
-
-      async function toStringChunk(chunk) {
-        const handlers = [tryString, tryBlob, tryArrayBuffer, tryArrayBufferView];
-        for (const handler of handlers) {
-          const result = await handler(chunk);
-          if (result !== undefined) {
-            return result;
-          }
-        }
-        if (isWriteChunk(chunk)) {
-          return toStringChunk(chunk.data);
-        }
-        throw new Error('Unsupported chunk type');
-      }
-
-      return {
-        async write(chunk) {
-          data += await toStringChunk(chunk);
-        },
-        async close() {
-          handle._content = data;
-        },
-      };
-    }
-  }
-
-  class FileSystemDirectoryHandle {
-    constructor(node) {
-      this.node = node;
-      this.kind = 'directory';
-      this.name = node.name;
-      this._entries = node._entries;
-    }
-
-    async *entries() {
-      await delay(payload.directoryReadDelayMs);
-      for (const [name, entry] of Object.entries(this.node._entries)) {
-        yield [name, createHandle(entry)];
-      }
-    }
-
-    async getDirectoryHandle(name, options) {
-      let entry = this.node._entries[name];
-      if (!entry) {
-        if (options?.create) {
-          entry = { kind: 'directory', name, _entries: {} };
-          this.node._entries[name] = entry;
-        } else {
-          throw new Error('Directory not found');
-        }
-      }
-      if (entry.kind !== 'directory') {
-        throw new Error('Not a directory');
-      }
-      return createHandle(entry);
-    }
-
-    async getFileHandle(name, options) {
-      let entry = this.node._entries[name];
-      if (!entry) {
-        if (options?.create) {
-          entry = { kind: 'file', name, _content: '' };
-          this.node._entries[name] = entry;
-        } else {
-          throw new Error('File not found');
-        }
-      }
-      if (entry.kind !== 'file') {
-        throw new Error('Not a file');
-      }
-      return createHandle(entry);
-    }
-
-    async removeEntry(name) {
-      delete this.node._entries[name];
-    }
-  }
-
-  function createHandle(node) {
-    return node.kind === 'directory'
-      ? new FileSystemDirectoryHandle(node)
-      : new FileSystemFileHandle(node);
-  }
-
-  const rootNode = buildFs(payload.rootName, payload.tree);
-  const root = new FileSystemDirectoryHandle(rootNode);
-  window.showDirectoryPicker = async () => root;
+    return handle;
+  };
 
   if (payload.enableClipboard) {
     if (navigator.clipboard) {

@@ -2,7 +2,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { MCPClient } from '@mastra/mcp';
 import type { McpConfig } from '../mcp/config';
-import { toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
+import { isToolEnabledByFilterConfig, toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
 import { createMastraAgentError } from './mastra-agent-error';
 import { sanitizeTools } from './tool-sanitizer';
 
@@ -43,7 +43,7 @@ export async function collectCombinedTools({
   const isSingleServer = serverList.length === 1;
 
   for (const server of serverList) {
-    if (!server) {
+    if (!server?.name) {
       continue;
     }
 
@@ -52,7 +52,7 @@ export async function collectCombinedTools({
       continue;
     }
 
-    const enabled = registerServerTools(server, toolsForServer);
+    const enabled = registerServerTools(server, toolsForServer, toolNameMap);
     if (enabled) {
       Object.assign(combined, enabled);
     }
@@ -94,15 +94,26 @@ function collectServerTools(
 
 function registerServerTools(
   server: McpServerConfig,
-  serverTools: ToolsInput
+  serverTools: ToolsInput,
+  toolNameMap: Map<string, string>
 ): ToolsInput | undefined {
-  if (!server.name) {
-    return;
-  }
+  const enabledTools = Object.fromEntries(
+    Object.entries(serverTools).filter(([sanitizedToolId]) => {
+      const originalToolId = toolNameMap.get(sanitizedToolId) ?? sanitizedToolId;
+      const persistedMetadata =
+        mcpToolRegistry.getTool(originalToolId) ?? mcpToolRegistry.getTool(sanitizedToolId);
 
-  const filterConfig = server.enabledTools ? { enabledTools: server.enabledTools } : undefined;
-  mcpToolRegistry.register(server.name, serverTools, filterConfig);
-  const enabledTools = mcpToolRegistry.getEnabledTools(serverTools);
+      if (persistedMetadata) {
+        return persistedMetadata.enabled;
+      }
+
+      return isToolEnabledByFilterConfig(
+        originalToolId,
+        server.enabledTools ? { enabledTools: server.enabledTools } : undefined
+      );
+    })
+  );
+
   return Object.keys(enabledTools).length > 0 ? enabledTools : undefined;
 }
 

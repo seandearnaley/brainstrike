@@ -195,11 +195,18 @@ describe('setup-inline-fixture-subscription', () => {
     const store = createFixtureStore(false);
 
     const unsubscribe = setupInlineFixtureSubscription(store, adapter);
-    window.__BRAINSTRIKE_LOAD_FIXTURE__?.();
+    window.__BRAINSTRIKE_LOAD_FIXTURE__?.({
+      name: 'custom-fixture',
+      tree: { 'hello.txt': 'world' },
+    });
     await Promise.resolve();
     await Promise.resolve();
 
     expect(loadInlineFixture).toHaveBeenCalledTimes(1);
+    expect(loadInlineFixture).toHaveBeenCalledWith({
+      name: 'custom-fixture',
+      tree: { 'hello.txt': 'world' },
+    });
     expect(store.getState().rootDirectoryHandle).toMatchObject({ path: '/fixture' });
     expect(loggerMocks.info).toHaveBeenCalledWith('Inline fixture loaded');
 
@@ -231,6 +238,25 @@ describe('setup-inline-fixture-subscription', () => {
     expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeUndefined();
 
     unsubscribe();
+  });
+
+  it('exposes fixture globals in production only when the explicit E2E flag is present', () => {
+    import.meta.env.DEV = false;
+    import.meta.env.MODE = 'production';
+    (import.meta.env as ImportMetaEnv & { VITEST?: boolean }).VITEST = false;
+    vi.stubEnv('NODE_ENV', 'production');
+    window.__brainstrike_e2e_expose_file_explorer_store__ = true;
+
+    const adapter = createFixtureCapableAdapter();
+    const store = createFixtureStore(false);
+
+    const unsubscribe = setupInlineFixtureSubscription(store, adapter);
+
+    expect(window.__BRAINSTRIKE_LOAD_FIXTURE__).toBeTypeOf('function');
+    expect(window.__BRAINSTRIKE_CLEAR_FIXTURE__).toBeTypeOf('function');
+
+    unsubscribe();
+    window.__brainstrike_e2e_expose_file_explorer_store__ = undefined;
   });
 
   it('does not reapply the fixture when persisted state says enabled but the adapter is already active', async () => {

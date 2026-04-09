@@ -19,12 +19,12 @@ interface StepState {
   id: string;
   index: number;
   status: 'success' | 'error';
-  usage: Usage;
+  usage: DataStreamUsage;
 }
 
-interface Usage {
-  completionTokens: number;
-  promptTokens: number;
+interface DataStreamUsage {
+  inputTokens: number;
+  outputTokens: number;
 }
 
 type FinishReason =
@@ -36,19 +36,20 @@ type FinishReason =
   | 'other'
   | 'unknown';
 
-function toUsage(raw?: { promptTokens?: unknown; completionTokens?: unknown }): Usage {
-  const prompt =
-    typeof raw?.promptTokens === 'number' && Number.isFinite(raw.promptTokens)
-      ? raw.promptTokens
-      : 0;
-  const completion =
-    typeof raw?.completionTokens === 'number' && Number.isFinite(raw.completionTokens)
-      ? raw.completionTokens
-      : 0;
-  return { promptTokens: prompt, completionTokens: completion };
+function toDataStreamUsage(raw?: {
+  completionTokens?: unknown;
+  inputTokens?: unknown;
+  outputTokens?: unknown;
+  promptTokens?: unknown;
+}): DataStreamUsage {
+  const inputTokensRaw = raw?.promptTokens ?? raw?.inputTokens;
+  const inputTokens =
+    typeof inputTokensRaw === 'number' && Number.isFinite(inputTokensRaw) ? inputTokensRaw : 0;
+  const outputTokensRaw = raw?.completionTokens ?? raw?.outputTokens;
+  const outputTokens =
+    typeof outputTokensRaw === 'number' && Number.isFinite(outputTokensRaw) ? outputTokensRaw : 0;
+  return { inputTokens, outputTokens };
 }
-
-export { toUsage };
 
 function sanitizeDelta(value: string | undefined): string | undefined {
   if (typeof value !== 'string') {
@@ -67,9 +68,18 @@ function sanitizeToolCallId(value: unknown): string | undefined {
   return;
 }
 
-function extractFinishUsage(chunk: StreamChunkFinish | StreamChunkMessageFinish): Usage {
-  const usage = (chunk as { usage?: { promptTokens?: unknown; completionTokens?: unknown } }).usage;
-  return toUsage(usage ?? {});
+function extractFinishUsage(chunk: StreamChunkFinish | StreamChunkMessageFinish): DataStreamUsage {
+  const usage = (
+    chunk as {
+      usage?: {
+        completionTokens?: unknown;
+        inputTokens?: unknown;
+        outputTokens?: unknown;
+        promptTokens?: unknown;
+      };
+    }
+  ).usage;
+  return toDataStreamUsage(usage ?? {});
 }
 
 function resolveFinishReason(chunk: StreamChunkFinish | StreamChunkMessageFinish): FinishReason {
@@ -127,7 +137,6 @@ function toArgsObject(value: unknown, fallbackText?: string): unknown {
 }
 
 export class DataStreamMapper {
-  private readonly sessionId: string;
   private readonly messageId: string;
   private readonly toolState = new Map<string, ToolState>();
   private currentStep: StepState | null = null;
@@ -135,27 +144,12 @@ export class DataStreamMapper {
   private finishEmitted = false;
   private startNewStepForNextText = false;
 
-  constructor(sessionId: string, messageId: string) {
-    this.sessionId = sessionId;
+  constructor(_sessionId: string, messageId: string) {
     this.messageId = messageId;
   }
 
   initialChunks(): EncodedChunk[] {
-    const createdAt = new Date().toISOString();
-    return [
-      {
-        code: DataStreamCode.data,
-        value: [
-          {
-            type: 'start',
-            messageId: this.messageId,
-            sessionId: this.sessionId,
-            createdAt,
-          },
-        ],
-      },
-      ...this.startStepIfNeeded(),
-    ];
+    return [...this.startStepIfNeeded()];
   }
 
   *handleChunk(chunk: StreamChunk): Generator<EncodedChunk> {
@@ -185,7 +179,7 @@ export class DataStreamMapper {
     yield { code: DataStreamCode.error, value: errorText } satisfies EncodedChunk;
     yield* this.finalizeCurrentStep();
     if (!this.finishEmitted) {
-      const usage = this.currentStep?.usage ?? toUsage();
+      const usage = this.currentStep?.usage ?? toDataStreamUsage();
       yield {
         code: DataStreamCode.finishMessage,
         value: {
@@ -204,7 +198,7 @@ export class DataStreamMapper {
     }
     const chunks: EncodedChunk[] = [];
     chunks.push(...this.finalizeCurrentStep());
-    const usage = this.currentStep?.usage ?? toUsage();
+    const usage = this.currentStep?.usage ?? toDataStreamUsage();
     const reason = this.currentStep?.finishReason ?? 'unknown';
     chunks.push({
       code: DataStreamCode.finishMessage,
@@ -397,7 +391,7 @@ export class DataStreamMapper {
     this.currentStep = {
       id: stepId,
       index: this.nextStepIndex,
-      usage: toUsage(),
+      usage: toDataStreamUsage(),
       finishReason: 'unknown',
       status: 'success',
     } satisfies StepState;

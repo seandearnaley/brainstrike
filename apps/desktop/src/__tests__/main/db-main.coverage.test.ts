@@ -17,16 +17,14 @@ const fsMocks = vi.hoisted(() => ({
   writeFileSync: vi.fn(),
 }));
 
-function applyFsMock() {
-  vi.doMock('node:fs', async (importOriginal) => {
-    const mod = await importOriginal<typeof import('node:fs')>();
-    return {
-      ...mod,
-      ...fsMocks,
-      default: { ...mod.default, ...fsMocks },
-    };
-  });
-}
+vi.mock('node:fs', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...mod,
+    ...fsMocks,
+    default: { ...mod.default, ...fsMocks },
+  };
+});
 
 vi.mock('electron', () => ({
   app: {
@@ -34,13 +32,9 @@ vi.mock('electron', () => ({
   },
 }));
 
-// Mock fs utils to avoid touching real filesystem
-applyFsMock();
-
 describe('db-main coverage helpers', () => {
   beforeEach(() => {
     vi.resetModules();
-    applyFsMock();
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.mkdirSync.mockReset();
     fsMocks.rmSync.mockReset();

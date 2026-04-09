@@ -295,4 +295,33 @@ describe('ipc-mcp tool preference loading', () => {
     );
     expect(loadToolPreferencesMock).toHaveBeenCalledTimes(1);
   });
+
+  it('discards legacy sanitized preference ids instead of applying them', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      enabledTools: ['filesystem_read_file'],
+      disabledTools: ['filesystem_list_directory'],
+      version: 1,
+      lastUpdated: 0,
+    });
+    getAllToolsMock.mockReturnValueOnce({
+      filesystem: [
+        { id: 'filesystem.read_file', enabled: true },
+        { id: 'filesystem.list_directory', enabled: true },
+      ],
+    });
+
+    registerMcpIpcHandlers();
+
+    await waitForPreferencesCall();
+
+    expect(mcpToolRegistry.enableTools).not.toHaveBeenCalled();
+    expect(mcpToolRegistry.disableTools).not.toHaveBeenCalled();
+    expect(saveToolPreferencesMock).toHaveBeenCalledWith(
+      'mock-user-data',
+      expect.objectContaining({
+        enabledTools: [],
+        disabledTools: [],
+      })
+    );
+  });
 });

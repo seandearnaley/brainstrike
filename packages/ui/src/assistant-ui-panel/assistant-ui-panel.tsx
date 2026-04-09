@@ -319,6 +319,7 @@ const DataStreamRuntimeChat: FC<
 
   const runtime = useDataStreamRuntime({
     api,
+    protocol: 'data-stream',
     body: {
       data: {
         ...(requestData ?? {}),
