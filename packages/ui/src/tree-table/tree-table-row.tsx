@@ -55,6 +55,7 @@ function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupH
           aria-expanded={isExpanded}
           aria-label={isExpanded ? 'Collapse group' : 'Expand group'}
           className="flex-shrink-0"
+          disabled={node.isLoading}
           onClick={onExpandClick}
           size="icon-xs"
           variant="ghost"
@@ -288,8 +289,8 @@ function TreeTableCellComponent<T>({
             <Button
               aria-expanded={isExpanded}
               aria-label={isExpanded ? 'Collapse' : 'Expand'}
-              disabled={node.isLoading}
               className="flex-shrink-0"
+              disabled={node.isLoading}
               onClick={onExpandClick}
               size="icon-xs"
               variant="ghost"
