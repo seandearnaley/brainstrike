@@ -30,19 +30,21 @@ function buildMockBrowserApisScript(payload: MockBrowserApisPayload): string {
     ? { directoryReadDelayMs: payload.directoryReadDelayMs }
     : undefined;
 
-  const waitForFixtureLoader = (attempts = 0) => new Promise((resolve, reject) => {
-    const loadFixture = window.__BRAINSTRIKE_LOAD_FIXTURE__;
-    if (typeof loadFixture === 'function') {
-      resolve(loadFixture);
-      return;
-    }
-    if (attempts > 200) {
-      reject(new Error('Fixture testing API was not exposed in time'));
-      return;
-    }
-    setTimeout(() => {
-      void waitForFixtureLoader(attempts + 1).then(resolve, reject);
-    }, 10);
+  const waitForFixtureLoader = () => new Promise((resolve, reject) => {
+    let attempts = 0;
+    const check = () => {
+      const loadFixture = window.__BRAINSTRIKE_LOAD_FIXTURE__;
+      if (typeof loadFixture === 'function') {
+        resolve(loadFixture);
+        return;
+      }
+      if (attempts++ > 200) {
+        reject(new Error('Fixture testing API was not exposed in time'));
+        return;
+      }
+      setTimeout(check, 10);
+    };
+    check();
   });
 
   window.showDirectoryPicker = async () => {

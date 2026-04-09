@@ -6,6 +6,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalS
 import type { StoreApi } from 'zustand';
 import { type UseBoundStoreWithEqualityFn, useStoreWithEqualityFn } from 'zustand/traditional';
 import { setupInlineFixtureSubscription } from './setup-inline-fixture-subscription';
+import { shouldExposeAutomatedTestApis } from './utils/fixture-test-exposure';
 
 type FileExplorerStore = UseBoundStoreWithEqualityFn<StoreApi<FileExplorerState>>;
 type FileExplorerStoreSelector<T> = (state: FileExplorerState) => T;
@@ -13,35 +14,6 @@ type EqualityFn<T> = (left: T, right: T) => boolean;
 
 const unsubscribeNoop = (): void => {};
 const subscribeNoop = (): (() => void) => unsubscribeNoop;
-
-function hasExplicitAutomatedTestOptIn(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  return (
-    window.__brainstrike_e2e_expose_file_explorer_store__ === true &&
-    window.navigator.webdriver === true
-  );
-}
-
-function shouldExposeFileExplorerStoreForTests(): boolean {
-  const env = (
-    import.meta as ImportMeta & {
-      env?: Record<string, unknown>;
-    }
-  ).env;
-  if (globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true') {
-    return true;
-  }
-  if (globalThis.process?.env?.['NODE_ENV'] === 'production' || env?.['MODE'] === 'production') {
-    return hasExplicitAutomatedTestOptIn();
-  }
-  return (
-    globalThis.process?.env?.['NODE_ENV'] === 'test' ||
-    env?.['DEV'] === true ||
-    env?.['MODE'] === 'test'
-  );
-}
 
 declare global {
   interface Window {
@@ -80,7 +52,12 @@ export function FileExplorerProvider({
   }, [store, fileSystemAdapter]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !shouldExposeFileExplorerStoreForTests()) {
+    const env = (
+      import.meta as ImportMeta & {
+        env?: Record<string, unknown>;
+      }
+    ).env;
+    if (typeof window === 'undefined' || !shouldExposeAutomatedTestApis(env)) {
       return;
     }
     window.__brainstrike_file_explorer_provider_store__ = store;

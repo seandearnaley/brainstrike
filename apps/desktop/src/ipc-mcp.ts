@@ -455,12 +455,16 @@ async function loadToolPreferencesOnStartup(): Promise<void> {
         registeredCount: registeredIds.size,
       });
 
-      await saveToolPreferences(app.getPath('userData'), {
-        enabledTools: validEnabled,
-        disabledTools: validDisabled,
-        version: preferences.version,
-        lastUpdated: Date.now(),
-      });
+      try {
+        await saveToolPreferences(app.getPath('userData'), {
+          enabledTools: validEnabled,
+          disabledTools: validDisabled,
+          version: preferences.version,
+          lastUpdated: Date.now(),
+        });
+      } catch (saveError) {
+        logger.warn('Failed to persist cleaned tool preferences', { error: saveError });
+      }
     }
 
     // Apply valid preferences

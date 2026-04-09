@@ -20,6 +20,8 @@ export interface ToolFilterConfig {
   enabledTools?: string[];
 }
 
+// Shared across ToolRegistry instances on purpose so repeated pattern matching reuses the
+// same compiled regexes, even though the app currently relies on the singleton export.
 const TOOL_PATTERN_CACHE = new Map<string, RegExp>();
 const TOOL_PATTERN_CACHE_LIMIT = 256;
 

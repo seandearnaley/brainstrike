@@ -176,7 +176,18 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
 
   private resolveRootFolderId(path: string): string | null {
     const rootFromPath = path.split('/').find((segment) => segment.length > 0) ?? null;
-    return rootFromPath ?? this.lastRootFolderId;
+    if (!rootFromPath) {
+      return this.lastRootFolderId;
+    }
+
+    // Web tree paths can be root-relative (`src/file.ts`) while the cached handle
+    // key remains the selected root folder id (`project-root`). Preserve the active
+    // root for those relative paths instead of treating the first segment as a root id.
+    if (this.lastRootFolderId && rootFromPath !== this.lastRootFolderId) {
+      return this.lastRootFolderId;
+    }
+
+    return rootFromPath;
   }
 
   private cacheFileHandleForPath(path: string, fileHandle: FileSystemFileHandle): void {

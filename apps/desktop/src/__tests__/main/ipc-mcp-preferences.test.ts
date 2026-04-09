@@ -324,4 +324,28 @@ describe('ipc-mcp tool preference loading', () => {
       })
     );
   });
+
+  it('still applies valid preferences when persisting cleaned ids fails', async () => {
+    loadToolPreferencesMock.mockResolvedValueOnce({
+      enabledTools: ['server.tool.enable', 'filesystem_read_file'],
+      disabledTools: ['server.tool.disable', 'filesystem_list_directory'],
+      version: 1,
+      lastUpdated: 0,
+    });
+    saveToolPreferencesMock.mockRejectedValueOnce(new Error('disk full'));
+    getAllToolsMock.mockReturnValueOnce({
+      'mock-server': [
+        { id: 'server.tool.enable', enabled: true },
+        { id: 'server.tool.disable', enabled: false },
+      ],
+    });
+
+    registerMcpIpcHandlers();
+
+    await waitForPreferencesCall();
+
+    expect(saveToolPreferencesMock).toHaveBeenCalledTimes(1);
+    expect(mcpToolRegistry.disableTools).toHaveBeenCalledWith(['server.tool.disable']);
+    expect(mcpToolRegistry.enableTools).toHaveBeenCalledWith(['server.tool.enable']);
+  });
 });

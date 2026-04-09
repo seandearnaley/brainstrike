@@ -323,6 +323,45 @@ describe('WebFileSystemAdapter', () => {
         fileHandle
       );
     });
+
+    it('reads a root-relative file path through the active cached root directory handle', async () => {
+      const fileHandle = {
+        kind: 'file',
+        name: 'file.txt',
+        getFile: vi.fn().mockResolvedValue(createFile('file.txt', 'hello world', 123)),
+      } as unknown as FileSystemFileHandle;
+      const nestedDirHandle = {
+        kind: 'directory',
+        name: 'nested',
+        getFileHandle: vi.fn().mockResolvedValue(fileHandle),
+      } as unknown as FileSystemDirectoryHandle;
+      const rootDirHandle = {
+        kind: 'directory',
+        name: 'root',
+        getDirectoryHandle: vi.fn().mockResolvedValue(nestedDirHandle),
+      } as unknown as FileSystemDirectoryHandle;
+
+      const handleCache = createHandleCache({
+        getRootHandle: vi.fn().mockResolvedValue(rootDirHandle),
+        storeFileHandle: vi.fn().mockResolvedValue(undefined),
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+      (
+        window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+      ).showDirectoryPicker = vi.fn().mockResolvedValue(rootDirHandle);
+
+      await adapter.requestDirectoryAccess();
+
+      await expect(adapter.readFileByPath('nested/file.txt')).resolves.toBe('hello world');
+      expect(handleCache.getRootHandle).toHaveBeenCalledWith('root');
+      expect(rootDirHandle.getDirectoryHandle).toHaveBeenCalledWith('nested');
+      expect(nestedDirHandle.getFileHandle).toHaveBeenCalledWith('file.txt');
+      expect(handleCache.storeFileHandle).toHaveBeenCalledWith(
+        'root',
+        'nested/file.txt',
+        fileHandle
+      );
+    });
   });
 
   describe('readFile', () => {

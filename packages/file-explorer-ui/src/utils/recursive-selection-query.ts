@@ -191,6 +191,9 @@ function consumeNodes(args: {
         nextFrontier.length > 0 ||
         directoryTraversalState.queuedDirectoryPaths.size >
           directoryTraversalState.scannedDirectoryPaths.size;
+      // Exact-cap fills should only report limitReached when traversal still has more work.
+      // Otherwise the final accepted file would look like a capped result even though the
+      // query completed naturally on the last available match.
       if (
         matcher.shouldIncludeFile(node.path) &&
         recordMatchedFile({

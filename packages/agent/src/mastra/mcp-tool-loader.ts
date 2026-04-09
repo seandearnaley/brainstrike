@@ -52,7 +52,7 @@ export async function collectCombinedTools({
       continue;
     }
 
-    const enabled = registerServerTools(server, toolsForServer, toolNameMap);
+    const enabled = filterEnabledServerTools(server, toolsForServer, toolNameMap);
     if (enabled) {
       Object.assign(combined, enabled);
     }
@@ -92,11 +92,13 @@ function collectServerTools(
   return Object.keys(matches).length > 0 ? matches : undefined;
 }
 
-function registerServerTools(
+function filterEnabledServerTools(
   server: McpServerConfig,
   serverTools: ToolsInput,
   toolNameMap: Map<string, string>
 ): ToolsInput | undefined {
+  // Discovery/registration happens upstream when the desktop client enumerates the server.
+  // At runtime we only filter the already-sanitized tool set against persisted state/config.
   const enabledTools = Object.fromEntries(
     Object.entries(serverTools).filter(([sanitizedToolId]) => {
       const originalToolId = toolNameMap.get(sanitizedToolId) ?? sanitizedToolId;

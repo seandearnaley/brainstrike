@@ -24,37 +24,9 @@ import {
 import type { FileExplorerState } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
 import type { StoreApi } from 'zustand';
+import { shouldExposeAutomatedTestApis } from './utils/fixture-test-exposure';
 
 const logger = createLogger('InlineFixtureSubscription');
-
-function hasExplicitAutomatedTestOptIn(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  return (
-    window.__brainstrike_e2e_expose_file_explorer_store__ === true &&
-    window.navigator.webdriver === true
-  );
-}
-
-function shouldExposeFixtureTestingApi(): boolean {
-  const env = (
-    import.meta as ImportMeta & {
-      env?: Record<string, unknown>;
-    }
-  ).env;
-  if (globalThis.process?.env?.['ELECTRON_IS_E2E_TEST'] === 'true') {
-    return true;
-  }
-  if (globalThis.process?.env?.['NODE_ENV'] === 'production' || env?.['MODE'] === 'production') {
-    return hasExplicitAutomatedTestOptIn();
-  }
-  return (
-    globalThis.process?.env?.['NODE_ENV'] === 'test' ||
-    env?.['DEV'] === true ||
-    env?.['MODE'] === 'test'
-  );
-}
 
 declare global {
   interface Window {
@@ -162,7 +134,12 @@ export function setupInlineFixtureSubscription(
 
   // Expose global testing API
   if (typeof window !== 'undefined') {
-    if (shouldExposeFixtureTestingApi()) {
+    const env = (
+      import.meta as ImportMeta & {
+        env?: Record<string, unknown>;
+      }
+    ).env;
+    if (shouldExposeAutomatedTestApis(env)) {
       window.__BRAINSTRIKE_LOAD_FIXTURE__ = async (
         fixture?: FixtureDefinition,
         options?: FixtureLoadOptions
