@@ -19,6 +19,7 @@ import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { useEffect, useRef } from 'react';
+
 import { runWithConcurrency } from '../utils/concurrency';
 import { fileNodeCollator } from '../utils/file-node-collator';
 import { loadDirectoryChildren } from '../utils/lazy-tree-loader';

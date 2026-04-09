@@ -13,7 +13,12 @@ export function buildNodeFromPath(
   handle: FileSystemDirectoryHandle
 ): IFileNode {
   let relativePath = path;
-  if (path.startsWith(rootPath)) {
+  if (
+    path === rootPath ||
+    (path.length > rootPath.length &&
+      path.charCodeAt(rootPath.length) === SLASH &&
+      path.startsWith(rootPath))
+  ) {
     relativePath = path.slice(rootPath.length);
   }
 
