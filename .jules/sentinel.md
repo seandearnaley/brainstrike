@@ -1,8 +1,3 @@
-## 2026-04-04 - SQL Injection in Migration Runner String Interpolation
-**Vulnerability:** The migration runner used string interpolation with `dbi.exec` to construct SQL queries (`INSERT` and `DELETE` on the `_migrations` table) instead of parameterized queries. This could allow SQL injection if the migration name or version parameters were maliciously manipulated.
-**Learning:** Even internal utility scripts or database migration runners must treat their inputs as potentially unsafe. The use of string interpolation with `exec()` instead of using `query()` with explicit parameter arrays (`$1`, `$2`, etc.) bypasses built-in database sanitization mechanisms.
-**Prevention:** Always use `dbi.query(sql, params)` instead of `dbi.exec()` with string templates when inserting dynamic data into SQL queries. Reserve `dbi.exec()` strictly for static schema changes or hardcoded raw SQL without inputs.
-
 ## 2026-02-28 - Cryptographically Insecure Pseudo-Random Number Generation
 **Vulnerability:** Weak fallback for UUID generation using `Math.random()`.
 **Learning:** `Math.random()` generates predictable values, making any IDs derived from it susceptible to predictability or collision if they rely purely on the fallback (e.g., when `crypto.randomUUID` is unavailable). Even in fallbacks, developers must rely on `crypto.getRandomValues()` when possible.
