@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { splitByBlankLines, splitMarkdownIntoBlocks } from '@brainstrike/text-splitter/chunking-core';
 import { CHUNKING_CONFIG } from '../chunking-config';
 import { chunkContent } from '../portable-chunking';
 
@@ -10,6 +11,19 @@ afterEach(() => {
 });
 
 describe('portable-chunking', () => {
+  describe('shared markdown helpers', () => {
+    it('treats trim-whitespace-only lines as blank separators', () => {
+      const parts = splitByBlankLines('alpha\n\u00A0\nbeta\n\f\n\v\ngamma');
+
+      expect(parts).toEqual(['alpha', 'beta', 'gamma']);
+    });
+
+    it('preserves lone carriage returns at EOF when scanning lines', () => {
+      expect(splitByBlankLines('alpha\r')).toEqual(['alpha\r']);
+      expect(splitMarkdownIntoBlocks('paragraph\r')).toEqual([{ meta: {}, text: 'paragraph\r' }]);
+    });
+  });
+
   describe('chunkContent', () => {
     describe('skip patterns', () => {
       it('should skip package-lock.json files', async () => {
@@ -238,6 +252,23 @@ export const FLAGS = ['alpha', 'beta', 'gamma'];
 
         expect(result.skipped).toBe(false);
         expect(result.strategyUsed).toBe('recursive');
+      });
+
+      it('splits markdown blocks across unicode whitespace-only separator lines', async () => {
+        const markdown = '# Title\n\nAlpha paragraph.\n\u00A0\nBeta paragraph.';
+
+        const result = await chunkContent(markdown, {
+          strategy: 'markdown',
+          fileName: 'notes.md',
+          maxTokens: 32,
+          overlap: 4,
+        });
+
+        expect(result.skipped).toBe(false);
+        expect(result.strategyUsed).toBe('markdown');
+        expect(result.chunks.map((chunk) => chunk.content)).toEqual(
+          expect.arrayContaining(['# Title', 'Alpha paragraph.', 'Beta paragraph.'])
+        );
       });
     });
 

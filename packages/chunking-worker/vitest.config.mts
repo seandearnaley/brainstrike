@@ -8,6 +8,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      '@brainstrike/text-splitter/chunking-core': path.resolve(
+        __dirname,
+        '../text-splitter/src/chunking-core.ts'
+      ),
       '@brainstrike/text-splitter': path.resolve(__dirname, '../text-splitter/src/index.ts'),
     },
   },

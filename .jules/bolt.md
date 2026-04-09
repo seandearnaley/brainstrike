@@ -34,6 +34,6 @@
 **Learning:** Using array spread syntax (`[...ancestors, node.id]`) during deep or wide recursive tree traversal (e.g., in `filterTreeNodes`) creates excessive intermediate arrays, increasing GC pressure and slowing down performance significantly.
 **Action:** Replace spread syntax with mutable array operations (`ancestors.push(node.id)` and `ancestors.pop()`) when passing tracking arrays down a recursive stack to minimize allocations and improve traversal speed.
 
-## 2024-04-03 - Replacing string.split with native indexOf for chunking hot paths
-**Learning:** For functions that parse large texts (e.g. `splitByBlankLines` and `splitMarkdownIntoBlocks`), `String.prototype.split(/\r?\n/)` allocates massive intermediate string arrays, increasing peak memory footprint and garbage collection pause times significantly.
-**Action:** Replace `.split()` usage with a `while` loop utilizing `String.prototype.indexOf('\n')` and `.charCodeAt()` for carriage return validation. This avoids allocating arrays upfront and provides dramatic execution time reductions on large text bodies while retaining equivalent behavior.
+## 2026-04-03 - Replacing string.split with native indexOf for chunking hot paths
+**Learning:** For hot paths such as `splitByBlankLines`, `String.prototype.split(/\r?\n/)` eagerly allocates an intermediate array of every line, which increases garbage collection pressure on large text bodies. Even where a downstream API still needs a line array, centralizing the scan logic makes behavior fixes easier to apply consistently.
+**Action:** Replace repeated `.split()` line scanning with a shared `indexOf('\n')` loop that only normalizes `\r` when it precedes an actual newline. Use that helper for streaming blank-line splitting and for any call sites that still need to materialize line arrays.
