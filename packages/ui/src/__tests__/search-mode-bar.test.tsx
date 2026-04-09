@@ -231,6 +231,19 @@ describe('SearchModeBar', () => {
     );
   });
 
+  it('defaults filter and settings toggles to aria-pressed false', () => {
+    render(<SearchModeBar {...createProps()} />);
+
+    expect(screen.getByRole('button', { name: 'Toggle filters' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+    expect(screen.getByRole('button', { name: 'Toggle search settings' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
   it('keeps the filter toggle unpressed when filters are active but the panel is closed', () => {
     render(
       <SearchModeBar
