@@ -15,7 +15,7 @@
 import { createLogger } from '@brainstrike/utils/logger';
 import type { MutableRefObject } from 'react';
 import { useCallback, useRef } from 'react';
-import { useOptionalTokenCacheContext } from './token-cache-context';
+import { type TokenCacheContextValue, useOptionalTokenCacheContext } from './token-cache-context';
 import type { TokenCountingState } from './use-token-counting';
 
 const logger = createLogger('PersistentTokenCache');
@@ -24,6 +24,12 @@ const FAILED_REQUEST_RETRY_COOLDOWN_MS = 5000;
 interface FailedRequestState {
   failedAt: number;
   stateKey: string;
+}
+
+interface CachedSelectionStats {
+  cachedFileCount: number;
+  tokenCounts: ReadonlyMap<string, number>;
+  totalTokens: number;
 }
 
 /**
@@ -51,12 +57,10 @@ export interface UsePersistentTokenCacheReturn {
   cacheVersion: number;
 
   /**
-   * Get aggregated stats for cached files in a selection.
+   * Get cached token counts for files in a selection.
    * Returns only files already present in cache/store; uncached files are excluded.
    */
-  getCachedSelectionStats: (
-    compositeKeys: Iterable<string>
-  ) => Promise<{ cachedFileCount: number; totalTokens: number }>;
+  getCachedSelectionStats: (compositeKeys: Iterable<string>) => Promise<CachedSelectionStats>;
 
   /**
    * Get file size from persistent cache.
@@ -115,6 +119,73 @@ function shouldDelayRetry(
 
   failedRequests.delete(compositeKey);
   return false;
+}
+
+function buildCompositeKeysByFolder(
+  compositeKeys: Iterable<string>,
+  decodeFileSelection: (compositeKey: string) => { folderId: string; path: string }
+): Map<string, Map<string, string>> {
+  const compositeKeysByFolder = new Map<string, Map<string, string>>();
+
+  for (const compositeKey of compositeKeys) {
+    const { folderId, path } = decodeFileSelection(compositeKey);
+    const folderCompositeKeys = compositeKeysByFolder.get(folderId) ?? new Map<string, string>();
+    folderCompositeKeys.set(path, compositeKey);
+    compositeKeysByFolder.set(folderId, folderCompositeKeys);
+  }
+
+  return compositeKeysByFolder;
+}
+
+async function readPersistentSelectionStats(
+  folderSelections: Map<string, Map<string, string>>,
+  store: NonNullable<TokenCacheContextValue['store']>
+): Promise<CachedSelectionStats> {
+  const folderResults = await Promise.all(
+    Array.from(folderSelections, async ([folderId, folderCompositeKeys]) => ({
+      entries: await store.getBatch(folderId, Array.from(folderCompositeKeys.keys())),
+      folderCompositeKeys,
+    }))
+  );
+
+  let cachedFileCount = 0;
+  const tokenCounts = new Map<string, number>();
+  let totalTokens = 0;
+
+  for (const { entries, folderCompositeKeys } of folderResults) {
+    cachedFileCount += entries.size;
+    for (const [filePath, entry] of entries) {
+      const compositeKey = folderCompositeKeys.get(filePath);
+      if (compositeKey === undefined) {
+        continue;
+      }
+      tokenCounts.set(compositeKey, entry.tokenCount);
+      totalTokens += entry.tokenCount;
+    }
+  }
+
+  return { cachedFileCount, tokenCounts, totalTokens };
+}
+
+function readInMemorySelectionStats(
+  compositeKeys: Iterable<string>,
+  tokenCache: ReadonlyMap<string, number>
+): CachedSelectionStats {
+  let cachedFileCount = 0;
+  const tokenCounts = new Map<string, number>();
+  let totalTokens = 0;
+
+  for (const compositeKey of compositeKeys) {
+    const cached = tokenCache.get(compositeKey);
+    if (typeof cached !== 'number') {
+      continue;
+    }
+    tokenCounts.set(compositeKey, cached);
+    cachedFileCount += 1;
+    totalTokens += cached;
+  }
+
+  return { cachedFileCount, tokenCounts, totalTokens };
 }
 
 /**
@@ -247,45 +318,15 @@ export function usePersistentTokenCache({
   );
 
   const getCachedSelectionStats = useCallback(
-    async (
-      compositeKeys: Iterable<string>
-    ): Promise<{ cachedFileCount: number; totalTokens: number }> => {
+    async (compositeKeys: Iterable<string>): Promise<CachedSelectionStats> => {
       if (persistentCache?.isOperational) {
-        const pathsByFolder = new Map<string, Set<string>>();
-
-        for (const compositeKey of compositeKeys) {
-          const { folderId, path } = decodeFileSelection(compositeKey);
-          const folderPaths = pathsByFolder.get(folderId) ?? new Set<string>();
-          folderPaths.add(path);
-          pathsByFolder.set(folderId, folderPaths);
-        }
-
-        let cachedFileCount = 0;
-        let totalTokens = 0;
-
-        for (const [folderId, folderPaths] of pathsByFolder) {
-          const entries = await persistentCache.store.getBatch(folderId, Array.from(folderPaths));
-          cachedFileCount += entries.size;
-          for (const entry of entries.values()) {
-            totalTokens += entry.tokenCount;
-          }
-        }
-
-        return { cachedFileCount, totalTokens };
+        return await readPersistentSelectionStats(
+          buildCompositeKeysByFolder(compositeKeys, decodeFileSelection),
+          persistentCache.store
+        );
       }
 
-      let cachedFileCount = 0;
-      let totalTokens = 0;
-      for (const compositeKey of compositeKeys) {
-        const cached = tokenCacheRef.current.get(compositeKey);
-        if (typeof cached !== 'number') {
-          continue;
-        }
-        cachedFileCount += 1;
-        totalTokens += cached;
-      }
-
-      return { cachedFileCount, totalTokens };
+      return readInMemorySelectionStats(compositeKeys, tokenCacheRef.current);
     },
     [decodeFileSelection, persistentCache]
   );
