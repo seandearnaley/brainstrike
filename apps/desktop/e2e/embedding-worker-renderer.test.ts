@@ -171,6 +171,12 @@ interface DatabaseDemoImportTestSnapshot {
     phase: string;
     total: number;
   } | null;
+  recordCount: number;
+  recordPagination: {
+    currentPage: number;
+    pageSize: number;
+    totalRecords: number;
+  };
   selectedFileCount: number;
 }
 
@@ -3557,19 +3563,35 @@ test.describe('Embedding Host Renderer', () => {
     const treegrid = activeWindow.getByRole('treegrid');
     const firstVisibleDataRow = treegrid.getByRole('row').nth(1);
     await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
-    const firstPageFirstRowText = ((await firstVisibleDataRow.textContent()) ?? '').trim();
-    expect(firstPageFirstRowText.length).toBeGreaterThan(0);
+    expect(((await firstVisibleDataRow.textContent()) ?? '').trim().length).toBeGreaterThan(0);
 
     const pageNumberInput = activeWindow.getByRole('spinbutton', { name: 'Page number' });
     await expect(pageNumberInput).toHaveValue('1');
+    await expect
+      .poll(async () => {
+        const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
+        return snapshot?.recordPagination.currentPage ?? -1;
+      })
+      .toBe(0);
 
     await activeWindow.getByRole('button', { name: 'Go to next page' }).click({ timeout: 5000 });
 
     await expect(pageNumberInput).toHaveValue('2');
-    await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
-    const secondPageFirstRowText = ((await firstVisibleDataRow.textContent()) ?? '').trim();
-    expect(secondPageFirstRowText.length).toBeGreaterThan(0);
-    expect(secondPageFirstRowText).not.toBe(firstPageFirstRowText);
+    await expect
+      .poll(
+        async () => {
+          const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
+          return JSON.stringify(snapshot?.recordPagination ?? null);
+        },
+        { timeout: 30_000 }
+      )
+      .toBe(
+        JSON.stringify({
+          currentPage: 1,
+          pageSize: 50,
+          totalRecords: fixture.fileCount,
+        })
+      );
 
     await forceRendererGarbageCollection(activeWindow);
     await forceRendererGarbageCollection(activeWindow);
@@ -6149,6 +6171,32 @@ test.describe('Embedding Host Renderer', () => {
     });
   }
 
+  async function getVisibleWindowPage(app: ElectronApplication): Promise<Page> {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < 15_000) {
+      const visiblePage = app.windows().find((page) => {
+        if (page.isClosed()) {
+          return false;
+        }
+
+        const url = page.url();
+        return !(url.includes('mode=embedding-host') || url.includes('mode=chunking-host'));
+      });
+
+      if (visiblePage) {
+        await visiblePage.waitForLoadState('domcontentloaded');
+        return visiblePage;
+      }
+
+      await new Promise((resolve) => {
+        setTimeout(resolve, 250);
+      });
+    }
+
+    throw new Error('Timed out waiting for the visible Electron page');
+  }
+
   async function broadcastPowerState(
     app: ElectronApplication,
     state: 'resume' | 'suspend'
@@ -6336,6 +6384,7 @@ test.describe('Embedding Host Renderer', () => {
     // Phase 3: Restore and focus the visible window
     await focusVisibleWindow(electronApp.app);
     await activeWindow.waitForTimeout(5000);
+    activeWindow = await getVisibleWindowPage(electronApp.app);
 
     // Assert renderer did not crash
     const postFocusTimeOrigin = await getRendererTimeOrigin(activeWindow);

@@ -51,6 +51,14 @@ export interface UsePersistentTokenCacheReturn {
   cacheVersion: number;
 
   /**
+   * Get aggregated stats for cached files in a selection.
+   * Returns only files already present in cache/store; uncached files are excluded.
+   */
+  getCachedSelectionStats: (
+    compositeKeys: Iterable<string>
+  ) => Promise<{ cachedFileCount: number; totalTokens: number }>;
+
+  /**
    * Get file size from persistent cache.
    * Returns cached value or undefined if not available.
    * This is useful as a fallback when fileNodeCache hasn't loaded yet.
@@ -238,9 +246,54 @@ export function usePersistentTokenCache({
     [persistentCache, decodeFileSelection]
   );
 
+  const getCachedSelectionStats = useCallback(
+    async (
+      compositeKeys: Iterable<string>
+    ): Promise<{ cachedFileCount: number; totalTokens: number }> => {
+      if (persistentCache?.isOperational) {
+        const pathsByFolder = new Map<string, Set<string>>();
+
+        for (const compositeKey of compositeKeys) {
+          const { folderId, path } = decodeFileSelection(compositeKey);
+          const folderPaths = pathsByFolder.get(folderId) ?? new Set<string>();
+          folderPaths.add(path);
+          pathsByFolder.set(folderId, folderPaths);
+        }
+
+        let cachedFileCount = 0;
+        let totalTokens = 0;
+
+        for (const [folderId, folderPaths] of pathsByFolder) {
+          const entries = await persistentCache.store.getBatch(folderId, Array.from(folderPaths));
+          cachedFileCount += entries.size;
+          for (const entry of entries.values()) {
+            totalTokens += entry.tokenCount;
+          }
+        }
+
+        return { cachedFileCount, totalTokens };
+      }
+
+      let cachedFileCount = 0;
+      let totalTokens = 0;
+      for (const compositeKey of compositeKeys) {
+        const cached = tokenCacheRef.current.get(compositeKey);
+        if (typeof cached !== 'number') {
+          continue;
+        }
+        cachedFileCount += 1;
+        totalTokens += cached;
+      }
+
+      return { cachedFileCount, totalTokens };
+    },
+    [decodeFileSelection, persistentCache]
+  );
+
   return {
     getTokenCount,
     getFileSize,
+    getCachedSelectionStats,
     isAnyLoading: persistentCache?.isAnyLoading ?? pendingRequestsRef.current.size > 0,
     pendingRequestsRef,
     tokenCacheRef,

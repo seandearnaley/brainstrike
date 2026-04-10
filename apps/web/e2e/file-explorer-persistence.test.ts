@@ -19,6 +19,16 @@ const LARGE_QUERY_TREE: FileTree = Object.fromEntries(
     `export const value${index} = ${index};`,
   ])
 );
+const CACHED_SELECT_ALL_ROOT_NAME = 'cached-select-all-root';
+const CACHED_SELECT_ALL_TREE: FileTree = {
+  'root.ts': 'export const root = "root";\n'.repeat(120),
+  src: Object.fromEntries(
+    Array.from({ length: 12 }, (_, index) => [
+      `file-${index}.ts`,
+      `export const value${index} = "${'cached '.repeat(40)}${index}";\n`,
+    ])
+  ),
+};
 
 async function supportsOpfs(page: Page): Promise<boolean> {
   return page.evaluate(() => typeof navigator.storage?.getDirectory === 'function');
@@ -473,5 +483,64 @@ test.describe('File Explorer persistence (web)', () => {
     await restoreAccessIfNeeded(page, explorer);
 
     await expect(page.getByText('600/1000')).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('restores cached token totals for select-all on a collapsed tree without re-expanding', async ({
+    page,
+    browserName,
+  }) => {
+    if (browserName !== 'chromium') {
+      test.skip(true, 'File System Access API is only available in Chromium');
+    }
+
+    await page.goto('/');
+    await waitForAppLoad(page);
+
+    if (!(await supportsOpfs(page))) {
+      test.skip(true, 'OPFS not available in this environment');
+    }
+
+    await resetExplorerState(page);
+    await setupOpfsDirectoryPicker(page, CACHED_SELECT_ALL_ROOT_NAME, CACHED_SELECT_ALL_TREE);
+
+    const explorer = new FileExplorerPage(page);
+    await explorer.selectRoot();
+    await setMaxSelectionCount(page, 25);
+
+    const expandAllButton = page.getByTestId('expand-all-button-small');
+    await expect(expandAllButton).toBeVisible();
+    await expandAllButton.click();
+    await expect(explorer.fileTree.getByText('file-11.ts')).toBeVisible({ timeout: 15_000 });
+
+    const selectAllButton = page.getByRole('button', { name: 'Select All' });
+    await expect(selectAllButton).toBeEnabled();
+    await selectAllButton.click();
+
+    const seededTokenSummary = page.getByText(/[1-9]\d*(?:,\d{3})* output/);
+    await expect(seededTokenSummary).toBeVisible({ timeout: 15_000 });
+
+    const deselectAllButton = page.getByRole('button', { name: 'Deselect All' });
+    await expect(deselectAllButton).toBeEnabled();
+    await deselectAllButton.click();
+    await expect(page.getByText('0/25')).toBeVisible({ timeout: 15_000 });
+
+    const collapseAllButton = page.getByTestId('collapse-all-button-small');
+    await expect(collapseAllButton).toBeVisible();
+    await collapseAllButton.click();
+    await expect(explorer.fileTree.getByText('file-11.ts')).not.toBeVisible();
+
+    await page.reload();
+    await waitForAppLoad(page);
+    await restoreAccessIfNeeded(page, explorer);
+
+    await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.fileTree.getByText('src')).toBeVisible();
+    await expect(explorer.fileTree.getByText('file-11.ts')).not.toBeVisible();
+
+    await selectAllButton.click();
+
+    const restoredTokenSummary = page.getByText(/[1-9]\d*(?:,\d{3})* output/);
+    await expect(restoredTokenSummary).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/estimating…/)).not.toBeVisible();
   });
 });

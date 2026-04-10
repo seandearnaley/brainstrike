@@ -128,6 +128,10 @@ export function usePreviewPanelState({
   const [batchSelectedFiles, setBatchSelectedFiles] = useState<Set<string>>(new Set());
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [sortConfig] = useState<SortConfig>({ key: 'path', direction: 'asc' });
+  const [cachedSelectionStats, setCachedSelectionStats] = useState<{
+    cachedFileCount: number;
+    totalTokens: number;
+  }>({ cachedFileCount: 0, totalTokens: 0 });
 
   const [tokenVersion, setTokenVersion] = useState(0);
   const prevSelectedFilesRef = useRef<Set<string> | null>(null);
@@ -174,6 +178,38 @@ export function usePreviewPanelState({
     decodeFileSelection,
     onTokenResolved: handleTokenResolved,
   });
+  const { cacheVersion, getCachedSelectionStats, getFileSize, getTokenCount } = persistentCache;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (selectedFiles.size === 0) {
+      setCachedSelectionStats({ cachedFileCount: 0, totalTokens: 0 });
+      return;
+    }
+
+    void getCachedSelectionStats(selectedFiles)
+      .then((stats) => {
+        if (!cancelled) {
+          setCachedSelectionStats(stats);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCachedSelectionStats({ cachedFileCount: 0, totalTokens: 0 });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cacheVersion,
+    getCachedSelectionStats,
+    selectedFiles,
+    tokenCounting.mode,
+    tokenCounting.reason,
+  ]);
 
   // Clear hot cache when counting mode changes
   useEffect(() => {
@@ -196,15 +232,11 @@ export function usePreviewPanelState({
       }
 
       // Get token count from persistent cache (returns undefined if loading)
-      const tokenCount = persistentCache.getTokenCount(compositeKey);
+      const tokenCount = getTokenCount(compositeKey);
 
       // Get file size from metadata with fallback to persistent cache
       // This fixes the race condition where fileSizes (from fileNodeCache) is empty on app restore
-      const fileSize = getFileSizeFromMetadata(
-        compositeKey,
-        fileSizes,
-        persistentCache.getFileSize
-      );
+      const fileSize = getFileSizeFromMetadata(compositeKey, fileSizes, getFileSize);
 
       const fileItem: FileItem = {
         compositeKey,
@@ -230,9 +262,10 @@ export function usePreviewPanelState({
     fileSizes,
     decodeFileSelection,
     collapsedFolders,
-    persistentCache,
-    persistentCache.cacheVersion,
+    cacheVersion,
     tokenVersion,
+    getFileSize,
+    getTokenCount,
   ]);
 
   const handleRemoveFile = useCallback(
@@ -342,22 +375,33 @@ export function usePreviewPanelState({
   // Calculate total stats using the persistent cache
   // BST-153: Also track pendingCount for "estimating..." UI state
   const totalStats = useMemo(() => {
-    let totalTokens = 0;
+    let hotCacheTotalTokens = 0;
     let totalFiles = 0;
-    let pendingCount = 0;
+    let hotCacheResolvedCount = 0;
 
     for (const compositeKey of selectedFiles) {
       totalFiles++;
-      const tokenCount = persistentCache.getTokenCount(compositeKey);
+      const tokenCount = getTokenCount(compositeKey);
       if (tokenCount !== undefined) {
-        totalTokens += tokenCount;
-      } else {
-        pendingCount++;
+        hotCacheTotalTokens += tokenCount;
+        hotCacheResolvedCount++;
       }
     }
 
-    return { totalTokens, totalFiles, pendingCount };
-  }, [selectedFiles, persistentCache, persistentCache.cacheVersion, tokenVersion]);
+    const resolvedCount = Math.max(hotCacheResolvedCount, cachedSelectionStats.cachedFileCount);
+    return {
+      totalTokens: Math.max(hotCacheTotalTokens, cachedSelectionStats.totalTokens),
+      totalFiles,
+      pendingCount: Math.max(0, totalFiles - resolvedCount),
+    };
+  }, [
+    cachedSelectionStats.cachedFileCount,
+    cachedSelectionStats.totalTokens,
+    cacheVersion,
+    getTokenCount,
+    selectedFiles,
+    tokenVersion,
+  ]);
 
   return {
     batchSelectedFiles,
