@@ -152,17 +152,17 @@ describe('usePersistentTokenCache', () => {
       };
 
       const { result } = renderCacheHook();
-      const aggregateStats = await (
-        result.current as unknown as {
-          getCachedSelectionStats: (
-            compositeKeys: Iterable<string>
-          ) => Promise<{ cachedFileCount: number; totalTokens: number }>;
-        }
-      ).getCachedSelectionStats(new Set(['folder::src/a.ts', 'folder::src/b.ts']));
+      const aggregateStats = await result.current.getCachedSelectionStats(
+        new Set(['folder::src/a.ts', 'folder::src/b.ts'])
+      );
 
       expect(storeGetBatch).toHaveBeenCalledWith('folder', ['src/a.ts', 'src/b.ts']);
       expect(aggregateStats).toEqual({
         cachedFileCount: 2,
+        tokenCounts: new Map([
+          ['folder::src/a.ts', 100],
+          ['folder::src/b.ts', 200],
+        ]),
         totalTokens: 300,
       });
     });

@@ -130,8 +130,15 @@ export function usePreviewPanelState({
   const [sortConfig] = useState<SortConfig>({ key: 'path', direction: 'asc' });
   const [cachedSelectionStats, setCachedSelectionStats] = useState<{
     cachedFileCount: number;
+    selection: Set<string>;
+    tokenCounts: ReadonlyMap<string, number>;
     totalTokens: number;
-  }>({ cachedFileCount: 0, totalTokens: 0 });
+  }>({
+    cachedFileCount: 0,
+    selection: new Set<string>(),
+    tokenCounts: new Map<string, number>(),
+    totalTokens: 0,
+  });
 
   const [tokenVersion, setTokenVersion] = useState(0);
   const prevSelectedFilesRef = useRef<Set<string> | null>(null);
@@ -184,19 +191,34 @@ export function usePreviewPanelState({
     let cancelled = false;
 
     if (selectedFiles.size === 0) {
-      setCachedSelectionStats({ cachedFileCount: 0, totalTokens: 0 });
+      setCachedSelectionStats({
+        cachedFileCount: 0,
+        selection: selectedFiles,
+        tokenCounts: new Map<string, number>(),
+        totalTokens: 0,
+      });
       return;
     }
 
+    // tokenCounting.mode and tokenCounting.reason re-trigger the fetch when the
+    // counting mode changes, since persisted token counts may no longer match.
     void getCachedSelectionStats(selectedFiles)
       .then((stats) => {
         if (!cancelled) {
-          setCachedSelectionStats(stats);
+          setCachedSelectionStats({
+            ...stats,
+            selection: selectedFiles,
+          });
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setCachedSelectionStats({ cachedFileCount: 0, totalTokens: 0 });
+          setCachedSelectionStats({
+            cachedFileCount: 0,
+            selection: selectedFiles,
+            tokenCounts: new Map<string, number>(),
+            totalTokens: 0,
+          });
         }
       });
 
@@ -375,28 +397,40 @@ export function usePreviewPanelState({
   // Calculate total stats using the persistent cache
   // BST-153: Also track pendingCount for "estimating..." UI state
   const totalStats = useMemo(() => {
-    let hotCacheTotalTokens = 0;
     let totalFiles = 0;
-    let hotCacheResolvedCount = 0;
+    let resolvedCount = 0;
+    let totalTokens = 0;
+    // Only merge cached counts that were fetched for the current selection.
+    // Hot-cache counts win per file because they reflect the latest in-session recount.
+    const cachedTokenCounts =
+      cachedSelectionStats.selection === selectedFiles
+        ? cachedSelectionStats.tokenCounts
+        : new Map<string, number>();
 
     for (const compositeKey of selectedFiles) {
       totalFiles++;
       const tokenCount = getTokenCount(compositeKey);
       if (tokenCount !== undefined) {
-        hotCacheTotalTokens += tokenCount;
-        hotCacheResolvedCount++;
+        totalTokens += tokenCount;
+        resolvedCount++;
+        continue;
+      }
+
+      const cachedTokenCount = cachedTokenCounts.get(compositeKey);
+      if (cachedTokenCount !== undefined) {
+        totalTokens += cachedTokenCount;
+        resolvedCount++;
       }
     }
 
-    const resolvedCount = Math.max(hotCacheResolvedCount, cachedSelectionStats.cachedFileCount);
     return {
-      totalTokens: Math.max(hotCacheTotalTokens, cachedSelectionStats.totalTokens),
+      totalTokens,
       totalFiles,
       pendingCount: Math.max(0, totalFiles - resolvedCount),
     };
   }, [
-    cachedSelectionStats.cachedFileCount,
-    cachedSelectionStats.totalTokens,
+    cachedSelectionStats.selection,
+    cachedSelectionStats.tokenCounts,
     cacheVersion,
     getTokenCount,
     selectedFiles,
