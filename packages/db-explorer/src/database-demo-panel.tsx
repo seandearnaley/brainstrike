@@ -330,6 +330,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       getImportSnapshot: () => ({
         activeCollectionId,
         isImporting: importFlow.isImporting,
+        recordCount: records.length,
+        recordPagination: {
+          currentPage: recordPagination.currentPage,
+          pageSize: recordPagination.pageSize,
+          totalRecords: recordPagination.totalRecords,
+        },
         selectedFileCount: importFlow.selectedFileCount,
         progress: importFlow.progress
           ? {
@@ -354,6 +360,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     importFlow.isImporting,
     importFlow.progress,
     importFlow.selectedFileCount,
+    recordPagination.currentPage,
+    recordPagination.pageSize,
+    recordPagination.totalRecords,
+    records.length,
   ]);
 
   const handleClearDatabase = useCallback(async () => {

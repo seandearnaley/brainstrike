@@ -127,6 +127,46 @@ describe('usePersistentTokenCache', () => {
       expect(result.current.isAnyLoading).toBe(false);
     });
 
+    it('aggregates cached selection stats from the persistent store without file contents', async () => {
+      const storeGetBatch = vi.fn(async (folderId: string, filePaths: string[]) => {
+        if (folderId !== 'folder') {
+          return new Map();
+        }
+        return new Map(
+          filePaths.map((filePath, index) => [
+            filePath,
+            {
+              folderId,
+              filePath,
+              tokenCount: (index + 1) * 100,
+            },
+          ])
+        );
+      });
+
+      mockContext = {
+        ...mockContext!,
+        store: {
+          getBatch: storeGetBatch,
+        } as unknown as TokenCacheContextValue['store'],
+      };
+
+      const { result } = renderCacheHook();
+      const aggregateStats = await (
+        result.current as unknown as {
+          getCachedSelectionStats: (
+            compositeKeys: Iterable<string>
+          ) => Promise<{ cachedFileCount: number; totalTokens: number }>;
+        }
+      ).getCachedSelectionStats(new Set(['folder::src/a.ts', 'folder::src/b.ts']));
+
+      expect(storeGetBatch).toHaveBeenCalledWith('folder', ['src/a.ts', 'src/b.ts']);
+      expect(aggregateStats).toEqual({
+        cachedFileCount: 2,
+        totalTokens: 300,
+      });
+    });
+
     it('does not fall back to strict in-memory counting while the shared cache is still booting', () => {
       mockContext = {
         ...mockContext!,
