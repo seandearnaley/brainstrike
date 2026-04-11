@@ -359,8 +359,10 @@ async function yieldToUi(): Promise<void> {
 interface LlmHostProgressEvent {
   payload: {
     clientRequestId?: string;
-    kind?: 'reasoning' | 'stage' | 'text';
+    file?: string;
+    kind?: 'loading' | 'reasoning' | 'stage' | 'text';
     message?: string;
+    progress?: number;
     reasoningText?: string;
     text?: string;
   };
@@ -475,6 +477,7 @@ async function executeToolCalls(
 }
 
 function getDesktopLlmHost(): {
+  cancel?: (requestId: string) => Promise<void>;
   generate?: (payload: {
     requestId?: string;
     modelId: string;
@@ -482,10 +485,12 @@ function getDesktopLlmHost(): {
     options?: LocalLlmGenerationOptions;
   }) => Promise<LocalLlmGenerationResult>;
   onProgress?: (callback: (progress: unknown) => void) => () => void;
-  warmup?: (modelId: string) => Promise<void>;
+  onStatus?: (callback: (status: { runtimeKind: 'llm-host'; state: string }) => void) => () => void;
+  warmup?: (payload: { modelId: string; requestId?: string } | string) => Promise<void>;
 } | null {
   const hostWindow = window as Window & {
     llmHost?: {
+      cancel?: (requestId: string) => Promise<void>;
       generate?: (payload: {
         requestId?: string;
         modelId: string;
@@ -493,10 +498,36 @@ function getDesktopLlmHost(): {
         options?: LocalLlmGenerationOptions;
       }) => Promise<LocalLlmGenerationResult>;
       onProgress?: (callback: (progress: unknown) => void) => () => void;
-      warmup?: (modelId: string) => Promise<void>;
+      onStatus?: (
+        callback: (status: { runtimeKind: 'llm-host'; state: string }) => void
+      ) => () => void;
+      warmup?: (payload: { modelId: string; requestId?: string } | string) => Promise<void>;
     };
   };
   return hostWindow.llmHost ?? null;
+}
+
+let desktopHostStatusSyncInstalled = false;
+
+function ensureDesktopHostStateSync(
+  llmHost: NonNullable<ReturnType<typeof getDesktopLlmHost>>
+): void {
+  if (desktopHostStatusSyncInstalled || !llmHost.onStatus) {
+    return;
+  }
+  llmHost.onStatus((status) => {
+    if (status.state === 'error' || status.state === 'stopped') {
+      warmedDesktopModelIds.clear();
+    }
+  });
+  desktopHostStatusSyncInstalled = true;
+}
+
+function createDesktopGenerationOptions(
+  options: LocalLlmGenerationOptions
+): Omit<LocalLlmGenerationOptions, 'signal'> {
+  const { signal: _signal, ...cloneableOptions } = options;
+  return cloneableOptions;
 }
 
 function getToolExecutor(): {
@@ -553,6 +584,16 @@ function handleDesktopProgressEvent(
   onTextSnapshot: (text: string) => void
 ): void {
   if (!isLlmHostProgressEvent(progress) || progress.payload.clientRequestId !== requestId) {
+    return;
+  }
+
+  if (progress.payload.kind === 'loading') {
+    onLoadingProgress?.({
+      stage: 'loading',
+      progress: progress.payload.progress ?? 0,
+      message: progress.payload.message ?? 'Loading Gemma local model',
+      ...(progress.payload.file ? { file: progress.payload.file } : {}),
+    });
     return;
   }
 
@@ -613,13 +654,30 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
         };
 
         const llmHost = getDesktopLlmHost();
+        if (llmHost) {
+          ensureDesktopHostStateSync(llmHost);
+        }
         if (llmHost?.generate && !warmedDesktopModelIds.has(modelId)) {
+          const warmupRequestId = crypto.randomUUID();
           onLoadingProgress?.({
             stage: 'loading',
             progress: 0,
             message: 'Starting local model host...',
           });
-          await llmHost.warmup?.(modelId);
+          const unsubscribeWarmupProgress = llmHost.onProgress?.((progress: unknown) => {
+            handleDesktopProgressEvent(
+              progress,
+              warmupRequestId,
+              onLoadingProgress,
+              () => {},
+              () => {}
+            );
+          });
+          try {
+            await llmHost.warmup?.({ modelId, requestId: warmupRequestId });
+          } finally {
+            unsubscribeWarmupProgress?.();
+          }
           warmedDesktopModelIds.add(modelId);
         }
         if (!llmHost?.generate) {
@@ -673,6 +731,9 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
 
           if (llmHost?.generate) {
             const requestId = crypto.randomUUID();
+            if (abortSignal.aborted) {
+              throw new DOMException('The operation was aborted.', 'AbortError');
+            }
             const unsubscribeProgress = llmHost.onProgress?.((progress: unknown) => {
               handleDesktopProgressEvent(
                 progress,
@@ -682,35 +743,46 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
                 updateTextSnapshot
               );
             });
-            const generatePromise = llmHost.generate({
-              requestId,
-              modelId,
-              messages: conversationMessages,
-              options: generationOptions,
-            });
-            while (true) {
-              const settled = await Promise.race([
-                generatePromise.then((value) => ({ type: 'result' as const, value })),
-                waitForQueue().then(() => ({ type: 'queue' as const })),
-              ]);
-              if (settled.type === 'queue') {
+            const handleAbort = () => {
+              void llmHost.cancel?.(requestId);
+            };
+            abortSignal.addEventListener('abort', handleAbort, { once: true });
+            try {
+              const generatePromise = llmHost.generate({
+                requestId,
+                modelId,
+                messages: conversationMessages,
+                options: createDesktopGenerationOptions(generationOptions),
+              });
+              while (true) {
+                const settled = await Promise.race([
+                  generatePromise.then((value: LocalLlmGenerationResult) => ({
+                    type: 'result' as const,
+                    value,
+                  })),
+                  waitForQueue().then(() => ({ type: 'queue' as const })),
+                ]);
+                if (settled.type === 'queue') {
+                  const drained = drainPendingUpdate(pendingUpdate);
+                  pendingUpdate = drained.nextPendingUpdate;
+                  if (drained.update) {
+                    yield drained.update;
+                    await yieldToUi();
+                  }
+                  continue;
+                }
                 const drained = drainPendingUpdate(pendingUpdate);
                 pendingUpdate = drained.nextPendingUpdate;
                 if (drained.update) {
                   yield drained.update;
                   await yieldToUi();
                 }
-                continue;
+                result = settled.value;
+                break;
               }
-              const drained = drainPendingUpdate(pendingUpdate);
-              pendingUpdate = drained.nextPendingUpdate;
-              if (drained.update) {
-                yield drained.update;
-                await yieldToUi();
-              }
-              result = settled.value;
+            } finally {
+              abortSignal.removeEventListener('abort', handleAbort);
               unsubscribeProgress?.();
-              break;
             }
           } else {
             const backend = await getBackend();
@@ -888,6 +960,7 @@ export async function disposeLocalBackend(): Promise<void> {
       backendInstance = null;
       backendInstancePromise = null;
       currentModelId = null;
+      desktopHostStatusSyncInstalled = false;
       warmedDesktopModelIds.clear();
       disposalState.requested = false;
       disposalState.inProgress = false;

@@ -52,6 +52,7 @@ const LLM_HOST_ENSURE_STARTED_CHANNEL = 'llm-host:ensure-started' as const;
 const LLM_HOST_STOP_CHANNEL = 'llm-host:stop' as const;
 const LLM_HOST_RESET_CHANNEL = 'llm-host:reset' as const;
 const LLM_HOST_GET_STATUS_CHANNEL = 'llm-host:get-status' as const;
+const LLM_HOST_CANCEL_CHANNEL = 'llm-host:cancel' as const;
 const LLM_HOST_WARMUP_CHANNEL = 'llm-host:warmup' as const;
 const LLM_HOST_GENERATE_CHANNEL = 'llm-host:generate' as const;
 const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
@@ -513,7 +514,17 @@ contextBridge.exposeInMainWorld('llmHost', {
   stop: (): Promise<LlmHostStatus> => ipcRenderer.invoke(LLM_HOST_STOP_CHANNEL),
   reset: (): Promise<LlmHostStatus> => ipcRenderer.invoke(LLM_HOST_RESET_CHANNEL),
   getStatus: (): Promise<LlmHostStatus> => ipcRenderer.invoke(LLM_HOST_GET_STATUS_CHANNEL),
-  warmup: (modelId: string) => ipcRenderer.invoke(LLM_HOST_WARMUP_CHANNEL, modelId),
+  cancel: (requestId: string) => ipcRenderer.invoke(LLM_HOST_CANCEL_CHANNEL, requestId),
+  warmup: (payload: { modelId: string; requestId?: string } | string) =>
+    ipcRenderer.invoke(
+      LLM_HOST_WARMUP_CHANNEL,
+      typeof payload === 'string'
+        ? payload
+        : {
+            modelId: payload.modelId,
+            ...(payload.requestId !== undefined ? { clientRequestId: payload.requestId } : {}),
+          }
+    ),
   generate: (payload: {
     requestId?: string;
     modelId: string;

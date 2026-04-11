@@ -23,6 +23,7 @@ const LLM_HOST_CHANNELS = LLM_HOST_RUNTIME.createScopedChannels({
   progress: 'progress',
   reportResponse: 'report-response',
   reportProgress: 'report-progress',
+  cancel: 'cancel',
   generate: 'generate',
   warmup: 'warmup',
 });
@@ -38,6 +39,7 @@ export const LLM_HOST_REQUEST_EVENT = LLM_HOST_CHANNELS.request;
 export const LLM_HOST_PROGRESS_EVENT = LLM_HOST_CHANNELS.progress;
 export const LLM_HOST_REPORT_RESPONSE_CHANNEL = LLM_HOST_CHANNELS.reportResponse;
 export const LLM_HOST_REPORT_PROGRESS_CHANNEL = LLM_HOST_CHANNELS.reportProgress;
+export const LLM_HOST_CANCEL_CHANNEL = LLM_HOST_CHANNELS.cancel;
 export const LLM_HOST_GENERATE_CHANNEL = LLM_HOST_CHANNELS.generate;
 export const LLM_HOST_WARMUP_CHANNEL = LLM_HOST_CHANNELS.warmup;
 
@@ -45,6 +47,7 @@ export type LlmHostStatus = BackgroundRuntimeStatus<'llm-host'>;
 export type LlmHostStatusReport = BackgroundRuntimeStatus<'llm-host'>;
 
 export interface LlmHostWarmupRequestPayload {
+  clientRequestId?: string;
   kind: 'warmup';
   modelId: string;
 }
@@ -57,7 +60,15 @@ export interface LlmHostGenerateRequestPayload {
   options?: LocalLlmGenerationOptions;
 }
 
-export type LlmHostRequestPayload = LlmHostGenerateRequestPayload | LlmHostWarmupRequestPayload;
+export interface LlmHostCancelRequestPayload {
+  kind: 'cancel';
+  requestId: string;
+}
+
+export type LlmHostRequestPayload =
+  | LlmHostCancelRequestPayload
+  | LlmHostGenerateRequestPayload
+  | LlmHostWarmupRequestPayload;
 export type LlmHostRequest = RuntimeRequestEnvelope<'llm', LlmHostRequestPayload>;
 
 export interface LlmHostErrorDetails {
@@ -67,8 +78,10 @@ export interface LlmHostErrorDetails {
 
 export interface LlmHostProgressPayload {
   clientRequestId?: string;
-  kind: 'reasoning' | 'stage' | 'text';
+  file?: string;
+  kind: 'loading' | 'reasoning' | 'stage' | 'text';
   message?: string;
+  progress?: number;
   reasoningText?: string;
   text?: string;
 }
@@ -107,11 +120,11 @@ export function assertLlmHostRequest(value: unknown): LlmHostRequest {
 
   const kind = payload['kind'];
   const modelId = payload['modelId'];
-  if (!(typeof modelId === 'string' && modelId.trim().length > 0)) {
-    throw new Error('Llm host request payload.modelId must be a non-empty string.');
-  }
 
   if (kind === 'warmup') {
+    if (!(typeof modelId === 'string' && modelId.trim().length > 0)) {
+      throw new Error('Llm host request payload.modelId must be a non-empty string.');
+    }
     return {
       type: 'request',
       channel: 'llm',
@@ -119,13 +132,36 @@ export function assertLlmHostRequest(value: unknown): LlmHostRequest {
       runtimeId: envelopeBase.runtimeId,
       payload: {
         kind,
+        ...(payload['clientRequestId'] !== undefined
+          ? { clientRequestId: payload['clientRequestId'] as string }
+          : {}),
         modelId: modelId.trim(),
       },
     };
   }
 
+  if (kind === 'cancel') {
+    const cancelRequestId = payload['requestId'];
+    if (!(typeof cancelRequestId === 'string' && cancelRequestId.trim().length > 0)) {
+      throw new Error('Llm host cancel payload.requestId must be a non-empty string.');
+    }
+    return {
+      type: 'request',
+      channel: 'llm',
+      requestId: envelopeBase.requestId,
+      runtimeId: envelopeBase.runtimeId,
+      payload: {
+        kind,
+        requestId: cancelRequestId.trim(),
+      },
+    };
+  }
+
   if (kind !== 'generate') {
-    throw new Error('Llm host request payload.kind must be "warmup" or "generate".');
+    throw new Error('Llm host request payload.kind must be "warmup", "generate", or "cancel".');
+  }
+  if (!(typeof modelId === 'string' && modelId.trim().length > 0)) {
+    throw new Error('Llm host request payload.modelId must be a non-empty string.');
   }
   if (!Array.isArray(payload['messages'])) {
     throw new Error('Llm host request payload.messages must be an array.');

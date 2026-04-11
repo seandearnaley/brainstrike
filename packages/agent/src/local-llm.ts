@@ -14,9 +14,11 @@ import {
   setModelChecksums,
   verifyModelIntegrity,
 } from './providers/local/local-llm-backend';
+import { GEMMA4_E2B_MODEL_ID } from './providers/local/local-model-specs';
 
 export {
   addAllowedModels,
+  GEMMA4_E2B_MODEL_ID,
   getAllowedModels,
   isModelAllowed,
   setModelChecksums,

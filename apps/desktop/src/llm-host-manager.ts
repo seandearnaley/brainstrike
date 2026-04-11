@@ -17,7 +17,8 @@ import { RendererHostLifecycle } from './renderer-host-lifecycle';
 import { waitForWindowClosed } from './window-lifecycle-utils';
 
 const logger = createLogger('LlmHostManager');
-const LLM_HOST_REQUEST_TIMEOUT_MS = 60_000;
+const LLM_HOST_GENERATE_TIMEOUT_MS = 5 * 60_000;
+const LLM_HOST_WARMUP_TIMEOUT_MS = 20 * 60_000;
 const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 
 interface PendingLlmRequest {
@@ -26,6 +27,7 @@ interface PendingLlmRequest {
   requestId: string;
   resolve: (result: unknown) => void;
   timeoutId: ReturnType<typeof setTimeout>;
+  timeoutMs: number;
 }
 
 function createRequestFailure(message: string): Error {
@@ -183,6 +185,34 @@ export class LlmHostManager {
     await this.sendRequest(requester, { kind: 'warmup', modelId });
   }
 
+  async warmupRequest(
+    requester: WebContents,
+    payload: { clientRequestId?: string; modelId: string }
+  ): Promise<void> {
+    logger.info('Dispatching llm-host warmup request', { modelId: payload.modelId });
+    await this.sendRequest(requester, {
+      kind: 'warmup',
+      modelId: payload.modelId,
+      ...(payload.clientRequestId ? { clientRequestId: payload.clientRequestId } : {}),
+    });
+  }
+
+  async cancel(_requester: WebContents, requestId: string): Promise<void> {
+    const hostWindow = await this.assertReadyForRequests();
+    const cancelRequest: LlmHostRequest = {
+      type: 'request',
+      channel: 'llm',
+      requestId: crypto.randomUUID(),
+      runtimeId: this.getStatus().runtimeId,
+      payload: {
+        kind: 'cancel',
+        requestId,
+      },
+    };
+
+    hostWindow.webContents.send(LLM_HOST_REQUEST_EVENT, cancelRequest);
+  }
+
   async generate(requester: WebContents, payload: LlmHostGenerateRequestPayload): Promise<unknown> {
     logger.info('Dispatching llm-host generate request', {
       modelId: payload.modelId,
@@ -210,10 +240,15 @@ export class LlmHostManager {
         requester,
         resolve,
         reject,
-        timeoutId: setTimeout(() => {
-          this.pendingRequests.delete(requestId);
-          reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
-        }, LLM_HOST_REQUEST_TIMEOUT_MS),
+        timeoutMs:
+          payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS,
+        timeoutId: setTimeout(
+          () => {
+            this.pendingRequests.delete(requestId);
+            reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
+          },
+          payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS
+        ),
       };
       this.pendingRequests.set(requestId, pending);
 
@@ -246,7 +281,7 @@ export class LlmHostManager {
     pending.timeoutId = setTimeout(() => {
       this.pendingRequests.delete(pending.requestId);
       pending.reject(createRequestFailure(`Llm host request ${pending.requestId} timed out.`));
-    }, LLM_HOST_REQUEST_TIMEOUT_MS);
+    }, pending.timeoutMs);
   }
 
   private async assertReadyForRequests(): Promise<BrowserWindow> {

@@ -767,6 +767,12 @@ interface GemmaStreamingState {
   readonly streamer: GemmaTextStreamer;
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError');
+  }
+}
+
 function createGemmaStreamingState(
   transformers: TransformersModule,
   tokenizer: unknown,
@@ -797,6 +803,7 @@ function createGemmaStreamingState(
       skipPrompt: true,
       skipSpecialTokens: false,
       callbackFunction: (text) => {
+        throwIfAborted(options.signal);
         rawParts.push(text);
         emitSnapshot(streamAccumulator.append(text));
       },
@@ -906,6 +913,7 @@ export class Gemma4Engine {
         maxNewTokens: options.maxNewTokens ?? 512,
       });
       const promptMessages = injectGemmaSystemMessages(messages);
+      throwIfAborted(options.signal);
       stage = 'apply-chat-template';
       const promptText = this.processor.applyChatTemplate(promptMessages, {
         addGenerationPrompt: true,
@@ -922,9 +930,11 @@ export class Gemma4Engine {
       );
 
       stage = 'processor-run';
+      throwIfAborted(options.signal);
       const inputs = await this.processor.run(promptText, null, null, { addSpecialTokens: false });
       stage = 'model-generate';
       options.stream?.onStageChange?.('generating');
+      throwIfAborted(options.signal);
       const outputs = await this.model.generate({
         ...inputs,
         ...buildGenerateOptions(options),
@@ -932,6 +942,7 @@ export class Gemma4Engine {
       });
 
       stage = 'decode-output';
+      throwIfAborted(options.signal);
       const inputLength = inputs.inputIds.dims.at(-1) ?? 0;
       const decoded = this.processor.batchDecode(outputs.slice(null, [inputLength, null]), {
         skipSpecialTokens: false,

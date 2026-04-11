@@ -127,4 +127,29 @@ describe('LlmHostManager', () => {
 
     await expect(requestPromise).resolves.toEqual({ text: 'done' });
   });
+
+  it('uses a longer timeout window for warmup requests', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = {
+      send: vi.fn(),
+    } as unknown as WebContents;
+
+    const warmupPromise = manager.warmup(requester, 'onnx-community/gemma-4-E2B-it-ONNX');
+
+    await vi.advanceTimersByTimeAsync(61_000);
+
+    expect(manager.pendingRequests.size).toBe(1);
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: [...manager.pendingRequests.keys()][0] ?? 'missing',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: null,
+      },
+    });
+
+    await expect(warmupPromise).resolves.toBeUndefined();
+  });
 });

@@ -76,7 +76,7 @@ function logRequestReceived(request: LlmHostRequest, runtimeId: string): void {
     requestId: request.requestId,
     runtimeId,
     kind: request.payload.kind,
-    modelId: request.payload.modelId,
+    modelId: 'modelId' in request.payload ? request.payload.modelId : undefined,
     messageCount: request.payload.kind === 'generate' ? request.payload.messages.length : undefined,
     toolCount:
       request.payload.kind === 'generate'
@@ -94,7 +94,24 @@ async function handleWarmupRequest(
   request: LlmHostRequest,
   runtimeId: string
 ): Promise<void> {
-  await backend.initialize({ modelId: request.payload.modelId });
+  if (request.payload.kind !== 'warmup') {
+    throw new Error('Llm host warmup handler received a non-warmup request.');
+  }
+  await backend.initialize({
+    modelId: request.payload.modelId,
+    onProgress: (progress) => {
+      reportProgress(
+        createLlmHostProgressReport(request, {
+          clientRequestId:
+            request.payload.kind === 'warmup' ? request.payload.clientRequestId : undefined,
+          kind: 'loading',
+          message: progress.message,
+          progress: progress.progress,
+          ...(progress.file ? { file: progress.file } : {}),
+        })
+      );
+    },
+  });
   logger.info('Llm host warmup completed', {
     requestId: request.requestId,
     runtimeId,
@@ -106,7 +123,8 @@ async function handleWarmupRequest(
 async function handleGenerateRequest(
   backend: LocalLlmBackend,
   request: LlmHostRequest,
-  runtimeId: string
+  runtimeId: string,
+  abortController: AbortController
 ): Promise<void> {
   const payload = request.payload;
   if (payload.kind !== 'generate') {
@@ -115,6 +133,7 @@ async function handleGenerateRequest(
   await backend.initialize({ modelId: payload.modelId });
   const result = (await backend.generate(payload.messages, {
     ...payload.options,
+    signal: abortController.signal,
     stream: {
       onStageChange: (stage) => {
         reportProgress(
@@ -168,7 +187,7 @@ function reportRequestError(
     requestId: request.requestId,
     runtimeId,
     kind: request.payload.kind,
-    modelId: request.payload.modelId,
+    modelId: 'modelId' in request.payload ? request.payload.modelId : undefined,
     stage,
     ...(error instanceof Error && typeof error.stack === 'string' ? { stack: error.stack } : {}),
   });
@@ -177,7 +196,7 @@ function reportRequestError(
       stage,
       diagnostics: {
         kind: request.payload.kind,
-        modelId: request.payload.modelId,
+        modelId: 'modelId' in request.payload ? request.payload.modelId : undefined,
         requestId: request.requestId,
         runtimeId,
       },
@@ -188,7 +207,9 @@ function reportRequestError(
 async function processLlmHostRequest(
   backend: LocalLlmBackend,
   request: LlmHostRequest,
-  runtimeId: string
+  runtimeId: string,
+  createAbortController: (requestId: string) => AbortController,
+  clearAbortController: (requestId: string) => void
 ): Promise<void> {
   let stage = 'received-request';
   try {
@@ -200,7 +221,12 @@ async function processLlmHostRequest(
       return;
     }
     stage = 'generate-response';
-    await handleGenerateRequest(backend, request, runtimeId);
+    const abortController = createAbortController(request.requestId);
+    try {
+      await handleGenerateRequest(backend, request, runtimeId, abortController);
+    } finally {
+      clearAbortController(request.requestId);
+    }
   } catch (error) {
     reportRequestError(request, runtimeId, stage, error);
   } finally {
@@ -210,6 +236,7 @@ async function processLlmHostRequest(
 
 export function LlmHostRuntime(): null {
   const runtimeIdRef = useRef<string>(resolveLlmHostRuntimeId());
+  const abortControllersRef = useRef(new Map<string, AbortController>());
 
   useEffect(() => {
     logger.info('Llm host runtime booted', {
@@ -224,11 +251,31 @@ export function LlmHostRuntime(): null {
 
     const unsubscribeRequest = getLlmHostBridge()?.onRequest?.((rawRequest: LlmHostRequest) => {
       const request = assertLlmHostRequest(rawRequest);
-      void processLlmHostRequest(backend, request, runtimeIdRef.current);
+      if (request.payload.kind === 'cancel') {
+        abortControllersRef.current.get(request.payload.requestId)?.abort();
+        return;
+      }
+      void processLlmHostRequest(
+        backend,
+        request,
+        runtimeIdRef.current,
+        (requestId) => {
+          const controller = new AbortController();
+          abortControllersRef.current.set(requestId, controller);
+          return controller;
+        },
+        (requestId) => {
+          abortControllersRef.current.delete(requestId);
+        }
+      );
     });
 
     return () => {
       unsubscribeRequest?.();
+      for (const controller of abortControllersRef.current.values()) {
+        controller.abort();
+      }
+      abortControllersRef.current.clear();
       void backend.dispose();
       logger.info('Llm host runtime stopped', {
         runtimeId: runtimeIdRef.current,

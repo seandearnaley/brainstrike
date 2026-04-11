@@ -219,6 +219,145 @@ describe('createLocalModelAdapter', () => {
     );
   });
 
+  it('uses clone-safe options for desktop generation and cancels through llmHost on abort', async () => {
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    let resolveGeneration: ((value: LocalLlmGenerationResult) => void) | null = null;
+    let markGenerateStarted: (() => void) | null = null;
+    const generateStarted = new Promise<void>((resolve) => {
+      markGenerateStarted = resolve;
+    });
+    const generate = vi
+      .fn()
+      .mockImplementation(async ({ options }: { options?: Record<string, unknown> }) => {
+        expect(options?.['signal']).toBeUndefined();
+        markGenerateStarted?.();
+        return await new Promise<LocalLlmGenerationResult>((resolve) => {
+          resolveGeneration = resolve;
+        });
+      });
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        cancel,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+    const abortController = new AbortController();
+    const run = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: abortController.signal,
+      })
+    );
+
+    await generateStarted;
+    abortController.abort();
+    const completeGeneration = resolveGeneration;
+    if (typeof completeGeneration === 'function') {
+      (completeGeneration as (value: LocalLlmGenerationResult) => void)(
+        createGenerationResult({
+          text: 'Partial response',
+        })
+      );
+    }
+    await run;
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards warmup loading progress from the hidden llm host', async () => {
+    let progressListener: ((progress: unknown) => void) | null = null;
+    const warmup = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
+      progressListener?.({
+        type: 'progress',
+        requestId: requestId ?? 'warmup-req',
+        payload: {
+          clientRequestId: requestId,
+          kind: 'loading',
+          message: 'Downloading onnx/embed_tokens_q4f16.onnx',
+          progress: 42,
+          file: 'onnx/embed_tokens_q4f16.onnx',
+        },
+      });
+    });
+    const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Loaded.' }));
+    const progress = vi.fn();
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: (callback: (progress: unknown) => void) => {
+          progressListener = callback;
+          return () => {
+            progressListener = null;
+          };
+        },
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      onLoadingProgress: progress,
+    });
+
+    await collectRun(adapter.run(createRunOptions()));
+
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'loading',
+        progress: 42,
+        file: 'onnx/embed_tokens_q4f16.onnx',
+      })
+    );
+  });
+
+  it('re-warms the desktop model after the llm host reports an error state', async () => {
+    let statusListener: ((status: { runtimeKind: 'llm-host'; state: string }) => void) | null =
+      null;
+    const warmup = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Ready.' }));
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: (callback: (status: { runtimeKind: 'llm-host'; state: string }) => void) => {
+          statusListener = callback;
+          return () => {
+            statusListener = null;
+          };
+        },
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+
+    await collectRun(adapter.run(createRunOptions()));
+    const reportStatus = statusListener;
+    if (typeof reportStatus === 'function') {
+      (reportStatus as (status: { runtimeKind: 'llm-host'; state: string }) => void)({
+        runtimeKind: 'llm-host',
+        state: 'error',
+      });
+    }
+    await collectRun(adapter.run(createRunOptions()));
+
+    expect(warmup).toHaveBeenCalledTimes(2);
+  });
+
   it('reports a terminal ready state after a successful warm run', async () => {
     let progressListener: ((progress: unknown) => void) | null = null;
     const warmup = vi.fn().mockResolvedValue(undefined);

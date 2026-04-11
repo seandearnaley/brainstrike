@@ -74,6 +74,9 @@ async function cacheResponseStream(
   response: Response,
   onChunkProgress: (loaded: number, total: number | null) => void
 ): Promise<void> {
+  if (response.status !== 200) {
+    throw new Error(`artifact_cache_requires_full_response: ${url} returned ${response.status}`);
+  }
   if (!response.body) {
     await cache.put(url, response.clone());
     onChunkProgress(1, 1);
@@ -84,9 +87,15 @@ async function cacheResponseStream(
   const cachePut = cache.put(
     url,
     new Response(cacheStream, {
-      headers: response.headers,
-      status: response.status,
-      statusText: response.statusText,
+      headers: new Headers(
+        Object.fromEntries(
+          ['cache-control', 'content-length', 'content-type']
+            .map((header) => [header, response.headers.get(header)])
+            .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+        )
+      ),
+      status: 200,
+      statusText: 'OK',
     })
   );
 
@@ -118,7 +127,7 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
     for (const filePath of files) {
       const url = buildLocalArtifactUrl(spec.modelId, spec.remoteRevision, filePath);
       const cached = await cache.match(url);
-      if (cached) {
+      if (cached?.status === 200) {
         completed += 1;
         continue;
       }
@@ -162,7 +171,7 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
     for (const filePath of spec.artifacts.text) {
       const url = buildLocalArtifactUrl(spec.modelId, spec.remoteRevision, filePath);
       const cached = await cache.match(url);
-      if (!cached) {
+      if (cached?.status !== 200) {
         return false;
       }
     }

@@ -1,37 +1,83 @@
 const HUGGING_FACE_BASE_URL = 'https://huggingface.co';
+// Keep this pinned to the same built-in local model contract as
+// packages/agent/src/providers/local/local-model-specs.ts.
+const ALLOWED_MODEL_IDS = new Set(['onnx-community/gemma-4-E2B-it-ONNX']);
+const FORWARDED_REQUEST_HEADERS = [
+  'accept',
+  'if-modified-since',
+  'if-none-match',
+  'range',
+] as const;
+const PASSTHROUGH_RESPONSE_HEADERS = [
+  'accept-ranges',
+  'cache-control',
+  'content-length',
+  'content-range',
+  'content-type',
+  'etag',
+  'last-modified',
+] as const;
 
-function buildTargetUrl(pathSegments: string[]): string {
+function isAllowedPath(pathSegments: string[]): boolean {
+  const modelId = pathSegments.slice(0, 2).join('/');
+  return ALLOWED_MODEL_IDS.has(modelId);
+}
+
+function buildTargetUrl(request: Request, pathSegments: string[]): string {
   const normalizedPath = pathSegments.map((segment) => encodeURIComponent(segment)).join('/');
-  return `${HUGGING_FACE_BASE_URL}/${normalizedPath}`;
+  const upstream = new URL(`${HUGGING_FACE_BASE_URL}/${normalizedPath}`);
+  const source = new URL(request.url);
+  upstream.search = source.search;
+  return upstream.toString();
+}
+
+function buildProxyRequestHeaders(request: Request): Headers {
+  const headers = new Headers();
+  for (const headerName of FORWARDED_REQUEST_HEADERS) {
+    const value = request.headers.get(headerName);
+    if (value) {
+      headers.set(headerName, value);
+    }
+  }
+  headers.set('user-agent', 'brainstrike-local-llm');
+  if (!headers.has('accept')) {
+    headers.set('accept', '*/*');
+  }
+  return headers;
+}
+
+function buildProxyResponseHeaders(upstream: Response): Headers {
+  const headers = new Headers();
+  for (const headerName of PASSTHROUGH_RESPONSE_HEADERS) {
+    const value = upstream.headers.get(headerName);
+    if (value) {
+      headers.set(headerName, value);
+    }
+  }
+  if (!headers.has('cache-control')) {
+    headers.set('cache-control', 'public, max-age=300');
+  }
+  return headers;
 }
 
 async function proxyRequest(request: Request, pathSegments: string[]): Promise<Response> {
-  const targetUrl = buildTargetUrl(pathSegments);
+  if (!isAllowedPath(pathSegments)) {
+    return new Response('Unsupported Hugging Face model path.', {
+      status: 403,
+      headers: {
+        'cache-control': 'no-store',
+        'content-type': 'text/plain; charset=utf-8',
+      },
+    });
+  }
+  const targetUrl = buildTargetUrl(request, pathSegments);
   const upstream = await fetch(targetUrl, {
-    headers: {
-      accept: request.headers.get('accept') ?? '*/*',
-      'user-agent': 'brainstrike-local-llm',
-    },
-    method: request.method,
+    headers: buildProxyRequestHeaders(request),
+    method: 'GET',
   });
 
-  const headers = new Headers();
-  const contentType = upstream.headers.get('content-type');
-  const contentLength = upstream.headers.get('content-length');
-  const cacheControl = upstream.headers.get('cache-control');
-
-  if (contentType) {
-    headers.set('content-type', contentType);
-  }
-  if (contentLength) {
-    headers.set('content-length', contentLength);
-  }
-  if (cacheControl) {
-    headers.set('cache-control', cacheControl);
-  }
-
   return new Response(upstream.body, {
-    headers,
+    headers: buildProxyResponseHeaders(upstream),
     status: upstream.status,
     statusText: upstream.statusText,
   });

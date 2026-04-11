@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { configureTransformersEnvironment } from '../gemma4-engine';
 import {
+  BrowserCacheArtifactStore,
   buildLocalArtifactUrl,
   resolveLocalArtifactRemoteHost,
   resolveLocalArtifactRemotePathTemplate,
 } from '../local-artifact-store';
+import { getLocalLlmModelSpec } from '../local-model-specs';
 
 const originalWindow = globalThis.window;
 
@@ -66,5 +68,37 @@ describe('local-artifact-store', () => {
     expect(environment.allowRemoteModels).toBe(true);
     expect(environment.remoteHost).toBe('/api/hf/');
     expect(environment.remotePathTemplate).toBe(resolveLocalArtifactRemotePathTemplate());
+  });
+
+  it('rejects partial artifact responses instead of caching incomplete model files', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn(),
+    } as unknown as Cache;
+    const openSpy = vi.fn().mockResolvedValue(cache);
+    vi.stubGlobal('caches', {
+      open: openSpy,
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('partial', {
+        status: 206,
+        headers: {
+          'content-length': '7',
+        },
+      })
+    );
+    const spec = getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX');
+
+    const store = new BrowserCacheArtifactStore();
+
+    await expect(store.download(spec!)).rejects.toThrow('artifact_cache_requires_full_response');
+
+    fetchSpy.mockRestore();
   });
 });

@@ -135,7 +135,8 @@ declare global {
       stop: () => Promise<LlmHostStatus>;
       reset: () => Promise<LlmHostStatus>;
       getStatus: () => Promise<LlmHostStatus>;
-      warmup: (modelId: string) => Promise<void>;
+      cancel: (requestId: string) => Promise<void>;
+      warmup: (payload: { modelId: string; requestId?: string } | string) => Promise<void>;
       generate: (payload: {
         requestId?: string;
         modelId: string;

@@ -22,16 +22,24 @@ describe('hf proxy route', () => {
         status: 206,
         statusText: 'Partial Content',
         headers: {
+          'accept-ranges': 'bytes',
           'content-type': 'application/octet-stream',
           'content-length': '2',
           'cache-control': 'public, max-age=60',
+          'content-range': 'bytes 0-1/2',
+          etag: '"abc"',
         },
       })
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const request = new Request('http://localhost/api/hf/models/gemma', {
-      headers: { accept: 'application/octet-stream' },
+    const request = new Request('http://localhost/api/hf/models/gemma?download=true', {
+      headers: {
+        accept: 'application/octet-stream',
+        'if-modified-since': 'Mon, 01 Jan 2024 00:00:00 GMT',
+        'if-none-match': '"abc"',
+        range: 'bytes=0-1',
+      },
       method: 'GET',
     });
 
@@ -41,21 +49,26 @@ describe('hf proxy route', () => {
       }),
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/main',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          accept: 'application/octet-stream',
-          'user-agent': 'brainstrike-local-llm',
-        }),
-        method: 'GET',
-      })
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [targetUrl, options] = fetchMock.mock.calls[0] ?? [];
+    expect(targetUrl).toBe(
+      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/main?download=true'
     );
+    expect(options).toMatchObject({ method: 'GET' });
+    const headers = options?.headers as Headers;
+    expect(headers.get('accept')).toBe('application/octet-stream');
+    expect(headers.get('if-modified-since')).toBe('Mon, 01 Jan 2024 00:00:00 GMT');
+    expect(headers.get('if-none-match')).toBe('"abc"');
+    expect(headers.get('range')).toBe('bytes=0-1');
+    expect(headers.get('user-agent')).toBe('brainstrike-local-llm');
     expect(response.status).toBe(206);
     expect(response.statusText).toBe('Partial Content');
     expect(response.headers.get('content-type')).toBe('application/octet-stream');
     expect(response.headers.get('content-length')).toBe('2');
     expect(response.headers.get('cache-control')).toBe('public, max-age=60');
+    expect(response.headers.get('accept-ranges')).toBe('bytes');
+    expect(response.headers.get('content-range')).toBe('bytes 0-1/2');
+    expect(response.headers.get('etag')).toBe('"abc"');
     expect(await response.text()).toBe('ok');
   });
 
@@ -64,16 +77,30 @@ describe('hf proxy route', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await GET(new Request('http://localhost/api/hf/models/gemma'), {
-      params: Promise.resolve({ path: ['foo bar', 'baz?qux'] }),
+      params: Promise.resolve({
+        path: ['onnx-community', 'gemma-4-E2B-it-ONNX', 'resolve', 'main', 'foo bar'],
+      }),
     });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://huggingface.co/foo%20bar/baz%3Fqux',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          accept: '*/*',
-        }),
-      })
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [targetUrl, options] = fetchMock.mock.calls[0] ?? [];
+    expect(targetUrl).toBe(
+      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/foo%20bar'
     );
+    const headers = options?.headers as Headers;
+    expect(headers.get('accept')).toBe('*/*');
+  });
+
+  it('rejects requests for unsupported models', async () => {
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await GET(new Request('http://localhost/api/hf/other/model'), {
+      params: Promise.resolve({
+        path: ['other-org', 'other-model', 'resolve', 'main'],
+      }),
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(403);
   });
 });
