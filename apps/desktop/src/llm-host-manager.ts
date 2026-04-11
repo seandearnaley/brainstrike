@@ -22,6 +22,12 @@ const LLM_HOST_WARMUP_TIMEOUT_MS = 20 * 60_000;
 const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 const PRE_CANCELLED_REQUEST_TTL_MS = LLM_HOST_WARMUP_TIMEOUT_MS;
 
+function getMonotonicNow(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
 interface PendingLlmRequest {
   cleanupRequesterListener?: () => void;
   deadlineAt: number;
@@ -279,7 +285,7 @@ export class LlmHostManager {
           : null;
       const timeoutMs =
         payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS;
-      const deadlineAt = Date.now() + timeoutMs;
+      const deadlineAt = getMonotonicNow() + timeoutMs;
 
       const pending: PendingLlmRequest = {
         requestId,
@@ -295,7 +301,7 @@ export class LlmHostManager {
             this.tryCancelHostRequest(requestId, hostWindow, 'timeout');
             reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
           },
-          Math.max(0, deadlineAt - Date.now())
+          Math.max(0, deadlineAt - getMonotonicNow())
         ),
         ...(cleanupRequesterListener ? { cleanupRequesterListener } : {}),
       };
@@ -359,7 +365,7 @@ export class LlmHostManager {
 
   private refreshPendingRequestTimeout(pending: PendingLlmRequest): void {
     clearTimeout(pending.timeoutId);
-    const remainingMs = Math.max(0, pending.deadlineAt - Date.now());
+    const remainingMs = Math.max(0, pending.deadlineAt - getMonotonicNow());
     pending.timeoutId = setTimeout(() => {
       pending.cleanupRequesterListener?.();
       this.pendingRequests.delete(pending.requestId);

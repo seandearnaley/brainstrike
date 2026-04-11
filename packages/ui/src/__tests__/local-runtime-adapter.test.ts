@@ -514,6 +514,60 @@ describe('createLocalModelAdapter', () => {
     expect(generate).toHaveBeenCalledTimes(1);
   });
 
+  it('starts a fresh warmup after the owner aborts a shared warmup', async () => {
+    const warmupResolvers: VoidFunction[] = [];
+    const warmup = vi.fn().mockImplementation(
+      async () =>
+        await new Promise<void>((resolve) => {
+          warmupResolvers.push(resolve as VoidFunction);
+        })
+    );
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Ready.' }));
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        cancel,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+    const ownerAbort = new AbortController();
+
+    const ownerRun = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: ownerAbort.signal,
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(warmup).toHaveBeenCalledTimes(1);
+    });
+    ownerAbort.abort();
+
+    await expect(ownerRun).resolves.toContainEqual({
+      content: [{ type: 'text', text: 'Generation cancelled.' }],
+    });
+    expect(cancel).toHaveBeenCalledTimes(1);
+
+    const retryRun = collectRun(adapter.run(createRunOptions()));
+    await vi.waitFor(() => {
+      expect(warmup).toHaveBeenCalledTimes(2);
+    });
+    warmupResolvers.at(-1)?.();
+
+    await expect(retryRun).resolves.toContainEqual({
+      content: expect.arrayContaining([{ type: 'text', text: 'Ready.' }]),
+    });
+  });
+
   it('reports a terminal ready state after a successful warm run', async () => {
     let progressListener: ((progress: unknown) => void) | null = null;
     const warmup = vi.fn().mockResolvedValue(undefined);

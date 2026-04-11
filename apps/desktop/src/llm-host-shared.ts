@@ -230,6 +230,8 @@ function assertMessageToolResponses(
 }
 
 function assertMessageContent(message: LocalLlmMessage, index: number): LocalLlmMessage {
+  // Preserve content verbatim for downstream prompt construction; callers are responsible for any
+  // whitespace normalization they want applied before sending messages to the host.
   if (message.toolCalls && message.toolCalls.length > 0 && message.role !== 'assistant') {
     throw new Error(
       `Llm host generate payload.messages[${index}].toolCalls are only valid for assistant messages.`

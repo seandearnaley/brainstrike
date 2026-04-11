@@ -544,6 +544,8 @@ async function waitForAbortableDesktopWarmup(
       if (options.owner) {
         const requestId = desktopWarmupRequestIds.get(modelId);
         if (requestId) {
+          desktopWarmupPromises.delete(modelId);
+          desktopWarmupRequestIds.delete(modelId);
           void llmHost.cancel?.(requestId);
         }
       }

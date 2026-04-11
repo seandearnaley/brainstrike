@@ -406,7 +406,7 @@ describe('local-artifact-store', () => {
     fetchSpy.mockRestore();
   });
 
-  it('skips quota enforcement when the browser does not expose numeric usage and quota values', async () => {
+  it('skips quota enforcement only when the browser does not expose quota at all', async () => {
     globalThis.window = {
       location: {
         protocol: 'http:',
@@ -445,7 +445,46 @@ describe('local-artifact-store', () => {
     fetchSpy.mockRestore();
   });
 
-  it('normalizes malformed content-length values for body-less responses', async () => {
+  it('treats missing usage as zero when quota is known', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn(async (_url: string, response: Response) => {
+        await response.arrayBuffer();
+      }),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 10,
+        }),
+      },
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    await expect(
+      new BrowserCacheArtifactStore().download({
+        ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+        totalSizeBytes: 20,
+        artifacts: {
+          text: ['config.json'],
+        },
+      })
+    ).rejects.toThrow('storage_insufficient');
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('normalizes malformed or negative content-length values for body-less responses', async () => {
     globalThis.window = {
       location: {
         protocol: 'http:',
@@ -469,10 +508,10 @@ describe('local-artifact-store', () => {
         }),
       },
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(null, {
         status: 200,
-        headers: { 'content-length': 'not-a-number' },
+        headers: { 'content-length': '-5' },
       })
     );
     const progress = vi.fn();
@@ -496,6 +535,7 @@ describe('local-artifact-store', () => {
         progress: 0,
       })
     );
+    fetchSpy.mockRestore();
   });
 
   it('treats multimodal artifacts as required when checking download completeness', async () => {

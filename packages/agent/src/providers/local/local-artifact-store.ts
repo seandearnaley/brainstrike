@@ -79,11 +79,15 @@ async function checkStorageQuota(requiredBytes: number): Promise<void> {
   }
 
   const estimate = await navigator.storage.estimate();
-  if (!(typeof estimate.quota === 'number' && typeof estimate.usage === 'number')) {
+  if (typeof estimate.quota !== 'number') {
+    // Some browsers do not expose quota at all. Skip enforcement rather than falsely rejecting a
+    // download we cannot size against. If quota is known but usage is missing, stay fail-closed by
+    // treating usage as zero instead of bypassing the check entirely.
     return;
   }
 
-  const available = estimate.quota - estimate.usage;
+  const usage = typeof estimate.usage === 'number' ? estimate.usage : 0;
+  const available = estimate.quota - usage;
   const requiredWithBuffer = Math.ceil(requiredBytes * QUOTA_SAFETY_BUFFER);
   if (available < requiredWithBuffer) {
     throw new Error(
@@ -178,7 +182,7 @@ async function cacheResponseStream(
     await cache.put(url, response.clone());
     const totalHeader = response.headers.get('content-length');
     const parsedLength = totalHeader ? Number.parseInt(totalHeader, 10) : 0;
-    const loaded = Number.isFinite(parsedLength) ? parsedLength : 0;
+    const loaded = Number.isFinite(parsedLength) && parsedLength >= 0 ? parsedLength : 0;
     onChunkProgress(loaded, loaded > 0 ? loaded : null);
     return loaded;
   }
