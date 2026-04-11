@@ -92,7 +92,8 @@
     "clean:generated": "find src -type f \\( -name '*.js' -o -name '*.js.map' \\) -delete",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
-    "test": "pnpm run clean:generated && vitest run",
+    "test": "pnpm run clean:generated && vitest run --project unit",
+    "test:browser": "pnpm run clean:generated && vitest run --project browser",
     "test:coverage": "pnpm -w test:coverage",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
