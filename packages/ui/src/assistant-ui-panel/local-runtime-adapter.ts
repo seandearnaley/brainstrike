@@ -580,7 +580,10 @@ async function ensureDesktopModelWarmed(
       );
     });
     try {
-      await llmHost.warmup?.({ modelId, requestId: warmupRequestId });
+      if (!llmHost.warmup) {
+        throw new Error('Desktop llm host does not implement warmup.');
+      }
+      await llmHost.warmup({ modelId, requestId: warmupRequestId });
       warmedDesktopModelIds.add(modelId);
     } finally {
       unsubscribeWarmupProgress?.();

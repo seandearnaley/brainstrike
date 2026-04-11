@@ -164,12 +164,27 @@ async function proxyRequest(request: Request, pathSegments: string[]): Promise<R
     }
     throw error;
   }
-  const upstream = await fetch(targetUrl, {
-    headers: buildProxyRequestHeaders(request),
-    // Next.js only exports GET/HEAD for this route, so request.method is already constrained here.
-    method: request.method,
-    signal: request.signal,
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(targetUrl, {
+      headers: buildProxyRequestHeaders(request),
+      // Next.js only exports GET/HEAD for this route, so request.method is already constrained here.
+      method: request.method,
+      signal: request.signal,
+    });
+  } catch (error) {
+    logger.error('Hugging Face proxy request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      path: pathSegments.join('/'),
+    });
+    return new Response('Failed to reach Hugging Face upstream.', {
+      status: 502,
+      headers: {
+        'cache-control': 'no-store',
+        'content-type': 'text/plain; charset=utf-8',
+      },
+    });
+  }
 
   return new Response(upstream.body, {
     headers: buildProxyResponseHeaders(upstream),

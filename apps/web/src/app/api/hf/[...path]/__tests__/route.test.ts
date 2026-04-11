@@ -315,4 +315,28 @@ describe('hf proxy route', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(response.status).toBe(403);
   });
+
+  it('returns a controlled upstream error when fetch throws', async () => {
+    fetchMock.mockRejectedValue(new Error('socket hang up'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await GET(
+      createTrustedRequest('https://brainstrike.example/api/hf/models/gemma'),
+      {
+        params: Promise.resolve({
+          path: [
+            'onnx-community',
+            'gemma-4-E2B-it-ONNX',
+            'resolve',
+            '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+            'config.json',
+          ],
+        }),
+      }
+    );
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.text()).toContain('Failed to reach Hugging Face upstream');
+  });
 });

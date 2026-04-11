@@ -273,6 +273,31 @@ describe('createLocalModelAdapter', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
+  it('fails fast when the desktop llm host does not expose warmup', async () => {
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        generate: vi.fn(),
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+
+    const updates = await collectRun(adapter.run(createRunOptions()));
+
+    expect(updates.at(-1)).toMatchObject({
+      content: expect.arrayContaining([
+        {
+          type: 'text',
+          text: expect.stringContaining('Desktop llm host does not implement warmup.'),
+        },
+      ]),
+    });
+  });
+
   it('forwards warmup loading progress from the hidden llm host', async () => {
     let progressListener: ((progress: unknown) => void) | null = null;
     const warmup = vi.fn().mockImplementation(async ({ requestId }: { requestId?: string }) => {
