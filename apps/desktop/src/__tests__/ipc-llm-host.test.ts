@@ -265,6 +265,72 @@ describe('ipc-llm-host', () => {
     );
   });
 
+  it('accepts whitespace-only content when callers intentionally preserve it', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn().mockResolvedValue({ text: 'ok' }),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn(),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const generateCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+    );
+    if (!generateCall) {
+      throw new Error('llm-host:generate handler not registered');
+    }
+
+    const generateHandler = generateCall[1] as (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ) => Promise<unknown>;
+    await expect(
+      generateHandler({ sender: {} } as IpcMainInvokeEvent, {
+        kind: 'generate',
+        clientRequestId: 'req-1',
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        messages: [{ role: 'user', content: '   ' }],
+        options: {},
+      })
+    ).resolves.toEqual({ text: 'ok' });
+  });
+
+  it('accepts tool messages that only carry toolCallId metadata', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn().mockResolvedValue({ text: 'ok' }),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn(),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const generateCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+    );
+    if (!generateCall) {
+      throw new Error('llm-host:generate handler not registered');
+    }
+
+    const generateHandler = generateCall[1] as (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ) => Promise<unknown>;
+    await expect(
+      generateHandler({ sender: {} } as IpcMainInvokeEvent, {
+        kind: 'generate',
+        clientRequestId: 'req-1',
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        messages: [{ role: 'tool', content: '', toolCallId: 'call_1' }],
+        options: {},
+      })
+    ).resolves.toEqual({ text: 'ok' });
+  });
+
   it('rejects toolCalls on non-assistant roles', async () => {
     const manager = {
       acceptResponseReport: vi.fn(),

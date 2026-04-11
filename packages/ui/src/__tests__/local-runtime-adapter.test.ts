@@ -273,7 +273,7 @@ describe('createLocalModelAdapter', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
-  it('cancels desktop warmup when the run is aborted before generation starts', async () => {
+  it('lets an aborted warmup caller exit locally without cancelling shared warmup work', async () => {
     const warmup = vi.fn().mockImplementation(async () => {
       return await new Promise<void>(() => {});
     });
@@ -310,7 +310,7 @@ describe('createLocalModelAdapter', () => {
     await expect(updatesPromise).resolves.toContainEqual({
       content: [{ type: 'text', text: 'Generation cancelled.' }],
     });
-    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel).not.toHaveBeenCalled();
     expect(generate).not.toHaveBeenCalled();
   });
 
@@ -514,7 +514,7 @@ describe('createLocalModelAdapter', () => {
     expect(generate).toHaveBeenCalledTimes(1);
   });
 
-  it('starts a fresh warmup after the owner aborts a shared warmup', async () => {
+  it('keeps a shared warmup alive when the owner aborts and a joiner is still waiting', async () => {
     const warmupResolvers: VoidFunction[] = [];
     const warmup = vi.fn().mockImplementation(
       async () =>
@@ -539,11 +539,18 @@ describe('createLocalModelAdapter', () => {
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
     });
     const ownerAbort = new AbortController();
+    const joinerAbort = new AbortController();
 
     const ownerRun = collectRun(
       adapter.run({
         ...createRunOptions(),
         abortSignal: ownerAbort.signal,
+      })
+    );
+    const joinerRun = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: joinerAbort.signal,
       })
     );
 
@@ -555,17 +562,13 @@ describe('createLocalModelAdapter', () => {
     await expect(ownerRun).resolves.toContainEqual({
       content: [{ type: 'text', text: 'Generation cancelled.' }],
     });
-    expect(cancel).toHaveBeenCalledTimes(1);
-
-    const retryRun = collectRun(adapter.run(createRunOptions()));
-    await vi.waitFor(() => {
-      expect(warmup).toHaveBeenCalledTimes(2);
-    });
+    expect(cancel).not.toHaveBeenCalled();
     warmupResolvers.at(-1)?.();
 
-    await expect(retryRun).resolves.toContainEqual({
+    await expect(joinerRun).resolves.toContainEqual({
       content: expect.arrayContaining([{ type: 'text', text: 'Ready.' }]),
     });
+    expect(warmup).toHaveBeenCalledTimes(1);
   });
 
   it('reports a terminal ready state after a successful warm run', async () => {

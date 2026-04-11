@@ -19,7 +19,7 @@ export interface LocalArtifactStore {
 }
 
 interface ArtifactStatus {
-  cachedBytes: number | null;
+  cachedBytes: number;
   filePath: string;
   isCached: boolean;
 }
@@ -81,12 +81,12 @@ async function checkStorageQuota(requiredBytes: number): Promise<void> {
   const estimate = await navigator.storage.estimate();
   if (typeof estimate.quota !== 'number') {
     // Some browsers do not expose quota at all. Skip enforcement rather than falsely rejecting a
-    // download we cannot size against. If quota is known but usage is missing, stay fail-closed by
-    // treating usage as zero instead of bypassing the check entirely.
+    // download we cannot size against. If quota is known but usage is missing, assume the bucket is
+    // already full so the check stays conservative instead of silently bypassing enforcement.
     return;
   }
 
-  const usage = typeof estimate.usage === 'number' ? estimate.usage : 0;
+  const usage = typeof estimate.usage === 'number' ? estimate.usage : estimate.quota;
   const available = estimate.quota - usage;
   const requiredWithBuffer = Math.ceil(requiredBytes * QUOTA_SAFETY_BUFFER);
   if (available < requiredWithBuffer) {
@@ -104,14 +104,14 @@ function getArtifactPaths(spec: LocalLlmModelSpec): string[] {
   ];
 }
 
-async function readCachedArtifactBytes(response: Response): Promise<number | null> {
+async function readCachedArtifactBytes(response: Response): Promise<number> {
   const contentLength = response.headers.get('content-length');
   const parsedLength = contentLength ? Number.parseInt(contentLength, 10) : Number.NaN;
   if (Number.isFinite(parsedLength) && parsedLength > 0) {
     return parsedLength;
   }
 
-  return null;
+  return 0;
 }
 
 async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise<ArtifactStatus[]> {
@@ -122,14 +122,6 @@ async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise
     const cached = await cache.match(url);
     if (cached?.status === 200) {
       const cachedBytes = await readCachedArtifactBytes(cached);
-      if (cachedBytes === null) {
-        statuses.push({
-          filePath,
-          isCached: false,
-          cachedBytes: null,
-        });
-        continue;
-      }
       statuses.push({
         filePath,
         isCached: true,
@@ -141,7 +133,7 @@ async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise
     statuses.push({
       filePath,
       isCached: false,
-      cachedBytes: null,
+      cachedBytes: 0,
     });
   }
 

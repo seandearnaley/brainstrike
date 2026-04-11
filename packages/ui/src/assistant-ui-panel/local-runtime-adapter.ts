@@ -518,11 +518,8 @@ function createAbortError(): DOMException {
 }
 
 async function waitForAbortableDesktopWarmup(
-  llmHost: NonNullable<ReturnType<typeof getDesktopLlmHost>>,
-  modelId: string,
   warmupPromise: Promise<void>,
-  abortSignal: AbortSignal | undefined,
-  options: { owner: boolean }
+  abortSignal: AbortSignal | undefined
 ): Promise<void> {
   if (!abortSignal) {
     await warmupPromise;
@@ -530,25 +527,11 @@ async function waitForAbortableDesktopWarmup(
   }
 
   if (abortSignal.aborted) {
-    if (options.owner) {
-      const requestId = desktopWarmupRequestIds.get(modelId);
-      if (requestId) {
-        void llmHost.cancel?.(requestId);
-      }
-    }
     throw createAbortError();
   }
 
   await new Promise<void>((resolve, reject) => {
     const handleAbort = () => {
-      if (options.owner) {
-        const requestId = desktopWarmupRequestIds.get(modelId);
-        if (requestId) {
-          desktopWarmupPromises.delete(modelId);
-          desktopWarmupRequestIds.delete(modelId);
-          void llmHost.cancel?.(requestId);
-        }
-      }
       reject(createAbortError());
     };
 
@@ -614,13 +597,12 @@ async function ensureDesktopModelWarmed(
 
   const existingWarmup = desktopWarmupPromises.get(modelId);
   if (existingWarmup) {
-    await waitForAbortableDesktopWarmup(llmHost, modelId, existingWarmup, abortSignal, {
-      owner: false,
-    });
+    await waitForAbortableDesktopWarmup(existingWarmup, abortSignal);
     return;
   }
 
-  const warmupPromise = (async () => {
+  let currentWarmupPromise: Promise<void> | null = null;
+  const nextWarmupPromise = (async () => {
     const warmupRequestId = crypto.randomUUID();
     desktopWarmupRequestIds.set(modelId, warmupRequestId);
     onLoadingProgress?.({
@@ -644,16 +626,19 @@ async function ensureDesktopModelWarmed(
       await llmHost.warmup({ modelId, requestId: warmupRequestId });
       warmedDesktopModelIds.add(modelId);
     } finally {
-      desktopWarmupRequestIds.delete(modelId);
+      if (desktopWarmupRequestIds.get(modelId) === warmupRequestId) {
+        desktopWarmupRequestIds.delete(modelId);
+      }
       unsubscribeWarmupProgress?.();
-      desktopWarmupPromises.delete(modelId);
+      if (currentWarmupPromise && desktopWarmupPromises.get(modelId) === currentWarmupPromise) {
+        desktopWarmupPromises.delete(modelId);
+      }
     }
   })();
+  currentWarmupPromise = nextWarmupPromise;
 
-  desktopWarmupPromises.set(modelId, warmupPromise);
-  await waitForAbortableDesktopWarmup(llmHost, modelId, warmupPromise, abortSignal, {
-    owner: true,
-  });
+  desktopWarmupPromises.set(modelId, nextWarmupPromise);
+  await waitForAbortableDesktopWarmup(nextWarmupPromise, abortSignal);
 }
 
 function createDesktopGenerationOptions(

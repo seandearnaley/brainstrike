@@ -248,9 +248,10 @@ function assertMessageContent(message: LocalLlmMessage, index: number): LocalLlm
   }
 
   if (
-    message.content.trim().length === 0 &&
+    message.content.length === 0 &&
     !(message.toolCalls && message.toolCalls.length > 0) &&
-    !(message.toolResponses && message.toolResponses.length > 0)
+    !(message.toolResponses && message.toolResponses.length > 0) &&
+    !message.toolCallId
   ) {
     throw new Error(
       `Llm host generate payload.messages[${index}] must include non-empty content or tool payloads.`

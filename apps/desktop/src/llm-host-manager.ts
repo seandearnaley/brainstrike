@@ -20,7 +20,7 @@ const logger = createLogger('LlmHostManager');
 const LLM_HOST_GENERATE_TIMEOUT_MS = 5 * 60_000;
 const LLM_HOST_WARMUP_TIMEOUT_MS = 20 * 60_000;
 const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
-const PRE_CANCELLED_REQUEST_TTL_MS = LLM_HOST_WARMUP_TIMEOUT_MS;
+const PRE_CANCELLED_REQUEST_TTL_MS = LLM_HOST_GENERATE_TIMEOUT_MS;
 
 function getMonotonicNow(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -253,6 +253,9 @@ export class LlmHostManager {
     const hostWindow = await this.assertReadyForRequests();
     const requestId = this.createHostRequestId(requester, payload);
     if (this.clearPreCancelledRequest(requestId)) {
+      logger.warn('Rejecting llm host request because it was pre-cancelled', {
+        requestId,
+      });
       throw createRequestFailure(`Llm host request ${requestId} was cancelled before dispatch.`);
     }
     return await new Promise<unknown>((resolve, reject) => {
@@ -353,14 +356,22 @@ export class LlmHostManager {
 
   private scopeClientRequestId(requester: WebContents, requestId: string): string {
     const trimmedRequestId = requestId.trim();
-    // IPC callers are responsible for supplying clientRequestId values that are unique for the
-    // lifetime of a pending request. We scope by requester id to isolate renderers, but callers
-    // must still avoid reusing the same clientRequestId while an earlier request or pre-cancel
-    // entry for that id may still exist.
-    if (trimmedRequestId.startsWith(`${requester.id}:`)) {
-      return trimmedRequestId;
+    const requesterPrefix = `${requester.id}:`;
+    if (trimmedRequestId.startsWith(requesterPrefix)) {
+      const unscopedRemainder = trimmedRequestId.slice(requesterPrefix.length);
+      if (!(unscopedRemainder.length > 0) || unscopedRemainder.includes(':')) {
+        throw createRequestFailure(
+          `Llm host clientRequestId ${trimmedRequestId} must not include nested scope prefixes.`
+        );
+      }
+      return `${requesterPrefix}${unscopedRemainder}`;
     }
-    return `${requester.id}:${trimmedRequestId}`;
+    if (trimmedRequestId.includes(':')) {
+      throw createRequestFailure(
+        `Llm host clientRequestId ${trimmedRequestId} must not include scope separators.`
+      );
+    }
+    return `${requesterPrefix}${trimmedRequestId}`;
   }
 
   private refreshPendingRequestTimeout(pending: PendingLlmRequest): void {

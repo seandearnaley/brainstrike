@@ -363,7 +363,7 @@ describe('local-artifact-store', () => {
     fetchSpy.mockRestore();
   });
 
-  it('does not read multi-gb cached artifacts into memory when content-length is missing', async () => {
+  it('treats cached artifacts without content-length as cached without rereading them', async () => {
     globalThis.window = {
       location: {
         protocol: 'http:',
@@ -402,7 +402,7 @@ describe('local-artifact-store', () => {
     await expect(new BrowserCacheArtifactStore().download(spec!)).resolves.toBeUndefined();
 
     expect(blobSpy).not.toHaveBeenCalled();
-    expect(fetchSpy).toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 
@@ -445,7 +445,7 @@ describe('local-artifact-store', () => {
     fetchSpy.mockRestore();
   });
 
-  it('treats missing usage as zero when quota is known', async () => {
+  it('treats missing usage as a full bucket when quota is known', async () => {
     globalThis.window = {
       location: {
         protocol: 'http:',

@@ -307,6 +307,21 @@ describe('LlmHostManager', () => {
     await expect(requestB).resolves.toEqual({ text: 'B' });
   });
 
+  it('rejects client request ids that attempt to smuggle scope separators', async () => {
+    const manager = new LlmHostManager();
+    const requester = createRequester(317);
+
+    await expect(
+      manager.generate(requester, {
+        clientRequestId: '317:other:request',
+        kind: 'generate',
+        messages: [],
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        options: {},
+      })
+    ).rejects.toThrow('must not include nested scope prefixes');
+  });
+
   it('cancels host work and removes requester listeners when a refreshed timeout expires', async () => {
     const manager = new LlmHostManager() as TestableLlmHostManager;
     const requester = createRequester(101);
