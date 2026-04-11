@@ -36,12 +36,15 @@ export function isModelAllowed(modelId: string): boolean {
 }
 
 export function setModelChecksums(_modelId: string, _checksums: { onnxSha256: string }): void {
-  logger.debug('Local checksum registration is not used by the Gemma artifact manifest path');
+  logger.warn(
+    'Local checksum registration is deprecated until manifest-level integrity verification is restored (BST-493)'
+  );
 }
 
 export async function verifyModelIntegrity(_modelId: string, _data: ArrayBuffer): Promise<boolean> {
-  logger.debug('Local integrity verification is delegated to artifact manifests');
-  return true;
+  throw new Error(
+    'integrity_verification_unimplemented: built-in local artifact checksum verification has not been restored for the Gemma manifest path (BST-493)'
+  );
 }
 
 function resolveRequestedDevice(requested?: 'webgpu' | 'wasm'): 'webgpu' {

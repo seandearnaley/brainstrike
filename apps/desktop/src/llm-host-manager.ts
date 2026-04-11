@@ -235,6 +235,11 @@ export class LlmHostManager {
         ? payload.clientRequestId.trim()
         : crypto.randomUUID();
     return await new Promise<unknown>((resolve, reject) => {
+      if (this.pendingRequests.has(requestId)) {
+        reject(createRequestFailure(`Duplicate llm host requestId ${requestId}.`));
+        return;
+      }
+
       const pending: PendingLlmRequest = {
         requestId,
         requester,

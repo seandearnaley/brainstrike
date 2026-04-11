@@ -152,4 +152,42 @@ describe('LlmHostManager', () => {
 
     await expect(warmupPromise).resolves.toBeUndefined();
   });
+
+  it('rejects duplicate client request IDs instead of overwriting pending work', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = {
+      send: vi.fn(),
+    } as unknown as WebContents;
+
+    const firstRequest = manager.generate(requester, {
+      clientRequestId: 'duplicate-id',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+
+    const duplicateRequest = manager.generate(requester, {
+      clientRequestId: 'duplicate-id',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+
+    await expect(duplicateRequest).rejects.toThrow('Duplicate llm host requestId duplicate-id.');
+    expect(manager.pendingRequests.has('duplicate-id')).toBe(true);
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: 'duplicate-id',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: { text: 'done' },
+      },
+    });
+
+    await expect(firstRequest).resolves.toEqual({ text: 'done' });
+  });
 });

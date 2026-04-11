@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LocalLlmBackend } from '../local-llm-backend';
+import { LocalLlmBackend, verifyModelIntegrity } from '../local-llm-backend';
 import { GEMMA4_E2B_MODEL_ID } from '../local-model-specs';
 
 const mockProcessorApplyChatTemplate = vi.fn();
@@ -585,6 +585,12 @@ Because they make up everything!<turn|>`,
         add_generation_prompt: true,
         enable_thinking: false,
       }
+    );
+  });
+
+  it('fails closed when legacy integrity verification is invoked', async () => {
+    await expect(verifyModelIntegrity(GEMMA4_E2B_MODEL_ID, new ArrayBuffer(8))).rejects.toThrow(
+      'integrity_verification_unimplemented'
     );
   });
 });

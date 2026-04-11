@@ -46,5 +46,51 @@ export const migration028GemmaLocalLlm: Migration = {
   `,
   down: `
     DELETE FROM models WHERE id = 'onnx-community/gemma-4-E2B-it-ONNX';
+
+    INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, parameters, sort_order, is_enabled)
+    VALUES
+      (
+        'onnx-community/functiongemma-270m-it-ONNX',
+        'local',
+        'FunctionGemma 270M',
+        'Lightweight function calling specialist',
+        '["Tool calling", "On-device agents", "Mobile"]',
+        '{"type":"llm","streaming":false,"toolCalling":true,"contextWindow":32768}',
+        '{"size":"~270MB","architecture":"Gemma 3 270M","quantization":"fp16/int8"}',
+        10,
+        false
+      ),
+      (
+        'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+        'local',
+        'LFM2.5 1.2B Instruct',
+        'LiquidAI hybrid model for edge deployment',
+        '["General tasks", "Instruction following", "Edge/Mobile", "Tool calling"]',
+        '{"type":"llm","streaming":false,"toolCalling":true,"contextWindow":32768}',
+        '{"size":"~1.2GB (q4)","architecture":"LFM2","quantization":"q4/fp16"}',
+        11,
+        true
+      ),
+      (
+        'onnx-community/Qwen3-0.6B-ONNX',
+        'local',
+        'Qwen3 0.6B',
+        'Fast and efficient for general tasks',
+        '["General tasks", "Quick responses", "Low memory", "Tool calling"]',
+        '{"type":"llm","streaming":false,"toolCalling":true,"contextWindow":32768}',
+        '{"size":"~600MB (q4)","architecture":"Qwen3","quantization":"q4/fp16"}',
+        12,
+        false
+      )
+    ON CONFLICT (id) DO UPDATE SET
+      provider_id = EXCLUDED.provider_id,
+      name = EXCLUDED.name,
+      tagline = EXCLUDED.tagline,
+      best_for = EXCLUDED.best_for,
+      capabilities = EXCLUDED.capabilities,
+      parameters = EXCLUDED.parameters,
+      sort_order = EXCLUDED.sort_order,
+      is_enabled = EXCLUDED.is_enabled,
+      updated_at = CURRENT_TIMESTAMP;
   `,
 };

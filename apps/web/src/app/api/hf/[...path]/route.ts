@@ -1,13 +1,15 @@
 const HUGGING_FACE_BASE_URL = 'https://huggingface.co';
 // Keep this pinned to the same built-in local model contract as
 // packages/agent/src/providers/local/local-model-specs.ts.
-const ALLOWED_MODEL_IDS = new Set(['onnx-community/gemma-4-E2B-it-ONNX']);
+const ALLOWED_MODEL_ID = 'onnx-community/gemma-4-E2B-it-ONNX';
+const ALLOWED_MODEL_REVISION = '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9';
 const FORWARDED_REQUEST_HEADERS = [
   'accept',
   'if-modified-since',
   'if-none-match',
   'range',
 ] as const;
+const UPSTREAM_TIMEOUT_MS = 60_000;
 const PASSTHROUGH_RESPONSE_HEADERS = [
   'accept-ranges',
   'cache-control',
@@ -18,9 +20,21 @@ const PASSTHROUGH_RESPONSE_HEADERS = [
   'last-modified',
 ] as const;
 
+function isSafePathSegment(segment: string): boolean {
+  return segment.length > 0 && segment !== '.' && segment !== '..';
+}
+
 function isAllowedPath(pathSegments: string[]): boolean {
-  const modelId = pathSegments.slice(0, 2).join('/');
-  return ALLOWED_MODEL_IDS.has(modelId);
+  if (pathSegments.length < 5 || !pathSegments.every(isSafePathSegment)) {
+    return false;
+  }
+
+  return (
+    pathSegments[0] === 'onnx-community' &&
+    pathSegments[1] === 'gemma-4-E2B-it-ONNX' &&
+    pathSegments[2] === 'resolve' &&
+    pathSegments[3] === ALLOWED_MODEL_REVISION
+  );
 }
 
 function buildTargetUrl(request: Request, pathSegments: string[]): string {
@@ -28,6 +42,11 @@ function buildTargetUrl(request: Request, pathSegments: string[]): string {
   const upstream = new URL(`${HUGGING_FACE_BASE_URL}/${normalizedPath}`);
   const source = new URL(request.url);
   upstream.search = source.search;
+
+  if (!upstream.pathname.startsWith(`/${ALLOWED_MODEL_ID}/resolve/${ALLOWED_MODEL_REVISION}/`)) {
+    throw new Error('unsupported_hf_path');
+  }
+
   return upstream.toString();
 }
 
@@ -60,20 +79,34 @@ function buildProxyResponseHeaders(upstream: Response): Headers {
   return headers;
 }
 
+function createUnsupportedPathResponse(): Response {
+  return new Response('Unsupported Hugging Face model path.', {
+    status: 403,
+    headers: {
+      'cache-control': 'no-store',
+      'content-type': 'text/plain; charset=utf-8',
+    },
+  });
+}
+
 async function proxyRequest(request: Request, pathSegments: string[]): Promise<Response> {
   if (!isAllowedPath(pathSegments)) {
-    return new Response('Unsupported Hugging Face model path.', {
-      status: 403,
-      headers: {
-        'cache-control': 'no-store',
-        'content-type': 'text/plain; charset=utf-8',
-      },
-    });
+    return createUnsupportedPathResponse();
   }
-  const targetUrl = buildTargetUrl(request, pathSegments);
+  let targetUrl: string;
+  try {
+    targetUrl = buildTargetUrl(request, pathSegments);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'unsupported_hf_path') {
+      return createUnsupportedPathResponse();
+    }
+    throw error;
+  }
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]);
   const upstream = await fetch(targetUrl, {
     headers: buildProxyRequestHeaders(request),
     method: 'GET',
+    signal,
   });
 
   return new Response(upstream.body, {

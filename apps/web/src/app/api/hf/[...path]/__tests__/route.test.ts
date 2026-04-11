@@ -45,14 +45,21 @@ describe('hf proxy route', () => {
 
     const response = await GET(request, {
       params: Promise.resolve({
-        path: ['onnx-community', 'gemma-4-E2B-it-ONNX', 'resolve', 'main'],
+        path: [
+          'onnx-community',
+          'gemma-4-E2B-it-ONNX',
+          'resolve',
+          '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+          'onnx',
+          'decoder_model_merged_q4f16.onnx',
+        ],
       }),
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [targetUrl, options] = fetchMock.mock.calls[0] ?? [];
     expect(targetUrl).toBe(
-      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/main?download=true'
+      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/30b3854c1ca3e0f08981e1a439de9fbd9245a3a9/onnx/decoder_model_merged_q4f16.onnx?download=true'
     );
     expect(options).toMatchObject({ method: 'GET' });
     const headers = options?.headers as Headers;
@@ -61,6 +68,7 @@ describe('hf proxy route', () => {
     expect(headers.get('if-none-match')).toBe('"abc"');
     expect(headers.get('range')).toBe('bytes=0-1');
     expect(headers.get('user-agent')).toBe('brainstrike-local-llm');
+    expect((options as { signal: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
     expect(response.status).toBe(206);
     expect(response.statusText).toBe('Partial Content');
     expect(response.headers.get('content-type')).toBe('application/octet-stream');
@@ -78,14 +86,20 @@ describe('hf proxy route', () => {
 
     await GET(new Request('http://localhost/api/hf/models/gemma'), {
       params: Promise.resolve({
-        path: ['onnx-community', 'gemma-4-E2B-it-ONNX', 'resolve', 'main', 'foo bar'],
+        path: [
+          'onnx-community',
+          'gemma-4-E2B-it-ONNX',
+          'resolve',
+          '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+          'foo bar',
+        ],
       }),
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [targetUrl, options] = fetchMock.mock.calls[0] ?? [];
     expect(targetUrl).toBe(
-      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/foo%20bar'
+      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/30b3854c1ca3e0f08981e1a439de9fbd9245a3a9/foo%20bar'
     );
     const headers = options?.headers as Headers;
     expect(headers.get('accept')).toBe('*/*');
@@ -102,5 +116,48 @@ describe('hf proxy route', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(response.status).toBe(403);
+  });
+
+  it('rejects traversal segments even when the allowlisted model prefix matches', async () => {
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await GET(
+      new Request('http://localhost/api/hf/onnx-community/gemma-4-E2B-it-ONNX/../../evil/model'),
+      {
+        params: Promise.resolve({
+          path: ['onnx-community', 'gemma-4-E2B-it-ONNX', '..', '..', 'evil-org', 'evil-model'],
+        }),
+      }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(403);
+  });
+
+  it('propagates the incoming request abort signal to the upstream fetch', async () => {
+    fetchMock.mockResolvedValue(new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    const request = new Request('http://localhost/api/hf/models/gemma', {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await GET(request, {
+      params: Promise.resolve({
+        path: [
+          'onnx-community',
+          'gemma-4-E2B-it-ONNX',
+          'resolve',
+          '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+          'config.json',
+        ],
+      }),
+    }).catch(() => undefined);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, options] = fetchMock.mock.calls[0] ?? [];
+    expect((options as { signal: AbortSignal }).signal.aborted).toBe(true);
   });
 });
