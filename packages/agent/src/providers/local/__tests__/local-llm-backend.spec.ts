@@ -503,6 +503,41 @@ Because they make up everything!<turn|>`,
     });
   });
 
+  it('ignores Gemma tool call payloads whose function name trims to empty', async () => {
+    mockBatchDecode.mockReturnValue([
+      '<|tool_call|>call:   {topic: <|"|>penguins<|"|>}<tool_call|>',
+    ]);
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'tell_joke',
+            description: 'Return a joke',
+            parameters: {
+              type: 'object',
+              properties: {
+                topic: { type: 'string' },
+              },
+              required: ['topic'],
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.finishReason).toBe('stop');
+    expect(result.toolCalls).toBeUndefined();
+    expect(result.text).toBe('');
+  });
+
   it('formats assistant tool calls and tool responses using Gemma chat template fields', async () => {
     const backend = new LocalLlmBackend();
 

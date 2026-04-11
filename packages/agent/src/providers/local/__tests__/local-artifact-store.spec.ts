@@ -283,6 +283,48 @@ describe('local-artifact-store', () => {
     fetchSpy.mockRestore();
   });
 
+  it('does not read multi-gb cached artifacts into memory when content-length is missing', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const blobSpy = vi.fn(async () => new Blob(['cached']));
+    const cache = {
+      match: vi.fn().mockResolvedValue({
+        status: 200,
+        headers: new Headers(),
+        clone: () => ({
+          blob: blobSpy,
+        }),
+      } as unknown as Response),
+      put: vi.fn(),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000 * 1024 * 1024,
+          usage: 100,
+        }),
+      },
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(
+        async () => new Response('ok', { status: 200, headers: { 'content-length': '2' } })
+      );
+    const spec = getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX');
+
+    await expect(new BrowserCacheArtifactStore().download(spec!)).resolves.toBeUndefined();
+
+    expect(blobSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   it('treats multimodal artifacts as required when checking download completeness', async () => {
     globalThis.window = {
       location: {

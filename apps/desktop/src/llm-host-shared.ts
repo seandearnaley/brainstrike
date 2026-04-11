@@ -2,6 +2,8 @@ import type {
   LocalLlmGenerationOptions,
   LocalLlmGenerationResult,
   LocalLlmMessage,
+  LocalLlmToolCall,
+  LocalLlmToolResponse,
 } from '@brainstrike/agent/local-llm';
 import type {
   BackgroundRuntimeStatus,
@@ -110,14 +112,145 @@ function assertNonEmptyString(value: unknown, message: string): string {
   return value.trim();
 }
 
-function assertOptionalRequestId(value: unknown): string | undefined {
+function assertRequiredRequestId(value: unknown, message: string): string {
+  return assertNonEmptyString(value, message);
+}
+
+function assertOptionalString(value: unknown, message: string): string | undefined {
   if (value === undefined) {
     return undefined;
   }
-  return assertNonEmptyString(
-    value,
-    'Llm host payload.clientRequestId must be a non-empty string.'
+  return assertNonEmptyString(value, message);
+}
+
+function assertToolCall(value: unknown, index: number): LocalLlmToolCall {
+  if (!(typeof value === 'object' && value !== null)) {
+    throw new Error(
+      `Llm host generate payload.messages[${index}].toolCalls entries must be objects.`
+    );
+  }
+
+  const toolCall = value as Record<string, unknown>;
+  if (toolCall['type'] !== 'function') {
+    throw new Error(
+      `Llm host generate payload.messages[${index}].toolCalls entries must have type "function".`
+    );
+  }
+  if (!(typeof toolCall['function'] === 'object' && toolCall['function'] !== null)) {
+    throw new Error(
+      `Llm host generate payload.messages[${index}].toolCalls entries must include a function object.`
+    );
+  }
+
+  const functionPayload = toolCall['function'] as Record<string, unknown>;
+  return {
+    id: assertNonEmptyString(
+      toolCall['id'],
+      `Llm host generate payload.messages[${index}].toolCalls entries must include a non-empty id.`
+    ),
+    type: 'function',
+    function: {
+      name: assertNonEmptyString(
+        functionPayload['name'],
+        `Llm host generate payload.messages[${index}].toolCalls function.name must be a non-empty string.`
+      ),
+      arguments: assertNonEmptyString(
+        functionPayload['arguments'],
+        `Llm host generate payload.messages[${index}].toolCalls function.arguments must be a non-empty string.`
+      ),
+    },
+  };
+}
+
+function assertToolResponse(value: unknown, index: number): LocalLlmToolResponse {
+  if (!(typeof value === 'object' && value !== null)) {
+    throw new Error(
+      `Llm host generate payload.messages[${index}].toolResponses entries must be objects.`
+    );
+  }
+
+  const toolResponse = value as Record<string, unknown>;
+  return {
+    name: assertNonEmptyString(
+      toolResponse['name'],
+      `Llm host generate payload.messages[${index}].toolResponses entries must include a non-empty name.`
+    ),
+    response: toolResponse['response'],
+  };
+}
+
+function assertMessageRole(value: unknown, index: number): LocalLlmMessage['role'] {
+  if (
+    value === 'assistant' ||
+    value === 'developer' ||
+    value === 'system' ||
+    value === 'tool' ||
+    value === 'user'
+  ) {
+    return value;
+  }
+
+  throw new Error(
+    `Llm host generate payload.messages[${index}].role must be one of assistant, developer, system, tool, or user.`
   );
+}
+
+function assertLocalLlmMessages(value: unknown): LocalLlmMessage[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Llm host generate payload.messages must be an array.');
+  }
+
+  return value.map((entry, index) => {
+    if (!(typeof entry === 'object' && entry !== null)) {
+      throw new Error(`Llm host generate payload.messages[${index}] must be an object.`);
+    }
+
+    const message = entry as Record<string, unknown>;
+    const toolCalls = message['toolCalls'];
+    if (!(toolCalls === undefined || Array.isArray(toolCalls))) {
+      throw new Error(
+        `Llm host generate payload.messages[${index}].toolCalls must be an array when provided.`
+      );
+    }
+
+    const toolResponses = message['toolResponses'];
+    if (!(toolResponses === undefined || Array.isArray(toolResponses))) {
+      throw new Error(
+        `Llm host generate payload.messages[${index}].toolResponses must be an array when provided.`
+      );
+    }
+
+    const name = assertOptionalString(
+      message['name'],
+      `Llm host generate payload.messages[${index}].name must be a non-empty string when provided.`
+    );
+    const toolCallId = assertOptionalString(
+      message['toolCallId'],
+      `Llm host generate payload.messages[${index}].toolCallId must be a non-empty string when provided.`
+    );
+
+    return {
+      role: assertMessageRole(message['role'], index),
+      content: assertNonEmptyString(
+        message['content'],
+        `Llm host generate payload.messages[${index}].content must be a non-empty string.`
+      ),
+      ...(name ? { name } : {}),
+      ...(toolCallId ? { toolCallId } : {}),
+      ...(toolCalls
+        ? {
+            toolCalls: toolCalls.map((toolCall) => assertToolCall(toolCall, index)),
+          }
+        : {}),
+      ...(toolResponses
+        ? {
+            toolResponses: toolResponses.map((toolResponse) =>
+              assertToolResponse(toolResponse, index)
+            ),
+          }
+        : {}),
+    };
+  });
 }
 
 export function assertLlmHostWarmupPayload(value: unknown): LlmHostWarmupRequestPayload {
@@ -130,14 +263,17 @@ export function assertLlmHostWarmupPayload(value: unknown): LlmHostWarmupRequest
     throw new Error('Llm host warmup payload.kind must be "warmup".');
   }
 
-  const clientRequestId = assertOptionalRequestId(payload['clientRequestId']);
+  const clientRequestId = assertRequiredRequestId(
+    payload['clientRequestId'],
+    'Llm host warmup payload.clientRequestId must be a non-empty string.'
+  );
   return {
     kind: 'warmup',
     modelId: assertNonEmptyString(
       payload['modelId'],
       'Llm host warmup payload.modelId must be a non-empty string.'
     ),
-    ...(clientRequestId ? { clientRequestId } : {}),
+    clientRequestId,
   };
 }
 
@@ -150,24 +286,24 @@ export function assertLlmHostGeneratePayload(value: unknown): LlmHostGenerateReq
   if (payload['kind'] !== 'generate') {
     throw new Error('Llm host generate payload.kind must be "generate".');
   }
-  if (!Array.isArray(payload['messages'])) {
-    throw new Error('Llm host generate payload.messages must be an array.');
-  }
 
   const options = payload['options'];
   if (!(options === undefined || (typeof options === 'object' && options !== null))) {
     throw new Error('Llm host generate payload.options must be an object when provided.');
   }
 
-  const clientRequestId = assertOptionalRequestId(payload['clientRequestId']);
+  const clientRequestId = assertRequiredRequestId(
+    payload['clientRequestId'],
+    'Llm host generate payload.clientRequestId must be a non-empty string.'
+  );
   return {
     kind: 'generate',
     modelId: assertNonEmptyString(
       payload['modelId'],
       'Llm host generate payload.modelId must be a non-empty string.'
     ),
-    messages: payload['messages'] as LocalLlmMessage[],
-    ...(clientRequestId ? { clientRequestId } : {}),
+    messages: assertLocalLlmMessages(payload['messages']),
+    clientRequestId,
     ...(options ? { options: options as LocalLlmGenerationOptions } : {}),
   };
 }

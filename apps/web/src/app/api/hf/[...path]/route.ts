@@ -81,9 +81,6 @@ function buildProxyResponseHeaders(upstream: Response): Headers {
 function isTrustedSameOriginRequest(request: Request): boolean {
   const requestUrl = new URL(request.url);
   const requestOrigin = requestUrl.origin;
-  if (requestUrl.hostname === 'localhost' || requestUrl.hostname === '127.0.0.1') {
-    return true;
-  }
   const secFetchSite = request.headers.get('sec-fetch-site');
   if (secFetchSite) {
     return secFetchSite === 'same-origin';

@@ -5,13 +5,16 @@ const fetchMock = vi.fn<typeof fetch>();
 
 describe('hf proxy route', () => {
   function createTrustedRequest(url: string, init?: RequestInit): Request {
-    return new Request(url, {
-      ...init,
-      headers: {
-        ...(init?.headers ? Object.fromEntries(new Headers(init.headers).entries()) : {}),
-        referer: 'http://localhost/app',
-      },
-    });
+    const origin = new URL(url).origin;
+    const headers = new Headers(init?.headers);
+    headers.set('origin', origin);
+    return {
+      headers,
+      method: init?.method ?? 'GET',
+      referrer: `${origin}/app`,
+      signal: init?.signal ?? new AbortController().signal,
+      url,
+    } as Request;
   }
 
   afterEach(() => {
@@ -43,15 +46,18 @@ describe('hf proxy route', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const request = createTrustedRequest('http://localhost/api/hf/models/gemma?download=true', {
-      headers: {
-        accept: 'application/octet-stream',
-        'if-modified-since': 'Mon, 01 Jan 2024 00:00:00 GMT',
-        'if-none-match': '"abc"',
-        range: 'bytes=0-1',
-      },
-      method: 'GET',
-    });
+    const request = createTrustedRequest(
+      'https://brainstrike.example/api/hf/models/gemma?download=true',
+      {
+        headers: {
+          accept: 'application/octet-stream',
+          'if-modified-since': 'Mon, 01 Jan 2024 00:00:00 GMT',
+          'if-none-match': '"abc"',
+          range: 'bytes=0-1',
+        },
+        method: 'GET',
+      }
+    );
 
     const response = await GET(request, {
       params: Promise.resolve({
@@ -95,7 +101,7 @@ describe('hf proxy route', () => {
     fetchMock.mockResolvedValue(new Response('fallback', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await GET(createTrustedRequest('http://localhost/api/hf/models/gemma'), {
+    await GET(createTrustedRequest('https://brainstrike.example/api/hf/models/gemma'), {
       params: Promise.resolve({
         path: [
           'onnx-community',
@@ -133,17 +139,20 @@ describe('hf proxy route', () => {
     fetchMock.mockResolvedValue(new Response('busy', { status: 503, statusText: 'Busy' }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await GET(createTrustedRequest('http://localhost/api/hf/models/gemma'), {
-      params: Promise.resolve({
-        path: [
-          'onnx-community',
-          'gemma-4-E2B-it-ONNX',
-          'resolve',
-          '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
-          'config.json',
-        ],
-      }),
-    });
+    const response = await GET(
+      createTrustedRequest('https://brainstrike.example/api/hf/models/gemma'),
+      {
+        params: Promise.resolve({
+          path: [
+            'onnx-community',
+            'gemma-4-E2B-it-ONNX',
+            'resolve',
+            '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+            'config.json',
+          ],
+        }),
+      }
+    );
 
     expect(response.status).toBe(503);
     expect(response.headers.get('cache-control')).toBe('no-store');
@@ -171,7 +180,7 @@ describe('hf proxy route', () => {
     fetchMock.mockResolvedValue(new Response('ok', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const controller = new AbortController();
-    const request = createTrustedRequest('http://localhost/api/hf/models/gemma', {
+    const request = createTrustedRequest('https://brainstrike.example/api/hf/models/gemma', {
       method: 'GET',
       signal: controller.signal,
     });
@@ -207,7 +216,9 @@ describe('hf proxy route', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await HEAD(
-      createTrustedRequest('http://localhost/api/hf/models/gemma', { method: 'HEAD' }),
+      createTrustedRequest('https://brainstrike.example/api/hf/models/gemma', {
+        method: 'HEAD',
+      }),
       {
         params: Promise.resolve({
           path: [
@@ -247,5 +258,31 @@ describe('hf proxy route', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(response.status).toBe(403);
     expect(await response.text()).toContain('Forbidden Hugging Face proxy request');
+  });
+
+  it('does not trust a localhost host header bypass without same-origin browser signals', async () => {
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await GET(
+      new Request('http://localhost/api/hf/models/gemma', {
+        headers: {
+          host: 'localhost',
+        },
+      }),
+      {
+        params: Promise.resolve({
+          path: [
+            'onnx-community',
+            'gemma-4-E2B-it-ONNX',
+            'resolve',
+            '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+            'config.json',
+          ],
+        }),
+      }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(403);
   });
 });

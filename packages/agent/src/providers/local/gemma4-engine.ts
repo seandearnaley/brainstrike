@@ -613,7 +613,8 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
 
       const nameMatch = payload.match(/call:([^{]+)/);
       const argsMatch = payload.match(/call:[^{]+(\{[\s\S]*\})/);
-      if (!(nameMatch?.[1] && argsMatch?.[1])) {
+      const functionName = nameMatch?.[1]?.trim();
+      if (!(functionName && argsMatch?.[1])) {
         continue;
       }
 
@@ -632,7 +633,7 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
         id: crypto.randomUUID(),
         type: 'function',
         function: {
-          name: nameMatch[1].trim(),
+          name: functionName,
           arguments: argumentsText,
         },
       });
@@ -951,7 +952,7 @@ export class Gemma4Engine {
       const parsedOutput = streamingState.finalize(rawText);
       const text = parsedOutput.text;
       const toolCalls = parseGenericToolCall(text);
-      const visibleText = toolCalls.length > 0 ? stripGemmaToolCallBlocks(text) : text;
+      const visibleText = stripGemmaToolCallBlocks(text);
       stage = 'count-tokens';
       const promptTokens = countTokens(this.processor.tokenizer, promptText);
       const completionTokens = countTokens(this.processor.tokenizer, visibleText);

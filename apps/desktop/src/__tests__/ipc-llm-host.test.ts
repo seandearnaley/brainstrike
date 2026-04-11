@@ -47,10 +47,44 @@ describe('ipc-llm-host', () => {
     await expect(
       generateHandler({ sender: {} } as IpcMainInvokeEvent, {
         kind: 'generate',
+        clientRequestId: 'req-1',
         modelId: '',
         messages: [],
       })
     ).rejects.toThrow('Llm host generate payload.modelId must be a non-empty string.');
+    expect(manager.generate).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed llm-host generate messages before dispatching to the manager', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn().mockResolvedValue({ text: 'ok' }),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn(),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const generateCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+    );
+    if (!generateCall) {
+      throw new Error('llm-host:generate handler not registered');
+    }
+
+    const generateHandler = generateCall[1] as (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ) => Promise<unknown>;
+    await expect(
+      generateHandler({ sender: {} } as IpcMainInvokeEvent, {
+        kind: 'generate',
+        clientRequestId: 'req-1',
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        messages: [{ role: 'user', content: null }],
+      })
+    ).rejects.toThrow('Llm host generate payload.messages[0].content must be a non-empty string.');
     expect(manager.generate).not.toHaveBeenCalled();
   });
 
@@ -81,7 +115,37 @@ describe('ipc-llm-host', () => {
         clientRequestId: '  ',
         modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       })
-    ).rejects.toThrow('Llm host payload.clientRequestId must be a non-empty string.');
+    ).rejects.toThrow('Llm host warmup payload.clientRequestId must be a non-empty string.');
+    expect(manager.warmupRequest).not.toHaveBeenCalled();
+  });
+
+  it('requires warmup payloads to include a client request id', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn(),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const warmupCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:warmup'
+    );
+    if (!warmupCall) {
+      throw new Error('llm-host:warmup handler not registered');
+    }
+
+    const warmupHandler = warmupCall[1] as (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ) => Promise<unknown>;
+    await expect(
+      warmupHandler({ sender: {} } as IpcMainInvokeEvent, {
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      })
+    ).rejects.toThrow('Llm host warmup payload.clientRequestId must be a non-empty string.');
     expect(manager.warmupRequest).not.toHaveBeenCalled();
   });
 

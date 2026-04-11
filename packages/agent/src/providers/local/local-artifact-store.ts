@@ -18,7 +18,7 @@ export interface LocalArtifactStore {
 }
 
 interface ArtifactStatus {
-  cachedBytes: number;
+  cachedBytes: number | null;
   filePath: string;
   isCached: boolean;
 }
@@ -79,14 +79,14 @@ function getArtifactPaths(spec: LocalLlmModelSpec): string[] {
   ];
 }
 
-async function readCachedArtifactBytes(response: Response): Promise<number> {
+async function readCachedArtifactBytes(response: Response): Promise<number | null> {
   const contentLength = response.headers.get('content-length');
   const parsedLength = contentLength ? Number.parseInt(contentLength, 10) : Number.NaN;
   if (Number.isFinite(parsedLength) && parsedLength > 0) {
     return parsedLength;
   }
 
-  return (await response.clone().blob()).size;
+  return null;
 }
 
 async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise<ArtifactStatus[]> {
@@ -107,7 +107,7 @@ async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise
     statuses.push({
       filePath,
       isCached: false,
-      cachedBytes: 0,
+      cachedBytes: null,
     });
   }
 
@@ -119,7 +119,7 @@ async function estimateRemainingArtifactBytes(
   spec: LocalLlmModelSpec
 ): Promise<{ files: ArtifactStatus[]; requiredBytes: number }> {
   const files = await describeArtifacts(cache, spec);
-  const cachedBytes = files.reduce((sum, file) => sum + file.cachedBytes, 0);
+  const cachedBytes = files.reduce((sum, file) => sum + (file.cachedBytes ?? 0), 0);
   const missingFileCount = files.filter((file) => !file.isCached).length;
 
   return {
@@ -187,7 +187,7 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
     const cache = await openArtifactCache();
     const { files, requiredBytes } = await estimateRemainingArtifactBytes(cache, spec);
     await checkStorageQuota(requiredBytes);
-    let downloadedBytes = files.reduce((sum, file) => sum + file.cachedBytes, 0);
+    let downloadedBytes = files.reduce((sum, file) => sum + (file.cachedBytes ?? 0), 0);
 
     for (const file of files) {
       const filePath = file.filePath;

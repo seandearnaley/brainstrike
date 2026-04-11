@@ -326,6 +326,8 @@ export class LlmHostManager {
       return this.scopeClientRequestId(requester, payload.clientRequestId);
     }
 
+    // IPC callers must supply clientRequestId so they can later cancel the request.
+    // This fallback is reserved for internal manager call sites that do not expose cancellation.
     return crypto.randomUUID();
   }
 
