@@ -207,6 +207,7 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
     let downloadedBytes = files.reduce((sum, file) => sum + (file.cachedBytes ?? 0), 0);
 
     for (const file of files) {
+      signal?.throwIfAborted();
       const filePath = file.filePath;
       const url = buildLocalArtifactUrl(spec.modelId, spec.remoteRevision, filePath);
       if (file.isCached) {

@@ -101,17 +101,20 @@ describe('hf proxy route', () => {
     fetchMock.mockResolvedValue(new Response('fallback', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await GET(createTrustedRequest('https://brainstrike.example/api/hf/models/gemma'), {
-      params: Promise.resolve({
-        path: [
-          'onnx-community',
-          'gemma-4-E2B-it-ONNX',
-          'resolve',
-          '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
-          'foo bar',
-        ],
-      }),
-    });
+    const response = await GET(
+      createTrustedRequest('https://brainstrike.example/api/hf/models/gemma'),
+      {
+        params: Promise.resolve({
+          path: [
+            'onnx-community',
+            'gemma-4-E2B-it-ONNX',
+            'resolve',
+            '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+            'foo bar',
+          ],
+        }),
+      }
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [targetUrl, options] = fetchMock.mock.calls[0] ?? [];
@@ -120,6 +123,7 @@ describe('hf proxy route', () => {
     );
     const headers = options?.headers as Headers;
     expect(headers.get('accept')).toBe('*/*');
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   });
 
   it('rejects requests for unsupported models', async () => {

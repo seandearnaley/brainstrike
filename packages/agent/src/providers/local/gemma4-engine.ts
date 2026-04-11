@@ -579,17 +579,20 @@ function splitAnswerFromReasoningBlock(text: string): { reasoningText?: string; 
   }
 
   for (const prefix of GEMMA_THOUGHT_CHANNEL_PREFIXES) {
-    if (!normalized.startsWith(prefix)) {
+    const prefixIndex = normalized.indexOf(prefix);
+    if (prefixIndex < 0) {
       continue;
     }
-    const remainder = normalized.slice(prefix.length);
+    const remainder = normalized.slice(prefixIndex + prefix.length);
     const suffixMatch = findBoundaryInText(remainder, GEMMA_THOUGHT_CHANNEL_SUFFIXES);
     if (!suffixMatch) {
       continue;
     }
+    const answerPrefix = normalized.slice(0, prefixIndex);
+    const answerSuffix = remainder.slice(suffixMatch.index + suffixMatch.boundary.length);
     return buildReasoningSplit(
       remainder.slice(0, suffixMatch.index),
-      remainder.slice(suffixMatch.index + suffixMatch.boundary.length)
+      `${answerPrefix}${answerSuffix}`
     );
   }
 
@@ -625,8 +628,12 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
       let argumentsText = normalizedArgumentsText;
       try {
         argumentsText = JSON.stringify(JSON.parse(normalizedArgumentsText) as unknown);
-      } catch {
-        // Preserve the normalized payload when it is still not valid JSON.
+      } catch (error) {
+        logger.warn('Gemma tool call arguments could not be normalized as JSON', {
+          functionName,
+          normalizedArgumentsText,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
 
       toolCalls.push({
@@ -739,37 +746,17 @@ class Gemma4StreamAccumulator {
 
     while (this.pending.length > 0) {
       if (this.mode === 'detect') {
-        if (hasPartialBoundaryPrefix(this.pending, GEMMA_THOUGHT_CHANNEL_PREFIXES)) {
+        if (!this.consumeDetectMode()) {
           break;
         }
-
-        const prefix = findBoundaryAtStart(this.pending, GEMMA_THOUGHT_CHANNEL_PREFIXES);
-        if (prefix) {
-          this.pending = this.pending.slice(prefix.length);
-          this.mode = 'reasoning';
-          continue;
-        }
-
-        this.mode = 'answer';
         continue;
       }
 
       if (this.mode === 'reasoning') {
-        const suffixMatch = findBoundaryInText(this.pending, GEMMA_THOUGHT_CHANNEL_SUFFIXES);
-        if (suffixMatch) {
-          this.reasoning += this.pending.slice(0, suffixMatch.index);
-          this.pending = this.pending.slice(suffixMatch.index + suffixMatch.boundary.length);
-          this.mode = 'answer';
-          continue;
+        if (!this.consumeReasoningMode()) {
+          break;
         }
-
-        const overlap = getBoundaryOverlap(this.pending, GEMMA_THOUGHT_CHANNEL_SUFFIXES);
-        const stableText = this.pending.slice(0, this.pending.length - overlap);
-        if (stableText) {
-          this.reasoning += stableText;
-          this.pending = this.pending.slice(stableText.length);
-        }
-        break;
+        continue;
       }
 
       this.answer += this.pending;
@@ -777,6 +764,47 @@ class Gemma4StreamAccumulator {
     }
 
     return this.snapshot();
+  }
+
+  private consumeDetectMode(): boolean {
+    if (hasPartialBoundaryPrefix(this.pending, GEMMA_THOUGHT_CHANNEL_PREFIXES)) {
+      return false;
+    }
+
+    const prefix = findBoundaryAtStart(this.pending, GEMMA_THOUGHT_CHANNEL_PREFIXES);
+    if (prefix) {
+      this.pending = this.pending.slice(prefix.length);
+      this.mode = 'reasoning';
+      return true;
+    }
+
+    const embeddedPrefix = findBoundaryInText(this.pending, GEMMA_THOUGHT_CHANNEL_PREFIXES);
+    if (embeddedPrefix && embeddedPrefix.index > 0) {
+      this.answer += this.pending.slice(0, embeddedPrefix.index);
+      this.pending = this.pending.slice(embeddedPrefix.index);
+      return true;
+    }
+
+    this.mode = 'answer';
+    return true;
+  }
+
+  private consumeReasoningMode(): boolean {
+    const suffixMatch = findBoundaryInText(this.pending, GEMMA_THOUGHT_CHANNEL_SUFFIXES);
+    if (suffixMatch) {
+      this.reasoning += this.pending.slice(0, suffixMatch.index);
+      this.pending = this.pending.slice(suffixMatch.index + suffixMatch.boundary.length);
+      this.mode = 'answer';
+      return true;
+    }
+
+    const overlap = getBoundaryOverlap(this.pending, GEMMA_THOUGHT_CHANNEL_SUFFIXES);
+    const stableText = this.pending.slice(0, this.pending.length - overlap);
+    if (stableText) {
+      this.reasoning += stableText;
+      this.pending = this.pending.slice(stableText.length);
+    }
+    return false;
   }
 
   finalize(fullRawText: string): { reasoningText?: string; text: string } {
@@ -895,6 +923,7 @@ function createGemmaStreamingState(
 export class Gemma4Engine {
   private model: GemmaModel | null = null;
   private processor: LoadedGemmaProcessor | null = null;
+  private transformers: TransformersModule | null = null;
 
   constructor(private readonly spec: LocalLlmModelSpec) {}
 
@@ -912,6 +941,7 @@ export class Gemma4Engine {
         revision: this.spec.remoteRevision,
       });
       const transformers = await getTransformersModule();
+      this.transformers = transformers;
       stage = 'load-processor';
       const processorOptions: LoaderOptions = {
         revision: this.spec.remoteRevision,
@@ -969,13 +999,14 @@ export class Gemma4Engine {
     }
     this.model = null;
     this.processor = null;
+    this.transformers = null;
   }
 
   async generate(
     messages: readonly LocalLlmMessage[],
     options: LocalLlmGenerationOptions = {}
   ): Promise<Gemma4GenerateResult> {
-    if (!(this.processor && this.model)) {
+    if (!(this.processor && this.model && this.transformers)) {
       throw new Error('Gemma engine is not initialized');
     }
 
@@ -997,9 +1028,8 @@ export class Gemma4Engine {
         ...(options.tools ? { tools: options.tools } : {}),
       });
 
-      const transformers = await getTransformersModule();
       const streamingState = createGemmaStreamingState(
-        transformers,
+        this.transformers,
         this.processor.tokenizer.raw,
         options.thinking?.enabled ?? true,
         options

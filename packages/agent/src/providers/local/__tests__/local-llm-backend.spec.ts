@@ -361,6 +361,50 @@ Because they make up everything!<turn|>`,
     expect(result.text).toBe('Visible answer');
   });
 
+  it('does not leak embedded reasoning channel markers into streamed answer snapshots', async () => {
+    mockBatchDecode.mockReturnValue([
+      'hi <|channel>thought\ninternal reasoning<channel|>Visible answer',
+    ]);
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.('hi <|channel>thought\ninternal reasoning');
+      inputs.streamer?.callback_function?.('<channel|>Visible answer');
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
+
+    const backend = new LocalLlmBackend();
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const reasoningSnapshots: string[] = [];
+    const textSnapshots: string[] = [];
+    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+      stream: {
+        onReasoningSnapshot: (snapshot) => {
+          reasoningSnapshots.push(snapshot);
+        },
+        onTextSnapshot: (snapshot) => {
+          textSnapshots.push(snapshot);
+        },
+      },
+      thinking: { enabled: true },
+    });
+
+    expect(textSnapshots).toContain('hi');
+    expect(textSnapshots.at(-1)).toBe('hi Visible answer');
+    expect(reasoningSnapshots.at(-1)).toBe('internal reasoning');
+    expect(result.text).toBe('hi Visible answer');
+    expect(result.reasoningText).toBe('internal reasoning');
+  });
+
   it('binds Transformers.js loaders and runtime methods to their owners', async () => {
     const backend = new LocalLlmBackend();
 

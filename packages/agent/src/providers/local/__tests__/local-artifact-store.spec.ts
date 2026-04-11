@@ -306,6 +306,63 @@ describe('local-artifact-store', () => {
     fetchSpy.mockRestore();
   });
 
+  it('stops before fetching the next artifact when aborted between files', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn(async (_url: string, response: Response) => {
+        await response.arrayBuffer();
+      }),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000,
+          usage: 0,
+        }),
+      },
+    });
+
+    const controller = new AbortController();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response('first', { status: 200, headers: { 'content-length': '5' } })
+      )
+      .mockImplementationOnce(async () => {
+        throw new Error('second fetch should not run');
+      });
+
+    const spec = {
+      ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+      totalSizeBytes: 10,
+      artifacts: {
+        text: ['config.json', 'tokenizer.json'],
+      },
+    };
+
+    cache.put = vi.fn(async (_url: string, response: Response) => {
+      await response.arrayBuffer();
+      controller.abort();
+    });
+
+    await expect(
+      new BrowserCacheArtifactStore().download(spec, undefined, controller.signal)
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
+  });
+
   it('does not read multi-gb cached artifacts into memory when content-length is missing', async () => {
     globalThis.window = {
       location: {
