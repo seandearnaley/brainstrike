@@ -147,6 +147,78 @@ describe('local-artifact-store', () => {
     fetchSpy.mockRestore();
   });
 
+  it('weights download progress by bytes instead of equal file counts', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockImplementation(async (url: string) => {
+        if (url.endsWith('/large.onnx')) {
+          return new Response('cached-large', {
+            status: 200,
+            headers: {
+              'content-length': '900',
+            },
+          });
+        }
+        return undefined;
+      }),
+      put: vi.fn(),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000,
+          usage: 900,
+        }),
+      },
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(50));
+            controller.enqueue(new Uint8Array(50));
+            controller.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-length': '100',
+          },
+        }
+      )
+    );
+
+    const spec = {
+      ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+      totalSizeBytes: 1000,
+      artifacts: {
+        text: ['large.onnx', 'small.onnx'],
+      },
+    };
+    const progress = vi.fn();
+
+    await new BrowserCacheArtifactStore().download(spec, progress);
+
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'downloading',
+        progress: 95,
+        file: 'small.onnx',
+      })
+    );
+    fetchSpy.mockRestore();
+  });
+
   it('treats multimodal artifacts as required when checking download completeness', async () => {
     globalThis.window = {
       location: {

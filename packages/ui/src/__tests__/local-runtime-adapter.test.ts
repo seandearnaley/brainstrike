@@ -358,6 +358,40 @@ describe('createLocalModelAdapter', () => {
     expect(warmup).toHaveBeenCalledTimes(2);
   });
 
+  it('deduplicates concurrent desktop warmup requests for the same model', async () => {
+    let resolveWarmup: VoidFunction | undefined;
+    const warmup = vi.fn().mockImplementation(
+      async () =>
+        await new Promise<void>((resolve) => {
+          resolveWarmup = resolve as VoidFunction;
+        })
+    );
+    const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Ready.' }));
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+
+    const firstRun = collectRun(adapter.run(createRunOptions()));
+    const secondRun = collectRun(adapter.run(createRunOptions()));
+    await Promise.resolve();
+
+    expect(warmup).toHaveBeenCalledTimes(1);
+
+    resolveWarmup?.();
+    await Promise.all([firstRun, secondRun]);
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
   it('reports a terminal ready state after a successful warm run', async () => {
     let progressListener: ((progress: unknown) => void) | null = null;
     const warmup = vi.fn().mockResolvedValue(undefined);

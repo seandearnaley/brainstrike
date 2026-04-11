@@ -200,19 +200,7 @@ export class LlmHostManager {
   }
 
   async cancel(_requester: WebContents, requestId: string): Promise<void> {
-    const hostWindow = await this.assertReadyForRequests();
-    const cancelRequest: LlmHostRequest = {
-      type: 'request',
-      channel: 'llm',
-      requestId: crypto.randomUUID(),
-      runtimeId: this.getStatus().runtimeId,
-      payload: {
-        kind: 'cancel',
-        requestId,
-      },
-    };
-
-    hostWindow.webContents.send(LLM_HOST_REQUEST_EVENT, cancelRequest);
+    this.sendCancelRequestToHost(requestId, await this.assertReadyForRequests());
   }
 
   async generate(requester: WebContents, payload: LlmHostGenerateRequestPayload): Promise<unknown> {
@@ -251,23 +239,7 @@ export class LlmHostManager {
         activePending.cleanupRequesterListener?.();
         this.pendingRequests.delete(requestId);
         reject(createRequestFailure(message));
-        try {
-          hostWindow.webContents.send(LLM_HOST_REQUEST_EVENT, {
-            type: 'request',
-            channel: 'llm',
-            requestId: crypto.randomUUID(),
-            runtimeId: this.getStatus().runtimeId,
-            payload: {
-              kind: 'cancel',
-              requestId,
-            },
-          } satisfies LlmHostRequest);
-        } catch (error) {
-          logger.warn('Failed to cancel llm host request after requester destruction', {
-            requestId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+        this.tryCancelHostRequest(requestId, hostWindow, 'requester destruction');
       };
 
       const requesterDestroyedHandler = (): void => {
@@ -292,6 +264,7 @@ export class LlmHostManager {
           () => {
             pending.cleanupRequesterListener?.();
             this.pendingRequests.delete(requestId);
+            this.tryCancelHostRequest(requestId, hostWindow, 'timeout');
             reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
           },
           payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS
@@ -330,9 +303,47 @@ export class LlmHostManager {
   private refreshPendingRequestTimeout(pending: PendingLlmRequest): void {
     clearTimeout(pending.timeoutId);
     pending.timeoutId = setTimeout(() => {
+      pending.cleanupRequesterListener?.();
       this.pendingRequests.delete(pending.requestId);
+      this.tryCancelHostRequest(pending.requestId, undefined, 'refreshed-timeout');
       pending.reject(createRequestFailure(`Llm host request ${pending.requestId} timed out.`));
     }, pending.timeoutMs);
+  }
+
+  private sendCancelRequestToHost(requestId: string, hostWindow?: BrowserWindow): void {
+    const targetWindow = hostWindow ?? this.lifecycle.getHostWindow();
+    if (!targetWindow || targetWindow.isDestroyed()) {
+      throw createRequestFailure('Llm host window is unavailable.');
+    }
+
+    const cancelRequest: LlmHostRequest = {
+      type: 'request',
+      channel: 'llm',
+      requestId: crypto.randomUUID(),
+      runtimeId: this.getStatus().runtimeId,
+      payload: {
+        kind: 'cancel',
+        requestId,
+      },
+    };
+
+    targetWindow.webContents.send(LLM_HOST_REQUEST_EVENT, cancelRequest);
+  }
+
+  private tryCancelHostRequest(
+    requestId: string,
+    hostWindow: BrowserWindow | undefined,
+    reason: string
+  ): void {
+    try {
+      this.sendCancelRequestToHost(requestId, hostWindow);
+    } catch (error) {
+      logger.warn('Failed to cancel llm host request', {
+        requestId,
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async assertReadyForRequests(): Promise<BrowserWindow> {
@@ -353,6 +364,7 @@ export class LlmHostManager {
   private rejectPendingRequests(message: string): void {
     for (const [requestId, pending] of this.pendingRequests.entries()) {
       clearTimeout(pending.timeoutId);
+      pending.cleanupRequesterListener?.();
       pending.reject(createRequestFailure(`${message} (request ${requestId})`));
       this.pendingRequests.delete(requestId);
     }

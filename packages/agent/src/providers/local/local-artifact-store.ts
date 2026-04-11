@@ -13,6 +13,12 @@ export interface LocalArtifactStore {
   hasRequiredArtifacts(spec: LocalLlmModelSpec): Promise<boolean>;
 }
 
+interface ArtifactStatus {
+  cachedBytes: number;
+  filePath: string;
+  isCached: boolean;
+}
+
 export function resolveLocalArtifactRemoteHost(): string {
   if (typeof window === 'undefined') {
     return HUGGING_FACE_REMOTE_HOST;
@@ -69,39 +75,60 @@ function getArtifactPaths(spec: LocalLlmModelSpec): string[] {
   ];
 }
 
-async function estimateRemainingArtifactBytes(
-  cache: Cache,
-  spec: LocalLlmModelSpec
-): Promise<{ files: string[]; requiredBytes: number }> {
-  const files = getArtifactPaths(spec);
-  let cachedBytes = 0;
-  const missingFiles: string[] = [];
+async function readCachedArtifactBytes(response: Response): Promise<number> {
+  const contentLength = response.headers.get('content-length');
+  const parsedLength = contentLength ? Number.parseInt(contentLength, 10) : Number.NaN;
+  if (Number.isFinite(parsedLength) && parsedLength > 0) {
+    return parsedLength;
+  }
 
-  for (const filePath of files) {
+  return (await response.clone().blob()).size;
+}
+
+async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise<ArtifactStatus[]> {
+  const statuses: ArtifactStatus[] = [];
+
+  for (const filePath of getArtifactPaths(spec)) {
     const url = buildLocalArtifactUrl(spec.modelId, spec.remoteRevision, filePath);
     const cached = await cache.match(url);
     if (cached?.status === 200) {
-      const contentLength = cached.headers.get('content-length');
-      const parsedLength = contentLength ? Number.parseInt(contentLength, 10) : Number.NaN;
-      if (Number.isFinite(parsedLength) && parsedLength > 0) {
-        cachedBytes += parsedLength;
-      }
+      statuses.push({
+        filePath,
+        isCached: true,
+        cachedBytes: await readCachedArtifactBytes(cached),
+      });
       continue;
     }
-    missingFiles.push(filePath);
+
+    statuses.push({
+      filePath,
+      isCached: false,
+      cachedBytes: 0,
+    });
   }
+
+  return statuses;
+}
+
+async function estimateRemainingArtifactBytes(
+  cache: Cache,
+  spec: LocalLlmModelSpec
+): Promise<{ files: ArtifactStatus[]; requiredBytes: number }> {
+  const files = await describeArtifacts(cache, spec);
+  const cachedBytes = files.reduce((sum, file) => sum + file.cachedBytes, 0);
+  const missingFileCount = files.filter((file) => !file.isCached).length;
 
   return {
     files,
-    requiredBytes: Math.max(0, spec.totalSizeBytes - cachedBytes),
+    requiredBytes: missingFileCount === 0 ? 0 : Math.max(0, spec.totalSizeBytes - cachedBytes),
   };
 }
 
-function toProgressPercent(completed: number, total: number, partial = 0): number {
-  if (total <= 0) {
+function toProgressPercent(completedBytes: number, totalBytes: number): number {
+  if (totalBytes <= 0) {
     return 0;
   }
-  return Math.round(((completed + partial) / total) * 100);
+  return Math.round((Math.min(completedBytes, totalBytes) / totalBytes) * 100);
 }
 
 async function cacheResponseStream(
@@ -157,13 +184,12 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
     const cache = await openArtifactCache();
     const { files, requiredBytes } = await estimateRemainingArtifactBytes(cache, spec);
     await checkStorageQuota(requiredBytes);
-    let completed = 0;
+    let downloadedBytes = files.reduce((sum, file) => sum + file.cachedBytes, 0);
 
-    for (const filePath of files) {
+    for (const file of files) {
+      const filePath = file.filePath;
       const url = buildLocalArtifactUrl(spec.modelId, spec.remoteRevision, filePath);
-      const cached = await cache.match(url);
-      if (cached?.status === 200) {
-        completed += 1;
+      if (file.isCached) {
         continue;
       }
 
@@ -176,17 +202,21 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
         throw new Error(`artifact_download_failed: ${filePath} returned ${response.status}`);
       }
 
+      let downloadedFileBytes = 0;
       await cacheResponseStream(cache, url, response, (loaded, total) => {
-        const partial = total && total > 0 ? loaded / total : 0;
+        downloadedFileBytes = total ?? loaded;
         onProgress?.({
           stage: 'downloading',
-          progress: toProgressPercent(completed, files.length, partial),
+          progress: toProgressPercent(
+            downloadedBytes + loaded,
+            Math.max(spec.totalSizeBytes, downloadedBytes + (total ?? loaded))
+          ),
           message: `Downloading ${filePath}`,
           file: filePath,
         });
       });
 
-      completed += 1;
+      downloadedBytes += downloadedFileBytes;
     }
 
     onProgress?.({

@@ -202,6 +202,8 @@ let backendInstance: LocalLlmBackendInstance | null = null;
 let backendInstancePromise: Promise<LocalLlmBackendInstance> | null = null;
 let currentModelId: string | null = null;
 const warmedDesktopModelIds = new Set<string>();
+const desktopWarmupPromises = new Map<string, Promise<void>>();
+let backendStateLock: Promise<void> = Promise.resolve();
 // Track disposal lifecycle to prevent race conditions
 // - requested: disposal has been requested (blocks new inits from returning soon-to-be-disposed instances)
 // - inProgress: disposal is actively running (prevents new init while cleanup happens)
@@ -507,19 +509,87 @@ function getDesktopLlmHost(): {
 }
 
 let desktopHostStatusSyncInstalled = false;
+let desktopHostStatusUnsubscribe: (() => void) | null = null;
+let desktopHostStatusSource: object | null = null;
+
+async function withBackendStateLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previousLock = backendStateLock;
+  let releaseLock!: () => void;
+  backendStateLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+
+  await previousLock;
+  try {
+    return await operation();
+  } finally {
+    releaseLock();
+  }
+}
 
 function ensureDesktopHostStateSync(
   llmHost: NonNullable<ReturnType<typeof getDesktopLlmHost>>
 ): void {
-  if (desktopHostStatusSyncInstalled || !llmHost.onStatus) {
+  if (!llmHost.onStatus) {
     return;
   }
-  llmHost.onStatus((status) => {
+  if (desktopHostStatusSource === llmHost && desktopHostStatusSyncInstalled) {
+    return;
+  }
+
+  desktopHostStatusUnsubscribe?.();
+  desktopHostStatusSource = llmHost;
+  desktopHostStatusUnsubscribe = llmHost.onStatus((status) => {
     if (status.state === 'error' || status.state === 'stopped') {
       warmedDesktopModelIds.clear();
+      desktopWarmupPromises.clear();
     }
   });
   desktopHostStatusSyncInstalled = true;
+}
+
+async function ensureDesktopModelWarmed(
+  llmHost: NonNullable<ReturnType<typeof getDesktopLlmHost>>,
+  modelId: string,
+  onLoadingProgress: LocalRuntimeAdapterOptions['onLoadingProgress']
+): Promise<void> {
+  if (warmedDesktopModelIds.has(modelId)) {
+    return;
+  }
+
+  const existingWarmup = desktopWarmupPromises.get(modelId);
+  if (existingWarmup) {
+    await existingWarmup;
+    return;
+  }
+
+  const warmupPromise = (async () => {
+    const warmupRequestId = crypto.randomUUID();
+    onLoadingProgress?.({
+      stage: 'loading',
+      progress: 0,
+      message: 'Starting local model host...',
+    });
+    const unsubscribeWarmupProgress = llmHost.onProgress?.((progress: unknown) => {
+      handleDesktopProgressEvent(
+        progress,
+        warmupRequestId,
+        onLoadingProgress,
+        () => {},
+        () => {}
+      );
+    });
+    try {
+      await llmHost.warmup?.({ modelId, requestId: warmupRequestId });
+      warmedDesktopModelIds.add(modelId);
+    } finally {
+      unsubscribeWarmupProgress?.();
+      desktopWarmupPromises.delete(modelId);
+    }
+  })();
+
+  desktopWarmupPromises.set(modelId, warmupPromise);
+  await warmupPromise;
 }
 
 function createDesktopGenerationOptions(
@@ -656,38 +726,20 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
         if (llmHost) {
           ensureDesktopHostStateSync(llmHost);
         }
-        if (llmHost?.generate && !warmedDesktopModelIds.has(modelId)) {
-          const warmupRequestId = crypto.randomUUID();
-          onLoadingProgress?.({
-            stage: 'loading',
-            progress: 0,
-            message: 'Starting local model host...',
-          });
-          const unsubscribeWarmupProgress = llmHost.onProgress?.((progress: unknown) => {
-            handleDesktopProgressEvent(
-              progress,
-              warmupRequestId,
-              onLoadingProgress,
-              () => {},
-              () => {}
-            );
-          });
-          try {
-            await llmHost.warmup?.({ modelId, requestId: warmupRequestId });
-          } finally {
-            unsubscribeWarmupProgress?.();
-          }
-          warmedDesktopModelIds.add(modelId);
+        if (llmHost?.generate) {
+          await ensureDesktopModelWarmed(llmHost, modelId, onLoadingProgress);
         }
         if (!llmHost?.generate) {
-          const backend = await getBackend();
-          if (!backend.isReady() || currentModelId !== modelId) {
-            await backend.initialize({
-              modelId,
-              ...(onLoadingProgress ? { onProgress: onLoadingProgress } : {}),
-            });
-            currentModelId = modelId;
-          }
+          await withBackendStateLock(async () => {
+            const backend = await getBackend();
+            if (!backend.isReady() || currentModelId !== modelId) {
+              await backend.initialize({
+                modelId,
+                ...(onLoadingProgress ? { onProgress: onLoadingProgress } : {}),
+              });
+              currentModelId = modelId;
+            }
+          });
         }
 
         currentModelId = modelId;
@@ -960,7 +1012,12 @@ export async function disposeLocalBackend(): Promise<void> {
       backendInstancePromise = null;
       currentModelId = null;
       desktopHostStatusSyncInstalled = false;
+      desktopHostStatusUnsubscribe?.();
+      desktopHostStatusUnsubscribe = null;
+      desktopHostStatusSource = null;
       warmedDesktopModelIds.clear();
+      desktopWarmupPromises.clear();
+      backendStateLock = Promise.resolve();
       disposalState.requested = false;
       disposalState.inProgress = false;
       disposalState.promise = null;

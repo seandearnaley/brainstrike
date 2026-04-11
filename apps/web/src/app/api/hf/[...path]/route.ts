@@ -105,7 +105,7 @@ async function proxyRequest(request: Request, pathSegments: string[]): Promise<R
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]);
   const upstream = await fetch(targetUrl, {
     headers: buildProxyRequestHeaders(request),
-    method: 'GET',
+    method: request.method,
     signal,
   });
 

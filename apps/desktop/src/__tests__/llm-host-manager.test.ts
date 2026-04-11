@@ -192,4 +192,49 @@ describe('LlmHostManager', () => {
 
     await expect(firstRequest).resolves.toEqual({ text: 'done' });
   });
+
+  it('cancels host work and removes requester listeners when a refreshed timeout expires', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester();
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'req-timeout',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+    const observedRejection = requestPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    await vi.advanceTimersByTimeAsync(59_000);
+    manager.acceptResponseReport(71, {
+      type: 'progress',
+      channel: 'llm-progress',
+      requestId: 'req-timeout',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        kind: 'stage',
+        message: 'still working',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+
+    await expect(observedRejection).resolves.toMatchObject({
+      message: 'Llm host request req-timeout timed out.',
+    });
+    expect(requester.removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function));
+    expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: 'cancel',
+          requestId: 'req-timeout',
+        }),
+      })
+    );
+  });
 });

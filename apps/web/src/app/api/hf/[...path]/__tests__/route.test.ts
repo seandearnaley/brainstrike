@@ -209,6 +209,8 @@ describe('hf proxy route', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, options] = fetchMock.mock.calls[0] ?? [];
+    expect(options).toMatchObject({ method: 'HEAD' });
     expect(response.status).toBe(200);
     expect(response.headers.get('content-length')).toBe('123');
     expect(response.headers.get('etag')).toBe('"head-etag"');
