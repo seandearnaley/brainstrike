@@ -331,6 +331,7 @@ export type {
   AssistantUiScalar,
   GoogleProviderOptions,
   GoogleThinkingLevel,
+  LocalProviderOptions,
   OpenAiProviderOptions,
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,

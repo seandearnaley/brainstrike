@@ -1,3 +1,4 @@
+import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
 import type { IDatabase } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
@@ -89,34 +90,9 @@ interface FileSystemAccess {
   exists: (path: string) => Promise<boolean>;
 }
 
-/**
- * Get the ONNX model file to check for in cache based on model type.
- * This matches the dtype logic in LocalLlmBackend.downloadModel().
- * Qwen models use q4f16, others use q4.
- */
-function getModelCacheFile(modelId: string): string {
-  if (modelId.includes('Qwen')) {
-    return 'onnx/model_q4f16.onnx';
-  }
-  return 'onnx/model_q4.onnx';
-}
-
-/**
- * Check if an LLM model exists in the browser Cache API.
- * This matches how LocalLlmBackend.downloadModel() stores files.
- */
 async function checkLlmModelInCache(modelId: string): Promise<boolean> {
-  if (typeof caches === 'undefined') {
-    return false;
-  }
-
   try {
-    const cache = await caches.open('transformers-cache');
-    // Check for the main ONNX model file - model-specific based on dtype
-    const modelFile = getModelCacheFile(modelId);
-    const modelUrl = `https://huggingface.co/${modelId}/resolve/main/${modelFile}`;
-    const cached = await cache.match(modelUrl);
-    return cached !== undefined;
+    return await LocalLlmBackend.hasDownloadedModel(modelId);
   } catch (err) {
     logger.debug('Failed to check Cache API for model', { modelId, err });
     return false;

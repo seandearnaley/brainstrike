@@ -1,663 +1,590 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  hasModelChecksum,
-  LocalLlmBackend,
-  setModelChecksums,
-  verifyModelIntegrity,
-} from '../local-llm-backend';
-import type { LocalLlmConfig, LocalLlmGenerationOptions, LocalLlmMessage } from '../types';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LocalLlmBackend } from '../local-llm-backend';
+import { GEMMA4_E2B_MODEL_ID } from '../local-model-specs';
 
-// Mock the transformers module
-// AutoTokenizer must be a function (class) since the validation checks typeof === 'function'
-vi.mock('@huggingface/transformers', () => {
-  // Create a mock class with static from_pretrained method
-  const MockAutoTokenizer = (() => {}) as unknown as { from_pretrained: ReturnType<typeof vi.fn> };
-  MockAutoTokenizer.from_pretrained = vi.fn();
-
+const mockProcessorApplyChatTemplate = vi.fn();
+const mockProcessorCall = vi.fn();
+const mockBatchDecode = vi.fn();
+const mockTokenizerDecode = vi.fn();
+const mockTokenizerEncode = vi.fn();
+const mockModelGenerate = vi.fn();
+const mockFromPretrainedProcessor = vi.fn();
+const mockFromPretrainedModel = vi.fn();
+const mockTokenizer = Object.assign(
+  () => {
+    throw new Error('Tokenizer callable should not be used directly for Gemma text inputs');
+  },
+  {
+    decode: mockTokenizerDecode,
+    encode: mockTokenizerEncode,
+  }
+);
+const mockProcessor = {
+  apply_chat_template: mockProcessorApplyChatTemplate,
+  batch_decode: mockBatchDecode,
+  tokenizer: mockTokenizer,
+  call: mockProcessorCall,
+};
+const mockGemmaLoader = {
+  from_pretrained: mockFromPretrainedModel,
+};
+const mockAutoProcessor = {
+  from_pretrained: mockFromPretrainedProcessor,
+};
+const mockTextStreamerCtor = vi.fn(function MockTextStreamer(
+  _tokenizer: unknown,
+  options: { callback_function?: (text: string) => void }
+) {
   return {
-    pipeline: vi.fn(),
-    AutoTokenizer: MockAutoTokenizer,
+    callback_function: options.callback_function,
   };
 });
+const callableProcessor = Object.assign(
+  (prompt: unknown, images: unknown, audio: unknown, options: unknown) =>
+    mockProcessorCall.call(mockProcessor, prompt, images, audio, options),
+  mockProcessor,
+  {
+    bind: undefined,
+  }
+);
 
-/**
- * Create a mock tokenizer for tests.
- * The tokenizer is required for token counting in generate().
- */
-function createMockTokenizer() {
-  return {
-    encode: vi.fn((text: string) => {
-      // Approximate token count: ~4 chars per token
-      const tokenCount = Math.ceil(text.length / 4);
-      return new Array(tokenCount).fill(0);
-    }),
-  };
+function isProcessorOwner(value: unknown): boolean {
+  return value === mockProcessor || value === callableProcessor;
+}
+
+vi.mock('@huggingface/transformers', () => ({
+  AutoProcessor: mockAutoProcessor,
+  Gemma4ForCausalLM: mockGemmaLoader,
+  Gemma4ForConditionalGeneration: mockGemmaLoader,
+  TextStreamer: mockTextStreamerCtor,
+}));
+
+function installNavigatorWebGpu(hasGpu: boolean): void {
+  vi.stubGlobal(
+    'navigator',
+    hasGpu
+      ? {
+          gpu: {
+            requestAdapter: vi.fn().mockResolvedValue({
+              info: {
+                vendor: 'test-vendor',
+                architecture: 'test-arch',
+                device: 'test-device',
+                description: 'test-description',
+              },
+              limits: {
+                maxBufferSize: 8_000_000_000,
+                maxStorageBufferBindingSize: 8_000_000_000,
+              },
+            }),
+          },
+          storage: {
+            estimate: vi.fn().mockResolvedValue({
+              quota: 10_000_000_000,
+              usage: 0,
+            }),
+          },
+        }
+      : {
+          storage: {
+            estimate: vi.fn().mockResolvedValue({
+              quota: 10_000_000_000,
+              usage: 0,
+            }),
+          },
+        }
+  );
 }
 
 describe('LocalLlmBackend', () => {
-  let backend: LocalLlmBackend;
-
   beforeEach(() => {
-    backend = new LocalLlmBackend();
     vi.clearAllMocks();
-  });
+    vi.unstubAllGlobals();
+    installNavigatorWebGpu(true);
 
-  afterEach(async () => {
-    await backend.dispose();
-  });
-
-  describe('device detection', () => {
-    it('returns wasm when WebAssembly is available', () => {
-      expect(LocalLlmBackend.isDeviceAvailable('wasm')).toBe(true);
+    mockProcessorApplyChatTemplate.mockImplementation(function (
+      this: unknown,
+      _messages: unknown,
+      _options: unknown
+    ) {
+      if (!isProcessorOwner(this)) {
+        throw new TypeError('this is not a constructor');
+      }
+      return 'PROMPT';
     });
-
-    it('returns false for webgpu in Node environment', () => {
-      // In Node.js, navigator is not defined
-      expect(LocalLlmBackend.isDeviceAvailable('webgpu')).toBe(false);
-    });
-
-    it('getBestDevice returns wasm in Node environment', () => {
-      expect(LocalLlmBackend.getBestDevice()).toBe('wasm');
-    });
-  });
-
-  describe('status management', () => {
-    it('starts in uninitialized state', () => {
-      expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
-    });
-
-    it('isReady returns false when not initialized', () => {
-      expect(backend.isReady()).toBe(false);
-    });
-
-    it('getModelId returns null when not initialized', () => {
-      expect(backend.getModelId()).toBe(null);
-    });
-  });
-
-  describe('generate', () => {
-    it('throws error when not initialized', async () => {
-      const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
-
-      await expect(backend.generate(messages)).rejects.toThrow(
-        'Model not initialized. Call initialize() first.'
-      );
-    });
-
-    it('throws AbortError when signal is aborted before generation', async () => {
-      // Setup mock pipeline and tokenizer
-      const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: 'test' }]);
-      (backend as any).pipeline = mockPipeline;
-      (backend as any).tokenizer = createMockTokenizer();
-      (backend as any).modelId = 'test-model';
-      (backend as any).selectedDevice = 'wasm';
-      (backend as any).status = { state: 'ready', device: 'wasm' };
-
-      const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
-      const abortController = new AbortController();
-      abortController.abort();
-
-      const options: LocalLlmGenerationOptions = {
-        signal: abortController.signal,
-      };
-
-      await expect(backend.generate(messages, options)).rejects.toThrow('Generation aborted');
-    });
-  });
-
-  describe('dispose', () => {
-    it('resets state after dispose', async () => {
-      // Set some state
-      const mockPipeline = { dispose: vi.fn() };
-      (backend as any).pipeline = mockPipeline;
-      (backend as any).modelId = 'test-model';
-      (backend as any).selectedDevice = 'wasm';
-      (backend as any).status = { state: 'ready', device: 'wasm' };
-
-      await backend.dispose();
-
-      expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
-      expect(backend.getModelId()).toBe(null);
-      expect(backend.isReady()).toBe(false);
-    });
-
-    it('handles dispose errors gracefully', async () => {
-      const mockPipeline = {
-        dispose: vi.fn().mockRejectedValue(new Error('Dispose failed')),
-      };
-
-      (backend as any).pipeline = mockPipeline;
-
-      // Should not throw
-      await expect(backend.dispose()).resolves.toBeUndefined();
-      expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
-    });
-
-    it('handles pipeline without dispose method', async () => {
-      (backend as any).pipeline = {}; // No dispose method
-
-      // Should not throw
-      await expect(backend.dispose()).resolves.toBeUndefined();
-    });
-  });
-});
-
-describe('pipeline-based generation', () => {
-  let backend: LocalLlmBackend;
-
-  beforeEach(() => {
-    backend = new LocalLlmBackend();
-  });
-
-  afterEach(async () => {
-    await backend.dispose();
-  });
-
-  it('generates text from pipeline output', async () => {
-    const mockPipeline = vi
-      .fn()
-      .mockResolvedValue([{ generated_text: 'Hello! How can I help you today?' }]);
-
-    (backend as any).pipeline = mockPipeline;
-    (backend as any).tokenizer = createMockTokenizer();
-    (backend as any).modelId = 'test-model';
-    (backend as any).selectedDevice = 'wasm';
-    (backend as any).status = { state: 'ready', device: 'wasm' };
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
-    const result = await backend.generate(messages);
-
-    expect(result.text).toBe('Hello! How can I help you today?');
-    expect(result.finishReason).toBe('stop');
-    expect(result.usage).toBeDefined();
-  });
-
-  it('handles array response format from pipeline', async () => {
-    const mockPipeline = vi.fn().mockResolvedValue([
-      {
-        generated_text: [
-          { role: 'user', content: 'Hello' },
-          { role: 'assistant', content: 'Hi there!' },
-        ],
-      },
-    ]);
-
-    (backend as any).pipeline = mockPipeline;
-    (backend as any).tokenizer = createMockTokenizer();
-    (backend as any).modelId = 'test-model';
-    (backend as any).selectedDevice = 'wasm';
-    (backend as any).status = { state: 'ready', device: 'wasm' };
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
-    const result = await backend.generate(messages);
-
-    expect(result.text).toBe('Hi there!');
-    expect(result.finishReason).toBe('stop');
-  });
-
-  it('returns usage statistics', async () => {
-    const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: 'test output' }]);
-
-    (backend as any).pipeline = mockPipeline;
-    (backend as any).tokenizer = createMockTokenizer();
-    (backend as any).modelId = 'test-model';
-    (backend as any).selectedDevice = 'wasm';
-    (backend as any).status = { state: 'ready', device: 'wasm' };
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
-    const result = await backend.generate(messages);
-
-    expect(result.usage).toBeDefined();
-    expect(typeof result.usage.promptTokens).toBe('number');
-    expect(typeof result.usage.completionTokens).toBe('number');
-  });
-});
-
-describe('tool call parsing', () => {
-  let backend: LocalLlmBackend;
-
-  beforeEach(() => {
-    backend = new LocalLlmBackend();
-    (backend as any).tokenizer = createMockTokenizer();
-    (backend as any).modelId = 'test-model';
-    (backend as any).selectedDevice = 'wasm';
-    (backend as any).status = { state: 'ready', device: 'wasm' };
-  });
-
-  afterEach(async () => {
-    await backend.dispose();
-  });
-
-  it('parses FunctionGemma format tool calls', async () => {
-    const mockPipeline = vi.fn().mockResolvedValue([
-      {
-        generated_text: '<start_function_call>call:search{query:test search}<end_function_call>',
-      },
-    ]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search for test' }];
-    const result = await backend.generate(messages);
-
-    expect(result.toolCalls).toBeDefined();
-    expect(result.toolCalls?.[0]).toMatchObject({
-      type: 'function',
-      function: {
-        name: 'search',
-      },
-    });
-    expect(result.finishReason).toBe('tool_calls');
-  });
-
-  it('parses Qwen format tool calls', async () => {
-    const mockPipeline = vi
-      .fn()
-      .mockResolvedValue([
-        { generated_text: '<tool_call>{"name":"search","arguments":{"query":"test"}}</tool_call>' },
-      ]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search for test' }];
-    const result = await backend.generate(messages);
-
-    expect(result.toolCalls).toBeDefined();
-    expect(result.toolCalls?.[0]).toMatchObject({
-      type: 'function',
-      function: {
-        name: 'search',
-        arguments: '{"query":"test"}',
-      },
-    });
-    expect(result.finishReason).toBe('tool_calls');
-  });
-
-  it('parses generic JSON format tool calls', async () => {
-    const mockPipeline = vi
-      .fn()
-      .mockResolvedValue([
-        { generated_text: '{"name": "search", "arguments": {"query": "test"}}' },
-      ]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search for test' }];
-    const result = await backend.generate(messages);
-
-    expect(result.toolCalls).toBeDefined();
-    expect(result.toolCalls?.[0]).toMatchObject({
-      type: 'function',
-      function: {
-        name: 'search',
-      },
-    });
-    expect(result.finishReason).toBe('tool_calls');
-  });
-
-  it('parses LFM2.5 Pythonic format with string arguments', async () => {
-    const mockPipeline = vi
-      .fn()
-      .mockResolvedValue([
-        { generated_text: '<|tool_call_start|>[get_weather(location="Paris")]<|tool_call_end|>' },
-      ]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Weather in Paris?' }];
-    const result = await backend.generate(messages);
-
-    expect(result.toolCalls).toBeDefined();
-    expect(result.toolCalls?.[0]).toMatchObject({
-      type: 'function',
-      function: {
-        name: 'get_weather',
-      },
-    });
-    expect(result.finishReason).toBe('tool_calls');
-  });
-
-  it('parses LFM2.5 format with multiple kwargs', async () => {
-    const mockPipeline = vi.fn().mockResolvedValue([
-      {
-        generated_text: '<|tool_call_start|>[search(query="AI news", limit=10)]<|tool_call_end|>',
-      },
-    ]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search AI' }];
-    const result = await backend.generate(messages);
-
-    expect(result.toolCalls).toBeDefined();
-    expect(result.toolCalls?.[0]?.function.name).toBe('search');
-    // Arguments should be serialized JSON
-    const args = JSON.parse(result.toolCalls?.[0]?.function.arguments ?? '{}');
-    expect(args.query).toBe('AI news');
-    expect(args.limit).toBe(10);
-  });
-
-  it('parses LFM2.5 format with boolean arguments', async () => {
-    const mockPipeline = vi
-      .fn()
-      .mockResolvedValue([
-        { generated_text: '<|tool_call_start|>[toggle(enabled=true)]<|tool_call_end|>' },
-      ]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Enable' }];
-    const result = await backend.generate(messages);
-
-    expect(result.toolCalls).toBeDefined();
-    const args = JSON.parse(result.toolCalls?.[0]?.function.arguments ?? '{}');
-    expect(args.enabled).toBe(true);
-  });
-
-  it('returns no tool calls for plain text output', async () => {
-    const mockPipeline = vi
-      .fn()
-      .mockResolvedValue([
-        { generated_text: 'This is a plain text response without any tool calls' },
-      ]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
-    const result = await backend.generate(messages);
-
-    expect(result.toolCalls).toBeUndefined();
-    expect(result.finishReason).toBe('stop');
-    expect(result.text).toBe('This is a plain text response without any tool calls');
-  });
-});
-
-describe('initialize error handling', () => {
-  let backend: LocalLlmBackend;
-
-  beforeEach(() => {
-    backend = new LocalLlmBackend();
-  });
-
-  afterEach(async () => {
-    await backend.dispose();
-  });
-
-  it('throws error when WebGPU is requested but unavailable', async () => {
-    const config: LocalLlmConfig = {
-      // Use an allowed model ID to test WebGPU availability check
-      modelId: 'onnx-community/Qwen3-0.6B-ONNX',
-      device: 'webgpu',
-    };
-
-    await expect(backend.initialize(config)).rejects.toThrow('WebGPU requested but not available');
-  });
-
-  it('throws error for invalid model ID format', async () => {
-    const config: LocalLlmConfig = {
-      modelId: 'invalid-model-no-slash',
-      device: 'wasm',
-    };
-
-    await expect(backend.initialize(config)).rejects.toThrow(
-      'Invalid model ID format: "invalid-model-no-slash". Expected format: "owner/model-name"'
-    );
-  });
-
-  it('throws error for model ID with path traversal', async () => {
-    const config: LocalLlmConfig = {
-      modelId: '../malicious/path',
-      device: 'wasm',
-    };
-
-    await expect(backend.initialize(config)).rejects.toThrow('Invalid model ID format');
-  });
-
-  it('throws error for model ID not in allowlist', async () => {
-    const config: LocalLlmConfig = {
-      // Valid format but not in the approved allowlist
-      modelId: 'some-org/unapproved-model',
-      device: 'wasm',
-    };
-
-    await expect(backend.initialize(config)).rejects.toThrow('Invalid model ID format');
-  });
-});
-
-describe('WebGPU info retrieval', () => {
-  it('returns null when navigator.gpu is not available', async () => {
-    const info = await LocalLlmBackend.getWebGpuInfo();
-    // In Node.js environment, WebGPU is not available
-    expect(info).toBe(null);
-  });
-});
-
-describe('generation with tools', () => {
-  let backend: LocalLlmBackend;
-
-  beforeEach(() => {
-    backend = new LocalLlmBackend();
-
-    const mockPipeline = vi
-      .fn()
-      .mockResolvedValue([{ generated_text: 'I will help you with that.' }]);
-
-    (backend as any).pipeline = mockPipeline;
-    (backend as any).tokenizer = createMockTokenizer();
-    (backend as any).modelId = 'test-model';
-    (backend as any).selectedDevice = 'wasm';
-    (backend as any).status = { state: 'ready', device: 'wasm' };
-  });
-
-  afterEach(async () => {
-    await backend.dispose();
-  });
-
-  it('includes tool definitions when provided', async () => {
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search for something' }];
-    const tools = [
-      {
-        type: 'function' as const,
-        function: {
-          name: 'search',
-          description: 'Search for information',
-          parameters: {
-            type: 'object' as const,
-            properties: {
-              query: { type: 'string' },
-            },
-            required: ['query'],
-          },
+    mockProcessorCall.mockImplementation(async function (
+      this: unknown,
+      _prompt: unknown,
+      _images: unknown,
+      _audio: unknown,
+      _options: unknown
+    ) {
+      if (!isProcessorOwner(this)) {
+        throw new TypeError('this is not a constructor');
+      }
+      return {
+        input_ids: {
+          dims: [1, 4],
         },
-      },
-    ];
+      };
+    });
+    mockBatchDecode.mockImplementation(function (
+      this: unknown,
+      _tokens: unknown,
+      _options: unknown
+    ) {
+      if (!isProcessorOwner(this)) {
+        throw new TypeError('this is not a constructor');
+      }
+      return ['<|channel|>thought\ninternal reasoning<channel|>Final answer'];
+    });
+    mockTokenizerDecode.mockImplementation(function (
+      this: typeof mockTokenizer,
+      tokens: readonly bigint[]
+    ) {
+      if (this !== mockTokenizer) {
+        throw new TypeError('this is not a constructor');
+      }
+      return tokens.map((token) => String.fromCharCode(Number(token))).join('');
+    });
+    mockTokenizerEncode.mockImplementation(function (this: typeof mockTokenizer, text: string) {
+      if (this !== mockTokenizer) {
+        throw new TypeError('this is not a constructor');
+      }
+      return Array.from(text);
+    });
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.('<|channel|>thought\n');
+      inputs.streamer?.callback_function?.('internal reasoning');
+      inputs.streamer?.callback_function?.('<channel|>');
+      inputs.streamer?.callback_function?.('Final answer');
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
 
-    const result = await backend.generate(messages, { tools });
-
-    expect(result.text).toBeDefined();
-    expect(result.finishReason).toBe('stop');
-    expect(result.usage.promptTokens).toBeGreaterThanOrEqual(0);
-    expect(result.usage.completionTokens).toBeGreaterThanOrEqual(0);
+    mockFromPretrainedProcessor.mockImplementation(async function (
+      this: typeof mockAutoProcessor,
+      _modelId: string,
+      _options: unknown
+    ) {
+      if (this !== mockAutoProcessor) {
+        throw new TypeError('this is not a constructor');
+      }
+      return callableProcessor;
+    });
+    mockFromPretrainedModel.mockImplementation(async function (
+      this: typeof mockGemmaLoader,
+      _modelId: string,
+      _options: unknown
+    ) {
+      if (this !== mockGemmaLoader) {
+        throw new TypeError('this is not a constructor');
+      }
+      return {
+        generate: mockModelGenerate,
+      };
+    });
   });
-});
 
-describe('edge cases in tool call parsing', () => {
-  let backend: LocalLlmBackend;
-
-  beforeEach(() => {
-    backend = new LocalLlmBackend();
-    (backend as any).tokenizer = createMockTokenizer();
-    (backend as any).modelId = 'test-model';
-    (backend as any).selectedDevice = 'wasm';
-    (backend as any).status = { state: 'ready', device: 'wasm' };
-  });
-
-  afterEach(async () => {
-    await backend.dispose();
-  });
-
-  it('handles malformed JSON gracefully', async () => {
-    const mockPipeline = vi
-      .fn()
-      .mockResolvedValue([{ generated_text: '{"name": "search", "arguments": {invalid json}' }]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search' }];
-    const result = await backend.generate(messages);
-
-    // Should return text, not parse as tool call due to invalid JSON
-    expect(result.text).toBeDefined();
-    expect(result.finishReason).toBe('stop');
-  });
-
-  it('handles empty response', async () => {
-    const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: '' }]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
-    const result = await backend.generate(messages);
-
-    expect(result.text).toBe('');
-    expect(result.finishReason).toBe('stop');
-  });
-
-  it('handles response with only whitespace', async () => {
-    const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: '   \n\n   ' }]);
-    (backend as any).pipeline = mockPipeline;
-
-    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
-    const result = await backend.generate(messages);
-
-    expect(result.text).toBeDefined();
-    expect(result.finishReason).toBe('stop');
-  });
-});
-
-describe('concurrent operations', () => {
-  it('handles multiple backend instances independently', async () => {
-    const backend1 = new LocalLlmBackend();
-    const backend2 = new LocalLlmBackend();
-
-    expect(backend1.getStatus().state).toBe('uninitialized');
-    expect(backend2.getStatus().state).toBe('uninitialized');
-
-    // Both should be independent
-    (backend1 as any).status = { state: 'ready', device: 'wasm' };
-
-    expect(backend1.getStatus().state).toBe('ready');
-    expect(backend2.getStatus().state).toBe('uninitialized');
-
-    await backend1.dispose();
-    await backend2.dispose();
-  });
-});
-
-describe('model configuration', () => {
-  it('backend instantiation succeeds', () => {
+  it('rejects removed legacy local models', async () => {
     const backend = new LocalLlmBackend();
-    expect(backend).toBeDefined();
-    expect(backend.getStatus().state).toBe('uninitialized');
+
+    await expect(
+      backend.initialize({
+        modelId: 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+      })
+    ).rejects.toThrow('unsupported built-in local model');
   });
-});
 
-describe('Model Integrity Verification', () => {
-  // Mock hash matching the pattern generated by our mock digest
-  // 0x01, 0x02, ..., 0x20
-  const mockHash = '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20';
+  it('requires WebGPU for Gemma instead of silently falling back to wasm', async () => {
+    installNavigatorWebGpu(false);
+    const backend = new LocalLlmBackend();
 
-  beforeEach(() => {
-    // Ensure crypto.subtle exists (Node 19+ or polyfill)
-    if (!globalThis.crypto?.subtle) {
-      Object.defineProperty(globalThis, 'crypto', {
-        value: {
-          subtle: {
-            digest: vi.fn(),
+    await expect(
+      backend.initialize({
+        modelId: GEMMA4_E2B_MODEL_ID,
+      })
+    ).rejects.toThrow('webgpu_unavailable');
+  });
+
+  it('strips Gemma thought traces from generated text', async () => {
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ role: 'user', content: 'Hello' }], {
+      thinking: {
+        enabled: true,
+      },
+    });
+
+    expect(result.text).toBe('Final answer');
+    expect(result.reasoningText).toBe('internal reasoning');
+    expect(mockProcessorApplyChatTemplate).toHaveBeenCalledWith(
+      [
+        {
+          role: 'user',
+          content: 'Hello',
+        },
+      ],
+      {
+        add_generation_prompt: true,
+        enable_thinking: true,
+      }
+    );
+    expect(mockProcessorCall).toHaveBeenCalledWith('PROMPT', null, null, {
+      add_special_tokens: false,
+    });
+  });
+
+  it('streams official channel-delimited reasoning snapshots before the final answer', async () => {
+    const backend = new LocalLlmBackend();
+    const reasoningSnapshots: string[] = [];
+    const textSnapshots: string[] = [];
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+      stream: {
+        onReasoningSnapshot: (snapshot) => {
+          reasoningSnapshots.push(snapshot);
+        },
+        onTextSnapshot: (snapshot) => {
+          textSnapshots.push(snapshot);
+        },
+      },
+      thinking: { enabled: true },
+    });
+
+    expect(reasoningSnapshots).toEqual(['internal reasoning']);
+    expect(textSnapshots).toEqual(['Final answer']);
+    expect(result.reasoningText).toBe('internal reasoning');
+    expect(result.text).toBe('Final answer');
+  });
+
+  it('strips observed Gemma channel and turn markers from visible output', async () => {
+    mockBatchDecode.mockReturnValue([
+      `<|channel>thought Thinking Process:
+
+Analyze the Request: The user asked for "a joke."
+Determine the Goal: Provide a joke that is generally funny, accessible, and appropriate.
+Final Output Generation: (Construct the joke and deliver it.)<channel|>Why don't scientists trust atoms?
+Because they make up everything!<turn|>`,
+    ]);
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.('<|channel>thought ');
+      inputs.streamer?.callback_function?.('Thinking Process:\n\nAnalyze the Request.');
+      inputs.streamer?.callback_function?.('<channel|>');
+      inputs.streamer?.callback_function?.(
+        "Why don't scientists trust atoms?\nBecause they make up everything!<turn|>"
+      );
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const reasoningSnapshots: string[] = [];
+    const textSnapshots: string[] = [];
+    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+      stream: {
+        onReasoningSnapshot: (snapshot) => {
+          reasoningSnapshots.push(snapshot);
+        },
+        onTextSnapshot: (snapshot) => {
+          textSnapshots.push(snapshot);
+        },
+      },
+      thinking: { enabled: true },
+    });
+
+    expect(reasoningSnapshots.at(-1)).toContain('Analyze the Request');
+    expect(textSnapshots.at(-1)).toBe(
+      "Why don't scientists trust atoms?\nBecause they make up everything!"
+    );
+    expect(result.reasoningText).toContain('Determine the Goal');
+    expect(result.text).toBe("Why don't scientists trust atoms?\nBecause they make up everything!");
+  });
+
+  it('strips eos-style control markers from streamed and final visible output', async () => {
+    mockBatchDecode.mockReturnValue(['Visible answer</eos>']);
+    mockModelGenerate.mockImplementation(async function (
+      this: { generate: typeof mockModelGenerate },
+      inputs: { streamer?: { callback_function?: (text: string) => void } }
+    ) {
+      if (this.generate !== mockModelGenerate) {
+        throw new TypeError('this is not a constructor');
+      }
+      inputs.streamer?.callback_function?.('Visible answer</eos>');
+      return {
+        slice: vi.fn().mockReturnValue('TOKENS'),
+      };
+    });
+
+    const backend = new LocalLlmBackend();
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const textSnapshots: string[] = [];
+    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+      stream: {
+        onTextSnapshot: (snapshot) => {
+          textSnapshots.push(snapshot);
+        },
+      },
+      thinking: { enabled: false },
+    });
+
+    expect(textSnapshots.at(-1)).toBe('Visible answer');
+    expect(result.text).toBe('Visible answer');
+  });
+
+  it('binds Transformers.js loaders and runtime methods to their owners', async () => {
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'tell_joke',
+              description: 'Return a joke',
+              parameters: {
+                type: 'object',
+                properties: {
+                  topic: { type: 'string' },
+                },
+                required: ['topic'],
+              },
+            },
+          },
+        ],
+      })
+    ).resolves.toMatchObject({
+      finishReason: 'stop',
+      text: 'Final answer',
+    });
+
+    expect(mockProcessorApplyChatTemplate).toHaveBeenLastCalledWith(
+      [
+        {
+          role: 'user',
+          content: 'Tell me a joke',
+        },
+      ],
+      {
+        add_generation_prompt: true,
+        enable_thinking: true,
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'tell_joke',
+              description: 'Return a joke',
+              parameters: {
+                type: 'object',
+                properties: {
+                  topic: { type: 'string' },
+                },
+                required: ['topic'],
+              },
+            },
+          },
+        ],
+      }
+    );
+  });
+
+  it('supports callable processor instances without Function.bind', async () => {
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ role: 'user', content: 'Tell me another joke' }], {
+        thinking: {
+          enabled: false,
+        },
+      })
+    ).resolves.toMatchObject({
+      finishReason: 'stop',
+      text: 'Final answer',
+    });
+  });
+
+  it('uses the processor text-only call signature from the Gemma docs', async () => {
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+        thinking: {
+          enabled: false,
+        },
+      })
+    ).resolves.toMatchObject({
+      finishReason: 'stop',
+      text: 'Final answer',
+    });
+
+    expect(mockProcessorCall).toHaveBeenCalledWith('PROMPT', null, null, {
+      add_special_tokens: false,
+    });
+  });
+
+  it('parses Gemma tool calls into local tool results', async () => {
+    mockBatchDecode.mockReturnValue([
+      '<|tool_call|>call:tell_joke{topic: <|"|>penguins<|"|>}<tool_call|>',
+    ]);
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ role: 'user', content: 'Tell me a joke' }], {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'tell_joke',
+            description: 'Return a joke',
+            parameters: {
+              type: 'object',
+              properties: {
+                topic: { type: 'string' },
+              },
+              required: ['topic'],
+            },
           },
         },
-        writable: true,
-        configurable: true,
-      });
-    }
+      ],
+    });
 
-    // Mock digest to return deterministic value
-    vi.spyOn(globalThis.crypto.subtle, 'digest').mockResolvedValue(
-      new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 1)).buffer
+    expect(result.finishReason).toBe('tool_calls');
+    expect(result.text).toBe('');
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls?.[0]?.function).toEqual({
+      name: 'tell_joke',
+      arguments: JSON.stringify({ topic: 'penguins' }),
+    });
+  });
+
+  it('formats assistant tool calls and tool responses using Gemma chat template fields', async () => {
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    await expect(
+      backend.generate(
+        [
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              {
+                id: 'tool-1',
+                type: 'function',
+                function: {
+                  name: 'read_file',
+                  arguments: JSON.stringify({ path: '/README.md' }),
+                },
+              },
+            ],
+          },
+          {
+            role: 'tool',
+            content: '',
+            toolResponses: [
+              {
+                name: 'read_file',
+                response: {
+                  success: true,
+                  result: 'hello',
+                },
+              },
+            ],
+          },
+        ],
+        {
+          thinking: {
+            enabled: false,
+          },
+        }
+      )
+    ).resolves.toMatchObject({
+      finishReason: 'stop',
+      text: 'Final answer',
+    });
+
+    expect(mockProcessorApplyChatTemplate).toHaveBeenLastCalledWith(
+      [
+        {
+          role: 'assistant',
+          tool_calls: [
+            {
+              type: 'function',
+              function: {
+                name: 'read_file',
+                arguments: {
+                  path: '/README.md',
+                },
+              },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          tool_responses: [
+            {
+              name: 'read_file',
+              response: {
+                success: true,
+                result: 'hello',
+              },
+            },
+          ],
+        },
+      ],
+      {
+        add_generation_prompt: true,
+        enable_thinking: false,
+      }
     );
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('validates correct SHA256 checksum', async () => {
-    const modelId = 'test/model-valid';
-    // Register expected checksum
-    setModelChecksums(modelId, { onnxSha256: mockHash });
-
-    const data = new ArrayBuffer(100);
-    const result = await verifyModelIntegrity(modelId, data);
-
-    expect(result).toBe(true);
-  });
-
-  it('skips verification for pending-verification placeholder', async () => {
-    const modelId = 'test/model-pending';
-    setModelChecksums(modelId, { onnxSha256: 'pending-verification' });
-
-    const data = new ArrayBuffer(100);
-    const result = await verifyModelIntegrity(modelId, data);
-
-    expect(result).toBe(true);
-  });
-
-  it('throws error on checksum mismatch', async () => {
-    const modelId = 'test/model-mismatch';
-    // Use a different hash than what our mock produces
-    const wrongHash = 'a'.repeat(64);
-    setModelChecksums(modelId, { onnxSha256: wrongHash });
-
-    const data = new ArrayBuffer(100);
-    await expect(verifyModelIntegrity(modelId, data)).rejects.toThrow(
-      'Model integrity check failed'
-    );
-  });
-
-  it('handles unavailable crypto gracefully', async () => {
-    // Stub global crypto to be undefined
-    vi.stubGlobal('crypto', undefined);
-
-    const modelId = 'test/model-no-crypto';
-    setModelChecksums(modelId, { onnxSha256: mockHash });
-
-    const data = new ArrayBuffer(100);
-    const result = await verifyModelIntegrity(modelId, data);
-
-    // Should return true (skip verification) if crypto unavailable
-    expect(result).toBe(true);
-  });
-
-  it('skips verification for unregistered models', async () => {
-    const modelId = 'test/unregistered-model';
-    // No checksum registered
-
-    const data = new ArrayBuffer(100);
-    const result = await verifyModelIntegrity(modelId, data);
-
-    expect(result).toBe(true);
-  });
-
-  it('validates model ID format in setModelChecksums and does not register invalid IDs', () => {
-    // Use a unique model ID to avoid test pollution
-    const invalidModelId = 'invalid-model-id-no-slash';
-
-    // Attempt to register with invalid model ID (no slash)
-    setModelChecksums(invalidModelId, { onnxSha256: mockHash });
-
-    // Verify the checksum was NOT added to the map
-    expect(hasModelChecksum(invalidModelId)).toBe(false);
-  });
-
-  it('validates checksum format in setModelChecksums and does not register invalid checksums', () => {
-    // Use a unique model ID to avoid test pollution
-    const modelId = 'test/invalid-checksum-format-model';
-
-    // Attempt to register with invalid checksum format (not 64 hex chars)
-    setModelChecksums(modelId, { onnxSha256: 'bad-checksum' });
-
-    // Verify the checksum was NOT added to the map
-    expect(hasModelChecksum(modelId)).toBe(false);
   });
 });

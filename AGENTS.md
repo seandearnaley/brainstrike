@@ -72,6 +72,9 @@ Do not move or reintroduce workers in Electron main. Desktop local embeddings mu
 ## AI ASSISTANT INTEGRATION
 
 - Supports: OpenAI, Anthropic, Google, OpenRouter.
+- Built-in local provider:
+  - Desktop/web local inference targets `onnx-community/gemma-4-E2B-it-ONNX` only.
+  - No silent fallback to WASM. If WebGPU is unavailable, the built-in local provider is unavailable.
 - API keys:
   - Managed via Settings.
   - Desktop: encrypted keychain.
@@ -92,6 +95,64 @@ Implementation:
 - packages/app-shell/src/hooks/use-assistant-availability.ts
 
 When changing this flow, update this doc.
+
+---
+
+## LOCAL LLM ARCHITECTURE (CRITICAL)
+
+Renderer-only execution is mandatory for the built-in local LLM path.
+
+Rules:
+- Local Gemma inference MUST run in renderer (browser context).
+- MUST NOT run in Electron main process.
+- Desktop MUST use the hidden `llm-host` renderer for built-in local LLM work.
+- Web MUST use the browser-safe `@brainstrike/agent/local-llm` entrypoint.
+
+Reasons:
+- Transformers.js Gemma runtime depends on browser/WebGPU surfaces that are renderer-only.
+- Running model load/generation in Electron main would degrade to the wrong runtime surface and risks UI/process instability.
+- Hidden-host execution avoids visible-renderer throttling and keeps the UI responsive during model warmup/generation.
+
+Flow:
+1. Hidden host renderer (desktop)
+   - Files:
+     - apps/desktop/src/llm-host-manager.ts
+     - apps/desktop/src/ipc-llm-host.ts
+     - apps/desktop/src/llm-host-shared.ts
+     - apps/desktop/src/renderer/components/llm-host-app.tsx
+     - apps/desktop/src/renderer/components/llm-host-runtime.tsx
+   - Main creates a hidden BrowserWindow with `?mode=llm-host`.
+   - The host renderer owns `LocalLlmBackend` initialization, warmup, generation, and progress events.
+   - The host renderer reports status/progress/response back to main over dedicated IPC channels.
+2. Visible renderer
+   - Files:
+     - packages/ui/src/assistant-ui-panel/local-runtime-adapter.ts
+     - packages/app-shell/src/assistant-ui-panel-wrapper.tsx
+   - Does NOT run the built-in local LLM directly in desktop mode.
+   - Talks to the hidden host over the preload bridge (`window.llmHost`).
+   - Owns UI state only: reasoning/tool panels, streaming snapshots, and status affordances.
+3. Main
+   - Files:
+     - apps/desktop/src/main.ts
+     - apps/desktop/src/preload.ts
+   - Does NOT execute Gemma inference in-process.
+   - Owns hidden-host lifecycle, IPC registration, and shutdown/reset coordination.
+4. Shared local runtime
+   - Files:
+     - packages/agent/src/local-llm.ts
+     - packages/agent/src/providers/local/local-llm-backend.ts
+     - packages/agent/src/providers/local/gemma4-engine.ts
+     - packages/agent/src/providers/local/local-model-specs.ts
+     - packages/agent/src/providers/local/local-artifact-store.ts
+   - `local-llm.ts` is the browser-safe entrypoint for renderer usage.
+   - `LocalLlmBackend` is a thin orchestrator over the Gemma engine/spec/artifact layers.
+   - Tool calls are executed through the existing UI/runtime tool bridge; reasoning/tool details are hidden by default in the UI and expandable on demand.
+
+Constraints:
+- Built-in local model downloads are manifest-based, not single-file heuristics.
+- Thinking/reasoning output must be kept separate from the final visible answer.
+- Control tokens (`<turn|>`, EOS markers, tool-call wrappers, etc.) must be stripped from visible output.
+- If you change the local host lifecycle, preload bridge, or availability gating, update this section and the relevant tests.
 
 ---
 

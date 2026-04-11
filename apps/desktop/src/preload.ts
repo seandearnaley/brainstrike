@@ -42,12 +42,25 @@ const CHUNKING_HOST_RESET_CHANNEL = 'chunking-host:reset' as const;
 const CHUNKING_HOST_GET_STATUS_CHANNEL = 'chunking-host:get-status' as const;
 const CHUNKING_HOST_CHUNK_FILE_CHANNEL = 'chunking-host:chunk-file' as const;
 const CHUNKING_HOST_CHUNK_BATCH_CHANNEL = 'chunking-host:chunk-batch' as const;
+const LLM_HOST_STATUS_EVENT = 'llm-host:status' as const;
+const LLM_HOST_REQUEST_EVENT = 'llm-host:request' as const;
+const LLM_HOST_PROGRESS_EVENT = 'llm-host:progress' as const;
+const LLM_HOST_REPORT_STATUS_CHANNEL = 'llm-host:report-status' as const;
+const LLM_HOST_REPORT_PROGRESS_CHANNEL = 'llm-host:report-progress' as const;
+const LLM_HOST_REPORT_RESPONSE_CHANNEL = 'llm-host:report-response' as const;
+const LLM_HOST_ENSURE_STARTED_CHANNEL = 'llm-host:ensure-started' as const;
+const LLM_HOST_STOP_CHANNEL = 'llm-host:stop' as const;
+const LLM_HOST_RESET_CHANNEL = 'llm-host:reset' as const;
+const LLM_HOST_GET_STATUS_CHANNEL = 'llm-host:get-status' as const;
+const LLM_HOST_WARMUP_CHANNEL = 'llm-host:warmup' as const;
+const LLM_HOST_GENERATE_CHANNEL = 'llm-host:generate' as const;
 const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 
 type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 type ChunkingHostLifecycleState = EmbeddingHostLifecycleState;
+type LlmHostLifecycleState = EmbeddingHostLifecycleState;
 
 interface EmbeddingHostStatus {
   readonly active: boolean;
@@ -142,6 +155,36 @@ interface ChunkingHostResponseReport {
     | 'chunk-file-complete'
     | 'chunk-file-error'
     | 'chunk-result';
+  readonly payload: Record<string, unknown>;
+  readonly requestId: string;
+  readonly runtimeId: string;
+  readonly type: 'error' | 'progress' | 'result';
+}
+
+interface LlmHostStatus {
+  readonly active: boolean;
+  readonly lastError: string | null;
+  readonly runtimeId: string;
+  readonly runtimeKind: 'llm-host';
+  readonly state: LlmHostLifecycleState;
+}
+
+interface LlmHostRequest {
+  readonly channel: 'llm';
+  readonly payload: {
+    readonly clientRequestId?: string;
+    readonly kind: 'generate' | 'warmup';
+    readonly modelId: string;
+    readonly messages?: unknown[];
+    readonly options?: unknown;
+  };
+  readonly requestId: string;
+  readonly runtimeId: string;
+  readonly type: 'request';
+}
+
+interface LlmHostResponseReport {
+  readonly channel: 'llm-error' | 'llm-progress' | 'llm-result';
   readonly payload: Record<string, unknown>;
   readonly requestId: string;
   readonly runtimeId: string;
@@ -326,7 +369,8 @@ contextBridge.exposeInMainWorld('mcp', {
 
 // Tool execution API (for playground testing)
 contextBridge.exposeInMainWorld('tools', {
-  execute: (toolId: string, input: unknown) => ipcRenderer.invoke('tools:execute', toolId, input),
+  execute: (toolId: string, input: unknown, runtimeData?: Record<string, unknown>) =>
+    ipcRenderer.invoke('tools:execute', toolId, input, runtimeData),
   onRootTreeSelectionUpdate: (callback: (payload: AssistantSelectionUpdatePayload) => void) => {
     const listener = (_event: unknown, payload: AssistantSelectionUpdatePayload) =>
       callback(payload);
@@ -460,6 +504,57 @@ contextBridge.exposeInMainWorld('chunkingHost', {
     ipcRenderer.on(CHUNKING_HOST_REQUEST_EVENT, listener);
     return () => {
       ipcRenderer.removeListener(CHUNKING_HOST_REQUEST_EVENT, listener);
+    };
+  },
+});
+
+contextBridge.exposeInMainWorld('llmHost', {
+  ensureStarted: (): Promise<LlmHostStatus> => ipcRenderer.invoke(LLM_HOST_ENSURE_STARTED_CHANNEL),
+  stop: (): Promise<LlmHostStatus> => ipcRenderer.invoke(LLM_HOST_STOP_CHANNEL),
+  reset: (): Promise<LlmHostStatus> => ipcRenderer.invoke(LLM_HOST_RESET_CHANNEL),
+  getStatus: (): Promise<LlmHostStatus> => ipcRenderer.invoke(LLM_HOST_GET_STATUS_CHANNEL),
+  warmup: (modelId: string) => ipcRenderer.invoke(LLM_HOST_WARMUP_CHANNEL, modelId),
+  generate: (payload: {
+    requestId?: string;
+    modelId: string;
+    messages: unknown[];
+    options?: unknown;
+  }) =>
+    ipcRenderer.invoke(LLM_HOST_GENERATE_CHANNEL, {
+      kind: 'generate',
+      ...(payload.requestId !== undefined ? { clientRequestId: payload.requestId } : {}),
+      modelId: payload.modelId,
+      messages: payload.messages,
+      ...(payload.options !== undefined ? { options: payload.options } : {}),
+    }),
+  reportStatus: (status: LlmHostStatus): void => {
+    ipcRenderer.send(LLM_HOST_REPORT_STATUS_CHANNEL, status);
+  },
+  reportProgress: (progress: LlmHostResponseReport): void => {
+    ipcRenderer.send(LLM_HOST_REPORT_PROGRESS_CHANNEL, progress);
+  },
+  reportResponse: (response: LlmHostResponseReport): void => {
+    ipcRenderer.send(LLM_HOST_REPORT_RESPONSE_CHANNEL, response);
+  },
+  onStatus: (callback: (status: LlmHostStatus) => void) => {
+    const listener = (_event: unknown, status: LlmHostStatus) => callback(status);
+    ipcRenderer.on(LLM_HOST_STATUS_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(LLM_HOST_STATUS_EVENT, listener);
+    };
+  },
+  onRequest: (callback: (request: LlmHostRequest) => void) => {
+    const listener = (_event: unknown, request: LlmHostRequest) => callback(request);
+    ipcRenderer.on(LLM_HOST_REQUEST_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(LLM_HOST_REQUEST_EVENT, listener);
+    };
+  },
+  onProgress: (callback: (progress: LlmHostResponseReport) => void) => {
+    const listener = (_event: unknown, progress: LlmHostResponseReport) => callback(progress);
+    ipcRenderer.on(LLM_HOST_PROGRESS_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(LLM_HOST_PROGRESS_EVENT, listener);
     };
   },
 });

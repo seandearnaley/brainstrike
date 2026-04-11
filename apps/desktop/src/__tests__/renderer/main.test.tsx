@@ -48,6 +48,10 @@ vi.mock('../../renderer/components/chunking-host-app', () => ({
   ChunkingHostApp: () => <div>ChunkingHostApp</div>,
 }));
 
+vi.mock('../../renderer/components/llm-host-app', () => ({
+  LlmHostApp: () => <div>LlmHostApp</div>,
+}));
+
 vi.mock('../../renderer/log-buffer', () => ({}));
 
 // Utility type guard for React elements
@@ -107,6 +111,19 @@ describe('renderer main entry', () => {
     expect(isReactElement(renderArg)).toBe(true);
     if (!isReactElement(renderArg)) {
       throw new Error('Expected chunking host render element');
+    }
+    expect(renderArg.type).toBeDefined();
+  });
+
+  it('renders the llm host app in llm-host mode', async () => {
+    window.history.replaceState({}, '', '/?mode=llm-host&runtimeId=llm-host:test');
+
+    await import('../../renderer/main.tsx');
+
+    const renderArg = mockRender.mock.calls[0]?.[0];
+    expect(isReactElement(renderArg)).toBe(true);
+    if (!isReactElement(renderArg)) {
+      throw new Error('Expected llm host render element');
     }
     expect(renderArg.type).toBeDefined();
   });

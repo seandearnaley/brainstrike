@@ -1,3 +1,4 @@
+import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
 import { hasEnabledLocalLlmModels } from '@brainstrike/preferences/models/local-model-utils';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useMemo } from 'react';
@@ -25,6 +26,7 @@ export function useAssistantAvailabilityWithLocal(
   const { models, hasLoaded } = useModelRegistryStore();
 
   const hasLocalModels = useMemo(() => hasEnabledLocalLlmModels(models), [models]);
+  const canRunLocalGemma = useMemo(() => LocalLlmBackend.getBestDevice() === 'webgpu', []);
 
   // If server says enabled, use that immediately (hosted providers work)
   if (serverStatus.state === 'enabled') {
@@ -33,7 +35,7 @@ export function useAssistantAvailabilityWithLocal(
 
   // If model registry has loaded and has local models, enable
   // This overrides a 'disabled' server status when browser-based models are available
-  if (hasLoaded && hasLocalModels) {
+  if (hasLoaded && hasLocalModels && canRunLocalGemma) {
     return { state: 'enabled' };
   }
 

@@ -1,13 +1,27 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ModelPickerModel,
   ModelPickerProvider,
   ProviderGroupConfig,
 } from '../../src/assistant-ui-panel/assistant-ui-panel';
-import { AssistantUiPanel } from '../../src/assistant-ui-panel/assistant-ui-panel';
+import {
+  AssistantUiPanel,
+  ProviderSettingsPanel,
+} from '../../src/assistant-ui-panel/assistant-ui-panel';
 
 const useDataStreamRuntimeMock = vi.fn((_options?: unknown) => ({ runtime: 'test-runtime' }));
+const useLocalRuntimeMock = vi.fn((_adapter?: unknown) => ({ runtime: 'local-runtime' }));
+const setCollapsedMock = vi.fn();
+let capturedLocalAdapterOptions: {
+  onLoadingProgress?: (progress: {
+    stage: 'downloading' | 'generating' | 'loading' | 'ready';
+    progress: number;
+    message: string;
+    file?: string;
+  }) => void;
+} | null = null;
 
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
@@ -24,6 +38,14 @@ vi.mock('../../src/assistant-ui-panel/assistant-message-text', () => ({
 
 vi.mock('../../src/assistant-ui-panel/tool-fallback', () => ({
   ToolFallback: () => <div data-testid="tool-fallback" />,
+}));
+
+vi.mock('../../src/assistant-ui-panel/local-runtime-adapter', () => ({
+  createLocalModelAdapter: (options: unknown) => {
+    capturedLocalAdapterOptions = options as typeof capturedLocalAdapterOptions;
+    return { run: vi.fn() };
+  },
+  disposeLocalBackend: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock theme provider for ModelPicker
@@ -77,6 +99,11 @@ vi.mock('@assistant-ui/react', () => {
       Reload: Primitive,
     },
     AssistantRuntimeProvider: ({ children }: ProviderProps) => <>{children}</>,
+    ChainOfThoughtPrimitive: {
+      Root: Primitive,
+      AccordionTrigger: Primitive,
+      Parts: Primitive,
+    },
     BranchPickerPrimitive: {
       Root: Primitive,
       Previous: Primitive,
@@ -102,6 +129,19 @@ vi.mock('@assistant-ui/react', () => {
       },
       If,
     },
+    useAui: () => ({
+      chainOfThought: () => ({
+        setCollapsed: setCollapsedMock,
+      }),
+    }),
+    useAuiState: (selector: (state: { chainOfThought: { collapsed: boolean } }) => boolean) =>
+      selector({ chainOfThought: { collapsed: true } }),
+    useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
+    useMessagePartReasoning: () => ({
+      type: 'reasoning' as const,
+      text: 'Reasoning text',
+      status: { type: 'complete' as const },
+    }),
     ThreadPrimitive: {
       Root: Primitive,
       Viewport: Primitive,
@@ -220,10 +260,12 @@ const baseProps = {
 describe('AssistantUiPanel model picker', () => {
   beforeEach(() => {
     Object.assign(window, { assistant: undefined });
+    capturedLocalAdapterOptions = null;
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it('uses the legacy data-stream protocol for hosted providers', () => {
@@ -235,6 +277,87 @@ describe('AssistantUiPanel model picker', () => {
         protocol: 'data-stream',
       })
     );
+  });
+
+  it('renders compact local model status and auto-hides ready state', () => {
+    vi.useFakeTimers();
+
+    const localGroups: ProviderGroupConfig[] = [
+      {
+        runtime: 'local',
+        label: 'Local',
+        providers: [
+          {
+            id: 'local',
+            name: 'Local',
+            runtime: 'local',
+            capabilities: {
+              llm: true,
+              embeddings: false,
+              streaming: false,
+              supportsStandardEmbeddingDimension: false,
+            },
+            models: [
+              {
+                id: 'onnx-community/gemma-4-E2B-it-ONNX',
+                label: 'Gemma 4 E2B',
+                type: 'llm',
+                enabled: true,
+                default: true,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(
+      <AssistantUiPanel
+        onModelChange={() => {}}
+        pickerModels={[
+          {
+            id: 'onnx-community/gemma-4-E2B-it-ONNX',
+            providerId: 'local',
+            name: 'Gemma 4 E2B',
+            description: null,
+            capabilities: { type: 'llm', streaming: false },
+          },
+        ]}
+        pickerProviders={[{ id: 'local', name: 'Local', icon: null }]}
+        providerGroups={localGroups}
+        selectedModel="local::onnx-community/gemma-4-E2B-it-ONNX"
+        selectedProvider="local"
+      />
+    );
+
+    act(() => {
+      capturedLocalAdapterOptions?.onLoadingProgress?.({
+        stage: 'loading',
+        progress: 42,
+        message: 'Warming up local model host...',
+      });
+    });
+
+    expect(screen.getByTestId('local-model-status')).toBeInTheDocument();
+    expect(screen.getByText('Gemma')).toBeInTheDocument();
+    expect(screen.getByText('Starting')).toBeInTheDocument();
+    expect(screen.queryByText('Loading model...')).not.toBeInTheDocument();
+    expect(screen.queryByText('42%')).not.toBeInTheDocument();
+
+    act(() => {
+      capturedLocalAdapterOptions?.onLoadingProgress?.({
+        stage: 'ready',
+        progress: 100,
+        message: 'Local model ready.',
+      });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(1200);
+    });
+
+    expect(screen.queryByTestId('local-model-status')).not.toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it('renders the model picker with provider summary', async () => {
@@ -319,5 +442,108 @@ describe('AssistantUiPanel model picker', () => {
     // The ModelPicker combobox should be disabled when no models available
     const trigger = screen.getByRole('combobox');
     expect(trigger).toBeDisabled();
+  });
+
+  it('renders context badges and tool summary in the header', () => {
+    render(
+      <AssistantUiPanel
+        {...baseProps}
+        contextMenu={{
+          selectionLabel: '3 files',
+          embeddingSetId: 'embedding-set-1234567890',
+          tokenBudget: 100_000,
+          contextTokenCount: 84,
+          includeFileReport: true,
+          includeProjectTree: true,
+        }}
+        onModelChange={() => {}}
+        toolMenu={{
+          items: [
+            {
+              id: 'brainstrike.readWorkspaceFile',
+              label: 'Read workspace file',
+              enabled: true,
+              group: 'Workspace',
+              source: 'native',
+            },
+          ],
+          summary: '1 tool enabled',
+        }}
+      />
+    );
+
+    expect(screen.getByText('Context')).toBeInTheDocument();
+    expect(screen.getByText('3 files')).toBeInTheDocument();
+    expect(screen.getByText('100,000 tokens')).toBeInTheDocument();
+    expect(screen.getByText('84 est.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open assistant controls' })).toBeInTheDocument();
+  });
+
+  it('renders provider settings for the local runtime and updates the thinking toggle', () => {
+    const onSettingsChange = vi.fn();
+
+    render(
+      <ProviderSettingsPanel
+        onSettingsChange={onSettingsChange}
+        providerId="local"
+        settings={{ localThinkingEnabled: true }}
+      />
+    );
+
+    expect(screen.getByText('Gemma thinking')).toBeInTheDocument();
+    const switches = screen.getAllByRole('switch');
+    const localThinkingToggle = switches.at(-1);
+    expect(localThinkingToggle).toBeDefined();
+    fireEvent.click(localThinkingToggle as HTMLElement);
+
+    expect(onSettingsChange).toHaveBeenCalledWith('local', { localThinkingEnabled: false });
+  });
+
+  it('renders google provider settings and updates include-thoughts', () => {
+    const onSettingsChange = vi.fn();
+
+    render(
+      <ProviderSettingsPanel
+        modelName="gemini-3-pro-preview"
+        onSettingsChange={onSettingsChange}
+        providerId="google"
+        settings={{ googleIncludeThoughts: false, googleThinkingLevel: 'high' }}
+      />
+    );
+
+    expect(screen.getByText('Gemini thinking')).toBeInTheDocument();
+    expect(screen.getByText('Include thoughts')).toBeInTheDocument();
+    const switches = screen.getAllByRole('switch');
+    const includeThoughtsToggle = switches.at(-1);
+    expect(includeThoughtsToggle).toBeDefined();
+    fireEvent.click(includeThoughtsToggle as HTMLElement);
+
+    expect(onSettingsChange).toHaveBeenCalledWith('google', { googleIncludeThoughts: true });
+  });
+
+  it('renders anthropic settings and updates the thinking budget input', () => {
+    const onSettingsChange = vi.fn();
+
+    render(
+      <ProviderSettingsPanel
+        onSettingsChange={onSettingsChange}
+        providerId="anthropic"
+        settings={{ anthropicThinkingBudgetTokens: 4096, maxOutputTokens: 1024 }}
+      />
+    );
+
+    expect(screen.getByText('Claude reasoning')).toBeInTheDocument();
+    const budgetInput = screen.getAllByRole('spinbutton')[1];
+    expect(budgetInput).toBeDefined();
+    fireEvent.change(budgetInput as HTMLElement, { target: { value: '2048' } });
+
+    expect(onSettingsChange).toHaveBeenCalledWith('anthropic', {
+      anthropicThinkingBudgetTokens: 2048,
+    });
+  });
+
+  it('returns nothing for unsupported provider settings panels', () => {
+    const { container } = render(<ProviderSettingsPanel providerId="unsupported" settings={{}} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

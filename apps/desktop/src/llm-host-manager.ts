@@ -1,0 +1,258 @@
+import { createLogger } from '@brainstrike/utils/logger';
+import type { BrowserWindow, WebContents } from 'electron';
+import {
+  createStoppedLlmHostStatus,
+  LLM_HOST_PROGRESS_EVENT,
+  LLM_HOST_REQUEST_EVENT,
+  LLM_HOST_STATUS_ADAPTER,
+  LLM_HOST_STATUS_EVENT,
+  type LlmHostGenerateRequestPayload,
+  type LlmHostRequest,
+  type LlmHostResponseReport,
+  type LlmHostStatus,
+  type LlmHostStatusReport,
+  type LlmHostWarmupRequestPayload,
+} from './llm-host-shared';
+import { RendererHostLifecycle } from './renderer-host-lifecycle';
+import { waitForWindowClosed } from './window-lifecycle-utils';
+
+const logger = createLogger('LlmHostManager');
+const LLM_HOST_REQUEST_TIMEOUT_MS = 60_000;
+const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
+
+interface PendingLlmRequest {
+  reject: (error: Error) => void;
+  requester: WebContents;
+  resolve: (result: unknown) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
+
+function createRequestFailure(message: string): Error {
+  return new Error(message);
+}
+
+export class LlmHostManager {
+  private readonly lifecycle: RendererHostLifecycle<LlmHostStatus>;
+  private readonly pendingRequests = new Map<string, PendingLlmRequest>();
+
+  constructor() {
+    this.lifecycle = new RendererHostLifecycle<LlmHostStatus>({
+      createStatus: LLM_HOST_STATUS_ADAPTER.createStatus,
+      createStoppedStatus: createStoppedLlmHostStatus,
+      mode: 'llm-host',
+      onDidFailLoad: ({ errorCode, errorDescription, message, url }) => {
+        logger.error(message, { errorCode, errorDescription, url, windowRole: 'llm-host' });
+        this.rejectPendingRequests(message);
+        this.lifecycle.setStatus(
+          LLM_HOST_STATUS_ADAPTER.createStatus({
+            state: 'error',
+            active: false,
+            lastError: message,
+            runtimeId: this.getStatus().runtimeId,
+          })
+        );
+      },
+      onRenderProcessGone: ({ exitCode, message, reason }) => {
+        logger.error(message, { reason, exitCode, windowRole: 'llm-host' });
+        this.rejectPendingRequests(message);
+        this.lifecycle.setStatus(
+          LLM_HOST_STATUS_ADAPTER.createStatus({
+            state: 'error',
+            active: false,
+            lastError: message,
+            runtimeId: this.getStatus().runtimeId,
+          })
+        );
+      },
+      onWindowClosed: () => {
+        this.rejectPendingRequests('Llm host window closed while requests were in flight.');
+        this.lifecycle.setStatus(createStoppedLlmHostStatus());
+      },
+      role: 'llm-host',
+      statusEventName: LLM_HOST_STATUS_EVENT,
+      timeoutMessage: 'Timed out waiting for llm host state transition.',
+    });
+  }
+
+  getStatus(): LlmHostStatus {
+    return this.lifecycle.getStatus();
+  }
+
+  isHostWindow(window: BrowserWindow): boolean {
+    return this.lifecycle.isHostWindow(window);
+  }
+
+  async ensureStarted(options?: { waitForRunning?: boolean }): Promise<LlmHostStatus> {
+    return this.lifecycle.ensureStarted(options);
+  }
+
+  async stop(): Promise<LlmHostStatus> {
+    this.rejectPendingRequests('Llm host stopped while requests were in flight.');
+    this.lifecycle.setStatus(
+      LLM_HOST_STATUS_ADAPTER.createStatus({
+        state: 'stopping',
+        active: false,
+        lastError: null,
+        runtimeId: this.getStatus().runtimeId,
+      })
+    );
+
+    const window = this.lifecycle.getHostWindow();
+    if (window && !window.isDestroyed()) {
+      const closedPromise = waitForWindowClosed(window, LLM_HOST_STOP_DESTROY_TIMEOUT_MS);
+      this.lifecycle.destroyHostWindow();
+      await closedPromise;
+    }
+
+    this.lifecycle.clearHostWindow();
+    this.lifecycle.setStatus(createStoppedLlmHostStatus());
+    return this.getStatus();
+  }
+
+  async reset(): Promise<LlmHostStatus> {
+    await this.stop();
+    return this.ensureStarted({ waitForRunning: true });
+  }
+
+  async dispose(): Promise<void> {
+    await this.stop();
+    this.lifecycle.dispose();
+  }
+
+  acceptStatusReport(senderId: number, report: LlmHostStatusReport): void {
+    const window = this.lifecycle.getHostWindow();
+    if (!window || window.isDestroyed() || window.webContents.id !== senderId) {
+      return;
+    }
+    this.lifecycle.setStatus(
+      LLM_HOST_STATUS_ADAPTER.createStatus({
+        state: report.state,
+        active: report.active,
+        lastError: report.lastError,
+        runtimeId: report.runtimeId,
+      })
+    );
+  }
+
+  acceptResponseReport(senderId: number, report: LlmHostResponseReport): void {
+    const window = this.lifecycle.getHostWindow();
+    if (!window || window.isDestroyed() || window.webContents.id !== senderId) {
+      return;
+    }
+
+    const pending = this.pendingRequests.get(report.requestId);
+    if (!pending) {
+      return;
+    }
+    if (report.type === 'progress') {
+      try {
+        pending.requester.send(LLM_HOST_PROGRESS_EVENT, report);
+      } catch (error) {
+        logger.warn('Failed to forward llm host progress event', {
+          requestId: report.requestId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
+    clearTimeout(pending.timeoutId);
+    this.pendingRequests.delete(report.requestId);
+
+    if (report.type === 'error') {
+      logger.error('Llm host reported request failure', {
+        requestId: report.requestId,
+        runtimeId: report.runtimeId,
+        error: report.payload.errorMessage,
+        ...(report.payload.errorStack ? { stack: report.payload.errorStack } : {}),
+        ...(report.payload.errorDetails ? { errorDetails: report.payload.errorDetails } : {}),
+      });
+      const enrichedMessage =
+        report.payload.errorDetails?.stage && report.payload.errorDetails.stage.length > 0
+          ? `${report.payload.errorMessage} (stage: ${report.payload.errorDetails.stage})`
+          : report.payload.errorMessage;
+      pending.reject(createRequestFailure(enrichedMessage));
+      return;
+    }
+    pending.resolve(report.payload.result);
+  }
+
+  async warmup(requester: WebContents, modelId: string): Promise<void> {
+    logger.info('Dispatching llm-host warmup request', { modelId });
+    await this.sendRequest(requester, { kind: 'warmup', modelId });
+  }
+
+  async generate(requester: WebContents, payload: LlmHostGenerateRequestPayload): Promise<unknown> {
+    logger.info('Dispatching llm-host generate request', {
+      modelId: payload.modelId,
+      messageCount: payload.messages.length,
+      toolCount: payload.options?.tools?.length ?? 0,
+      thinkingEnabled: payload.options?.thinking?.enabled ?? true,
+    });
+    return await this.sendRequest(requester, payload);
+  }
+
+  private async sendRequest(
+    requester: WebContents,
+    payload: LlmHostGenerateRequestPayload | LlmHostWarmupRequestPayload
+  ): Promise<unknown> {
+    const hostWindow = await this.assertReadyForRequests();
+    const requestId =
+      'clientRequestId' in payload &&
+      typeof payload.clientRequestId === 'string' &&
+      payload.clientRequestId.trim().length > 0
+        ? payload.clientRequestId.trim()
+        : crypto.randomUUID();
+    return await new Promise<unknown>((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
+      }, LLM_HOST_REQUEST_TIMEOUT_MS);
+      this.pendingRequests.set(requestId, { requester, resolve, reject, timeoutId });
+
+      const request: LlmHostRequest = {
+        type: 'request',
+        channel: 'llm',
+        requestId,
+        runtimeId: this.getStatus().runtimeId,
+        payload,
+      };
+
+      try {
+        hostWindow.webContents.send(LLM_HOST_REQUEST_EVENT, request);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        this.pendingRequests.delete(requestId);
+        reject(
+          createRequestFailure(
+            error instanceof Error
+              ? `Llm host request ${requestId} could not be sent: ${error.message}`
+              : `Llm host request ${requestId} could not be sent.`
+          )
+        );
+      }
+    });
+  }
+
+  private async assertReadyForRequests(): Promise<BrowserWindow> {
+    const status = await this.ensureStarted({ waitForRunning: true });
+    if (status.state !== 'running') {
+      throw createRequestFailure(
+        status.lastError ?? 'Llm host is not running and cannot accept requests.'
+      );
+    }
+
+    const window = this.lifecycle.getHostWindow();
+    if (!window || window.isDestroyed()) {
+      throw createRequestFailure('Llm host window is unavailable.');
+    }
+    return window;
+  }
+
+  private rejectPendingRequests(message: string): void {
+    for (const [requestId, pending] of this.pendingRequests.entries()) {
+      clearTimeout(pending.timeoutId);
+      pending.reject(createRequestFailure(`${message} (request ${requestId})`));
+      this.pendingRequests.delete(requestId);
+    }
+  }
+}

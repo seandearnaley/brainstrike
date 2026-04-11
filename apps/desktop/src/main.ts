@@ -26,9 +26,11 @@ import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerIpcHandlers, setBackgrounded } from './ipc-handlers';
+import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerToolsIpcHandlers } from './ipc-tools';
+import { LlmHostManager } from './llm-host-manager';
 import {
   cloneLoggingPreferences,
   cloneLoggingSettingsPayload,
@@ -510,6 +512,7 @@ let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterEmbeddingHostIpcHandlers: null | (() => void) = null;
+let unregisterLlmHostIpcHandlers: null | (() => void) = null;
 let unregisterLoggingIpcHandlers: null | (() => void) = null;
 let signalShutdownInFlight = false;
 let allowImmediateQuit = false;
@@ -617,6 +620,13 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
       failures.push(embeddingFailure);
     }
 
+    const llmFailure = await runShutdownStep('llm-host', async () => {
+      await llmHostManager.dispose();
+    });
+    if (llmFailure) {
+      failures.push(llmFailure);
+    }
+
     const databaseFailure = await runShutdownStep('database', async () => {
       await closeDatabase();
     });
@@ -674,6 +684,7 @@ const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
 const chunkingHostManager = new ChunkingHostManager();
 const embeddingHostManager = new EmbeddingHostManager();
+const llmHostManager = new LlmHostManager();
 
 unregisterLoggingIpcHandlers = registerLoggingIpcHandlers({
   getState: getLoggingSettingsPayload,
@@ -701,6 +712,7 @@ unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettings
 });
 unregisterChunkingHostIpcHandlers = registerChunkingHostIpcHandlers(chunkingHostManager);
 unregisterEmbeddingHostIpcHandlers = registerEmbeddingHostIpcHandlers(embeddingHostManager);
+unregisterLlmHostIpcHandlers = registerLlmHostIpcHandlers(llmHostManager);
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -759,7 +771,11 @@ if (singleInstanceLockAcquired) {
       const existingWindow =
         BrowserWindow.getAllWindows().find(
           (window) =>
-            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+            !(
+              embeddingHostManager.isHostWindow(window) ||
+              chunkingHostManager.isHostWindow(window) ||
+              llmHostManager.isHostWindow(window)
+            )
         ) ?? null;
       if (!existingWindow) {
         return;
@@ -1141,7 +1157,11 @@ if (singleInstanceLockAcquired) {
       app.on('activate', async () => {
         const hasVisibleWindow = BrowserWindow.getAllWindows().some(
           (window) =>
-            !(embeddingHostManager.isHostWindow(window) || chunkingHostManager.isHostWindow(window))
+            !(
+              embeddingHostManager.isHostWindow(window) ||
+              chunkingHostManager.isHostWindow(window) ||
+              llmHostManager.isHostWindow(window)
+            )
         );
         if (!hasVisibleWindow) {
           await createMainWindow();
@@ -1194,6 +1214,10 @@ app.on('will-quit', () => {
   if (unregisterEmbeddingHostIpcHandlers) {
     unregisterEmbeddingHostIpcHandlers();
     unregisterEmbeddingHostIpcHandlers = null;
+  }
+  if (unregisterLlmHostIpcHandlers) {
+    unregisterLlmHostIpcHandlers();
+    unregisterLlmHostIpcHandlers = null;
   }
   if (unregisterChunkingHostIpcHandlers) {
     unregisterChunkingHostIpcHandlers();

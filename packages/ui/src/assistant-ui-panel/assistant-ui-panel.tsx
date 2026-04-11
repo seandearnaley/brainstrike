@@ -2,10 +2,14 @@ import {
   ActionBarPrimitive,
   AssistantRuntimeProvider,
   BranchPickerPrimitive,
+  ChainOfThoughtPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useAui,
+  useAuiState,
   useLocalRuntime,
+  useMessagePartReasoning,
 } from '@assistant-ui/react';
 import { useDataStreamRuntime } from '@assistant-ui/react-data-stream';
 import {
@@ -17,7 +21,7 @@ import {
   RefreshCwIcon,
   SlidersHorizontal,
 } from 'lucide-react';
-import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
+import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
 import './overrides.css';
@@ -40,9 +44,19 @@ import { Label } from '../label';
 import { cn } from '../lib/utils';
 import { ModelPicker } from '../model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
+import { Progress } from '../progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
 import { Switch } from '../switch';
 import { AssistantMessageText, preloadMarkdownText } from './assistant-message-text';
+import {
+  type BudgetStatus,
+  clampNumber,
+  clampProgress,
+  getLocalModelStatusLabel,
+  parseNumber,
+  resolveBudgetStatus,
+  truncateMiddle,
+} from './assistant-ui-panel-utils';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
@@ -104,6 +118,8 @@ export interface AssistantToolMenuItem {
   enabled: boolean;
   group: string;
   id: string;
+  inputSchema?: Record<string, unknown>;
+  isLocalRuntimeRunnable?: boolean;
   label: string;
   source: AssistantToolSource;
 }
@@ -140,6 +156,7 @@ export interface AssistantProviderSettings {
   anthropicThinkingBudgetTokens?: number;
   googleIncludeThoughts?: boolean;
   googleThinkingLevel?: GoogleThinkingLevel;
+  localThinkingEnabled?: boolean;
   maxOutputTokens?: number;
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
@@ -185,8 +202,123 @@ interface LocalModelLoadingState {
   file?: string;
   message: string;
   progress: number;
-  stage: 'downloading' | 'loading' | 'ready' | 'error';
+  stage: 'downloading' | 'generating' | 'loading' | 'ready' | 'error';
 }
+
+const LocalModelStatus: FC<{ state: LocalModelLoadingState }> = ({ state }) => {
+  const progress = clampProgress(state.progress);
+  const showPercent = state.stage === 'downloading' && progress > 0;
+
+  return (
+    <div
+      className={cn(
+        'mx-3 mt-2 rounded-full border px-3 py-2',
+        state.stage === 'error'
+          ? 'border-destructive/40 bg-destructive/5'
+          : 'border-border/70 bg-muted/30'
+      )}
+      data-testid="local-model-status"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge className="rounded-full px-2 py-0.5 text-[10px]" variant="secondary">
+            Gemma
+          </Badge>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-xs">{getLocalModelStatusLabel(state.stage)}</span>
+              <span className="truncate text-muted-foreground text-xs">{state.message}</span>
+            </div>
+            {state.file && (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">{state.file}</p>
+            )}
+          </div>
+        </div>
+        {showPercent && (
+          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+            {Math.round(progress)}%
+          </span>
+        )}
+      </div>
+      {state.stage === 'generating' || state.stage === 'loading' ? (
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-border/60">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-foreground/45" />
+        </div>
+      ) : state.stage === 'downloading' ? (
+        <Progress className="mt-2 h-1 bg-border/60" value={progress} />
+      ) : null}
+    </div>
+  );
+};
+
+const LocalReasoningPart: FC = () => {
+  useMessagePartReasoning();
+
+  return (
+    <div className="rounded-2xl border border-border/60 bg-muted/20 px-3 py-3">
+      <p className="mb-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+        Model reasoning
+      </p>
+      <div className="text-muted-foreground text-sm leading-6" data-testid="local-reasoning-part">
+        <AssistantMessageText />
+      </div>
+    </div>
+  );
+};
+
+const LocalChainOfThought: FC = () => {
+  const aui = useAui();
+  const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
+  const initializedRef = useRef(false);
+
+  useEffect(() => {
+    if (initializedRef.current) {
+      return;
+    }
+    initializedRef.current = true;
+    aui.chainOfThought().setCollapsed(true);
+  }, [aui]);
+
+  return (
+    <ChainOfThoughtPrimitive.Root className="mb-3 block max-w-xl">
+      <button
+        aria-expanded={!collapsed}
+        className="flex w-full items-center justify-between rounded-2xl border border-border/70 bg-muted/25 px-3 py-2.5 text-left transition-colors hover:bg-muted/35"
+        data-testid="local-chain-of-thought"
+        onClick={() => aui.chainOfThought().setCollapsed(!collapsed)}
+        type="button"
+      >
+        <div>
+          <p className="font-medium text-foreground text-xs">Thinking</p>
+          <p className="text-[11px] text-muted-foreground">
+            {collapsed
+              ? 'Reasoning and tool activity are hidden from the final reply.'
+              : 'Inspect reasoning and tool activity before the final answer.'}
+          </p>
+        </div>
+        <Badge className="rounded-full px-2 py-0.5 text-[10px]" variant="secondary">
+          {collapsed ? 'Show reasoning' : 'Hide reasoning'}
+        </Badge>
+      </button>
+      {!collapsed && (
+        <div className="bs-chain-of-thought-panel mt-2">
+          <ChainOfThoughtPrimitive.Parts
+            components={{
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Layout" key */
+              Layout: ({ children }) => <div className="mb-2 last:mb-0">{children}</div>,
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Reasoning" key */
+              Reasoning: LocalReasoningPart,
+              tools: {
+                /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
+                Fallback: ToolFallback,
+              },
+            }}
+          />
+        </div>
+      )}
+    </ChainOfThoughtPrimitive.Root>
+  );
+};
 
 // Shared props for inner chat components
 interface ChatThreadProps {
@@ -202,6 +334,7 @@ interface ChatThreadProps {
   pickerProviders: ModelPickerProvider[];
   providerGroups: ProviderGroupConfig[];
   providerSettings?: AssistantProviderSettingsMap | undefined;
+  requestData?: Record<string, unknown> | undefined;
   selectedModel: string | undefined;
   selectedProvider: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
@@ -232,15 +365,21 @@ const LocalRuntimeChat: FC<
   onLoadingStateChange,
   toolMenu,
   contextMenu,
+  requestData,
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
+  const thinkingEnabled =
+    providerSettings?.[selectedProvider ?? 'local']?.localThinkingEnabled ?? true;
 
   // Create adapter with memoization to avoid re-creating on every render
   const adapter = useMemo(
     () =>
       createLocalModelAdapter({
         modelId,
+        thinkingEnabled,
+        ...(requestData ? { runtimeData: requestData } : {}),
+        ...(toolMenu?.items ? { tools: toolMenu.items } : {}),
         onLoadingProgress: (progress: LocalModelLoadingState) => {
           onLoadingStateChange(progress);
         },
@@ -252,7 +391,7 @@ const LocalRuntimeChat: FC<
           });
         },
       }),
-    [modelId, onLoadingStateChange]
+    [modelId, onLoadingStateChange, requestData, thinkingEnabled, toolMenu?.items]
   );
 
   const runtime = useLocalRuntime(adapter);
@@ -420,31 +559,12 @@ const ChatThreadUI: FC<{
     <ThreadPrimitive.Viewport
       aria-atomic="false"
       aria-live="polite"
+      autoScroll
       className="aui-thread-viewport"
       data-testid="assistant-ui-viewport"
+      scrollToBottomOnInitialize={false}
+      scrollToBottomOnRunStart={false}
     >
-      {/* Local model loading indicator */}
-      {localLoadingState && localLoadingState.stage !== 'ready' && (
-        <div className="px-4 py-3 text-xs">
-          <div className="mb-1 font-medium text-muted-foreground">
-            {localLoadingState.stage === 'downloading' && 'Downloading model...'}
-            {localLoadingState.stage === 'loading' && 'Loading model...'}
-            {localLoadingState.stage === 'error' && 'Error loading model'}
-          </div>
-          {localLoadingState.stage !== 'error' && (
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-primary transition-all duration-300"
-                style={{ width: `${Math.round(localLoadingState.progress * 100)}%` }}
-              />
-            </div>
-          )}
-          <p className="mt-1 text-muted-foreground">
-            {localLoadingState.message}
-            {localLoadingState.file && ` (${localLoadingState.file})`}
-          </p>
-        </div>
-      )}
       {disabledReason && (
         <p aria-live="polite" className="px-4 py-3 text-muted-foreground text-xs">
           {disabledReason}
@@ -485,6 +605,7 @@ const ChatThreadUI: FC<{
      * This required aggressive CSS overrides (see overrides.css).
      */}
     <div className="flex-shrink-0 border-border border-t bg-background">
+      {localLoadingState && <LocalModelStatus state={localLoadingState} />}
       <ComposerPrimitive.Root
         aria-disabled={isComposerDisabled}
         className="aui-composer-root"
@@ -588,6 +709,20 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
     setLocalLoadingState(state);
   }, []);
 
+  useEffect(() => {
+    if (localLoadingState?.stage !== 'ready') {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setLocalLoadingState((current) => (current?.stage === 'ready' ? undefined : current));
+    }, 1200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [localLoadingState]);
+
   return (
     <section
       aria-label="Assistant chat"
@@ -608,6 +743,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           pickerProviders={pickerProviders}
           providerGroups={groupedProviders}
           providerSettings={providerSettings}
+          requestData={requestData}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
           toolMenu={toolMenu}
@@ -693,12 +829,10 @@ const AssistantMessage: FC = () => {
       <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-xl break-words text-foreground leading-7">
         <MessagePrimitive.Parts
           components={{
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "ChainOfThought" key */
+            ChainOfThought: LocalChainOfThought,
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
             Text: AssistantMessageText,
-            tools: {
-              /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
-              Fallback: ToolFallback,
-            },
           }}
         />
       </div>
@@ -988,36 +1122,6 @@ interface ToolMenuGroup {
 }
 
 const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
-
-function truncateMiddle(value: string, head = 12, tail = 6): string {
-  if (value.length <= head + tail + 3) {
-    return value;
-  }
-  return `${value.slice(0, head)}…${value.slice(-tail)}`;
-}
-
-type BudgetStatus = 'over' | 'near' | 'within';
-
-function resolveBudgetStatus(
-  contextMenu: AssistantContextMenuConfig | undefined
-): BudgetStatus | undefined {
-  if (
-    !(
-      typeof contextMenu?.tokenBudget === 'number' &&
-      typeof contextMenu?.contextTokenCount === 'number'
-    )
-  ) {
-    return;
-  }
-
-  if (contextMenu.contextTokenCount > contextMenu.tokenBudget) {
-    return 'over';
-  }
-  if (contextMenu.contextTokenCount >= contextMenu.tokenBudget * 0.85) {
-    return 'near';
-  }
-  return 'within';
-}
 
 const ContextControlsSection: FC<{
   contextMenu: AssistantContextMenuConfig;
@@ -1451,21 +1555,6 @@ const ANTHROPIC_EFFORT_OPTIONS: Array<{ value: AnthropicEffort | 'auto'; label: 
 const GOOGLE_FLASH_THINKING_LEVELS: GoogleThinkingLevel[] = ['minimal', 'low', 'medium', 'high'];
 const GOOGLE_PRO_THINKING_LEVELS: GoogleThinkingLevel[] = ['low', 'high'];
 
-function clampNumber(value: number, min: number, max: number): number {
-  if (Number.isNaN(value)) {
-    return min;
-  }
-  return Math.min(Math.max(value, min), max);
-}
-
-function parseNumber(value: string): number | undefined {
-  if (!value.trim()) {
-    return;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
 interface ProviderSettingsPanelProps {
   modelName?: string | undefined;
   onSettingsChange?:
@@ -1788,7 +1877,32 @@ const GoogleThinkingSection: FC<GoogleThinkingSectionProps> = ({
   );
 };
 
-const ProviderSettingsPanel: FC<ProviderSettingsPanelProps> = ({
+const LocalThinkingSection: FC<ProviderSettingsSectionProps> = ({
+  settings,
+  onUpdate,
+  disabled,
+}) => (
+  <div className="space-y-2 rounded-md bg-muted/30 p-2">
+    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
+      Gemma thinking
+    </Label>
+    <div className="flex items-center justify-between rounded-md border border-border bg-background p-2">
+      <div>
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Enable thinking</p>
+        <p className="text-[10px] text-muted-foreground">
+          Include Gemma&apos;s internal reasoning phase before the final answer.
+        </p>
+      </div>
+      <Switch
+        checked={settings.localThinkingEnabled ?? true}
+        disabled={disabled}
+        onCheckedChange={(checked) => onUpdate({ localThinkingEnabled: checked })}
+      />
+    </div>
+  </div>
+);
+
+export const ProviderSettingsPanel: FC<ProviderSettingsPanelProps> = ({
   providerId,
   modelName,
   settings,
@@ -1802,8 +1916,9 @@ const ProviderSettingsPanel: FC<ProviderSettingsPanelProps> = ({
   const isOpenAiFamily = normalizedProvider === 'openai' || normalizedProvider === 'openrouter';
   const isAnthropic = normalizedProvider === 'anthropic';
   const isGoogle = normalizedProvider === 'google';
+  const isLocal = normalizedProvider === 'local';
 
-  if (!(isOpenAiFamily || isAnthropic || isGoogle)) {
+  if (!(isOpenAiFamily || isAnthropic || isGoogle || isLocal)) {
     return null;
   }
 
@@ -1853,6 +1968,13 @@ const ProviderSettingsPanel: FC<ProviderSettingsPanelProps> = ({
           <GoogleThinkingSection
             disabled={!canUpdate}
             modelName={modelName}
+            onUpdate={updateSettings}
+            settings={currentSettings}
+          />
+        ) : null}
+        {isLocal ? (
+          <LocalThinkingSection
+            disabled={!canUpdate}
             onUpdate={updateSettings}
             settings={currentSettings}
           />

@@ -128,7 +128,19 @@ export async function mockAssistantApi(page: Page): Promise<void> {
       window.fetch = async (input, init) => {
         const url =
           typeof input === 'string' ? input : input instanceof Request ? input.url : input.href;
-        if (url.includes('/api/assistant') || url.includes('/api/chat')) {
+        if (url.includes('/api/assistant/status')) {
+          return new Response(JSON.stringify({ state: 'enabled' }), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store',
+            },
+          });
+        }
+        if (
+          (url.includes('/api/assistant') && !url.includes('/api/assistant/status')) ||
+          url.includes('/api/chat')
+        ) {
           return createMockResponse(init?.signal ?? undefined);
         }
         return originalFetch(input, init);

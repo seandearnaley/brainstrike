@@ -87,11 +87,12 @@
     "react-router-dom": "^7.13.1"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -b . && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css && mkdir -p dist/assistant-ui-panel && cp src/assistant-ui-panel/overrides.css dist/assistant-ui-panel/overrides.css",
-    "clean": "rm -rf dist .tsbuildinfo",
+    "build": "pnpm run clean:generated && mkdir -p dist/assistant-ui-panel && tsc -b . && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css && cp src/assistant-ui-panel/overrides.css dist/assistant-ui-panel/overrides.css",
+    "clean": "pnpm run clean:generated && rm -rf dist .tsbuildinfo",
+    "clean:generated": "find src -type f \\( -name '*.js' -o -name '*.js.map' \\) -delete",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm run --dir=../.. lint",
-    "test": "vitest run",
+    "test": "pnpm run clean:generated && vitest run",
     "test:coverage": "pnpm -w test:coverage",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"

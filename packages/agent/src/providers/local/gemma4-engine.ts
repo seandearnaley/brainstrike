@@ -1,0 +1,965 @@
+import { createLogger } from '@brainstrike/utils/logger';
+import type { LocalLlmModelSpec } from './local-model-specs';
+import type {
+  LocalLlmGenerationOptions,
+  LocalLlmMessage,
+  LocalLlmToolCall,
+  LocalLlmToolDefinition,
+} from './types';
+
+const logger = createLogger('Gemma4Engine');
+
+interface ProgressInfo {
+  file?: string;
+  loaded?: number;
+  progress?: number;
+  status: string;
+  total?: number;
+}
+
+interface TokenizerLike {
+  decode: (tokens: readonly bigint[], options: GemmaDecodeOptions) => string;
+  encode: (text: string) => { length: number } | readonly unknown[];
+  raw: unknown;
+}
+
+interface TensorLike {
+  dims: number[];
+}
+
+interface ProcessorInputs extends Record<string, unknown> {
+  inputIds: TensorLike;
+}
+
+interface GemmaTemplateOptions {
+  addGenerationPrompt: boolean;
+  enableThinking: boolean;
+  tools?: readonly LocalLlmToolDefinition[];
+}
+
+interface GemmaDecodeOptions {
+  skipSpecialTokens: boolean;
+}
+
+interface GemmaProcessorRunOptions {
+  addSpecialTokens: boolean;
+}
+
+interface GemmaProcessorBase {
+  applyChatTemplate: (
+    messages: readonly GemmaChatMessage[],
+    options: GemmaTemplateOptions
+  ) => string;
+  batchDecode: (tokens: unknown, options: GemmaDecodeOptions) => string[];
+  run: (
+    prompt: string,
+    images: unknown,
+    audio: unknown,
+    options: GemmaProcessorRunOptions
+  ) => Promise<ProcessorInputs>;
+  tokenizer: TokenizerLike;
+}
+
+type LoadedGemmaProcessor = GemmaProcessorBase;
+
+interface GemmaModel {
+  dispose?: () => Promise<void>;
+  generate: (inputs: Record<string, unknown>) => Promise<{
+    slice: (start: null, range: [number, null]) => unknown;
+  }>;
+}
+
+interface LoaderOptions {
+  progressCallback?: (progress: ProgressInfo) => void;
+  revision?: string;
+}
+
+interface ModelLoaderOptions extends LoaderOptions {
+  device: 'webgpu';
+  dtype: 'q4f16';
+}
+
+interface TransformersModule {
+  createTextStreamer: (tokenizer: unknown, options: StreamerOptions) => GemmaTextStreamer;
+  loadModel: (modelId: string, options: ModelLoaderOptions) => Promise<GemmaModel>;
+  loadProcessor: (modelId: string, options?: LoaderOptions) => Promise<LoadedGemmaProcessor>;
+}
+
+interface StreamerOptions {
+  callbackFunction?: (text: string) => void;
+  skipPrompt?: boolean;
+  skipSpecialTokens?: boolean;
+  tokenCallbackFunction?: (tokens: readonly bigint[]) => void;
+}
+
+interface GemmaTextStreamer {
+  ['callback_function']?: (text: string) => void;
+}
+
+interface CallableDiagnostics {
+  constructorName: string | null;
+  hasApply: boolean;
+  hasBind: boolean;
+  ownKeys: string[];
+  prototypeConstructorName: string | null;
+  type: string;
+}
+
+export interface Gemma4GenerateResult {
+  promptText: string;
+  rawText: string;
+  reasoningText?: string;
+  text: string;
+  toolCalls: LocalLlmToolCall[];
+  usage: {
+    completionTokens: number;
+    promptTokens: number;
+    totalTokens: number;
+  };
+}
+
+interface GemmaChatMessage {
+  content?: string;
+  role: 'assistant' | 'system' | 'tool' | 'user';
+  [key: string]: unknown;
+}
+
+function isTensorLike(value: unknown): value is TensorLike {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'dims' in value &&
+      Array.isArray((value as Record<string, unknown>)['dims'])
+  );
+}
+
+function buildLoaderOptions(options?: LoaderOptions): Record<string, unknown> {
+  const normalized: Record<string, unknown> = {};
+  if (options?.revision) {
+    normalized['revision'] = options.revision;
+  }
+  if (options?.progressCallback) {
+    normalized['progress_callback'] = options.progressCallback;
+  }
+  return normalized;
+}
+
+function buildModelLoaderOptions(options: ModelLoaderOptions): Record<string, unknown> {
+  const normalized = buildLoaderOptions(options);
+  normalized['device'] = options.device;
+  normalized['dtype'] = options.dtype;
+  return normalized;
+}
+
+function buildTemplateOptions(options: GemmaTemplateOptions): Record<string, unknown> {
+  return {
+    ['add_generation_prompt']: options.addGenerationPrompt,
+    ['enable_thinking']: options.enableThinking,
+    ...(options.tools ? { tools: options.tools } : {}),
+  };
+}
+
+function buildDecodeOptions(options: GemmaDecodeOptions): Record<string, unknown> {
+  return {
+    ['skip_special_tokens']: options.skipSpecialTokens,
+  };
+}
+
+function buildProcessorRunOptions(options: GemmaProcessorRunOptions): Record<string, unknown> {
+  return {
+    ['add_special_tokens']: options.addSpecialTokens,
+  };
+}
+
+function buildStreamerOptions(options: StreamerOptions): Record<string, unknown> {
+  return {
+    ['callback_function']: options.callbackFunction,
+    ['skip_prompt']: options.skipPrompt ?? true,
+    ['skip_special_tokens']: options.skipSpecialTokens ?? false,
+    ...(options.tokenCallbackFunction
+      ? { ['token_callback_function']: options.tokenCallbackFunction }
+      : {}),
+  };
+}
+
+function buildGenerateOptions(options: LocalLlmGenerationOptions): Record<string, unknown> {
+  return {
+    ['max_new_tokens']: options.maxNewTokens ?? 512,
+    ['do_sample']: options.doSample ?? false,
+    temperature: options.temperature ?? 1.0,
+    ['top_p']: options.topP ?? 0.95,
+    ['top_k']: options.topK ?? 64,
+  };
+}
+
+function getRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+    throw new Error(`${label} is invalid`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function getOptionalRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function getOptionalProperty(
+  value: Record<string, unknown>,
+  key: string
+): Record<string, unknown> | null {
+  try {
+    return getOptionalRecord(Reflect.get(value, key));
+  } catch {
+    return null;
+  }
+}
+
+function getConstructorName(value: unknown): string | null {
+  if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+    return null;
+  }
+  const valueConstructor = (value as { constructor?: { name?: unknown } }).constructor;
+  return typeof valueConstructor?.name === 'string' ? valueConstructor.name : null;
+}
+
+function describeCallable(value: unknown): CallableDiagnostics {
+  const ownKeys =
+    value && (typeof value === 'object' || typeof value === 'function')
+      ? Object.keys(value as Record<string, unknown>).slice(0, 10)
+      : [];
+  const prototype = value ? Object.getPrototypeOf(value) : null;
+  return {
+    type: typeof value,
+    constructorName: getConstructorName(value),
+    hasBind: Boolean(
+      value &&
+        (typeof value === 'object' || typeof value === 'function') &&
+        typeof Reflect.get(value as Record<string, unknown>, 'bind') === 'function'
+    ),
+    hasApply: Boolean(
+      value &&
+        (typeof value === 'object' || typeof value === 'function') &&
+        typeof Reflect.get(value as Record<string, unknown>, 'apply') === 'function'
+    ),
+    ownKeys,
+    prototypeConstructorName: getConstructorName(prototype),
+  };
+}
+
+function invokeCallable(
+  value: unknown,
+  thisArg: unknown,
+  args: readonly unknown[],
+  label: string
+): unknown {
+  if (typeof value !== 'function') {
+    throw new Error(`${label} is invalid`);
+  }
+
+  try {
+    return Function.prototype.apply.call(value, thisArg, args);
+  } catch (error) {
+    logger.error('Gemma callable invocation failed', {
+      label,
+      diagnostics: describeCallable(value),
+      thisArgConstructorName: getConstructorName(thisArg),
+      argsCount: args.length,
+      error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && typeof error.stack === 'string' ? { stack: error.stack } : {}),
+    });
+    throw error;
+  }
+}
+
+function getCallable(
+  owner: Record<string, unknown>,
+  key: string,
+  label: string
+): (...args: unknown[]) => unknown {
+  const candidate = owner[key];
+  if (typeof candidate !== 'function') {
+    throw new Error(`${label} is invalid`);
+  }
+  return (...args: unknown[]) => invokeCallable(candidate, owner, args, label);
+}
+
+function bindCallable(value: unknown, label: string): (...args: unknown[]) => unknown {
+  if (typeof value !== 'function') {
+    throw new Error(`${label} is invalid`);
+  }
+  return (...args: unknown[]) => invokeCallable(value, undefined, args, label);
+}
+
+function normalizeProcessorInputs(value: unknown): ProcessorInputs {
+  const candidate = getRecord(value, 'Gemma processor inputs');
+  const inputIds = candidate['input_ids'] ?? candidate['inputIds'];
+  if (!isTensorLike(inputIds)) {
+    throw new Error('Gemma processor inputs are missing input_ids');
+  }
+  return {
+    ...candidate,
+    inputIds,
+  };
+}
+
+function normalizeGemmaProcessor(value: unknown): LoadedGemmaProcessor {
+  const candidate = getRecord(value, 'Gemma processor');
+  const applyChatTemplate = getCallable(candidate, 'apply_chat_template', 'Gemma processor');
+  const batchDecode = getCallable(candidate, 'batch_decode', 'Gemma processor');
+  const run =
+    typeof value === 'function'
+      ? bindCallable(value, 'Gemma processor')
+      : getCallable(candidate, 'call', 'Gemma processor');
+  const tokenizerCandidate = candidate['tokenizer'];
+  const tokenizerRecord = getRecord(tokenizerCandidate, 'Gemma tokenizer');
+  const encode = getCallable(tokenizerRecord, 'encode', 'Gemma tokenizer');
+  const decode = getCallable(tokenizerRecord, 'decode', 'Gemma tokenizer');
+
+  const tokenizer: TokenizerLike = {
+    raw: tokenizerCandidate,
+    encode: (text: string) =>
+      (encode as (textValue: string) => { length: number } | readonly unknown[])(text),
+    decode: (tokens: readonly bigint[], options: GemmaDecodeOptions) =>
+      decode(tokens, buildDecodeOptions(options)) as string,
+  };
+
+  return {
+    tokenizer,
+    run: async (prompt, images, audio, options) =>
+      normalizeProcessorInputs(await run(prompt, images, audio, buildProcessorRunOptions(options))),
+    applyChatTemplate: (messages, options) =>
+      applyChatTemplate(messages, buildTemplateOptions(options)) as string,
+    batchDecode: (tokens, options) => batchDecode(tokens, buildDecodeOptions(options)) as string[],
+  };
+}
+
+function normalizeGemmaModel(value: unknown): GemmaModel {
+  const candidate = getRecord(value, 'Gemma model');
+  const generate = getCallable(candidate, 'generate', 'Gemma model');
+  const dispose = candidate['dispose'];
+  const normalizedModel: GemmaModel = {
+    generate: async (inputs: Record<string, unknown>) =>
+      (await generate(inputs)) as {
+        slice: (start: null, range: [number, null]) => unknown;
+      },
+  };
+  if (typeof dispose === 'function') {
+    normalizedModel.dispose = async () => {
+      await (Function.prototype.apply.call(dispose, candidate, []) as Promise<void>);
+    };
+  }
+  return normalizedModel;
+}
+
+async function getTransformersModule(): Promise<TransformersModule> {
+  const mod: unknown = await import(/* @vite-ignore */ '@huggingface/transformers');
+  const candidate = getRecord(mod, 'Transformers.js module');
+  const autoProcessor = getRecord(candidate['AutoProcessor'], 'Transformers.js AutoProcessor');
+  const textStreamer = candidate['TextStreamer'];
+  const gemma4ForCausalLm = getOptionalProperty(candidate, 'Gemma4ForCausalLM');
+  const gemma4ForConditionalGeneration = getOptionalProperty(
+    candidate,
+    'Gemma4ForConditionalGeneration'
+  );
+  const gemma4 = gemma4ForCausalLm ?? gemma4ForConditionalGeneration;
+  if (!gemma4) {
+    logger.error('Gemma transformers surface missing model loaders', {
+      exportedKeys: Object.keys(candidate)
+        .filter((key) => key.toLowerCase().includes('gemma4') || key === 'AutoProcessor')
+        .slice(0, 20),
+    });
+    throw new Error('Transformers.js Gemma4ForCausalLM/Gemma4ForConditionalGeneration is invalid');
+  }
+  logger.info('Gemma transformers surface resolved', {
+    autoProcessor: describeCallable(autoProcessor),
+    gemma4Loader: describeCallable(gemma4),
+    selectedLoader: gemma4ForCausalLm ? 'Gemma4ForCausalLM' : 'Gemma4ForConditionalGeneration',
+  });
+  const loadProcessor = getCallable(
+    autoProcessor,
+    'from_pretrained',
+    'Transformers.js AutoProcessor.from_pretrained'
+  );
+  const loadModel = getCallable(
+    gemma4,
+    'from_pretrained',
+    'Transformers.js Gemma4ForCausalLM.from_pretrained'
+  );
+  if (typeof textStreamer !== 'function') {
+    throw new Error('Transformers.js TextStreamer is invalid');
+  }
+
+  return {
+    createTextStreamer: (tokenizer, options) =>
+      new (
+        textStreamer as new (
+          tokenizerValue: unknown,
+          opts: Record<string, unknown>
+        ) => GemmaTextStreamer
+      )(tokenizer, buildStreamerOptions(options)),
+    loadProcessor: async (modelId, options) =>
+      normalizeGemmaProcessor(await loadProcessor(modelId, buildLoaderOptions(options))),
+    loadModel: async (modelId, options) =>
+      normalizeGemmaModel(await loadModel(modelId, buildModelLoaderOptions(options))),
+  };
+}
+
+function normalizeToolCallArguments(argumentsText: string): Record<string, unknown> | string {
+  try {
+    return JSON.parse(argumentsText) as Record<string, unknown>;
+  } catch {
+    return argumentsText;
+  }
+}
+
+function injectGemmaSystemMessages(
+  messages: readonly LocalLlmMessage[]
+): readonly GemmaChatMessage[] {
+  const normalized: GemmaChatMessage[] = [];
+
+  for (const message of messages) {
+    const role =
+      message.role === 'assistant'
+        ? 'assistant'
+        : message.role === 'user'
+          ? 'user'
+          : message.role === 'tool'
+            ? 'tool'
+            : 'system';
+    const chatMessage: GemmaChatMessage = { role };
+    if (message.content.trim().length > 0) {
+      chatMessage.content = message.content;
+    }
+    if (message.toolCalls && message.toolCalls.length > 0) {
+      chatMessage['tool_calls'] = message.toolCalls.map((toolCall) => ({
+        type: 'function',
+        function: {
+          name: toolCall.function.name,
+          arguments: normalizeToolCallArguments(toolCall.function.arguments),
+        },
+      }));
+    }
+    if (message.toolResponses && message.toolResponses.length > 0) {
+      chatMessage['tool_responses'] = message.toolResponses.map((toolResponse) => ({
+        name: toolResponse.name,
+        response: toolResponse.response,
+      }));
+    }
+    normalized.push(chatMessage);
+  }
+
+  return normalized;
+}
+
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\r\n/g, '\n').trim();
+}
+
+function buildReasoningSplit(
+  reasoningText: string,
+  text: string
+): { reasoningText?: string; text: string } {
+  const normalizedReasoning = normalizeWhitespace(reasoningText);
+  return {
+    ...(normalizedReasoning ? { reasoningText: normalizedReasoning } : {}),
+    text: normalizeWhitespace(stripGemmaControlTokens(text)),
+  };
+}
+
+const GEMMA_THOUGHT_CHANNEL_PREFIXES = [
+  '<|channel|>thought\n',
+  '<|channel>thought\n',
+  '<|channel|>thought ',
+  '<|channel>thought ',
+  '<|channel|>thought',
+  '<|channel>thought',
+] as const;
+const GEMMA_THOUGHT_CHANNEL_SUFFIXES = ['<channel|>', '<|channel|>'] as const;
+const GEMMA_TURN_MARKERS = ['<turn|>', '<|turn|>'] as const;
+const GEMMA_EOS_MARKERS = ['</eos>', '<eos>', '<eos/>', '<eos />', '</s>', '<|eos|>'] as const;
+const GEMMA_TOOL_CALL_BOUNDARIES = [
+  { open: '<|tool_call>', close: '<tool_call|>' },
+  { open: '<|tool_call|>', close: '<tool_call|>' },
+  { open: '<tool_call>', close: '</tool_call>' },
+] as const;
+
+function stripGemmaControlTokens(text: string): string {
+  const markers = [...GEMMA_TURN_MARKERS, ...GEMMA_EOS_MARKERS];
+  return markers.reduce((result, marker) => result.split(marker).join(''), text).trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripGemmaToolCallBlocks(text: string): string {
+  let result = text;
+  for (const boundary of GEMMA_TOOL_CALL_BOUNDARIES) {
+    const blockPattern = new RegExp(
+      `${escapeRegExp(boundary.open)}[\\s\\S]*?${escapeRegExp(boundary.close)}`,
+      'g'
+    );
+    result = result.replace(blockPattern, '');
+  }
+  return result.trim();
+}
+
+function findBoundaryAtStart(text: string, boundaries: readonly string[]): string | null {
+  for (const boundary of boundaries) {
+    if (text.startsWith(boundary)) {
+      return boundary;
+    }
+  }
+  return null;
+}
+
+function hasPartialBoundaryPrefix(text: string, boundaries: readonly string[]): boolean {
+  return boundaries.some((boundary) => boundary.startsWith(text));
+}
+
+function findBoundaryInText(
+  text: string,
+  boundaries: readonly string[]
+): { boundary: string; index: number } | null {
+  let earliestIndex = Number.POSITIVE_INFINITY;
+  let earliestBoundary: string | null = null;
+
+  for (const boundary of boundaries) {
+    const index = text.indexOf(boundary);
+    if (index >= 0 && index < earliestIndex) {
+      earliestIndex = index;
+      earliestBoundary = boundary;
+    }
+  }
+
+  return earliestBoundary ? { boundary: earliestBoundary, index: earliestIndex } : null;
+}
+
+function getBoundaryOverlap(text: string, boundaries: readonly string[]): number {
+  let maxOverlap = 0;
+  for (const boundary of boundaries) {
+    const maxLength = Math.min(text.length, boundary.length - 1);
+    for (let length = maxLength; length > maxOverlap; length -= 1) {
+      if (text.slice(-length) === boundary.slice(0, length)) {
+        maxOverlap = length;
+        break;
+      }
+    }
+  }
+  return maxOverlap;
+}
+
+function splitAnswerFromReasoningBlock(text: string): { reasoningText?: string; text: string } {
+  const normalized = normalizeWhitespace(text);
+  if (!normalized) {
+    return { text: '' };
+  }
+
+  for (const prefix of GEMMA_THOUGHT_CHANNEL_PREFIXES) {
+    if (!normalized.startsWith(prefix)) {
+      continue;
+    }
+    const remainder = normalized.slice(prefix.length);
+    const suffixMatch = findBoundaryInText(remainder, GEMMA_THOUGHT_CHANNEL_SUFFIXES);
+    if (!suffixMatch) {
+      continue;
+    }
+    return buildReasoningSplit(
+      remainder.slice(0, suffixMatch.index),
+      remainder.slice(suffixMatch.index + suffixMatch.boundary.length)
+    );
+  }
+
+  return { text: stripGemmaControlTokens(normalized) };
+}
+
+function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
+  const toolCalls: LocalLlmToolCall[] = [];
+
+  for (const boundary of GEMMA_TOOL_CALL_BOUNDARIES) {
+    const iterator = new RegExp(
+      `${escapeRegExp(boundary.open)}([\\s\\S]*?)${escapeRegExp(boundary.close)}`,
+      'g'
+    );
+
+    for (const match of text.matchAll(iterator)) {
+      const payload = match[1]?.trim();
+      if (!payload) {
+        continue;
+      }
+
+      const nameMatch = payload.match(/call:([^{]+)/);
+      const argsMatch = payload.match(/call:[^{]+(\{[\s\S]*\})/);
+      if (!(nameMatch?.[1] && argsMatch?.[1])) {
+        continue;
+      }
+
+      const normalizedArgumentsText = argsMatch[1]
+        .replace(/(\{|,)\s*([a-zA-Z_]\w+):/g, '$1"$2":')
+        .replace(/<\|"\|>/g, '"');
+
+      let argumentsText = normalizedArgumentsText;
+      try {
+        argumentsText = JSON.stringify(JSON.parse(normalizedArgumentsText) as unknown);
+      } catch {
+        // Preserve the normalized payload when it is still not valid JSON.
+      }
+
+      toolCalls.push({
+        id: crypto.randomUUID(),
+        type: 'function',
+        function: {
+          name: nameMatch[1].trim(),
+          arguments: argumentsText,
+        },
+      });
+    }
+  }
+
+  return toolCalls;
+}
+
+class Gemma4StreamAccumulator {
+  private answer = '';
+  private mode: 'answer' | 'detect' | 'reasoning' = 'detect';
+  private pending = '';
+  private reasoning = '';
+
+  constructor(thinkingEnabled: boolean) {
+    if (!thinkingEnabled) {
+      this.mode = 'answer';
+    }
+  }
+
+  append(chunk: string): { reasoningText?: string; text: string } {
+    if (!chunk) {
+      return this.snapshot();
+    }
+
+    this.pending += chunk;
+
+    while (this.pending.length > 0) {
+      if (this.mode === 'detect') {
+        if (hasPartialBoundaryPrefix(this.pending, GEMMA_THOUGHT_CHANNEL_PREFIXES)) {
+          break;
+        }
+
+        const prefix = findBoundaryAtStart(this.pending, GEMMA_THOUGHT_CHANNEL_PREFIXES);
+        if (prefix) {
+          this.pending = this.pending.slice(prefix.length);
+          this.mode = 'reasoning';
+          continue;
+        }
+
+        this.mode = 'answer';
+        continue;
+      }
+
+      if (this.mode === 'reasoning') {
+        const suffixMatch = findBoundaryInText(this.pending, GEMMA_THOUGHT_CHANNEL_SUFFIXES);
+        if (suffixMatch) {
+          this.reasoning += this.pending.slice(0, suffixMatch.index);
+          this.pending = this.pending.slice(suffixMatch.index + suffixMatch.boundary.length);
+          this.mode = 'answer';
+          continue;
+        }
+
+        const overlap = getBoundaryOverlap(this.pending, GEMMA_THOUGHT_CHANNEL_SUFFIXES);
+        const stableText = this.pending.slice(0, this.pending.length - overlap);
+        if (stableText) {
+          this.reasoning += stableText;
+          this.pending = this.pending.slice(stableText.length);
+        }
+        break;
+      }
+
+      this.answer += this.pending;
+      this.pending = '';
+    }
+
+    return this.snapshot();
+  }
+
+  finalize(fullRawText: string): { reasoningText?: string; text: string } {
+    const parsed = splitAnswerFromReasoningBlock(fullRawText);
+    this.reasoning = parsed.reasoningText ?? '';
+    this.answer = parsed.text;
+    this.pending = '';
+    this.mode = 'answer';
+    return this.snapshot();
+  }
+
+  snapshot(): { reasoningText?: string; text: string } {
+    return {
+      ...(this.reasoning ? { reasoningText: normalizeWhitespace(this.reasoning) } : {}),
+      text: stripGemmaControlTokens(this.answer),
+    };
+  }
+}
+
+function parseGenericToolCall(text: string): LocalLlmToolCall[] {
+  const structuredToolCalls = parseGemmaStructuredToolCalls(text);
+  if (structuredToolCalls.length > 0) {
+    return structuredToolCalls;
+  }
+
+  const trimmed = text.trim();
+  const candidates = [trimmed];
+  const wrappedMatch = trimmed.match(/<tool_call>([\s\S]+?)<\/tool_call>/);
+  if (wrappedMatch?.[1]) {
+    candidates.unshift(wrappedMatch[1].trim());
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as { name?: unknown; arguments?: unknown };
+      if (typeof parsed.name === 'string' && parsed.name.trim().length > 0) {
+        return [
+          {
+            id: crypto.randomUUID(),
+            type: 'function',
+            function: {
+              name: parsed.name,
+              arguments: JSON.stringify(parsed.arguments ?? {}),
+            },
+          },
+        ];
+      }
+    } catch {
+      // ignored
+    }
+  }
+
+  return [];
+}
+
+function countTokens(tokenizer: TokenizerLike, text: string): number {
+  const encoded = tokenizer.encode(text);
+  return Array.isArray(encoded) ? encoded.length : encoded.length;
+}
+
+interface GemmaStreamingState {
+  finalize: (rawText: string) => { reasoningText?: string; text: string };
+  readonly rawParts: string[];
+  readonly streamer: GemmaTextStreamer;
+}
+
+function createGemmaStreamingState(
+  transformers: TransformersModule,
+  tokenizer: unknown,
+  thinkingEnabled: boolean,
+  options: LocalLlmGenerationOptions
+): GemmaStreamingState {
+  const rawParts: string[] = [];
+  const streamAccumulator = new Gemma4StreamAccumulator(thinkingEnabled);
+  let lastReasoningSnapshot = '';
+  let lastTextSnapshot = '';
+
+  const emitSnapshot = (snapshot: { reasoningText?: string; text: string }): void => {
+    if (snapshot.reasoningText && snapshot.reasoningText !== lastReasoningSnapshot) {
+      lastReasoningSnapshot = snapshot.reasoningText;
+      options.stream?.onStageChange?.('reasoning');
+      options.stream?.onReasoningSnapshot?.(snapshot.reasoningText);
+    }
+    if (snapshot.text && snapshot.text !== lastTextSnapshot) {
+      lastTextSnapshot = snapshot.text;
+      options.stream?.onStageChange?.('responding');
+      options.stream?.onTextSnapshot?.(snapshot.text);
+    }
+  };
+
+  return {
+    rawParts,
+    streamer: transformers.createTextStreamer(tokenizer, {
+      skipPrompt: true,
+      skipSpecialTokens: false,
+      callbackFunction: (text) => {
+        rawParts.push(text);
+        emitSnapshot(streamAccumulator.append(text));
+      },
+    }),
+    finalize: (rawText) => {
+      const snapshot = streamAccumulator.finalize(rawText);
+      emitSnapshot(snapshot);
+      return snapshot;
+    },
+  };
+}
+
+export class Gemma4Engine {
+  private model: GemmaModel | null = null;
+  private processor: LoadedGemmaProcessor | null = null;
+
+  constructor(private readonly spec: LocalLlmModelSpec) {}
+
+  async initialize(device: 'webgpu', onProgress?: (progress: ProgressInfo) => void): Promise<void> {
+    if (this.model && this.processor) {
+      return;
+    }
+
+    let stage = 'resolve-transformers-module';
+    try {
+      logger.info('Gemma initialize started', {
+        modelId: this.spec.modelId,
+        device,
+        quantization: this.spec.quantization,
+        revision: this.spec.remoteRevision,
+      });
+      const transformers = await getTransformersModule();
+      stage = 'load-processor';
+      const processorOptions: LoaderOptions = {
+        revision: this.spec.remoteRevision,
+      };
+      if (onProgress) {
+        processorOptions.progressCallback = onProgress;
+      }
+      const processor = await transformers.loadProcessor(this.spec.modelId, processorOptions);
+      logger.info('Gemma processor loaded', {
+        modelId: this.spec.modelId,
+        processor: describeCallable(processor),
+      });
+      stage = 'load-model';
+      const modelOptions: ModelLoaderOptions = {
+        device,
+        dtype: this.spec.quantization,
+        revision: this.spec.remoteRevision,
+      };
+      if (onProgress) {
+        modelOptions.progressCallback = onProgress;
+      }
+      const model = await transformers.loadModel(this.spec.modelId, modelOptions);
+      logger.info('Gemma model loaded', {
+        modelId: this.spec.modelId,
+        model: describeCallable(model),
+      });
+
+      this.processor = processor;
+      this.model = model;
+      logger.info('Gemma initialize completed', {
+        modelId: this.spec.modelId,
+        device,
+      });
+    } catch (error) {
+      logger.error('Gemma initialize failed', {
+        modelId: this.spec.modelId,
+        device,
+        stage,
+        error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof Error && typeof error.stack === 'string'
+          ? { stack: error.stack }
+          : {}),
+      });
+      throw error;
+    }
+  }
+
+  isReady(): boolean {
+    return Boolean(this.processor && this.model);
+  }
+
+  async dispose(): Promise<void> {
+    if (this.model?.dispose) {
+      await this.model.dispose();
+    }
+    this.model = null;
+    this.processor = null;
+  }
+
+  async generate(
+    messages: readonly LocalLlmMessage[],
+    options: LocalLlmGenerationOptions = {}
+  ): Promise<Gemma4GenerateResult> {
+    if (!(this.processor && this.model)) {
+      throw new Error('Gemma engine is not initialized');
+    }
+
+    let stage = 'prepare-messages';
+    try {
+      logger.info('Gemma generation started', {
+        modelId: this.spec.modelId,
+        messageCount: messages.length,
+        toolCount: options.tools?.length ?? 0,
+        thinkingEnabled: options.thinking?.enabled ?? true,
+        maxNewTokens: options.maxNewTokens ?? 512,
+      });
+      const promptMessages = injectGemmaSystemMessages(messages);
+      stage = 'apply-chat-template';
+      const promptText = this.processor.applyChatTemplate(promptMessages, {
+        addGenerationPrompt: true,
+        enableThinking: options.thinking?.enabled ?? true,
+        ...(options.tools ? { tools: options.tools } : {}),
+      });
+
+      const transformers = await getTransformersModule();
+      const streamingState = createGemmaStreamingState(
+        transformers,
+        this.processor.tokenizer.raw,
+        options.thinking?.enabled ?? true,
+        options
+      );
+
+      stage = 'processor-run';
+      const inputs = await this.processor.run(promptText, null, null, { addSpecialTokens: false });
+      stage = 'model-generate';
+      options.stream?.onStageChange?.('generating');
+      const outputs = await this.model.generate({
+        ...inputs,
+        ...buildGenerateOptions(options),
+        streamer: streamingState.streamer,
+      });
+
+      stage = 'decode-output';
+      const inputLength = inputs.inputIds.dims.at(-1) ?? 0;
+      const decoded = this.processor.batchDecode(outputs.slice(null, [inputLength, null]), {
+        skipSpecialTokens: false,
+      });
+      const rawText = decoded[0] ?? streamingState.rawParts.join('');
+      const parsedOutput = streamingState.finalize(rawText);
+      const text = parsedOutput.text;
+      const toolCalls = parseGenericToolCall(text);
+      const visibleText = toolCalls.length > 0 ? stripGemmaToolCallBlocks(text) : text;
+      stage = 'count-tokens';
+      const promptTokens = countTokens(this.processor.tokenizer, promptText);
+      const completionTokens = countTokens(this.processor.tokenizer, visibleText);
+
+      logger.info('Gemma generation complete', {
+        modelId: this.spec.modelId,
+        promptLength: promptText.length,
+        rawTextLength: rawText.length,
+        visibleTextLength: visibleText.length,
+        promptTokens,
+        completionTokens,
+        toolCalls: toolCalls.length,
+      });
+
+      return {
+        promptText,
+        rawText,
+        ...(parsedOutput.reasoningText ? { reasoningText: parsedOutput.reasoningText } : {}),
+        text: visibleText,
+        toolCalls,
+        usage: {
+          promptTokens,
+          completionTokens,
+          totalTokens: promptTokens + completionTokens,
+        },
+      };
+    } catch (error) {
+      logger.error('Gemma generation failed', {
+        modelId: this.spec.modelId,
+        stage,
+        messageCount: messages.length,
+        toolCount: options.tools?.length ?? 0,
+        thinkingEnabled: options.thinking?.enabled ?? true,
+        error: error instanceof Error ? error.message : String(error),
+        ...(error instanceof Error && typeof error.stack === 'string'
+          ? { stack: error.stack }
+          : {}),
+      });
+      throw error;
+    }
+  }
+}

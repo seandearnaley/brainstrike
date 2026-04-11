@@ -117,6 +117,29 @@ describe('LocalLanguageModel', () => {
       expect(result).toHaveProperty('usage');
     });
 
+    it('includes hidden reasoning as a separate content part when present', async () => {
+      mockGenerate.mockResolvedValueOnce({
+        ...mockGenerateResult,
+        reasoningText: 'Analyze the request first.',
+      } satisfies LocalLlmGenerationResult);
+      const model = new LocalLanguageModel('test-model');
+
+      const result = await model.doGenerate({
+        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+      });
+
+      expect(result.content).toEqual([
+        {
+          type: 'reasoning',
+          text: 'Analyze the request first.',
+        },
+        {
+          type: 'text',
+          text: 'Test response',
+        },
+      ]);
+    });
+
     it('handles tool result messages', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {

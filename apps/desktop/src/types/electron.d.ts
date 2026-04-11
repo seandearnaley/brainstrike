@@ -22,6 +22,7 @@ import type {
   EmbeddingHostCommand,
   EmbeddingHostStatus,
 } from '../embedding-host-shared';
+import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 
 import type { LoggingSettingsPayload } from '../logging-shared';
 
@@ -129,6 +130,25 @@ declare global {
       onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
       onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
     };
+    llmHost: {
+      ensureStarted: () => Promise<LlmHostStatus>;
+      stop: () => Promise<LlmHostStatus>;
+      reset: () => Promise<LlmHostStatus>;
+      getStatus: () => Promise<LlmHostStatus>;
+      warmup: (modelId: string) => Promise<void>;
+      generate: (payload: {
+        requestId?: string;
+        modelId: string;
+        messages: unknown[];
+        options?: unknown;
+      }) => Promise<unknown>;
+      reportStatus: (status: LlmHostStatus) => void;
+      reportProgress: (progress: LlmHostResponseReport) => void;
+      reportResponse: (response: LlmHostResponseReport) => void;
+      onStatus: (callback: (status: LlmHostStatus) => void) => () => void;
+      onRequest: (callback: (request: LlmHostRequest) => void) => () => void;
+      onProgress: (callback: (progress: LlmHostResponseReport) => void) => () => void;
+    };
     logging: {
       getPreferences: () => Promise<LoggingSettingsPayload>;
       setPreferences: (preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>;
@@ -217,7 +237,8 @@ declare global {
     tools: {
       execute: (
         toolId: string,
-        input: unknown
+        input: unknown,
+        runtimeData?: Record<string, unknown>
       ) => Promise<
         | {
             success: true;
