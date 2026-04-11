@@ -431,4 +431,34 @@ describe('LlmHostManager', () => {
 
     expect(manager.preCancelledRequestIds.has('601:never-dispatched')).toBe(false);
   });
+
+  it('purges pre-cancelled request ids immediately when the requester is destroyed', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(701);
+    lifecycleState.getStatus.mockReturnValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      state: 'starting',
+    });
+    lifecycleState.getHostWindow.mockReturnValue(undefined);
+
+    await expect(manager.cancel(requester, 'destroyed-before-dispatch')).resolves.toBeUndefined();
+    expect(manager.preCancelledRequestIds.has('701:destroyed-before-dispatch')).toBe(true);
+
+    const destroyedHandler = (
+      requester.once as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(([eventName]: readonly [string]) => eventName === 'destroyed')?.[1] as
+      | (() => void)
+      | undefined;
+
+    if (!destroyedHandler) {
+      throw new Error('Expected destroyed listener to be registered');
+    }
+
+    destroyedHandler();
+
+    expect(manager.preCancelledRequestIds.has('701:destroyed-before-dispatch')).toBe(false);
+    expect(requester.removeListener).toHaveBeenCalledWith('destroyed', destroyedHandler);
+  });
 });

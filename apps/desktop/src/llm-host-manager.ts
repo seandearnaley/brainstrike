@@ -33,16 +33,18 @@ interface PendingLlmRequest {
   timeoutMs: number;
 }
 
+interface PreCancelledRequestCleanup {
+  cleanupRequesterListener?: () => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+}
+
 function createRequestFailure(message: string): Error {
   return new Error(message);
 }
 
 export class LlmHostManager {
   private readonly lifecycle: RendererHostLifecycle<LlmHostStatus>;
-  private readonly preCancelledRequestCleanupTimers = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
+  private readonly preCancelledRequestCleanups = new Map<string, PreCancelledRequestCleanup>();
   private readonly preCancelledRequestIds = new Set<string>();
   private readonly pendingRequests = new Map<string, PendingLlmRequest>();
 
@@ -216,7 +218,7 @@ export class LlmHostManager {
     const status = this.getStatus();
     const hostWindow = this.lifecycle.getHostWindow();
     if (status.state !== 'running' || !hostWindow || hostWindow.isDestroyed()) {
-      this.recordPreCancelledRequest(scopedRequestId);
+      this.recordPreCancelledRequest(requester, scopedRequestId);
       logger.debug('Skipping llm-host cancel because the host is not running', {
         requestId: trimmedRequestId,
         state: status.state,
@@ -345,6 +347,10 @@ export class LlmHostManager {
 
   private scopeClientRequestId(requester: WebContents, requestId: string): string {
     const trimmedRequestId = requestId.trim();
+    // IPC callers are responsible for supplying clientRequestId values that are unique for the
+    // lifetime of a pending request. We scope by requester id to isolate renderers, but callers
+    // must still avoid reusing the same clientRequestId while an earlier request or pre-cancel
+    // entry for that id may still exist.
     if (trimmedRequestId.startsWith(`${requester.id}:`)) {
       return trimmedRequestId;
     }
@@ -363,26 +369,42 @@ export class LlmHostManager {
   }
 
   private clearPreCancelledRequest(requestId: string): boolean {
-    const timeoutId = this.preCancelledRequestCleanupTimers.get(requestId);
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      this.preCancelledRequestCleanupTimers.delete(requestId);
+    const cleanup = this.preCancelledRequestCleanups.get(requestId);
+    if (cleanup) {
+      clearTimeout(cleanup.timeoutId);
+      cleanup.cleanupRequesterListener?.();
+      this.preCancelledRequestCleanups.delete(requestId);
     }
     return this.preCancelledRequestIds.delete(requestId);
   }
 
-  private recordPreCancelledRequest(requestId: string): void {
-    const existingTimeout = this.preCancelledRequestCleanupTimers.get(requestId);
-    if (existingTimeout) {
-      clearTimeout(existingTimeout);
+  private recordPreCancelledRequest(requester: WebContents, requestId: string): void {
+    const existingCleanup = this.preCancelledRequestCleanups.get(requestId);
+    if (existingCleanup) {
+      clearTimeout(existingCleanup.timeoutId);
+      existingCleanup.cleanupRequesterListener?.();
     }
 
     this.preCancelledRequestIds.add(requestId);
+    const requesterDestroyedHandler = (): void => {
+      this.clearPreCancelledRequest(requestId);
+    };
+    const cleanupRequesterListener =
+      typeof requester.once === 'function' && typeof requester.removeListener === 'function'
+        ? () => {
+            requester.removeListener('destroyed', requesterDestroyedHandler);
+          }
+        : undefined;
+    if (typeof requester.once === 'function') {
+      requester.once('destroyed', requesterDestroyedHandler);
+    }
     const timeoutId = setTimeout(() => {
-      this.preCancelledRequestCleanupTimers.delete(requestId);
-      this.preCancelledRequestIds.delete(requestId);
+      this.clearPreCancelledRequest(requestId);
     }, PRE_CANCELLED_REQUEST_TTL_MS);
-    this.preCancelledRequestCleanupTimers.set(requestId, timeoutId);
+    this.preCancelledRequestCleanups.set(requestId, {
+      timeoutId,
+      ...(cleanupRequesterListener ? { cleanupRequesterListener } : {}),
+    });
   }
 
   private sendCancelRequestToHost(requestId: string, hostWindow?: BrowserWindow): void {

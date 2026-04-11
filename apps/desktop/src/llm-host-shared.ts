@@ -230,13 +230,16 @@ function assertMessageToolResponses(
 }
 
 function assertMessageContent(message: LocalLlmMessage, index: number): LocalLlmMessage {
-  if (message.toolCalls && message.role !== 'assistant') {
+  if (message.toolCalls && message.toolCalls.length > 0 && message.role !== 'assistant') {
     throw new Error(
       `Llm host generate payload.messages[${index}].toolCalls are only valid for assistant messages.`
     );
   }
 
-  if ((message.toolResponses || message.toolCallId) && message.role !== 'tool') {
+  if (
+    ((message.toolResponses && message.toolResponses.length > 0) || message.toolCallId) &&
+    message.role !== 'tool'
+  ) {
     throw new Error(
       `Llm host generate payload.messages[${index}].toolResponses and toolCallId are only valid for tool messages.`
     );
