@@ -12,6 +12,7 @@ const originalWindow = globalThis.window;
 
 describe('local-artifact-store', () => {
   afterEach(() => {
+    Reflect.deleteProperty(globalThis, '__BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__');
     if (originalWindow) {
       globalThis.window = originalWindow;
       return;
@@ -48,6 +49,28 @@ describe('local-artifact-store', () => {
       },
     } as Window;
     expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
+  });
+
+  it('uses the hugging face host for non-http desktop protocols', () => {
+    globalThis.window = {
+      location: {
+        protocol: 'app:',
+      },
+    } as Window;
+
+    expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
+  });
+
+  it('prefers an explicit remote host override when provided', () => {
+    (
+      globalThis as typeof globalThis & {
+        __BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__?: string;
+      }
+    ).__BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__ = 'https://cache.internal/hf/';
+
+    expect(resolveLocalArtifactRemoteHost()).toBe('https://cache.internal/hf/');
+
+    Reflect.deleteProperty(globalThis, '__BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__');
   });
 
   it('configures transformers runtime fetches to use the same remote host contract as downloads', () => {

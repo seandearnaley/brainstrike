@@ -50,6 +50,12 @@ export const migration028GemmaLocalLlm: Migration = {
       updated_at = CURRENT_TIMESTAMP;
   `,
   down: `
+    -- Rollback note:
+    -- - This restores the legacy built-in local model rows, but it does not restore user-customized
+    --   is_enabled values that may have existed before migration 028.
+    -- - App-level assistant preference migrations only remap legacy local selections -> Gemma.
+    --   Reverting this migration may therefore require clearing persisted assistant preferences that
+    --   still point at the Gemma local model id.
     DELETE FROM models WHERE id = 'onnx-community/gemma-4-E2B-it-ONNX';
 
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, parameters, sort_order, is_enabled)

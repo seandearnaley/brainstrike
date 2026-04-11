@@ -7,6 +7,7 @@ const TRANSFORMERS_CACHE_NAME = 'transformers-cache';
 const QUOTA_SAFETY_BUFFER = 1.1;
 const HUGGING_FACE_REMOTE_HOST = 'https://huggingface.co/';
 const HUGGING_FACE_REMOTE_PATH_TEMPLATE = '{model}/resolve/{revision}/';
+const LOCAL_ARTIFACT_REMOTE_HOST_OVERRIDE_KEY = '__BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__';
 
 export interface LocalArtifactStore {
   download(
@@ -23,16 +24,32 @@ interface ArtifactStatus {
   isCached: boolean;
 }
 
+function readRemoteHostOverride(): string | null {
+  const override = (
+    globalThis as typeof globalThis & {
+      [LOCAL_ARTIFACT_REMOTE_HOST_OVERRIDE_KEY]?: unknown;
+    }
+  )[LOCAL_ARTIFACT_REMOTE_HOST_OVERRIDE_KEY];
+  return typeof override === 'string' && override.trim().length > 0 ? override.trim() : null;
+}
+
 export function resolveLocalArtifactRemoteHost(): string {
+  const override = readRemoteHostOverride();
+  if (override) {
+    return override;
+  }
+
   if (typeof window === 'undefined') {
     return HUGGING_FACE_REMOTE_HOST;
   }
 
-  if (window.location.protocol === 'file:') {
-    return HUGGING_FACE_REMOTE_HOST;
+  switch (window.location.protocol) {
+    case 'http:':
+    case 'https:':
+      return '/api/hf/';
+    default:
+      return HUGGING_FACE_REMOTE_HOST;
   }
-
-  return '/api/hf/';
 }
 
 export function resolveLocalArtifactRemotePathTemplate(): string {

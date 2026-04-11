@@ -185,4 +185,34 @@ describe('ipc-llm-host', () => {
     ).toThrow('Llm host response report.requestId must be a non-empty string.');
     expect(manager.acceptResponseReport).not.toHaveBeenCalled();
   });
+
+  it('rejects non-string cancel request ids before forwarding them to the manager', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      cancel: vi.fn(),
+      generate: vi.fn(),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn(),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const cancelCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:cancel'
+    );
+    if (!cancelCall) {
+      throw new Error('llm-host:cancel handler not registered');
+    }
+
+    const cancelHandler = cancelCall[1] as (
+      event: IpcMainInvokeEvent,
+      requestId: unknown
+    ) => Promise<unknown>;
+
+    await expect(
+      cancelHandler({ sender: {} } as IpcMainInvokeEvent, { bad: true })
+    ).rejects.toThrow('Llm host cancel requestId must be a string.');
+    expect(manager.cancel).not.toHaveBeenCalled();
+  });
 });

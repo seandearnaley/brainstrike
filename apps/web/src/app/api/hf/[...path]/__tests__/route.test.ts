@@ -257,6 +257,7 @@ describe('hf proxy route', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(response.status).toBe(403);
+    expect(response.headers.get('x-brainstrike-proxy-rejection')).toBe('origin');
     expect(await response.text()).toContain('Forbidden Hugging Face proxy request');
   });
 

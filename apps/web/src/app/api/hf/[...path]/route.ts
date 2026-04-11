@@ -1,3 +1,5 @@
+import { createLogger } from '@brainstrike/utils/logger';
+
 const HUGGING_FACE_BASE_URL = 'https://huggingface.co';
 // Keep this pinned to the same built-in local model contract as
 // packages/agent/src/providers/local/local-model-specs.ts.
@@ -18,6 +20,9 @@ const PASSTHROUGH_RESPONSE_HEADERS = [
   'etag',
   'last-modified',
 ] as const;
+const logger = createLogger('HuggingFaceProxyRoute');
+
+export const runtime = 'nodejs';
 
 function isSafePathSegment(segment: string): boolean {
   return segment.length > 0 && segment !== '.' && segment !== '..';
@@ -126,12 +131,20 @@ function createForbiddenProxyResponse(): Response {
     headers: {
       'cache-control': 'no-store',
       'content-type': 'text/plain; charset=utf-8',
+      'x-brainstrike-proxy-rejection': 'origin',
     },
   });
 }
 
 async function proxyRequest(request: Request, pathSegments: string[]): Promise<Response> {
   if (!isTrustedSameOriginRequest(request)) {
+    logger.warn('Rejected Hugging Face proxy request due to origin trust check', {
+      hasOrigin: request.headers.has('origin'),
+      hasReferer: request.headers.has('referer'),
+      method: request.method,
+      path: pathSegments.join('/'),
+      secFetchSite: request.headers.get('sec-fetch-site'),
+    });
     return createForbiddenProxyResponse();
   }
   if (!isAllowedPath(pathSegments)) {
@@ -148,6 +161,7 @@ async function proxyRequest(request: Request, pathSegments: string[]): Promise<R
   }
   const upstream = await fetch(targetUrl, {
     headers: buildProxyRequestHeaders(request),
+    // Next.js only exports GET/HEAD for this route, so request.method is already constrained here.
     method: request.method,
     signal: request.signal,
   });

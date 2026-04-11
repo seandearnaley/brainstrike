@@ -47,7 +47,10 @@ export function registerLlmHostIpcHandlers(manager: LlmHostManager): () => void 
     async (event, payload: unknown) =>
       await manager.generate(event.sender, assertLlmHostGeneratePayload(payload))
   );
-  ipcMain.handle(LLM_HOST_CANCEL_CHANNEL, async (event, requestId: string) => {
+  ipcMain.handle(LLM_HOST_CANCEL_CHANNEL, async (event, requestId: unknown) => {
+    if (typeof requestId !== 'string') {
+      throw new Error('Llm host cancel requestId must be a string.');
+    }
     await manager.cancel(event.sender, requestId);
   });
 
@@ -55,8 +58,8 @@ export function registerLlmHostIpcHandlers(manager: LlmHostManager): () => void 
     manager.acceptResponseReport(event.sender.id, assertLlmHostResponseReport(response));
   };
   ipcMain.on(LLM_HOST_REPORT_RESPONSE_CHANNEL, responseListener);
-  const progressListener = (event: IpcMainEvent, progress: unknown) => {
-    manager.acceptResponseReport(event.sender.id, assertLlmHostResponseReport(progress));
+  const progressListener = (event: IpcMainEvent, report: unknown) => {
+    manager.acceptResponseReport(event.sender.id, assertLlmHostResponseReport(report));
   };
   ipcMain.on(LLM_HOST_REPORT_PROGRESS_CHANNEL, progressListener);
 
