@@ -158,6 +158,31 @@ describe('LlmHostManager', () => {
     await expect(warmupPromise).resolves.toBeUndefined();
   });
 
+  it('scopes fallback-generated request ids to the requester', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(401);
+
+    const warmupPromise = manager.warmup(requester, 'onnx-community/gemma-4-E2B-it-ONNX');
+    await vi.waitFor(() => {
+      expect(manager.pendingRequests.size).toBe(1);
+    });
+    const [requestId] = [...manager.pendingRequests.keys()];
+
+    expect(requestId?.startsWith('401:')).toBe(true);
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: requestId ?? 'missing',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: null,
+      },
+    });
+
+    await expect(warmupPromise).resolves.toBeUndefined();
+  });
+
   it('rejects duplicate client request IDs instead of overwriting pending work', async () => {
     const manager = new LlmHostManager() as TestableLlmHostManager;
     const requester = createRequester(201);

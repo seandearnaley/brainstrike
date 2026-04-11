@@ -41,11 +41,10 @@ function isAllowedPath(pathSegments: string[]): boolean {
   );
 }
 
-function buildTargetUrl(request: Request, pathSegments: string[]): string {
+function buildTargetUrl(_request: Request, pathSegments: string[]): string {
   const normalizedPath = pathSegments.map((segment) => encodeURIComponent(segment)).join('/');
   const upstream = new URL(`${HUGGING_FACE_BASE_URL}/${normalizedPath}`);
-  const source = new URL(request.url);
-  upstream.search = source.search;
+  upstream.search = '';
 
   if (!upstream.pathname.startsWith(`/${ALLOWED_MODEL_ID}/resolve/${ALLOWED_MODEL_REVISION}/`)) {
     throw new Error('unsupported_hf_path');

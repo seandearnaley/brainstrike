@@ -622,7 +622,7 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
       }
 
       const normalizedArgumentsText = extractedArgumentsText
-        .replace(/(\{|,)\s*([a-zA-Z_]\w+):/g, '$1"$2":')
+        .replace(/(\{|,)\s*([a-zA-Z_]\w*):/g, '$1"$2":')
         .replace(/<\|"\|>/g, '"');
 
       let argumentsText = normalizedArgumentsText;

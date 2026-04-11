@@ -75,7 +75,7 @@ describe('hf proxy route', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [targetUrl, options] = fetchMock.mock.calls[0] ?? [];
     expect(targetUrl).toBe(
-      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/30b3854c1ca3e0f08981e1a439de9fbd9245a3a9/onnx/decoder_model_merged_q4f16.onnx?download=true'
+      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/30b3854c1ca3e0f08981e1a439de9fbd9245a3a9/onnx/decoder_model_merged_q4f16.onnx'
     );
     expect(options).toMatchObject({ method: 'GET' });
     const headers = options?.headers as Headers;

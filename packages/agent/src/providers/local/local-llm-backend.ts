@@ -60,6 +60,27 @@ function resolveRequestedDevice(requested?: 'webgpu' | 'wasm'): 'webgpu' {
   return 'webgpu';
 }
 
+function resolveProgressPercent(progress: {
+  loaded?: number;
+  progress?: number;
+  status?: string;
+  total?: number;
+}): number {
+  if (typeof progress.progress === 'number') {
+    return progress.progress;
+  }
+
+  if (
+    typeof progress.loaded === 'number' &&
+    typeof progress.total === 'number' &&
+    progress.total > 0
+  ) {
+    return Math.round((progress.loaded / progress.total) * 100);
+  }
+
+  return progress.status === 'done' ? 100 : 0;
+}
+
 export class LocalLlmBackend {
   private engine: Gemma4Engine | null = null;
   private modelId: string | null = null;
@@ -87,10 +108,7 @@ export class LocalLlmBackend {
 
     const engine = new Gemma4Engine(spec);
     await engine.initialize(selectedDevice, (progress) => {
-      const percent =
-        progress.status === 'progress_total' && typeof progress.progress === 'number'
-          ? progress.progress
-          : 0;
+      const percent = resolveProgressPercent(progress);
       this.status = {
         state: 'loading',
         progress: percent,

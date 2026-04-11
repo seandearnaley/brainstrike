@@ -214,6 +214,45 @@ describe('LocalLlmBackend', () => {
     ).rejects.toThrow('webgpu_unavailable');
   });
 
+  it('maps transformers progress callbacks onto loading percentages', async () => {
+    const progressUpdates: Array<{ progress: number; stage: string }> = [];
+    mockFromPretrainedProcessor.mockImplementationOnce(async function (
+      this: typeof mockAutoProcessor,
+      _modelId: string,
+      options: { progress_callback?: (progress: { loaded: number; total: number }) => void }
+    ) {
+      if (this !== mockAutoProcessor) {
+        throw new TypeError('this is not a constructor');
+      }
+      options.progress_callback?.({
+        loaded: 1,
+        total: 4,
+      });
+      return callableProcessor;
+    });
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+      onProgress: (progress) => {
+        progressUpdates.push({
+          progress: progress.progress,
+          stage: progress.stage,
+        });
+      },
+    });
+
+    expect(progressUpdates).toContainEqual({
+      stage: 'loading',
+      progress: 25,
+    });
+    expect(progressUpdates.at(-1)).toEqual({
+      stage: 'ready',
+      progress: 100,
+    });
+  });
+
   it('strips Gemma thought traces from generated text', async () => {
     const backend = new LocalLlmBackend();
 
@@ -626,6 +665,44 @@ Because they make up everything!<turn|>`,
         options: {
           encoding: 'utf8',
         },
+      }),
+    });
+  });
+
+  it('parses Gemma tool call arguments with single-character keys', async () => {
+    mockBatchDecode.mockReturnValue(['<|tool_call|>call:demo{x:1,y:<|"|>two<|"|>}<tool_call|>']);
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ role: 'user', content: 'Call the tool' }], {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'demo',
+            description: 'Demo tool',
+            parameters: {
+              type: 'object',
+              properties: {
+                x: { type: 'number' },
+                y: { type: 'string' },
+              },
+              required: ['x', 'y'],
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.toolCalls?.[0]?.function).toEqual({
+      name: 'demo',
+      arguments: JSON.stringify({
+        x: 1,
+        y: 'two',
       }),
     });
   });
