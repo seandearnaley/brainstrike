@@ -266,23 +266,21 @@ export class LlmHostManager {
               requester.removeListener('destroyed', requesterDestroyedHandler);
             }
           : null;
+      const timeoutMs =
+        payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS;
 
       const pending: PendingLlmRequest = {
         requestId,
         requester,
         resolve,
         reject,
-        timeoutMs:
-          payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS,
-        timeoutId: setTimeout(
-          () => {
-            pending.cleanupRequesterListener?.();
-            this.pendingRequests.delete(requestId);
-            this.tryCancelHostRequest(requestId, hostWindow, 'timeout');
-            reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
-          },
-          payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS
-        ),
+        timeoutMs,
+        timeoutId: setTimeout(() => {
+          pending.cleanupRequesterListener?.();
+          this.pendingRequests.delete(requestId);
+          this.tryCancelHostRequest(requestId, hostWindow, 'timeout');
+          reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
+        }, timeoutMs),
         ...(cleanupRequesterListener ? { cleanupRequesterListener } : {}),
       };
       if (typeof requester.once === 'function') {

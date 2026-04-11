@@ -149,6 +149,42 @@ describe('ipc-llm-host', () => {
     expect(manager.warmupRequest).not.toHaveBeenCalled();
   });
 
+  it('normalizes legacy string warmup payloads through the shared validator', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn(),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const warmupCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:warmup'
+    );
+    if (!warmupCall) {
+      throw new Error('llm-host:warmup handler not registered');
+    }
+
+    const warmupHandler = warmupCall[1] as (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ) => Promise<unknown>;
+    await warmupHandler(
+      { sender: { id: 1 } } as unknown as IpcMainInvokeEvent,
+      'onnx-community/gemma-4-E2B-it-ONNX'
+    );
+
+    expect(manager.warmupRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kind: 'warmup',
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      })
+    );
+  });
+
   it('validates host response reports before forwarding them to the manager', async () => {
     const manager = {
       acceptResponseReport: vi.fn(),

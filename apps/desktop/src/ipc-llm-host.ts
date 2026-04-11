@@ -34,13 +34,21 @@ export function registerLlmHostIpcHandlers(manager: LlmHostManager): () => void 
 
   ipcMain.handle(
     LLM_HOST_WARMUP_CHANNEL,
-    async (event, payload: string | { clientRequestId?: string; modelId: string }) =>
-      await (typeof payload === 'string'
-        ? manager.warmup(event.sender, payload)
-        : manager.warmupRequest(
-            event.sender,
-            assertLlmHostWarmupPayload({ ...payload, kind: 'warmup' })
-          ))
+    async (event, payload: string | { clientRequestId?: string; modelId: string }) => {
+      const normalizedPayload =
+        typeof payload === 'string'
+          ? {
+              kind: 'warmup' as const,
+              modelId: payload,
+              clientRequestId: crypto.randomUUID(),
+            }
+          : { ...payload, kind: 'warmup' as const };
+
+      return await manager.warmupRequest(
+        event.sender,
+        assertLlmHostWarmupPayload(normalizedPayload)
+      );
+    }
   );
   ipcMain.handle(
     LLM_HOST_GENERATE_CHANNEL,
