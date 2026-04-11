@@ -9,7 +9,11 @@ const HUGGING_FACE_REMOTE_HOST = 'https://huggingface.co/';
 const HUGGING_FACE_REMOTE_PATH_TEMPLATE = '{model}/resolve/{revision}/';
 
 export interface LocalArtifactStore {
-  download(spec: LocalLlmModelSpec, onProgress?: LocalLlmProgressCallback): Promise<void>;
+  download(
+    spec: LocalLlmModelSpec,
+    onProgress?: LocalLlmProgressCallback,
+    signal?: AbortSignal
+  ): Promise<void>;
   hasRequiredArtifacts(spec: LocalLlmModelSpec): Promise<boolean>;
 }
 
@@ -136,14 +140,14 @@ async function cacheResponseStream(
   url: string,
   response: Response,
   onChunkProgress: (loaded: number, total: number | null) => void
-): Promise<void> {
+): Promise<number> {
   if (response.status !== 200) {
     throw new Error(`artifact_cache_requires_full_response: ${url} returned ${response.status}`);
   }
   if (!response.body) {
     await cache.put(url, response.clone());
     onChunkProgress(1, 1);
-    return;
+    return 1;
   }
 
   const totalHeader = response.headers.get('content-length');
@@ -171,10 +175,15 @@ async function cacheResponseStream(
       statusText: 'OK',
     })
   );
+  return loaded;
 }
 
 export class BrowserCacheArtifactStore implements LocalArtifactStore {
-  async download(spec: LocalLlmModelSpec, onProgress?: LocalLlmProgressCallback): Promise<void> {
+  async download(
+    spec: LocalLlmModelSpec,
+    onProgress?: LocalLlmProgressCallback,
+    signal?: AbortSignal
+  ): Promise<void> {
     const cache = await openArtifactCache();
     const { files, requiredBytes } = await estimateRemainingArtifactBytes(cache, spec);
     await checkStorageQuota(requiredBytes);
@@ -191,24 +200,28 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
         headers: {
           accept: '*/*',
         },
+        ...(signal ? { signal } : {}),
       });
       if (!response.ok) {
         throw new Error(`artifact_download_failed: ${filePath} returned ${response.status}`);
       }
 
-      let downloadedFileBytes = 0;
-      await cacheResponseStream(cache, url, response, (loaded, total) => {
-        downloadedFileBytes = total ?? loaded;
-        onProgress?.({
-          stage: 'downloading',
-          progress: toProgressPercent(
-            downloadedBytes + loaded,
-            Math.max(spec.totalSizeBytes, downloadedBytes + (total ?? loaded))
-          ),
-          message: `Downloading ${filePath}`,
-          file: filePath,
-        });
-      });
+      const downloadedFileBytes = await cacheResponseStream(
+        cache,
+        url,
+        response,
+        (loaded, total) => {
+          onProgress?.({
+            stage: 'downloading',
+            progress: toProgressPercent(
+              downloadedBytes + loaded,
+              Math.max(spec.totalSizeBytes, downloadedBytes + (total ?? loaded))
+            ),
+            message: `Downloading ${filePath}`,
+            file: filePath,
+          });
+        }
+      );
 
       downloadedBytes += downloadedFileBytes;
     }

@@ -220,6 +220,7 @@ export class LocalLlmBackend {
         message: string;
         file?: string;
       }) => void;
+      signal?: AbortSignal;
     }
   ): Promise<void> {
     const spec = getLocalLlmModelSpec(modelId);
@@ -235,7 +236,11 @@ export class LocalLlmBackend {
     }
 
     const store = createLocalArtifactStore();
-    await store.download(spec, options?.onProgress as LocalLlmConfig['onProgress']);
+    await store.download(
+      spec,
+      options?.onProgress as LocalLlmConfig['onProgress'],
+      options?.signal
+    );
   }
 
   static async hasDownloadedModel(modelId: string): Promise<boolean> {
