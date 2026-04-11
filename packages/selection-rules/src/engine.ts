@@ -635,10 +635,16 @@ export class InMemoryTreeAdapter implements TreeAdapter {
     }
 
     // Add implicit parent directories
+    // Optimized: avoid path.split('/') and intermediate array allocations
     for (const path of this.files.keys()) {
-      const parts = path.split('/');
-      for (let i = 1; i < parts.length; i++) {
-        this.directories.add(parts.slice(0, i).join('/'));
+      let lastSlashIndex = path.indexOf('/', 0);
+      let segmentStart = 0;
+      while (lastSlashIndex !== -1) {
+        if (lastSlashIndex > segmentStart || (segmentStart === 0 && lastSlashIndex === 0)) {
+          this.directories.add(path.slice(0, lastSlashIndex));
+        }
+        segmentStart = lastSlashIndex + 1;
+        lastSlashIndex = path.indexOf('/', segmentStart);
       }
     }
   }
@@ -655,7 +661,15 @@ export class InMemoryTreeAdapter implements TreeAdapter {
       if (path === normalizedRoot || path.startsWith(`${normalizedRoot}/`)) {
         if (maxDepth !== undefined) {
           const relativePath = path.slice(normalizedRoot.length + 1);
-          const depth = relativePath.split('/').length - 1;
+          // Optimized: avoid relativePath.split('/') and intermediate array allocations
+          let depth = 0;
+          if (relativePath.length > 0) {
+            let lastSlashIndex = relativePath.indexOf('/', 0);
+            while (lastSlashIndex !== -1) {
+              depth++;
+              lastSlashIndex = relativePath.indexOf('/', lastSlashIndex + 1);
+            }
+          }
           if (depth > maxDepth) {
             continue;
           }
