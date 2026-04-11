@@ -185,10 +185,18 @@ function buildLocalToolDefinitions(
   return definitions.length > 0 ? definitions : undefined;
 }
 
-// Singleton backend instance - persists across renders to avoid reloading model
-type LocalLlmBackendInstance = InstanceType<
-  typeof import('@brainstrike/agent/local-llm').LocalLlmBackend
->;
+type LocalLlmBackendProgress = NonNullable<LocalRuntimeAdapterOptions['onLoadingProgress']>;
+type LocalLlmStreamHandlers = NonNullable<LocalLlmGenerationOptions['stream']>;
+
+interface LocalLlmBackendInstance {
+  dispose(): Promise<void>;
+  generate(
+    messages: LocalLlmMessage[],
+    options?: LocalLlmGenerationOptions
+  ): Promise<LocalLlmGenerationResult>;
+  initialize(config: { modelId: string; onProgress?: LocalLlmBackendProgress }): Promise<void>;
+  isReady(): boolean;
+}
 
 let backendInstance: LocalLlmBackendInstance | null = null;
 let backendInstancePromise: Promise<LocalLlmBackendInstance> | null = null;
@@ -236,7 +244,7 @@ async function getBackend(): Promise<LocalLlmBackendInstance> {
       try {
         // Dynamic import to avoid bundling transformers.js in non-local builds
         const { LocalLlmBackend } = await import('@brainstrike/agent/local-llm');
-        const instance = new LocalLlmBackend();
+        const instance = new LocalLlmBackend() as LocalLlmBackendInstance;
 
         // Check if disposal was requested while we were initializing
         if (disposalState.requested) {
@@ -316,7 +324,7 @@ function createToolCallParts(result: LocalLlmGenerationResult): AssistantToolCal
     return [];
   }
 
-  return result.toolCalls.map((toolCall) => createToolCallPart(toolCall));
+  return result.toolCalls.map((toolCall: LocalLlmToolCall) => createToolCallPart(toolCall));
 }
 
 function createToolCallPart(
@@ -709,7 +717,13 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             const generatePromise = backend.generate(conversationMessages, {
               ...generationOptions,
               stream: {
-                onStageChange: (stage) => {
+                onStageChange: (
+                  stage: NonNullable<LocalLlmStreamHandlers['onStageChange']> extends (
+                    value: infer T
+                  ) => void
+                    ? T
+                    : never
+                ) => {
                   onLoadingProgress?.({
                     stage: 'generating',
                     progress: 0,
@@ -722,7 +736,10 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             });
             while (true) {
               const settled = await Promise.race([
-                generatePromise.then((value) => ({ type: 'result' as const, value })),
+                generatePromise.then((value: LocalLlmGenerationResult) => ({
+                  type: 'result' as const,
+                  value,
+                })),
                 waitForQueue().then(() => ({ type: 'queue' as const })),
               ]);
               if (settled.type === 'queue') {
