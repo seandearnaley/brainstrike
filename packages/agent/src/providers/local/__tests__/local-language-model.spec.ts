@@ -314,6 +314,42 @@ describe('LocalLanguageModel', () => {
       expect((finishPart as { finishReason: string }).finishReason).toBe('stop');
     });
 
+    it('streams reasoning parts when reasoning content is present', async () => {
+      mockGenerate.mockResolvedValueOnce({
+        ...mockGenerateResult,
+        reasoningText: 'Analyze first.',
+      } satisfies LocalLlmGenerationResult);
+      const model = new LocalLanguageModel('test-model');
+
+      const result = await model.doStream({
+        prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'Hello' }] }],
+      });
+      const reader = result.stream.getReader();
+      const parts: unknown[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        parts.push(value);
+      }
+
+      expect(
+        parts.find((part: unknown) => (part as { type?: string }).type === 'reasoning-start')
+      ).toBeDefined();
+      expect(
+        parts.find((part: unknown) => (part as { type?: string }).type === 'reasoning-delta')
+      ).toEqual(
+        expect.objectContaining({
+          delta: 'Analyze first.',
+        })
+      );
+      expect(
+        parts.find((part: unknown) => (part as { type?: string }).type === 'reasoning-end')
+      ).toBeDefined();
+    });
+
     it('preserves compact text part IDs while using secure randomness', async () => {
       const model = new LocalLanguageModel('test-model');
       const options = {

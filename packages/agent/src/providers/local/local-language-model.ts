@@ -402,7 +402,14 @@ export class LocalLanguageModel implements LanguageModelV2 {
 
     // Stream text content if present
     for (const item of result.content) {
-      if (item.type === 'text') {
+      if (item.type === 'reasoning') {
+        const reasoningId = generateId();
+        parts.push({ type: 'reasoning-start', id: reasoningId });
+        for (const delta of segmentTextForStream(item.text)) {
+          parts.push({ type: 'reasoning-delta', id: reasoningId, delta });
+        }
+        parts.push({ type: 'reasoning-end', id: reasoningId });
+      } else if (item.type === 'text') {
         const textId = generateId();
         parts.push({ type: 'text-start', id: textId });
         for (const delta of segmentTextForStream(item.text)) {
