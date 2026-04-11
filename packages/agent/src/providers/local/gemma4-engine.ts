@@ -621,17 +621,16 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
         continue;
       }
 
-      const normalizedArgumentsText = extractedArgumentsText
-        .replace(/(\{|,)\s*([a-zA-Z_]\w*):/g, '$1"$2":')
-        .replace(/<\|"\|>/g, '"');
+      const normalizedArgumentsText = extractedArgumentsText.replace(/<\|"\|>/g, '"');
+      const normalizedQuotedArgumentsText = quoteUnquotedJsonKeys(normalizedArgumentsText);
 
-      let argumentsText = normalizedArgumentsText;
+      let argumentsText = normalizedQuotedArgumentsText;
       try {
-        argumentsText = JSON.stringify(JSON.parse(normalizedArgumentsText) as unknown);
+        argumentsText = JSON.stringify(JSON.parse(normalizedQuotedArgumentsText) as unknown);
       } catch (error) {
         logger.warn('Gemma tool call arguments could not be normalized as JSON', {
           functionName,
-          normalizedArgumentsText,
+          normalizedArgumentsText: normalizedQuotedArgumentsText,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -648,6 +647,122 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
   }
 
   return toolCalls;
+}
+
+interface JsonKeyQuotingState {
+  index: number;
+  inString: boolean;
+  isEscaped: boolean;
+  normalized: string;
+}
+
+function quoteUnquotedJsonKeys(text: string): string {
+  const state: JsonKeyQuotingState = {
+    index: 0,
+    inString: false,
+    isEscaped: false,
+    normalized: '',
+  };
+
+  while (state.index < text.length) {
+    if (consumeQuotedStringCharacter(text, state)) {
+      continue;
+    }
+
+    if (consumeStringDelimiter(text, state)) {
+      continue;
+    }
+
+    if (consumePotentialJsonKey(text, state)) {
+      continue;
+    }
+
+    const character = text[state.index];
+    if (character === undefined) {
+      break;
+    }
+    state.normalized += character;
+    state.index += 1;
+  }
+
+  return state.normalized;
+}
+
+function consumeQuotedStringCharacter(text: string, state: JsonKeyQuotingState): boolean {
+  if (!state.inString) {
+    return false;
+  }
+
+  const character = text[state.index];
+  if (character === undefined) {
+    return false;
+  }
+
+  state.normalized += character;
+  if (state.isEscaped) {
+    state.isEscaped = false;
+  } else if (character === '\\') {
+    state.isEscaped = true;
+  } else if (character === '"') {
+    state.inString = false;
+  }
+  state.index += 1;
+  return true;
+}
+
+function consumeStringDelimiter(text: string, state: JsonKeyQuotingState): boolean {
+  if (text[state.index] !== '"') {
+    return false;
+  }
+
+  state.inString = true;
+  state.normalized += '"';
+  state.index += 1;
+  return true;
+}
+
+function consumePotentialJsonKey(text: string, state: JsonKeyQuotingState): boolean {
+  const leadingCharacter = text[state.index];
+  if (!(leadingCharacter === '{' || leadingCharacter === ',')) {
+    return false;
+  }
+
+  state.normalized += leadingCharacter;
+  state.index += 1;
+  consumeWhitespace(text, state);
+
+  const keyStart = state.index;
+  if (!/[A-Za-z_]/u.test(text[keyStart] ?? '')) {
+    return true;
+  }
+
+  state.index += 1;
+  while (state.index < text.length && /\w/u.test(text[state.index] ?? '')) {
+    state.index += 1;
+  }
+
+  if (hasJsonKeyColon(text, state.index)) {
+    state.normalized += `"${text.slice(keyStart, state.index)}"`;
+    return true;
+  }
+
+  state.normalized += text.slice(keyStart, state.index);
+  return true;
+}
+
+function consumeWhitespace(text: string, state: JsonKeyQuotingState): void {
+  while (state.index < text.length && /\s/u.test(text[state.index] ?? '')) {
+    state.normalized += text[state.index];
+    state.index += 1;
+  }
+}
+
+function hasJsonKeyColon(text: string, index: number): boolean {
+  let lookahead = index;
+  while (lookahead < text.length && /\s/u.test(text[lookahead] ?? '')) {
+    lookahead += 1;
+  }
+  return text[lookahead] === ':';
 }
 
 function extractBalancedJsonObject(text: string): string | null {

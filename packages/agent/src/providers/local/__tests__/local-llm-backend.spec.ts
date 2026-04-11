@@ -707,6 +707,44 @@ Because they make up everything!<turn|>`,
     });
   });
 
+  it('does not rewrite JSON-like substrings inside string argument values', async () => {
+    mockBatchDecode.mockReturnValue([
+      '<|tool_call|>call:demo{message:<|"|>literal {x:1} value<|"|>}<tool_call|>',
+    ]);
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ role: 'user', content: 'Call the tool' }], {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'demo',
+            description: 'Demo tool',
+            parameters: {
+              type: 'object',
+              properties: {
+                message: { type: 'string' },
+              },
+              required: ['message'],
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.toolCalls?.[0]?.function).toEqual({
+      name: 'demo',
+      arguments: JSON.stringify({
+        message: 'literal {x:1} value',
+      }),
+    });
+  });
+
   it('formats assistant tool calls and tool responses using Gemma chat template fields', async () => {
     const backend = new LocalLlmBackend();
 

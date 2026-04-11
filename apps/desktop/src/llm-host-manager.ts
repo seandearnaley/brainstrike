@@ -199,7 +199,7 @@ export class LlmHostManager {
     });
   }
 
-  async cancel(_requester: WebContents, requestId: string): Promise<void> {
+  async cancel(requester: WebContents, requestId: string): Promise<void> {
     const trimmedRequestId = requestId.trim();
     if (trimmedRequestId.length === 0) {
       throw createRequestFailure('Llm host cancel requestId must be a non-empty string.');
@@ -217,7 +217,7 @@ export class LlmHostManager {
     }
 
     this.sendCancelRequestToHost(
-      this.scopeClientRequestId(_requester, trimmedRequestId),
+      this.scopeClientRequestId(requester, trimmedRequestId),
       hostWindow
     );
   }

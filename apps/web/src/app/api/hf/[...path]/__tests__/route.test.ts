@@ -242,6 +242,7 @@ describe('hf proxy route', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-length')).toBe('123');
     expect(response.headers.get('etag')).toBe('"head-etag"');
+    expect(await response.text()).toBe('');
   });
 
   it('rejects requests that do not present a trusted same-origin browser signal', async () => {
@@ -282,6 +283,30 @@ describe('hf proxy route', () => {
             'resolve',
             '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
             'config.json',
+          ],
+        }),
+      }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(403);
+  });
+
+  it('rejects decoded path segments that still contain slash characters', async () => {
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await GET(
+      createTrustedRequest(
+        'https://brainstrike.example/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/path'
+      ),
+      {
+        params: Promise.resolve({
+          path: [
+            'onnx-community',
+            'gemma-4-E2B-it-ONNX',
+            'resolve',
+            '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+            'onnx/embed_tokens_q4f16.onnx',
           ],
         }),
       }

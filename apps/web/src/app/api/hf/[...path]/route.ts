@@ -25,7 +25,13 @@ const logger = createLogger('HuggingFaceProxyRoute');
 export const runtime = 'nodejs';
 
 function isSafePathSegment(segment: string): boolean {
-  return segment.length > 0 && segment !== '.' && segment !== '..';
+  return (
+    segment.length > 0 &&
+    segment !== '.' &&
+    segment !== '..' &&
+    !segment.includes('/') &&
+    !segment.includes('\\')
+  );
 }
 
 function isAllowedPath(pathSegments: string[]): boolean {
@@ -172,6 +178,19 @@ async function proxyRequest(request: Request, pathSegments: string[]): Promise<R
   });
 }
 
+async function proxyHeadRequest(
+  request: Request,
+  context: { params: Promise<{ path: string[] }> }
+): Promise<Response> {
+  const { path } = await context.params;
+  const response = await proxyRequest(request, path);
+  return new Response(null, {
+    headers: response.headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ path: string[] }> }
@@ -180,4 +199,4 @@ export async function GET(
   return await proxyRequest(request, path);
 }
 
-export const HEAD = GET;
+export const HEAD = proxyHeadRequest;
