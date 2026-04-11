@@ -22,6 +22,7 @@ const LLM_HOST_WARMUP_TIMEOUT_MS = 20 * 60_000;
 const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 
 interface PendingLlmRequest {
+  cleanupRequesterListener?: () => void;
   reject: (error: Error) => void;
   requester: WebContents;
   requestId: string;
@@ -160,6 +161,7 @@ export class LlmHostManager {
       return;
     }
     clearTimeout(pending.timeoutId);
+    pending.cleanupRequesterListener?.();
     this.pendingRequests.delete(report.requestId);
 
     if (report.type === 'error') {
@@ -240,6 +242,45 @@ export class LlmHostManager {
         return;
       }
 
+      const cancelPendingRequest = (message: string): void => {
+        const activePending = this.pendingRequests.get(requestId);
+        if (!activePending) {
+          return;
+        }
+        clearTimeout(activePending.timeoutId);
+        activePending.cleanupRequesterListener?.();
+        this.pendingRequests.delete(requestId);
+        reject(createRequestFailure(message));
+        try {
+          hostWindow.webContents.send(LLM_HOST_REQUEST_EVENT, {
+            type: 'request',
+            channel: 'llm',
+            requestId: crypto.randomUUID(),
+            runtimeId: this.getStatus().runtimeId,
+            payload: {
+              kind: 'cancel',
+              requestId,
+            },
+          } satisfies LlmHostRequest);
+        } catch (error) {
+          logger.warn('Failed to cancel llm host request after requester destruction', {
+            requestId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      };
+
+      const requesterDestroyedHandler = (): void => {
+        cancelPendingRequest(`Llm host requester ${requestId} was destroyed.`);
+      };
+
+      const cleanupRequesterListener =
+        typeof requester.once === 'function' && typeof requester.removeListener === 'function'
+          ? () => {
+              requester.removeListener('destroyed', requesterDestroyedHandler);
+            }
+          : null;
+
       const pending: PendingLlmRequest = {
         requestId,
         requester,
@@ -249,12 +290,17 @@ export class LlmHostManager {
           payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS,
         timeoutId: setTimeout(
           () => {
+            pending.cleanupRequesterListener?.();
             this.pendingRequests.delete(requestId);
             reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
           },
           payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS
         ),
+        ...(cleanupRequesterListener ? { cleanupRequesterListener } : {}),
       };
+      if (typeof requester.once === 'function') {
+        requester.once('destroyed', requesterDestroyedHandler);
+      }
       this.pendingRequests.set(requestId, pending);
 
       const request: LlmHostRequest = {

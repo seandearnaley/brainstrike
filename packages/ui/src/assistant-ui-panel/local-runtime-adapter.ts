@@ -445,10 +445,9 @@ async function executeToolCalls(
 
     const execution = await toolExecutor.execute(toolCall.function.name, parsedArgs, runtimeData);
     const responsePayload = execution.success
-      ? execution
+      ? execution.result
       : {
-          ...execution,
-          result: execution.error ?? 'Tool execution failed.',
+          error: execution.error ?? 'Tool execution failed.',
         };
 
     toolMessages.push({

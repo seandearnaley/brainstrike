@@ -61,6 +61,42 @@ async function checkStorageQuota(requiredBytes: number): Promise<void> {
   }
 }
 
+function getArtifactPaths(spec: LocalLlmModelSpec): string[] {
+  return [
+    ...spec.artifacts.text,
+    ...(spec.artifacts.vision ?? []),
+    ...(spec.artifacts.audio ?? []),
+  ];
+}
+
+async function estimateRemainingArtifactBytes(
+  cache: Cache,
+  spec: LocalLlmModelSpec
+): Promise<{ files: string[]; requiredBytes: number }> {
+  const files = getArtifactPaths(spec);
+  let cachedBytes = 0;
+  const missingFiles: string[] = [];
+
+  for (const filePath of files) {
+    const url = buildLocalArtifactUrl(spec.modelId, spec.remoteRevision, filePath);
+    const cached = await cache.match(url);
+    if (cached?.status === 200) {
+      const contentLength = cached.headers.get('content-length');
+      const parsedLength = contentLength ? Number.parseInt(contentLength, 10) : Number.NaN;
+      if (Number.isFinite(parsedLength) && parsedLength > 0) {
+        cachedBytes += parsedLength;
+      }
+      continue;
+    }
+    missingFiles.push(filePath);
+  }
+
+  return {
+    files,
+    requiredBytes: Math.max(0, spec.totalSizeBytes - cachedBytes),
+  };
+}
+
 function toProgressPercent(completed: number, total: number, partial = 0): number {
   if (total <= 0) {
     return 0;
@@ -118,10 +154,9 @@ async function cacheResponseStream(
 
 export class BrowserCacheArtifactStore implements LocalArtifactStore {
   async download(spec: LocalLlmModelSpec, onProgress?: LocalLlmProgressCallback): Promise<void> {
-    const files = [...spec.artifacts.text];
-    await checkStorageQuota(spec.totalSizeBytes);
-
     const cache = await openArtifactCache();
+    const { files, requiredBytes } = await estimateRemainingArtifactBytes(cache, spec);
+    await checkStorageQuota(requiredBytes);
     let completed = 0;
 
     for (const filePath of files) {
@@ -168,7 +203,7 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
   async hasRequiredArtifacts(spec: LocalLlmModelSpec): Promise<boolean> {
     const cache = await openArtifactCache();
 
-    for (const filePath of spec.artifacts.text) {
+    for (const filePath of getArtifactPaths(spec)) {
       const url = buildLocalArtifactUrl(spec.modelId, spec.remoteRevision, filePath);
       const cached = await cache.match(url);
       if (cached?.status !== 200) {

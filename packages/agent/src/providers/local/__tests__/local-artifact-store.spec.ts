@@ -101,4 +101,78 @@ describe('local-artifact-store', () => {
 
     fetchSpy.mockRestore();
   });
+
+  it('checks storage quota against only the missing artifact bytes', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockImplementation(async (url: string) => {
+        if (url.endsWith('/config.json')) {
+          return new Response('cached', {
+            status: 200,
+            headers: {
+              'content-length': String(3900 * 1024 * 1024),
+            },
+          });
+        }
+        return undefined;
+      }),
+      put: vi.fn(),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000 * 1024 * 1024,
+          usage: 4000 * 1024 * 1024,
+        }),
+      },
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(
+        async () => new Response('ok', { status: 200, headers: { 'content-length': '2' } })
+      );
+    const spec = getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX');
+
+    await expect(new BrowserCacheArtifactStore().download(spec!)).resolves.toBeUndefined();
+
+    expect(fetchSpy).toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('treats multimodal artifacts as required when checking download completeness', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockImplementation(async (url: string) => {
+        return url.includes('vision_encoder') ? undefined : new Response('ok', { status: 200 });
+      }),
+      put: vi.fn(),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+
+    const store = new BrowserCacheArtifactStore();
+    const spec = {
+      ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+      artifacts: {
+        text: ['config.json'],
+        vision: ['onnx/vision_encoder_q4f16.onnx'],
+      },
+    };
+
+    await expect(store.hasRequiredArtifacts(spec)).resolves.toBe(false);
+  });
 });

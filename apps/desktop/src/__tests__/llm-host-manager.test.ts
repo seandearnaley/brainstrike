@@ -58,6 +58,14 @@ type TestableLlmHostManager = LlmHostManager & {
 };
 
 describe('LlmHostManager', () => {
+  function createRequester(): WebContents {
+    return {
+      send: vi.fn(),
+      once: vi.fn(),
+      removeListener: vi.fn(),
+    } as unknown as WebContents;
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -80,9 +88,7 @@ describe('LlmHostManager', () => {
 
   it('extends request lifetime while llm-host progress reports are still arriving', async () => {
     const manager = new LlmHostManager() as TestableLlmHostManager;
-    const requester = {
-      send: vi.fn(),
-    } as unknown as WebContents;
+    const requester = createRequester();
 
     const requestPromise = manager.generate(requester, {
       clientRequestId: 'req-progress',
@@ -130,9 +136,7 @@ describe('LlmHostManager', () => {
 
   it('uses a longer timeout window for warmup requests', async () => {
     const manager = new LlmHostManager() as TestableLlmHostManager;
-    const requester = {
-      send: vi.fn(),
-    } as unknown as WebContents;
+    const requester = createRequester();
 
     const warmupPromise = manager.warmup(requester, 'onnx-community/gemma-4-E2B-it-ONNX');
 
@@ -155,9 +159,7 @@ describe('LlmHostManager', () => {
 
   it('rejects duplicate client request IDs instead of overwriting pending work', async () => {
     const manager = new LlmHostManager() as TestableLlmHostManager;
-    const requester = {
-      send: vi.fn(),
-    } as unknown as WebContents;
+    const requester = createRequester();
 
     const firstRequest = manager.generate(requester, {
       clientRequestId: 'duplicate-id',

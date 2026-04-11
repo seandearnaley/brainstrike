@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GET } from '../route';
+import { GET, HEAD } from '../route';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -118,6 +118,26 @@ describe('hf proxy route', () => {
     expect(response.status).toBe(403);
   });
 
+  it('marks transient upstream errors as non-cacheable when no cache header is present', async () => {
+    fetchMock.mockResolvedValue(new Response('busy', { status: 503, statusText: 'Busy' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await GET(new Request('http://localhost/api/hf/models/gemma'), {
+      params: Promise.resolve({
+        path: [
+          'onnx-community',
+          'gemma-4-E2B-it-ONNX',
+          'resolve',
+          '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+          'config.json',
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+  });
+
   it('rejects traversal segments even when the allowlisted model prefix matches', async () => {
     vi.stubGlobal('fetch', fetchMock);
 
@@ -159,5 +179,38 @@ describe('hf proxy route', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, options] = fetchMock.mock.calls[0] ?? [];
     expect((options as { signal: AbortSignal }).signal.aborted).toBe(true);
+  });
+
+  it('supports HEAD requests for metadata probes', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(null, {
+        status: 200,
+        headers: {
+          'content-length': '123',
+          etag: '"head-etag"',
+        },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await HEAD(
+      new Request('http://localhost/api/hf/models/gemma', { method: 'HEAD' }),
+      {
+        params: Promise.resolve({
+          path: [
+            'onnx-community',
+            'gemma-4-E2B-it-ONNX',
+            'resolve',
+            '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+            'config.json',
+          ],
+        }),
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-length')).toBe('123');
+    expect(response.headers.get('etag')).toBe('"head-etag"');
   });
 });

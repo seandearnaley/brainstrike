@@ -74,7 +74,7 @@ function buildProxyResponseHeaders(upstream: Response): Headers {
     }
   }
   if (!headers.has('cache-control')) {
-    headers.set('cache-control', 'public, max-age=300');
+    headers.set('cache-control', upstream.ok ? 'public, max-age=300' : 'no-store');
   }
   return headers;
 }
@@ -123,3 +123,5 @@ export async function GET(
   const { path } = await context.params;
   return await proxyRequest(request, path);
 }
+
+export const HEAD = GET;

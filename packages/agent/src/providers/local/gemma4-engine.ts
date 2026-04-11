@@ -758,7 +758,7 @@ function parseGenericToolCall(text: string): LocalLlmToolCall[] {
 
 function countTokens(tokenizer: TokenizerLike, text: string): number {
   const encoded = tokenizer.encode(text);
-  return Array.isArray(encoded) ? encoded.length : encoded.length;
+  return encoded.length;
 }
 
 interface GemmaStreamingState {

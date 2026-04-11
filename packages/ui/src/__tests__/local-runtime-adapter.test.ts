@@ -618,11 +618,7 @@ describe('createLocalModelAdapter', () => {
               expect.objectContaining({
                 name: 'filesystem.read_file',
                 response: {
-                  success: true,
-                  result: {
-                    content: 'hello',
-                  },
-                  durationMs: 12,
+                  content: 'hello',
                 },
               }),
             ],
@@ -646,5 +642,87 @@ describe('createLocalModelAdapter', () => {
         }),
       ]),
     });
+  });
+
+  it('feeds only structured tool output back into the model after a tool failure', async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createGenerationResult({
+          text: '',
+          toolCalls: [
+            {
+              id: 'tool-2',
+              type: 'function',
+              function: {
+                name: 'filesystem.read_file',
+                arguments: JSON.stringify({ path: '/missing.md' }),
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        createGenerationResult({
+          text: 'The file could not be read.',
+        })
+      );
+    const execute = vi.fn().mockResolvedValue({
+      success: false,
+      error: 'missing',
+      durationMs: 5,
+    });
+
+    Object.assign(window as Window & { llmHost?: unknown; tools?: unknown }, {
+      llmHost: {
+        warmup: vi.fn().mockResolvedValue(undefined),
+        generate,
+        onProgress: vi.fn(() => () => {}),
+      },
+      tools: {
+        execute,
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      tools: [
+        {
+          id: 'filesystem.read_file',
+          description: 'Read a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              path: {
+                type: 'string',
+              },
+            },
+            required: ['path'],
+          },
+          isLocalRuntimeRunnable: true,
+        },
+      ],
+    });
+
+    await collectRun(adapter.run(createRunOptions()));
+
+    expect(generate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'tool',
+            toolResponses: [
+              expect.objectContaining({
+                name: 'filesystem.read_file',
+                response: {
+                  error: 'missing',
+                },
+              }),
+            ],
+          }),
+        ]),
+      })
+    );
   });
 });
