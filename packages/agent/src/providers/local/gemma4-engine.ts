@@ -1,4 +1,8 @@
 import { createLogger } from '@brainstrike/utils/logger';
+import {
+  resolveLocalArtifactRemoteHost,
+  resolveLocalArtifactRemotePathTemplate,
+} from './local-artifact-store';
 import type { LocalLlmModelSpec } from './local-model-specs';
 import type {
   LocalLlmGenerationOptions,
@@ -83,6 +87,18 @@ interface TransformersModule {
   createTextStreamer: (tokenizer: unknown, options: StreamerOptions) => GemmaTextStreamer;
   loadModel: (modelId: string, options: ModelLoaderOptions) => Promise<GemmaModel>;
   loadProcessor: (modelId: string, options?: LoaderOptions) => Promise<LoadedGemmaProcessor>;
+}
+
+interface TransformersEnvironmentLike {
+  allowRemoteModels?: boolean;
+  remoteHost?: string;
+  remotePathTemplate?: string;
+}
+
+export function configureTransformersEnvironment(environment: TransformersEnvironmentLike): void {
+  environment.allowRemoteModels = true;
+  environment.remoteHost = resolveLocalArtifactRemoteHost();
+  environment.remotePathTemplate = resolveLocalArtifactRemotePathTemplate();
 }
 
 interface StreamerOptions {
@@ -357,6 +373,10 @@ function normalizeGemmaModel(value: unknown): GemmaModel {
 async function getTransformersModule(): Promise<TransformersModule> {
   const mod: unknown = await import(/* @vite-ignore */ '@huggingface/transformers');
   const candidate = getRecord(mod, 'Transformers.js module');
+  const envCandidate = getOptionalProperty(candidate, 'env');
+  if (envCandidate) {
+    configureTransformersEnvironment(envCandidate as TransformersEnvironmentLike);
+  }
   const autoProcessor = getRecord(candidate['AutoProcessor'], 'Transformers.js AutoProcessor');
   const textStreamer = candidate['TextStreamer'];
   const gemma4ForCausalLm = getOptionalProperty(candidate, 'Gemma4ForCausalLM');

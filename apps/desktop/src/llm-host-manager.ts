@@ -23,6 +23,7 @@ const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 interface PendingLlmRequest {
   reject: (error: Error) => void;
   requester: WebContents;
+  requestId: string;
   resolve: (result: unknown) => void;
   timeoutId: ReturnType<typeof setTimeout>;
 }
@@ -145,6 +146,7 @@ export class LlmHostManager {
       return;
     }
     if (report.type === 'progress') {
+      this.refreshPendingRequestTimeout(pending);
       try {
         pending.requester.send(LLM_HOST_PROGRESS_EVENT, report);
       } catch (error) {
@@ -203,11 +205,17 @@ export class LlmHostManager {
         ? payload.clientRequestId.trim()
         : crypto.randomUUID();
     return await new Promise<unknown>((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        this.pendingRequests.delete(requestId);
-        reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
-      }, LLM_HOST_REQUEST_TIMEOUT_MS);
-      this.pendingRequests.set(requestId, { requester, resolve, reject, timeoutId });
+      const pending: PendingLlmRequest = {
+        requestId,
+        requester,
+        resolve,
+        reject,
+        timeoutId: setTimeout(() => {
+          this.pendingRequests.delete(requestId);
+          reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
+        }, LLM_HOST_REQUEST_TIMEOUT_MS),
+      };
+      this.pendingRequests.set(requestId, pending);
 
       const request: LlmHostRequest = {
         type: 'request',
@@ -220,7 +228,7 @@ export class LlmHostManager {
       try {
         hostWindow.webContents.send(LLM_HOST_REQUEST_EVENT, request);
       } catch (error) {
-        clearTimeout(timeoutId);
+        clearTimeout(pending.timeoutId);
         this.pendingRequests.delete(requestId);
         reject(
           createRequestFailure(
@@ -231,6 +239,14 @@ export class LlmHostManager {
         );
       }
     });
+  }
+
+  private refreshPendingRequestTimeout(pending: PendingLlmRequest): void {
+    clearTimeout(pending.timeoutId);
+    pending.timeoutId = setTimeout(() => {
+      this.pendingRequests.delete(pending.requestId);
+      pending.reject(createRequestFailure(`Llm host request ${pending.requestId} timed out.`));
+    }, LLM_HOST_REQUEST_TIMEOUT_MS);
   }
 
   private async assertReadyForRequests(): Promise<BrowserWindow> {

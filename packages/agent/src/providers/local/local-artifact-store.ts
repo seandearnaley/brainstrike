@@ -5,22 +5,28 @@ import type { LocalLlmProgressCallback } from './types';
 const logger = createLogger('LocalArtifactStore');
 const TRANSFORMERS_CACHE_NAME = 'transformers-cache';
 const QUOTA_SAFETY_BUFFER = 1.1;
+const HUGGING_FACE_REMOTE_HOST = 'https://huggingface.co/';
+const HUGGING_FACE_REMOTE_PATH_TEMPLATE = '{model}/resolve/{revision}/';
 
 export interface LocalArtifactStore {
   download(spec: LocalLlmModelSpec, onProgress?: LocalLlmProgressCallback): Promise<void>;
   hasRequiredArtifacts(spec: LocalLlmModelSpec): Promise<boolean>;
 }
 
-function resolveHubBaseUrl(): string {
+export function resolveLocalArtifactRemoteHost(): string {
   if (typeof window === 'undefined') {
-    return 'https://huggingface.co';
+    return HUGGING_FACE_REMOTE_HOST;
   }
 
   if (window.location.protocol === 'file:') {
-    return 'https://huggingface.co';
+    return HUGGING_FACE_REMOTE_HOST;
   }
 
-  return '/api/hf';
+  return '/api/hf/';
+}
+
+export function resolveLocalArtifactRemotePathTemplate(): string {
+  return HUGGING_FACE_REMOTE_PATH_TEMPLATE;
 }
 
 export function buildLocalArtifactUrl(
@@ -28,7 +34,7 @@ export function buildLocalArtifactUrl(
   revision: string,
   relativePath: string
 ): string {
-  const base = resolveHubBaseUrl().replace(/\/+$/, '');
+  const base = resolveLocalArtifactRemoteHost().replace(/\/+$/, '');
   return `${base}/${modelId}/resolve/${revision}/${relativePath}`;
 }
 
