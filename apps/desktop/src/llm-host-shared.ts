@@ -191,6 +191,138 @@ export function assertLlmHostCancelPayload(value: unknown): LlmHostCancelRequest
   };
 }
 
+function assertResponseReportBase(value: unknown): {
+  payload: Record<string, unknown>;
+  requestId: string;
+  runtimeId: string;
+  type: unknown;
+} {
+  if (!(typeof value === 'object' && value !== null)) {
+    throw new Error('Llm host response report must be an object.');
+  }
+
+  const report = value as Record<string, unknown>;
+  const payload = report['payload'];
+  if (!(typeof payload === 'object' && payload !== null)) {
+    throw new Error('Llm host response report.payload must be an object.');
+  }
+
+  return {
+    type: report['type'],
+    requestId: assertNonEmptyString(
+      report['requestId'],
+      'Llm host response report.requestId must be a non-empty string.'
+    ),
+    runtimeId: assertNonEmptyString(
+      report['runtimeId'],
+      'Llm host response report.runtimeId must be a non-empty string.'
+    ),
+    payload: payload as Record<string, unknown>,
+  };
+}
+
+function assertLlmHostProgressKind(value: unknown): LlmHostProgressPayload['kind'] {
+  if (value === 'loading' || value === 'reasoning' || value === 'stage' || value === 'text') {
+    return value;
+  }
+  throw new Error(
+    'Llm host progress report.payload.kind must be one of loading, reasoning, stage, or text.'
+  );
+}
+
+function createProgressReport(
+  requestId: string,
+  runtimeId: string,
+  payload: Record<string, unknown>
+): LlmHostProgressReport {
+  return {
+    type: 'progress',
+    channel: 'llm-progress',
+    requestId,
+    runtimeId,
+    payload: {
+      kind: assertLlmHostProgressKind(payload['kind']),
+      ...(typeof payload['clientRequestId'] === 'string'
+        ? { clientRequestId: payload['clientRequestId'] }
+        : {}),
+      ...(typeof payload['file'] === 'string' ? { file: payload['file'] } : {}),
+      ...(typeof payload['message'] === 'string' ? { message: payload['message'] } : {}),
+      ...(typeof payload['progress'] === 'number' ? { progress: payload['progress'] } : {}),
+      ...(typeof payload['reasoningText'] === 'string'
+        ? { reasoningText: payload['reasoningText'] }
+        : {}),
+      ...(typeof payload['text'] === 'string' ? { text: payload['text'] } : {}),
+    },
+  };
+}
+
+function createResultReport(
+  requestId: string,
+  runtimeId: string,
+  payload: Record<string, unknown>
+): LlmHostResultReport {
+  if (!('result' in payload)) {
+    throw new Error('Llm host result report.payload.result is required.');
+  }
+
+  return {
+    type: 'result',
+    channel: 'llm-result',
+    requestId,
+    runtimeId,
+    payload: {
+      result: (payload as { result: LocalLlmGenerationResult | null }).result,
+    },
+  };
+}
+
+function createErrorReport(
+  requestId: string,
+  runtimeId: string,
+  payload: Record<string, unknown>
+): LlmHostErrorReport {
+  const errorMessage = assertNonEmptyString(
+    payload['errorMessage'],
+    'Llm host error report.payload.errorMessage must be a non-empty string.'
+  );
+  const errorName =
+    typeof payload['name'] === 'string' && payload['name'].trim().length > 0
+      ? payload['name']
+      : 'Error';
+
+  return {
+    type: 'error',
+    channel: 'llm-error',
+    requestId,
+    runtimeId,
+    payload: {
+      errorMessage,
+      message: typeof payload['message'] === 'string' ? payload['message'] : errorMessage,
+      ...(typeof payload['errorStack'] === 'string' ? { errorStack: payload['errorStack'] } : {}),
+      ...(typeof payload['errorDetails'] === 'object' && payload['errorDetails'] !== null
+        ? { errorDetails: payload['errorDetails'] as LlmHostErrorDetails }
+        : {}),
+      name: errorName,
+    },
+  };
+}
+
+export function assertLlmHostResponseReport(value: unknown): LlmHostResponseReport {
+  const { payload, requestId, runtimeId, type } = assertResponseReportBase(value);
+
+  if (type === 'progress') {
+    return createProgressReport(requestId, runtimeId, payload);
+  }
+  if (type === 'result') {
+    return createResultReport(requestId, runtimeId, payload);
+  }
+  if (type === 'error') {
+    return createErrorReport(requestId, runtimeId, payload);
+  }
+
+  throw new Error('Llm host response report.type must be "progress", "result", or "error".');
+}
+
 export function createStoppedLlmHostStatus(
   runtimeId: string = LLM_HOST_RUNTIME.stoppedRuntimeId
 ): LlmHostStatus {

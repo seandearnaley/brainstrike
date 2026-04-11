@@ -84,4 +84,41 @@ describe('ipc-llm-host', () => {
     ).rejects.toThrow('Llm host payload.clientRequestId must be a non-empty string.');
     expect(manager.warmupRequest).not.toHaveBeenCalled();
   });
+
+  it('validates host response reports before forwarding them to the manager', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn(),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn(),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const responseCall = ipcMainOn.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:report-response'
+    );
+    if (!responseCall) {
+      throw new Error('llm-host:report-response listener not registered');
+    }
+
+    const responseListener = responseCall[1] as (
+      event: { sender: { id: number } },
+      payload: unknown
+    ) => void;
+
+    expect(() =>
+      responseListener(
+        { sender: { id: 1 } },
+        {
+          type: 'result',
+          requestId: '',
+          runtimeId: 'runtime',
+          payload: { result: null },
+        }
+      )
+    ).toThrow('Llm host response report.requestId must be a non-empty string.');
+    expect(manager.acceptResponseReport).not.toHaveBeenCalled();
+  });
 });

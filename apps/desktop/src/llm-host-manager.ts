@@ -216,7 +216,10 @@ export class LlmHostManager {
       return;
     }
 
-    this.sendCancelRequestToHost(trimmedRequestId, hostWindow);
+    this.sendCancelRequestToHost(
+      this.scopeClientRequestId(_requester, trimmedRequestId),
+      hostWindow
+    );
   }
 
   async generate(requester: WebContents, payload: LlmHostGenerateRequestPayload): Promise<unknown> {
@@ -234,12 +237,7 @@ export class LlmHostManager {
     payload: LlmHostGenerateRequestPayload | LlmHostWarmupRequestPayload
   ): Promise<unknown> {
     const hostWindow = await this.assertReadyForRequests();
-    const requestId =
-      'clientRequestId' in payload &&
-      typeof payload.clientRequestId === 'string' &&
-      payload.clientRequestId.trim().length > 0
-        ? payload.clientRequestId.trim()
-        : crypto.randomUUID();
+    const requestId = this.createHostRequestId(requester, payload);
     return await new Promise<unknown>((resolve, reject) => {
       if (this.pendingRequests.has(requestId)) {
         reject(createRequestFailure(`Duplicate llm host requestId ${requestId}.`));
@@ -314,6 +312,29 @@ export class LlmHostManager {
         );
       }
     });
+  }
+
+  private createHostRequestId(
+    requester: WebContents,
+    payload: LlmHostGenerateRequestPayload | LlmHostWarmupRequestPayload
+  ): string {
+    if (
+      'clientRequestId' in payload &&
+      typeof payload.clientRequestId === 'string' &&
+      payload.clientRequestId.trim().length > 0
+    ) {
+      return this.scopeClientRequestId(requester, payload.clientRequestId);
+    }
+
+    return crypto.randomUUID();
+  }
+
+  private scopeClientRequestId(requester: WebContents, requestId: string): string {
+    const trimmedRequestId = requestId.trim();
+    if (trimmedRequestId.startsWith(`${requester.id}:`)) {
+      return trimmedRequestId;
+    }
+    return `${requester.id}:${trimmedRequestId}`;
   }
 
   private refreshPendingRequestTimeout(pending: PendingLlmRequest): void {

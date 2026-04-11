@@ -2,6 +2,7 @@ import { type IpcMainEvent, ipcMain } from 'electron';
 import type { LlmHostManager } from './llm-host-manager';
 import {
   assertLlmHostGeneratePayload,
+  assertLlmHostResponseReport,
   assertLlmHostWarmupPayload,
   LLM_HOST_CANCEL_CHANNEL,
   LLM_HOST_ENSURE_STARTED_CHANNEL,
@@ -14,7 +15,6 @@ import {
   LLM_HOST_STATUS_ADAPTER,
   LLM_HOST_STOP_CHANNEL,
   LLM_HOST_WARMUP_CHANNEL,
-  type LlmHostResponseReport,
   type LlmHostStatusReport,
 } from './llm-host-shared';
 import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-background-runtime-lifecycle-ipc';
@@ -51,12 +51,12 @@ export function registerLlmHostIpcHandlers(manager: LlmHostManager): () => void 
     await manager.cancel(event.sender, requestId);
   });
 
-  const responseListener = (event: IpcMainEvent, response: LlmHostResponseReport) => {
-    manager.acceptResponseReport(event.sender.id, response);
+  const responseListener = (event: IpcMainEvent, response: unknown) => {
+    manager.acceptResponseReport(event.sender.id, assertLlmHostResponseReport(response));
   };
   ipcMain.on(LLM_HOST_REPORT_RESPONSE_CHANNEL, responseListener);
-  const progressListener = (event: IpcMainEvent, progress: LlmHostResponseReport) => {
-    manager.acceptResponseReport(event.sender.id, progress);
+  const progressListener = (event: IpcMainEvent, progress: unknown) => {
+    manager.acceptResponseReport(event.sender.id, assertLlmHostResponseReport(progress));
   };
   ipcMain.on(LLM_HOST_REPORT_PROGRESS_CHANNEL, progressListener);
 

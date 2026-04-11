@@ -4,6 +4,16 @@ import { GET, HEAD } from '../route';
 const fetchMock = vi.fn<typeof fetch>();
 
 describe('hf proxy route', () => {
+  function createTrustedRequest(url: string, init?: RequestInit): Request {
+    return new Request(url, {
+      ...init,
+      headers: {
+        ...(init?.headers ? Object.fromEntries(new Headers(init.headers).entries()) : {}),
+        referer: 'http://localhost/app',
+      },
+    });
+  }
+
   afterEach(() => {
     fetchMock.mockReset();
     vi.unstubAllGlobals();
@@ -33,7 +43,7 @@ describe('hf proxy route', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const request = new Request('http://localhost/api/hf/models/gemma?download=true', {
+    const request = createTrustedRequest('http://localhost/api/hf/models/gemma?download=true', {
       headers: {
         accept: 'application/octet-stream',
         'if-modified-since': 'Mon, 01 Jan 2024 00:00:00 GMT',
@@ -85,7 +95,7 @@ describe('hf proxy route', () => {
     fetchMock.mockResolvedValue(new Response('fallback', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await GET(new Request('http://localhost/api/hf/models/gemma'), {
+    await GET(createTrustedRequest('http://localhost/api/hf/models/gemma'), {
       params: Promise.resolve({
         path: [
           'onnx-community',
@@ -109,7 +119,7 @@ describe('hf proxy route', () => {
   it('rejects requests for unsupported models', async () => {
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await GET(new Request('http://localhost/api/hf/other/model'), {
+    const response = await GET(createTrustedRequest('http://localhost/api/hf/other/model'), {
       params: Promise.resolve({
         path: ['other-org', 'other-model', 'resolve', 'main'],
       }),
@@ -123,7 +133,7 @@ describe('hf proxy route', () => {
     fetchMock.mockResolvedValue(new Response('busy', { status: 503, statusText: 'Busy' }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await GET(new Request('http://localhost/api/hf/models/gemma'), {
+    const response = await GET(createTrustedRequest('http://localhost/api/hf/models/gemma'), {
       params: Promise.resolve({
         path: [
           'onnx-community',
@@ -143,7 +153,9 @@ describe('hf proxy route', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await GET(
-      new Request('http://localhost/api/hf/onnx-community/gemma-4-E2B-it-ONNX/../../evil/model'),
+      createTrustedRequest(
+        'http://localhost/api/hf/onnx-community/gemma-4-E2B-it-ONNX/../../evil/model'
+      ),
       {
         params: Promise.resolve({
           path: ['onnx-community', 'gemma-4-E2B-it-ONNX', '..', '..', 'evil-org', 'evil-model'],
@@ -159,7 +171,7 @@ describe('hf proxy route', () => {
     fetchMock.mockResolvedValue(new Response('ok', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const controller = new AbortController();
-    const request = new Request('http://localhost/api/hf/models/gemma', {
+    const request = createTrustedRequest('http://localhost/api/hf/models/gemma', {
       method: 'GET',
       signal: controller.signal,
     });
@@ -195,7 +207,7 @@ describe('hf proxy route', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await HEAD(
-      new Request('http://localhost/api/hf/models/gemma', { method: 'HEAD' }),
+      createTrustedRequest('http://localhost/api/hf/models/gemma', { method: 'HEAD' }),
       {
         params: Promise.resolve({
           path: [
@@ -215,5 +227,25 @@ describe('hf proxy route', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-length')).toBe('123');
     expect(response.headers.get('etag')).toBe('"head-etag"');
+  });
+
+  it('rejects requests that do not present a trusted same-origin browser signal', async () => {
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await GET(new Request('https://brainstrike.example/api/hf/models/gemma'), {
+      params: Promise.resolve({
+        path: [
+          'onnx-community',
+          'gemma-4-E2B-it-ONNX',
+          'resolve',
+          '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9',
+          'config.json',
+        ],
+      }),
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain('Forbidden Hugging Face proxy request');
   });
 });

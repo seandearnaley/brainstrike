@@ -78,6 +78,41 @@ function buildProxyResponseHeaders(upstream: Response): Headers {
   return headers;
 }
 
+function isTrustedSameOriginRequest(request: Request): boolean {
+  const requestUrl = new URL(request.url);
+  const requestOrigin = requestUrl.origin;
+  if (requestUrl.hostname === 'localhost' || requestUrl.hostname === '127.0.0.1') {
+    return true;
+  }
+  const secFetchSite = request.headers.get('sec-fetch-site');
+  if (secFetchSite) {
+    return secFetchSite === 'same-origin';
+  }
+
+  const originHeader = request.headers.get('origin');
+  if (originHeader) {
+    try {
+      return new URL(originHeader).origin === requestOrigin;
+    } catch {
+      return false;
+    }
+  }
+
+  const referrerSource =
+    request.referrer.length > 0 && request.referrer !== 'about:client'
+      ? request.referrer
+      : request.headers.get('referer');
+  if (referrerSource) {
+    try {
+      return new URL(referrerSource).origin === requestOrigin;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
 function createUnsupportedPathResponse(): Response {
   return new Response('Unsupported Hugging Face model path.', {
     status: 403,
@@ -88,7 +123,20 @@ function createUnsupportedPathResponse(): Response {
   });
 }
 
+function createForbiddenProxyResponse(): Response {
+  return new Response('Forbidden Hugging Face proxy request.', {
+    status: 403,
+    headers: {
+      'cache-control': 'no-store',
+      'content-type': 'text/plain; charset=utf-8',
+    },
+  });
+}
+
 async function proxyRequest(request: Request, pathSegments: string[]): Promise<Response> {
+  if (!isTrustedSameOriginRequest(request)) {
+    return createForbiddenProxyResponse();
+  }
   if (!isAllowedPath(pathSegments)) {
     return createUnsupportedPathResponse();
   }
