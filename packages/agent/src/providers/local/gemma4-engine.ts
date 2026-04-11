@@ -612,13 +612,13 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
       }
 
       const nameMatch = payload.match(/call:([^{]+)/);
-      const argsMatch = payload.match(/call:[^{]+(\{[\s\S]*\})/);
       const functionName = nameMatch?.[1]?.trim();
-      if (!(functionName && argsMatch?.[1])) {
+      const extractedArgumentsText = extractBalancedJsonObject(payload);
+      if (!(functionName && extractedArgumentsText)) {
         continue;
       }
 
-      const normalizedArgumentsText = argsMatch[1]
+      const normalizedArgumentsText = extractedArgumentsText
         .replace(/(\{|,)\s*([a-zA-Z_]\w+):/g, '$1"$2":')
         .replace(/<\|"\|>/g, '"');
 
@@ -641,6 +641,81 @@ function parseGemmaStructuredToolCalls(text: string): LocalLlmToolCall[] {
   }
 
   return toolCalls;
+}
+
+function extractBalancedJsonObject(text: string): string | null {
+  const startIndex = text.indexOf('{');
+  if (startIndex < 0) {
+    return null;
+  }
+
+  const state: {
+    depth: number;
+    inString: boolean;
+    isEscaped: boolean;
+  } = {
+    depth: 0,
+    inString: false,
+    isEscaped: false,
+  };
+
+  for (let index = startIndex; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === undefined) {
+      return null;
+    }
+
+    if (advanceJsonStringState(state, character)) {
+      continue;
+    }
+
+    if (character === '"') {
+      state.inString = true;
+      continue;
+    }
+
+    if (character === '{') {
+      state.depth += 1;
+      continue;
+    }
+
+    if (character === '}') {
+      state.depth -= 1;
+      if (state.depth === 0) {
+        return text.slice(startIndex, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function advanceJsonStringState(
+  state: {
+    depth: number;
+    inString: boolean;
+    isEscaped: boolean;
+  },
+  character: string
+): boolean {
+  if (!state.inString) {
+    return false;
+  }
+
+  if (state.isEscaped) {
+    state.isEscaped = false;
+    return true;
+  }
+
+  if (character === '\\') {
+    state.isEscaped = true;
+    return true;
+  }
+
+  if (character === '"') {
+    state.inString = false;
+  }
+  return true;
 }
 
 class Gemma4StreamAccumulator {

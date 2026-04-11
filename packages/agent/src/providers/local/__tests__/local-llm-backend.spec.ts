@@ -538,6 +538,54 @@ Because they make up everything!<turn|>`,
     expect(result.text).toBe('');
   });
 
+  it('parses nested Gemma tool call arguments without swallowing trailing text', async () => {
+    mockBatchDecode.mockReturnValue([
+      '<|tool_call|>call:read_file{path: <|"|>/README.md<|"|>, options: {encoding: <|"|>utf8<|"|>}} trailing text<tool_call|>',
+    ]);
+
+    const backend = new LocalLlmBackend();
+
+    await backend.initialize({
+      modelId: GEMMA4_E2B_MODEL_ID,
+    });
+
+    const result = await backend.generate([{ role: 'user', content: 'Read the readme' }], {
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'read_file',
+            description: 'Read a file',
+            parameters: {
+              type: 'object',
+              properties: {
+                path: { type: 'string' },
+                options: {
+                  type: 'object',
+                  properties: {
+                    encoding: { type: 'string' },
+                  },
+                },
+              },
+              required: ['path'],
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.finishReason).toBe('tool_calls');
+    expect(result.toolCalls?.[0]?.function).toEqual({
+      name: 'read_file',
+      arguments: JSON.stringify({
+        path: '/README.md',
+        options: {
+          encoding: 'utf8',
+        },
+      }),
+    });
+  });
+
   it('formats assistant tool calls and tool responses using Gemma chat template fields', async () => {
     const backend = new LocalLlmBackend();
 

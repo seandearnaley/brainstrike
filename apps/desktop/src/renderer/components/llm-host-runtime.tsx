@@ -214,7 +214,6 @@ async function processLlmHostRequest(
   let stage = 'received-request';
   try {
     logRequestReceived(request, runtimeId);
-    reportStatus(createActiveStatus(runtimeId));
     stage = 'initialize-backend';
     if (request.payload.kind === 'warmup') {
       await handleWarmupRequest(backend, request, runtimeId);
@@ -229,14 +228,13 @@ async function processLlmHostRequest(
     }
   } catch (error) {
     reportRequestError(request, runtimeId, stage, error);
-  } finally {
-    reportStatus(createIdleStatus(runtimeId));
   }
 }
 
 export function LlmHostRuntime(): null {
   const runtimeIdRef = useRef<string>(resolveLlmHostRuntimeId());
   const abortControllersRef = useRef(new Map<string, AbortController>());
+  const activeRequestCountRef = useRef(0);
 
   useEffect(() => {
     logger.info('Llm host runtime booted', {
@@ -249,12 +247,27 @@ export function LlmHostRuntime(): null {
       state: 'running',
     });
 
+    const beginActiveRequest = (): void => {
+      activeRequestCountRef.current += 1;
+      if (activeRequestCountRef.current === 1) {
+        reportStatus(createActiveStatus(runtimeIdRef.current));
+      }
+    };
+
+    const endActiveRequest = (): void => {
+      activeRequestCountRef.current = Math.max(0, activeRequestCountRef.current - 1);
+      if (activeRequestCountRef.current === 0) {
+        reportStatus(createIdleStatus(runtimeIdRef.current));
+      }
+    };
+
     const unsubscribeRequest = getLlmHostBridge()?.onRequest?.((rawRequest: LlmHostRequest) => {
       const request = assertLlmHostRequest(rawRequest);
       if (request.payload.kind === 'cancel') {
         abortControllersRef.current.get(request.payload.requestId)?.abort();
         return;
       }
+      beginActiveRequest();
       void processLlmHostRequest(
         backend,
         request,
@@ -267,7 +280,9 @@ export function LlmHostRuntime(): null {
         (requestId) => {
           abortControllersRef.current.delete(requestId);
         }
-      );
+      ).finally(() => {
+        endActiveRequest();
+      });
     });
 
     return () => {
