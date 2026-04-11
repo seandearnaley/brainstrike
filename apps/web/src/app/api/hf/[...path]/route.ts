@@ -9,7 +9,6 @@ const FORWARDED_REQUEST_HEADERS = [
   'if-none-match',
   'range',
 ] as const;
-const UPSTREAM_TIMEOUT_MS = 60_000;
 const PASSTHROUGH_RESPONSE_HEADERS = [
   'accept-ranges',
   'cache-control',
@@ -102,11 +101,10 @@ async function proxyRequest(request: Request, pathSegments: string[]): Promise<R
     }
     throw error;
   }
-  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)]);
   const upstream = await fetch(targetUrl, {
     headers: buildProxyRequestHeaders(request),
     method: request.method,
-    signal,
+    signal: request.signal,
   });
 
   return new Response(upstream.body, {

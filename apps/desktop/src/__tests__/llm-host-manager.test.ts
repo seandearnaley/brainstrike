@@ -237,4 +237,21 @@ describe('LlmHostManager', () => {
       })
     );
   });
+
+  it('treats cancel as a no-op when the host is stopped', async () => {
+    const manager = new LlmHostManager();
+    const requester = createRequester();
+    lifecycleState.getStatus.mockReturnValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      state: 'stopped',
+    });
+    lifecycleState.getHostWindow.mockReturnValue(undefined);
+
+    await expect(manager.cancel(requester, 'req-cancel')).resolves.toBeUndefined();
+
+    expect(lifecycleState.ensureStarted).not.toHaveBeenCalled();
+    expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
+  });
 });

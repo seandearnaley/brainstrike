@@ -4,6 +4,11 @@ export const migration028GemmaLocalLlm: Migration = {
   version: 28,
   name: 'gemma_local_llm',
   up: `
+    -- Audit note:
+    -- - The database schema does not contain inbound foreign keys to models(id), so removing
+    --   built-in model rows here will not cascade user data or block migration 028.
+    -- - App-level local model selections are remapped to Gemma in
+    --   packages/preferences/src/stores/assistant-preferences-store.ts.
     DELETE FROM models
     WHERE id IN (
       'onnx-community/functiongemma-270m-it-ONNX',

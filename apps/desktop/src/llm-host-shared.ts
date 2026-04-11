@@ -103,6 +103,94 @@ export type LlmHostResponseReport =
   | LlmHostProgressReport
   | LlmHostResultReport;
 
+function assertNonEmptyString(value: unknown, message: string): string {
+  if (!(typeof value === 'string' && value.trim().length > 0)) {
+    throw new Error(message);
+  }
+  return value.trim();
+}
+
+function assertOptionalRequestId(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return assertNonEmptyString(
+    value,
+    'Llm host payload.clientRequestId must be a non-empty string.'
+  );
+}
+
+export function assertLlmHostWarmupPayload(value: unknown): LlmHostWarmupRequestPayload {
+  if (!(typeof value === 'object' && value !== null)) {
+    throw new Error('Llm host warmup payload must be an object.');
+  }
+
+  const payload = value as Record<string, unknown>;
+  if (payload['kind'] !== 'warmup') {
+    throw new Error('Llm host warmup payload.kind must be "warmup".');
+  }
+
+  const clientRequestId = assertOptionalRequestId(payload['clientRequestId']);
+  return {
+    kind: 'warmup',
+    modelId: assertNonEmptyString(
+      payload['modelId'],
+      'Llm host warmup payload.modelId must be a non-empty string.'
+    ),
+    ...(clientRequestId ? { clientRequestId } : {}),
+  };
+}
+
+export function assertLlmHostGeneratePayload(value: unknown): LlmHostGenerateRequestPayload {
+  if (!(typeof value === 'object' && value !== null)) {
+    throw new Error('Llm host generate payload must be an object.');
+  }
+
+  const payload = value as Record<string, unknown>;
+  if (payload['kind'] !== 'generate') {
+    throw new Error('Llm host generate payload.kind must be "generate".');
+  }
+  if (!Array.isArray(payload['messages'])) {
+    throw new Error('Llm host generate payload.messages must be an array.');
+  }
+
+  const options = payload['options'];
+  if (!(options === undefined || (typeof options === 'object' && options !== null))) {
+    throw new Error('Llm host generate payload.options must be an object when provided.');
+  }
+
+  const clientRequestId = assertOptionalRequestId(payload['clientRequestId']);
+  return {
+    kind: 'generate',
+    modelId: assertNonEmptyString(
+      payload['modelId'],
+      'Llm host generate payload.modelId must be a non-empty string.'
+    ),
+    messages: payload['messages'] as LocalLlmMessage[],
+    ...(clientRequestId ? { clientRequestId } : {}),
+    ...(options ? { options: options as LocalLlmGenerationOptions } : {}),
+  };
+}
+
+export function assertLlmHostCancelPayload(value: unknown): LlmHostCancelRequestPayload {
+  if (!(typeof value === 'object' && value !== null)) {
+    throw new Error('Llm host cancel payload must be an object.');
+  }
+
+  const payload = value as Record<string, unknown>;
+  if (payload['kind'] !== 'cancel') {
+    throw new Error('Llm host cancel payload.kind must be "cancel".');
+  }
+
+  return {
+    kind: 'cancel',
+    requestId: assertNonEmptyString(
+      payload['requestId'],
+      'Llm host cancel payload.requestId must be a non-empty string.'
+    ),
+  };
+}
+
 export function createStoppedLlmHostStatus(
   runtimeId: string = LLM_HOST_RUNTIME.stoppedRuntimeId
 ): LlmHostStatus {
@@ -119,52 +207,29 @@ export function assertLlmHostRequest(value: unknown): LlmHostRequest {
   }
 
   const kind = payload['kind'];
-  const modelId = payload['modelId'];
 
   if (kind === 'warmup') {
-    if (!(typeof modelId === 'string' && modelId.trim().length > 0)) {
-      throw new Error('Llm host request payload.modelId must be a non-empty string.');
-    }
     return {
       type: 'request',
       channel: 'llm',
       requestId: envelopeBase.requestId,
       runtimeId: envelopeBase.runtimeId,
-      payload: {
-        kind,
-        ...(payload['clientRequestId'] !== undefined
-          ? { clientRequestId: payload['clientRequestId'] as string }
-          : {}),
-        modelId: modelId.trim(),
-      },
+      payload: assertLlmHostWarmupPayload(payload),
     };
   }
 
   if (kind === 'cancel') {
-    const cancelRequestId = payload['requestId'];
-    if (!(typeof cancelRequestId === 'string' && cancelRequestId.trim().length > 0)) {
-      throw new Error('Llm host cancel payload.requestId must be a non-empty string.');
-    }
     return {
       type: 'request',
       channel: 'llm',
       requestId: envelopeBase.requestId,
       runtimeId: envelopeBase.runtimeId,
-      payload: {
-        kind,
-        requestId: cancelRequestId.trim(),
-      },
+      payload: assertLlmHostCancelPayload(payload),
     };
   }
 
   if (kind !== 'generate') {
     throw new Error('Llm host request payload.kind must be "warmup", "generate", or "cancel".');
-  }
-  if (!(typeof modelId === 'string' && modelId.trim().length > 0)) {
-    throw new Error('Llm host request payload.modelId must be a non-empty string.');
-  }
-  if (!Array.isArray(payload['messages'])) {
-    throw new Error('Llm host request payload.messages must be an array.');
   }
 
   return {
@@ -172,17 +237,7 @@ export function assertLlmHostRequest(value: unknown): LlmHostRequest {
     channel: 'llm',
     requestId: envelopeBase.requestId,
     runtimeId: envelopeBase.runtimeId,
-    payload: {
-      kind,
-      ...(payload['clientRequestId'] !== undefined
-        ? { clientRequestId: payload['clientRequestId'] as string }
-        : {}),
-      modelId: modelId.trim(),
-      messages: payload['messages'] as LocalLlmMessage[],
-      ...(payload['options'] !== undefined
-        ? { options: payload['options'] as LocalLlmGenerationOptions }
-        : {}),
-    },
+    payload: assertLlmHostGeneratePayload(payload),
   };
 }
 

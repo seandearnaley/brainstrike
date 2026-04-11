@@ -166,7 +166,9 @@ describe('local-artifact-store', () => {
         }
         return undefined;
       }),
-      put: vi.fn(),
+      put: vi.fn(async (_url: string, response: Response) => {
+        await response.arrayBuffer();
+      }),
     } as unknown as Cache;
     vi.stubGlobal('caches', {
       open: vi.fn().mockResolvedValue(cache),

@@ -146,10 +146,20 @@ async function cacheResponseStream(
     return;
   }
 
-  const [cacheStream, progressStream] = response.body.tee();
-  const cachePut = cache.put(
+  const totalHeader = response.headers.get('content-length');
+  const total = totalHeader ? Number.parseInt(totalHeader, 10) : null;
+  let loaded = 0;
+  const progressStream = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      loaded += chunk.byteLength;
+      onChunkProgress(loaded, Number.isFinite(total) ? total : null);
+      controller.enqueue(chunk);
+    },
+  });
+
+  await cache.put(
     url,
-    new Response(cacheStream, {
+    new Response(response.body.pipeThrough(progressStream), {
       headers: new Headers(
         Object.fromEntries(
           ['cache-control', 'content-length', 'content-type']
@@ -161,22 +171,6 @@ async function cacheResponseStream(
       statusText: 'OK',
     })
   );
-
-  const totalHeader = response.headers.get('content-length');
-  const total = totalHeader ? Number.parseInt(totalHeader, 10) : null;
-  const reader = progressStream.getReader();
-  let loaded = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    loaded += value.byteLength;
-    onChunkProgress(loaded, Number.isFinite(total) ? total : null);
-  }
-
-  await cachePut;
 }
 
 export class BrowserCacheArtifactStore implements LocalArtifactStore {

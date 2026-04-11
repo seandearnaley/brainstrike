@@ -63,4 +63,28 @@ describe('gemma local llm migration', () => {
       expect(afterIds).toContain('onnx-community/Qwen3-0.6B-ONNX');
     }
   );
+
+  it(
+    'has no inbound foreign keys to models(id) before deleting legacy built-in model rows',
+    { timeout: 60_000 },
+    async () => {
+      await runner.initialize();
+      await runner.up(migrations.slice(0, 28));
+
+      const constraints = await db.query<{
+        constraint_name: string;
+        source_table: string;
+      }>(`
+        SELECT
+          conname AS constraint_name,
+          conrelid::regclass::text AS source_table
+        FROM pg_constraint
+        WHERE contype = 'f'
+          AND confrelid = 'models'::regclass
+        ORDER BY conname
+      `);
+
+      expect(constraints.rows).toEqual([]);
+    }
+  );
 });

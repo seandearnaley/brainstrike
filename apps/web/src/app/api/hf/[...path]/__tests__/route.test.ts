@@ -69,6 +69,7 @@ describe('hf proxy route', () => {
     expect(headers.get('range')).toBe('bytes=0-1');
     expect(headers.get('user-agent')).toBe('brainstrike-local-llm');
     expect((options as { signal: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
+    expect((options as { signal: AbortSignal }).signal).toBe(request.signal);
     expect(response.status).toBe(206);
     expect(response.statusText).toBe('Partial Content');
     expect(response.headers.get('content-type')).toBe('application/octet-stream');

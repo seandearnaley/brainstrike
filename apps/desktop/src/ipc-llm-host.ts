@@ -1,6 +1,8 @@
 import { type IpcMainEvent, ipcMain } from 'electron';
 import type { LlmHostManager } from './llm-host-manager';
 import {
+  assertLlmHostGeneratePayload,
+  assertLlmHostWarmupPayload,
   LLM_HOST_CANCEL_CHANNEL,
   LLM_HOST_ENSURE_STARTED_CHANNEL,
   LLM_HOST_GENERATE_CHANNEL,
@@ -12,7 +14,6 @@ import {
   LLM_HOST_STATUS_ADAPTER,
   LLM_HOST_STOP_CHANNEL,
   LLM_HOST_WARMUP_CHANNEL,
-  type LlmHostGenerateRequestPayload,
   type LlmHostResponseReport,
   type LlmHostStatusReport,
 } from './llm-host-shared';
@@ -36,12 +37,15 @@ export function registerLlmHostIpcHandlers(manager: LlmHostManager): () => void 
     async (event, payload: string | { clientRequestId?: string; modelId: string }) =>
       await (typeof payload === 'string'
         ? manager.warmup(event.sender, payload)
-        : manager.warmupRequest(event.sender, payload))
+        : manager.warmupRequest(
+            event.sender,
+            assertLlmHostWarmupPayload({ ...payload, kind: 'warmup' })
+          ))
   );
   ipcMain.handle(
     LLM_HOST_GENERATE_CHANNEL,
-    async (event, payload: LlmHostGenerateRequestPayload) =>
-      await manager.generate(event.sender, payload)
+    async (event, payload: unknown) =>
+      await manager.generate(event.sender, assertLlmHostGeneratePayload(payload))
   );
   ipcMain.handle(LLM_HOST_CANCEL_CHANNEL, async (event, requestId: string) => {
     await manager.cancel(event.sender, requestId);

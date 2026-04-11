@@ -200,7 +200,23 @@ export class LlmHostManager {
   }
 
   async cancel(_requester: WebContents, requestId: string): Promise<void> {
-    this.sendCancelRequestToHost(requestId, await this.assertReadyForRequests());
+    const trimmedRequestId = requestId.trim();
+    if (trimmedRequestId.length === 0) {
+      throw createRequestFailure('Llm host cancel requestId must be a non-empty string.');
+    }
+
+    const status = this.getStatus();
+    const hostWindow = this.lifecycle.getHostWindow();
+    if (status.state !== 'running' || !hostWindow || hostWindow.isDestroyed()) {
+      logger.debug('Skipping llm-host cancel because the host is not running', {
+        requestId: trimmedRequestId,
+        state: status.state,
+        hasHostWindow: Boolean(hostWindow),
+      });
+      return;
+    }
+
+    this.sendCancelRequestToHost(trimmedRequestId, hostWindow);
   }
 
   async generate(requester: WebContents, payload: LlmHostGenerateRequestPayload): Promise<unknown> {
