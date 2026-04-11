@@ -521,7 +521,8 @@ async function waitForAbortableDesktopWarmup(
   llmHost: NonNullable<ReturnType<typeof getDesktopLlmHost>>,
   modelId: string,
   warmupPromise: Promise<void>,
-  abortSignal?: AbortSignal
+  abortSignal: AbortSignal | undefined,
+  options: { owner: boolean }
 ): Promise<void> {
   if (!abortSignal) {
     await warmupPromise;
@@ -529,18 +530,22 @@ async function waitForAbortableDesktopWarmup(
   }
 
   if (abortSignal.aborted) {
-    const requestId = desktopWarmupRequestIds.get(modelId);
-    if (requestId) {
-      void llmHost.cancel?.(requestId);
+    if (options.owner) {
+      const requestId = desktopWarmupRequestIds.get(modelId);
+      if (requestId) {
+        void llmHost.cancel?.(requestId);
+      }
     }
     throw createAbortError();
   }
 
   await new Promise<void>((resolve, reject) => {
     const handleAbort = () => {
-      const requestId = desktopWarmupRequestIds.get(modelId);
-      if (requestId) {
-        void llmHost.cancel?.(requestId);
+      if (options.owner) {
+        const requestId = desktopWarmupRequestIds.get(modelId);
+        if (requestId) {
+          void llmHost.cancel?.(requestId);
+        }
       }
       reject(createAbortError());
     };
@@ -607,7 +612,9 @@ async function ensureDesktopModelWarmed(
 
   const existingWarmup = desktopWarmupPromises.get(modelId);
   if (existingWarmup) {
-    await waitForAbortableDesktopWarmup(llmHost, modelId, existingWarmup, abortSignal);
+    await waitForAbortableDesktopWarmup(llmHost, modelId, existingWarmup, abortSignal, {
+      owner: false,
+    });
     return;
   }
 
@@ -642,7 +649,9 @@ async function ensureDesktopModelWarmed(
   })();
 
   desktopWarmupPromises.set(modelId, warmupPromise);
-  await waitForAbortableDesktopWarmup(llmHost, modelId, warmupPromise, abortSignal);
+  await waitForAbortableDesktopWarmup(llmHost, modelId, warmupPromise, abortSignal, {
+    owner: true,
+  });
 }
 
 function createDesktopGenerationOptions(

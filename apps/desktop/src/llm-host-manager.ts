@@ -20,6 +20,7 @@ const logger = createLogger('LlmHostManager');
 const LLM_HOST_GENERATE_TIMEOUT_MS = 5 * 60_000;
 const LLM_HOST_WARMUP_TIMEOUT_MS = 20 * 60_000;
 const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
+const PRE_CANCELLED_REQUEST_TTL_MS = LLM_HOST_WARMUP_TIMEOUT_MS;
 
 interface PendingLlmRequest {
   cleanupRequesterListener?: () => void;
@@ -38,6 +39,10 @@ function createRequestFailure(message: string): Error {
 
 export class LlmHostManager {
   private readonly lifecycle: RendererHostLifecycle<LlmHostStatus>;
+  private readonly preCancelledRequestCleanupTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
   private readonly preCancelledRequestIds = new Set<string>();
   private readonly pendingRequests = new Map<string, PendingLlmRequest>();
 
@@ -211,7 +216,7 @@ export class LlmHostManager {
     const status = this.getStatus();
     const hostWindow = this.lifecycle.getHostWindow();
     if (status.state !== 'running' || !hostWindow || hostWindow.isDestroyed()) {
-      this.preCancelledRequestIds.add(scopedRequestId);
+      this.recordPreCancelledRequest(scopedRequestId);
       logger.debug('Skipping llm-host cancel because the host is not running', {
         requestId: trimmedRequestId,
         state: status.state,
@@ -239,7 +244,7 @@ export class LlmHostManager {
   ): Promise<unknown> {
     const hostWindow = await this.assertReadyForRequests();
     const requestId = this.createHostRequestId(requester, payload);
-    if (this.preCancelledRequestIds.delete(requestId)) {
+    if (this.clearPreCancelledRequest(requestId)) {
       throw createRequestFailure(`Llm host request ${requestId} was cancelled before dispatch.`);
     }
     return await new Promise<unknown>((resolve, reject) => {
@@ -355,6 +360,29 @@ export class LlmHostManager {
       this.tryCancelHostRequest(pending.requestId, undefined, 'refreshed-timeout');
       pending.reject(createRequestFailure(`Llm host request ${pending.requestId} timed out.`));
     }, remainingMs);
+  }
+
+  private clearPreCancelledRequest(requestId: string): boolean {
+    const timeoutId = this.preCancelledRequestCleanupTimers.get(requestId);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      this.preCancelledRequestCleanupTimers.delete(requestId);
+    }
+    return this.preCancelledRequestIds.delete(requestId);
+  }
+
+  private recordPreCancelledRequest(requestId: string): void {
+    const existingTimeout = this.preCancelledRequestCleanupTimers.get(requestId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    this.preCancelledRequestIds.add(requestId);
+    const timeoutId = setTimeout(() => {
+      this.preCancelledRequestCleanupTimers.delete(requestId);
+      this.preCancelledRequestIds.delete(requestId);
+    }, PRE_CANCELLED_REQUEST_TTL_MS);
+    this.preCancelledRequestCleanupTimers.set(requestId, timeoutId);
   }
 
   private sendCancelRequestToHost(requestId: string, hostWindow?: BrowserWindow): void {

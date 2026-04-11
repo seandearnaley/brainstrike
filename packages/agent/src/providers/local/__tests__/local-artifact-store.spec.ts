@@ -445,6 +445,59 @@ describe('local-artifact-store', () => {
     fetchSpy.mockRestore();
   });
 
+  it('normalizes malformed content-length values for body-less responses', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn(async (_url: string, response: Response) => {
+        await response.arrayBuffer();
+      }),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000,
+          usage: 0,
+        }),
+      },
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, {
+        status: 200,
+        headers: { 'content-length': 'not-a-number' },
+      })
+    );
+    const progress = vi.fn();
+
+    await expect(
+      new BrowserCacheArtifactStore().download(
+        {
+          ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+          totalSizeBytes: 1,
+          artifacts: {
+            text: ['config.json'],
+          },
+        },
+        progress
+      )
+    ).resolves.toBeUndefined();
+
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'downloading',
+        progress: 0,
+      })
+    );
+  });
+
   it('treats multimodal artifacts as required when checking download completeness', async () => {
     globalThis.window = {
       location: {

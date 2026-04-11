@@ -184,6 +184,102 @@ describe('ipc-llm-host', () => {
     expect(manager.generate).not.toHaveBeenCalled();
   });
 
+  it('rejects toolResponses on non-tool roles', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn().mockResolvedValue({ text: 'ok' }),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn(),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const generateCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+    );
+    if (!generateCall) {
+      throw new Error('llm-host:generate handler not registered');
+    }
+
+    const generateHandler = generateCall[1] as (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ) => Promise<unknown>;
+    await expect(
+      generateHandler({ sender: {} } as IpcMainInvokeEvent, {
+        kind: 'generate',
+        clientRequestId: 'req-1',
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        messages: [
+          {
+            role: 'assistant',
+            content: '',
+            toolResponses: [
+              {
+                name: 'read_file',
+                response: { ok: true },
+              },
+            ],
+          },
+        ],
+        options: {},
+      })
+    ).rejects.toThrow(
+      'Llm host generate payload.messages[0].toolResponses and toolCallId are only valid for tool messages.'
+    );
+  });
+
+  it('rejects toolCalls on non-assistant roles', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn().mockResolvedValue({ text: 'ok' }),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn(),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const generateCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+    );
+    if (!generateCall) {
+      throw new Error('llm-host:generate handler not registered');
+    }
+
+    const generateHandler = generateCall[1] as (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ) => Promise<unknown>;
+    await expect(
+      generateHandler({ sender: {} } as IpcMainInvokeEvent, {
+        kind: 'generate',
+        clientRequestId: 'req-1',
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        messages: [
+          {
+            role: 'tool',
+            content: '',
+            toolCalls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: {
+                  name: 'read_file',
+                  arguments: '{}',
+                },
+              },
+            ],
+          },
+        ],
+        options: {},
+      })
+    ).rejects.toThrow(
+      'Llm host generate payload.messages[0].toolCalls are only valid for assistant messages.'
+    );
+  });
+
   it('validates warmup payloads before forwarding them to the manager', async () => {
     const manager = {
       acceptResponseReport: vi.fn(),

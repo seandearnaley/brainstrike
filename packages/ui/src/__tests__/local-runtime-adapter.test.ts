@@ -458,6 +458,62 @@ describe('createLocalModelAdapter', () => {
     expect(generate).toHaveBeenCalledTimes(2);
   });
 
+  it('does not cancel a shared warmup when only a joiner aborts', async () => {
+    let resolveWarmup: VoidFunction | undefined;
+    const warmup = vi.fn().mockImplementation(
+      async () =>
+        await new Promise<void>((resolve) => {
+          resolveWarmup = resolve as VoidFunction;
+        })
+    );
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Ready.' }));
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        cancel,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+    const ownerAbort = new AbortController();
+    const joinerAbort = new AbortController();
+
+    const ownerRun = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: ownerAbort.signal,
+      })
+    );
+    const joinerRun = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: joinerAbort.signal,
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(warmup).toHaveBeenCalledTimes(1);
+    });
+    joinerAbort.abort();
+    resolveWarmup?.();
+
+    await expect(joinerRun).resolves.toContainEqual({
+      content: [{ type: 'text', text: 'Generation cancelled.' }],
+    });
+    await expect(ownerRun).resolves.toContainEqual({
+      content: expect.arrayContaining([{ type: 'text', text: 'Ready.' }]),
+    });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
   it('reports a terminal ready state after a successful warm run', async () => {
     let progressListener: ((progress: unknown) => void) | null = null;
     const warmup = vi.fn().mockResolvedValue(undefined);

@@ -55,6 +55,7 @@ type TestableLlmHostManager = LlmHostManager & {
     }
   ): void;
   pendingRequests: Map<string, unknown>;
+  preCancelledRequestIds: Set<string>;
 };
 
 describe('LlmHostManager', () => {
@@ -410,5 +411,24 @@ describe('LlmHostManager', () => {
       'Llm host request 501:prestart-cancel was cancelled before dispatch.'
     );
     expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('expires pre-cancelled request ids that are never consumed', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(601);
+    lifecycleState.getStatus.mockReturnValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      state: 'starting',
+    });
+    lifecycleState.getHostWindow.mockReturnValue(undefined);
+
+    await expect(manager.cancel(requester, 'never-dispatched')).resolves.toBeUndefined();
+    expect(manager.preCancelledRequestIds.has('601:never-dispatched')).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(20 * 60_000 + 1);
+
+    expect(manager.preCancelledRequestIds.has('601:never-dispatched')).toBe(false);
   });
 });

@@ -177,9 +177,10 @@ async function cacheResponseStream(
   if (!response.body) {
     await cache.put(url, response.clone());
     const totalHeader = response.headers.get('content-length');
-    const loaded = totalHeader ? Number.parseInt(totalHeader, 10) : 0;
-    onChunkProgress(loaded, Number.isFinite(loaded) ? loaded : null);
-    return Number.isFinite(loaded) ? loaded : 0;
+    const parsedLength = totalHeader ? Number.parseInt(totalHeader, 10) : 0;
+    const loaded = Number.isFinite(parsedLength) ? parsedLength : 0;
+    onChunkProgress(loaded, loaded > 0 ? loaded : null);
+    return loaded;
   }
 
   const totalHeader = response.headers.get('content-length');
