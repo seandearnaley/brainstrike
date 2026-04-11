@@ -23,6 +23,7 @@ import './log-buffer';
 import './styles.css';
 import { ChunkingHostApp } from './components/chunking-host-app';
 import { EmbeddingHostApp } from './components/embedding-host-app';
+import { LlmHostApp } from './components/llm-host-app';
 
 // Import layout component
 import RootLayoutContent from './components/root-layout-content';
@@ -41,7 +42,7 @@ const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
 let removeHiddenHostLogForwarder: (() => void) | null = null;
 
-type DesktopRendererRole = 'chunking-host' | 'embedding-host' | 'visible-ui';
+type DesktopRendererRole = 'chunking-host' | 'embedding-host' | 'llm-host' | 'visible-ui';
 
 function getDesktopRendererRole(): DesktopRendererRole {
   const mode = new URLSearchParams(window.location.search).get('mode');
@@ -51,13 +52,18 @@ function getDesktopRendererRole(): DesktopRendererRole {
   if (mode === 'chunking-host') {
     return 'chunking-host';
   }
+  if (mode === 'llm-host') {
+    return 'llm-host';
+  }
   return 'visible-ui';
 }
 
 const desktopRendererRole = getDesktopRendererRole();
 const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
 const rendererRuntimeKind =
-  desktopRendererRole === 'embedding-host' || desktopRendererRole === 'chunking-host'
+  desktopRendererRole === 'embedding-host' ||
+  desktopRendererRole === 'chunking-host' ||
+  desktopRendererRole === 'llm-host'
     ? desktopRendererRole
     : null;
 
@@ -311,6 +317,10 @@ function isChunkingHostMode(): boolean {
   return new URLSearchParams(window.location.search).get('mode') === 'chunking-host';
 }
 
+function isLlmHostMode(): boolean {
+  return new URLSearchParams(window.location.search).get('mode') === 'llm-host';
+}
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Failed to find the root element with ID 'root'");
@@ -328,6 +338,8 @@ root.render(
     <EmbeddingHostApp />
   ) : isChunkingHostMode() ? (
     <ChunkingHostApp />
+  ) : isLlmHostMode() ? (
+    <LlmHostApp />
   ) : (
     <StrictMode>
       <App />

@@ -43,7 +43,7 @@
     "chokidar": "^5.0.0"
   },
   "scripts": {
-    "build": "tsc && tsup",
+    "build": "tsc -b . && tsup",
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose & tsup --watch",
     "mutation": "npx @stryker-mutator/core run",

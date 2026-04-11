@@ -1,9 +1,11 @@
 import type {
   AnthropicProviderOptions,
   GoogleProviderOptions,
+  LocalProviderOptions,
   OpenAiProviderOptions,
   RuntimeData,
 } from '@brainstrike/agent';
+import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
 import {
   isLoadedRuntimeModelCatalogState,
   type LocalRuntimeAvailabilityState,
@@ -20,7 +22,11 @@ import {
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
 } from '@brainstrike/agent/provider-metadata';
-import { NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/tool-metadata';
+import {
+  getToolSchemaDisplay,
+  NATIVE_TOOL_DEFAULTS,
+  TOOL_DESCRIPTIONS,
+} from '@brainstrike/agent/tool-metadata';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import {
   useFileExplorerStoreSelector,
@@ -110,7 +116,7 @@ interface TotalFilesRow {
 }
 
 type LocalRuntimeStatusMap = Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
-type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
+type LocalRuntimeModelCatalogMap = Partial<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
 type LlmProviderModelDefinition = ProviderModelDefinition & { type: 'llm' };
 
 const LOCAL_RUNTIME_PROVIDER_IDS = ['ollama', 'lmstudio'] as const;
@@ -215,6 +221,18 @@ function resolveLocalRuntimeProviderDisabledReason(
   return;
 }
 
+function resolveBuiltInLocalProviderDisabledReason(
+  selectedProvider: SupportedProvider | null
+): string | undefined {
+  if (selectedProvider !== 'local') {
+    return;
+  }
+  if (LocalLlmBackend.getBestDevice() !== 'webgpu') {
+    return 'Local Gemma requires WebGPU. This device cannot run the built-in local model.';
+  }
+  return;
+}
+
 function resolveSelectedLocalModelUnavailableReason(options: {
   readonly selectedProvider: SupportedProvider;
   readonly selectedModel: string | null;
@@ -311,9 +329,49 @@ interface McpToolDescriptor {
   description?: string;
   enabled: boolean;
   id: string;
+  inputSchema?: unknown;
 }
 
 type McpToolMap = Record<string, McpToolDescriptor[]>;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function toLocalRuntimeInputSchema(toolId: string): Record<string, unknown> | undefined {
+  const displaySchema = getToolSchemaDisplay(toolId);
+  if (!displaySchema) {
+    return;
+  }
+
+  const properties: Record<string, Record<string, unknown>> = {};
+  const required: string[] = [];
+
+  for (const parameter of displaySchema.parameters) {
+    const schema: Record<string, unknown> = {
+      type: parameter.type === 'enum' ? 'string' : parameter.type,
+      description: parameter.description,
+    };
+    if (parameter.type === 'enum' && parameter.enumValues) {
+      schema['enum'] = parameter.enumValues;
+    }
+    if (parameter.type === 'array' && parameter.arrayItemType) {
+      schema['items'] = {
+        type: parameter.arrayItemType,
+      };
+    }
+    properties[parameter.name] = schema;
+    if (parameter.required) {
+      required.push(parameter.name);
+    }
+  }
+
+  return {
+    type: 'object',
+    properties,
+    ...(required.length > 0 ? { required } : {}),
+  };
+}
 
 function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuItem[] {
   const items: AssistantToolMenuItem[] = [];
@@ -327,6 +385,8 @@ function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuItem[] {
         group: serverName,
         description: tool.description ?? `MCP tool: ${tool.id}`,
         category: 'action',
+        ...(isPlainRecord(tool.inputSchema) ? { inputSchema: tool.inputSchema } : {}),
+        isLocalRuntimeRunnable: true,
       });
     }
   }
@@ -416,6 +476,17 @@ function buildGoogleOptions(
   return thinkingConfig ? { thinkingConfig } : undefined;
 }
 
+function buildLocalOptions(settings: AssistantProviderSettings): LocalProviderOptions | undefined {
+  if (typeof settings.localThinkingEnabled !== 'boolean') {
+    return;
+  }
+  return {
+    thinking: {
+      enabled: settings.localThinkingEnabled,
+    },
+  };
+}
+
 function buildProviderOptions(
   providerId: SupportedProvider | null,
   modelName: string | undefined,
@@ -438,6 +509,10 @@ function buildProviderOptions(
     case 'google': {
       const google = buildGoogleOptions(modelName, settings);
       return google ? { google } : undefined;
+    }
+    case 'local': {
+      const local = buildLocalOptions(settings);
+      return local ? { local } : undefined;
     }
     default:
       return;
@@ -874,6 +949,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         typeof (metadata as { category?: unknown }).category === 'string'
           ? (metadata as { category: string }).category
           : undefined;
+      const inputSchema = toLocalRuntimeInputSchema(toolId);
 
       return {
         id: toolId,
@@ -882,6 +958,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         source: 'native',
         group: 'Native Tools',
         description: getToolDescription(toolId),
+        ...(inputSchema ? { inputSchema } : {}),
+        isLocalRuntimeRunnable: true,
         ...(category ? { category } : {}),
       };
     });
@@ -1457,6 +1535,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     );
     if (localRuntimeProviderReason) {
       return localRuntimeProviderReason;
+    }
+
+    const builtInLocalReason = resolveBuiltInLocalProviderDisabledReason(selectedProvider);
+    if (builtInLocalReason) {
+      return builtInLocalReason;
     }
 
     if (configuredProviders.length === 0) {

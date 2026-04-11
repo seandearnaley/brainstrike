@@ -44,19 +44,28 @@ async function sendPrompt(window: Page, prompt: string): Promise<void> {
   });
 }
 
+async function expandReasoning(window: Page): Promise<void> {
+  const showReasoningButton = window.getByRole('button', { name: /show reasoning/i }).first();
+  await expect(showReasoningButton).toBeVisible({
+    timeout: E2E_TIMEOUTS.toolVisibility,
+  });
+  await showReasoningButton.click();
+}
+
 test.describe('Assistant retrieval (desktop)', () => {
   test('shows retrieval tool event and response', async ({ window }) => {
     await setupAssistantMock(window, { variant: 'tool', message: 'Retrieved answer.' });
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
+    await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
+      timeout: E2E_TIMEOUTS.toolVisibility,
+    });
+    await expandReasoning(window);
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
     await expect(window.getByText('brainstrike.retrieveContext').first()).toBeVisible({
-      timeout: E2E_TIMEOUTS.toolVisibility,
-    });
-    await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });
   });
@@ -67,6 +76,10 @@ test.describe('Assistant retrieval (desktop)', () => {
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
+    await expect(window.getByText(errorMessage).first()).toBeVisible({
+      timeout: E2E_TIMEOUTS.toolVisibility,
+    });
+    await expandReasoning(window);
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
       timeout: E2E_TIMEOUTS.toolVisibility,
     });

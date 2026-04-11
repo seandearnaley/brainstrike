@@ -15,6 +15,7 @@ export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,
   LocalLlmGenerationResult,
+  LocalLlmJsonSchema,
   LocalLlmMessage,
   LocalLlmModelCapabilities,
   LocalLlmModelParameters,
@@ -22,4 +23,5 @@ export type {
   LocalLlmProviderStatus,
   LocalLlmToolCall,
   LocalLlmToolDefinition,
+  LocalLlmToolResponse,
 } from './types';

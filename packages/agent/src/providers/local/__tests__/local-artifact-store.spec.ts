@@ -1,0 +1,436 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { configureTransformersEnvironment } from '../gemma4-engine';
+import {
+  BrowserCacheArtifactStore,
+  buildLocalArtifactUrl,
+  resolveLocalArtifactRemoteHost,
+  resolveLocalArtifactRemotePathTemplate,
+} from '../local-artifact-store';
+import { getLocalLlmModelSpec } from '../local-model-specs';
+
+const originalWindow = globalThis.window;
+
+describe('local-artifact-store', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, '__BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__');
+    if (originalWindow) {
+      globalThis.window = originalWindow;
+      return;
+    }
+    Reflect.deleteProperty(globalThis, 'window');
+  });
+
+  it('uses the app hf proxy in browser http environments', () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    expect(resolveLocalArtifactRemoteHost()).toBe('/api/hf/');
+    expect(
+      buildLocalArtifactUrl(
+        'onnx-community/gemma-4-E2B-it-ONNX',
+        'main',
+        'onnx/decoder_model_merged_q4f16.onnx'
+      )
+    ).toBe(
+      '/api/hf/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/onnx/decoder_model_merged_q4f16.onnx'
+    );
+  });
+
+  it('uses the hugging face host when window is unavailable or running from file protocol', () => {
+    Reflect.deleteProperty(globalThis, 'window');
+    expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
+
+    globalThis.window = {
+      location: {
+        protocol: 'file:',
+      },
+    } as Window;
+    expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
+  });
+
+  it('uses the hugging face host for non-http desktop protocols', () => {
+    globalThis.window = {
+      location: {
+        protocol: 'app:',
+      },
+    } as Window;
+
+    expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
+  });
+
+  it('prefers an explicit remote host override when provided', () => {
+    (
+      globalThis as typeof globalThis & {
+        __BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__?: string;
+      }
+    ).__BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__ = 'https://cache.internal/hf/';
+
+    expect(resolveLocalArtifactRemoteHost()).toBe('https://cache.internal/hf/');
+
+    Reflect.deleteProperty(globalThis, '__BRAINSTRIKE_LOCAL_ARTIFACT_REMOTE_HOST__');
+  });
+
+  it('configures transformers runtime fetches to use the same remote host contract as downloads', () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const environment: {
+      allowRemoteModels?: boolean;
+      remoteHost?: string;
+      remotePathTemplate?: string;
+    } = {};
+
+    configureTransformersEnvironment(environment);
+
+    expect(environment.allowRemoteModels).toBe(true);
+    expect(environment.remoteHost).toBe('/api/hf/');
+    expect(environment.remotePathTemplate).toBe(resolveLocalArtifactRemotePathTemplate());
+  });
+
+  it('rejects partial artifact responses instead of caching incomplete model files', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn(),
+    } as unknown as Cache;
+    const openSpy = vi.fn().mockResolvedValue(cache);
+    vi.stubGlobal('caches', {
+      open: openSpy,
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('partial', {
+        status: 206,
+        headers: {
+          'content-length': '7',
+        },
+      })
+    );
+    const spec = getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX');
+
+    const store = new BrowserCacheArtifactStore();
+
+    await expect(store.download(spec!)).rejects.toThrow('artifact_cache_requires_full_response');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('checks storage quota against only the missing artifact bytes', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockImplementation(async (url: string) => {
+        if (url.endsWith('/config.json')) {
+          return new Response('cached', {
+            status: 200,
+            headers: {
+              'content-length': String(3900 * 1024 * 1024),
+            },
+          });
+        }
+        return undefined;
+      }),
+      put: vi.fn(),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000 * 1024 * 1024,
+          usage: 4000 * 1024 * 1024,
+        }),
+      },
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(
+        async () => new Response('ok', { status: 200, headers: { 'content-length': '2' } })
+      );
+    const spec = getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX');
+
+    await expect(new BrowserCacheArtifactStore().download(spec!)).resolves.toBeUndefined();
+
+    expect(fetchSpy).toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('weights download progress by bytes instead of equal file counts', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockImplementation(async (url: string) => {
+        if (url.endsWith('/large.onnx')) {
+          return new Response('cached-large', {
+            status: 200,
+            headers: {
+              'content-length': '900',
+            },
+          });
+        }
+        return undefined;
+      }),
+      put: vi.fn(async (_url: string, response: Response) => {
+        await response.arrayBuffer();
+      }),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000,
+          usage: 900,
+        }),
+      },
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(50));
+            controller.enqueue(new Uint8Array(50));
+            controller.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-length': '100',
+          },
+        }
+      )
+    );
+
+    const spec = {
+      ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+      totalSizeBytes: 1000,
+      artifacts: {
+        text: ['large.onnx', 'small.onnx'],
+      },
+    };
+    const progress = vi.fn();
+
+    await new BrowserCacheArtifactStore().download(spec, progress);
+
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'downloading',
+        progress: 95,
+        file: 'small.onnx',
+      })
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it('forwards abort signals to artifact fetches', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn(async (_url: string, response: Response) => {
+        await response.arrayBuffer();
+      }),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000 * 1024 * 1024,
+          usage: 0,
+        }),
+      },
+    });
+
+    const controller = new AbortController();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(streamController) {
+            streamController.enqueue(new Uint8Array([1]));
+            streamController.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-length': '1',
+          },
+        }
+      )
+    );
+
+    const spec = {
+      ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+      totalSizeBytes: 1,
+      artifacts: {
+        text: ['config.json'],
+      },
+    };
+
+    await new BrowserCacheArtifactStore().download(spec, undefined, controller.signal);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        signal: controller.signal,
+      })
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it('stops before fetching the next artifact when aborted between files', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn(async (_url: string, response: Response) => {
+        await response.arrayBuffer();
+      }),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000,
+          usage: 0,
+        }),
+      },
+    });
+
+    const controller = new AbortController();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response('first', { status: 200, headers: { 'content-length': '5' } })
+      )
+      .mockImplementationOnce(async () => {
+        throw new Error('second fetch should not run');
+      });
+
+    const spec = {
+      ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+      totalSizeBytes: 10,
+      artifacts: {
+        text: ['config.json', 'tokenizer.json'],
+      },
+    };
+
+    cache.put = vi.fn(async (_url: string, response: Response) => {
+      await response.arrayBuffer();
+      controller.abort();
+    });
+
+    await expect(
+      new BrowserCacheArtifactStore().download(spec, undefined, controller.signal)
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy.mockRestore();
+  });
+
+  it('does not read multi-gb cached artifacts into memory when content-length is missing', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const blobSpy = vi.fn(async () => new Blob(['cached']));
+    const cache = {
+      match: vi.fn().mockResolvedValue({
+        status: 200,
+        headers: new Headers(),
+        clone: () => ({
+          blob: blobSpy,
+        }),
+      } as unknown as Response),
+      put: vi.fn(),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({
+          quota: 5000 * 1024 * 1024,
+          usage: 100,
+        }),
+      },
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(
+        async () => new Response('ok', { status: 200, headers: { 'content-length': '2' } })
+      );
+    const spec = getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX');
+
+    await expect(new BrowserCacheArtifactStore().download(spec!)).resolves.toBeUndefined();
+
+    expect(blobSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('treats multimodal artifacts as required when checking download completeness', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockImplementation(async (url: string) => {
+        return url.includes('vision_encoder') ? undefined : new Response('ok', { status: 200 });
+      }),
+      put: vi.fn(),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+
+    const store = new BrowserCacheArtifactStore();
+    const spec = {
+      ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+      artifacts: {
+        text: ['config.json'],
+        vision: ['onnx/vision_encoder_q4f16.onnx'],
+      },
+    };
+
+    await expect(store.hasRequiredArtifacts(spec)).resolves.toBe(false);
+  });
+});

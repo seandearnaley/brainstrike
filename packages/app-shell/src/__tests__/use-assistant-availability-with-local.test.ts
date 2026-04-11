@@ -2,6 +2,12 @@ import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantAvailabilityWithLocal } from '../hooks/use-assistant-availability-with-local';
 
+vi.mock('@brainstrike/agent/local-llm', () => ({
+  LocalLlmBackend: {
+    getBestDevice: vi.fn(() => 'webgpu'),
+  },
+}));
+
 // Mock the base hook
 vi.mock('../hooks/use-assistant-availability', () => ({
   useAssistantAvailability: vi.fn(),
@@ -17,15 +23,18 @@ vi.mock('@brainstrike/preferences/stores/model-registry-store', async (importOri
   };
 });
 
+import { LocalLlmBackend } from '@brainstrike/agent/local-llm';
 import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useAssistantAvailability } from '../hooks/use-assistant-availability';
 
 const useAssistantAvailabilityMock = vi.mocked(useAssistantAvailability);
 const useModelRegistryStoreMock = vi.mocked(useModelRegistryStore);
+const getBestDeviceMock = vi.mocked(LocalLlmBackend.getBestDevice);
 
 describe('useAssistantAvailabilityWithLocal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getBestDeviceMock.mockReturnValue('webgpu');
   });
 
   it('returns enabled when server says enabled (hosted provider)', () => {
@@ -91,6 +100,29 @@ describe('useAssistantAvailabilityWithLocal', () => {
     });
     useModelRegistryStoreMock.mockReturnValue({
       models: [],
+      hasLoaded: true,
+    } as unknown as ReturnType<typeof useModelRegistryStore>);
+
+    const { result } = renderHook(() => useAssistantAvailabilityWithLocal());
+
+    expect(result.current).toEqual({ state: 'disabled', reason: 'missing_api_key' });
+  });
+
+  it('returns disabled when local Gemma cannot run on this device', () => {
+    getBestDeviceMock.mockReturnValue(null);
+    useAssistantAvailabilityMock.mockReturnValue({
+      state: 'disabled',
+      reason: 'missing_api_key',
+    });
+    useModelRegistryStoreMock.mockReturnValue({
+      models: [
+        {
+          id: 'onnx-community/gemma-4-E2B-it-ONNX',
+          providerId: 'local',
+          isEnabled: true,
+          capabilities: { type: 'llm' },
+        },
+      ],
       hasLoaded: true,
     } as unknown as ReturnType<typeof useModelRegistryStore>);
 

@@ -39,12 +39,13 @@ function getCSPDirectives(env: Environment): CSPDirectives {
     'script-src': isDev
       ? [
           "'self'",
+          'blob:',
           "'unsafe-inline'",
           "'unsafe-eval'",
           'http://localhost:*',
           'https://cdn.jsdelivr.net',
         ]
-      : ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net'],
+      : ["'self'", 'blob:', "'unsafe-eval'", 'https://cdn.jsdelivr.net'],
 
     'worker-src': ["'self'", 'blob:'],
 

@@ -1,0 +1,333 @@
+import type { WebContents } from 'electron';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { lifecycleState, mockHostWindow } = vi.hoisted(() => {
+  const hostWindow = {
+    isDestroyed: vi.fn(() => false),
+    webContents: {
+      id: 71,
+      send: vi.fn(),
+    },
+  };
+
+  return {
+    lifecycleState: {
+      clearHostWindow: vi.fn(),
+      destroyHostWindow: vi.fn(),
+      dispose: vi.fn(),
+      ensureStarted: vi.fn(async () => ({
+        active: false,
+        lastError: null,
+        runtimeId: 'llm-host-runtime',
+        state: 'running' as const,
+      })),
+      getHostWindow: vi.fn(() => hostWindow),
+      getStatus: vi.fn(() => ({
+        active: false,
+        lastError: null,
+        runtimeId: 'llm-host-runtime',
+        state: 'running' as const,
+      })),
+      isHostWindow: vi.fn(() => false),
+      setStatus: vi.fn(),
+    },
+    mockHostWindow: hostWindow,
+  };
+});
+
+vi.mock('../renderer-host-lifecycle', () => ({
+  RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle() {
+    return lifecycleState;
+  }),
+}));
+
+import { LlmHostManager } from '../llm-host-manager';
+
+type TestableLlmHostManager = LlmHostManager & {
+  acceptResponseReport(
+    senderId: number,
+    report: {
+      channel: string;
+      payload: Record<string, unknown>;
+      requestId: string;
+      runtimeId: string;
+      type: string;
+    }
+  ): void;
+  pendingRequests: Map<string, unknown>;
+};
+
+describe('LlmHostManager', () => {
+  function createRequester(id = 101): WebContents {
+    return {
+      id,
+      send: vi.fn(),
+      once: vi.fn(),
+      removeListener: vi.fn(),
+    } as unknown as WebContents;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    lifecycleState.ensureStarted.mockResolvedValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      state: 'running',
+    });
+    lifecycleState.getHostWindow.mockReturnValue(mockHostWindow);
+    lifecycleState.getStatus.mockReturnValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      state: 'running',
+    });
+    mockHostWindow.isDestroyed.mockReturnValue(false);
+    mockHostWindow.webContents.send.mockReset();
+  });
+
+  it('extends request lifetime while llm-host progress reports are still arriving', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(101);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'req-progress',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+
+    await vi.advanceTimersByTimeAsync(59_000);
+    manager.acceptResponseReport(71, {
+      type: 'progress',
+      channel: 'llm-progress',
+      requestId: '101:req-progress',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        kind: 'stage',
+        message: 'still working',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(59_000);
+
+    expect(manager.pendingRequests.has('101:req-progress')).toBe(true);
+    expect(requester.send).toHaveBeenCalledWith(
+      expect.stringContaining('progress'),
+      expect.objectContaining({
+        requestId: '101:req-progress',
+        type: 'progress',
+      })
+    );
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: '101:req-progress',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: { text: 'done' },
+      },
+    });
+
+    await expect(requestPromise).resolves.toEqual({ text: 'done' });
+  });
+
+  it('uses a longer timeout window for warmup requests', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester();
+
+    const warmupPromise = manager.warmup(requester, 'onnx-community/gemma-4-E2B-it-ONNX');
+
+    await vi.advanceTimersByTimeAsync(61_000);
+
+    expect(manager.pendingRequests.size).toBe(1);
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: [...manager.pendingRequests.keys()][0] ?? 'missing',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: null,
+      },
+    });
+
+    await expect(warmupPromise).resolves.toBeUndefined();
+  });
+
+  it('scopes fallback-generated request ids to the requester', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(401);
+
+    const warmupPromise = manager.warmup(requester, 'onnx-community/gemma-4-E2B-it-ONNX');
+    await vi.waitFor(() => {
+      expect(manager.pendingRequests.size).toBe(1);
+    });
+    const [requestId] = [...manager.pendingRequests.keys()];
+
+    expect(requestId?.startsWith('401:')).toBe(true);
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: requestId ?? 'missing',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: null,
+      },
+    });
+
+    await expect(warmupPromise).resolves.toBeUndefined();
+  });
+
+  it('rejects duplicate client request IDs instead of overwriting pending work', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(201);
+
+    const firstRequest = manager.generate(requester, {
+      clientRequestId: 'duplicate-id',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+
+    const duplicateRequest = manager.generate(requester, {
+      clientRequestId: 'duplicate-id',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+
+    await expect(duplicateRequest).rejects.toThrow(
+      'Duplicate llm host requestId 201:duplicate-id.'
+    );
+    expect(manager.pendingRequests.has('201:duplicate-id')).toBe(true);
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: '201:duplicate-id',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: { text: 'done' },
+      },
+    });
+
+    await expect(firstRequest).resolves.toEqual({ text: 'done' });
+  });
+
+  it('scopes client request IDs by requester so different renderers do not collide', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requesterA = createRequester(301);
+    const requesterB = createRequester(302);
+
+    const requestA = manager.generate(requesterA, {
+      clientRequestId: 'same-id',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+    const requestB = manager.generate(requesterB, {
+      clientRequestId: 'same-id',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+
+    await vi.waitFor(() => {
+      expect(manager.pendingRequests.has('301:same-id')).toBe(true);
+      expect(manager.pendingRequests.has('302:same-id')).toBe(true);
+    });
+
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: '301:same-id',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: { text: 'A' },
+      },
+    });
+    manager.acceptResponseReport(71, {
+      type: 'result',
+      channel: 'llm-result',
+      requestId: '302:same-id',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        result: { text: 'B' },
+      },
+    });
+
+    await expect(requestA).resolves.toEqual({ text: 'A' });
+    await expect(requestB).resolves.toEqual({ text: 'B' });
+  });
+
+  it('cancels host work and removes requester listeners when a refreshed timeout expires', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(101);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'req-timeout',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+    const observedRejection = requestPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    await vi.advanceTimersByTimeAsync(59_000);
+    manager.acceptResponseReport(71, {
+      type: 'progress',
+      channel: 'llm-progress',
+      requestId: 'req-timeout',
+      runtimeId: 'llm-host-runtime',
+      payload: {
+        kind: 'stage',
+        message: 'still working',
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+
+    await expect(observedRejection).resolves.toMatchObject({
+      message: 'Llm host request 101:req-timeout timed out.',
+    });
+    expect(requester.removeListener).toHaveBeenCalledWith('destroyed', expect.any(Function));
+    expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          kind: 'cancel',
+          requestId: '101:req-timeout',
+        }),
+      })
+    );
+  });
+
+  it('treats cancel as a no-op when the host is stopped', async () => {
+    const manager = new LlmHostManager();
+    const requester = createRequester();
+    lifecycleState.getStatus.mockReturnValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      state: 'stopped',
+    });
+    lifecycleState.getHostWindow.mockReturnValue(undefined);
+
+    await expect(manager.cancel(requester, 'req-cancel')).resolves.toBeUndefined();
+
+    expect(lifecycleState.ensureStarted).not.toHaveBeenCalled();
+    expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
+  });
+});

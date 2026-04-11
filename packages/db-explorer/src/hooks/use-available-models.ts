@@ -22,7 +22,7 @@ interface AvailableProvider {
   name: string;
 }
 
-type LocalRuntimeModelCatalogMap = Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
+type LocalRuntimeModelCatalogMap = Partial<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
 
 const LOCAL_RUNTIME_PROVIDER_METADATA: Record<
   LocalRuntimeId,

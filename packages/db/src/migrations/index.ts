@@ -26,6 +26,7 @@ import { migration024FixLlmToolCalling } from './024-fix-llm-tool-calling.js';
 import { migration025UpdateProviderModels2026 } from './025-update-provider-models-2026.js';
 import { migration026UpdateProviderModels2026V2 } from './026-update-provider-models-2026-v2.js';
 import { migration027ViewFilterPresets } from './027-view-filter-presets.js';
+import { migration028GemmaLocalLlm } from './028-gemma-local-llm.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -58,6 +59,7 @@ export const migrations: Migration[] = [
   migration025UpdateProviderModels2026,
   migration026UpdateProviderModels2026V2,
   migration027ViewFilterPresets,
+  migration028GemmaLocalLlm,
 ];
 
 // Export base migrations (without chunks table) for test environments

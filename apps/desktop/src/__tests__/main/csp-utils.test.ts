@@ -5,7 +5,9 @@ describe('csp-utils', () => {
   it('builds a development CSP with localhost and websocket allowances', () => {
     const csp = getCSP('development');
 
-    expect(csp).toContain("script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*");
+    expect(csp).toContain(
+      "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' http://localhost:*"
+    );
     expect(csp).toContain("connect-src 'self' ws://localhost:*");
     expect(csp).toContain("img-src 'self' data: blob: http://localhost:*");
   });

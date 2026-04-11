@@ -30,6 +30,7 @@ export interface AssistantProviderSettings {
   anthropicThinkingBudgetTokens?: number;
   googleIncludeThoughts?: boolean;
   googleThinkingLevel?: GoogleThinkingLevel;
+  localThinkingEnabled?: boolean;
   maxOutputTokens?: number;
   reasoningEffort?: OpenAiReasoningEffort;
   reasoningSummary?: OpenAiReasoningSummary;
@@ -191,7 +192,11 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
     'google/gemini-2.0-pro': 'google/gemini-3-flash-preview',
     'google/gemini-1.5-pro': 'google/gemini-3-flash-preview',
   },
-  local: {},
+  local: {
+    'LiquidAI/LFM2.5-1.2B-Instruct-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
+    'onnx-community/Qwen3-0.6B-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
+    'onnx-community/functiongemma-270m-it-ONNX': 'onnx-community/gemma-4-E2B-it-ONNX',
+  },
   cohere: {},
   voyage: {},
   ollama: {},

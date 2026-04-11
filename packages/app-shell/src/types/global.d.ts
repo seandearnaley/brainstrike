@@ -50,7 +50,8 @@ declare global {
     tools?: {
       execute?: (
         toolId: string,
-        input: unknown
+        input: unknown,
+        runtimeData?: Record<string, unknown>
       ) => Promise<{
         success: boolean;
         result?: unknown;
