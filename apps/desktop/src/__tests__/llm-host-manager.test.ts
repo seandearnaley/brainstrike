@@ -135,6 +135,43 @@ describe('LlmHostManager', () => {
     await expect(requestPromise).resolves.toEqual({ text: 'done' });
   });
 
+  it('enforces a hard timeout ceiling even when progress keeps arriving', async () => {
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(111);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'req-hard-timeout',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+    const observedRejection = requestPromise.then(
+      () => null,
+      (error: unknown) => error
+    );
+
+    for (let elapsed = 59_000; elapsed < 5 * 60_000; elapsed += 59_000) {
+      await vi.advanceTimersByTimeAsync(59_000);
+      manager.acceptResponseReport(71, {
+        type: 'progress',
+        channel: 'llm-progress',
+        requestId: '111:req-hard-timeout',
+        runtimeId: 'llm-host-runtime',
+        payload: {
+          kind: 'stage',
+          message: `still working @ ${elapsed}`,
+        },
+      });
+    }
+
+    await vi.advanceTimersByTimeAsync(6000);
+
+    await expect(observedRejection).resolves.toMatchObject({
+      message: 'Llm host request 111:req-hard-timeout timed out.',
+    });
+  });
+
   it('uses a longer timeout window for warmup requests', async () => {
     const manager = new LlmHostManager() as TestableLlmHostManager;
     const requester = createRequester();
@@ -328,6 +365,50 @@ describe('LlmHostManager', () => {
     await expect(manager.cancel(requester, 'req-cancel')).resolves.toBeUndefined();
 
     expect(lifecycleState.ensureStarted).not.toHaveBeenCalled();
+    expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('rejects a request that was cancelled before the host finished starting', async () => {
+    let resolveEnsureStarted:
+      | ((value: { active: boolean; lastError: null; runtimeId: string; state: 'running' }) => void)
+      | null = null;
+    lifecycleState.ensureStarted.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveEnsureStarted = resolve;
+        })
+    );
+    lifecycleState.getStatus.mockReturnValue({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      state: 'starting',
+    });
+
+    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const requester = createRequester(501);
+
+    const requestPromise = manager.generate(requester, {
+      clientRequestId: 'prestart-cancel',
+      kind: 'generate',
+      messages: [],
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+      options: {},
+    });
+
+    await Promise.resolve();
+    await expect(manager.cancel(requester, 'prestart-cancel')).resolves.toBeUndefined();
+
+    resolveEnsureStarted?.({
+      active: false,
+      lastError: null,
+      runtimeId: 'llm-host-runtime',
+      state: 'running',
+    });
+
+    await expect(requestPromise).rejects.toThrow(
+      'Llm host request 501:prestart-cancel was cancelled before dispatch.'
+    );
     expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
   });
 });

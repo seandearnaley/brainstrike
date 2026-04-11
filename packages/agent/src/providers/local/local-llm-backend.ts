@@ -47,7 +47,7 @@ export async function verifyModelIntegrity(_modelId: string, _data: ArrayBuffer)
   logger.warn(
     'Built-in local artifact integrity verification is currently disabled for the Gemma manifest path (BST-493)'
   );
-  return false;
+  throw new Error('integrity_verification_disabled');
 }
 
 function resolveRequestedDevice(requested?: 'webgpu' | 'wasm'): 'webgpu' {

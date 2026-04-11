@@ -112,6 +112,13 @@ function assertNonEmptyString(value: unknown, message: string): string {
   return value.trim();
 }
 
+function assertString(value: unknown, message: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(message);
+  }
+  return value;
+}
+
 function assertRequiredRequestId(value: unknown, message: string): string {
   return assertNonEmptyString(value, message);
 }
@@ -195,6 +202,47 @@ function assertMessageRole(value: unknown, index: number): LocalLlmMessage['role
   );
 }
 
+function assertMessageToolCalls(value: unknown, index: number): LocalLlmToolCall[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `Llm host generate payload.messages[${index}].toolCalls must be an array when provided.`
+    );
+  }
+  return value.map((toolCall) => assertToolCall(toolCall, index));
+}
+
+function assertMessageToolResponses(
+  value: unknown,
+  index: number
+): LocalLlmToolResponse[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `Llm host generate payload.messages[${index}].toolResponses must be an array when provided.`
+    );
+  }
+  return value.map((toolResponse) => assertToolResponse(toolResponse, index));
+}
+
+function assertMessageContent(message: LocalLlmMessage, index: number): LocalLlmMessage {
+  if (
+    message.content.trim().length === 0 &&
+    !(message.toolCalls && message.toolCalls.length > 0) &&
+    !(message.toolResponses && message.toolResponses.length > 0)
+  ) {
+    throw new Error(
+      `Llm host generate payload.messages[${index}] must include non-empty content or tool payloads.`
+    );
+  }
+
+  return message;
+}
+
 function assertLocalLlmMessages(value: unknown): LocalLlmMessage[] {
   if (!Array.isArray(value)) {
     throw new Error('Llm host generate payload.messages must be an array.');
@@ -206,20 +254,6 @@ function assertLocalLlmMessages(value: unknown): LocalLlmMessage[] {
     }
 
     const message = entry as Record<string, unknown>;
-    const toolCalls = message['toolCalls'];
-    if (!(toolCalls === undefined || Array.isArray(toolCalls))) {
-      throw new Error(
-        `Llm host generate payload.messages[${index}].toolCalls must be an array when provided.`
-      );
-    }
-
-    const toolResponses = message['toolResponses'];
-    if (!(toolResponses === undefined || Array.isArray(toolResponses))) {
-      throw new Error(
-        `Llm host generate payload.messages[${index}].toolResponses must be an array when provided.`
-      );
-    }
-
     const name = assertOptionalString(
       message['name'],
       `Llm host generate payload.messages[${index}].name must be a non-empty string when provided.`
@@ -228,28 +262,23 @@ function assertLocalLlmMessages(value: unknown): LocalLlmMessage[] {
       message['toolCallId'],
       `Llm host generate payload.messages[${index}].toolCallId must be a non-empty string when provided.`
     );
+    const toolCalls = assertMessageToolCalls(message['toolCalls'], index);
+    const toolResponses = assertMessageToolResponses(message['toolResponses'], index);
 
-    return {
-      role: assertMessageRole(message['role'], index),
-      content: assertNonEmptyString(
-        message['content'],
-        `Llm host generate payload.messages[${index}].content must be a non-empty string.`
-      ),
-      ...(name ? { name } : {}),
-      ...(toolCallId ? { toolCallId } : {}),
-      ...(toolCalls
-        ? {
-            toolCalls: toolCalls.map((toolCall) => assertToolCall(toolCall, index)),
-          }
-        : {}),
-      ...(toolResponses
-        ? {
-            toolResponses: toolResponses.map((toolResponse) =>
-              assertToolResponse(toolResponse, index)
-            ),
-          }
-        : {}),
-    };
+    return assertMessageContent(
+      {
+        role: assertMessageRole(message['role'], index),
+        content: assertString(
+          message['content'],
+          `Llm host generate payload.messages[${index}].content must be a string.`
+        ),
+        ...(name ? { name } : {}),
+        ...(toolCallId ? { toolCallId } : {}),
+        ...(toolCalls ? { toolCalls } : {}),
+        ...(toolResponses ? { toolResponses } : {}),
+      },
+      index
+    );
   });
 }
 

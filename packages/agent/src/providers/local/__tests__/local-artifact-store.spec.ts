@@ -402,6 +402,46 @@ describe('local-artifact-store', () => {
     await expect(new BrowserCacheArtifactStore().download(spec!)).resolves.toBeUndefined();
 
     expect(blobSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('skips quota enforcement when the browser does not expose numeric usage and quota values', async () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+    } as Window;
+
+    const cache = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn(async (_url: string, response: Response) => {
+        await response.arrayBuffer();
+      }),
+    } as unknown as Cache;
+    vi.stubGlobal('caches', {
+      open: vi.fn().mockResolvedValue(cache),
+    });
+    vi.stubGlobal('navigator', {
+      storage: {
+        estimate: vi.fn().mockResolvedValue({}),
+      },
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok', { status: 200, headers: { 'content-length': '2' } }));
+
+    await expect(
+      new BrowserCacheArtifactStore().download({
+        ...getLocalLlmModelSpec('onnx-community/gemma-4-E2B-it-ONNX')!,
+        totalSizeBytes: 2,
+        artifacts: {
+          text: ['config.json'],
+        },
+      })
+    ).resolves.toBeUndefined();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     fetchSpy.mockRestore();
   });
 

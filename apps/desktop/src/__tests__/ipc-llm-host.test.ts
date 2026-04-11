@@ -84,7 +84,103 @@ describe('ipc-llm-host', () => {
         modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
         messages: [{ role: 'user', content: null }],
       })
-    ).rejects.toThrow('Llm host generate payload.messages[0].content must be a non-empty string.');
+    ).rejects.toThrow('Llm host generate payload.messages[0].content must be a string.');
+    expect(manager.generate).not.toHaveBeenCalled();
+  });
+
+  it('accepts tool-loop messages with empty content when tool payloads are present', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn().mockResolvedValue({ text: 'ok' }),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn(),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const generateCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+    );
+    if (!generateCall) {
+      throw new Error('llm-host:generate handler not registered');
+    }
+
+    const generateHandler = generateCall[1] as (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ) => Promise<unknown>;
+    await expect(
+      generateHandler({ sender: {} } as IpcMainInvokeEvent, {
+        kind: 'generate',
+        clientRequestId: 'req-1',
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        messages: [
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: {
+                  name: 'read_file',
+                  arguments: '{}',
+                },
+              },
+            ],
+          },
+          {
+            role: 'tool',
+            content: '',
+            toolResponses: [
+              {
+                name: 'read_file',
+                response: { ok: true },
+              },
+            ],
+          },
+        ],
+        options: {},
+      })
+    ).resolves.toEqual({ text: 'ok' });
+
+    expect(manager.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects empty-content messages when no tool payload is present', async () => {
+    const manager = {
+      acceptResponseReport: vi.fn(),
+      generate: vi.fn().mockResolvedValue({ text: 'ok' }),
+      warmup: vi.fn(),
+      warmupRequest: vi.fn(),
+    };
+
+    const { registerLlmHostIpcHandlers } = await import('../ipc-llm-host');
+    registerLlmHostIpcHandlers(manager as never);
+
+    const generateCall = ipcMainHandle.mock.calls.find(
+      ([channel]: readonly [string]) => channel === 'llm-host:generate'
+    );
+    if (!generateCall) {
+      throw new Error('llm-host:generate handler not registered');
+    }
+
+    const generateHandler = generateCall[1] as (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ) => Promise<unknown>;
+    await expect(
+      generateHandler({ sender: {} } as IpcMainInvokeEvent, {
+        kind: 'generate',
+        clientRequestId: 'req-1',
+        modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+        messages: [{ role: 'assistant', content: '' }],
+        options: {},
+      })
+    ).rejects.toThrow(
+      'Llm host generate payload.messages[0] must include non-empty content or tool payloads.'
+    );
     expect(manager.generate).not.toHaveBeenCalled();
   });
 

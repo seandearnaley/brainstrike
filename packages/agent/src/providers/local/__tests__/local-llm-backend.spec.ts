@@ -830,9 +830,9 @@ Because they make up everything!<turn|>`,
     );
   });
 
-  it('fails closed when legacy integrity verification is invoked', async () => {
-    await expect(verifyModelIntegrity(GEMMA4_E2B_MODEL_ID, new ArrayBuffer(8))).resolves.toBe(
-      false
+  it('throws an explicit disabled error when legacy integrity verification is invoked', async () => {
+    await expect(verifyModelIntegrity(GEMMA4_E2B_MODEL_ID, new ArrayBuffer(8))).rejects.toThrow(
+      'integrity_verification_disabled'
     );
   });
 });

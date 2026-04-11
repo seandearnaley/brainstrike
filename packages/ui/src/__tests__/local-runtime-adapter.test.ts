@@ -273,6 +273,47 @@ describe('createLocalModelAdapter', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels desktop warmup when the run is aborted before generation starts', async () => {
+    const warmup = vi.fn().mockImplementation(async () => {
+      return await new Promise<void>(() => {});
+    });
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn();
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        cancel,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+    const abortController = new AbortController();
+
+    const updatesPromise = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: abortController.signal,
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(warmup).toHaveBeenCalledTimes(1);
+    });
+    abortController.abort();
+
+    await expect(updatesPromise).resolves.toContainEqual({
+      content: [{ type: 'text', text: 'Generation cancelled.' }],
+    });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it('fails fast when the desktop llm host does not expose warmup', async () => {
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {

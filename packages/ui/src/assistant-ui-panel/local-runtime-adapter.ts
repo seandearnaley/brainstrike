@@ -511,6 +511,53 @@ function getDesktopLlmHost(): {
 let desktopHostStatusSyncInstalled = false;
 let desktopHostStatusUnsubscribe: (() => void) | null = null;
 let desktopHostStatusSource: object | null = null;
+const desktopWarmupRequestIds = new Map<string, string>();
+
+function createAbortError(): DOMException {
+  return new DOMException('The operation was aborted.', 'AbortError');
+}
+
+async function waitForAbortableDesktopWarmup(
+  llmHost: NonNullable<ReturnType<typeof getDesktopLlmHost>>,
+  modelId: string,
+  warmupPromise: Promise<void>,
+  abortSignal?: AbortSignal
+): Promise<void> {
+  if (!abortSignal) {
+    await warmupPromise;
+    return;
+  }
+
+  if (abortSignal.aborted) {
+    const requestId = desktopWarmupRequestIds.get(modelId);
+    if (requestId) {
+      void llmHost.cancel?.(requestId);
+    }
+    throw createAbortError();
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const handleAbort = () => {
+      const requestId = desktopWarmupRequestIds.get(modelId);
+      if (requestId) {
+        void llmHost.cancel?.(requestId);
+      }
+      reject(createAbortError());
+    };
+
+    abortSignal.addEventListener('abort', handleAbort, { once: true });
+    warmupPromise.then(
+      () => {
+        abortSignal.removeEventListener('abort', handleAbort);
+        resolve();
+      },
+      (error: unknown) => {
+        abortSignal.removeEventListener('abort', handleAbort);
+        reject(error);
+      }
+    );
+  });
+}
 
 async function withBackendStateLock<T>(operation: () => Promise<T>): Promise<T> {
   const previousLock = backendStateLock;
@@ -551,7 +598,8 @@ function ensureDesktopHostStateSync(
 async function ensureDesktopModelWarmed(
   llmHost: NonNullable<ReturnType<typeof getDesktopLlmHost>>,
   modelId: string,
-  onLoadingProgress: LocalRuntimeAdapterOptions['onLoadingProgress']
+  onLoadingProgress: LocalRuntimeAdapterOptions['onLoadingProgress'],
+  abortSignal?: AbortSignal
 ): Promise<void> {
   if (warmedDesktopModelIds.has(modelId)) {
     return;
@@ -559,12 +607,13 @@ async function ensureDesktopModelWarmed(
 
   const existingWarmup = desktopWarmupPromises.get(modelId);
   if (existingWarmup) {
-    await existingWarmup;
+    await waitForAbortableDesktopWarmup(llmHost, modelId, existingWarmup, abortSignal);
     return;
   }
 
   const warmupPromise = (async () => {
     const warmupRequestId = crypto.randomUUID();
+    desktopWarmupRequestIds.set(modelId, warmupRequestId);
     onLoadingProgress?.({
       stage: 'loading',
       progress: 0,
@@ -586,13 +635,14 @@ async function ensureDesktopModelWarmed(
       await llmHost.warmup({ modelId, requestId: warmupRequestId });
       warmedDesktopModelIds.add(modelId);
     } finally {
+      desktopWarmupRequestIds.delete(modelId);
       unsubscribeWarmupProgress?.();
       desktopWarmupPromises.delete(modelId);
     }
   })();
 
   desktopWarmupPromises.set(modelId, warmupPromise);
-  await warmupPromise;
+  await waitForAbortableDesktopWarmup(llmHost, modelId, warmupPromise, abortSignal);
 }
 
 function createDesktopGenerationOptions(
@@ -730,7 +780,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           ensureDesktopHostStateSync(llmHost);
         }
         if (llmHost?.generate) {
-          await ensureDesktopModelWarmed(llmHost, modelId, onLoadingProgress);
+          await ensureDesktopModelWarmed(llmHost, modelId, onLoadingProgress, abortSignal);
         }
         if (!llmHost?.generate) {
           await withBackendStateLock(async () => {

@@ -79,7 +79,11 @@ async function checkStorageQuota(requiredBytes: number): Promise<void> {
   }
 
   const estimate = await navigator.storage.estimate();
-  const available = (estimate.quota ?? 0) - (estimate.usage ?? 0);
+  if (!(typeof estimate.quota === 'number' && typeof estimate.usage === 'number')) {
+    return;
+  }
+
+  const available = estimate.quota - estimate.usage;
   const requiredWithBuffer = Math.ceil(requiredBytes * QUOTA_SAFETY_BUFFER);
   if (available < requiredWithBuffer) {
     throw new Error(
@@ -113,10 +117,19 @@ async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise
     const url = buildLocalArtifactUrl(spec.modelId, spec.remoteRevision, filePath);
     const cached = await cache.match(url);
     if (cached?.status === 200) {
+      const cachedBytes = await readCachedArtifactBytes(cached);
+      if (cachedBytes === null) {
+        statuses.push({
+          filePath,
+          isCached: false,
+          cachedBytes: null,
+        });
+        continue;
+      }
       statuses.push({
         filePath,
         isCached: true,
-        cachedBytes: await readCachedArtifactBytes(cached),
+        cachedBytes,
       });
       continue;
     }
@@ -163,8 +176,10 @@ async function cacheResponseStream(
   }
   if (!response.body) {
     await cache.put(url, response.clone());
-    onChunkProgress(1, 1);
-    return 1;
+    const totalHeader = response.headers.get('content-length');
+    const loaded = totalHeader ? Number.parseInt(totalHeader, 10) : 0;
+    onChunkProgress(loaded, Number.isFinite(loaded) ? loaded : null);
+    return Number.isFinite(loaded) ? loaded : 0;
   }
 
   const totalHeader = response.headers.get('content-length');
@@ -205,6 +220,7 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
     const { files, requiredBytes } = await estimateRemainingArtifactBytes(cache, spec);
     await checkStorageQuota(requiredBytes);
     let downloadedBytes = files.reduce((sum, file) => sum + (file.cachedBytes ?? 0), 0);
+    const totalExpectedBytes = downloadedBytes + requiredBytes;
 
     for (const file of files) {
       signal?.throwIfAborted();
@@ -233,7 +249,7 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
             stage: 'downloading',
             progress: toProgressPercent(
               downloadedBytes + loaded,
-              Math.max(spec.totalSizeBytes, downloadedBytes + (total ?? loaded))
+              Math.max(totalExpectedBytes, downloadedBytes + (total ?? loaded))
             ),
             message: `Downloading ${filePath}`,
             file: filePath,

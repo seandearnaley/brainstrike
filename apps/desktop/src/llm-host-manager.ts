@@ -23,6 +23,7 @@ const LLM_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 
 interface PendingLlmRequest {
   cleanupRequesterListener?: () => void;
+  deadlineAt: number;
   reject: (error: Error) => void;
   requester: WebContents;
   requestId: string;
@@ -37,6 +38,7 @@ function createRequestFailure(message: string): Error {
 
 export class LlmHostManager {
   private readonly lifecycle: RendererHostLifecycle<LlmHostStatus>;
+  private readonly preCancelledRequestIds = new Set<string>();
   private readonly pendingRequests = new Map<string, PendingLlmRequest>();
 
   constructor() {
@@ -205,9 +207,11 @@ export class LlmHostManager {
       throw createRequestFailure('Llm host cancel requestId must be a non-empty string.');
     }
 
+    const scopedRequestId = this.scopeClientRequestId(requester, trimmedRequestId);
     const status = this.getStatus();
     const hostWindow = this.lifecycle.getHostWindow();
     if (status.state !== 'running' || !hostWindow || hostWindow.isDestroyed()) {
+      this.preCancelledRequestIds.add(scopedRequestId);
       logger.debug('Skipping llm-host cancel because the host is not running', {
         requestId: trimmedRequestId,
         state: status.state,
@@ -216,10 +220,7 @@ export class LlmHostManager {
       return;
     }
 
-    this.sendCancelRequestToHost(
-      this.scopeClientRequestId(requester, trimmedRequestId),
-      hostWindow
-    );
+    this.sendCancelRequestToHost(scopedRequestId, hostWindow);
   }
 
   async generate(requester: WebContents, payload: LlmHostGenerateRequestPayload): Promise<unknown> {
@@ -238,6 +239,9 @@ export class LlmHostManager {
   ): Promise<unknown> {
     const hostWindow = await this.assertReadyForRequests();
     const requestId = this.createHostRequestId(requester, payload);
+    if (this.preCancelledRequestIds.delete(requestId)) {
+      throw createRequestFailure(`Llm host request ${requestId} was cancelled before dispatch.`);
+    }
     return await new Promise<unknown>((resolve, reject) => {
       if (this.pendingRequests.has(requestId)) {
         reject(createRequestFailure(`Duplicate llm host requestId ${requestId}.`));
@@ -268,19 +272,24 @@ export class LlmHostManager {
           : null;
       const timeoutMs =
         payload.kind === 'warmup' ? LLM_HOST_WARMUP_TIMEOUT_MS : LLM_HOST_GENERATE_TIMEOUT_MS;
+      const deadlineAt = Date.now() + timeoutMs;
 
       const pending: PendingLlmRequest = {
         requestId,
         requester,
         resolve,
         reject,
+        deadlineAt,
         timeoutMs,
-        timeoutId: setTimeout(() => {
-          pending.cleanupRequesterListener?.();
-          this.pendingRequests.delete(requestId);
-          this.tryCancelHostRequest(requestId, hostWindow, 'timeout');
-          reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
-        }, timeoutMs),
+        timeoutId: setTimeout(
+          () => {
+            pending.cleanupRequesterListener?.();
+            this.pendingRequests.delete(requestId);
+            this.tryCancelHostRequest(requestId, hostWindow, 'timeout');
+            reject(createRequestFailure(`Llm host request ${requestId} timed out.`));
+          },
+          Math.max(0, deadlineAt - Date.now())
+        ),
         ...(cleanupRequesterListener ? { cleanupRequesterListener } : {}),
       };
       if (typeof requester.once === 'function') {
@@ -339,12 +348,13 @@ export class LlmHostManager {
 
   private refreshPendingRequestTimeout(pending: PendingLlmRequest): void {
     clearTimeout(pending.timeoutId);
+    const remainingMs = Math.max(0, pending.deadlineAt - Date.now());
     pending.timeoutId = setTimeout(() => {
       pending.cleanupRequesterListener?.();
       this.pendingRequests.delete(pending.requestId);
       this.tryCancelHostRequest(pending.requestId, undefined, 'refreshed-timeout');
       pending.reject(createRequestFailure(`Llm host request ${pending.requestId} timed out.`));
-    }, pending.timeoutMs);
+    }, remainingMs);
   }
 
   private sendCancelRequestToHost(requestId: string, hostWindow?: BrowserWindow): void {
