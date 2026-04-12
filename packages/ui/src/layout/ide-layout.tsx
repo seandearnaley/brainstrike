@@ -1124,6 +1124,7 @@ export const IdeLayout = React.memo(function IdeLayout({
         {hasExplorer && !showLeftPanel && (
           <div className="absolute top-1/2 left-0 z-10 -translate-y-1/2">
             <Button
+              aria-expanded={showLeftPanel}
               aria-label="Show explorer panel"
               className="h-8 w-6 rounded-r-md rounded-l-none border border-border border-l-0 bg-muted/90 shadow-sm"
               data-testid="show-explorer-panel"
@@ -1140,6 +1141,7 @@ export const IdeLayout = React.memo(function IdeLayout({
         {hasTools && !showRightPanel && (
           <div className="absolute top-1/2 right-0 z-10 -translate-y-1/2">
             <Button
+              aria-expanded={showRightPanel}
               aria-label="Show tools panel"
               className="h-8 w-6 rounded-r-none rounded-l-md border border-border border-r-0 bg-muted/90 shadow-sm"
               data-testid="show-tools-panel"
@@ -1185,6 +1187,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                       <span className="font-medium text-sm">Explorer</span>
                     </div>
                     <Button
+                      aria-expanded={showLeftPanel}
                       aria-label="Hide explorer panel"
                       className="h-6 w-6"
                       data-testid="hide-explorer-panel"
@@ -1318,6 +1321,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                       <span className="font-medium text-sm">Tools</span>
                     </div>
                     <Button
+                      aria-expanded={showRightPanel}
                       aria-label="Hide tools panel"
                       className="h-6 w-6"
                       data-testid="hide-tools-panel"
