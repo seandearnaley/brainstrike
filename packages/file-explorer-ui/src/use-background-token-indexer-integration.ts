@@ -192,6 +192,7 @@ function joinElectronAbsolutePath(rootPath: string, relativePath: string): strin
 
 function buildSyntheticElectronHandle(args: {
   filePath: string;
+  fileSize: number | undefined;
   folderId: string;
 }): HandleInfo | null {
   if (!isAbsoluteFolderPath(args.folderId)) {
@@ -211,7 +212,7 @@ function buildSyntheticElectronHandle(args: {
       platform: 'electron',
     },
     fileName,
-    fileSize: undefined,
+    fileSize: args.fileSize,
   };
 }
 
@@ -734,6 +735,7 @@ export function useBackgroundTokenIndexerIntegration({
             electronFileReaderRef.current &&
             buildSyntheticElectronHandle({
               filePath: normalizedFilePath,
+              fileSize: cache.getFileSize(folderId, normalizedFilePath),
               folderId,
             });
           if (syntheticElectronHandle) {

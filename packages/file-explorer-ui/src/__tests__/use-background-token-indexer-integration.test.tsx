@@ -1144,6 +1144,46 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     ]);
   });
 
+  it('skips synthetic desktop handles when cached file size exceeds the indexing limit', async () => {
+    const rootFolderId = '/repo';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/large-file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+    const getFileSizeMock = tokenCacheContext.getFileSize as unknown as ReturnType<typeof vi.fn>;
+    getFileSizeMock.mockImplementation((folderId: string, path: string) => {
+      if (folderId === rootFolderId && path === 'src/deep/large-file.ts') {
+        return 800_000;
+      }
+      return undefined;
+    });
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).not.toHaveBeenCalled();
+    expect(indexFilesMock).not.toHaveBeenCalled();
+  });
+
   it('normalizes absolute restored desktop selection paths before indexing', async () => {
     const rootFolderId = '/repo';
     const absoluteFilePath = '/repo/src/deep/file.ts';

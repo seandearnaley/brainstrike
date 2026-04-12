@@ -2149,7 +2149,7 @@ test.describe('Desktop file explorer selection', () => {
       const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
       await expect(fileTree).toBeVisible({ timeout: 15_000 });
       await expect(fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
-      await expect(fileTree.getByText('molecule-viewer.tsx')).not.toBeVisible();
+      await expect(fileTree.getByText('molecule-viewer.tsx')).toBeHidden({ timeout: 5000 });
 
       const tokenSummary = restartedWindow.getByText(/[1-9]\d*(?:,\d{3})* output/);
       await expect(tokenSummary).toBeVisible({ timeout: 20_000 });

@@ -55,9 +55,7 @@ function stripAbsoluteFolderPrefix(normalizedPath: string, folderId: string): st
   }
 
   const isAbsoluteFolderId =
-    normalizedFolderId.startsWith('/') ||
-    normalizedFolderId.startsWith('//') ||
-    WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedFolderId);
+    normalizedFolderId.startsWith('/') || WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedFolderId);
   if (!isAbsoluteFolderId) {
     return null;
   }
@@ -65,7 +63,7 @@ function stripAbsoluteFolderPrefix(normalizedPath: string, folderId: string): st
   const pathLower = normalizedPath.toLowerCase();
   const folderLower = normalizedFolderId.toLowerCase();
   if (pathLower === folderLower) {
-    return '';
+    return normalizedPath;
   }
   if (pathLower.startsWith(`${folderLower}/`)) {
     return normalizedPath.slice(normalizedFolderId.length + 1);
