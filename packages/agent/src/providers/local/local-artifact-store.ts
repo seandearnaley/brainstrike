@@ -33,6 +33,19 @@ function readRemoteHostOverride(): string | null {
   return typeof override === 'string' && override.trim().length > 0 ? override.trim() : null;
 }
 
+function isElectronRendererWindow(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const maybeWindow = window as Window & {
+    electronAPI?: unknown;
+    process?: { type?: unknown };
+  };
+
+  return maybeWindow.process?.type === 'renderer' || typeof maybeWindow.electronAPI !== 'undefined';
+}
+
 export function resolveLocalArtifactRemoteHost(): string {
   const override = readRemoteHostOverride();
   if (override) {
@@ -46,7 +59,7 @@ export function resolveLocalArtifactRemoteHost(): string {
   switch (window.location.protocol) {
     case 'http:':
     case 'https:':
-      return '/api/hf/';
+      return isElectronRendererWindow() ? HUGGING_FACE_REMOTE_HOST : '/api/hf/';
     default:
       return HUGGING_FACE_REMOTE_HOST;
   }

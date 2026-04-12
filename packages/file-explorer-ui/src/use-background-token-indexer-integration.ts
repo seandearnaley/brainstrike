@@ -96,6 +96,26 @@ export interface UseBackgroundTokenIndexerIntegrationReturn {
   triggerIndexing: (compositeKeys: string[]) => Promise<void>;
 }
 
+interface PreloadedFolderSnapshot {
+  cacheVersion: number;
+  normalizedPaths: readonly string[];
+}
+
+function doesPreloadedSnapshotCoverSelection(
+  snapshot: PreloadedFolderSnapshot | undefined,
+  cacheVersion: number,
+  normalizedPaths: readonly string[]
+): boolean {
+  if (!snapshot || snapshot.cacheVersion !== cacheVersion) {
+    return false;
+  }
+  if (snapshot.normalizedPaths.length < normalizedPaths.length) {
+    return false;
+  }
+  const preloadedPaths = new Set(snapshot.normalizedPaths);
+  return normalizedPaths.every((path) => preloadedPaths.has(path));
+}
+
 /**
  * Electron-style handle with path property
  */
@@ -305,10 +325,11 @@ export function useBackgroundTokenIndexerIntegration({
   // P0 optimization: Track previous selection size for 0→>0 transition detection
   const previousSelectionSizeForMapRef = useRef<number>(0);
 
-  // P0 optimization: Track which folders have been preloaded to avoid repeated DB reads.
-  // Map<folderId, cacheVersion> - folder is considered preloaded if memoized version matches current.
-  // When cacheVersion changes (e.g., hot cache updates), the folder entry becomes stale.
-  const preloadedFoldersRef = useRef<Map<string, number>>(new Map());
+  // P0 optimization: Track which folder selections have been preloaded to avoid repeated DB reads.
+  // A folder is only considered preloaded when both the cache version and the selected-path coverage
+  // match the current selection. This prevents shallow initial selections from suppressing later
+  // hydration when the same folder expands to include additional files.
+  const preloadedFoldersRef = useRef<Map<string, PreloadedFolderSnapshot>>(new Map());
   // Track previous persistence state to clear preload memo when persistence changes
   const previousPersistedStateRef = useRef<boolean | undefined>(undefined);
   const selectionSkipReasonRef = useRef<string | null>(null);
@@ -1039,49 +1060,14 @@ export function useBackgroundTokenIndexerIntegration({
       keysByFolder.set(folderId, arr);
     }
 
-    // P0 optimization: Filter to only folders that need preloading.
-    // A folder is considered "preloaded" if it was preloaded at the current cacheVersion.
-    // This avoids repeated DB reads when selection changes but folders are the same.
-    const foldersToPreload: string[] = [];
+    const folderSelections = new Map<
+      string,
+      {
+        normalizedPaths: string[];
+        normalizedPathToCompositeKey: Map<string, string>;
+      }
+    >();
     for (const folderId of folderIds) {
-      const memoizedVersion = preloadedFoldersRef.current.get(folderId);
-      if (memoizedVersion !== currentCacheVersion) {
-        foldersToPreload.push(folderId);
-      }
-    }
-
-    if (foldersToPreload.length === 0) {
-      if (warmCacheSkipReasonRef.current !== 'already-preloaded') {
-        warmCacheSkipReasonRef.current = 'already-preloaded';
-        logger.debug('Warm cache effect skipped - folders already preloaded', {
-          folderCount: folderIds.size,
-          totalFiles: selectedFiles.size,
-          cacheVersion: currentCacheVersion,
-        });
-      }
-      return;
-    }
-
-    warmCacheSkipReasonRef.current = null;
-
-    logger.debug('Warm cache effect: preloading folders', {
-      folderCount: folderIds.size,
-      foldersToPreload: foldersToPreload.length,
-      totalFiles: selectedFiles.size,
-      cacheVersion: currentCacheVersion,
-    });
-
-    // Only preload folders that haven't been preloaded at this cache version
-    for (const folderId of foldersToPreload) {
-      void cache.preloadFolder(folderId);
-      // Mark as preloaded at this version
-      preloadedFoldersRef.current.set(folderId, currentCacheVersion);
-    }
-
-    // After preload, ensure hot cache gets populated for any selected files that
-    // were already stored but not yet marked indexed (prevents zero-count UI).
-    // Only do this for folders that we actually preloaded (new folders or stale memo).
-    for (const folderId of foldersToPreload) {
       const keys = keysByFolder.get(folderId);
       if (!keys) {
         continue;
@@ -1110,12 +1096,79 @@ export function useBackgroundTokenIndexerIntegration({
         }
       }
 
-      if (normalizedPaths.length === 0) {
+      normalizedPaths.sort();
+      folderSelections.set(folderId, {
+        normalizedPaths,
+        normalizedPathToCompositeKey,
+      });
+    }
+
+    // P0 optimization: Filter to only folders that need preloading.
+    // A folder is considered "preloaded" only when both the cache version and the exact selected
+    // file coverage match the current selection snapshot.
+    const foldersToPreload: string[] = [];
+    for (const folderId of folderIds) {
+      const folderSelection = folderSelections.get(folderId);
+      if (!folderSelection || folderSelection.normalizedPaths.length === 0) {
+        continue;
+      }
+      const memoizedSnapshot = preloadedFoldersRef.current.get(folderId);
+      if (
+        !doesPreloadedSnapshotCoverSelection(
+          memoizedSnapshot,
+          currentCacheVersion,
+          folderSelection.normalizedPaths
+        )
+      ) {
+        foldersToPreload.push(folderId);
+      }
+    }
+
+    if (foldersToPreload.length === 0) {
+      if (warmCacheSkipReasonRef.current !== 'already-preloaded') {
+        warmCacheSkipReasonRef.current = 'already-preloaded';
+        logger.debug('Warm cache effect skipped - folders already preloaded', {
+          folderCount: folderIds.size,
+          totalFiles: selectedFiles.size,
+          cacheVersion: currentCacheVersion,
+        });
+      }
+      return;
+    }
+
+    warmCacheSkipReasonRef.current = null;
+
+    logger.debug('Warm cache effect: preloading folders', {
+      folderCount: folderIds.size,
+      foldersToPreload: foldersToPreload.length,
+      totalFiles: selectedFiles.size,
+      cacheVersion: currentCacheVersion,
+    });
+
+    // Only preload folders that haven't been preloaded at this cache version
+    for (const folderId of foldersToPreload) {
+      const folderSelection = folderSelections.get(folderId);
+      if (!folderSelection) {
+        continue;
+      }
+      void cache.preloadFolder(folderId);
+      preloadedFoldersRef.current.set(folderId, {
+        cacheVersion: currentCacheVersion,
+        normalizedPaths: [...folderSelection.normalizedPaths],
+      });
+    }
+
+    // After preload, ensure hot cache gets populated for any selected files that
+    // were already stored but not yet marked indexed (prevents zero-count UI).
+    // Only do this for folders that we actually preloaded (new folders or stale memo).
+    for (const folderId of foldersToPreload) {
+      const folderSelection = folderSelections.get(folderId);
+      if (!folderSelection) {
         continue;
       }
 
       void cache.store
-        .getBatch(folderId, normalizedPaths)
+        .getBatch(folderId, folderSelection.normalizedPaths)
         .then((entries) => {
           // Use ref to get latest cache instance in async callback
           const currentCache = tokenCacheRef.current;
@@ -1127,7 +1180,8 @@ export function useBackgroundTokenIndexerIntegration({
           let skipped = 0;
           for (const [path, entry] of entries.entries()) {
             const compositeKey =
-              normalizedPathToCompositeKey.get(path) ?? encodeFileSelection(folderId, path);
+              folderSelection.normalizedPathToCompositeKey.get(path) ??
+              encodeFileSelection(folderId, path);
             if (indexedFilesRef.current.has(compositeKey)) {
               skipped++;
             } else {
@@ -1139,7 +1193,7 @@ export function useBackgroundTokenIndexerIntegration({
           if (hydrated > 0 || entries.size > 0) {
             logger.debug('Warm cache: hydrated from store', {
               folderId,
-              requested: normalizedPaths.length,
+              requested: folderSelection.normalizedPaths.length,
               foundInStore: entries.size,
               hydrated,
               skippedAlreadyIndexed: skipped,

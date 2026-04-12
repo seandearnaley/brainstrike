@@ -39,6 +39,20 @@ describe('local-artifact-store', () => {
     );
   });
 
+  it('uses the hugging face host for electron renderers even when they are served over http', () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+      electronAPI: {},
+    } as Window & { electronAPI: Record<string, never> };
+
+    expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
+    expect(buildLocalArtifactUrl('onnx-community/gemma-4-E2B-it-ONNX', 'main', 'config.json')).toBe(
+      'https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX/resolve/main/config.json'
+    );
+  });
+
   it('uses the hugging face host when window is unavailable or running from file protocol', () => {
     Reflect.deleteProperty(globalThis, 'window');
     expect(resolveLocalArtifactRemoteHost()).toBe('https://huggingface.co/');
@@ -90,6 +104,27 @@ describe('local-artifact-store', () => {
 
     expect(environment.allowRemoteModels).toBe(true);
     expect(environment.remoteHost).toBe('/api/hf/');
+    expect(environment.remotePathTemplate).toBe(resolveLocalArtifactRemotePathTemplate());
+  });
+
+  it('configures transformers runtime fetches to use hugging face directly in electron renderers', () => {
+    globalThis.window = {
+      location: {
+        protocol: 'http:',
+      },
+      electronAPI: {},
+    } as Window & { electronAPI: Record<string, never> };
+
+    const environment: {
+      allowRemoteModels?: boolean;
+      remoteHost?: string;
+      remotePathTemplate?: string;
+    } = {};
+
+    configureTransformersEnvironment(environment);
+
+    expect(environment.allowRemoteModels).toBe(true);
+    expect(environment.remoteHost).toBe('https://huggingface.co/');
     expect(environment.remotePathTemplate).toBe(resolveLocalArtifactRemotePathTemplate());
   });
 
