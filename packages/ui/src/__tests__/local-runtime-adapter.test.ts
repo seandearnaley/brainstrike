@@ -273,6 +273,47 @@ describe('createLocalModelAdapter', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 
+  it('lets an aborted warmup caller exit locally without cancelling shared warmup work', async () => {
+    const warmup = vi.fn().mockImplementation(async () => {
+      return await new Promise<void>(() => {});
+    });
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn();
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        cancel,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+    const abortController = new AbortController();
+
+    const updatesPromise = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: abortController.signal,
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(warmup).toHaveBeenCalledTimes(1);
+    });
+    abortController.abort();
+
+    await expect(updatesPromise).resolves.toContainEqual({
+      content: [{ type: 'text', text: 'Generation cancelled.' }],
+    });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it('fails fast when the desktop llm host does not expose warmup', async () => {
     Object.assign(window as Window & { llmHost?: unknown }, {
       llmHost: {
@@ -415,6 +456,119 @@ describe('createLocalModelAdapter', () => {
     resolveWarmup?.();
     await Promise.all([firstRun, secondRun]);
     expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not cancel a shared warmup when only a joiner aborts', async () => {
+    let resolveWarmup: VoidFunction | undefined;
+    const warmup = vi.fn().mockImplementation(
+      async () =>
+        await new Promise<void>((resolve) => {
+          resolveWarmup = resolve as VoidFunction;
+        })
+    );
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Ready.' }));
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        cancel,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+    const ownerAbort = new AbortController();
+    const joinerAbort = new AbortController();
+
+    const ownerRun = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: ownerAbort.signal,
+      })
+    );
+    const joinerRun = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: joinerAbort.signal,
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(warmup).toHaveBeenCalledTimes(1);
+    });
+    joinerAbort.abort();
+    resolveWarmup?.();
+
+    await expect(joinerRun).resolves.toContainEqual({
+      content: [{ type: 'text', text: 'Generation cancelled.' }],
+    });
+    await expect(ownerRun).resolves.toContainEqual({
+      content: expect.arrayContaining([{ type: 'text', text: 'Ready.' }]),
+    });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a shared warmup alive when the owner aborts and a joiner is still waiting', async () => {
+    const warmupResolvers: VoidFunction[] = [];
+    const warmup = vi.fn().mockImplementation(
+      async () =>
+        await new Promise<void>((resolve) => {
+          warmupResolvers.push(resolve as VoidFunction);
+        })
+    );
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const generate = vi.fn().mockResolvedValue(createGenerationResult({ text: 'Ready.' }));
+
+    Object.assign(window as Window & { llmHost?: unknown }, {
+      llmHost: {
+        warmup,
+        cancel,
+        generate,
+        onProgress: vi.fn(() => () => {}),
+        onStatus: vi.fn(() => () => {}),
+      },
+    });
+
+    const adapter = createLocalModelAdapter({
+      modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
+    });
+    const ownerAbort = new AbortController();
+    const joinerAbort = new AbortController();
+
+    const ownerRun = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: ownerAbort.signal,
+      })
+    );
+    const joinerRun = collectRun(
+      adapter.run({
+        ...createRunOptions(),
+        abortSignal: joinerAbort.signal,
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(warmup).toHaveBeenCalledTimes(1);
+    });
+    ownerAbort.abort();
+
+    await expect(ownerRun).resolves.toContainEqual({
+      content: [{ type: 'text', text: 'Generation cancelled.' }],
+    });
+    expect(cancel).not.toHaveBeenCalled();
+    warmupResolvers.at(-1)?.();
+
+    await expect(joinerRun).resolves.toContainEqual({
+      content: expect.arrayContaining([{ type: 'text', text: 'Ready.' }]),
+    });
+    expect(warmup).toHaveBeenCalledTimes(1);
   });
 
   it('reports a terminal ready state after a successful warm run', async () => {

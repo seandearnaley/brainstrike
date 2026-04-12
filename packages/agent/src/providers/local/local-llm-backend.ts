@@ -43,11 +43,11 @@ export function setModelChecksums(_modelId: string, _checksums: { onnxSha256: st
 }
 
 // TODO(BST-493): restore manifest-level artifact integrity verification before the next release.
-export async function verifyModelIntegrity(_modelId: string, _data: ArrayBuffer): Promise<boolean> {
+export async function verifyModelIntegrity(_modelId: string, _data: ArrayBuffer): Promise<never> {
   logger.warn(
     'Built-in local artifact integrity verification is currently disabled for the Gemma manifest path (BST-493)'
   );
-  return false;
+  throw new Error('integrity_verification_disabled');
 }
 
 function resolveRequestedDevice(requested?: 'webgpu' | 'wasm'): 'webgpu' {

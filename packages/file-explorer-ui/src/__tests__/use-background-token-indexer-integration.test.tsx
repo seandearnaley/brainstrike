@@ -933,7 +933,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
   });
 
   describe('P0 optimization: de-dupe warm-cache preloading', () => {
-    it('preloads folder only once when selection changes within the same folder', () => {
+    it('does not re-preload a folder when later selections stay within already covered paths', () => {
       const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
       preloadSpy.mockClear();
 
@@ -949,27 +949,27 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         }
       );
 
-      // First selection - should preload the 'root' folder
-      rerender(new Set([fileAKey]));
+      // Start with full coverage for the folder.
+      rerender(new Set([fileAKey, fileBKey]));
       flushTimers();
 
       expect(preloadSpy).toHaveBeenCalledTimes(1);
       expect(preloadSpy).toHaveBeenCalledWith('root');
       preloadSpy.mockClear();
 
-      // Add another file in the same folder - should NOT preload again (memoized)
-      rerender(new Set([fileAKey, fileBKey]));
+      // Shrink to a subset - should not preload again because the previous preload already covered it.
+      rerender(new Set([fileAKey]));
       flushTimers();
 
       expect(preloadSpy).not.toHaveBeenCalled();
 
-      // Remove a file (still in same folder) - should NOT preload again
+      // Switching to another covered subset still should not preload again.
       rerender(new Set([fileBKey]));
       flushTimers();
 
       expect(preloadSpy).not.toHaveBeenCalled();
 
-      // Add file back - should NOT preload again
+      // Returning to the original covered selection should also stay memoized.
       rerender(new Set([fileAKey, fileBKey]));
       flushTimers();
 
@@ -1047,7 +1047,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(preloadSpy).toHaveBeenCalledWith('root');
     });
 
-    it('skips getBatch for folders already preloaded at current cache version', async () => {
+    it('re-hydrates a folder when the selection expands within the same folder', async () => {
       const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
       const getBatchSpy = storeMock.getBatch as unknown as ReturnType<typeof vi.fn>;
       preloadSpy.mockClear();
@@ -1077,15 +1077,16 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(initialGetBatchCalls).toBeGreaterThan(0);
       getBatchSpy.mockClear();
 
-      // Update selection in same folder - should NOT call getBatch again (skipped)
+      // Update selection in same folder - should preload again because the folder coverage changed.
       rerender(new Set([fileAKey, fileBKey]));
 
       await act(async () => {
         await vi.runAllTimersAsync();
       });
 
-      // No additional getBatch calls since folder was already preloaded
-      expect(getBatchSpy).not.toHaveBeenCalled();
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+      expect(getBatchSpy).toHaveBeenCalledTimes(1);
+      expect(getBatchSpy).toHaveBeenCalledWith('root', ['a.txt', 'b.txt']);
     });
   });
 });

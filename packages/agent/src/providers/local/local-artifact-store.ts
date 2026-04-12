@@ -19,7 +19,7 @@ export interface LocalArtifactStore {
 }
 
 interface ArtifactStatus {
-  cachedBytes: number | null;
+  cachedBytes: number;
   filePath: string;
   isCached: boolean;
 }
@@ -31,6 +31,19 @@ function readRemoteHostOverride(): string | null {
     }
   )[LOCAL_ARTIFACT_REMOTE_HOST_OVERRIDE_KEY];
   return typeof override === 'string' && override.trim().length > 0 ? override.trim() : null;
+}
+
+function isElectronRendererWindow(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const maybeWindow = window as Window & {
+    electronAPI?: unknown;
+    process?: { type?: unknown };
+  };
+
+  return maybeWindow.process?.type === 'renderer' || typeof maybeWindow.electronAPI !== 'undefined';
 }
 
 export function resolveLocalArtifactRemoteHost(): string {
@@ -46,7 +59,7 @@ export function resolveLocalArtifactRemoteHost(): string {
   switch (window.location.protocol) {
     case 'http:':
     case 'https:':
-      return '/api/hf/';
+      return isElectronRendererWindow() ? HUGGING_FACE_REMOTE_HOST : '/api/hf/';
     default:
       return HUGGING_FACE_REMOTE_HOST;
   }
@@ -79,7 +92,15 @@ async function checkStorageQuota(requiredBytes: number): Promise<void> {
   }
 
   const estimate = await navigator.storage.estimate();
-  const available = (estimate.quota ?? 0) - (estimate.usage ?? 0);
+  if (typeof estimate.quota !== 'number') {
+    // Some browsers do not expose quota at all. Skip enforcement rather than falsely rejecting a
+    // download we cannot size against. If quota is known but usage is missing, assume the bucket is
+    // already full so the check stays conservative instead of silently bypassing enforcement.
+    return;
+  }
+
+  const usage = typeof estimate.usage === 'number' ? estimate.usage : estimate.quota;
+  const available = estimate.quota - usage;
   const requiredWithBuffer = Math.ceil(requiredBytes * QUOTA_SAFETY_BUFFER);
   if (available < requiredWithBuffer) {
     throw new Error(
@@ -96,14 +117,14 @@ function getArtifactPaths(spec: LocalLlmModelSpec): string[] {
   ];
 }
 
-async function readCachedArtifactBytes(response: Response): Promise<number | null> {
+async function readCachedArtifactBytes(response: Response): Promise<number> {
   const contentLength = response.headers.get('content-length');
   const parsedLength = contentLength ? Number.parseInt(contentLength, 10) : Number.NaN;
   if (Number.isFinite(parsedLength) && parsedLength > 0) {
     return parsedLength;
   }
 
-  return null;
+  return 0;
 }
 
 async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise<ArtifactStatus[]> {
@@ -113,10 +134,11 @@ async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise
     const url = buildLocalArtifactUrl(spec.modelId, spec.remoteRevision, filePath);
     const cached = await cache.match(url);
     if (cached?.status === 200) {
+      const cachedBytes = await readCachedArtifactBytes(cached);
       statuses.push({
         filePath,
         isCached: true,
-        cachedBytes: await readCachedArtifactBytes(cached),
+        cachedBytes,
       });
       continue;
     }
@@ -124,7 +146,7 @@ async function describeArtifacts(cache: Cache, spec: LocalLlmModelSpec): Promise
     statuses.push({
       filePath,
       isCached: false,
-      cachedBytes: null,
+      cachedBytes: 0,
     });
   }
 
@@ -163,8 +185,11 @@ async function cacheResponseStream(
   }
   if (!response.body) {
     await cache.put(url, response.clone());
-    onChunkProgress(1, 1);
-    return 1;
+    const totalHeader = response.headers.get('content-length');
+    const parsedLength = totalHeader ? Number.parseInt(totalHeader, 10) : 0;
+    const loaded = Number.isFinite(parsedLength) && parsedLength >= 0 ? parsedLength : 0;
+    onChunkProgress(loaded, loaded > 0 ? loaded : null);
+    return loaded;
   }
 
   const totalHeader = response.headers.get('content-length');
@@ -205,6 +230,7 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
     const { files, requiredBytes } = await estimateRemainingArtifactBytes(cache, spec);
     await checkStorageQuota(requiredBytes);
     let downloadedBytes = files.reduce((sum, file) => sum + (file.cachedBytes ?? 0), 0);
+    const totalExpectedBytes = downloadedBytes + requiredBytes;
 
     for (const file of files) {
       signal?.throwIfAborted();
@@ -233,7 +259,7 @@ export class BrowserCacheArtifactStore implements LocalArtifactStore {
             stage: 'downloading',
             progress: toProgressPercent(
               downloadedBytes + loaded,
-              Math.max(spec.totalSizeBytes, downloadedBytes + (total ?? loaded))
+              Math.max(totalExpectedBytes, downloadedBytes + (total ?? loaded))
             ),
             message: `Downloading ${filePath}`,
             file: filePath,
