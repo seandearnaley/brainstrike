@@ -2080,6 +2080,85 @@ test.describe('Desktop file explorer selection', () => {
     }
   });
 
+  test('restored query selections compute token totals even when deep descendants stay collapsed', async ({
+    electronHarness,
+  }) => {
+    test.setTimeout(60_000);
+
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), 'brainstrike-tree-restore-query-tokens-')
+    );
+
+    try {
+      await mkdir(path.join(rootPath, 'src/components'), { recursive: true });
+      await mkdir(path.join(rootPath, 'src/hooks'), { recursive: true });
+      await mkdir(path.join(rootPath, 'src/utils'), { recursive: true });
+
+      await writeFile(path.join(rootPath, 'src/App.tsx'), 'export const App = () => null;');
+      await writeFile(
+        path.join(rootPath, 'src/components/molecule-viewer.tsx'),
+        'export const MoleculeViewer = () => null;'
+      );
+      await writeFile(
+        path.join(rootPath, 'src/hooks/use-viewer.ts'),
+        'export const useViewer = () => null;'
+      );
+      await writeFile(path.join(rootPath, 'src/utils/viewer.ts'), 'export const viewer = 1;');
+
+      const materializedPaths = [
+        path.join(rootPath, 'src/App.tsx'),
+        path.join(rootPath, 'src/components/molecule-viewer.tsx'),
+        path.join(rootPath, 'src/hooks/use-viewer.ts'),
+        path.join(rootPath, 'src/utils/viewer.ts'),
+      ];
+
+      await seedRestoredQuerySelectionState({
+        electronHarness,
+        rootPath,
+        selectionRootPath: path.join(rootPath, 'src'),
+        expandedDirectoryPaths: [rootPath],
+        coveredDirectoryPaths: [
+          path.join(rootPath, 'src'),
+          path.join(rootPath, 'src/components'),
+          path.join(rootPath, 'src/hooks'),
+          path.join(rootPath, 'src/utils'),
+        ],
+        includeFilters: ['*.tsx', '*.ts'],
+        excludeFilters: [
+          '.aider*',
+          'node_modules',
+          '.next',
+          'coverage',
+          'test-results',
+          'playwright-report',
+        ],
+        materializedPaths,
+      });
+
+      const restartedContext = await electronHarness.restart();
+      const restartedWindow = restartedContext.window;
+      await ensureLeftPanelVisible(restartedWindow);
+
+      await expect(restartedWindow.getByTestId('selection-count')).toHaveText(
+        String(materializedPaths.length),
+        {
+          timeout: 15_000,
+        }
+      );
+
+      const fileTree = restartedWindow.getByRole('treegrid', { name: 'File tree' });
+      await expect(fileTree).toBeVisible({ timeout: 15_000 });
+      await expect(fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
+      await expect(fileTree.getByText('molecule-viewer.tsx')).not.toBeVisible();
+
+      const tokenSummary = restartedWindow.getByText(/[1-9]\d*(?:,\d{3})* output/);
+      await expect(tokenSummary).toBeVisible({ timeout: 20_000 });
+      await expect(restartedWindow.getByText(/estimating…/)).not.toBeVisible({ timeout: 20_000 });
+    } finally {
+      await rm(rootPath, { force: true, recursive: true });
+    }
+  });
+
   test('restored root-level query-selected folders remain interactive after app restart', async ({
     electronHarness,
   }) => {

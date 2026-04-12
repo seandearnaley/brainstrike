@@ -102,6 +102,23 @@ describe('usePersistentTokenCache', () => {
       expect(mockContext?.getTokenCount).toHaveBeenCalledWith('folder', 'file.txt', 'hello');
     });
 
+    it('normalizes restored absolute paths before reading persistent token counts', () => {
+      fileContents['/repo::/repo/src/file.txt'] = 'hello';
+      const { result } = renderCacheHook();
+
+      const value = result.current.getTokenCount('/repo::/repo/src/file.txt');
+      expect(value).toBe(42);
+      expect(mockContext?.getTokenCount).toHaveBeenCalledWith('/repo', 'src/file.txt', 'hello');
+    });
+
+    it('normalizes restored absolute paths before reading persistent file sizes', () => {
+      const { result } = renderCacheHook();
+
+      const value = result.current.getFileSize('/repo::/repo/src/file.txt');
+      expect(value).toBe(1024);
+      expect(mockContext?.getFileSize).toHaveBeenCalledWith('/repo', 'src/file.txt');
+    });
+
     it('returns undefined when persistent cache reports loading', () => {
       (mockContext!.getTokenCount as ReturnType<typeof vi.fn>).mockReturnValueOnce(null);
       const { result } = renderCacheHook();
@@ -164,6 +181,46 @@ describe('usePersistentTokenCache', () => {
           ['folder::src/b.ts', 200],
         ]),
         totalTokens: 300,
+      });
+    });
+
+    it('normalizes restored absolute paths before persistent batch lookups', async () => {
+      const storeGetBatch = vi.fn(async (folderId: string, filePaths: string[]) => {
+        if (folderId !== '/repo') {
+          return new Map();
+        }
+        return new Map(
+          filePaths.map((filePath) => [
+            filePath,
+            {
+              folderId,
+              filePath,
+              tokenCount: 100,
+            },
+          ])
+        );
+      });
+
+      mockContext = {
+        ...mockContext!,
+        store: {
+          getBatch: storeGetBatch,
+        } as unknown as TokenCacheContextValue['store'],
+      };
+
+      const { result } = renderCacheHook();
+      const aggregateStats = await result.current.getCachedSelectionStats(
+        new Set(['/repo::/repo/src/a.ts', '/repo::/repo/src/b.ts'])
+      );
+
+      expect(storeGetBatch).toHaveBeenCalledWith('/repo', ['src/a.ts', 'src/b.ts']);
+      expect(aggregateStats).toEqual({
+        cachedFileCount: 2,
+        tokenCounts: new Map([
+          ['/repo::/repo/src/a.ts', 100],
+          ['/repo::/repo/src/b.ts', 100],
+        ]),
+        totalTokens: 200,
       });
     });
 

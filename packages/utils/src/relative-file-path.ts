@@ -44,6 +44,36 @@ function findFolderSegmentIndex(segments: readonly string[], folderId: string): 
   return -1;
 }
 
+function stripAbsoluteFolderPrefix(normalizedPath: string, folderId: string): string | null {
+  if (!folderId) {
+    return null;
+  }
+
+  const normalizedFolderId = folderId.replace(/\\/g, '/').replace(/\/+$/u, '');
+  if (!normalizedFolderId) {
+    return null;
+  }
+
+  const isAbsoluteFolderId =
+    normalizedFolderId.startsWith('/') ||
+    normalizedFolderId.startsWith('//') ||
+    WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedFolderId);
+  if (!isAbsoluteFolderId) {
+    return null;
+  }
+
+  const pathLower = normalizedPath.toLowerCase();
+  const folderLower = normalizedFolderId.toLowerCase();
+  if (pathLower === folderLower) {
+    return '';
+  }
+  if (pathLower.startsWith(`${folderLower}/`)) {
+    return normalizedPath.slice(normalizedFolderId.length + 1);
+  }
+
+  return null;
+}
+
 /**
  * Best-effort normalization from absolute paths to folder-relative paths.
  * This keeps cache/storage keys stable when callers accidentally pass absolute
@@ -55,6 +85,11 @@ export function normalizeFilePathForFolder(filePath: string, folderId: string): 
     normalizedForChecks.startsWith('/') || WINDOWS_DRIVE_PREFIX_REGEX.test(normalizedForChecks);
   if (!isAbsolutePath) {
     return filePath;
+  }
+
+  const strippedAbsolutePrefix = stripAbsoluteFolderPrefix(normalizedForChecks, folderId);
+  if (strippedAbsolutePrefix !== null) {
+    return strippedAbsolutePrefix;
   }
 
   const segments = normalizedForChecks.split('/').filter((segment) => segment.length > 0);

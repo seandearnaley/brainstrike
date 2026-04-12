@@ -26,9 +26,21 @@ describe('normalizeFilePathForFolder', () => {
     expect(normalizeFilePathForFolder(absolutePath, 'project')).toBe('src/index.ts');
   });
 
+  it('converts unix absolute paths using the absolute folder id prefix', () => {
+    const folderId = '/Users/me/workspace/project';
+    const absolutePath = '/Users/me/workspace/project/src/index.ts';
+    expect(normalizeFilePathForFolder(absolutePath, folderId)).toBe('src/index.ts');
+  });
+
   it('converts windows absolute paths using folder id segment', () => {
     const absolutePath = 'C:\\Users\\me\\workspace\\Project\\src\\index.ts';
     expect(normalizeFilePathForFolder(absolutePath, 'project')).toBe('src/index.ts');
+  });
+
+  it('converts windows absolute paths using the absolute folder id prefix case-insensitively', () => {
+    const folderId = 'C:\\Users\\me\\workspace\\project';
+    const absolutePath = 'C:\\Users\\me\\workspace\\Project\\src\\index.ts';
+    expect(normalizeFilePathForFolder(absolutePath, folderId)).toBe('src/index.ts');
   });
 
   it('strips leading slash when folder id is not present', () => {
