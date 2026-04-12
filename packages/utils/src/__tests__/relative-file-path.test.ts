@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeFilePathForFolder, validateRelativeFilePath } from '../relative-file-path';
+import {
+  isAbsoluteFileSystemPath,
+  normalizeFilePathForFolder,
+  normalizeSelectionPathForFolder,
+  validateRelativeFilePath,
+} from '../relative-file-path';
 
 describe('validateRelativeFilePath', () => {
   it('accepts safe relative paths', () => {
@@ -16,6 +21,15 @@ describe('validateRelativeFilePath', () => {
   });
 });
 
+describe('isAbsoluteFileSystemPath', () => {
+  it('detects unix, windows, and UNC absolute paths', () => {
+    expect(isAbsoluteFileSystemPath('/absolute/path.ts')).toBe(true);
+    expect(isAbsoluteFileSystemPath('C:\\absolute\\path.ts')).toBe(true);
+    expect(isAbsoluteFileSystemPath('\\\\server\\share\\path.ts')).toBe(true);
+    expect(isAbsoluteFileSystemPath('src/relative/path.ts')).toBe(false);
+  });
+});
+
 describe('normalizeFilePathForFolder', () => {
   it('keeps relative paths unchanged', () => {
     expect(normalizeFilePathForFolder('src/index.ts', 'project')).toBe('src/index.ts');
@@ -26,9 +40,30 @@ describe('normalizeFilePathForFolder', () => {
     expect(normalizeFilePathForFolder(absolutePath, 'project')).toBe('src/index.ts');
   });
 
+  it('converts unix absolute paths using the absolute folder id prefix', () => {
+    const folderId = '/Users/me/workspace/project';
+    const absolutePath = '/Users/me/workspace/project/src/index.ts';
+    expect(normalizeFilePathForFolder(absolutePath, folderId)).toBe('src/index.ts');
+  });
+
+  it('preserves the absolute path when it points at the folder root exactly', () => {
+    const folderId = '/Users/me/workspace/project';
+    const absolutePath = '/Users/me/workspace/project';
+    expect(normalizeFilePathForFolder(absolutePath, folderId)).toBe(absolutePath);
+    expect(() =>
+      normalizeSelectionPathForFolder(absolutePath, folderId, { label: 'Token cache file path' })
+    ).toThrow('Token cache file path must reference a file within the selected folder');
+  });
+
   it('converts windows absolute paths using folder id segment', () => {
     const absolutePath = 'C:\\Users\\me\\workspace\\Project\\src\\index.ts';
     expect(normalizeFilePathForFolder(absolutePath, 'project')).toBe('src/index.ts');
+  });
+
+  it('converts windows absolute paths using the absolute folder id prefix case-insensitively', () => {
+    const folderId = 'C:\\Users\\me\\workspace\\project';
+    const absolutePath = 'C:\\Users\\me\\workspace\\Project\\src\\index.ts';
+    expect(normalizeFilePathForFolder(absolutePath, folderId)).toBe('src/index.ts');
   });
 
   it('strips leading slash when folder id is not present', () => {

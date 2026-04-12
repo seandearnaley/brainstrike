@@ -7,6 +7,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FileTreeIndexContextValue } from '../file-tree-provider';
 import type { TokenCacheContextValue } from '../token-cache-context';
 import { useBackgroundTokenIndexerIntegration } from '../use-background-token-indexer-integration';
 
@@ -84,6 +85,12 @@ const tokenCacheContext: TokenCacheContextValue | null = createTokenCacheContext
 
 vi.mock('../token-cache-context', () => ({
   useOptionalTokenCacheContext: () => tokenCacheContext,
+}));
+
+let mockFileTreeIndexContext: FileTreeIndexContextValue | null = null;
+
+vi.mock('../file-tree-provider', () => ({
+  useOptionalFileTreeIndexContext: () => mockFileTreeIndexContext,
 }));
 
 // Simple web handle stub
@@ -195,6 +202,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     vi.useFakeTimers();
     __resetVectorStatusUIStoreForTests();
     mockBackgroundIndexer.isIndexing = false;
+    mockFileTreeIndexContext = null;
   });
 
   it('re-queues files when selection shrinks (stale cache is cleared)', () => {
@@ -1087,6 +1095,217 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(preloadSpy).toHaveBeenCalledWith('root');
       expect(getBatchSpy).toHaveBeenCalledTimes(1);
       expect(getBatchSpy).toHaveBeenCalledWith('root', ['a.txt', 'b.txt']);
+    });
+  });
+
+  it('indexes selected desktop descendants even when the tree index has not materialized their handles', async () => {
+    const rootFolderId = '/repo';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).toHaveBeenCalledTimes(1);
+    expect(electronFileReader).toHaveBeenCalledWith({
+      kind: 'file',
+      name: 'file.ts',
+      path: '/repo/src/deep/file.ts',
+      platform: 'electron',
+    });
+    expect(indexFilesMock).toHaveBeenCalledTimes(1);
+    expect(indexFilesMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        compositeKey: deepFileKey,
+        filePath: 'src/deep/file.ts',
+        folderId: rootFolderId,
+      }),
+    ]);
+  });
+
+  it('skips synthetic desktop handles when cached file size exceeds the indexing limit', async () => {
+    const rootFolderId = '/repo';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/large-file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+    const getFileSizeMock = tokenCacheContext.getFileSize as unknown as ReturnType<typeof vi.fn>;
+    getFileSizeMock.mockImplementation((folderId: string, path: string) => {
+      if (folderId === rootFolderId && path === 'src/deep/large-file.ts') {
+        return 800_000;
+      }
+      return undefined;
+    });
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).not.toHaveBeenCalled();
+    expect(indexFilesMock).not.toHaveBeenCalled();
+  });
+
+  it('normalizes absolute restored desktop selection paths before indexing', async () => {
+    const rootFolderId = '/repo';
+    const absoluteFilePath = '/repo/src/deep/file.ts';
+    const deepFileKey = encodeFileSelection(rootFolderId, absoluteFilePath);
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+    const updateHotCacheSpy = tokenCacheContext.updateHotCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    const updateFileSizeCacheSpy = tokenCacheContext.updateFileSizeCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    updateHotCacheSpy.mockClear();
+    updateFileSizeCacheSpy.mockClear();
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).toHaveBeenCalledWith({
+      kind: 'file',
+      name: 'file.ts',
+      path: '/repo/src/deep/file.ts',
+      platform: 'electron',
+    });
+    expect(indexFilesMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        compositeKey: deepFileKey,
+        filePath: 'src/deep/file.ts',
+        folderId: rootFolderId,
+      }),
+    ]);
+
+    act(() => {
+      capturedOnFileIndexed?.(deepFileKey, 42, 128);
+    });
+
+    expect(updateHotCacheSpy).toHaveBeenCalledWith(rootFolderId, 'src/deep/file.ts', 42);
+    expect(updateFileSizeCacheSpy).toHaveBeenCalledWith(rootFolderId, 'src/deep/file.ts', 128);
+  });
+
+  it('skips hot-cache writeback when indexed callbacks surface a folder-root path', async () => {
+    const rootFolderId = '/repo';
+    const folderRootKey = encodeFileSelection(rootFolderId, rootFolderId);
+    const updateHotCacheSpy = tokenCacheContext.updateHotCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    const updateFileSizeCacheSpy = tokenCacheContext.updateFileSizeCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    updateHotCacheSpy.mockClear();
+    updateFileSizeCacheSpy.mockClear();
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set(),
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    act(() => {
+      capturedOnFileIndexed?.(folderRootKey, 42, 128);
+    });
+
+    expect(updateHotCacheSpy).not.toHaveBeenCalled();
+    expect(updateFileSizeCacheSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses backslashes when synthesizing electron paths from mixed-separator windows roots', async () => {
+    const rootFolderId = 'C:\\Users/me/project';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).toHaveBeenCalledWith({
+      kind: 'file',
+      name: 'file.ts',
+      path: 'C:\\Users/me/project\\src\\deep\\file.ts',
+      platform: 'electron',
     });
   });
 });

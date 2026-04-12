@@ -13,6 +13,7 @@
  */
 
 import { createLogger } from '@brainstrike/utils/logger';
+import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import type { MutableRefObject } from 'react';
 import { useCallback, useRef } from 'react';
 import { type TokenCacheContextValue, useOptionalTokenCacheContext } from './token-cache-context';
@@ -30,6 +31,25 @@ interface CachedSelectionStats {
   cachedFileCount: number;
   tokenCounts: ReadonlyMap<string, number>;
   totalTokens: number;
+}
+
+function normalizeSelectionPath(folderId: string, filePath: string): string {
+  return normalizeSelectionPathForFolder(filePath, folderId, {
+    label: 'Token cache file path',
+  });
+}
+
+function tryNormalizeSelectionPath(folderId: string, filePath: string): string | null {
+  try {
+    return normalizeSelectionPath(folderId, filePath);
+  } catch (error) {
+    logger.warn('Rejected unsafe token cache file path before persistent cache access', {
+      filePath,
+      folderId,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 /**
@@ -129,8 +149,12 @@ function buildCompositeKeysByFolder(
 
   for (const compositeKey of compositeKeys) {
     const { folderId, path } = decodeFileSelection(compositeKey);
+    const normalizedPath = tryNormalizeSelectionPath(folderId, path);
+    if (!normalizedPath) {
+      continue;
+    }
     const folderCompositeKeys = compositeKeysByFolder.get(folderId) ?? new Map<string, string>();
-    folderCompositeKeys.set(path, compositeKey);
+    folderCompositeKeys.set(normalizedPath, compositeKey);
     compositeKeysByFolder.set(folderId, folderCompositeKeys);
   }
 
@@ -235,10 +259,15 @@ export function usePersistentTokenCache({
           return;
         }
 
+        const normalizedPath = tryNormalizeSelectionPath(folderId, path);
+        if (!normalizedPath) {
+          return;
+        }
+
         // Try to get from hot cache first (no content needed!)
         // Pass undefined for content to check cache only
         const content = fileContents[compositeKey];
-        const count = persistentCache.getTokenCount(folderId, path, content);
+        const count = persistentCache.getTokenCount(folderId, normalizedPath, content);
 
         if (count !== null) {
           return count;
@@ -308,7 +337,11 @@ export function usePersistentTokenCache({
 
       // Use persistent cache if available
       if (persistentCache?.isOperational) {
-        return persistentCache.getFileSize(folderId, path);
+        const normalizedPath = tryNormalizeSelectionPath(folderId, path);
+        if (!normalizedPath) {
+          return undefined;
+        }
+        return persistentCache.getFileSize(folderId, normalizedPath);
       }
 
       // No fallback for file size in in-memory mode

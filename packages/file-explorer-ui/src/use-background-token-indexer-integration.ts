@@ -16,8 +16,8 @@ import type { IFileNode } from '@brainstrike/types';
 import { isBinaryFile } from '@brainstrike/utils/file-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
-  normalizeFilePathForFolder,
-  validateRelativeFilePath,
+  normalizeSelectionPathForFolder,
+  WINDOWS_ABSOLUTE_PATH_REGEX,
 } from '@brainstrike/utils/relative-file-path';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -163,6 +163,64 @@ interface HandleInfo {
   /** File size in bytes (if known) for large file filtering */
   fileSize: number | undefined;
   webHandle?: FileSystemFileHandle;
+}
+
+function isAbsoluteFolderPath(folderId: string): boolean {
+  return (
+    folderId.startsWith('/') ||
+    folderId.startsWith('\\\\') ||
+    folderId.startsWith('//') ||
+    WINDOWS_ABSOLUTE_PATH_REGEX.test(folderId)
+  );
+}
+
+function joinElectronAbsolutePath(rootPath: string, relativePath: string): string {
+  const prefersBackslashes =
+    WINDOWS_ABSOLUTE_PATH_REGEX.test(rootPath) ||
+    rootPath.startsWith('\\\\') ||
+    rootPath.includes('\\');
+  const separator = prefersBackslashes ? '\\' : '/';
+  const trimmedRootPath = rootPath.replace(/[\\/]+$/u, '');
+  const normalizedRelativePath = relativePath
+    .split('/')
+    .filter((segment) => segment.length > 0)
+    .join(separator);
+  if (normalizedRelativePath.length === 0) {
+    return trimmedRootPath;
+  }
+  return `${trimmedRootPath}${separator}${normalizedRelativePath}`;
+}
+
+function buildSyntheticElectronHandle(args: {
+  filePath: string;
+  fileSize: number | undefined;
+  folderId: string;
+}): HandleInfo | null {
+  if (!isAbsoluteFolderPath(args.folderId)) {
+    return null;
+  }
+
+  const fileName = args.filePath.split('/').at(-1);
+  if (!fileName) {
+    return null;
+  }
+
+  return {
+    electronHandle: {
+      kind: 'file',
+      name: fileName,
+      path: joinElectronAbsolutePath(args.folderId, args.filePath),
+      platform: 'electron',
+    },
+    fileName,
+    fileSize: args.fileSize,
+  };
+}
+
+function normalizeSelectionPathForTokenCache(folderId: string, selectionPath: string): string {
+  return normalizeSelectionPathForFolder(selectionPath, folderId, {
+    label: 'Token cache file path',
+  });
 }
 
 function shouldEmitLargeSelectionDiagnostics(params: {
@@ -534,8 +592,20 @@ export function useBackgroundTokenIndexerIntegration({
       if (inFlightRef.current.size === 0) {
         bumpInFlightPulse((value) => value + 1);
       }
-      tokenCacheRef.current?.updateHotCache(folderId, path, tokenCount);
-      tokenCacheRef.current?.updateFileSizeCache(folderId, path, fileSize);
+      let normalizedPath: string;
+      try {
+        normalizedPath = normalizeSelectionPathForTokenCache(folderId, path);
+      } catch (error) {
+        logger.warn('Skipping hot-cache writeback for unsafe indexed path', {
+          compositeKey,
+          folderId,
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      tokenCacheRef.current?.updateHotCache(folderId, normalizedPath, tokenCount);
+      tokenCacheRef.current?.updateFileSizeCache(folderId, normalizedPath, fileSize);
       indexedFilesRef.current.add(compositeKey);
       onTokenResolvedRef.current?.(compositeKey, tokenCount);
     },
@@ -651,12 +721,7 @@ export function useBackgroundTokenIndexerIntegration({
         const { folderId, path: selectionPath } = decodeFileSelection(compositeKey);
         let normalizedFilePath: string;
         try {
-          normalizedFilePath = validateRelativeFilePath(
-            normalizeFilePathForFolder(selectionPath, folderId),
-            {
-              label: 'Token cache file path',
-            }
-          );
+          normalizedFilePath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
         } catch (error) {
           skippedInvalidPath++;
           logger.warn('Skipping file with unsafe path for background indexing', {
@@ -676,6 +741,18 @@ export function useBackgroundTokenIndexerIntegration({
         if (!handleInfo) {
           // Fall back to local map
           handleInfo = fileHandleMapRef.current.get(compositeKey);
+        }
+        if (!handleInfo) {
+          const syntheticElectronHandle =
+            electronFileReaderRef.current &&
+            buildSyntheticElectronHandle({
+              filePath: normalizedFilePath,
+              fileSize: cache.getFileSize(folderId, normalizedFilePath),
+              folderId,
+            });
+          if (syntheticElectronHandle) {
+            handleInfo = syntheticElectronHandle;
+          }
         }
         if (!handleInfo) {
           skippedNoHandle++;
@@ -1079,9 +1156,7 @@ export function useBackgroundTokenIndexerIntegration({
         const { path } = decodeFileSelection(key);
         let normalizedPath: string;
         try {
-          normalizedPath = validateRelativeFilePath(normalizeFilePathForFolder(path, folderId), {
-            label: 'Token cache file path',
-          });
+          normalizedPath = normalizeSelectionPathForTokenCache(folderId, path);
         } catch (error) {
           logger.warn('Skipping warm-cache lookup for unsafe path', {
             folderId,
