@@ -1,6 +1,7 @@
 import {
   Button,
   Checkbox,
+  cn,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -20,6 +21,12 @@ interface ColumnVisibilityControlsProps {
 
 export const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
   function ColumnVisibilityControlsComponent({ columnVisibility, onColumnVisibilityChange }) {
+    const hasCustomizedColumns = COLUMN_CONFIGS.some(
+      (column) =>
+        column.canHide &&
+        (columnVisibility[column.id] ?? column.defaultVisible) !== column.defaultVisible
+    );
+
     return (
       <Popover>
         <Tooltip>
@@ -27,12 +34,18 @@ export const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
             <PopoverTrigger asChild>
               <Button
                 aria-label="Select visible columns"
-                className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                className={cn(
+                  'relative h-9 w-9 p-0',
+                  hasCustomizedColumns && 'bg-accent text-accent-foreground'
+                )}
                 size="sm"
-                variant="outline"
+                title="Columns"
+                variant="ghost"
               >
-                <Columns3 className="@[600px]:mr-2 size-3.5" />
-                <span className="@[600px]:inline hidden">Columns</span>
+                <Columns3 className="size-4" />
+                {hasCustomizedColumns ? (
+                  <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
+                ) : null}
               </Button>
             </PopoverTrigger>
           </TooltipTrigger>

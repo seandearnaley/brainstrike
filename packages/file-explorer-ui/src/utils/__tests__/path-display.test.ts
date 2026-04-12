@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { formatDirPathForDisplay, getDirPathForGrouping, splitFilePath } from '../path-display';
+import {
+  formatDirPathForDisplay,
+  getDirPathForGrouping,
+  getRootFolderDisplayName,
+  splitFilePath,
+} from '../path-display';
 
 describe('splitFilePath', () => {
   it('splits Unix file path correctly', () => {
@@ -116,6 +121,14 @@ describe('formatDirPathForDisplay', () => {
     expect(result).toBe('some/other/path');
   });
 
+  it('trims using an absolute root folder identity', () => {
+    const result = formatDirPathForDisplay({
+      dirPath: '/Users/me/project/src/components',
+      rootFolderId: '/Users/me/project',
+    });
+    expect(result).toBe('src/components');
+  });
+
   it('shortens long paths with ellipsis', () => {
     const result = formatDirPathForDisplay({
       dirPath:
@@ -145,6 +158,14 @@ describe('formatDirPathForDisplay', () => {
     const result = formatDirPathForDisplay({
       dirPath: 'src/components',
       rootFolderId: 'project',
+    });
+    expect(result).toBe('src/components');
+  });
+
+  it('trims a relative path that still includes the root folder prefix', () => {
+    const result = formatDirPathForDisplay({
+      dirPath: 'mock-project/src/components',
+      rootFolderId: 'mock-project',
     });
     expect(result).toBe('src/components');
   });
@@ -226,11 +247,37 @@ describe('getDirPathForGrouping', () => {
     expect(result).toBe('/some/random/path');
   });
 
+  it('uses an absolute root folder identity when grouping absolute file paths', () => {
+    const result = getDirPathForGrouping({
+      filePath: '/Users/me/project/src/components/Button.tsx',
+      rootFolderId: '/Users/me/project',
+    });
+    expect(result).toBe('src/components');
+  });
+
   it('handles relative paths', () => {
     const result = getDirPathForGrouping({
       filePath: 'src/components/Button.tsx',
       rootFolderId: 'project',
     });
     expect(result).toBe('src/components');
+  });
+
+  it('trims the root folder prefix from relative file paths when grouping', () => {
+    const result = getDirPathForGrouping({
+      filePath: 'mock-project/biome.json',
+      rootFolderId: 'mock-project',
+    });
+    expect(result).toBe('.');
+  });
+});
+
+describe('getRootFolderDisplayName', () => {
+  it('returns the basename for absolute root identities', () => {
+    expect(getRootFolderDisplayName('/Users/me/project')).toBe('project');
+  });
+
+  it('returns the original value for simple root ids', () => {
+    expect(getRootFolderDisplayName('project')).toBe('project');
   });
 });

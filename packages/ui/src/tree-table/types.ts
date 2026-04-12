@@ -85,6 +85,8 @@ export interface TreeTableColumn<T> {
   headerClassName?: string;
   /** Unique column identifier */
   id: string;
+  /** Override indentation width for this tree column. */
+  indentWidth?: number;
   /**
    * When true, this column receives tree indentation, expand/collapse toggle,
    * and checkbox rendering. Defaults to true for the first column only.
@@ -96,6 +98,8 @@ export interface TreeTableColumn<T> {
   maxWidth?: number;
   /** Minimum width in pixels */
   minWidth?: number;
+  /** When false, leaf rows do not reserve empty expand-toggle space in the tree column. */
+  reserveToggleSpace?: boolean;
   /** Whether this column is sortable */
   sortable?: boolean;
   /** Fixed width in pixels or CSS string */

@@ -10,6 +10,10 @@ interface DirPathDisplayOptions {
   tailSegments: number;
 }
 
+function normalizePathIdentity(inputPath: string): string {
+  return stripTrailingSlashes(normalizeSeparators(inputPath));
+}
+
 function normalizeSeparators(inputPath: string): string {
   return inputPath.replace(/\\/g, '/');
 }
@@ -111,14 +115,41 @@ function getFolderRelativeSegments(args: { normalizedDirPath: string; rootFolder
   segments: string[];
   trimmedToFolderRoot: boolean;
 } {
+  const normalizedRootFolderId = normalizePathIdentity(args.rootFolderId);
   const absolute = isProbablyAbsolutePath(args.normalizedDirPath);
   const segments = args.normalizedDirPath.split('/').filter(Boolean);
 
-  if (!(absolute && args.rootFolderId)) {
+  if (absolute && normalizedRootFolderId && isProbablyAbsolutePath(normalizedRootFolderId)) {
+    const normalizedDirLower = args.normalizedDirPath.toLowerCase();
+    const normalizedRootLower = normalizedRootFolderId.toLowerCase();
+
+    if (normalizedDirLower === normalizedRootLower) {
+      return { segments: [], trimmedToFolderRoot: true };
+    }
+
+    const rootPrefix = `${normalizedRootFolderId}/`;
+    if (normalizedDirLower.startsWith(`${normalizedRootLower}/`)) {
+      return {
+        segments: args.normalizedDirPath.slice(rootPrefix.length).split('/').filter(Boolean),
+        trimmedToFolderRoot: true,
+      };
+    }
+  }
+
+  if (!normalizedRootFolderId) {
     return { segments, trimmedToFolderRoot: false };
   }
 
-  const idx = findSegmentIndex(segments, args.rootFolderId);
+  if (!absolute) {
+    const firstSegment = segments[0];
+    const rootDisplayName = getRootFolderDisplayName(normalizedRootFolderId);
+    if (firstSegment && findSegmentIndex([firstSegment], rootDisplayName) === 0) {
+      return { segments: segments.slice(1), trimmedToFolderRoot: true };
+    }
+    return { segments, trimmedToFolderRoot: false };
+  }
+
+  const idx = findSegmentIndex(segments, getRootFolderDisplayName(normalizedRootFolderId));
   if (idx === -1) {
     return { segments, trimmedToFolderRoot: false };
   }
@@ -197,6 +228,16 @@ export function formatDirPathForDisplay(args: {
   }
 
   return buildShortenedDirPath({ segments, options });
+}
+
+export function getRootFolderDisplayName(rootFolderId: string): string {
+  const normalized = normalizePathIdentity(rootFolderId);
+  if (!normalized) {
+    return '';
+  }
+
+  const segments = normalized.split('/').filter(Boolean);
+  return segments.at(-1) ?? normalized;
 }
 
 /**

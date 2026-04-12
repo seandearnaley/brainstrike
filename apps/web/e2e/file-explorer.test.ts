@@ -121,6 +121,56 @@ test.describe('File Explorer', () => {
       await expect(page.getByText(/current directory/i)).toHaveCount(0);
     });
 
+    test('uses the same preview toolbar pattern across table and tapestry views', async ({
+      page,
+    }) => {
+      await explorer.selectRoot();
+
+      await page.getByRole('checkbox', { name: 'Select biome.json' }).click({ force: true });
+      await page.getByRole('checkbox', { name: 'Select package.json' }).click({ force: true });
+
+      const previewToolbar = page.getByTestId('preview-view-toolbar');
+      await expect(previewToolbar).toBeVisible();
+      await expect(
+        previewToolbar.getByRole('button', { name: 'Toggle multi-select' })
+      ).toBeVisible();
+      await expect(previewToolbar.getByRole('button', { name: 'Group by' })).toBeVisible();
+      await expect(
+        previewToolbar.getByRole('button', { name: 'Select visible columns' })
+      ).toBeVisible();
+
+      await page.getByRole('tab', { name: 'Tapestry View' }).click();
+      await expect(
+        previewToolbar.getByRole('button', { name: 'Toggle multi-select' })
+      ).toBeVisible();
+      await expect(previewToolbar.getByRole('button', { name: 'Group by' })).toBeVisible();
+      await expect(
+        previewToolbar.getByRole('button', { name: 'Select visible columns' })
+      ).toHaveCount(0);
+      await expect(page.getByLabel('Select all files on current page')).toBeVisible();
+    });
+
+    test('hides grouped selection checkboxes when selection controls are toggled off', async ({
+      page,
+    }) => {
+      await explorer.selectRoot();
+
+      await page.getByRole('checkbox', { name: 'Select biome.json' }).click({ force: true });
+      await page.getByRole('checkbox', { name: 'Select package.json' }).click({ force: true });
+
+      const previewToolbar = page.getByTestId('preview-view-toolbar');
+      await previewToolbar.getByRole('button', { name: 'Group by' }).click();
+      await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
+
+      const groupedSelectionCheckboxes = page.getByLabel(/Select all files in group/i);
+      await expect(groupedSelectionCheckboxes).toHaveCount(1);
+
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+
+      await expect(groupedSelectionCheckboxes).toHaveCount(0);
+      await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
+    });
+
     test('should allow downloading context with multiple file selections', async ({ page }) => {
       await explorer.selectRoot();
 

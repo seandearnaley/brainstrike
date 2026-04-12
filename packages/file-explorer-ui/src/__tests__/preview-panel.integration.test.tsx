@@ -219,6 +219,11 @@ vi.mock('@brainstrike/ui', async () => {
         {children}
       </div>
     ),
+    DropdownMenu: sharedUiMock.DropdownMenu,
+    DropdownMenuTrigger: sharedUiMock.DropdownMenuTrigger,
+    DropdownMenuContent: sharedUiMock.DropdownMenuContent,
+    DropdownMenuRadioGroup: sharedUiMock.DropdownMenuRadioGroup,
+    DropdownMenuRadioItem: sharedUiMock.DropdownMenuRadioItem,
     useToast: () => ({ toast: () => {} }),
     SortableTableHeader: ({
       title,
@@ -564,6 +569,7 @@ vi.mock('lucide-react', () => ({
   FileText: () => <div data-testid="file-text" />,
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
+  Group: () => <div data-testid="group" />,
   Loader2: () => <div data-testid="loader" />,
   CheckCircle2: () => <div data-testid="check-circle" />,
   AlertTriangle: () => <div data-testid="alert" />,
@@ -746,7 +752,7 @@ describe('PreviewPanel Integration Tests', () => {
       expect(pathHeader).toBeInTheDocument();
 
       // Reset sort should go back to page 1
-      const resetButton = screen.getByText('Reset Sort');
+      const resetButton = screen.getByRole('button', { name: 'Reset sort' });
       act(() => {
         fireEvent.click(resetButton);
       });

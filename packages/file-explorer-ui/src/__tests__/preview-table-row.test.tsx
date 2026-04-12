@@ -278,6 +278,31 @@ describe('PreviewTableRow', () => {
     expect(screen.getByText('src/components')).toBeInTheDocument();
   });
 
+  it('displays the root folder basename when the root identity is an absolute path', () => {
+    const absoluteRootItem: TableRowData = {
+      ...mockItem,
+      rootFolderId: '/Users/me/project',
+      path: '/Users/me/project/src/components/Button.tsx',
+    };
+
+    render(
+      <table>
+        <tbody>
+          <PreviewTableRow
+            columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={absoluteRootItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
+          />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('project')).toBeInTheDocument();
+    expect(screen.getByText('src/components')).toBeInTheDocument();
+  });
+
   it('shortens long absolute directory paths to avoid horizontal scrolling', () => {
     const longPath =
       '/Users/me/Projects/brainstrike/packages/file-explorer-ui/src/components/very/deep/__tests__/PreviewTableRow.test.tsx';

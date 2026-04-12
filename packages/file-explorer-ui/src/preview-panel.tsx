@@ -5,7 +5,6 @@ import {
   BulkActionBar,
   Button,
   type CollectionNodeType,
-  cn,
   EmptyState,
   TablePagination,
   Tabs,
@@ -19,14 +18,7 @@ import {
 } from '@brainstrike/ui';
 import { getFileExtension } from '@brainstrike/utils/file-utils';
 import { createLogger } from '@brainstrike/utils/logger';
-import {
-  FileText,
-  FileX2,
-  LayoutGrid,
-  ListChecks,
-  RotateCcw,
-  Table as TableIcon,
-} from 'lucide-react';
+import { FileText, FileX2, LayoutGrid, RotateCcw, Table as TableIcon } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { ContextExportOptions } from './context-export-options';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
@@ -37,9 +29,9 @@ import {
 } from './hooks/use-preview-panel-preferences';
 import { ColumnVisibilityControls } from './preview-column-visibility-controls';
 import { getPreviewFooterModeHeight } from './preview-footer-layout';
-import { PreviewGroupingControls } from './preview-grouping-controls';
 import { PreviewPanelFooter } from './preview-panel-footer';
 import { PreviewTable } from './preview-table';
+import { PreviewViewToolbar } from './preview-view-toolbar';
 import { buildTapestryFileBase } from './tapestry/tapestry-adapter';
 import { TapestryView } from './tapestry/tapestry-view';
 import type { TapestryRange } from './tapestry/types';
@@ -541,16 +533,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     isGroupFullySelected,
     isGroupPartiallySelected,
     toggleItemSelection,
-    selectAll,
     selectAllOnPage,
     deselectAll,
     isAllSelected,
   } = groupSelection;
 
-  const isAllFilesSelected = useMemo(
-    () => isAllSelected(flattenedData),
-    [flattenedData, isAllSelected]
-  );
+  const selectionControlsEnabled = columnVisibility.checkbox;
 
   // Current page data
   const tablePageData =
@@ -813,6 +801,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     resetAllPages();
   }, [setSortField, setSortDirection, resetAllPages]);
 
+  const handleSelectionControlsToggle = useCallback(
+    (enabled: boolean) => {
+      setColumnVisibility({ ...columnVisibility, checkbox: enabled });
+      if (!enabled) {
+        deselectAll();
+      }
+    },
+    [columnVisibility, deselectAll, setColumnVisibility]
+  );
+
   // Reset to first page when grouping changes
   const prevGroupingConfigRef = useRef(groupingConfig);
   // biome-ignore lint/plugin: Reset pagination when grouping config changes
@@ -884,77 +882,55 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           </TabsList>
         </div>
 
+        <TooltipProvider delayDuration={400}>
+          <PreviewViewToolbar
+            additionalControls={
+              activeTab === 'table' ? (
+                <>
+                  {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          aria-label="Reset sort"
+                          className="h-9 w-9 p-0"
+                          data-testid="reset-sort-button"
+                          onClick={resetSort}
+                          size="sm"
+                          title="Reset sort"
+                          variant="ghost"
+                        >
+                          <RotateCcw className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Reset sort to default (by folder)</TooltipContent>
+                    </Tooltip>
+                  )}
+                  <ColumnVisibilityControls
+                    columnVisibility={columnVisibility}
+                    onColumnVisibilityChange={setColumnVisibility}
+                  />
+                </>
+              ) : null
+            }
+            canCollapseExpandGroups={groupingConfig !== 'none' && groupedData.length > 1}
+            groupingConfig={groupingConfig}
+            onCollapseAllGroups={() =>
+              setCollapsedGroups(new Set(groupedData.map((group) => String(group.groupKey))))
+            }
+            onExpandAllGroups={() => setCollapsedGroups(new Set())}
+            onGroupingChange={(value) => {
+              setGroupingConfig(value);
+              setCollapsedGroups(new Set());
+            }}
+            onSelectionControlsToggle={handleSelectionControlsToggle}
+            selectionControlsEnabled={selectionControlsEnabled}
+          />
+        </TooltipProvider>
+
         <TabsContent
           className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
           value="table"
         >
-          {/* Header with table controls only */}
-          <TooltipProvider delayDuration={400}>
-            <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
-              <PreviewGroupingControls
-                groupedData={groupedData}
-                groupingConfig={groupingConfig}
-                onCollapseAllGroups={() =>
-                  setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
-                }
-                onExpandAllGroups={() => setCollapsedGroups(new Set())}
-                onGroupingChange={(value) => {
-                  setGroupingConfig(value);
-                  setCollapsedGroups(new Set());
-                }}
-              />
-              <div className="flex flex-wrap items-center gap-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      aria-label="Toggle multi-select"
-                      className={cn(
-                        'h-8 w-8 p-0',
-                        columnVisibility.checkbox && 'bg-accent text-accent-foreground'
-                      )}
-                      data-testid="toggle-multi-select-button"
-                      onClick={() => {
-                        const newVisibility = !columnVisibility.checkbox;
-                        setColumnVisibility({ ...columnVisibility, checkbox: newVisibility });
-                        if (!newVisibility) {
-                          deselectAll();
-                        }
-                      }}
-                      size="sm"
-                      variant="ghost"
-                    >
-                      <ListChecks className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Toggle multi-select</TooltipContent>
-                </Tooltip>
-
-                {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        aria-label="Reset sort"
-                        className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                        data-testid="reset-sort-button"
-                        onClick={resetSort}
-                        size="sm"
-                        variant="outline"
-                      >
-                        <RotateCcw className="@[600px]:mr-2 size-3.5" />
-                        <span className="@[600px]:inline hidden">Reset Sort</span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Reset sort to default (by folder)</TooltipContent>
-                  </Tooltip>
-                )}
-                <ColumnVisibilityControls
-                  columnVisibility={columnVisibility}
-                  onColumnVisibilityChange={setColumnVisibility}
-                />
-              </div>
-            </div>
-          </TooltipProvider>
-
           <div className="relative flex min-h-0 flex-1 flex-col">
             {/* Table */}
             <FileExplorerErrorBoundary>
@@ -1034,28 +1010,17 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           <FileExplorerErrorBoundary>
             <TapestryView
               activeRangesCount={activeRangesCount}
-              allFilesSelected={isAllFilesSelected}
-              groupedData={groupedData}
               groupedSections={tapestryGroupedSections}
               groupingConfig={groupingConfig}
               isAllSelected={isAllSelected}
               isEmpty={flattenedData.length === 0}
               isGroupFullySelected={isGroupFullySelected}
               isGroupPartiallySelected={isGroupPartiallySelected}
-              onCollapseAllGroups={() =>
-                setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
-              }
               onDeselectAll={deselectAll}
-              onExpandAllGroups={() => setCollapsedGroups(new Set())}
               onGroupDeselectAll={handleGroupDeselectAll}
-              onGroupingChange={(value) => {
-                setGroupingConfig(value);
-                setCollapsedGroups(new Set());
-              }}
               onGroupSelectAll={handleGroupSelectAll}
               onRangesChange={handleTapestryRangesChange}
               onResetRanges={handleResetTapestryRanges}
-              onSelectAllFiles={() => selectAll(flattenedData)}
               onSelectAllOnPage={selectAllOnPage}
               onToggleGroupCollapse={toggleGroupCollapse}
               onToggleSelection={toggleItemSelection}
@@ -1068,6 +1033,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                 ...paginationInfo,
               }}
               previewSelections={previewSelections}
+              showSelectionControls={selectionControlsEnabled}
               totalFiles={flattenedData.length}
               totalLinesSelected={totalLinesSelected}
               ungroupedFiles={tapestryUngroupedFiles}
