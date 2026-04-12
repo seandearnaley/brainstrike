@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeFilePathForFolder, validateRelativeFilePath } from '../relative-file-path';
+import {
+  isAbsoluteFileSystemPath,
+  normalizeFilePathForFolder,
+  normalizeSelectionPathForFolder,
+  validateRelativeFilePath,
+} from '../relative-file-path';
 
 describe('validateRelativeFilePath', () => {
   it('accepts safe relative paths', () => {
@@ -13,6 +18,15 @@ describe('validateRelativeFilePath', () => {
     expect(() => validateRelativeFilePath('C:\\absolute\\path.ts')).toThrow(
       'File path must be relative'
     );
+  });
+});
+
+describe('isAbsoluteFileSystemPath', () => {
+  it('detects unix, windows, and UNC absolute paths', () => {
+    expect(isAbsoluteFileSystemPath('/absolute/path.ts')).toBe(true);
+    expect(isAbsoluteFileSystemPath('C:\\absolute\\path.ts')).toBe(true);
+    expect(isAbsoluteFileSystemPath('\\\\server\\share\\path.ts')).toBe(true);
+    expect(isAbsoluteFileSystemPath('src/relative/path.ts')).toBe(false);
   });
 });
 
@@ -37,8 +51,8 @@ describe('normalizeFilePathForFolder', () => {
     const absolutePath = '/Users/me/workspace/project';
     expect(normalizeFilePathForFolder(absolutePath, folderId)).toBe(absolutePath);
     expect(() =>
-      validateRelativeFilePath(normalizeFilePathForFolder(absolutePath, folderId))
-    ).toThrow('File path must be relative');
+      normalizeSelectionPathForFolder(absolutePath, folderId, { label: 'Token cache file path' })
+    ).toThrow('Token cache file path must reference a file within the selected folder');
   });
 
   it('converts windows absolute paths using folder id segment', () => {

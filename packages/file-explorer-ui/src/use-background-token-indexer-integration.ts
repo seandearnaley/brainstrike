@@ -16,8 +16,8 @@ import type { IFileNode } from '@brainstrike/types';
 import { isBinaryFile } from '@brainstrike/utils/file-utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import {
-  normalizeFilePathForFolder,
-  validateRelativeFilePath,
+  normalizeSelectionPathForFolder,
+  WINDOWS_ABSOLUTE_PATH_REGEX,
 } from '@brainstrike/utils/relative-file-path';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -165,8 +165,6 @@ interface HandleInfo {
   webHandle?: FileSystemFileHandle;
 }
 
-const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
-
 function isAbsoluteFolderPath(folderId: string): boolean {
   return (
     folderId.startsWith('/') ||
@@ -177,7 +175,10 @@ function isAbsoluteFolderPath(folderId: string): boolean {
 }
 
 function joinElectronAbsolutePath(rootPath: string, relativePath: string): string {
-  const prefersBackslashes = rootPath.includes('\\') && !rootPath.includes('/');
+  const prefersBackslashes =
+    WINDOWS_ABSOLUTE_PATH_REGEX.test(rootPath) ||
+    rootPath.startsWith('\\\\') ||
+    rootPath.includes('\\');
   const separator = prefersBackslashes ? '\\' : '/';
   const trimmedRootPath = rootPath.replace(/[\\/]+$/u, '');
   const normalizedRelativePath = relativePath
@@ -217,7 +218,7 @@ function buildSyntheticElectronHandle(args: {
 }
 
 function normalizeSelectionPathForTokenCache(folderId: string, selectionPath: string): string {
-  return validateRelativeFilePath(normalizeFilePathForFolder(selectionPath, folderId), {
+  return normalizeSelectionPathForFolder(selectionPath, folderId, {
     label: 'Token cache file path',
   });
 }
@@ -591,7 +592,18 @@ export function useBackgroundTokenIndexerIntegration({
       if (inFlightRef.current.size === 0) {
         bumpInFlightPulse((value) => value + 1);
       }
-      const normalizedPath = normalizeSelectionPathForTokenCache(folderId, path);
+      let normalizedPath: string;
+      try {
+        normalizedPath = normalizeSelectionPathForTokenCache(folderId, path);
+      } catch (error) {
+        logger.warn('Skipping hot-cache writeback for unsafe indexed path', {
+          compositeKey,
+          folderId,
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
       tokenCacheRef.current?.updateHotCache(folderId, normalizedPath, tokenCount);
       tokenCacheRef.current?.updateFileSizeCache(folderId, normalizedPath, fileSize);
       indexedFilesRef.current.add(compositeKey);

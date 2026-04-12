@@ -13,10 +13,7 @@
  */
 
 import { createLogger } from '@brainstrike/utils/logger';
-import {
-  normalizeFilePathForFolder,
-  validateRelativeFilePath,
-} from '@brainstrike/utils/relative-file-path';
+import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import type { MutableRefObject } from 'react';
 import { useCallback, useRef } from 'react';
 import { type TokenCacheContextValue, useOptionalTokenCacheContext } from './token-cache-context';
@@ -37,7 +34,7 @@ interface CachedSelectionStats {
 }
 
 function normalizeSelectionPath(folderId: string, filePath: string): string {
-  return validateRelativeFilePath(normalizeFilePathForFolder(filePath, folderId), {
+  return normalizeSelectionPathForFolder(filePath, folderId, {
     label: 'Token cache file path',
   });
 }

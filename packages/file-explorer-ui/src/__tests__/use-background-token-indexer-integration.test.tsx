@@ -1243,4 +1243,69 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     expect(updateHotCacheSpy).toHaveBeenCalledWith(rootFolderId, 'src/deep/file.ts', 42);
     expect(updateFileSizeCacheSpy).toHaveBeenCalledWith(rootFolderId, 'src/deep/file.ts', 128);
   });
+
+  it('skips hot-cache writeback when indexed callbacks surface a folder-root path', async () => {
+    const rootFolderId = '/repo';
+    const folderRootKey = encodeFileSelection(rootFolderId, rootFolderId);
+    const updateHotCacheSpy = tokenCacheContext.updateHotCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    const updateFileSizeCacheSpy = tokenCacheContext.updateFileSizeCache as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    updateHotCacheSpy.mockClear();
+    updateFileSizeCacheSpy.mockClear();
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set(),
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    act(() => {
+      capturedOnFileIndexed?.(folderRootKey, 42, 128);
+    });
+
+    expect(updateHotCacheSpy).not.toHaveBeenCalled();
+    expect(updateFileSizeCacheSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses backslashes when synthesizing electron paths from mixed-separator windows roots', async () => {
+    const rootFolderId = 'C:\\Users/me/project';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: [],
+        selectedFiles: new Set([deepFileKey]),
+        electronFileReader,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).toHaveBeenCalledWith({
+      kind: 'file',
+      name: 'file.ts',
+      path: 'C:\\Users/me/project\\src\\deep\\file.ts',
+      platform: 'electron',
+    });
+  });
 });
