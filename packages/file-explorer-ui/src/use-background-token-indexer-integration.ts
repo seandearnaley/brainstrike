@@ -162,6 +162,8 @@ interface HandleInfo {
   fileName: string;
   /** File size in bytes (if known) for large file filtering */
   fileSize: number | undefined;
+  /** Synthetic handles rely on cached metadata and should stay retryable. */
+  isSynthetic?: boolean;
   webHandle?: FileSystemFileHandle;
 }
 
@@ -214,6 +216,7 @@ function buildSyntheticElectronHandle(args: {
     },
     fileName,
     fileSize: args.fileSize,
+    isSynthetic: true,
   };
 }
 
@@ -776,6 +779,12 @@ export function useBackgroundTokenIndexerIntegration({
         // This avoids AccessError exceptions and IPC overhead
         if (handleInfo.fileSize !== undefined && handleInfo.fileSize > MAX_INDEXABLE_FILE_SIZE) {
           skippedTooLarge++;
+          if (handleInfo.isSynthetic) {
+            // Cached synthetic metadata can be stale across restarts. Keep the file retryable
+            // so authoritative tree/index metadata can re-attempt indexing later.
+            pendingNoHandleRef.current.add(compositeKey);
+            continue;
+          }
           // Mark as "indexed" to prevent re-queuing (it will never succeed)
           indexedFilesRef.current.add(compositeKey);
           continue;
