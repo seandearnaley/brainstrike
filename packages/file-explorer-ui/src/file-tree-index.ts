@@ -23,6 +23,8 @@ export interface HandleInfo {
   fileName: string;
   /** File size in bytes (if known) for large file filtering */
   fileSize: number | undefined;
+  /** Synthetic handles rely on cached metadata and should stay retryable. */
+  isSynthetic?: boolean;
   /** Web File System Access API handle (browser environment) */
   webHandle?: FileSystemFileHandle;
 }

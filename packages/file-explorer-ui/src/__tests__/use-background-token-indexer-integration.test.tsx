@@ -1184,6 +1184,92 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     expect(indexFilesMock).not.toHaveBeenCalled();
   });
 
+  it('retries synthetic desktop handles with stale oversized cache metadata after index materializes', async () => {
+    const rootFolderId = '/repo';
+    const deepFileKey = encodeFileSelection(rootFolderId, 'src/deep/large-file.ts');
+    const electronFileReader = vi.fn(async () => 'export const value = 1;\n');
+    const getFileSizeMock = tokenCacheContext.getFileSize as unknown as ReturnType<typeof vi.fn>;
+    getFileSizeMock.mockImplementation((folderId: string, path: string) => {
+      if (folderId === rootFolderId && path === 'src/deep/large-file.ts') {
+        return 800_000;
+      }
+      return undefined;
+    });
+
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => undefined),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 0,
+        totalNodes: 0,
+      },
+      version: 1,
+    };
+
+    const { rerender } = renderHook(
+      (selectedFiles: Set<string>) =>
+        useBackgroundTokenIndexerIntegration({
+          fileTree: [],
+          selectedFiles,
+          electronFileReader,
+          onTokenResolved: vi.fn(),
+        }),
+      {
+        initialProps: new Set([deepFileKey]),
+      }
+    );
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).not.toHaveBeenCalled();
+    expect(indexFilesMock).not.toHaveBeenCalled();
+
+    indexFilesMock.mockClear();
+    getFileSizeMock.mockImplementation(() => undefined);
+    mockFileTreeIndexContext = {
+      getHandle: vi.fn(() => ({
+        electronHandle: {
+          kind: 'file' as const,
+          name: 'large-file.ts',
+          path: '/repo/src/deep/large-file.ts',
+          platform: 'electron' as const,
+        },
+        fileName: 'large-file.ts',
+        fileSize: 128,
+      })),
+      getNode: vi.fn(() => undefined),
+      stats: {
+        totalDirectories: 0,
+        totalFiles: 1,
+        totalNodes: 1,
+      },
+      version: 2,
+    };
+
+    rerender(new Set([deepFileKey]));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronFileReader).toHaveBeenCalledWith({
+      kind: 'file',
+      name: 'large-file.ts',
+      path: '/repo/src/deep/large-file.ts',
+      platform: 'electron',
+    });
+    expect(indexFilesMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        compositeKey: deepFileKey,
+        filePath: 'src/deep/large-file.ts',
+        folderId: rootFolderId,
+      }),
+    ]);
+  });
+
   it('normalizes absolute restored desktop selection paths before indexing', async () => {
     const rootFolderId = '/repo';
     const absoluteFilePath = '/repo/src/deep/file.ts';
