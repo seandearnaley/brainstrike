@@ -156,10 +156,8 @@ async function resetExplorerState(page: Page, extraStorageKeys: string[] = []): 
 }
 
 async function setMaxSelectionCount(page: Page, value: number | string): Promise<void> {
-  const counterButton = page.getByRole('button', {
-    name: /Click to edit maximum selection count/i,
-  });
-  await counterButton.click();
+  const settingsButton = page.getByRole('button', { name: /Selection settings/i });
+  await settingsButton.click();
 
   const input = page.getByLabel('Maximum selection count input');
   await expect(input).toBeVisible();

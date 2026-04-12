@@ -9,14 +9,11 @@ import {
 import type { FileTree } from './utils/mock-fs';
 
 /**
- * Helper to open the selection counter popover and set the max selection count
+ * Helper to open the selection settings popover and set the max selection count
  */
 async function setMaxSelectionCount(page: Page, value: number | string): Promise<void> {
-  // Click the selection counter button to open the popover
-  const counterButton = page.getByRole('button', {
-    name: /Click to edit maximum selection count/i,
-  });
-  await counterButton.click();
+  const settingsButton = page.getByRole('button', { name: /Selection settings/i });
+  await settingsButton.click();
 
   // Wait for popover to be visible
   const input = page.getByLabel('Maximum selection count input');
@@ -75,6 +72,53 @@ test.describe('File Explorer', () => {
 
     test('should show selection counter with initial state', async ({ page }) => {
       await expect(page.getByText('0/10')).toBeVisible();
+    });
+
+    test('keeps footer controls usable when the explorer panel is narrowed', async ({ page }) => {
+      await explorer.selectRoot();
+
+      const leftPanel = page.locator('#explorer-panel');
+      const initialWidth = await leftPanel.evaluate(
+        (element) => element.getBoundingClientRect().width
+      );
+
+      const resizeHandle = page.locator('[data-separator]').first();
+      const handleBox = await resizeHandle.boundingBox();
+      if (!handleBox) {
+        throw new Error('Resize handle not found');
+      }
+
+      await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(handleBox.x - 120, handleBox.y + handleBox.height / 2);
+      await page.mouse.up();
+
+      await page.waitForTimeout(300);
+
+      const narrowedWidth = await leftPanel.evaluate(
+        (element) => element.getBoundingClientRect().width
+      );
+      expect(narrowedWidth).toBeLessThan(initialWidth);
+
+      await expect(page.getByRole('button', { name: 'Selection settings' })).toBeVisible();
+      await expect(page.getByTestId('selection-count')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible();
+      await expect(page.getByTestId('bulk-action-full-label')).not.toBeVisible();
+
+      await page.getByRole('button', { name: 'Selection settings' }).click();
+      await expect(page.getByRole('button', { name: '5K' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '6K' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '8K' })).toBeVisible();
+    });
+
+    test('shows the active root badge in the toolbar without rendering a separate current-directory row', async ({
+      page,
+    }) => {
+      await explorer.selectRoot();
+
+      const toolbar = page.getByTestId('file-explorer-toolbar');
+      await expect(toolbar).toContainText('test-root');
+      await expect(page.getByText(/current directory/i)).toHaveCount(0);
     });
 
     test('should allow downloading context with multiple file selections', async ({ page }) => {
@@ -377,10 +421,8 @@ test.describe('File Explorer', () => {
         tree: { 'a.ts': null, 'b.ts': null },
         execute: async ({ page }) => {
           // Try to set invalid value (too low)
-          const counterButton = page.getByRole('button', {
-            name: /Click to edit maximum selection count/i,
-          });
-          await counterButton.click();
+          const settingsButton = page.getByRole('button', { name: /Selection settings/i });
+          await settingsButton.click();
 
           const input = page.getByLabel('Maximum selection count input');
           await expect(input).toBeVisible();
@@ -392,7 +434,7 @@ test.describe('File Explorer', () => {
           await expect(page.getByText('Minimum selection count is 1')).toBeVisible();
 
           // Cancel and close popover
-          await page.getByRole('button', { name: 'Cancel' }).click();
+          await page.getByRole('button', { name: 'Close selection settings' }).click();
           await expect(input).not.toBeVisible();
 
           // Value should still be default (10)
@@ -400,7 +442,7 @@ test.describe('File Explorer', () => {
           expect(maxCount).toBe('10');
 
           // Try to set invalid value (too high)
-          await counterButton.click();
+          await settingsButton.click();
           await expect(input).toBeVisible();
 
           await input.fill('50000');
@@ -410,7 +452,7 @@ test.describe('File Explorer', () => {
           await expect(page.getByText('Maximum selection count is 10,000')).toBeVisible();
 
           // Cancel and close popover
-          await page.getByRole('button', { name: 'Cancel' }).click();
+          await page.getByRole('button', { name: 'Close selection settings' }).click();
           await expect(input).not.toBeVisible();
 
           // Value should still be 10
