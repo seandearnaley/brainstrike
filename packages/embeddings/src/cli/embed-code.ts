@@ -398,7 +398,12 @@ export class CodeEmbeddingCLI {
         // Generate SQL for PostgreSQL with pgvector extension
         const sqlStatements = embeddings.map((e) => {
           const vectorString = `[${e.embedding.join(',')}]`;
-          return `INSERT INTO code_embeddings (id, file_path, language, start_line, end_line, content, embedding, model, created_at) VALUES ('${e.id}', '${e.filePath}', '${e.language}', ${e.startLine}, ${e.endLine}, $code$${e.content}$code$, '${vectorString}'::vector, '${e.model}', '${e.timestamp}');`;
+          const safeId = e.id.replace(/'/g, "''");
+          const safeFilePath = e.filePath.replace(/'/g, "''");
+          const safeLanguage = e.language.replace(/'/g, "''");
+          const safeModel = e.model.replace(/'/g, "''");
+          const safeTimestamp = e.timestamp.replace(/'/g, "''");
+          return `INSERT INTO code_embeddings (id, file_path, language, start_line, end_line, content, embedding, model, created_at) VALUES ('${safeId}', '${safeFilePath}', '${safeLanguage}', ${e.startLine}, ${e.endLine}, $code$${e.content}$code$, '${vectorString}'::vector, '${safeModel}', '${safeTimestamp}');`;
         });
 
         const sqlContent = `-- Code embeddings generated at ${new Date().toISOString()}\n-- Total embeddings: ${embeddings.length}\n\n${sqlStatements.join('\n\n')}`;
