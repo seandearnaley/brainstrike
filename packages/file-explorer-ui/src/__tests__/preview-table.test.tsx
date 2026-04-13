@@ -47,6 +47,7 @@ interface PreviewTableTestOverrides {
   collapsedGroups?: Set<string>;
   columnVisibility?: ColumnVisibility;
   groupedData?: GroupedData<TableRowData>[];
+  groupingConfig?: string;
   handleGroupDeselectAll?: (group: GroupedData<TableRowData>) => void;
   handleGroupSelectAll?: (group: GroupedData<TableRowData>) => void;
   isGroupFullySelected?: (group: GroupedData<TableRowData>) => boolean;
@@ -61,7 +62,7 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
     columnVisibility: overrides.columnVisibility ?? DEFAULT_COLUMN_VISIBILITY,
     sortField: 'path' as const,
     sortDirection: 'asc' as const,
-    groupingConfig: 'directory',
+    groupingConfig: overrides.groupingConfig ?? 'directory',
     groupedData: overrides.groupedData ?? [DEFAULT_GROUP],
     currentPageData: [],
     collapsedGroups: overrides.collapsedGroups ?? new Set<string>(),
@@ -293,6 +294,15 @@ describe('PreviewTable grouped mode', () => {
 
     expect(screen.getByText('File Path').closest('th')).toHaveClass('pl-[38px]');
     expect(screen.getByText('Folder').closest('th')).not.toHaveClass('pl-[38px]');
+  });
+
+  it('uses the folder column as the grouped tree column for non-folder grouping when folder is visible', () => {
+    renderGroupedPreviewTable({
+      groupingConfig: 'sizeSteps',
+    });
+
+    expect(screen.getByText('Folder').closest('th')).toHaveClass('pl-[38px]');
+    expect(screen.getByText('File Path').closest('th')).not.toHaveClass('pl-[38px]');
   });
 
   it('uses the latest sort callback after rerender', () => {
@@ -548,6 +558,40 @@ describe('PreviewTable grouped mode', () => {
 
       expect(within(cells[2]!).getByText('src')).toBeInTheDocument();
       expect(within(cells[2]!).getByTitle('2 files')).toBeInTheDocument();
+    });
+
+    it('renders non-folder grouping labels in the folder column when that column is visible', () => {
+      const sizeGroup: GroupedData<TableRowData> = {
+        ...DEFAULT_GROUP,
+        groupKey: 'Small (< 100)',
+        groupLabel: 'Small (< 100)',
+        items: [
+          {
+            ...FILE_ONE,
+            tokens: 54,
+            size: 200,
+            path: 'mcp.config.json',
+            compositeKey: 'workspace:mcp.config.json',
+            type: 'json',
+          },
+        ],
+        count: 1,
+        totalTokens: 54,
+        totalSize: 200,
+      };
+
+      renderGroupedPreviewTable({
+        groupedData: [sizeGroup],
+        groupingConfig: 'sizeSteps',
+      });
+
+      const groupRow = screen.getByRole('button', { name: 'Collapse' }).closest('tr');
+      const cells = within(groupRow!).getAllByRole('gridcell');
+
+      expect(cells).toHaveLength(5);
+      expect(cells[1]).toHaveAttribute('colspan', '2');
+      expect(within(cells[1]!).getByText('Small (< 100)')).toBeInTheDocument();
+      expect(within(cells[1]!).getByTitle('1 files')).toBeInTheDocument();
     });
 
     it('renders group label in the tokens column when tokens is the only visible column', () => {

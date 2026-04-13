@@ -186,6 +186,51 @@ test.describe('File Explorer', () => {
       await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
     });
 
+    test('renders non-folder group headers in the folder column for size grouping', async ({
+      page,
+    }) => {
+      explorer = await bootstrapFileExplorer(page, {
+        resetSettings: true,
+        tree: {
+          'tiny.json': '{}',
+          'medium.ts': `export const medium = "${'x'.repeat(1400)}";`,
+        },
+      });
+
+      await explorer.selectRoot();
+      await explorer.selectAllButton.click();
+
+      const previewToolbar = page.getByTestId('preview-view-toolbar');
+      await expect(previewToolbar).toBeVisible();
+      await previewToolbar.getByRole('button', { name: 'Group by' }).click();
+      await page.getByRole('menuitemradio', { name: 'By Size Range' }).click();
+
+      const contextTree = page.getByRole('treegrid', { name: 'Context explorer table' });
+      const groupRow = contextTree
+        .getByRole('row')
+        .filter({ has: page.getByRole('button', { name: 'Collapse' }) })
+        .first();
+      await expect(groupRow).toBeVisible();
+
+      const folderHeader = page.getByRole('button', { name: 'Sort by Folder' });
+      const pathHeader = page.getByRole('button', { name: 'Sort by File Path' });
+      const spanningFolderCell = groupRow.locator('[role="gridcell"][colspan="2"]').first();
+      await expect(spanningFolderCell).toContainText('Small');
+
+      const [folderBox, pathBox, spanningCellBox] = await Promise.all([
+        folderHeader.boundingBox(),
+        pathHeader.boundingBox(),
+        spanningFolderCell.boundingBox(),
+      ]);
+
+      if (!(folderBox && pathBox && spanningCellBox)) {
+        throw new Error('Expected grouped size row geometry to be measurable');
+      }
+
+      expect(spanningCellBox.x).toBeLessThan(pathBox.x);
+      expect(spanningCellBox.x).toBeLessThan(folderBox.x + folderBox.width);
+    });
+
     test('should allow downloading context with multiple file selections', async ({ page }) => {
       await explorer.selectRoot();
 

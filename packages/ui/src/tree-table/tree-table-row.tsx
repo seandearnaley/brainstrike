@@ -132,7 +132,8 @@ function TreeTableRowInner<T>({
   totalRowCount,
   ariaRole = 'treegrid',
 }: TreeTableRowProps<T>) {
-  const { node, isSelected, isHighlighted, isInContext, matchesFilter, aria } = row;
+  const { node, isExpanded, isSelected, isHighlighted, isInContext, matchesFilter, aria, index } =
+    row;
   const isTreegrid = ariaRole === 'treegrid';
 
   // Handle row click
@@ -217,19 +218,50 @@ function TreeTableRowInner<T>({
           onExpandClick={handleExpandClick}
         />
       ) : (
-        columns.map((column, columnIndex) => (
-          <TreeTableCellComponent
-            checkboxState={checkboxState ?? 'unchecked'}
-            column={column}
-            columnIndex={columnIndex}
-            isTreeColumn={columnIndex === treeColumnIndex}
-            key={column.id}
-            onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
-            onExpandClick={handleExpandClick}
-            row={row}
-            showCheckbox={showCheckbox}
-          />
-        ))
+        (() => {
+          const renderedCells: React.ReactNode[] = [];
+          let columnIndex = 0;
+
+          while (columnIndex < columns.length) {
+            const column = columns[columnIndex];
+            if (!column) {
+              break;
+            }
+
+            const cellProps = {
+              node,
+              depth: node.depth,
+              isExpanded,
+              isSelected,
+              isHighlighted,
+              isInContext,
+              rowIndex: index,
+            };
+            const requestedColSpan = column.colSpan?.(cellProps) ?? 1;
+            const colSpan = Number.isFinite(requestedColSpan)
+              ? Math.max(1, Math.min(columns.length - columnIndex, Math.trunc(requestedColSpan)))
+              : 1;
+
+            renderedCells.push(
+              <TreeTableCellComponent
+                checkboxState={checkboxState ?? 'unchecked'}
+                colSpan={colSpan}
+                column={column}
+                columnIndex={columnIndex}
+                isTreeColumn={columnIndex === treeColumnIndex}
+                key={column.id}
+                onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
+                onExpandClick={handleExpandClick}
+                row={row}
+                showCheckbox={showCheckbox}
+              />
+            );
+
+            columnIndex += colSpan;
+          }
+
+          return renderedCells;
+        })()
       )}
     </TableRow>
   );
@@ -241,6 +273,7 @@ function TreeTableRowInner<T>({
  */
 interface TreeTableCellInternalProps<T> {
   checkboxState: 'checked' | 'unchecked' | 'indeterminate';
+  colSpan: number;
   column: TreeTableColumn<T>;
   columnIndex: number;
   isTreeColumn: boolean;
@@ -283,6 +316,7 @@ function TreeExpandControl({
 
 function TreeTableCellComponent<T>({
   row,
+  colSpan,
   column,
   columnIndex: _columnIndex,
   isTreeColumn,
@@ -311,7 +345,7 @@ function TreeTableCellComponent<T>({
     const indentWidth = column.indentWidth ?? INDENT_WIDTH;
 
     return (
-      <TableCell className={cn('p-0', column.className)} role="gridcell">
+      <TableCell className={cn('p-0', column.className)} colSpan={colSpan} role="gridcell">
         <div className="flex items-center">
           {/* Indentation spacer */}
           <span className="flex-shrink-0" style={{ width: node.depth * indentWidth }} />
@@ -360,7 +394,7 @@ function TreeTableCellComponent<T>({
 
   // Regular cell for non-first columns
   return (
-    <TableCell className={cn('px-2', column.className)} role="gridcell">
+    <TableCell className={cn('px-2', column.className)} colSpan={colSpan} role="gridcell">
       {cellContent}
     </TableCell>
   );
