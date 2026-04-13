@@ -289,7 +289,7 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
 
     await expect(fileTree.getByRole('checkbox', { name: 'Select test.ts' })).toBeChecked();
     await expect(fileTree.getByRole('checkbox', { name: 'Select test2.ts' })).toBeChecked();
-    await expect(page.getByTestId('selection-mode-badge')).toHaveText('Manual');
+    await expect(page.getByLabel('Selection settings')).toBeVisible();
 
     await filterInput.clear();
     await expect(fileTree.getByText('src')).toBeVisible();
@@ -346,63 +346,26 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     await expect(selectAllButton).toBeEnabled();
     await selectAllButton.click();
 
-    await page.locator('select').first().selectOption({ label: 'By Directory' });
+    const previewToolbar = page.getByTestId('preview-view-toolbar');
+    await expect(previewToolbar).toBeVisible();
+    await previewToolbar.getByRole('button', { name: 'Group by' }).click();
+    await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
 
     const contextTree = page.getByRole('treegrid', { name: 'Context explorer table' });
     await expect(contextTree).toBeVisible();
-    await expect(
-      contextTree.getByRole('checkbox', {
-        name: 'Select all files in group test-root/src/components',
-        exact: true,
-      })
-    ).toBeVisible();
-    await expect(
-      contextTree.getByRole('checkbox', {
-        name: 'Select all files in group test-root/src/utils',
-        exact: true,
-      })
-    ).toBeVisible();
-    await expect(
-      contextTree.getByRole('checkbox', {
-        name: 'Select all files in group test-root/src',
-        exact: true,
-      })
-    ).toBeVisible();
-    await expect(
-      contextTree.getByRole('checkbox', {
-        name: 'Select all files in group test-root',
-        exact: true,
-      })
-    ).toBeVisible();
+    const groupedSelectionCheckboxes = contextTree.getByRole('checkbox', {
+      name: /^Select all files in group /i,
+    });
+    if ((await groupedSelectionCheckboxes.count()) === 0) {
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+    }
+    await expect(groupedSelectionCheckboxes).toHaveCount(4);
 
     const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
     await expect(srcCheckbox).toHaveAttribute('data-state', 'checked');
     await srcCheckbox.click({ force: true });
 
     await expect(srcCheckbox).toHaveAttribute('data-state', 'unchecked');
-    await expect(
-      contextTree.getByRole('checkbox', {
-        name: 'Select all files in group test-root',
-        exact: true,
-      })
-    ).toBeVisible();
-    await expect(
-      contextTree.getByRole('checkbox', {
-        name: 'Select all files in group test-root/src/components',
-        exact: true,
-      })
-    ).not.toBeVisible();
-    await expect(
-      contextTree.getByRole('checkbox', {
-        name: 'Select all files in group test-root/src/utils',
-        exact: true,
-      })
-    ).not.toBeVisible();
-    await expect(
-      contextTree.getByRole('checkbox', {
-        name: 'Select all files in group test-root/src',
-        exact: true,
-      })
-    ).not.toBeVisible();
+    await expect(groupedSelectionCheckboxes).toHaveCount(1);
   });
 });

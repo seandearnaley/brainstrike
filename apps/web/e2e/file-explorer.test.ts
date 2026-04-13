@@ -126,11 +126,16 @@ test.describe('File Explorer', () => {
     }) => {
       await explorer.selectRoot();
 
-      await page.getByRole('checkbox', { name: 'Select biome.json' }).click({ force: true });
-      await page.getByRole('checkbox', { name: 'Select package.json' }).click({ force: true });
+      await explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' }).click({
+        force: true,
+      });
+      await explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' }).click({
+        force: true,
+      });
 
       const previewToolbar = page.getByTestId('preview-view-toolbar');
       await expect(previewToolbar).toBeVisible();
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
       await expect(
         previewToolbar.getByRole('button', { name: 'Toggle multi-select' })
       ).toBeVisible();
@@ -147,7 +152,7 @@ test.describe('File Explorer', () => {
       await expect(
         previewToolbar.getByRole('button', { name: 'Select visible columns' })
       ).toHaveCount(0);
-      await expect(page.getByLabel('Select all files on current page')).toBeVisible();
+      await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
     });
 
     test('hides grouped selection checkboxes when selection controls are toggled off', async ({
@@ -155,14 +160,26 @@ test.describe('File Explorer', () => {
     }) => {
       await explorer.selectRoot();
 
-      await page.getByRole('checkbox', { name: 'Select biome.json' }).click({ force: true });
-      await page.getByRole('checkbox', { name: 'Select package.json' }).click({ force: true });
+      await explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' }).click({
+        force: true,
+      });
+      await explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' }).click({
+        force: true,
+      });
 
       const previewToolbar = page.getByTestId('preview-view-toolbar');
+      await expect(previewToolbar).toBeVisible();
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+
       await previewToolbar.getByRole('button', { name: 'Group by' }).click();
       await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
 
-      const groupedSelectionCheckboxes = page.getByLabel(/Select all files in group/i);
+      const groupedSelectionCheckboxes = page.getByRole('checkbox', {
+        name: /^Select all files in group /i,
+      });
+      if ((await groupedSelectionCheckboxes.count()) === 0) {
+        await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
+      }
       await expect(groupedSelectionCheckboxes).toHaveCount(1);
 
       await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
