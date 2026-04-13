@@ -162,12 +162,12 @@ describe('formatDirPathForDisplay', () => {
     expect(result).toBe('src/components');
   });
 
-  it('trims a relative path that still includes the root folder prefix', () => {
+  it('does not strip a legitimate top-level folder that matches the root basename', () => {
     const result = formatDirPathForDisplay({
-      dirPath: 'mock-project/src/components',
-      rootFolderId: 'mock-project',
+      dirPath: 'project/src/components',
+      rootFolderId: '/workspaces/project',
     });
-    expect(result).toBe('src/components');
+    expect(result).toBe('project/src/components');
   });
 
   it('handles trailing slashes in dirPath', () => {
@@ -263,18 +263,22 @@ describe('getDirPathForGrouping', () => {
     expect(result).toBe('src/components');
   });
 
-  it('trims the root folder prefix from relative file paths when grouping', () => {
+  it('keeps a legitimate relative top-level folder when it matches the root basename', () => {
     const result = getDirPathForGrouping({
-      filePath: 'mock-project/biome.json',
-      rootFolderId: 'mock-project',
+      filePath: 'project/biome.json',
+      rootFolderId: '/workspaces/project',
     });
-    expect(result).toBe('.');
+    expect(result).toBe('project');
   });
 });
 
 describe('getRootFolderDisplayName', () => {
-  it('returns the basename for absolute root identities', () => {
-    expect(getRootFolderDisplayName('/Users/me/project')).toBe('project');
+  it('preserves the full absolute root identity', () => {
+    expect(getRootFolderDisplayName('/Users/me/project')).toBe('/Users/me/project');
+  });
+
+  it('keeps distinct absolute roots distinguishable', () => {
+    expect(getRootFolderDisplayName('/work/app')).not.toBe(getRootFolderDisplayName('/tmp/app'));
   });
 
   it('returns the original value for simple root ids', () => {

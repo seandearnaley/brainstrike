@@ -69,8 +69,8 @@ interface ItemTreeNodeData {
 type PreviewTreeNodeData = GroupTreeNodeData | ItemTreeNodeData;
 
 const PREVIEW_CHECKBOX_COLUMN_WIDTH = 32;
-const PREVIEW_CHECKBOX_CELL_CLASS = 'w-8 px-1.5 py-2';
-const PREVIEW_CHECKBOX_HEADER_CLASS = 'h-10 w-8 bg-background px-1.5 py-2';
+const PREVIEW_CHECKBOX_CELL_CLASS = 'w-8 px-0 py-2';
+const PREVIEW_CHECKBOX_HEADER_CLASS = 'h-10 w-8 bg-background px-0 py-2';
 const PREVIEW_STANDARD_HEADER_CLASS = 'h-10 px-4 py-2';
 const PREVIEW_TREE_HEADER_CLASS = 'h-10 pr-4 pl-[38px] py-2';
 
@@ -88,7 +88,7 @@ function resolveCheckboxState(
 }
 
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
-const GROUP_COLUMN_ORDER: GroupColumnId[] = ['rootFolderId', 'path', 'type', 'tokens', 'size'];
+const GROUP_COLUMN_ORDER: GroupColumnId[] = ['path', 'rootFolderId', 'type', 'tokens', 'size'];
 
 interface GroupHeaderSummaryProps {
   group: GroupedData<TableRowData>;
@@ -98,16 +98,20 @@ const GroupHeaderSummary = memo<GroupHeaderSummaryProps>(function GroupHeaderSum
   group,
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-      <div className="inline-flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-0.5 font-medium text-sm">
+    <div className="flex w-full min-w-0 items-center gap-2">
+      <div className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-sm px-1 py-0.5 font-medium text-sm">
         <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
         <span className="truncate">
           {group.groupLabel}
           <span className="sr-only">{` (${group.count} file${group.count === 1 ? '' : 's'})`}</span>
         </span>
       </div>
-      <span aria-hidden="true" className="text-muted-foreground text-xs">
-        {group.count} files
+      <span
+        aria-hidden="true"
+        className="inline-flex h-5 flex-shrink-0 items-center rounded-full border border-border/60 bg-muted/40 px-1.5 font-medium text-[11px] text-muted-foreground tabular-nums"
+        title={`${group.count} files`}
+      >
+        {group.count}
       </span>
     </div>
   );
@@ -357,9 +361,10 @@ interface GroupedColumnBuilderArgs {
   groupedTreeColumnId: GroupColumnId | null;
   handleGroupDeselectAllStable: (group: GroupedData<TableRowData>) => void;
   handleGroupSelectAllStable: (group: GroupedData<TableRowData>) => void;
-  isAllCurrentPageSelected: boolean;
+  headerSelectableFiles: TableRowData[];
   isGroupFullySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
   isGroupPartiallySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
+  isHeaderSelectionComplete: boolean;
   onDeselectAllStable: () => void;
   onFileClickStable: (compositeKey: string) => void;
   onSelectAllOnPageStable: (items: TableRowData[]) => void;
@@ -373,7 +378,6 @@ interface GroupedColumnBuilderArgs {
   ) => ReactNode;
   sortDirection: 'asc' | 'desc';
   sortField: keyof TableRowData;
-  visibleFilesOnPage: TableRowData[];
 }
 
 function resolveGroupedHeaderClassName(isTreeColumn: boolean, widthClassName?: string): string {
@@ -386,43 +390,46 @@ function resolveGroupedHeaderClassName(isTreeColumn: boolean, widthClassName?: s
 function createGroupedCheckboxColumn({
   handleGroupDeselectAllStable,
   handleGroupSelectAllStable,
-  isAllCurrentPageSelected,
+  headerSelectableFiles,
+  isHeaderSelectionComplete,
   isGroupFullySelectedRef,
   isGroupPartiallySelectedRef,
   onDeselectAllStable,
   onSelectAllOnPageStable,
   onToggleSelectionStable,
   previewSelectionsRef,
-  visibleFilesOnPage,
 }: Pick<
   GroupedColumnBuilderArgs,
   | 'handleGroupDeselectAllStable'
   | 'handleGroupSelectAllStable'
-  | 'isAllCurrentPageSelected'
+  | 'headerSelectableFiles'
+  | 'isHeaderSelectionComplete'
   | 'isGroupFullySelectedRef'
   | 'isGroupPartiallySelectedRef'
   | 'onDeselectAllStable'
   | 'onSelectAllOnPageStable'
   | 'onToggleSelectionStable'
   | 'previewSelectionsRef'
-  | 'visibleFilesOnPage'
 >): TreeTableColumn<PreviewTreeNodeData> {
   return {
     id: 'checkbox',
     isTreeColumn: false,
     header: (
-      <Checkbox
-        aria-label="Select all files on current page"
-        checked={isAllCurrentPageSelected}
-        onCheckedChange={(checked) =>
-          checked ? onSelectAllOnPageStable(visibleFilesOnPage) : onDeselectAllStable()
-        }
-        title="Select all files on current page"
-      />
+      <div className="flex h-full items-center justify-center">
+        <Checkbox
+          aria-label="Select all files on current page"
+          checked={isHeaderSelectionComplete}
+          onCheckedChange={(checked) =>
+            checked ? onSelectAllOnPageStable(headerSelectableFiles) : onDeselectAllStable()
+          }
+          title="Select all files on current page"
+        />
+      </div>
     ),
     width: PREVIEW_CHECKBOX_COLUMN_WIDTH,
     className: PREVIEW_CHECKBOX_CELL_CLASS,
     headerClassName: PREVIEW_CHECKBOX_HEADER_CLASS,
+    headerContentClassName: 'w-full justify-center',
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
         const group = node.data.group;
@@ -432,31 +439,35 @@ function createGroupedCheckboxColumn({
         );
 
         return (
-          <Checkbox
-            aria-label={`Select all files in group ${group.groupLabel}`}
-            checked={checkedState}
-            onCheckedChange={(checked) => {
-              if (checked) {
-                handleGroupSelectAllStable(group);
-                return;
-              }
-              handleGroupDeselectAllStable(group);
-            }}
-            onClick={(event) => event.stopPropagation()}
-          />
+          <div className="flex h-full items-center justify-center">
+            <Checkbox
+              aria-label={`Select all files in group ${group.groupLabel}`}
+              checked={checkedState}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  handleGroupSelectAllStable(group);
+                  return;
+                }
+                handleGroupDeselectAllStable(group);
+              }}
+              onClick={(event) => event.stopPropagation()}
+            />
+          </div>
         );
       }
 
       const item = node.data.item;
       return (
-        <Checkbox
-          aria-label={`Select ${item.path}`}
-          checked={previewSelectionsRef.current.has(item.compositeKey)}
-          onCheckedChange={(checked) =>
-            onToggleSelectionStable(item.compositeKey, checked === true)
-          }
-          onClick={(event) => event.stopPropagation()}
-        />
+        <div className="flex h-full items-center justify-center">
+          <Checkbox
+            aria-label={`Select ${item.path}`}
+            checked={previewSelectionsRef.current.has(item.compositeKey)}
+            onCheckedChange={(checked) =>
+              onToggleSelectionStable(item.compositeKey, checked === true)
+            }
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
       );
     },
   };
@@ -823,11 +834,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const isGroupPartiallySelectedRef = useRef(isGroupPartiallySelected);
   isGroupPartiallySelectedRef.current = isGroupPartiallySelected;
 
-  const isAllCurrentPageSelected = useMemo(
-    () => isAllSelected(visibleFilesOnPage),
-    [isAllSelected, visibleFilesOnPage]
-  );
-
   const groupedTree = useMemo(
     () =>
       buildGroupedTreeNodes({
@@ -891,6 +897,14 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     return null;
   }, [columnVisibility]);
 
+  const allGroupedFiles = useMemo(() => groupedData.flatMap((group) => group.items), [groupedData]);
+
+  const headerSelectableFiles = groupingConfig === 'none' ? visibleFilesOnPage : allGroupedFiles;
+  const isHeaderSelectionComplete = useMemo(
+    () => isAllSelected(headerSelectableFiles),
+    [headerSelectableFiles, isAllSelected]
+  );
+
   // Keep this memo reactive to live selection/sort/group state so headers and cells stay synchronized.
   // Grouped mode keeps column definitions reactive to live selection/sort snapshots.
   // This favors correctness (no stale group summary/header state) over memo hit rate.
@@ -901,7 +915,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       groupedTreeColumnId,
       handleGroupDeselectAllStable,
       handleGroupSelectAllStable,
-      isAllCurrentPageSelected,
+      headerSelectableFiles,
+      isHeaderSelectionComplete,
       isGroupFullySelectedRef,
       isGroupPartiallySelectedRef,
       onDeselectAllStable,
@@ -914,14 +929,15 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       renderGroupHeaderIfPrimary,
       sortDirection,
       sortField,
-      visibleFilesOnPage,
     });
   }, [
+    allGroupedFiles,
     columnVisibility,
     groupedTreeColumnId,
     handleGroupDeselectAllStable,
     handleGroupSelectAllStable,
-    isAllCurrentPageSelected,
+    headerSelectableFiles,
+    isHeaderSelectionComplete,
     onDeselectAllStable,
     onFileClickStable,
     onSelectAllOnPageStable,
@@ -931,7 +947,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     renderGroupHeaderIfPrimary,
     sortDirection,
     sortField,
-    visibleFilesOnPage,
   ]);
 
   const rowClassName = useCallback((node: TreeNode<PreviewTreeNodeData>) => {
@@ -952,14 +967,16 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
               <tr>
                 {columnVisibility.checkbox && (
                   <th className={PREVIEW_CHECKBOX_HEADER_CLASS} scope="col">
-                    <Checkbox
-                      aria-label="Select all files on current page"
-                      checked={isAllCurrentPageSelected}
-                      onCheckedChange={(checked) =>
-                        checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
-                      }
-                      title="Select all files on current page"
-                    />
+                    <div className="flex h-full items-center justify-center">
+                      <Checkbox
+                        aria-label="Select all files on current page"
+                        checked={isHeaderSelectionComplete}
+                        onCheckedChange={(checked) =>
+                          checked ? onSelectAllOnPage(headerSelectableFiles) : onDeselectAll()
+                        }
+                        title="Select all files on current page"
+                      />
+                    </div>
                   </th>
                 )}
                 {columnVisibility.rootFolderId && (

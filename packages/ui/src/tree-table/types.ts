@@ -83,6 +83,8 @@ export interface TreeTableColumn<T> {
   header?: React.ReactNode;
   /** Additional CSS class for the header */
   headerClassName?: string;
+  /** Additional CSS class for the header content wrapper inside the header cell. */
+  headerContentClassName?: string;
   /** Unique column identifier */
   id: string;
   /** Override indentation width for this tree column. */

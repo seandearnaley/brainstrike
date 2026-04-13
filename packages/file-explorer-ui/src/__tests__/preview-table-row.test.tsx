@@ -278,7 +278,7 @@ describe('PreviewTableRow', () => {
     expect(screen.getByText('src/components')).toBeInTheDocument();
   });
 
-  it('displays the root folder basename when the root identity is an absolute path', () => {
+  it('displays the full root identity when the root identity is absolute', () => {
     const absoluteRootItem: TableRowData = {
       ...mockItem,
       rootFolderId: '/Users/me/project',
@@ -299,7 +299,7 @@ describe('PreviewTableRow', () => {
       </table>
     );
 
-    expect(screen.getByText('project')).toBeInTheDocument();
+    expect(screen.getByText('/Users/me/project')).toBeInTheDocument();
     expect(screen.getByText('src/components')).toBeInTheDocument();
   });
 

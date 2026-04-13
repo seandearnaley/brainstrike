@@ -49,13 +49,15 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
   return (
     <tr className="border-b transition-colors hover:bg-muted/50">
       {columnVisibility.checkbox && (
-        <td className="w-8 px-1.5 py-2">
-          <Checkbox
-            aria-label={`Select ${item.path}`}
-            checked={isSelected}
-            onCheckedChange={handleCheckedChange}
-            onClick={handleCheckboxClick}
-          />
+        <td className="w-8 px-0 py-2">
+          <div className="flex h-full items-center justify-center">
+            <Checkbox
+              aria-label={`Select ${item.path}`}
+              checked={isSelected}
+              onCheckedChange={handleCheckedChange}
+              onClick={handleCheckboxClick}
+            />
+          </div>
         </td>
       )}
       {columnVisibility.rootFolderId && (

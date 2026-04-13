@@ -925,6 +925,15 @@ describe('PreviewPanel', () => {
       expect(screen.queryByRole('columnheader', { name: 'Folder' })).not.toBeInTheDocument();
     });
 
+    it('should keep the folder column visible for non-folder grouping modes', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      for (const label of ['By File Type', 'By Size Range', 'By Token Range']) {
+        selectGroupingOption(label);
+        expect(screen.getByRole('columnheader', { name: 'Folder' })).toBeInTheDocument();
+      }
+    });
+
     it('should show group control buttons when grouping is enabled', () => {
       render(<PreviewPanel {...mockProps} />);
 
@@ -1059,7 +1068,7 @@ describe('PreviewPanel', () => {
       expect(screen.getAllByText('folder-b').length).toBeGreaterThan(0);
     });
 
-    it('shows root folder group labels using the display name instead of the full absolute path', () => {
+    it('shows root folder group labels using the full absolute root identity', () => {
       const absoluteFolderState = {
         ...mockState,
         flatListItems: [
@@ -1087,8 +1096,7 @@ describe('PreviewPanel', () => {
 
       selectGroupingOption('By Root Folder');
 
-      expect(screen.getByText('project')).toBeInTheDocument();
-      expect(screen.queryByText('/Users/me/project')).not.toBeInTheDocument();
+      expect(screen.getByText('/Users/me/project')).toBeInTheDocument();
     });
 
     it('should group files by size ranges correctly', () => {
@@ -1206,8 +1214,10 @@ describe('PreviewPanel', () => {
       const headerCheckbox = screen.getByLabelText('Select all files on current page');
       fireEvent.click(headerCheckbox);
 
-      // Should select files across all groups
       expect(headerCheckbox).toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file1.txt')).toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file2.txt')).toBeChecked();
+      expect(screen.getByTestId('bulk-action-bar')).toHaveTextContent('2 selected');
     });
   });
 

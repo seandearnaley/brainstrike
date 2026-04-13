@@ -221,7 +221,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const shouldSyncTapestryRanges = isTapestryActive || useTapestryRangesForContextOutput;
 
   const effectiveColumnVisibility = useMemo(() => {
-    // Avoid redundant "Folder" column when grouping by directory or root folder (group headers already show it).
+    // Folder-based grouping already carries the root context in the group row,
+    // so keeping the standalone folder column only duplicates that information.
     if (groupingConfig === 'directory' || groupingConfig === 'rootFolder') {
       return { ...columnVisibility, rootFolderId: false };
     }
