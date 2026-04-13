@@ -14,7 +14,7 @@ export const FolderBadge = React.memo(({ folderId, className }: FolderBadgeProps
   return (
     <Badge
       className={cn(
-        'dark:!bg-[var(--folder-dark-bg)] dark:!text-[var(--folder-dark-text)] flex shrink-0 items-center gap-1 px-2 py-0.5 transition-colors',
+        'dark:!bg-[var(--folder-dark-bg)] dark:!text-[var(--folder-dark-text)] flex min-w-0 shrink-0 items-center gap-1 px-2 py-0.5 transition-colors',
         className
       )}
       style={
@@ -29,8 +29,8 @@ export const FolderBadge = React.memo(({ folderId, className }: FolderBadgeProps
       }
       variant="secondary"
     >
-      <Folder className="h-3 w-3" />
-      <span className="font-medium text-xs">{folderId}</span>
+      <Folder className="h-3 w-3 shrink-0" />
+      <span className="truncate font-medium text-xs">{folderId}</span>
     </Badge>
   );
 });

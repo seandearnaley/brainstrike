@@ -18,9 +18,10 @@
  */
 
 import type { IFileNode } from '@brainstrike/types';
-import { Button } from '@brainstrike/ui';
+import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
+import { CheckCheck, X } from 'lucide-react';
 import * as React from 'react';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
 // NOTE: `| undefined` on optional props is required due to exactOptionalPropertyTypes: true in tsconfig.
@@ -202,6 +203,35 @@ export const ActionButtons = React.memo(
       return 'Select All';
     };
 
+    const getCompactButtonText = () => {
+      if (isLoadingForSelectAll) {
+        return 'Selecting';
+      }
+      if (hasSelectedFiles) {
+        return 'Clear';
+      }
+      return 'Select';
+    };
+
+    const actionLabel = getButtonText();
+    const compactActionLabel = getCompactButtonText();
+    const ActionIcon = hasSelectedFiles ? X : CheckCheck;
+    const tooltipLabel = useMemo(() => {
+      if (isLoadingForSelectAll) {
+        return 'Cancel recursive selection';
+      }
+      if (hasSelectedFiles) {
+        return 'Clear the current file selection';
+      }
+      if (!canSelectFiles) {
+        return 'No files are available to select';
+      }
+      if (hasActiveQuickFilter) {
+        return 'Select all visible files in the current filtered view';
+      }
+      return 'Select all files in the current explorer view';
+    }, [canSelectFiles, hasActiveQuickFilter, hasSelectedFiles, isLoadingForSelectAll]);
+
     const handleClick = () => {
       if (isLoadingForSelectAll) {
         handleCancel();
@@ -214,14 +244,40 @@ export const ActionButtons = React.memo(
 
     return (
       <div className="@container/buttons flex flex-wrap items-center gap-2">
-        <Button
-          className="flex h-8 items-center gap-1"
-          disabled={!(canSelectFiles || isLoadingForSelectAll)}
-          onClick={handleClick}
-          variant="outline"
-        >
-          {getButtonText()}
-        </Button>
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <Button
+                  aria-label={actionLabel}
+                  className="flex h-8 min-w-0 items-center gap-1 @[260px]:px-3 px-2"
+                  disabled={!(canSelectFiles || isLoadingForSelectAll)}
+                  onClick={handleClick}
+                  variant="outline"
+                >
+                  <ActionIcon className="size-3.5" />
+                  <span
+                    aria-hidden="true"
+                    className="@[180px]:inline @[280px]:hidden hidden"
+                    data-testid="bulk-action-short-label"
+                  >
+                    {compactActionLabel}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="@[280px]:inline hidden"
+                    data-testid="bulk-action-full-label"
+                  >
+                    {actionLabel}
+                  </span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p className="text-xs">{tooltipLabel}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
     );
   }

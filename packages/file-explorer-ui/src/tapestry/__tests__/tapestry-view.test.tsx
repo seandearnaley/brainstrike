@@ -56,102 +56,105 @@ const buildTableRows = (files: FileTapestry[]): TableRowData[] =>
     return row;
   });
 
-const TapestryHarness = memo(({ count = 12 }: { count?: number }) => {
-  const [files, setFiles] = useState<FileTapestry[]>(() =>
-    Array.from({ length: count }).map((_, index) => buildFile(index))
-  );
-  const [previewSelections] = useState<Set<string>>(new Set());
-
-  const tableRows = useMemo(() => buildTableRows(files), [files]);
-
-  const handleRangesChange = (fileId: string, ranges: TapestryRange[]) => {
-    setFiles((prev) =>
-      prev.map((file) => (file.id === fileId ? { ...file, selections: ranges } : file))
+const TapestryHarness = memo(
+  ({
+    count = 12,
+    showSelectionControls = true,
+  }: {
+    count?: number;
+    showSelectionControls?: boolean;
+  }) => {
+    const [files, setFiles] = useState<FileTapestry[]>(() =>
+      Array.from({ length: count }).map((_, index) => buildFile(index))
     );
-  };
+    const [previewSelections] = useState<Set<string>>(new Set());
 
-  const handleResetRanges = (fileIds: string[]) => {
-    setFiles((prev) =>
-      prev.map((file) => {
-        if (!fileIds.includes(file.id)) {
-          return file;
-        }
-        const baseRange =
-          file.selections[0] ??
-          ({
-            id: `range-${file.id}-reset`,
+    const tableRows = useMemo(() => buildTableRows(files), [files]);
+
+    const handleRangesChange = (fileId: string, ranges: TapestryRange[]) => {
+      setFiles((prev) =>
+        prev.map((file) => (file.id === fileId ? { ...file, selections: ranges } : file))
+      );
+    };
+
+    const handleResetRanges = (fileIds: string[]) => {
+      setFiles((prev) =>
+        prev.map((file) => {
+          if (!fileIds.includes(file.id)) {
+            return file;
+          }
+          const baseRange =
+            file.selections[0] ??
+            ({
+              id: `range-${file.id}-reset`,
+              startLine: 0,
+              endLine: file.totalLines,
+              isActive: true,
+              color: '#ff0000',
+            } satisfies TapestryRange);
+          const resetRange: TapestryRange = {
+            id: baseRange.id,
             startLine: 0,
             endLine: file.totalLines,
-            isActive: true,
-            color: '#ff0000',
-          } satisfies TapestryRange);
-        const resetRange: TapestryRange = {
-          id: baseRange.id,
-          startLine: 0,
-          endLine: file.totalLines,
-          isActive: baseRange.isActive,
-          color: baseRange.color,
-        };
-        return { ...file, selections: [resetRange] };
-      })
+            isActive: baseRange.isActive,
+            color: baseRange.color,
+          };
+          return { ...file, selections: [resetRange] };
+        })
+      );
+    };
+
+    const activeRangesCount = files.reduce(
+      (acc, file) => acc + file.selections.filter((range) => range.isActive).length,
+      0
     );
-  };
+    const totalLinesSelected = files.reduce(
+      (acc, file) =>
+        acc +
+        file.selections
+          .filter((range) => range.isActive)
+          .reduce((sum, range) => sum + (range.endLine - range.startLine), 0),
+      0
+    );
 
-  const activeRangesCount = files.reduce(
-    (acc, file) => acc + file.selections.filter((range) => range.isActive).length,
-    0
-  );
-  const totalLinesSelected = files.reduce(
-    (acc, file) =>
-      acc +
-      file.selections
-        .filter((range) => range.isActive)
-        .reduce((sum, range) => sum + (range.endLine - range.startLine), 0),
-    0
-  );
+    const pagination = useMemo(
+      () => ({
+        currentPage: 0,
+        totalPages: 1,
+        totalItems: files.length,
+        onPageChange: vi.fn(),
+      }),
+      [files.length]
+    );
 
-  const pagination = useMemo(
-    () => ({
-      currentPage: 0,
-      totalPages: 1,
-      totalItems: files.length,
-      onPageChange: vi.fn(),
-    }),
-    [files.length]
-  );
-
-  return (
-    <TapestryView
-      activeRangesCount={activeRangesCount}
-      allFilesSelected={false}
-      groupedData={[]}
-      groupedSections={[]}
-      groupingConfig="none"
-      isAllSelected={() => false}
-      isEmpty={false}
-      isGroupFullySelected={() => false}
-      isGroupPartiallySelected={() => false}
-      onCollapseAllGroups={vi.fn()}
-      onDeselectAll={vi.fn()}
-      onExpandAllGroups={vi.fn()}
-      onGroupDeselectAll={vi.fn()}
-      onGroupingChange={vi.fn()}
-      onGroupSelectAll={vi.fn()}
-      onRangesChange={handleRangesChange}
-      onResetRanges={handleResetRanges}
-      onSelectAllFiles={vi.fn()}
-      onSelectAllOnPage={vi.fn()}
-      onToggleGroupCollapse={vi.fn()}
-      onToggleSelection={vi.fn()}
-      pagination={pagination}
-      previewSelections={previewSelections}
-      totalFiles={files.length}
-      totalLinesSelected={totalLinesSelected}
-      ungroupedFiles={files}
-      visibleFilesOnPage={tableRows}
-    />
-  );
-});
+    return (
+      <TapestryView
+        activeRangesCount={activeRangesCount}
+        groupedSections={[]}
+        groupingConfig="none"
+        isAllSelected={() => false}
+        isEmpty={false}
+        isGroupFullySelected={() => false}
+        isGroupPartiallySelected={() => false}
+        onDeselectAll={vi.fn()}
+        onGroupDeselectAll={vi.fn()}
+        onGroupSelectAll={vi.fn()}
+        onRangesChange={handleRangesChange}
+        onResetRanges={handleResetRanges}
+        onSelectAllOnPage={vi.fn()}
+        onToggleGroupCollapse={vi.fn()}
+        onToggleSelection={vi.fn()}
+        pagination={pagination}
+        previewSelections={previewSelections}
+        showSelectionControls={showSelectionControls}
+        totalFiles={files.length}
+        totalLinesSelected={totalLinesSelected}
+        ungroupedFiles={files}
+        visibleFilesOnPage={tableRows}
+      />
+    );
+  }
+);
 
 TapestryHarness.displayName = 'TapestryHarness';
 
@@ -211,6 +214,15 @@ describe('TapestryView', () => {
       await user.click(overlapCheckbox);
     });
     expect(overlapCheckbox.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('hides selection controls when multi-select is disabled', async () => {
+    await act(async () => {
+      render(<TapestryHarness showSelectionControls={false} />);
+    });
+
+    expect(screen.queryByLabelText(/Select all files on current page/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Select \/src\/file-0\.ts/i)).not.toBeInTheDocument();
   });
 
   it('handles range movement via keyboard', async () => {

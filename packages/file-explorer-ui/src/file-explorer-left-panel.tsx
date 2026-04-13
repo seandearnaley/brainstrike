@@ -43,7 +43,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import FileExplorerSidebar from './file-explorer-sidebar';
-import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
+import { FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
 import { useRuleMaterialization } from './hooks/use-rule-materialization';
@@ -720,14 +720,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       <div className="grid h-full grid-rows-[auto_1fr_auto]">
         {/* Fixed Header - Toolbar and filter controls */}
         <div className="shrink-0">
-          <FileExplorerToolbar isLoading={isLoading} onDirectorySelect={handleDirectorySelect} />
+          <FileExplorerToolbar
+            isLoading={isLoading}
+            onDirectorySelect={handleDirectorySelect}
+            rootDirectoryHandle={rootDirectoryHandle}
+          />
           {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
           <RestorationStatus
             isRestoring={isRestoringExpandedPaths}
             progress={restorationProgress}
           />
-          {/* Current directory indicator */}
-          <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
           {/* Filter section: Collapsible view filters + Quick filter input */}
           {rootDirectoryHandle && (
             <div className="border-b">
@@ -833,7 +835,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         {/* Fixed Footer - Action buttons */}
         <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent">
           {/* Action buttons row */}
-          <div className="flex items-center justify-between gap-2 px-4 py-3">
+          <div className="@container/footer flex flex-wrap items-center justify-between gap-2 @[360px]:px-4 px-2 @[360px]:py-3 py-2">
             <ActionButtons
               addMultipleSelectedFiles={addMultipleSelectedFiles}
               cancelSelectAll={cancelSelectAll}
@@ -852,15 +854,18 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               visibleFilePaths={visibleFilePaths}
             />
             {/* Selection controls - mode toggle and count */}
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-1.5">
               <SelectionModeBadge
+                maxSelectionCount={maxSelectionCount}
+                onMaxSelectionCountChange={handleMaxSelectionCountChange}
                 onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
                 rulesEditorAvailable={true}
                 show={!!rootDirectoryHandle}
+                triggerVariant="icon"
               />
               <SelectionCounter
+                compact
                 maxSelectionCount={maxSelectionCount}
-                onMaxSelectionCountChange={handleMaxSelectionCountChange}
                 selectedCount={selectedCount}
               />
             </div>

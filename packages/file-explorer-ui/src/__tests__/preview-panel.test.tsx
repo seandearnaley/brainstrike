@@ -42,6 +42,11 @@ beforeEach(() => {
 });
 
 describe('PreviewPanel', () => {
+  const selectGroupingOption = (label: string) => {
+    fireEvent.click(screen.getByRole('button', { name: 'Group by' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: label }));
+  };
+
   const mockProps = {
     selectedFiles: new Set(['file1', 'file2', 'file3']),
     fileContents: {
@@ -603,7 +608,6 @@ describe('PreviewPanel', () => {
     it('should handle select all via header checkbox', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      // Use header checkbox to select all files on current page
       const headerCheckbox = screen.getByLabelText('Select all files on current page');
       fireEvent.click(headerCheckbox);
 
@@ -868,12 +872,9 @@ describe('PreviewPanel', () => {
     it('should render grouping dropdown with all options', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      expect(groupingSelect).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Group by' }));
 
-      // Check that all grouping options are available
-      const options = groupingSelect.querySelectorAll('option');
-      expect(options).toHaveLength(6); // none, directory, rootFolder, fileType, sizeSteps, tokenSteps
+      expect(screen.getAllByRole('menuitemradio')).toHaveLength(6);
     });
 
     it('should migrate legacy "folder" grouping to "rootFolder"', () => {
@@ -885,10 +886,11 @@ describe('PreviewPanel', () => {
 
       render(<PreviewPanel {...mockProps} />);
 
-      // Should show "By Root Folder" selected (migrated from legacy "folder")
-      // Use getByDisplayValue to find the specific grouping select (not the page size dropdown)
-      const groupingSelect = screen.getByDisplayValue('By Root Folder');
-      expect(groupingSelect).toHaveValue('rootFolder');
+      fireEvent.click(screen.getByRole('button', { name: 'Group by' }));
+      expect(screen.getByRole('menuitemradio', { name: 'By Root Folder' })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
 
       // Clean up
       localStorage.removeItem('previewPanelPreferences.v1');
@@ -897,17 +899,19 @@ describe('PreviewPanel', () => {
     it('should change grouping when dropdown selection changes', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+      selectGroupingOption('By Directory');
 
-      expect(groupingSelect).toHaveValue('directory');
+      fireEvent.click(screen.getByRole('button', { name: 'Group by' }));
+      expect(screen.getByRole('menuitemradio', { name: 'By Directory' })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
     });
 
     it('should hide the folder column when grouping by directory', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+      selectGroupingOption('By Directory');
 
       expect(screen.queryByRole('columnheader', { name: 'Folder' })).not.toBeInTheDocument();
     });
@@ -915,19 +919,24 @@ describe('PreviewPanel', () => {
     it('should hide the folder column when grouping by root folder', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
+      selectGroupingOption('By Root Folder');
 
       expect(screen.queryByRole('columnheader', { name: 'Folder' })).not.toBeInTheDocument();
+    });
+
+    it('should keep the folder column visible for non-folder grouping modes', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      for (const label of ['By File Type', 'By Size Range', 'By Token Range']) {
+        selectGroupingOption(label);
+        expect(screen.getByRole('columnheader', { name: 'Folder' })).toBeInTheDocument();
+      }
     });
 
     it('should show group control buttons when grouping is enabled', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      // Use rootFolder grouping which creates multiple groups with the mock data
-      // (each file has a different folderId: folder-file1, folder-file2, folder-file3)
-      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
+      selectGroupingOption('By Root Folder');
 
       expect(screen.getByTestId('expand-all-groups-button')).toBeInTheDocument();
       expect(screen.getByTestId('collapse-all-groups-button')).toBeInTheDocument();
@@ -936,9 +945,7 @@ describe('PreviewPanel', () => {
     it('should handle group expansion and collapse', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      // Use rootFolder grouping which creates multiple groups with the mock data
-      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
+      selectGroupingOption('By Root Folder');
 
       const expandAllButton = screen.getByTestId('expand-all-groups-button');
       const collapseAllButton = screen.getByTestId('collapse-all-groups-button');
@@ -948,6 +955,18 @@ describe('PreviewPanel', () => {
 
       fireEvent.click(collapseAllButton);
       fireEvent.click(expandAllButton);
+    });
+
+    it('hides grouped selection checkboxes when selection controls are toggled off', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      selectGroupingOption('By Root Folder');
+      expect(screen.getAllByLabelText(/Select all files in group/i).length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Toggle multi-select' }));
+
+      expect(screen.queryByLabelText(/Select all files in group/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Select all files on current page')).not.toBeInTheDocument();
     });
 
     it('should group files by directory correctly', () => {
@@ -992,8 +1011,7 @@ describe('PreviewPanel', () => {
       mockUsePreviewPanelState.mockReturnValue(mixedDirectoriesState);
       render(<PreviewPanel {...propsWithMixedDirectories} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+      selectGroupingOption('By Directory');
 
       // Should show directory groups - both directories should appear as group headers
       expect(screen.getAllByText('src/components').length).toBeGreaterThan(0);
@@ -1042,19 +1060,48 @@ describe('PreviewPanel', () => {
       mockUsePreviewPanelState.mockReturnValue(mixedFoldersState);
       render(<PreviewPanel {...propsWithMixedFolders} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
+      selectGroupingOption('By Root Folder');
 
       // Should show grouped structure by root folder
       expect(screen.getAllByText('folder-a').length).toBeGreaterThan(0);
       expect(screen.getAllByText('folder-b').length).toBeGreaterThan(0);
     });
 
+    it('shows root folder group labels using the full absolute root identity', () => {
+      const absoluteFolderState = {
+        ...mockState,
+        flatListItems: [
+          {
+            type: 'file' as const,
+            compositeKey: 'file1',
+            folderId: '/Users/me/project',
+            path: '/Users/me/project/src/file1.ts',
+            size: 1024,
+            tokens: 500,
+          },
+        ],
+      };
+
+      const propsWithAbsoluteFolder = {
+        ...mockProps,
+        decodeFileSelection: vi.fn(() => ({
+          folderId: '/Users/me/project',
+          path: '/Users/me/project/src/file1.ts',
+        })),
+      };
+
+      mockUsePreviewPanelState.mockReturnValue(absoluteFolderState);
+      render(<PreviewPanel {...propsWithAbsoluteFolder} />);
+
+      selectGroupingOption('By Root Folder');
+
+      expect(screen.getByText('/Users/me/project')).toBeInTheDocument();
+    });
+
     it('should group files by size ranges correctly', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'sizeSteps' } });
+      selectGroupingOption('By Size Range');
 
       // Should create size-based groups (based on mockState file sizes)
       // file1: 1024 bytes = 'Small (< 1 KB)' -> wait, 1024 = 1KB, so 'Medium (1-10 KB)'
@@ -1067,8 +1114,7 @@ describe('PreviewPanel', () => {
     it('should group files by token ranges correctly', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'tokenSteps' } });
+      selectGroupingOption('By Token Range');
 
       // Should create token-based groups (based on mockState file tokens)
       // file1: 500 tokens = 'Large (500-1K)'
@@ -1120,8 +1166,7 @@ describe('PreviewPanel', () => {
       mockUsePreviewPanelState.mockReturnValue(mixedTypesState);
       render(<PreviewPanel {...propsWithMixedTypes} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'fileType' } });
+      selectGroupingOption('By File Type');
 
       // Should show file type groups
       expect(screen.getAllByText('js').length).toBeGreaterThan(0);
@@ -1162,15 +1207,16 @@ describe('PreviewPanel', () => {
       mockUsePreviewPanelState.mockReturnValue(mixedFoldersState);
       render(<PreviewPanel {...propsWithMixedFolders} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+      selectGroupingOption('By Directory');
 
-      // Use header checkbox to select all files on current page
-      const headerCheckbox = screen.getByLabelText('Select all files on current page');
+      // Grouped mode exposes an all-grouped-results affordance in the header.
+      const headerCheckbox = screen.getByLabelText('Select all files in grouped results');
       fireEvent.click(headerCheckbox);
 
-      // Should select files across all groups
       expect(headerCheckbox).toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file1.txt')).toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file2.txt')).toBeChecked();
+      expect(screen.getByTestId('bulk-action-bar')).toHaveTextContent('2 selected');
     });
   });
 
@@ -1227,8 +1273,7 @@ describe('PreviewPanel', () => {
     it('should have proper ARIA labels for group headers', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+      selectGroupingOption('By Directory');
 
       const groupToggles = screen.getAllByRole('button', { name: 'Collapse' });
       expect(groupToggles.length).toBeGreaterThan(0);
@@ -1240,8 +1285,7 @@ describe('PreviewPanel', () => {
     it('should have checkboxes for group selection', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+      selectGroupingOption('By Directory');
 
       // Should have group selection checkboxes
       const groupCheckboxes = screen.getAllByLabelText(/Select all files in group/);
@@ -1290,8 +1334,7 @@ describe('PreviewPanel', () => {
       mockUsePreviewPanelState.mockReturnValue(mixedFoldersState);
       render(<PreviewPanel {...propsWithMixedFolders} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+      selectGroupingOption('By Directory');
 
       // Click group checkbox for folder-a
       const groupCheckboxes = screen.getAllByLabelText(/Select all files in group/);
@@ -1341,9 +1384,7 @@ describe('PreviewPanel', () => {
       mockUsePreviewPanelState.mockReturnValue(mixedFoldersState);
       render(<PreviewPanel {...propsWithMixedFolders} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      // Use rootFolder grouping to test partial selection within a root folder group
-      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
+      selectGroupingOption('By Root Folder');
 
       // Select only one file in the group
       const fileCheckboxes = screen.getAllByTestId('checkbox');
@@ -1363,8 +1404,7 @@ describe('PreviewPanel', () => {
     it('should fix checkbox selection when grouping is enabled', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+      selectGroupingOption('By Directory');
 
       // Should still be able to select individual files
       const fileCheckboxes = screen.getAllByTestId('checkbox');
@@ -1394,8 +1434,7 @@ describe('PreviewPanel', () => {
       }
 
       // Enable grouping
-      const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+      selectGroupingOption('By Directory');
 
       // After grouping change, the checkbox should still work for new selections
       const groupedFileCheckboxes = screen.getAllByTestId('checkbox');
@@ -1420,14 +1459,18 @@ describe('PreviewPanel', () => {
     });
 
     it('should handle individual file selection properly in different grouping modes', () => {
-      const testGroupings = ['folder', 'fileType', 'sizeSteps', 'tokenSteps'];
+      const testGroupings = ['folder', 'fileType', 'sizeSteps', 'tokenSteps'] as const;
+      const groupingLabels = {
+        folder: 'By Root Folder',
+        fileType: 'By File Type',
+        sizeSteps: 'By Size Range',
+        tokenSteps: 'By Token Range',
+      } as const;
 
       for (const grouping of testGroupings) {
         const { unmount } = render(<PreviewPanel {...mockProps} />);
 
-        // Enable grouping
-        const groupingSelect = screen.getByDisplayValue('No Grouping');
-        fireEvent.change(groupingSelect, { target: { value: grouping } });
+        selectGroupingOption(groupingLabels[grouping]);
 
         // Find and click a file checkbox
         const fileCheckboxes = screen.getAllByTestId('checkbox');

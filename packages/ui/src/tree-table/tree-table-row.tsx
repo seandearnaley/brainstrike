@@ -250,6 +250,37 @@ interface TreeTableCellInternalProps<T> {
   showCheckbox: boolean;
 }
 
+interface TreeExpandControlProps {
+  isExpanded: boolean;
+  isLoading: boolean | undefined;
+  onExpandClick: (event: React.MouseEvent) => void;
+}
+
+function TreeExpandControl({
+  isExpanded,
+  isLoading,
+  onExpandClick,
+}: TreeExpandControlProps): React.ReactElement {
+  return (
+    <Button
+      aria-label={isExpanded ? 'Collapse' : 'Expand'}
+      className="h-6 w-6 flex-shrink-0 p-0"
+      disabled={isLoading}
+      onClick={onExpandClick}
+      size="sm"
+      variant="ghost"
+    >
+      {isLoading ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : isExpanded ? (
+        <ChevronDown className="h-3.5 w-3.5" />
+      ) : (
+        <ChevronRight className="h-3.5 w-3.5" />
+      )}
+    </Button>
+  );
+}
+
 function TreeTableCellComponent<T>({
   row,
   column,
@@ -276,33 +307,25 @@ function TreeTableCellComponent<T>({
 
   // For the first column, add indentation, checkbox, and expand toggle
   if (isFirstColumn) {
+    const shouldReserveToggleSpace = column.reserveToggleSpace !== false;
+    const indentWidth = column.indentWidth ?? INDENT_WIDTH;
+
     return (
       <TableCell className={cn('p-0', column.className)} role="gridcell">
         <div className="flex items-center">
           {/* Indentation spacer */}
-          <span className="flex-shrink-0" style={{ width: node.depth * INDENT_WIDTH }} />
+          <span className="flex-shrink-0" style={{ width: node.depth * indentWidth }} />
 
           {/* Expand/Collapse toggle or spacer */}
           {node.hasChildren ? (
-            <Button
-              aria-label={isExpanded ? 'Collapse' : 'Expand'}
-              className="h-6 w-6 flex-shrink-0 p-0"
-              disabled={node.isLoading}
-              onClick={onExpandClick}
-              size="sm"
-              variant="ghost"
-            >
-              {node.isLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : isExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          ) : (
+            <TreeExpandControl
+              isExpanded={isExpanded}
+              isLoading={node.isLoading}
+              onExpandClick={onExpandClick}
+            />
+          ) : shouldReserveToggleSpace ? (
             <span className="h-6 w-6 flex-shrink-0" />
-          )}
+          ) : null}
 
           {/* Checkbox for multi-select */}
           {showCheckbox && (

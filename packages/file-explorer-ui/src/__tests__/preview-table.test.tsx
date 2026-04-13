@@ -85,6 +85,35 @@ function renderGroupedPreviewTable(overrides: PreviewTableTestOverrides = {}) {
   return props;
 }
 
+function renderUngroupedPreviewTable(overrides: Partial<PreviewTableTestOverrides> = {}) {
+  const props = {
+    columnVisibility: overrides.columnVisibility ?? DEFAULT_COLUMN_VISIBILITY,
+    sortField: 'path' as const,
+    sortDirection: 'asc' as const,
+    groupingConfig: 'none',
+    groupedData: overrides.groupedData ?? [],
+    currentPageData: [FILE_ONE, FILE_TWO],
+    collapsedGroups: overrides.collapsedGroups ?? new Set<string>(),
+    previewSelections: overrides.previewSelections ?? new Set<string>(),
+    visibleFilesOnPage: [FILE_ONE, FILE_TWO],
+    onSort: vi.fn(),
+    onToggleSelection: vi.fn(),
+    onSelectAllOnPage: vi.fn(),
+    onDeselectAll: vi.fn(),
+    isAllSelected: vi.fn(() => false),
+    onFileClick: vi.fn(),
+    toggleGroupCollapse: overrides.toggleGroupCollapse ?? vi.fn(),
+    isGroupFullySelected: overrides.isGroupFullySelected ?? (() => false),
+    isGroupPartiallySelected: overrides.isGroupPartiallySelected ?? (() => false),
+    handleGroupSelectAll: overrides.handleGroupSelectAll ?? vi.fn(),
+    handleGroupDeselectAll: overrides.handleGroupDeselectAll ?? vi.fn(),
+    pagination: overrides.pagination ?? { startIndex: 0, endIndex: 20 },
+  };
+
+  render(<PreviewTable {...props} />);
+  return props;
+}
+
 describe('PreviewTable grouped mode', () => {
   it('renders grouped rows with tree hierarchy semantics', () => {
     renderGroupedPreviewTable();
@@ -188,6 +217,82 @@ describe('PreviewTable grouped mode', () => {
 
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
     expect(screen.getByText('file-one.ts')).toBeInTheDocument();
+  });
+
+  it('selects the full grouped dataset from the header checkbox, not only the visible page slice', () => {
+    const thirdFile: TableRowData = {
+      ...FILE_TWO,
+      id: '3',
+      path: 'src/file-three.ts',
+      compositeKey: 'workspace:src/file-three.ts',
+    };
+    const handleSelectAll = vi.fn();
+
+    render(
+      <PreviewTable
+        collapsedGroups={new Set<string>()}
+        columnVisibility={DEFAULT_COLUMN_VISIBILITY}
+        currentPageData={[]}
+        groupedData={[
+          {
+            ...DEFAULT_GROUP,
+            items: [FILE_ONE, FILE_TWO, thirdFile],
+            count: 3,
+          },
+        ]}
+        groupingConfig="directory"
+        handleGroupDeselectAll={vi.fn()}
+        handleGroupSelectAll={vi.fn()}
+        isAllSelected={() => false}
+        isGroupFullySelected={() => false}
+        isGroupPartiallySelected={() => false}
+        onDeselectAll={vi.fn()}
+        onFileClick={vi.fn()}
+        onSelectAllOnPage={handleSelectAll}
+        onSort={vi.fn()}
+        onToggleSelection={vi.fn()}
+        pagination={{ startIndex: 0, endIndex: 2 }}
+        previewSelections={new Set<string>()}
+        sortDirection="asc"
+        sortField="path"
+        toggleGroupCollapse={vi.fn()}
+        visibleFilesOnPage={[FILE_ONE]}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText('Select all files in grouped results'));
+
+    expect(handleSelectAll).toHaveBeenCalledWith([FILE_ONE, FILE_TWO, thirdFile]);
+  });
+
+  it('labels the grouped header checkbox to match grouped select-all behavior', () => {
+    renderGroupedPreviewTable();
+
+    expect(screen.getByLabelText('Select all files in grouped results')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Select all files on current page')).not.toBeInTheDocument();
+  });
+
+  it('applies the tree-column header inset to the active grouped data column', () => {
+    renderGroupedPreviewTable({
+      columnVisibility: {
+        checkbox: true,
+        rootFolderId: false,
+        path: true,
+        type: true,
+        tokens: true,
+        size: true,
+      },
+    });
+
+    expect(screen.getByText('File Path').closest('th')).toHaveClass('pl-[38px]');
+    expect(screen.getByText('Type').closest('th')).not.toHaveClass('pl-[38px]');
+  });
+
+  it('moves the tree-column header inset when a different grouped column becomes primary', () => {
+    renderGroupedPreviewTable();
+
+    expect(screen.getByText('File Path').closest('th')).toHaveClass('pl-[38px]');
+    expect(screen.getByText('Folder').closest('th')).not.toHaveClass('pl-[38px]');
   });
 
   it('uses the latest sort callback after rerender', () => {
@@ -403,7 +508,7 @@ describe('PreviewTable grouped mode', () => {
     // Fix: distribute aggregate values across their respective columns.
 
     it('renders group total tokens in the tokens column cell, not in the primary column', () => {
-      // With DEFAULT_COLUMN_VISIBILITY (all visible), primary = rootFolderId (first in GROUP_COLUMN_ORDER).
+      // With DEFAULT_COLUMN_VISIBILITY (all visible), primary = path (first in GROUP_COLUMN_ORDER).
       // Column order: checkbox(0), rootFolderId(1), path(2), type(3), tokens(4), size(5).
       renderGroupedPreviewTable();
 
@@ -430,9 +535,9 @@ describe('PreviewTable grouped mode', () => {
       const groupRow = screen.getByRole('button', { name: 'Collapse' }).closest('tr');
       const cells = within(groupRow!).getAllByRole('gridcell');
 
-      // rootFolderId (index 1) is primary — should contain label and count, but NOT token/size values
-      expect(within(cells[1]!).queryByText('375')).not.toBeInTheDocument();
-      expect(within(cells[1]!).queryByText('3.0 KB')).not.toBeInTheDocument();
+      // path (index 2) is primary — should contain label and count, but NOT token/size values
+      expect(within(cells[2]!).queryByText('375')).not.toBeInTheDocument();
+      expect(within(cells[2]!).queryByText('3.0 KB')).not.toBeInTheDocument();
     });
 
     it('still renders group label and file count in the primary column', () => {
@@ -441,8 +546,8 @@ describe('PreviewTable grouped mode', () => {
       const groupRow = screen.getByRole('button', { name: 'Collapse' }).closest('tr');
       const cells = within(groupRow!).getAllByRole('gridcell');
 
-      expect(within(cells[1]!).getByText('src')).toBeInTheDocument();
-      expect(within(cells[1]!).getByText('2 files')).toBeInTheDocument();
+      expect(within(cells[2]!).getByText('src')).toBeInTheDocument();
+      expect(within(cells[2]!).getByTitle('2 files')).toBeInTheDocument();
     });
 
     it('renders group label in the tokens column when tokens is the only visible column', () => {
@@ -524,5 +629,20 @@ describe('PreviewTable grouped mode', () => {
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
     expect(screen.getByText('trailing-file.tsx')).toBeInTheDocument();
     expect(screen.queryByText('large-file-0.ts')).not.toBeInTheDocument();
+  });
+});
+
+describe('PreviewTable ungrouped mode', () => {
+  it('keeps the checkbox header and body cells on the same compact width contract', () => {
+    renderUngroupedPreviewTable();
+
+    expect(screen.getByLabelText('Select all files on current page').closest('th')).toHaveClass(
+      'w-8',
+      'px-0'
+    );
+    expect(screen.getByLabelText('Select src/file-one.ts').closest('td')).toHaveClass(
+      'w-8',
+      'px-0'
+    );
   });
 });
