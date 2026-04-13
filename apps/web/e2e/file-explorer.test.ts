@@ -170,16 +170,14 @@ test.describe('File Explorer', () => {
       const previewToolbar = page.getByTestId('preview-view-toolbar');
       await expect(previewToolbar).toBeVisible();
       await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
-
       await previewToolbar.getByRole('button', { name: 'Group by' }).click();
       await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
 
       const groupedSelectionCheckboxes = page.getByRole('checkbox', {
         name: /^Select all files in group /i,
       });
-      if ((await groupedSelectionCheckboxes.count()) === 0) {
-        await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
-      }
+      await expect(groupedSelectionCheckboxes).toHaveCount(0);
+      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
       await expect(groupedSelectionCheckboxes).toHaveCount(1);
 
       await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();

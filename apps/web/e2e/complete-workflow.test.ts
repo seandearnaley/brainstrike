@@ -348,6 +348,7 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
 
     const previewToolbar = page.getByTestId('preview-view-toolbar');
     await expect(previewToolbar).toBeVisible();
+    await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
     await previewToolbar.getByRole('button', { name: 'Group by' }).click();
     await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
 
@@ -356,9 +357,8 @@ test.describe('Complete File Explorer Workflow', { tag: '@smoke' }, () => {
     const groupedSelectionCheckboxes = contextTree.getByRole('checkbox', {
       name: /^Select all files in group /i,
     });
-    if ((await groupedSelectionCheckboxes.count()) === 0) {
-      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
-    }
+    await expect(groupedSelectionCheckboxes).toHaveCount(0);
+    await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
     await expect(groupedSelectionCheckboxes).toHaveCount(4);
 
     const srcCheckbox = fileTree.getByRole('checkbox', { name: 'Select src' });
