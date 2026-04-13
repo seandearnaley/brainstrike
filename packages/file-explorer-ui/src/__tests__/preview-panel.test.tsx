@@ -608,7 +608,6 @@ describe('PreviewPanel', () => {
     it('should handle select all via header checkbox', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      // Use header checkbox to select all files on current page
       const headerCheckbox = screen.getByLabelText('Select all files on current page');
       fireEvent.click(headerCheckbox);
 
@@ -1210,8 +1209,8 @@ describe('PreviewPanel', () => {
 
       selectGroupingOption('By Directory');
 
-      // Use header checkbox to select all files on current page
-      const headerCheckbox = screen.getByLabelText('Select all files on current page');
+      // Grouped mode exposes an all-grouped-results affordance in the header.
+      const headerCheckbox = screen.getByLabelText('Select all files in grouped results');
       fireEvent.click(headerCheckbox);
 
       expect(headerCheckbox).toBeChecked();

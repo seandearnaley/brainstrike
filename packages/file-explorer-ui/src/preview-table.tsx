@@ -362,6 +362,7 @@ interface GroupedColumnBuilderArgs {
   handleGroupDeselectAllStable: (group: GroupedData<TableRowData>) => void;
   handleGroupSelectAllStable: (group: GroupedData<TableRowData>) => void;
   headerSelectableFiles: TableRowData[];
+  headerSelectionLabel: string;
   isGroupFullySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
   isGroupPartiallySelectedRef: MutableRefObject<(group: GroupedData<TableRowData>) => boolean>;
   isHeaderSelectionComplete: boolean;
@@ -390,6 +391,7 @@ function resolveGroupedHeaderClassName(isTreeColumn: boolean, widthClassName?: s
 function createGroupedCheckboxColumn({
   handleGroupDeselectAllStable,
   handleGroupSelectAllStable,
+  headerSelectionLabel,
   headerSelectableFiles,
   isHeaderSelectionComplete,
   isGroupFullySelectedRef,
@@ -402,6 +404,7 @@ function createGroupedCheckboxColumn({
   GroupedColumnBuilderArgs,
   | 'handleGroupDeselectAllStable'
   | 'handleGroupSelectAllStable'
+  | 'headerSelectionLabel'
   | 'headerSelectableFiles'
   | 'isHeaderSelectionComplete'
   | 'isGroupFullySelectedRef'
@@ -417,12 +420,12 @@ function createGroupedCheckboxColumn({
     header: (
       <div className="flex h-full items-center justify-center">
         <Checkbox
-          aria-label="Select all files on current page"
+          aria-label={headerSelectionLabel}
           checked={isHeaderSelectionComplete}
           onCheckedChange={(checked) =>
             checked ? onSelectAllOnPageStable(headerSelectableFiles) : onDeselectAllStable()
           }
-          title="Select all files on current page"
+          title={headerSelectionLabel}
         />
       </div>
     ),
@@ -900,6 +903,10 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   const allGroupedFiles = useMemo(() => groupedData.flatMap((group) => group.items), [groupedData]);
 
   const headerSelectableFiles = groupingConfig === 'none' ? visibleFilesOnPage : allGroupedFiles;
+  const headerSelectionLabel =
+    groupingConfig === 'none'
+      ? 'Select all files on current page'
+      : 'Select all files in grouped results';
   const isHeaderSelectionComplete = useMemo(
     () => isAllSelected(headerSelectableFiles),
     [headerSelectableFiles, isAllSelected]
@@ -915,6 +922,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       groupedTreeColumnId,
       handleGroupDeselectAllStable,
       handleGroupSelectAllStable,
+      headerSelectionLabel,
       headerSelectableFiles,
       isHeaderSelectionComplete,
       isGroupFullySelectedRef,
@@ -935,6 +943,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     groupedTreeColumnId,
     handleGroupDeselectAllStable,
     handleGroupSelectAllStable,
+    headerSelectionLabel,
     headerSelectableFiles,
     isHeaderSelectionComplete,
     onDeselectAllStable,

@@ -260,9 +260,16 @@ describe('PreviewTable grouped mode', () => {
       />
     );
 
-    fireEvent.click(screen.getByLabelText('Select all files on current page'));
+    fireEvent.click(screen.getByLabelText('Select all files in grouped results'));
 
     expect(handleSelectAll).toHaveBeenCalledWith([FILE_ONE, FILE_TWO, thirdFile]);
+  });
+
+  it('labels the grouped header checkbox to match grouped select-all behavior', () => {
+    renderGroupedPreviewTable();
+
+    expect(screen.getByLabelText('Select all files in grouped results')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Select all files on current page')).not.toBeInTheDocument();
   });
 
   it('applies the tree-column header inset to the active grouped data column', () => {
