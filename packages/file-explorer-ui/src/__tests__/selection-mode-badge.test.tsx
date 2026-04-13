@@ -126,6 +126,30 @@ describe('SelectionModeBadge', () => {
       requestAnimationFrameSpy.mockRestore();
     });
 
+    it('cancels a pending animation frame when unmounting after open', () => {
+      const cancelAnimationFrameSpy = vi
+        .spyOn(window, 'cancelAnimationFrame')
+        .mockImplementation(() => {});
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 42);
+
+      const { unmount } = render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge maxSelectionCount={100} />
+        </FileExplorerTestWrapper>
+      );
+
+      fireEvent.click(screen.getByTestId('selection-mode-badge'));
+      unmount();
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalled();
+      expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(42);
+
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+    });
+
     it('shows Manual Selection and Rules-Based Selection options', async () => {
       render(
         <FileExplorerTestWrapper>

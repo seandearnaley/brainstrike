@@ -43,7 +43,8 @@ export function parseCountInput(raw: string): number | null {
   return value;
 }
 
-// Quick selection count preset buttons
+// Quick selection presets stay dense at small counts, then jump to the larger
+// context-size caps requested for the explorer workflow (5K/6K/8K).
 export const SELECTION_PRESETS = [
   { label: '10', value: 10 },
   { label: '25', value: 25 },

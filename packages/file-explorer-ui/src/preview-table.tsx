@@ -902,6 +902,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
 
   const allGroupedFiles = useMemo(() => groupedData.flatMap((group) => group.items), [groupedData]);
 
+  // Grouped mode intentionally promotes header select-all to the full grouped dataset.
+  // The compact header label distinguishes that behavior from ungrouped page-scoped selection.
   const headerSelectableFiles = groupingConfig === 'none' ? visibleFilesOnPage : allGroupedFiles;
   const headerSelectionLabel =
     groupingConfig === 'none'

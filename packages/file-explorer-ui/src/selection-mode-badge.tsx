@@ -24,7 +24,7 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import { BookOpen, Check, CheckSquare, Settings2, Sparkles, X } from 'lucide-react';
-import { memo, type RefObject, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { parseCountInput, SELECTION_PRESETS } from './selection-counter';
 
@@ -256,14 +256,29 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
   const [draft, setDraft] = useState<string>(String(maxSelectionCount ?? ''));
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const focusFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (focusFrameRef.current !== null) {
+        cancelAnimationFrame(focusFrameRef.current);
+      }
+    };
+  }, []);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
+      if (focusFrameRef.current !== null) {
+        cancelAnimationFrame(focusFrameRef.current);
+        focusFrameRef.current = null;
+      }
+
       setIsOpen(open);
       if (open) {
         setDraft(String(maxSelectionCount ?? ''));
         setError(null);
-        requestAnimationFrame(() => {
+        focusFrameRef.current = requestAnimationFrame(() => {
+          focusFrameRef.current = null;
           inputRef.current?.focus();
           inputRef.current?.select();
         });
