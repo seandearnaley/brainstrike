@@ -79,6 +79,8 @@ export interface TreeTableColumn<T> {
   cell: (props: TreeTableCellProps<T>) => React.ReactNode;
   /** Additional CSS class for the column */
   className?: string;
+  /** Optional cell colSpan for a given row. Use sparingly for structural rows that should span adjacent columns. */
+  colSpan?: (props: TreeTableCellProps<T>) => number | undefined;
   /** Header content (string or React element) */
   header?: React.ReactNode;
   /** Additional CSS class for the header */

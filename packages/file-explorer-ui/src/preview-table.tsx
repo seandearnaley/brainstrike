@@ -89,6 +89,13 @@ function resolveCheckboxState(
 
 const DEFAULT_GROUP_COLUMN: GroupColumnId = 'path';
 const GROUP_COLUMN_ORDER: GroupColumnId[] = ['path', 'rootFolderId', 'type', 'tokens', 'size'];
+const NON_FOLDER_GROUP_COLUMN_ORDER: GroupColumnId[] = [
+  'rootFolderId',
+  'path',
+  'type',
+  'tokens',
+  'size',
+];
 
 interface GroupHeaderSummaryProps {
   group: GroupedData<TableRowData>;
@@ -301,8 +308,22 @@ function buildGroupedTreeNodes({
   };
 }
 
-function resolvePrimaryGroupColumn(columnVisibility: ColumnVisibility): GroupColumnId {
-  for (const column of GROUP_COLUMN_ORDER) {
+function getPreferredGroupColumnOrder(groupingConfig: string): readonly GroupColumnId[] {
+  if (
+    groupingConfig === 'fileType' ||
+    groupingConfig === 'sizeSteps' ||
+    groupingConfig === 'tokenSteps'
+  ) {
+    return NON_FOLDER_GROUP_COLUMN_ORDER;
+  }
+  return GROUP_COLUMN_ORDER;
+}
+
+function resolvePrimaryGroupColumn(
+  columnVisibility: ColumnVisibility,
+  groupingConfig: string
+): GroupColumnId {
+  for (const column of getPreferredGroupColumnOrder(groupingConfig)) {
     if (columnVisibility[column]) {
       return column;
     }
@@ -477,15 +498,19 @@ function createGroupedCheckboxColumn({
 }
 
 function createGroupedRootFolderColumn({
+  columnVisibility,
   groupedTreeColumnId,
   onSortStable,
+  primaryGroupColumn,
   renderGroupHeaderIfPrimary,
   sortDirection,
   sortField,
 }: Pick<
   GroupedColumnBuilderArgs,
+  | 'columnVisibility'
   | 'groupedTreeColumnId'
   | 'onSortStable'
+  | 'primaryGroupColumn'
   | 'renderGroupHeaderIfPrimary'
   | 'sortDirection'
   | 'sortField'
@@ -506,6 +531,10 @@ function createGroupedRootFolderColumn({
     ),
     width: 176,
     className: isTreeColumn ? 'pr-4 pl-0 py-2' : 'px-4 py-2',
+    colSpan: ({ node }) =>
+      node.data.kind === 'group' && primaryGroupColumn === 'rootFolderId' && columnVisibility.path
+        ? 2
+        : 1,
     headerClassName: resolveGroupedHeaderClassName(isTreeColumn, 'w-44'),
     cell: ({ node }) => {
       if (node.data.kind === 'group') {
@@ -863,8 +892,8 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   }, [stableExpandedGroupNodeIds]);
 
   const primaryGroupColumn = useMemo(
-    () => resolvePrimaryGroupColumn(columnVisibility),
-    [columnVisibility]
+    () => resolvePrimaryGroupColumn(columnVisibility, groupingConfig),
+    [columnVisibility, groupingConfig]
   );
 
   const renderGroupHeaderIfPrimary = useCallback(
@@ -892,13 +921,13 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
   });
 
   const groupedTreeColumnId = useMemo<GroupColumnId | null>(() => {
-    for (const columnId of GROUP_COLUMN_ORDER) {
+    for (const columnId of getPreferredGroupColumnOrder(groupingConfig)) {
       if (columnVisibility[columnId]) {
         return columnId;
       }
     }
     return null;
-  }, [columnVisibility]);
+  }, [columnVisibility, groupingConfig]);
 
   const allGroupedFiles = useMemo(() => groupedData.flatMap((group) => group.items), [groupedData]);
 
