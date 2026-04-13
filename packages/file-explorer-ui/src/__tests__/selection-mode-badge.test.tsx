@@ -102,6 +102,30 @@ describe('SelectionModeBadge', () => {
       });
     });
 
+    it('schedules focus after opening the popover with requestAnimationFrame', async () => {
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          callback(0);
+          return 1;
+        });
+
+      render(
+        <FileExplorerTestWrapper>
+          <SelectionModeBadge maxSelectionCount={100} />
+        </FileExplorerTestWrapper>
+      );
+
+      fireEvent.click(screen.getByTestId('selection-mode-badge'));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalled();
+      requestAnimationFrameSpy.mockRestore();
+    });
+
     it('shows Manual Selection and Rules-Based Selection options', async () => {
       render(
         <FileExplorerTestWrapper>

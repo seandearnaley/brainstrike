@@ -13,6 +13,7 @@ import {
 import {
   Badge,
   Button,
+  cn,
   Input,
   Popover,
   PopoverContent,
@@ -87,9 +88,10 @@ const SelectionSettingsPanel: React.FC<SelectionSettingsPanelProps> = ({
         <p className="font-medium text-xs">Mode</p>
         <div className="grid grid-cols-1 gap-2">
           <Button
-            className={`h-auto w-full justify-start px-3 py-2 ${
-              isRulesMode ? '' : 'border-primary bg-primary/10'
-            }`}
+            className={cn(
+              'h-auto w-full justify-start px-3 py-2',
+              !isRulesMode && 'border-primary bg-primary/10'
+            )}
             onClick={() => onModeChange('explicit')}
             variant="outline"
           >
@@ -101,9 +103,10 @@ const SelectionSettingsPanel: React.FC<SelectionSettingsPanelProps> = ({
           </Button>
 
           <Button
-            className={`h-auto w-full justify-start px-3 py-2 ${
-              isRulesMode ? 'border-primary bg-primary/10' : ''
-            }`}
+            className={cn(
+              'h-auto w-full justify-start px-3 py-2',
+              isRulesMode && 'border-primary bg-primary/10'
+            )}
             disabled={!(rulesEditorAvailable || hasRules)}
             onClick={() => onModeChange('rules')}
             variant="outline"
@@ -260,7 +263,7 @@ export const SelectionModeBadge = memo<SelectionModeBadgeProps>(function Selecti
       if (open) {
         setDraft(String(maxSelectionCount ?? ''));
         setError(null);
-        queueMicrotask(() => {
+        requestAnimationFrame(() => {
           inputRef.current?.focus();
           inputRef.current?.select();
         });

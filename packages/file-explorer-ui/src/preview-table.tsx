@@ -931,7 +931,6 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
       sortField,
     });
   }, [
-    allGroupedFiles,
     columnVisibility,
     groupedTreeColumnId,
     handleGroupDeselectAllStable,

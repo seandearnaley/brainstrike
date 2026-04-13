@@ -19,6 +19,9 @@ function normalizeSeparators(inputPath: string): string {
 }
 
 function stripTrailingSlashes(inputPath: string): string {
+  if (inputPath === '/' || /^[A-Za-z]:\/$/.test(inputPath)) {
+    return inputPath;
+  }
   return inputPath.replace(/\/+$/, '');
 }
 
@@ -137,8 +140,17 @@ function getFolderRelativeSegments(args: { normalizedDirPath: string; rootFolder
       return { segments: [], trimmedToFolderRoot: true };
     }
 
-    const rootPrefix = `${normalizedRootFolderId}/`;
-    if (normalizedDirLower.startsWith(`${normalizedRootLower}/`)) {
+    if (normalizedRootFolderId === '/') {
+      return { segments, trimmedToFolderRoot: true };
+    }
+
+    const rootPrefix = normalizedRootFolderId.endsWith('/')
+      ? normalizedRootFolderId
+      : `${normalizedRootFolderId}/`;
+    const rootPrefixLower = normalizedRootLower.endsWith('/')
+      ? normalizedRootLower
+      : `${normalizedRootLower}/`;
+    if (normalizedDirLower.startsWith(rootPrefixLower)) {
       return {
         segments: args.normalizedDirPath.slice(rootPrefix.length).split('/').filter(Boolean),
         trimmedToFolderRoot: true,

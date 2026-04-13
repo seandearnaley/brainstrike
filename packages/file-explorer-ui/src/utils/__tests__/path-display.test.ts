@@ -129,6 +129,14 @@ describe('formatDirPathForDisplay', () => {
     expect(result).toBe('src/components');
   });
 
+  it('preserves filesystem-root ids and trims paths relative to "/"', () => {
+    const result = formatDirPathForDisplay({
+      dirPath: '/usr/local/bin',
+      rootFolderId: '/',
+    });
+    expect(result).toBe('usr/local/bin');
+  });
+
   it('shortens long paths with ellipsis', () => {
     const result = formatDirPathForDisplay({
       dirPath:
@@ -255,6 +263,14 @@ describe('getDirPathForGrouping', () => {
     expect(result).toBe('src/components');
   });
 
+  it('preserves filesystem-root ids when grouping absolute file paths', () => {
+    const result = getDirPathForGrouping({
+      filePath: '/etc/hosts',
+      rootFolderId: '/',
+    });
+    expect(result).toBe('etc');
+  });
+
   it('handles relative paths', () => {
     const result = getDirPathForGrouping({
       filePath: 'src/components/Button.tsx',
@@ -275,6 +291,10 @@ describe('getDirPathForGrouping', () => {
 describe('getRootFolderDisplayName', () => {
   it('preserves the full absolute root identity', () => {
     expect(getRootFolderDisplayName('/Users/me/project')).toBe('/Users/me/project');
+  });
+
+  it('preserves the filesystem-root identity', () => {
+    expect(getRootFolderDisplayName('/')).toBe('/');
   });
 
   it('keeps distinct absolute roots distinguishable', () => {
