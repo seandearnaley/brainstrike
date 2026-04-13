@@ -19,3 +19,7 @@
 
 **Learning:** Icon-only action buttons in lists (like Edit/Delete in `CollectionPickerItem`) sometimes lack `aria-label` attributes and use `size="sm"` with custom width/height/padding classes instead of the standard `size="icon"` which is designed specifically for square icon buttons.
 **Action:** Always provide descriptive `aria-label` attributes for icon-only action buttons and prefer `size="icon"` over manually overriding `size="sm"` padding/dimensions when rendering purely icon-based buttons.
+
+## 2025-04-13 - [Add aria-expanded to tree-table expand/collapse buttons]
+**Learning:** Some UI components with expand/collapse functionally (like the ones in `tree-table-row.tsx`) omit the `aria-expanded` attribute, preventing screen readers from announcing the expanded or collapsed state of tree row items.
+**Action:** Always ensure that buttons used to toggle expand/collapse states explicitly provide `aria-expanded` attributes corresponding to the expanded state of the section they control, making structural hierarchical context accessible to screen reader users.
