@@ -70,29 +70,22 @@ export function WorkspaceCollectionSyncProvider({
     [vectorQueueService]
   );
 
-  const validateLocalRuntime = useCallback(
-    async (_collection: EmbeddingSet): Promise<void> => {
-      if (!loadEmbeddingQueue) {
-        throw new Error('Embedding queue loader is unavailable.');
+  const validateLocalRuntime = useCallback(async (_collection: EmbeddingSet): Promise<void> => {
+    const embeddingHost = (
+      window as Window & {
+        embeddingHost?: {
+          ensureStarted?: () => Promise<{ lastError?: string | null; state: string }>;
+        };
       }
-      const embeddingHost = (
-        window as Window & {
-          embeddingHost?: {
-            ensureStarted?: () => Promise<{ lastError?: string | null; state: string }>;
-          };
-        }
-      ).embeddingHost;
+    ).embeddingHost;
 
-      if (embeddingHost?.ensureStarted) {
-        const status = await embeddingHost.ensureStarted();
-        if (status.state === 'error') {
-          throw new Error(status.lastError ?? 'Local embedding runtime is unavailable.');
-        }
+    if (embeddingHost?.ensureStarted) {
+      const status = await embeddingHost.ensureStarted();
+      if (status.state === 'error') {
+        throw new Error(status.lastError ?? 'Local embedding runtime is unavailable.');
       }
-      await loadEmbeddingQueue();
-    },
-    [loadEmbeddingQueue]
-  );
+    }
+  }, []);
 
   const service = useMemo(() => {
     if (

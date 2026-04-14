@@ -45,7 +45,10 @@ export interface RootFolderCacheReconciliationInput {
   existingFiles: RootFolderCachedFileIdentity[];
 }
 
-function buildCacheIdentityKey(sourceRootPath: string, relativePath: string): string {
+export function buildRootFolderCacheIdentityKey(
+  sourceRootPath: string,
+  relativePath: string
+): string {
   return `${sourceRootPath}::${relativePath}`;
 }
 
@@ -99,7 +102,7 @@ export function planRootFolderCacheReconciliation(
   const cachedByIdentity = new Map<string, RootFolderCachedFileIdentity>();
 
   for (const existingFile of input.existingFiles) {
-    const cacheIdentity = buildCacheIdentityKey(
+    const cacheIdentity = buildRootFolderCacheIdentityKey(
       existingFile.sourceRootPath,
       existingFile.relativePath
     );
@@ -111,7 +114,7 @@ export function planRootFolderCacheReconciliation(
   const unchanged: RootFolderCachedFileIdentity[] = [];
 
   for (const discoveredFile of input.discoveredFiles) {
-    const cacheIdentity = buildCacheIdentityKey(
+    const cacheIdentity = buildRootFolderCacheIdentityKey(
       discoveredFile.sourceRootPath,
       discoveredFile.relativePath
     );

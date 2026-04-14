@@ -1,5 +1,10 @@
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
-import type { FileImportRequest, FileImportResult, FileRecord } from '../models/file-record.js';
+import type {
+  FileImportRequest,
+  FileImportResult,
+  FileRecord,
+  ManagedCacheEntryMetadata,
+} from '../models/file-record.js';
 import type { IDatabase, IFileRecordRepository } from './interfaces.js';
 
 const logger = createLogger('DB:FileRecordRepository');
@@ -202,6 +207,48 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     return result.rows
       .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
       .map((row) => this.fromRow(row));
+  }
+
+  async listManagedCacheEntryMetadata(
+    embeddingSetId: string
+  ): Promise<ManagedCacheEntryMetadata[]> {
+    const sql = `SELECT id, embedding_set_id, source_root_path, path, content_hash, updated_at FROM ${this.tableName} WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC`;
+    const result = await this.db.query<Record<string, unknown>>(sql, [embeddingSetId]);
+
+    if (!Array.isArray(result.rows)) {
+      return [];
+    }
+
+    return result.rows
+      .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+      .flatMap((row) => {
+        const fileRecordId = row['id'];
+        const rowEmbeddingSetId = row['embedding_set_id'];
+        const sourceRootPath = row['source_root_path'];
+        const relativePath = row['path'];
+        const contentHash = row['content_hash'];
+        const updatedAt = row['updated_at'];
+        if (
+          typeof fileRecordId !== 'string' ||
+          typeof rowEmbeddingSetId !== 'string' ||
+          typeof sourceRootPath !== 'string' ||
+          typeof relativePath !== 'string' ||
+          !(typeof contentHash === 'string' || contentHash === null) ||
+          !(updatedAt instanceof Date || typeof updatedAt === 'string')
+        ) {
+          return [];
+        }
+        return [
+          {
+            fileRecordId,
+            embeddingSetId: rowEmbeddingSetId,
+            sourceRootPath,
+            relativePath,
+            contentHash: contentHash ?? '',
+            updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
+          } satisfies ManagedCacheEntryMetadata,
+        ];
+      });
   }
 
   async update(id: string, updates: Partial<FileRecord>): Promise<void> {

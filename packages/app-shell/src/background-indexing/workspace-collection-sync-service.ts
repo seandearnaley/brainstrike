@@ -3,17 +3,18 @@ import type {
   EmbeddingSet,
   FileChunk,
   FileImportResult,
-  FileRecord,
   IEmbeddingSetsRepository,
   IFileRecordRepository,
   ImportProgress,
+  ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
 import { isLocalProviderType, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import {
   createFileContentProcessor,
+  type FileContentProcessor,
   type FileContentRequest,
 } from '@brainstrike/file-explorer-hooks';
-import { readFullTree } from '@brainstrike/file-explorer-ui';
+import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui';
 import {
   type ChunkingWorkerPort,
   createBrowserEmbeddingQueuePort,
@@ -29,13 +30,15 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
-  planRootFolderCacheReconciliation,
+  buildRootFolderCacheIdentityKey,
   validateRootFolderCacheRequest,
 } from './root-folder-cache-reconciliation';
 
 const logger = createLogger('WorkspaceCollectionSyncService');
 
+const FILE_CONTENT_BATCH_SIZE = 24;
 const PROCESSOR_CONCURRENCY = 4;
+const SCANNING_STATUS_THROTTLE_MS = 100;
 
 interface RootDirectoryHandle {
   _internal?: unknown;
@@ -43,16 +46,6 @@ interface RootDirectoryHandle {
   name: string;
   path: string;
   platform: 'electron' | 'web';
-}
-
-interface FileDescriptor {
-  compositeKey: string;
-  content: string;
-  name: string;
-  node: IFileNode;
-  relativePath: string;
-  size: number;
-  sourceRootPath: string;
 }
 
 interface RootFolderCacheMutableRecord {
@@ -84,10 +77,10 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   db: DbHandle;
   embeddingDeviceHint: EmbeddingDeviceHint;
   embeddingSetsRepository: IEmbeddingSetsRepository;
-  fileContentProcessor?: ReturnType<typeof createFileContentProcessor>;
+  fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: Pick<
     IFileRecordRepository,
-    'createWithContent' | 'listManagedCacheEntries' | 'update'
+    'createWithContent' | 'listManagedCacheEntryMetadata' | 'update'
   >;
   fileSystemAdapter: FileSystemAdapter;
   loadEmbeddingQueue: () => Promise<QueueAdapter>;
@@ -138,7 +131,14 @@ interface PreparedCacheChange {
 interface ResolvedSyncContext {
   activeRootPath: string;
   collection: EmbeddingSet;
+  provider: NonNullable<ReturnType<typeof parseProviderModelKey>>['provider'];
   rootPath: string;
+}
+
+interface FileBatchPreparation {
+  relativePath: string;
+  request: FileContentRequest;
+  size: number;
 }
 
 function isContentAccessible(content: string): boolean {
@@ -189,6 +189,79 @@ function buildImportProgress(
 
 function estimateTokenCount(content: string): number {
   return Math.ceil(content.length / 4);
+}
+
+function createAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(
+  signal?: AbortSignal,
+  message = 'Workspace collection sync was cancelled.'
+): void {
+  if (signal?.aborted) {
+    throw createAbortError(message);
+  }
+}
+
+function createScanningStatusReporter(
+  emit: (path: string | null) => void,
+  throttleMs = SCANNING_STATUS_THROTTLE_MS
+): {
+  dispose: () => void;
+  flush: (path?: string | null) => void;
+  report: (path: string | null) => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingPath: string | null = null;
+  let lastEmitAt = 0;
+
+  const clearTimer = (): void => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const emitNow = (path: string | null): void => {
+    clearTimer();
+    pendingPath = null;
+    lastEmitAt = Date.now();
+    emit(path);
+  };
+
+  return {
+    report(path) {
+      pendingPath = path;
+      const now = Date.now();
+      if (now - lastEmitAt >= throttleMs) {
+        emitNow(path);
+        return;
+      }
+      if (timer !== null) {
+        return;
+      }
+      timer = setTimeout(
+        () => {
+          emitNow(pendingPath);
+        },
+        Math.max(0, throttleMs - (now - lastEmitAt))
+      );
+    },
+    flush(path = pendingPath) {
+      emitNow(path ?? null);
+    },
+    dispose() {
+      clearTimer();
+      pendingPath = null;
+    },
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 function toMutableRecord(change: PreparedCacheChange): RootFolderCacheMutableRecord {
@@ -247,158 +320,135 @@ function mapEnhancedProgressToStatus(
   };
 }
 
-async function prepareFileDescriptors(
+function createFileBatchPreparations(
   fileNodes: readonly IFileNode[],
   fileSystemAdapter: FileSystemAdapter,
-  rootPath: string,
-  onCurrentFile: (path: string | null) => void
-): Promise<FileDescriptor[]> {
-  const processor = createFileContentProcessor(fileSystemAdapter, {
-    concurrency: PROCESSOR_CONCURRENCY,
-  });
-  const requests: FileContentRequest[] = [];
-  const metadataByKey = new Map<
-    string,
-    {
-      name: string;
-      node: IFileNode;
-      relativePath: string;
-      size: number;
-      sourceRootPath: string;
-    }
-  >();
-
-  for (const node of fileNodes) {
+  rootPath: string
+): FileBatchPreparation[] {
+  return fileNodes.map((node) => {
     const relativePath = normalizeSelectionPathForFolder(node.path, rootPath, {
       label: 'Background cache file path',
     });
     const compositeKey = encodeFileSelection(rootPath, relativePath);
-    requests.push({
-      compositeKey,
-      fileNode: node,
-      fileSystemAdapter,
-    });
-    metadataByKey.set(compositeKey, {
-      node,
+    return {
+      request: {
+        compositeKey,
+        fileNode: node,
+        fileSystemAdapter,
+      },
       relativePath,
-      name: node.name,
       size: node.size ?? 0,
-      sourceRootPath: rootPath,
-    });
-  }
-
-  const fileContents = await processor.processFiles(requests, ({ key }) => {
-    const metadata = metadataByKey.get(key);
-    onCurrentFile(metadata?.relativePath ?? null);
+    };
   });
-
-  const descriptors: FileDescriptor[] = [];
-  for (const [compositeKey, content] of Object.entries(fileContents)) {
-    if (!isContentAccessible(content)) {
-      continue;
-    }
-    const metadata = metadataByKey.get(compositeKey);
-    if (!metadata) {
-      continue;
-    }
-    descriptors.push({
-      compositeKey,
-      content,
-      name: metadata.name,
-      node: metadata.node,
-      relativePath: metadata.relativePath,
-      size: metadata.size > 0 ? metadata.size : content.length,
-      sourceRootPath: metadata.sourceRootPath,
-    });
-  }
-
-  return descriptors;
 }
 
-async function buildPreparedChanges(
-  descriptors: readonly FileDescriptor[],
-  existingRecords: FileRecord[]
-): Promise<{
-  unchangedCount: number;
-  changes: PreparedCacheChange[];
-}> {
-  const discoveredFiles = await Promise.all(
-    descriptors.map(async (descriptor) => ({
-      sourceRootPath: descriptor.sourceRootPath,
-      relativePath: descriptor.relativePath,
-      contentHash: await generateContentHash(descriptor.content),
-      size: descriptor.size,
-      name: descriptor.name,
-    }))
-  );
-
-  const plan = planRootFolderCacheReconciliation({
-    discoveredFiles,
-    existingFiles: existingRecords
-      .filter((record): record is typeof record & { contentHash: string; embeddingSetId: string } =>
-        Boolean(record.contentHash && record.embeddingSetId && record.sourceRootPath)
-      )
-      .map((record) => ({
-        fileRecordId: record.id,
-        embeddingSetId: record.embeddingSetId,
-        sourceRootPath: record.sourceRootPath as string,
-        relativePath: record.path,
-        contentHash: record.contentHash,
-      })),
-  });
-
-  const discoveredByIdentity = new Map(
-    descriptors.map((descriptor) => [
-      `${descriptor.sourceRootPath}::${descriptor.relativePath}`,
-      descriptor,
+async function collectPreparedChangesInBatches(args: {
+  abortSignal: AbortSignal;
+  existingEntries: readonly ManagedCacheEntryMetadata[];
+  fileContentProcessor?: FileContentProcessor;
+  fileNodes: readonly IFileNode[];
+  fileSystemAdapter: FileSystemAdapter;
+  onCurrentFile: (path: string | null) => void;
+  rootPath: string;
+}): Promise<{ changes: PreparedCacheChange[]; unchangedCount: number }> {
+  const {
+    abortSignal,
+    existingEntries,
+    fileContentProcessor,
+    fileNodes,
+    fileSystemAdapter,
+    onCurrentFile,
+    rootPath,
+  } = args;
+  const processor =
+    fileContentProcessor ??
+    createFileContentProcessor(fileSystemAdapter, {
+      concurrency: PROCESSOR_CONCURRENCY,
+    });
+  const preparations = createFileBatchPreparations(fileNodes, fileSystemAdapter, rootPath);
+  const existingByIdentity = new Map(
+    existingEntries.map((entry) => [
+      buildRootFolderCacheIdentityKey(entry.sourceRootPath, entry.relativePath),
+      entry,
     ])
   );
-
   const changes: PreparedCacheChange[] = [];
+  let unchangedCount = 0;
 
-  for (const entry of plan.toImport) {
-    const descriptor = discoveredByIdentity.get(`${entry.sourceRootPath}::${entry.relativePath}`);
-    if (!descriptor) {
-      continue;
-    }
-    changes.push({
-      compositeKey: descriptor.compositeKey,
-      content: descriptor.content,
-      contentHash: entry.contentHash,
-      id: crypto.randomUUID(),
-      mode: 'import',
-      name: descriptor.name,
-      relativePath: descriptor.relativePath,
-      size: descriptor.size,
-      sourceRootPath: descriptor.sourceRootPath,
-    });
-  }
+  for (let index = 0; index < preparations.length; index += FILE_CONTENT_BATCH_SIZE) {
+    throwIfAborted(abortSignal);
+    const batch = preparations.slice(index, index + FILE_CONTENT_BATCH_SIZE);
+    const metadataByKey = new Map(
+      batch.map((entry) => [entry.request.compositeKey, entry] as const)
+    );
+    const fileContents = await processor.processFiles(
+      batch.map((entry) => entry.request),
+      ({ key }) => {
+        onCurrentFile(metadataByKey.get(key)?.relativePath ?? null);
+      },
+      { abortSignal }
+    );
+    throwIfAborted(abortSignal);
 
-  for (const entry of plan.toReplace) {
-    const descriptor = discoveredByIdentity.get(`${entry.sourceRootPath}::${entry.relativePath}`);
-    if (!descriptor) {
-      continue;
+    const discoveredFiles = await Promise.all(
+      Object.entries(fileContents).map(async ([compositeKey, content]) => {
+        if (!isContentAccessible(content)) {
+          return null;
+        }
+        const metadata = metadataByKey.get(compositeKey);
+        if (!metadata) {
+          return null;
+        }
+        return {
+          compositeKey,
+          content,
+          contentHash: await generateContentHash(content),
+          name: metadata.request.fileNode.name,
+          relativePath: metadata.relativePath,
+          size: metadata.size > 0 ? metadata.size : content.length,
+          sourceRootPath: rootPath,
+        };
+      })
+    );
+    throwIfAborted(abortSignal);
+
+    for (const discovered of discoveredFiles) {
+      if (!discovered) {
+        continue;
+      }
+      const identity = buildRootFolderCacheIdentityKey(
+        discovered.sourceRootPath,
+        discovered.relativePath
+      );
+      const existing = existingByIdentity.get(identity);
+      if (!existing) {
+        changes.push({
+          ...discovered,
+          id: crypto.randomUUID(),
+          mode: 'import',
+        });
+        continue;
+      }
+      if (existing.contentHash === discovered.contentHash) {
+        unchangedCount += 1;
+        continue;
+      }
+      changes.push({
+        ...discovered,
+        id: existing.fileRecordId,
+        mode: 'replace',
+      });
     }
-    changes.push({
-      compositeKey: descriptor.compositeKey,
-      content: descriptor.content,
-      contentHash: entry.nextContentHash,
-      id: entry.existingFileRecordId,
-      mode: 'replace',
-      name: descriptor.name,
-      relativePath: descriptor.relativePath,
-      size: descriptor.size,
-      sourceRootPath: descriptor.sourceRootPath,
-    });
   }
 
   return {
-    unchangedCount: plan.unchanged.length,
     changes,
+    unchangedCount,
   };
 }
 
 async function runRootFolderCacheImport(args: {
+  abortSignal: AbortSignal;
   changes: readonly PreparedCacheChange[];
   chunkRepository: {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
@@ -414,16 +464,14 @@ async function runRootFolderCacheImport(args: {
   chunkingWorkerPort: ChunkingWorkerPort;
   collection: EmbeddingSet;
   db: DbHandle;
-  fileRecordRepository: Pick<
-    IFileRecordRepository,
-    'createWithContent' | 'listManagedCacheEntries' | 'update'
-  >;
+  fileRecordRepository: Pick<IFileRecordRepository, 'createWithContent' | 'update'>;
   loadEmbeddingQueue: () => Promise<QueueAdapter>;
   onProgress: (progress: EnhancedImportProgress) => void;
   setImporting: (importing: boolean) => void;
   embeddingDeviceHint: EmbeddingDeviceHint;
 }): Promise<void> {
   const {
+    abortSignal,
     changes,
     chunkRepository,
     chunkingWorkerPort,
@@ -440,6 +488,7 @@ async function runRootFolderCacheImport(args: {
     return;
   }
 
+  throwIfAborted(abortSignal, 'Background cache import was cancelled.');
   const queue = await loadEmbeddingQueue();
   const queuePort: EmbeddingJobQueuePort = createBrowserEmbeddingQueuePort({
     queue,
@@ -491,6 +540,7 @@ async function runRootFolderCacheImport(args: {
 
     let completed = 0;
     for (const compositeKey of selectedKeys) {
+      throwIfAborted(abortSignal, 'Background cache import was cancelled.');
       const change = changeByKey.get(compositeKey);
       if (!change) {
         errors.push({
@@ -504,11 +554,15 @@ async function runRootFolderCacheImport(args: {
 
       try {
         if (change.mode === 'replace') {
-          await chunkRepository.deleteByFileRecordId(change.id);
-          await fileRecordRepository.update(change.id, {
+          const replacementRecordUpdate = {
             ...toMutableRecord(change),
+            chunksCount: 0,
+            chunksProcessedAt: undefined,
+            chunkingStrategy: undefined,
             embeddingSetId: collection.id,
-          });
+          } as unknown as Parameters<typeof fileRecordRepository.update>[1];
+          await chunkRepository.deleteByFileRecordId(change.id);
+          await fileRecordRepository.update(change.id, replacementRecordUpdate);
         } else {
           await fileRecordRepository.createWithContent({
             ...toMutableRecord(change),
@@ -547,6 +601,7 @@ async function runRootFolderCacheImport(args: {
   setImporting(true);
   try {
     await runEnhancedImport<IFileNode>({
+      abortSignal,
       request: {
         selectedFilePaths,
         fileTree: [],
@@ -583,24 +638,19 @@ async function runRootFolderCacheImport(args: {
 }
 
 export class WorkspaceCollectionSyncService {
+  private currentAbortController: AbortController | null = null;
   private runId = 0;
 
   constructor(private readonly deps: WorkspaceCollectionSyncServiceDependencies) {}
 
   cancel(): void {
+    this.currentAbortController?.abort();
+    this.currentAbortController = null;
     this.runId += 1;
   }
 
   private isCancelled(runId: number): boolean {
     return runId !== this.runId;
-  }
-
-  private createAbortIfCancelled(runId: number): () => void {
-    return () => {
-      if (this.isCancelled(runId)) {
-        throw new Error('Workspace collection sync was cancelled.');
-      }
-    };
   }
 
   private setDisabledStatus(request: WorkspaceCollectionSyncRequest): void {
@@ -679,17 +729,20 @@ export class WorkspaceCollectionSyncService {
       return null;
     }
 
-    if (isLocalProviderType(provider)) {
-      await this.deps.validateLocalRuntime(collection);
-    } else {
-      await this.deps.validateHostedProviderAccess(collection.id);
-    }
-
     return {
       collection,
       activeRootPath: rootPath ?? '',
+      provider,
       rootPath: rootPath ?? '',
     };
+  }
+
+  private async ensureCollectionAccess(context: ResolvedSyncContext): Promise<void> {
+    if (isLocalProviderType(context.provider)) {
+      await this.deps.validateLocalRuntime(context.collection);
+      return;
+    }
+    await this.deps.validateHostedProviderAccess(context.collection.id);
   }
 
   private setScanningStatus(context: ResolvedSyncContext, currentFilePath: string | null): void {
@@ -708,37 +761,49 @@ export class WorkspaceCollectionSyncService {
   private async collectPreparedChanges(args: {
     request: WorkspaceCollectionSyncRequest;
     context: ResolvedSyncContext;
-    abortIfCancelled: () => void;
+    abortSignal: AbortSignal;
   }): Promise<{ changes: PreparedCacheChange[]; unchangedCount: number }> {
-    const { request, context, abortIfCancelled } = args;
-    const tree = await readFullTree(
-      this.deps.fileSystemAdapter,
-      request.rootDirectoryHandle as RootDirectoryHandle,
-      request.rootDirectoryHandle as RootDirectoryHandle,
-      '',
-      true,
-      undefined,
-      (path?: string) => {
-        this.setScanningStatus(context, path ?? null);
-      }
-    );
-    abortIfCancelled();
+    const { request, context, abortSignal } = args;
+    const statusReporter = createScanningStatusReporter((path) => {
+      this.setScanningStatus(context, path);
+    });
 
-    const fileNodes = flattenFileNodes(tree);
-    const descriptors = await prepareFileDescriptors(
-      fileNodes,
-      this.deps.fileSystemAdapter,
-      context.activeRootPath,
-      (path) => this.setScanningStatus(context, path)
-    );
-    abortIfCancelled();
+    try {
+      const tree = await readFullTreeWithOptions(
+        this.deps.fileSystemAdapter,
+        request.rootDirectoryHandle as RootDirectoryHandle,
+        {
+          abortSignal,
+          updateProgress: (path?: string) => {
+            statusReporter.report(path ?? null);
+          },
+        }
+      );
+      throwIfAborted(abortSignal);
 
-    const existingRecords = await this.deps.fileRecordRepository.listManagedCacheEntries(
-      context.collection.id
-    );
-    const prepared = await buildPreparedChanges(descriptors, existingRecords);
-    abortIfCancelled();
-    return prepared;
+      const existingEntries = await this.deps.fileRecordRepository.listManagedCacheEntryMetadata(
+        context.collection.id
+      );
+      throwIfAborted(abortSignal);
+
+      const prepared = await collectPreparedChangesInBatches({
+        abortSignal,
+        existingEntries,
+        fileNodes: flattenFileNodes(tree),
+        fileSystemAdapter: this.deps.fileSystemAdapter,
+        onCurrentFile: (path) => {
+          statusReporter.report(path);
+        },
+        rootPath: context.activeRootPath,
+        ...(this.deps.fileContentProcessor
+          ? { fileContentProcessor: this.deps.fileContentProcessor }
+          : {}),
+      });
+      statusReporter.flush(null);
+      return prepared;
+    } finally {
+      statusReporter.dispose();
+    }
   }
 
   private setIdleStatus(args: {
@@ -791,8 +856,9 @@ export class WorkspaceCollectionSyncService {
   }
 
   async sync(request: WorkspaceCollectionSyncRequest): Promise<void> {
+    this.currentAbortController?.abort();
+    this.currentAbortController = null;
     const currentRunId = ++this.runId;
-    const abortIfCancelled = this.createAbortIfCancelled(currentRunId);
 
     if (!request.enabled) {
       this.setDisabledStatus(request);
@@ -803,13 +869,19 @@ export class WorkspaceCollectionSyncService {
     if (!context) {
       return;
     }
+    if (this.isCancelled(currentRunId)) {
+      return;
+    }
+    const abortController = new AbortController();
+    this.currentAbortController = abortController;
+    const { signal } = abortController;
     this.setScanningStatus(context, null);
 
     try {
       const prepared = await this.collectPreparedChanges({
         request,
         context,
-        abortIfCancelled,
+        abortSignal: signal,
       });
 
       if (prepared.changes.length === 0) {
@@ -821,6 +893,9 @@ export class WorkspaceCollectionSyncService {
         return;
       }
 
+      await this.ensureCollectionAccess(context);
+      throwIfAborted(signal);
+
       if (!this.deps.chunkingWorkerPort) {
         throw new Error('Chunking worker is unavailable.');
       }
@@ -828,6 +903,7 @@ export class WorkspaceCollectionSyncService {
       this.setImportingStatus(context, prepared.changes.length);
 
       await runRootFolderCacheImport({
+        abortSignal: signal,
         changes: prepared.changes,
         chunkRepository: this.deps.chunkRepository,
         chunkingWorkerPort: this.deps.chunkingWorkerPort,
@@ -846,7 +922,7 @@ export class WorkspaceCollectionSyncService {
         setImporting: this.deps.setImporting,
         embeddingDeviceHint: this.deps.embeddingDeviceHint,
       });
-      abortIfCancelled();
+      throwIfAborted(signal);
 
       this.setIdleStatus({
         collection: context.collection,
@@ -854,7 +930,7 @@ export class WorkspaceCollectionSyncService {
         rootPath: context.rootPath,
       });
     } catch (error) {
-      if (this.isCancelled(currentRunId)) {
+      if (this.isCancelled(currentRunId) || isAbortError(error)) {
         return;
       }
       this.handleSyncFailure({
@@ -862,6 +938,10 @@ export class WorkspaceCollectionSyncService {
         error,
         rootPath: context.rootPath,
       });
+    } finally {
+      if (this.currentAbortController === abortController) {
+        this.currentAbortController = null;
+      }
     }
   }
 }

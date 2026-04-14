@@ -14,9 +14,9 @@ import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-pr
 
 const {
   runEnhancedImportMock,
-  readFullTreeMock,
+  readFullTreeWithOptionsMock,
   processFilesMock,
-  listManagedCacheEntriesMock,
+  listManagedCacheEntryMetadataMock,
   createWithContentMock,
   updateMock,
   deleteByFileRecordIdMock,
@@ -25,9 +25,9 @@ const {
   ensureStartedMock,
 } = vi.hoisted(() => ({
   runEnhancedImportMock: vi.fn(),
-  readFullTreeMock: vi.fn(),
+  readFullTreeWithOptionsMock: vi.fn(),
   processFilesMock: vi.fn(),
-  listManagedCacheEntriesMock: vi.fn(),
+  listManagedCacheEntryMetadataMock: vi.fn(),
   createWithContentMock: vi.fn(),
   updateMock: vi.fn(),
   deleteByFileRecordIdMock: vi.fn(),
@@ -50,7 +50,7 @@ vi.mock('@brainstrike/db', () => ({
     transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
   }),
   useFileRecordRepository: () => ({
-    listManagedCacheEntries: listManagedCacheEntriesMock,
+    listManagedCacheEntryMetadata: listManagedCacheEntryMetadataMock,
     createWithContent: createWithContentMock,
     update: updateMock,
   }),
@@ -81,7 +81,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
       platform: 'electron',
     },
   }),
-  readFullTree: readFullTreeMock,
+  readFullTreeWithOptions: readFullTreeWithOptionsMock,
 }));
 
 vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
@@ -136,7 +136,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     getByIdMock.mockResolvedValue(collection);
     validateApiKeyForSetMock.mockResolvedValue({ valid: true });
     ensureStartedMock.mockResolvedValue({ state: 'running' });
-    readFullTreeMock.mockResolvedValue([
+    readFullTreeWithOptionsMock.mockResolvedValue([
       {
         name: 'index.ts',
         path: '/workspace/root/src/index.ts',
@@ -148,7 +148,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     processFilesMock.mockResolvedValue({
       [encodeFileSelection('/workspace/root', 'src/index.ts')]: 'export const value = 1;',
     });
-    listManagedCacheEntriesMock.mockResolvedValue([]);
+    listManagedCacheEntryMetadataMock.mockResolvedValue([]);
     runEnhancedImportMock.mockImplementation(async (params) => {
       await params.baseImportRunner({
         selectedFilePaths: params.request.selectedFilePaths,

@@ -228,6 +228,39 @@ describe('DrizzleFileRecordRepository', () => {
         '00000000-0000-0000-0000-000000000022',
       ]);
     });
+
+    it('should list managed cache metadata without selecting content', async () => {
+      const now = new Date().toISOString();
+
+      await repository.createWithContent({
+        id: '00000000-0000-0000-0000-000000000031',
+        name: 'index.ts',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/a',
+        embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        size: 100,
+        createdAt: now,
+        updatedAt: now,
+        content: 'export const value = 1;',
+        contentHash: 'hash-1',
+        tokenCount: 5,
+        processedAt: now,
+      });
+
+      const entries = await repository.listManagedCacheEntryMetadata(
+        '00000000-0000-0000-0000-000000000101'
+      );
+
+      expect(entries).toEqual([
+        expect.objectContaining({
+          fileRecordId: '00000000-0000-0000-0000-000000000031',
+          embeddingSetId: '00000000-0000-0000-0000-000000000101',
+          sourceRootPath: '/workspace/a',
+          relativePath: 'src/index.ts',
+          contentHash: 'hash-1',
+        }),
+      ]);
+    });
   });
 
   describe('update', () => {

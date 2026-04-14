@@ -9,7 +9,12 @@ import type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
 import { count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
-import type { FileImportRequest, FileImportResult, FileRecord } from '../../models/file-record.js';
+import type {
+  FileImportRequest,
+  FileImportResult,
+  FileRecord,
+  ManagedCacheEntryMetadata,
+} from '../../models/file-record.js';
 import { fileRecords } from '../../schema/index.js';
 
 type DrizzleDb = PgliteDatabase;
@@ -214,6 +219,47 @@ export class DrizzleFileRecordRepository {
       .orderBy(sql`${fileRecords.updatedAt} DESC`);
 
     return rows.map((row) => this.fromRow(row));
+  }
+
+  async listManagedCacheEntryMetadata(
+    embeddingSetId: string
+  ): Promise<ManagedCacheEntryMetadata[]> {
+    const rows = await this.db
+      .select({
+        fileRecordId: fileRecords.id,
+        embeddingSetId: fileRecords.embeddingSetId,
+        sourceRootPath: fileRecords.sourceRootPath,
+        relativePath: fileRecords.path,
+        contentHash: fileRecords.contentHash,
+        updatedAt: fileRecords.updatedAt,
+      })
+      .from(fileRecords)
+      .where(
+        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.sourceRootPath} IS NOT NULL`
+      )
+      .orderBy(sql`${fileRecords.updatedAt} DESC`);
+
+    return rows.flatMap((row) => {
+      if (
+        typeof row.fileRecordId !== 'string' ||
+        typeof row.embeddingSetId !== 'string' ||
+        typeof row.sourceRootPath !== 'string' ||
+        typeof row.relativePath !== 'string' ||
+        !(typeof row.contentHash === 'string' || row.contentHash === null)
+      ) {
+        return [];
+      }
+      return [
+        {
+          fileRecordId: row.fileRecordId,
+          embeddingSetId: row.embeddingSetId,
+          sourceRootPath: row.sourceRootPath,
+          relativePath: row.relativePath,
+          contentHash: row.contentHash ?? '',
+          updatedAt: row.updatedAt.toISOString(),
+        } satisfies ManagedCacheEntryMetadata,
+      ];
+    });
   }
 
   async update(id: string, updates: Partial<FileRecord>): Promise<void> {

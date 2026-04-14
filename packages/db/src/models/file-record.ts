@@ -19,6 +19,15 @@ export interface FileRecord {
   updatedAt: string; // ISO date string
 }
 
+export interface ManagedCacheEntryMetadata {
+  contentHash: string;
+  embeddingSetId: string;
+  fileRecordId: string;
+  relativePath: string;
+  sourceRootPath: string;
+  updatedAt: string;
+}
+
 export interface FileImportRequest {
   content: string;
   embeddingSetId?: string; // Collection this file belongs to (set at import time)
