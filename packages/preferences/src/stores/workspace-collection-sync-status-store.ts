@@ -3,6 +3,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 export type WorkspaceCollectionSyncState =
   | 'disabled'
   | 'idle'
+  | 'recovering'
   | 'waiting'
   | 'scanning'
   | 'importing'
@@ -56,6 +57,7 @@ export interface WorkspaceCollectionSyncQueueProgress {
 
 export interface WorkspaceCollectionSyncStatusData {
   activeRootPath: string | null;
+  backfillRequestId: string | null;
   chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
   currentFilePath: string | null;
   embeddingProgress: WorkspaceCollectionSyncEmbeddingProgress | null;
@@ -82,6 +84,7 @@ const DEFAULT_STATE: WorkspaceCollectionSyncStatusData = {
   state: 'disabled',
   managedCollectionId: null,
   managedCollectionName: null,
+  backfillRequestId: null,
   currentFilePath: null,
   scanSummary: null,
   importProgress: null,

@@ -56,7 +56,8 @@ function createMockController(
   return {
     controller: {
       cancelAllBackfills: vi.fn(async () => {}),
-      enqueueBackfill: vi.fn(async () => {}),
+      cancelBackfill: vi.fn(async () => {}),
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
       ensureStarted: startMock,
       getBackfillsInFlight: vi.fn(async () => []),
       getStatus: getStatusMock,

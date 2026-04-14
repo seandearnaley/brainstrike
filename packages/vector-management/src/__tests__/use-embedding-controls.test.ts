@@ -154,8 +154,10 @@ vi.mock('../embedding-runtime-provider', () => ({
   useSharedEmbeddingRuntime: vi.fn(() => ({
     controller: {
       cancelAllBackfills: vi.fn(async () => {}),
-      enqueueBackfill: vi.fn(async () => {}),
+      cancelBackfill: vi.fn(async () => {}),
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
       ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
+      getBackfillsInFlight: vi.fn(async () => []),
       getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
       onBackfillProgress: vi.fn(() => () => {}),
       onStatus: vi.fn(() => () => {}),
@@ -221,7 +223,8 @@ describe('useEmbeddingControls', () => {
     vi.mocked(useSharedEmbeddingRuntime).mockReturnValue({
       controller: {
         cancelAllBackfills: vi.fn(async () => {}),
-        enqueueBackfill: vi.fn(async () => {}),
+        cancelBackfill: vi.fn(async () => {}),
+        enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
         ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
         getBackfillsInFlight: vi.fn(async () => []),
         getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
@@ -598,7 +601,8 @@ describe('useEmbeddingControls', () => {
       vi.mocked(useSharedEmbeddingRuntime).mockReturnValue({
         controller: {
           cancelAllBackfills: vi.fn(async () => {}),
-          enqueueBackfill: vi.fn(async () => {}),
+          cancelBackfill: vi.fn(async () => {}),
+          enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
           ensureStarted: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),
           getBackfillsInFlight: vi.fn(async () => []),
           getStatus: vi.fn(async () => RUNNING_EMBEDDING_WORKER_STATUS),

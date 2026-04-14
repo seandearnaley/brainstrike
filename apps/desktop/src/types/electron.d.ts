@@ -18,6 +18,8 @@ import type { LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type {
+  EmbeddingBackfillSource,
+  EmbeddingHostBackfillInfo,
   EmbeddingHostBackfillProgress,
   EmbeddingHostCommand,
   EmbeddingHostStatus,
@@ -118,8 +120,13 @@ declare global {
     };
     embeddingHost: {
       ensureStarted: () => Promise<EmbeddingHostStatus>;
-      enqueueBackfill: (embeddingSetId: string) => Promise<unknown>;
+      enqueueBackfill: (request: {
+        embeddingSetId: string;
+        source?: EmbeddingBackfillSource;
+      }) => Promise<{ requestId: string }>;
+      cancelBackfill: (embeddingSetId: string) => Promise<void>;
       cancelAllBackfills: () => Promise<void>;
+      getBackfillsInFlight: () => Promise<EmbeddingHostBackfillInfo[]>;
       stop: () => Promise<EmbeddingHostStatus>;
       reset: () => Promise<EmbeddingHostStatus>;
       getStatus: () => Promise<EmbeddingHostStatus>;

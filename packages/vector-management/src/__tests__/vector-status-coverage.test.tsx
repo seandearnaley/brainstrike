@@ -175,7 +175,8 @@ vi.mock('../embedding-runtime-provider', () => ({
   useSharedEmbeddingRuntime: () => ({
     controller: {
       cancelAllBackfills: vi.fn(async () => {}),
-      enqueueBackfill: vi.fn(async () => {}),
+      cancelBackfill: vi.fn(async () => {}),
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'embedding-backfill:test' })),
       ensureStarted: vi.fn(async () => ({
         runtimeKind: 'embedding-worker',
         runtimeId: 'embedding-worker:test',

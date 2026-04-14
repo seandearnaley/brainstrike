@@ -249,8 +249,10 @@ vi.mock('electron-store', () => {
 import '../../main';
 
 describe('database IPC handlers', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    const { setBackgrounded } = await import('../../ipc-handlers');
+    setBackgrounded(false);
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_CHECK_INTERVAL_MS');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_ENABLED');
     Reflect.deleteProperty(process.env, 'BRAINSTRIKE_EMBED_GPU_RECLAIM_MODE');
@@ -390,10 +392,7 @@ describe('database IPC handlers', () => {
       total: 450,
     });
     expect(result).toEqual({
-      queued: 450,
-      running: 0,
-      failed: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 
@@ -447,10 +446,7 @@ describe('database IPC handlers', () => {
     );
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 450,
-      running: 0,
-      failed: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     expect(sender.send).not.toHaveBeenCalled();
   });
@@ -483,10 +479,7 @@ describe('database IPC handlers', () => {
     expect(embeddingHostStopMock).not.toHaveBeenCalled();
     expect(embeddingHostDestroyAndRestartMock).not.toHaveBeenCalled();
     expect(result).toEqual({
-      queued: 8,
-      running: 0,
-      failed: 0,
-      succeeded: 8,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 
@@ -602,10 +595,7 @@ describe('database IPC handlers', () => {
     });
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 1,
-      running: 0,
-      failed: 0,
-      succeeded: 1,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 
@@ -646,10 +636,7 @@ describe('database IPC handlers', () => {
     );
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 2,
-      running: 0,
-      failed: 0,
-      succeeded: 2,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     expect(embeddingHostResetMock).toHaveBeenCalledTimes(1);
     expect(embeddingHostStopMock).not.toHaveBeenCalled();
@@ -688,10 +675,7 @@ describe('database IPC handlers', () => {
     );
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 1,
-      running: 0,
-      failed: 0,
-      succeeded: 1,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     expect(embeddingHostResetMock).not.toHaveBeenCalled();
     expect(embeddingHostStopMock).not.toHaveBeenCalled();
@@ -735,12 +719,9 @@ describe('database IPC handlers', () => {
       }
     );
 
-    await expect(backfillHandler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 0,
-      running: 0,
-      failed: 0,
-      succeeded: 0,
-    });
+    await expect(backfillHandler({ sender } as unknown, 'set-123')).rejects.toThrow(
+      'Embedding backfill was canceled.'
+    );
   });
 
   it('embedding-host:enqueue-backfill treats reset maintenance interruption as planned', async () => {
@@ -816,10 +797,7 @@ describe('database IPC handlers', () => {
     );
 
     await expect(handler({ sender } as unknown, 'set-123')).resolves.toEqual({
-      queued: 2,
-      running: 0,
-      failed: 0,
-      succeeded: 2,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     expect(embeddingHostResetMock).toHaveBeenCalledTimes(1);
   });
@@ -907,10 +885,7 @@ describe('database IPC handlers', () => {
 
     expect(sender.send).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      queued: 450,
-      running: 0,
-      failed: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 
@@ -1009,17 +984,11 @@ describe('database IPC handlers', () => {
     const second = handler({ sender } as unknown, 'set-b');
 
     await expect(second).resolves.toEqual({
-      failed: 0,
-      queued: 450,
-      running: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
     resolveFirstBackfill?.();
     await expect(first).resolves.toEqual({
-      failed: 0,
-      queued: 450,
-      running: 0,
-      succeeded: 0,
+      requestId: expect.stringMatching(/^embedding-backfill:/),
     });
   });
 

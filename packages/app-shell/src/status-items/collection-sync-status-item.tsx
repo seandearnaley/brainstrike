@@ -20,6 +20,7 @@ const selectCollectionSyncStatus = (
   state: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
 ) => ({
   state: state.state,
+  backfillRequestId: state.backfillRequestId,
   managedCollectionName: state.managedCollectionName,
   currentFilePath: state.currentFilePath,
   lastError: state.lastError,
@@ -34,12 +35,24 @@ const selectCollectionSyncStatus = (
 function getStatusItemValue(
   state: ReturnType<typeof selectCollectionSyncStatus>['state'],
   enabled: boolean
-): 'Blocked' | 'Chunking' | 'Embedding' | 'Importing' | 'Ready' | 'Scanning' | 'Waiting' | 'Off' {
+):
+  | 'Blocked'
+  | 'Chunking'
+  | 'Embedding'
+  | 'Importing'
+  | 'Ready'
+  | 'Recovering'
+  | 'Scanning'
+  | 'Waiting'
+  | 'Off' {
   if (state === 'error') {
     return 'Blocked';
   }
   if (state === 'waiting') {
     return 'Waiting';
+  }
+  if (state === 'recovering') {
+    return 'Recovering';
   }
   if (state === 'scanning') {
     return 'Scanning';
@@ -62,6 +75,7 @@ function getStatusItemState(
 ) {
   const isBusy =
     state === 'waiting' ||
+    state === 'recovering' ||
     state === 'scanning' ||
     state === 'importing' ||
     state === 'chunking' ||

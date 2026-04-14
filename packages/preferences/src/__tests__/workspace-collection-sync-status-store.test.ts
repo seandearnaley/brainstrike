@@ -16,6 +16,7 @@ describe('workspace-collection-sync-status-store', () => {
       state: 'disabled',
       managedCollectionId: null,
       managedCollectionName: null,
+      backfillRequestId: null,
       currentFilePath: null,
       scanSummary: null,
       importProgress: null,
@@ -48,7 +49,8 @@ describe('workspace-collection-sync-status-store', () => {
     });
 
     store.setStatus({
-      state: 'embedding',
+      state: 'recovering',
+      backfillRequestId: 'background-indexing-backfill:test',
       processedFiles: 4,
       chunkingProgress: {
         filesProcessed: 7,
@@ -66,9 +68,10 @@ describe('workspace-collection-sync-status-store', () => {
     });
 
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
-      state: 'embedding',
+      state: 'recovering',
       managedCollectionId: 'set-1',
       managedCollectionName: 'Managed Cache',
+      backfillRequestId: 'background-indexing-backfill:test',
       activeRootPath: '/workspace/a',
       scanSummary: {
         discoveredFiles: 42,
@@ -125,6 +128,7 @@ describe('workspace-collection-sync-status-store', () => {
       state: 'disabled',
       managedCollectionId: null,
       managedCollectionName: null,
+      backfillRequestId: null,
       currentFilePath: null,
       scanSummary: null,
       importProgress: null,

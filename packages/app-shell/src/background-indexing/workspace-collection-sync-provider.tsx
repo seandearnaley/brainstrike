@@ -79,33 +79,24 @@ export function WorkspaceCollectionSyncProvider({
       return null;
     }
     return new WorkspaceCollectionSyncService({
+      cancelBackfill: async (embeddingSetId) => {
+        await runtimeController.cancelBackfill(embeddingSetId);
+      },
       chunkRepository,
       db,
       embeddingSetsRepository,
-      enqueueBackfill: async (embeddingSetId, onProgress) => {
-        const unsubscribe = runtimeController.onBackfillProgress((progress) => {
-          if (progress.embeddingSetId !== embeddingSetId) {
-            return;
-          }
-          onProgress({
-            current: progress.current,
-            total: progress.total,
-            ...(progress.message ? { message: progress.message } : {}),
-          });
-        });
-        try {
-          await runtimeController.enqueueBackfill(embeddingSetId);
-        } finally {
-          unsubscribe();
-        }
+      enqueueBackfill: async (embeddingSetId, options) => {
+        return await runtimeController.enqueueBackfill(embeddingSetId, options);
       },
       ensureChunkingWorker,
       ensureEmbeddingRuntimeStarted,
       fileSystemAdapter,
       fileRecordRepository,
+      getBackfillsInFlight: async () => await runtimeController.getBackfillsInFlight(),
       log: logger,
       setImporting: setIsImporting,
       setStatus: setSyncStatus,
+      subscribeToBackfillProgress: (callback) => runtimeController.onBackfillProgress(callback),
       validateHostedProviderAccess,
     });
   }, [
@@ -200,7 +191,7 @@ export function WorkspaceCollectionSyncProvider({
   useEffect(() => {
     triggerSync();
     return () => {
-      service?.cancel();
+      void service?.cancel();
       setIsImporting(false);
     };
   }, [service, triggerSync, setIsImporting]);

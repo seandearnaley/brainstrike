@@ -1,4 +1,5 @@
 import type {
+  ChunkingStrategy,
   DbHandle,
   EmbeddingSet,
   FileImportResult,
@@ -38,6 +39,7 @@ import {
 const logger = createLogger('WorkspaceCollectionSyncService');
 
 const FILE_CONTENT_BATCH_SIZE = 24;
+const IMPORT_BATCH_SIZE = 24;
 const PROCESSOR_CONCURRENCY = 4;
 const SCANNING_STATUS_THROTTLE_MS = 100;
 
@@ -63,6 +65,7 @@ interface RootFolderCacheMutableRecord {
 }
 
 export interface WorkspaceCollectionSyncServiceDependencies {
+  cancelBackfill: (embeddingSetId: string) => Promise<void>;
   chunkRepository: {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
   };
@@ -70,8 +73,8 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   embeddingSetsRepository: IEmbeddingSetsRepository;
   enqueueBackfill: (
     embeddingSetId: string,
-    onProgress: (progress: { current: number; message?: string; total: number }) => void
-  ) => Promise<void>;
+    options: { signal?: AbortSignal; source: 'background-indexing' }
+  ) => Promise<{ requestId: string }>;
   ensureChunkingWorker: () => Promise<ChunkingWorkerPort>;
   ensureEmbeddingRuntimeStarted: () => Promise<void>;
   fileContentProcessor?: FileContentProcessor;
@@ -80,9 +83,25 @@ export interface WorkspaceCollectionSyncServiceDependencies {
     'createWithContent' | 'listManagedCacheEntryMetadata' | 'update'
   >;
   fileSystemAdapter: FileSystemAdapter;
+  getBackfillsInFlight: () => Promise<
+    Array<{
+      embeddingSetId: string;
+      progress: { current: number; total: number } | null;
+      requestId: string;
+    }>
+  >;
   log?: typeof logger;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncProgressUpdate) => void;
+  subscribeToBackfillProgress: (
+    callback: (progress: {
+      current: number;
+      embeddingSetId: string;
+      message?: string;
+      requestId: string;
+      total: number;
+    }) => void
+  ) => () => void;
   validateHostedProviderAccess: (embeddingSetId: string) => Promise<void>;
 }
 
@@ -96,6 +115,7 @@ export interface WorkspaceCollectionSyncRequest {
 export type WorkspaceCollectionSyncState =
   | 'disabled'
   | 'idle'
+  | 'recovering'
   | 'scanning'
   | 'importing'
   | 'chunking'
@@ -136,6 +156,7 @@ interface WorkspaceCollectionSyncProgressStatusBase {
 
 export interface WorkspaceCollectionSyncProgressUpdate {
   activeRootPath?: string | null;
+  backfillRequestId?: string | null;
   chunkingProgress?: {
     chunksCreated: number;
     currentFile: string | null;
@@ -181,12 +202,12 @@ export interface WorkspaceCollectionSyncProgressUpdate {
 
 interface PreparedCacheChange {
   compositeKey: string;
-  content: string;
   contentHash: string;
   id: string;
   mode: 'import' | 'replace';
   name: string;
   relativePath: string;
+  request: FileContentRequest;
   size: number;
   sourceRootPath: string;
 }
@@ -209,6 +230,13 @@ interface PreparedChangesSummary {
   excludedEntries: number;
   totalFiles: number;
   unchangedCount: number;
+}
+
+interface ActiveBackfillTracking {
+  embeddingSetId: string;
+  requestId: string;
+  rootPath: string;
+  unsubscribe: (() => void) | null;
 }
 
 function isContentAccessible(content: string): boolean {
@@ -334,6 +362,25 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
+async function waitForAbortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      cleanup();
+      reject(createAbortError('Workspace collection sync was cancelled.'));
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function dispatchQueueDrainedEvent(embeddingSetId: string): void {
   if (typeof window === 'undefined') {
     return;
@@ -346,7 +393,10 @@ function dispatchQueueDrainedEvent(embeddingSetId: string): void {
   );
 }
 
-function toMutableRecord(change: PreparedCacheChange): RootFolderCacheMutableRecord {
+function toMutableRecord(
+  change: PreparedCacheChange,
+  content: string
+): RootFolderCacheMutableRecord {
   const now = new Date().toISOString();
   return {
     id: change.id,
@@ -356,9 +406,9 @@ function toMutableRecord(change: PreparedCacheChange): RootFolderCacheMutableRec
     sourceRootPath: change.sourceRootPath,
     updatedAt: now,
     processedAt: now,
-    content: change.content,
+    content,
     contentHash: change.contentHash,
-    tokenCount: estimateTokenCount(change.content),
+    tokenCount: estimateTokenCount(content),
   };
 }
 
@@ -439,8 +489,10 @@ function mapBackfillProgressToStatus(args: {
   current?: number;
   managedCollectionName: string | null;
   message?: string;
+  requestId?: string | null;
   rootPath: string;
-  scanSummary: WorkspaceCollectionSyncScanSummary;
+  scanSummary?: WorkspaceCollectionSyncScanSummary;
+  state?: 'embedding' | 'recovering';
   total?: number;
 }): WorkspaceCollectionSyncProgressUpdate {
   const totalChunks = Math.max(0, args.total ?? 0);
@@ -448,19 +500,25 @@ function mapBackfillProgressToStatus(args: {
   const currentMessage = args.message?.trim() ? args.message : null;
 
   return {
-    state: 'embedding',
+    state: args.state ?? 'embedding',
     managedCollectionId: args.collection.id,
     managedCollectionName: args.managedCollectionName,
+    backfillRequestId: args.requestId ?? null,
     activeRootPath: args.rootPath,
     currentFilePath: currentMessage,
     lastError: null,
-    scanSummary: args.scanSummary,
-    importProgress: {
-      completed: args.scanSummary.changedFiles,
-      total: args.scanSummary.changedFiles,
-      current: null,
-      errorCount: 0,
-    },
+    ...(args.scanSummary
+      ? {
+          scanSummary: args.scanSummary,
+          importProgress: {
+            completed: args.scanSummary.changedFiles,
+            total: args.scanSummary.changedFiles,
+            current: null,
+            errorCount: 0,
+          },
+          processedFiles: args.scanSummary.discoveredFiles,
+        }
+      : {}),
     chunkingProgress: args.chunkingProgress,
     embeddingProgress: {
       chunksProcessed: processedChunks,
@@ -476,7 +534,6 @@ function mapBackfillProgressToStatus(args: {
       processed: processedChunks,
       totalQueued: totalChunks,
     },
-    processedFiles: args.scanSummary.discoveredFiles,
     queuedFiles: Math.max(0, totalChunks - processedChunks),
   };
 }
@@ -534,6 +591,83 @@ function toWorkspaceCollectionSyncQueueProgress(
     totalQueued: progress.queueProgress.totalQueued,
     lastError: progress.queueProgress.lastError,
     lastEvent: progress.queueProgress.lastEvent ?? null,
+  };
+}
+
+function buildNormalizedChunkingProgress(args: {
+  batchChunking: EnhancedImportProgress['chunkingProgress'] | undefined;
+  cumulativeChunksCreated: number;
+  cumulativeFilesChunked: number;
+  latestChunkingProgress: EnhancedImportProgress['chunkingProgress'] | null;
+  latestStrategyUsed: ChunkingStrategy | null;
+  totalFiles: number;
+}): EnhancedImportProgress['chunkingProgress'] | undefined {
+  if (args.batchChunking) {
+    return {
+      ...args.batchChunking,
+      filesProcessed: args.cumulativeFilesChunked + args.batchChunking.filesProcessed,
+      totalFiles: args.totalFiles,
+      chunksCreated: args.cumulativeChunksCreated + args.batchChunking.chunksCreated,
+      ...(args.batchChunking.strategyUsed
+        ? { strategyUsed: args.batchChunking.strategyUsed }
+        : args.latestStrategyUsed
+          ? { strategyUsed: args.latestStrategyUsed }
+          : {}),
+    };
+  }
+  if (!args.latestChunkingProgress) {
+    return undefined;
+  }
+  return {
+    ...args.latestChunkingProgress,
+    filesProcessed: args.cumulativeFilesChunked,
+    totalFiles: args.totalFiles,
+    chunksCreated: args.cumulativeChunksCreated,
+    ...(args.latestStrategyUsed ? { strategyUsed: args.latestStrategyUsed } : {}),
+  };
+}
+
+function buildBatchImportErrors(
+  progress: EnhancedImportProgress,
+  cumulativeErrorCount: number
+): EnhancedImportProgress['errors'] {
+  return Array.from({ length: cumulativeErrorCount + progress.errors.length }, (_, errorIndex) => {
+    const batchError = progress.errors[errorIndex - cumulativeErrorCount];
+    return (
+      batchError ?? {
+        file: `batch:${errorIndex}`,
+        error: 'Background cache import error.',
+      }
+    );
+  });
+}
+
+function buildBatchedEnhancedImportProgress(args: {
+  cumulativeChunksCreated: number;
+  cumulativeCompleted: number;
+  cumulativeErrorCount: number;
+  cumulativeFilesChunked: number;
+  latestChunkingProgress: EnhancedImportProgress['chunkingProgress'] | null;
+  latestStrategyUsed: ChunkingStrategy | null;
+  progress: EnhancedImportProgress;
+  totalFiles: number;
+}): EnhancedImportProgress {
+  return {
+    ...args.progress,
+    completed: args.cumulativeCompleted + args.progress.completed,
+    total: args.totalFiles,
+    errors: buildBatchImportErrors(args.progress, args.cumulativeErrorCount),
+    ...(() => {
+      const chunkingProgress = buildNormalizedChunkingProgress({
+        batchChunking: args.progress.chunkingProgress,
+        cumulativeChunksCreated: args.cumulativeChunksCreated,
+        cumulativeFilesChunked: args.cumulativeFilesChunked,
+        latestChunkingProgress: args.latestChunkingProgress,
+        latestStrategyUsed: args.latestStrategyUsed,
+        totalFiles: args.totalFiles,
+      });
+      return chunkingProgress ? { chunkingProgress } : {};
+    })(),
   };
 }
 
@@ -618,10 +752,10 @@ async function collectPreparedChangesInBatches(args: {
         }
         return {
           compositeKey,
-          content,
           contentHash: await generateContentHash(content),
           name: metadata.request.fileNode.name,
           relativePath: metadata.relativePath,
+          request: metadata.request,
           size: metadata.size > 0 ? metadata.size : content.length,
           sourceRootPath: rootPath,
         };
@@ -675,6 +809,7 @@ async function runRootFolderCacheImport(args: {
   chunkingWorkerPort: ChunkingWorkerPort;
   collection: EmbeddingSet;
   db: DbHandle;
+  fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: Pick<IFileRecordRepository, 'createWithContent' | 'update'>;
   onProgress: (progress: EnhancedImportProgress) => void;
   setImporting: (importing: boolean) => void;
@@ -686,6 +821,7 @@ async function runRootFolderCacheImport(args: {
     chunkingWorkerPort,
     collection,
     db,
+    fileContentProcessor,
     fileRecordRepository,
     onProgress,
     setImporting,
@@ -696,145 +832,216 @@ async function runRootFolderCacheImport(args: {
   }
 
   throwIfAborted(abortSignal, 'Background cache import was cancelled.');
-  const selectedFilePaths = new Set(changes.map((change) => change.compositeKey));
-  const fileContents = Object.fromEntries(
-    changes.map((change) => [change.compositeKey, change.content] as const)
-  );
-
-  let latestProgress: EnhancedImportProgress | null = null;
+  const firstChange = changes[0];
+  if (!firstChange) {
+    return;
+  }
   const embeddingConfig = {
     enabled: false,
     service: null,
     chunkRepository: chunkRepository as never,
     resolveTargetEmbeddingSetId: () => collection.id,
   };
-
-  const baseImportRunner = async ({
-    selectedFilePaths: selectedKeys,
-    onProgress,
-  }: {
-    fileContents: Record<string, string>;
-    fileTree: IFileNode[];
-    onProgress: (progress: ImportProgress) => void;
-    selectedFilePaths: Set<string>;
-  }): Promise<FileImportResult[]> => {
-    const changeByKey = new Map(changes.map((change) => [change.compositeKey, change]));
-    const results: FileImportResult[] = [];
-    const total = selectedKeys.size;
-    const errors: ImportProgress['errors'] = [];
-
-    onProgress(createInitialImportProgress(total));
-
-    let completed = 0;
-    for (const compositeKey of selectedKeys) {
-      throwIfAborted(abortSignal, 'Background cache import was cancelled.');
-      const change = changeByKey.get(compositeKey);
-      if (!change) {
-        errors.push({
-          file: compositeKey,
-          error: 'Background cache import descriptor is missing.',
-        });
-        completed += 1;
-        onProgress(buildImportProgress(total, completed, compositeKey, errors));
-        continue;
-      }
-
-      try {
-        if (change.mode === 'replace') {
-          const replacementRecordUpdate = {
-            ...toMutableRecord(change),
-            chunksCount: 0,
-            chunksProcessedAt: undefined,
-            chunkingStrategy: undefined,
-            embeddingSetId: collection.id,
-          } as unknown as Parameters<typeof fileRecordRepository.update>[1];
-          await chunkRepository.deleteByFileRecordId(change.id);
-          await fileRecordRepository.update(change.id, replacementRecordUpdate);
-        } else {
-          await fileRecordRepository.createWithContent({
-            ...toMutableRecord(change),
-            createdAt: new Date().toISOString(),
-            embeddingSetId: collection.id,
-          });
-        }
-
-        results.push({
-          id: change.id,
-          imported: true,
-          existed: false,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        errors.push({
-          file: change.relativePath,
-          error: message,
-        });
-        results.push({
-          id: change.id,
-          imported: false,
-          existed: false,
-          error: message,
-        });
-      }
-
-      completed += 1;
-      const { path } = decodeFileSelection(compositeKey);
-      onProgress(buildImportProgress(total, completed, path, errors));
-    }
-
-    return results;
-  };
+  const processor =
+    fileContentProcessor ??
+    createFileContentProcessor(firstChange.request.fileSystemAdapter, {
+      concurrency: PROCESSOR_CONCURRENCY,
+    });
+  let cumulativeCompleted = 0;
+  let cumulativeErrorCount = 0;
+  let cumulativeChunksCreated = 0;
+  let cumulativeFilesChunked = 0;
+  let latestStrategyUsed: ChunkingStrategy | null = null;
+  let latestChunkingProgress: EnhancedImportProgress['chunkingProgress'] | null = null;
 
   setImporting(true);
   try {
-    const results = await runEnhancedImport<IFileNode>({
-      abortSignal,
-      request: {
-        selectedFilePaths,
-        fileTree: [],
-        fileContents,
-      },
-      baseImportRunner,
-      chunking: {
-        enabled: true,
-        deps: {
-          repository: fileRecordRepository as never,
-          chunkRepository: chunkRepository as never,
+    for (let index = 0; index < changes.length; index += IMPORT_BATCH_SIZE) {
+      throwIfAborted(abortSignal, 'Background cache import was cancelled.');
+      const batch = changes.slice(index, index + IMPORT_BATCH_SIZE);
+      const batchMetadataByKey = new Map(
+        batch.map(
+          (change) =>
+            [
+              change.compositeKey,
+              {
+                relativePath: change.relativePath,
+                request: change.request,
+              },
+            ] as const
+        )
+      );
+      const batchContents = await processor.processFiles(
+        batch
+          .map((change) => batchMetadataByKey.get(change.compositeKey)?.request)
+          .filter((request): request is FileContentRequest => request !== undefined),
+        ({ key }) => {
+          onProgress({
+            phase: 'importing',
+            completed: cumulativeCompleted,
+            total: changes.length,
+            current: batchMetadataByKey.get(key)?.relativePath ?? null,
+            errors: [],
+          } as EnhancedImportProgress);
         },
-        chunkingWorkerPort: chunkingWorkerPort as never,
-      },
-      embedding: embeddingConfig,
-      progressHandlers: {
-        emit: onProgress,
-        update: (updater) => {
-          const next = updater(latestProgress);
-          if (next) {
-            latestProgress = next;
-            onProgress(next);
+        { abortSignal }
+      );
+      throwIfAborted(abortSignal, 'Background cache import was cancelled.');
+
+      const fileContents = Object.fromEntries(
+        batch
+          .map((change) => {
+            const content = batchContents[change.compositeKey];
+            return content !== undefined ? ([change.compositeKey, content] as const) : null;
+          })
+          .filter((entry): entry is readonly [string, string] => entry !== null)
+      );
+      const selectedFilePaths = new Set(Object.keys(fileContents));
+      const batchResults = await runEnhancedImport<IFileNode>({
+        abortSignal,
+        request: {
+          selectedFilePaths,
+          fileTree: [],
+          fileContents,
+        },
+        baseImportRunner: async ({
+          selectedFilePaths: selectedKeys,
+          onProgress: emitImportProgress,
+        }: {
+          fileContents: Record<string, string>;
+          fileTree: IFileNode[];
+          onProgress: (progress: ImportProgress) => void;
+          selectedFilePaths: Set<string>;
+        }): Promise<FileImportResult[]> => {
+          const changeByKey = new Map(batch.map((change) => [change.compositeKey, change]));
+          const results: FileImportResult[] = [];
+          const total = selectedKeys.size;
+          const errors: ImportProgress['errors'] = [];
+
+          emitImportProgress(createInitialImportProgress(total));
+
+          let completed = 0;
+          for (const compositeKey of selectedKeys) {
+            throwIfAborted(abortSignal, 'Background cache import was cancelled.');
+            const change = changeByKey.get(compositeKey);
+            const content = fileContents[compositeKey];
+            if (!(change && content !== undefined)) {
+              errors.push({
+                file: compositeKey,
+                error: 'Background cache import descriptor is missing.',
+              });
+              completed += 1;
+              emitImportProgress(buildImportProgress(total, completed, compositeKey, errors));
+              continue;
+            }
+
+            try {
+              if (change.mode === 'replace') {
+                const replacementRecordUpdate = {
+                  ...toMutableRecord(change, content),
+                  chunksCount: 0,
+                  chunksProcessedAt: undefined,
+                  chunkingStrategy: undefined,
+                  embeddingSetId: collection.id,
+                } as unknown as Parameters<typeof fileRecordRepository.update>[1];
+                await chunkRepository.deleteByFileRecordId(change.id);
+                await fileRecordRepository.update(change.id, replacementRecordUpdate);
+              } else {
+                await fileRecordRepository.createWithContent({
+                  ...toMutableRecord(change, content),
+                  createdAt: new Date().toISOString(),
+                  embeddingSetId: collection.id,
+                });
+              }
+
+              results.push({
+                id: change.id,
+                imported: true,
+                existed: false,
+              });
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              errors.push({
+                file: change.relativePath,
+                error: message,
+              });
+              results.push({
+                id: change.id,
+                imported: false,
+                existed: false,
+                error: message,
+              });
+            }
+
+            completed += 1;
+            const { path } = decodeFileSelection(compositeKey);
+            emitImportProgress(buildImportProgress(total, completed, path, errors));
           }
+
+          return results;
         },
-      },
-    });
-    await backfillEmbeddingSetAssignments(
-      { query: db.query.bind(db) },
-      collection.id,
-      results.map((result) => result.id)
-    );
+        chunking: {
+          enabled: true,
+          deps: {
+            repository: fileRecordRepository as never,
+            chunkRepository: chunkRepository as never,
+          },
+          chunkingWorkerPort: chunkingWorkerPort as never,
+        },
+        embedding: embeddingConfig,
+        progressHandlers: {
+          emit: (progress) => {
+            const batchChunking = progress.chunkingProgress;
+            latestChunkingProgress = batchChunking ?? latestChunkingProgress;
+            if (batchChunking?.strategyUsed) {
+              latestStrategyUsed = batchChunking.strategyUsed;
+            }
+            onProgress(
+              buildBatchedEnhancedImportProgress({
+                cumulativeChunksCreated,
+                cumulativeCompleted,
+                cumulativeErrorCount,
+                cumulativeFilesChunked,
+                latestChunkingProgress,
+                latestStrategyUsed,
+                progress,
+                totalFiles: changes.length,
+              })
+            );
+          },
+          update: () => null,
+        },
+      });
+      await backfillEmbeddingSetAssignments(
+        { query: db.query.bind(db) },
+        collection.id,
+        batchResults.map((result) => result.id)
+      );
+      cumulativeCompleted += batch.length;
+      cumulativeErrorCount += batchResults.filter((result) => !result.imported).length;
+      const finalChunkingProgress = latestChunkingProgress as NonNullable<
+        EnhancedImportProgress['chunkingProgress']
+      > | null;
+      if (finalChunkingProgress) {
+        cumulativeFilesChunked += finalChunkingProgress.filesProcessed;
+        cumulativeChunksCreated += finalChunkingProgress.chunksCreated;
+      }
+    }
   } finally {
     setImporting(false);
   }
 }
 
 export class WorkspaceCollectionSyncService {
+  private activeBackfill: ActiveBackfillTracking | null = null;
   private currentAbortController: AbortController | null = null;
   private runId = 0;
 
   constructor(private readonly deps: WorkspaceCollectionSyncServiceDependencies) {}
 
-  cancel(): void {
-    this.currentAbortController?.abort();
-    this.currentAbortController = null;
+  async cancel(): Promise<void> {
     this.runId += 1;
+    await this.resetActiveWork({ cancelTrackedBackfill: true });
   }
 
   private isCancelled(runId: number): boolean {
@@ -843,6 +1050,7 @@ export class WorkspaceCollectionSyncService {
 
   private createClearedProgressState(): Pick<
     WorkspaceCollectionSyncProgressUpdate,
+    | 'backfillRequestId'
     | 'chunkingProgress'
     | 'currentFilePath'
     | 'embeddingProgress'
@@ -854,6 +1062,7 @@ export class WorkspaceCollectionSyncService {
     | 'scanSummary'
   > {
     return {
+      backfillRequestId: null,
       currentFilePath: null,
       scanSummary: null,
       importProgress: null,
@@ -876,6 +1085,47 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
+  private createScanSummary(
+    prepared: Pick<
+      PreparedChangesSummary,
+      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+    >
+  ): WorkspaceCollectionSyncScanSummary {
+    return {
+      discoveredFiles: prepared.totalFiles,
+      changedFiles: prepared.changes.length,
+      excludedEntries: prepared.excludedEntries,
+      unchangedFiles: prepared.unchangedCount,
+    };
+  }
+
+  private isBackgroundIndexingBackfillRequestId(requestId: string): boolean {
+    return requestId.startsWith('background-indexing-backfill:');
+  }
+
+  private async resetActiveWork(options: { cancelTrackedBackfill: boolean }): Promise<void> {
+    this.currentAbortController?.abort();
+    this.currentAbortController = null;
+
+    const trackedBackfill = this.activeBackfill;
+    this.activeBackfill = null;
+    trackedBackfill?.unsubscribe?.();
+
+    if (!(options.cancelTrackedBackfill && trackedBackfill)) {
+      return;
+    }
+
+    try {
+      await this.deps.cancelBackfill(trackedBackfill.embeddingSetId);
+    } catch (error) {
+      this.deps.log?.warn('Failed to cancel tracked background backfill', {
+        embeddingSetId: trackedBackfill.embeddingSetId,
+        requestId: trackedBackfill.requestId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private setErrorStatus(args: {
     activeRootPath: string | null;
     managedCollectionId: string | null;
@@ -888,6 +1138,97 @@ export class WorkspaceCollectionSyncService {
       managedCollectionName: args.managedCollectionName,
       activeRootPath: args.activeRootPath,
       lastError: args.message,
+    });
+  }
+
+  private trackBackfill(args: {
+    collection: EmbeddingSet;
+    managedCollectionName: string | null;
+    requestId: string;
+    rootPath: string;
+    scanSummary?: WorkspaceCollectionSyncScanSummary;
+    state: 'embedding' | 'recovering';
+    chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
+  }): void {
+    this.activeBackfill?.unsubscribe?.();
+    const unsubscribe = this.deps.subscribeToBackfillProgress((progress) => {
+      if (progress.embeddingSetId !== args.collection.id || progress.requestId !== args.requestId) {
+        return;
+      }
+      this.deps.setStatus(
+        mapBackfillProgressToStatus({
+          collection: args.collection,
+          managedCollectionName: args.managedCollectionName,
+          rootPath: args.rootPath,
+          chunkingProgress: args.chunkingProgress,
+          current: progress.current,
+          total: progress.total,
+          requestId: progress.requestId,
+          state: args.state,
+          ...(args.scanSummary ? { scanSummary: args.scanSummary } : {}),
+          ...(progress.message ? { message: progress.message } : {}),
+        })
+      );
+    });
+    this.activeBackfill = {
+      embeddingSetId: args.collection.id,
+      requestId: args.requestId,
+      rootPath: args.rootPath,
+      unsubscribe,
+    };
+  }
+
+  private async cancelSupersededBackgroundBackfills(args: {
+    exceptEmbeddingSetId?: string;
+    inFlightBackfills: Array<{
+      embeddingSetId: string;
+      progress: { current: number; total: number } | null;
+      requestId: string;
+    }>;
+  }): Promise<void> {
+    for (const backfill of args.inFlightBackfills) {
+      if (!this.isBackgroundIndexingBackfillRequestId(backfill.requestId)) {
+        continue;
+      }
+      if (backfill.embeddingSetId === args.exceptEmbeddingSetId) {
+        continue;
+      }
+      await this.deps.cancelBackfill(backfill.embeddingSetId);
+    }
+  }
+
+  private async waitForBackfillToDrain(args: {
+    abortSignal: AbortSignal;
+    collectionId: string;
+    requestId: string;
+  }): Promise<void> {
+    while (true) {
+      throwIfAborted(args.abortSignal);
+      const inFlight = await this.deps.getBackfillsInFlight();
+      const matching = inFlight.find(
+        (backfill) =>
+          backfill.embeddingSetId === args.collectionId && backfill.requestId === args.requestId
+      );
+      if (!matching) {
+        return;
+      }
+      await waitForAbortableDelay(250, args.abortSignal);
+    }
+  }
+
+  private setRecoveringStatus(args: {
+    collection: EmbeddingSet;
+    rootPath: string;
+    requestId: string;
+  }): void {
+    this.deps.setStatus({
+      state: 'recovering',
+      managedCollectionId: args.collection.id,
+      managedCollectionName: args.collection.name ?? null,
+      activeRootPath: args.rootPath,
+      backfillRequestId: args.requestId,
+      currentFilePath: null,
+      lastError: null,
     });
   }
 
@@ -1039,12 +1380,7 @@ export class WorkspaceCollectionSyncService {
       managedCollectionId: context.collection.id,
       managedCollectionName: context.collection.name ?? null,
       activeRootPath: context.rootPath,
-      scanSummary: {
-        discoveredFiles: prepared.totalFiles,
-        changedFiles: prepared.changes.length,
-        excludedEntries: prepared.excludedEntries,
-        unchangedFiles: prepared.unchangedCount,
-      },
+      scanSummary: this.createScanSummary(prepared),
       processedFiles: prepared.unchangedCount,
       queuedFiles: prepared.changes.length,
       lastError: null,
@@ -1065,15 +1401,11 @@ export class WorkspaceCollectionSyncService {
       managedCollectionName: args.collection.name ?? null,
       activeRootPath: args.rootPath,
       currentFilePath: null,
+      backfillRequestId: null,
       lastError: null,
       ...(args.summary
         ? {
-            scanSummary: {
-              discoveredFiles: args.summary.totalFiles,
-              changedFiles: args.summary.changes.length,
-              excludedEntries: args.summary.excludedEntries,
-              unchangedFiles: args.summary.unchangedCount,
-            },
+            scanSummary: this.createScanSummary(args.summary),
             processedFiles: args.summary.totalFiles,
             queuedFiles: 0,
           }
@@ -1096,12 +1428,8 @@ export class WorkspaceCollectionSyncService {
       managedCollectionName: context.collection.name ?? null,
       activeRootPath: context.rootPath,
       currentFilePath: null,
-      scanSummary: {
-        discoveredFiles: summary.totalFiles,
-        changedFiles: summary.changes.length,
-        excludedEntries: summary.excludedEntries,
-        unchangedFiles: summary.unchangedCount,
-      },
+      backfillRequestId: null,
+      scanSummary: this.createScanSummary(summary),
       importProgress: {
         completed: 0,
         total: summary.changes.length,
@@ -1136,134 +1464,324 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
-  async sync(request: WorkspaceCollectionSyncRequest): Promise<void> {
-    this.currentAbortController?.abort();
-    this.currentAbortController = null;
-    const currentRunId = ++this.runId;
+  private async cancelTrackedBackfill(
+    trackedBackfill: ActiveBackfillTracking | null
+  ): Promise<void> {
+    if (!trackedBackfill) {
+      return;
+    }
+    await this.deps.cancelBackfill(trackedBackfill.embeddingSetId);
+  }
 
-    if (!request.enabled) {
-      this.setDisabledStatus(request);
+  private async prepareSyncContext(args: {
+    currentRunId: number;
+    previousTrackedBackfill: ActiveBackfillTracking | null;
+    request: WorkspaceCollectionSyncRequest;
+  }): Promise<ResolvedSyncContext | null> {
+    if (!args.request.enabled) {
+      await this.cancelTrackedBackfill(args.previousTrackedBackfill);
+      this.setDisabledStatus(args.request);
+      return null;
+    }
+
+    const context = await this.resolveContext(args.request);
+    if (!context) {
+      await this.cancelTrackedBackfill(args.previousTrackedBackfill);
+      return null;
+    }
+    if (this.isCancelled(args.currentRunId)) {
+      return null;
+    }
+    return context;
+  }
+
+  private async cancelSupersededTrackedBackfill(args: {
+    canReusePreviousBackfill: boolean;
+    previousTrackedBackfill: ActiveBackfillTracking | null;
+  }): Promise<void> {
+    if (!(args.previousTrackedBackfill && !args.canReusePreviousBackfill)) {
+      return;
+    }
+    await this.deps.cancelBackfill(args.previousTrackedBackfill.embeddingSetId);
+  }
+
+  private async handleRecoveredSync(args: {
+    abortController: AbortController;
+    context: ResolvedSyncContext;
+    currentRunId: number;
+    recoveredBackfill: {
+      embeddingSetId: string;
+      progress: { current: number; total: number } | null;
+      requestId: string;
+    };
+    request: WorkspaceCollectionSyncRequest;
+  }): Promise<boolean> {
+    const { abortController, context, currentRunId, recoveredBackfill, request } = args;
+    const { signal } = abortController;
+    try {
+      await this.recoverInFlightBackfill({
+        abortSignal: signal,
+        backfill: recoveredBackfill,
+        context,
+      });
+      if (!(this.isCancelled(currentRunId) || signal.aborted)) {
+        this.setScanningStatus(context, null, { resetProgress: false });
+        await this.runSyncPass({
+          abortSignal: signal,
+          context,
+          request,
+          runId: currentRunId,
+        });
+      }
+    } catch (error) {
+      if (this.isCancelled(currentRunId) || isAbortError(error)) {
+        return true;
+      }
+      this.handleSyncFailure({
+        collection: context.collection,
+        error,
+        rootPath: context.rootPath,
+      });
+    } finally {
+      if (this.currentAbortController === abortController) {
+        this.currentAbortController = null;
+      }
+    }
+    return true;
+  }
+
+  private async recoverInFlightBackfill(args: {
+    abortSignal: AbortSignal;
+    backfill: {
+      embeddingSetId: string;
+      progress: { current: number; total: number } | null;
+      requestId: string;
+    };
+    context: ResolvedSyncContext;
+  }): Promise<void> {
+    this.setRecoveringStatus({
+      collection: args.context.collection,
+      rootPath: args.context.rootPath,
+      requestId: args.backfill.requestId,
+    });
+    this.trackBackfill({
+      collection: args.context.collection,
+      managedCollectionName: args.context.collection.name ?? null,
+      requestId: args.backfill.requestId,
+      rootPath: args.context.rootPath,
+      state: 'recovering',
+      chunkingProgress: null,
+    });
+    await this.waitForBackfillToDrain({
+      abortSignal: args.abortSignal,
+      collectionId: args.context.collection.id,
+      requestId: args.backfill.requestId,
+    });
+    this.activeBackfill?.unsubscribe?.();
+    this.activeBackfill = null;
+    dispatchQueueDrainedEvent(args.context.collection.id);
+  }
+
+  private async runSyncPass(args: {
+    abortSignal: AbortSignal;
+    context: ResolvedSyncContext;
+    request: WorkspaceCollectionSyncRequest;
+    runId: number;
+  }): Promise<void> {
+    const prepared = await this.collectPreparedChanges({
+      request: args.request,
+      context: args.context,
+      abortSignal: args.abortSignal,
+    });
+    this.setScanSummary(args.context, prepared);
+
+    if (prepared.changes.length === 0) {
+      this.setIdleStatus({
+        collection: args.context.collection,
+        rootPath: args.context.rootPath,
+        summary: prepared,
+      });
       return;
     }
 
-    const context = await this.resolveContext(request);
+    await this.ensureCollectionAccess(args.context);
+    throwIfAborted(args.abortSignal);
+
+    const chunkingWorkerPort = await this.deps.ensureChunkingWorker();
+    throwIfAborted(args.abortSignal);
+
+    this.setImportingStatus(args.context, prepared);
+    const scanSummary = this.createScanSummary(prepared);
+    let sawCompleteProgress = false;
+    let latestImportProgress: EnhancedImportProgress | null = null;
+
+    await runRootFolderCacheImport({
+      abortSignal: args.abortSignal,
+      changes: prepared.changes,
+      chunkRepository: this.deps.chunkRepository,
+      chunkingWorkerPort,
+      collection: args.context.collection,
+      db: this.deps.db,
+      ...(this.deps.fileContentProcessor
+        ? { fileContentProcessor: this.deps.fileContentProcessor }
+        : {}),
+      fileRecordRepository: this.deps.fileRecordRepository,
+      onProgress: (progress) => {
+        latestImportProgress = progress;
+        if (progress.phase === 'complete') {
+          sawCompleteProgress = true;
+        }
+        this.deps.setStatus(
+          mapEnhancedProgressToStatus(
+            progress,
+            args.context.collection.id,
+            args.context.collection.name ?? null,
+            args.context.rootPath,
+            scanSummary
+          )
+        );
+      },
+      setImporting: this.deps.setImporting,
+    });
+    throwIfAborted(args.abortSignal);
+
+    const chunkingProgress = latestImportProgress
+      ? toWorkspaceCollectionSyncChunkingProgress(latestImportProgress)
+      : null;
+    const pendingRequestId = `pending:${args.context.collection.id}:${Date.now()}`;
+    let resolvedRequestId = pendingRequestId;
+    let unsubscribeBackfillProgress: (() => void) | null = null;
+    unsubscribeBackfillProgress = this.deps.subscribeToBackfillProgress((progress) => {
+      if (progress.embeddingSetId !== args.context.collection.id) {
+        return;
+      }
+      resolvedRequestId = progress.requestId;
+      this.activeBackfill = {
+        embeddingSetId: args.context.collection.id,
+        requestId: progress.requestId,
+        rootPath: args.context.rootPath,
+        unsubscribe: unsubscribeBackfillProgress,
+      };
+      this.deps.setStatus(
+        mapBackfillProgressToStatus({
+          collection: args.context.collection,
+          managedCollectionName: args.context.collection.name ?? null,
+          rootPath: args.context.rootPath,
+          scanSummary,
+          chunkingProgress,
+          current: progress.current,
+          total: progress.total,
+          requestId: progress.requestId,
+          state: 'embedding',
+          ...(progress.message ? { message: progress.message } : {}),
+        })
+      );
+    });
+    this.activeBackfill = {
+      embeddingSetId: args.context.collection.id,
+      requestId: pendingRequestId,
+      rootPath: args.context.rootPath,
+      unsubscribe: unsubscribeBackfillProgress,
+    };
+    try {
+      const { requestId } = await this.deps.enqueueBackfill(args.context.collection.id, {
+        signal: args.abortSignal,
+        source: 'background-indexing',
+      });
+      resolvedRequestId = requestId;
+      if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
+        return;
+      }
+      dispatchQueueDrainedEvent(args.context.collection.id);
+      throwIfAborted(args.abortSignal);
+    } finally {
+      if (
+        this.activeBackfill?.requestId === resolvedRequestId ||
+        resolvedRequestId === pendingRequestId
+      ) {
+        this.activeBackfill?.unsubscribe?.();
+        this.activeBackfill = null;
+      }
+    }
+
+    this.setIdleStatus({
+      collection: args.context.collection,
+      rootPath: args.context.rootPath,
+      summary: prepared,
+    });
+    if (!sawCompleteProgress && latestImportProgress) {
+      this.deps.setStatus({
+        chunkingProgress: toWorkspaceCollectionSyncChunkingProgress(latestImportProgress),
+        importProgress: toWorkspaceCollectionSyncImportProgress(latestImportProgress),
+        scanSummary,
+      });
+    }
+  }
+
+  async sync(request: WorkspaceCollectionSyncRequest): Promise<void> {
+    const currentRunId = ++this.runId;
+    const previousTrackedBackfill = this.activeBackfill;
+    this.currentAbortController?.abort();
+    this.currentAbortController = null;
+    this.activeBackfill = null;
+    previousTrackedBackfill?.unsubscribe?.();
+
+    const context = await this.prepareSyncContext({
+      currentRunId,
+      previousTrackedBackfill,
+      request,
+    });
     if (!context) {
       return;
     }
+
+    const inFlightBackfills = await this.deps.getBackfillsInFlight();
+    const recoveredBackfill = inFlightBackfills.find(
+      (backfill) =>
+        backfill.embeddingSetId === context.collection.id &&
+        this.isBackgroundIndexingBackfillRequestId(backfill.requestId)
+    );
+    const canReusePreviousBackfill =
+      previousTrackedBackfill !== null &&
+      recoveredBackfill !== undefined &&
+      previousTrackedBackfill.embeddingSetId === context.collection.id &&
+      previousTrackedBackfill.rootPath === context.rootPath &&
+      previousTrackedBackfill.requestId === recoveredBackfill.requestId;
+
+    await this.cancelSupersededTrackedBackfill({
+      canReusePreviousBackfill,
+      previousTrackedBackfill,
+    });
+    await this.cancelSupersededBackgroundBackfills({
+      inFlightBackfills,
+      ...(recoveredBackfill ? { exceptEmbeddingSetId: context.collection.id } : {}),
+    });
     if (this.isCancelled(currentRunId)) {
       return;
     }
+
     const abortController = new AbortController();
     this.currentAbortController = abortController;
-    const { signal } = abortController;
+    if (recoveredBackfill) {
+      await this.handleRecoveredSync({
+        abortController,
+        context,
+        currentRunId,
+        recoveredBackfill,
+        request,
+      });
+      return;
+    }
+
     this.setScanningStatus(context, null, { resetProgress: true });
 
     try {
-      const prepared = await this.collectPreparedChanges({
-        request,
+      await this.runSyncPass({
+        abortSignal: abortController.signal,
         context,
-        abortSignal: signal,
+        request,
+        runId: currentRunId,
       });
-      this.setScanSummary(context, prepared);
-
-      if (prepared.changes.length === 0) {
-        this.setIdleStatus({
-          collection: context.collection,
-          rootPath: context.rootPath,
-          summary: prepared,
-        });
-        return;
-      }
-
-      await this.ensureCollectionAccess(context);
-      throwIfAborted(signal);
-
-      const chunkingWorkerPort = await this.deps.ensureChunkingWorker();
-      throwIfAborted(signal);
-
-      this.setImportingStatus(context, prepared);
-      const scanSummary: WorkspaceCollectionSyncScanSummary = {
-        discoveredFiles: prepared.totalFiles,
-        changedFiles: prepared.changes.length,
-        excludedEntries: prepared.excludedEntries,
-        unchangedFiles: prepared.unchangedCount,
-      };
-      let sawCompleteProgress = false;
-      let latestImportProgress: EnhancedImportProgress | null = null;
-
-      await runRootFolderCacheImport({
-        abortSignal: signal,
-        changes: prepared.changes,
-        chunkRepository: this.deps.chunkRepository,
-        chunkingWorkerPort,
-        collection: context.collection,
-        db: this.deps.db,
-        fileRecordRepository: this.deps.fileRecordRepository,
-        onProgress: (progress) => {
-          latestImportProgress = progress;
-          if (progress.phase === 'complete') {
-            sawCompleteProgress = true;
-          }
-          this.deps.setStatus(
-            mapEnhancedProgressToStatus(
-              progress,
-              context.collection.id,
-              context.collection.name ?? null,
-              context.rootPath,
-              scanSummary
-            )
-          );
-        },
-        setImporting: this.deps.setImporting,
-      });
-      throwIfAborted(signal);
-
-      const chunkingProgress = latestImportProgress
-        ? toWorkspaceCollectionSyncChunkingProgress(latestImportProgress)
-        : null;
-      this.deps.setStatus(
-        mapBackfillProgressToStatus({
-          collection: context.collection,
-          managedCollectionName: context.collection.name ?? null,
-          rootPath: context.rootPath,
-          scanSummary,
-          chunkingProgress,
-          current: 0,
-          total: 0,
-        })
-      );
-      await this.deps.enqueueBackfill(context.collection.id, (progress) => {
-        if (this.isCancelled(currentRunId) || signal.aborted) {
-          return;
-        }
-        this.deps.setStatus(
-          mapBackfillProgressToStatus({
-            collection: context.collection,
-            managedCollectionName: context.collection.name ?? null,
-            rootPath: context.rootPath,
-            scanSummary,
-            chunkingProgress,
-            current: progress.current,
-            total: progress.total,
-            ...(progress.message ? { message: progress.message } : {}),
-          })
-        );
-      });
-      dispatchQueueDrainedEvent(context.collection.id);
-      throwIfAborted(signal);
-
-      this.setIdleStatus({
-        collection: context.collection,
-        rootPath: context.rootPath,
-        summary: prepared,
-      });
-      if (!sawCompleteProgress && latestImportProgress) {
-        this.deps.setStatus({
-          chunkingProgress: toWorkspaceCollectionSyncChunkingProgress(latestImportProgress),
-          importProgress: toWorkspaceCollectionSyncImportProgress(latestImportProgress),
-          scanSummary,
-        });
-      }
     } catch (error) {
       if (this.isCancelled(currentRunId) || isAbortError(error)) {
         return;

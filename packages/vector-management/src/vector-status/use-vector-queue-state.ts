@@ -251,7 +251,7 @@ async function reconcileBackfillStateAfterReload({
     return;
   }
 
-  if (!inFlight.includes(activeEmbeddingSetId)) {
+  if (!inFlight.some((backfill) => backfill.embeddingSetId === activeEmbeddingSetId)) {
     const currentState = useVectorStatusUIStore.getState();
     if (
       shouldClearRecoveredBackfillState(
@@ -683,7 +683,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     );
     try {
       logger.info('backfillActiveSet: starting backfill', { activeEmbeddingSetId });
-      await controller.enqueueBackfill(activeEmbeddingSetId);
+      await controller.enqueueBackfill(activeEmbeddingSetId, { source: 'manual' });
       dispatchQueueDrainedEvent(activeEmbeddingSetId);
       logger.info('backfillActiveSet: backfill completed', { activeEmbeddingSetId });
     } catch (error) {

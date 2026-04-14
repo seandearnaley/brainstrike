@@ -25,6 +25,7 @@ const {
   ensureChunkingWorkerMock,
   ensureEmbeddingRuntimeStartedMock,
   enqueueBackfillMock,
+  cancelBackfillMock,
   fileSystemState,
   fileTreeContextState,
 } = vi.hoisted(() => ({
@@ -39,7 +40,8 @@ const {
   validateApiKeyForSetMock: vi.fn(),
   ensureChunkingWorkerMock: vi.fn(),
   ensureEmbeddingRuntimeStartedMock: vi.fn(),
-  enqueueBackfillMock: vi.fn(async () => {}),
+  enqueueBackfillMock: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
+  cancelBackfillMock: vi.fn(async () => {}),
   fileSystemState: {
     isAccessLoading: false,
     rootDirectoryHandle: {
@@ -126,6 +128,7 @@ vi.mock('@brainstrike/vector-management', () => ({
   useSharedEmbeddingRuntime: vi.fn(() => ({
     controller: {
       cancelAllBackfills: vi.fn(async () => {}),
+      cancelBackfill: cancelBackfillMock,
       enqueueBackfill: enqueueBackfillMock,
       ensureStarted: ensureEmbeddingRuntimeStartedMock,
       getBackfillsInFlight: vi.fn(async () => []),
@@ -252,7 +255,12 @@ describe('WorkspaceCollectionSyncProvider', () => {
     await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(createWithContentMock).toHaveBeenCalledTimes(1));
-    expect(enqueueBackfillMock).toHaveBeenCalledWith('00000000-0000-0000-0000-000000000101');
+    expect(enqueueBackfillMock).toHaveBeenCalledWith(
+      '00000000-0000-0000-0000-000000000101',
+      expect.objectContaining({
+        source: 'background-indexing',
+      })
+    );
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );

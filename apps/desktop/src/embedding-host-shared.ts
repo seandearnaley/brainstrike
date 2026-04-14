@@ -30,7 +30,15 @@ export const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
   'embedding-host:get-backfills-in-flight' as const;
 export const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL =
   'embedding-host:cancel-all-backfills' as const;
+export const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = 'embedding-host:cancel-backfill' as const;
 export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.' as const;
+
+export type EmbeddingBackfillSource = 'background-indexing' | 'manual';
+
+export interface EmbeddingHostBackfillRequest {
+  readonly embeddingSetId: string;
+  readonly source?: EmbeddingBackfillSource;
+}
 
 export type EmbeddingHostCommandAction = 'reset' | 'stop';
 
@@ -45,6 +53,12 @@ export type EmbeddingHostCommandPayload =
 
 export interface EmbeddingHostBackfillProgress extends BackgroundRuntimeProgress {
   readonly embeddingSetId: string;
+}
+
+export interface EmbeddingHostBackfillInfo {
+  readonly embeddingSetId: string;
+  readonly progress: { current: number; total: number } | null;
+  readonly requestId: string;
 }
 
 export const EMBEDDING_HOST_STATUS_ADAPTER = EMBEDDING_HOST_RUNTIME.statusAdapter;

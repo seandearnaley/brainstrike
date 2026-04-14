@@ -117,6 +117,11 @@ export function getWorkspaceCollectionSyncCurrentActivity(
     'chunkingProgress' | 'currentFilePath' | 'embeddingProgress' | 'importProgress' | 'state'
   >
 ): { label: string; value: string } | null {
+  if (status.state === 'recovering') {
+    const value = status.embeddingProgress?.currentChunk ?? status.currentFilePath;
+    return value ? { label: 'Reattaching backfill', value } : null;
+  }
+
   if (status.state === 'scanning') {
     const value = status.currentFilePath;
     return value ? { label: 'Scanning', value } : null;

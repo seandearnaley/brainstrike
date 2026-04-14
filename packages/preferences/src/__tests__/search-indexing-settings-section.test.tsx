@@ -5,7 +5,10 @@ import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   useBackgroundIndexingPreferencesStore,
 } from '../stores/background-indexing-preferences-store';
-import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '../stores/workspace-collection-sync-status-store';
+import {
+  __resetWorkspaceCollectionSyncStatusStoreForTests,
+  useWorkspaceCollectionSyncStatusStore,
+} from '../stores/workspace-collection-sync-status-store';
 
 const { findAllMock } = vi.hoisted(() => ({
   findAllMock: vi.fn(),
@@ -55,5 +58,17 @@ describe('SearchIndexingSettingsSection', () => {
         'full-root'
       );
     });
+  });
+
+  it('shows recovering status when reattaching to an in-flight background backfill', async () => {
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'recovering',
+      managedCollectionName: 'Managed Cache',
+      backfillRequestId: 'background-indexing-backfill:test',
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    expect(await screen.findByText('Recovering in-flight backfill')).not.toBeNull();
   });
 });

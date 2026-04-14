@@ -63,6 +63,13 @@ function getStatusBadge(
         variant: 'outline' as const,
         iconClassName: 'size-3.5 animate-spin',
       };
+    case 'recovering':
+      return {
+        label: 'Recovering in-flight backfill',
+        icon: RefreshCw,
+        variant: 'secondary' as const,
+        iconClassName: 'size-3.5 animate-spin',
+      };
     case 'importing':
       return {
         label: 'Importing cache files',
@@ -126,6 +133,7 @@ export function SearchIndexingSettingsSection() {
   );
   const syncStatus = useWorkspaceCollectionSyncStatusStore((state) => ({
     state: state.state,
+    backfillRequestId: state.backfillRequestId,
     managedCollectionName: state.managedCollectionName,
     currentFilePath: state.currentFilePath,
     lastError: state.lastError,

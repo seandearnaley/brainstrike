@@ -40,6 +40,7 @@ function createDeps(
     chunkRepository: {
       deleteByFileRecordId: vi.fn(async () => undefined),
     },
+    cancelBackfill: vi.fn(async () => undefined),
     db: {
       query: vi.fn(async () => ({ rows: [] })),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
@@ -47,9 +48,7 @@ function createDeps(
     embeddingSetsRepository: {
       getById: vi.fn(async () => createCollection()),
     } as unknown as WorkspaceCollectionSyncServiceDependencies['embeddingSetsRepository'],
-    enqueueBackfill: vi.fn(async (_embeddingSetId, onProgress) => {
-      onProgress({ current: 0, total: 0 });
-    }),
+    enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
     fileContentProcessor: {
       processFiles: vi.fn(),
     },
@@ -64,6 +63,7 @@ function createDeps(
       requestDirectoryAccess: vi.fn(),
       exists: vi.fn(),
     },
+    getBackfillsInFlight: vi.fn(async () => []),
     ensureChunkingWorker: vi.fn(async () => ({
       chunkBatch: vi.fn(),
       isReady: () => true,
@@ -74,6 +74,7 @@ function createDeps(
     ensureEmbeddingRuntimeStarted: vi.fn(async () => undefined),
     setImporting: vi.fn(),
     setStatus: vi.fn(),
+    subscribeToBackfillProgress: vi.fn(() => () => {}),
     validateHostedProviderAccess: vi.fn(async () => undefined),
     ...overrides,
   };
@@ -287,7 +288,12 @@ describe('WorkspaceCollectionSyncService', () => {
         }),
       })
     );
-    expect(deps.enqueueBackfill).toHaveBeenCalledWith('set-1', expect.any(Function));
+    expect(deps.enqueueBackfill).toHaveBeenCalledWith(
+      'set-1',
+      expect.objectContaining({
+        source: 'background-indexing',
+      })
+    );
   });
 
   it('aborts in-flight import work when the sync is cancelled', async () => {
@@ -327,7 +333,7 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
     await started;
-    service.cancel();
+    await service.cancel();
 
     await expect(syncPromise).resolves.toBeUndefined();
     expect(runEnhancedImportMock.mock.calls[0]?.[0]).toEqual(
@@ -384,17 +390,25 @@ describe('WorkspaceCollectionSyncService', () => {
           [COMPOSITE_KEY]: 'export const value = 2;',
         })),
       },
-      enqueueBackfill: vi.fn(async (_embeddingSetId, onProgress) => {
-        onProgress({
-          current: 2,
-          total: 3,
-          message: 'chunk 2/3',
+      enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
+      subscribeToBackfillProgress: vi.fn((callback) => {
+        queueMicrotask(() => {
+          callback({
+            embeddingSetId: 'set-1',
+            requestId: 'background-indexing-backfill:test',
+            current: 2,
+            total: 3,
+            message: 'chunk 2/3',
+          });
+          callback({
+            embeddingSetId: 'set-1',
+            requestId: 'background-indexing-backfill:test',
+            current: 3,
+            total: 3,
+            message: 'chunk 3/3',
+          });
         });
-        onProgress({
-          current: 3,
-          total: 3,
-          message: 'chunk 3/3',
-        });
+        return () => {};
       }),
     });
     runEnhancedImportMock.mockImplementationOnce(async (params) => {
@@ -470,5 +484,166 @@ describe('WorkspaceCollectionSyncService', () => {
         queuedFiles: 0,
       })
     );
+  });
+
+  it('cancels an in-flight managed backfill when background indexing is disabled', async () => {
+    let rejectBackfill: ((error: unknown) => void) | null = null;
+    let resolveBackfillStarted: (() => void) | null = null;
+    const backfillStarted = new Promise<void>((resolve) => {
+      resolveBackfillStarted = resolve;
+    });
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+      enqueueBackfill: vi.fn(async (_embeddingSetId, options): Promise<{ requestId: string }> => {
+        expect(options.source).toBe('background-indexing');
+        resolveBackfillStarted?.();
+        await new Promise<never>((_, reject) => {
+          rejectBackfill = reject;
+        });
+        return { requestId: 'background-indexing-backfill:test' };
+      }),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+    vi.mocked(deps.cancelBackfill).mockImplementationOnce(async () => {
+      const error = new Error('Embedding backfill was canceled.');
+      error.name = 'AbortError';
+      rejectBackfill?.(error);
+    });
+
+    const firstSync = service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+    await backfillStarted;
+
+    await service.sync({
+      enabled: false,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    await expect(firstSync).resolves.toBeUndefined();
+    expect(deps.cancelBackfill).toHaveBeenCalledWith('set-1');
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'disabled',
+      })
+    );
+  });
+
+  it('enters recovering state when the managed collection already has an in-flight backfill', async () => {
+    const unchangedContent = 'export const value = 1;';
+    const unchangedHash = await generateContentHash(unchangedContent);
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: unchangedContent,
+        })),
+      },
+      fileRecordRepository: {
+        createWithContent: vi.fn(async () => undefined),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            fileRecordId: 'file-1',
+            embeddingSetId: 'set-1',
+            sourceRootPath: ROOT_PATH,
+            relativePath: FILE_PATH,
+            contentHash: unchangedHash,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+      },
+      getBackfillsInFlight: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            embeddingSetId: 'set-1',
+            requestId: 'background-indexing-backfill:test',
+            progress: { current: 2, total: 4 },
+          },
+        ])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]),
+      subscribeToBackfillProgress: vi.fn((callback) => {
+        callback({
+          embeddingSetId: 'set-1',
+          requestId: 'background-indexing-backfill:test',
+          current: 3,
+          total: 4,
+          message: 'chunk 3/4',
+        });
+        return () => {};
+      }),
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'recovering',
+        backfillRequestId: 'background-indexing-backfill:test',
+      })
+    );
+    expect(deps.enqueueBackfill).not.toHaveBeenCalled();
+  });
+
+  it('imports changed files in bounded batches instead of building a single full-run content map', async () => {
+    const fileNodes = Array.from({ length: 30 }, (_, index) => ({
+      name: `file-${index}.ts`,
+      path: `${ROOT_PATH}/src/file-${index}.ts`,
+      type: 'file' as const,
+      handle: { platform: 'electron', path: `${ROOT_PATH}/src/file-${index}.ts` },
+      rootFolderId: ROOT_PATH,
+    }));
+    readFullTreeWithOptionsMock.mockResolvedValueOnce(fileNodes);
+    const batchSizes: number[] = [];
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async (requests: Array<{ compositeKey: string }>) => {
+          batchSizes.push(requests.length);
+          return Object.fromEntries(
+            requests.map((request, index) => [
+              request.compositeKey,
+              `export const value${index} = ${index};`,
+            ])
+          );
+        }),
+      },
+    });
+    runEnhancedImportMock.mockImplementation(async (params) => {
+      expect(Object.keys(params.request.fileContents).length).toBeLessThanOrEqual(24);
+      await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      return [];
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(2);
+    expect(batchSizes.every((size) => size <= 24)).toBe(true);
   });
 });
