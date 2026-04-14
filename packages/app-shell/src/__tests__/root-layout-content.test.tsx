@@ -82,6 +82,14 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+vi.mock('@brainstrike/vector-management', () => ({
+  EmbeddingRuntimeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
+  WorkspaceCollectionSyncProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 describe('RootLayoutContent', () => {
   beforeEach(() => {
     // Reset the mock function before each test

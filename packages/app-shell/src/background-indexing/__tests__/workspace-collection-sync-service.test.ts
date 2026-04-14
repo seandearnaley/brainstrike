@@ -7,22 +7,17 @@ import {
   type WorkspaceCollectionSyncServiceDependencies,
 } from '../workspace-collection-sync-service';
 
-const { readFullTreeWithOptionsMock, runEnhancedImportMock, createBrowserEmbeddingQueuePortMock } =
-  vi.hoisted(() => ({
-    readFullTreeWithOptionsMock: vi.fn(),
-    runEnhancedImportMock: vi.fn(),
-    createBrowserEmbeddingQueuePortMock: vi.fn(() => ({
-      enqueueBatch: vi.fn(async () => {}),
-      resetProgress: vi.fn(),
-    })),
-  }));
+const { readFullTreeWithOptionsMock, runEnhancedImportMock } = vi.hoisted(() => ({
+  readFullTreeWithOptionsMock: vi.fn(),
+  runEnhancedImportMock: vi.fn(),
+}));
 
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   readFullTreeWithOptions: readFullTreeWithOptionsMock,
 }));
 
 vi.mock('@brainstrike/file-import', () => ({
-  createBrowserEmbeddingQueuePort: createBrowserEmbeddingQueuePortMock,
+  backfillEmbeddingSetAssignments: vi.fn(async () => undefined),
   runEnhancedImport: runEnhancedImportMock,
 }));
 
@@ -44,16 +39,17 @@ function createDeps(
   return {
     chunkRepository: {
       deleteByFileRecordId: vi.fn(async () => undefined),
-      update: vi.fn(async () => null),
     },
     db: {
       query: vi.fn(async () => ({ rows: [] })),
       transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
     } as unknown as WorkspaceCollectionSyncServiceDependencies['db'],
-    embeddingDeviceHint: 'webgpu',
     embeddingSetsRepository: {
       getById: vi.fn(async () => createCollection()),
     } as unknown as WorkspaceCollectionSyncServiceDependencies['embeddingSetsRepository'],
+    enqueueBackfill: vi.fn(async (_embeddingSetId, onProgress) => {
+      onProgress({ current: 0, total: 0 });
+    }),
     fileContentProcessor: {
       processFiles: vi.fn(),
     },
@@ -75,21 +71,10 @@ function createDeps(
       chunkFile: vi.fn(),
       terminate: vi.fn(),
     })),
-    loadEmbeddingQueue: vi.fn(async () => ({
-      add: vi.fn(),
-      addBulk: vi.fn(),
-      cancel: vi.fn(async () => undefined),
-      drain: vi.fn(async () => undefined),
-      isPaused: false,
-      isProcessing: false,
-      onProgress: vi.fn(() => () => {}),
-      pause: vi.fn(),
-      resume: vi.fn(),
-    })),
+    ensureEmbeddingRuntimeStarted: vi.fn(async () => undefined),
     setImporting: vi.fn(),
     setStatus: vi.fn(),
     validateHostedProviderAccess: vi.fn(async () => undefined),
-    validateLocalRuntime: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -172,9 +157,8 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
-    expect(deps.validateLocalRuntime).not.toHaveBeenCalled();
+    expect(deps.ensureEmbeddingRuntimeStarted).not.toHaveBeenCalled();
     expect(deps.ensureChunkingWorker).not.toHaveBeenCalled();
-    expect(deps.loadEmbeddingQueue).not.toHaveBeenCalled();
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -277,6 +261,35 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('imports with collection-assignment semantics and then backfills through the runtime pipeline', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.ensureEmbeddingRuntimeStarted).toHaveBeenCalledTimes(1);
+    expect(runEnhancedImportMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embedding: expect.objectContaining({
+          enabled: false,
+          resolveTargetEmbeddingSetId: expect.any(Function),
+        }),
+      })
+    );
+    expect(deps.enqueueBackfill).toHaveBeenCalledWith('set-1', expect.any(Function));
+  });
+
   it('aborts in-flight import work when the sync is cancelled', async () => {
     let startedResolve: (() => void) | null = null;
     const started = new Promise<void>((resolve) => {
@@ -371,6 +384,18 @@ describe('WorkspaceCollectionSyncService', () => {
           [COMPOSITE_KEY]: 'export const value = 2;',
         })),
       },
+      enqueueBackfill: vi.fn(async (_embeddingSetId, onProgress) => {
+        onProgress({
+          current: 2,
+          total: 3,
+          message: 'chunk 2/3',
+        });
+        onProgress({
+          current: 3,
+          total: 3,
+          message: 'chunk 3/3',
+        });
+      }),
     });
     runEnhancedImportMock.mockImplementationOnce(async (params) => {
       params.progressHandlers.emit?.({
@@ -388,33 +413,6 @@ describe('WorkspaceCollectionSyncService', () => {
         },
       });
       params.progressHandlers.emit?.({
-        phase: 'embedding',
-        total: 1,
-        completed: 1,
-        current: 'src/index.ts',
-        errors: [],
-        chunkingProgress: {
-          filesProcessed: 1,
-          totalFiles: 1,
-          currentFile: 'src/index.ts',
-          chunksCreated: 3,
-          strategyUsed: 'sentence',
-        },
-        embeddingProgress: {
-          chunksProcessed: 2,
-          totalChunks: 3,
-          currentChunk: 'export const value = 2;...',
-          modelName: 'Xenova/all-MiniLM-L6-v2',
-        },
-        queueProgress: {
-          pending: 1,
-          processed: 2,
-          failed: 0,
-          totalQueued: 3,
-          lastError: null,
-        },
-      });
-      params.progressHandlers.emit?.({
         phase: 'complete',
         total: 1,
         completed: 1,
@@ -426,24 +424,6 @@ describe('WorkspaceCollectionSyncService', () => {
           currentFile: 'src/index.ts',
           chunksCreated: 3,
           strategyUsed: 'sentence',
-        },
-        embeddingProgress: {
-          chunksProcessed: 3,
-          totalChunks: 3,
-          currentChunk: 'export const value = 2;...',
-          modelName: 'Xenova/all-MiniLM-L6-v2',
-        },
-        queueProgress: {
-          pending: 0,
-          processed: 3,
-          failed: 0,
-          totalQueued: 3,
-          lastError: null,
-          lastEvent: {
-            chunkId: 'chunk-3',
-            status: 'completed',
-            model: 'Xenova/all-MiniLM-L6-v2',
-          },
         },
       });
       return [];
@@ -457,6 +437,26 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
+    expect(deps.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: 'embedding',
+        chunkingProgress: expect.objectContaining({
+          filesProcessed: 1,
+          totalFiles: 1,
+          chunksCreated: 3,
+        }),
+        embeddingProgress: expect.objectContaining({
+          chunksProcessed: 3,
+          totalChunks: 3,
+          modelName: 'text-embedding-3-small',
+        }),
+        queueProgress: expect.objectContaining({
+          processed: 3,
+          pending: 0,
+          totalQueued: 3,
+        }),
+      })
+    );
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
         state: 'idle',
@@ -466,20 +466,8 @@ describe('WorkspaceCollectionSyncService', () => {
           excludedEntries: 0,
           unchangedFiles: 0,
         },
-        chunkingProgress: expect.objectContaining({
-          filesProcessed: 1,
-          totalFiles: 1,
-          chunksCreated: 3,
-        }),
-        embeddingProgress: expect.objectContaining({
-          chunksProcessed: 3,
-          totalChunks: 3,
-        }),
-        queueProgress: expect.objectContaining({
-          processed: 3,
-          pending: 0,
-          totalQueued: 3,
-        }),
+        processedFiles: 1,
+        queuedFiles: 0,
       })
     );
   });

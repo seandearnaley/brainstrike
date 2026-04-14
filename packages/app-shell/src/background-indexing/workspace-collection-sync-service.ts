@@ -1,7 +1,6 @@
 import type {
   DbHandle,
   EmbeddingSet,
-  FileChunk,
   FileImportResult,
   IEmbeddingSetsRepository,
   IFileRecordRepository,
@@ -16,14 +15,12 @@ import {
 } from '@brainstrike/file-explorer-hooks';
 import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui';
 import {
+  backfillEmbeddingSetAssignments,
   type ChunkingWorkerPort,
-  createBrowserEmbeddingQueuePort,
-  type EmbeddingJobQueuePort,
   type EnhancedImportProgress,
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
-import type { EmbeddingDeviceHint, QueueAdapter } from '@brainstrike/queue';
 import type { IFileNode } from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,
@@ -68,31 +65,25 @@ interface RootFolderCacheMutableRecord {
 export interface WorkspaceCollectionSyncServiceDependencies {
   chunkRepository: {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
-    update: (chunk: {
-      id: string;
-      embedding?: number[];
-      embeddingHash?: string;
-      embeddingSetId?: string;
-      embeddingUpdatedAt?: string;
-      updatedAt: string;
-    }) => Promise<FileChunk | null>;
   };
   db: DbHandle;
-  embeddingDeviceHint: EmbeddingDeviceHint;
   embeddingSetsRepository: IEmbeddingSetsRepository;
+  enqueueBackfill: (
+    embeddingSetId: string,
+    onProgress: (progress: { current: number; message?: string; total: number }) => void
+  ) => Promise<void>;
   ensureChunkingWorker: () => Promise<ChunkingWorkerPort>;
+  ensureEmbeddingRuntimeStarted: () => Promise<void>;
   fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: Pick<
     IFileRecordRepository,
     'createWithContent' | 'listManagedCacheEntryMetadata' | 'update'
   >;
   fileSystemAdapter: FileSystemAdapter;
-  loadEmbeddingQueue: () => Promise<QueueAdapter>;
   log?: typeof logger;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncProgressUpdate) => void;
   validateHostedProviderAccess: (embeddingSetId: string) => Promise<void>;
-  validateLocalRuntime: (collection: EmbeddingSet) => Promise<void>;
 }
 
 export interface WorkspaceCollectionSyncRequest {
@@ -343,6 +334,18 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
+function dispatchQueueDrainedEvent(embeddingSetId: string): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('brainstrike:queue-drained', {
+      detail: { embeddingSetId, queue: 'embeddings' as const },
+    })
+  );
+}
+
 function toMutableRecord(change: PreparedCacheChange): RootFolderCacheMutableRecord {
   const now = new Date().toISOString();
   return {
@@ -427,6 +430,54 @@ function buildEnhancedProgressStatusBase(
     embeddingProgress: toWorkspaceCollectionSyncEmbeddingProgress(progress),
     queueProgress: toWorkspaceCollectionSyncQueueProgress(progress),
     lastError: progress.errors[0]?.error ?? null,
+  };
+}
+
+function mapBackfillProgressToStatus(args: {
+  chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
+  collection: EmbeddingSet;
+  current?: number;
+  managedCollectionName: string | null;
+  message?: string;
+  rootPath: string;
+  scanSummary: WorkspaceCollectionSyncScanSummary;
+  total?: number;
+}): WorkspaceCollectionSyncProgressUpdate {
+  const totalChunks = Math.max(0, args.total ?? 0);
+  const processedChunks = Math.min(totalChunks, Math.max(0, args.current ?? 0));
+  const currentMessage = args.message?.trim() ? args.message : null;
+
+  return {
+    state: 'embedding',
+    managedCollectionId: args.collection.id,
+    managedCollectionName: args.managedCollectionName,
+    activeRootPath: args.rootPath,
+    currentFilePath: currentMessage,
+    lastError: null,
+    scanSummary: args.scanSummary,
+    importProgress: {
+      completed: args.scanSummary.changedFiles,
+      total: args.scanSummary.changedFiles,
+      current: null,
+      errorCount: 0,
+    },
+    chunkingProgress: args.chunkingProgress,
+    embeddingProgress: {
+      chunksProcessed: processedChunks,
+      totalChunks,
+      currentChunk: currentMessage,
+      modelName: args.collection.modelId,
+    },
+    queueProgress: {
+      failed: 0,
+      lastError: null,
+      lastEvent: null,
+      pending: Math.max(0, totalChunks - processedChunks),
+      processed: processedChunks,
+      totalQueued: totalChunks,
+    },
+    processedFiles: args.scanSummary.discoveredFiles,
+    queuedFiles: Math.max(0, totalChunks - processedChunks),
   };
 }
 
@@ -620,23 +671,13 @@ async function runRootFolderCacheImport(args: {
   changes: readonly PreparedCacheChange[];
   chunkRepository: {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
-    update: (chunk: {
-      id: string;
-      embedding?: number[];
-      embeddingHash?: string;
-      embeddingSetId?: string;
-      embeddingUpdatedAt?: string;
-      updatedAt: string;
-    }) => Promise<FileChunk | null>;
   };
   chunkingWorkerPort: ChunkingWorkerPort;
   collection: EmbeddingSet;
   db: DbHandle;
   fileRecordRepository: Pick<IFileRecordRepository, 'createWithContent' | 'update'>;
-  loadEmbeddingQueue: () => Promise<QueueAdapter>;
   onProgress: (progress: EnhancedImportProgress) => void;
   setImporting: (importing: boolean) => void;
-  embeddingDeviceHint: EmbeddingDeviceHint;
 }): Promise<void> {
   const {
     abortSignal,
@@ -646,10 +687,8 @@ async function runRootFolderCacheImport(args: {
     collection,
     db,
     fileRecordRepository,
-    loadEmbeddingQueue,
     onProgress,
     setImporting,
-    embeddingDeviceHint,
   } = args;
 
   if (changes.length === 0) {
@@ -657,37 +696,17 @@ async function runRootFolderCacheImport(args: {
   }
 
   throwIfAborted(abortSignal, 'Background cache import was cancelled.');
-  const queue = await loadEmbeddingQueue();
-  const queuePort: EmbeddingJobQueuePort = createBrowserEmbeddingQueuePort({
-    queue,
-    chunkRepository,
-    deviceHint: embeddingDeviceHint,
-  });
-  queuePort.resetProgress?.();
-
   const selectedFilePaths = new Set(changes.map((change) => change.compositeKey));
   const fileContents = Object.fromEntries(
     changes.map((change) => [change.compositeKey, change.content] as const)
   );
 
   let latestProgress: EnhancedImportProgress | null = null;
-  const embeddingProvider = parseProviderModelKey(collection.modelKey)?.provider;
   const embeddingConfig = {
-    enabled: true,
+    enabled: false,
     service: null,
     chunkRepository: chunkRepository as never,
-    model: collection.modelId,
     resolveTargetEmbeddingSetId: () => collection.id,
-    ...(embeddingProvider ? { provider: embeddingProvider } : {}),
-  };
-  const runInTransaction = db.transaction;
-  const sqlPort = {
-    query: db.query.bind(db),
-    ...(runInTransaction
-      ? {
-          runInTransaction: async <T>(fn: (tx: DbHandle) => Promise<T>) => runInTransaction(fn),
-        }
-      : {}),
   };
 
   const baseImportRunner = async ({
@@ -768,7 +787,7 @@ async function runRootFolderCacheImport(args: {
 
   setImporting(true);
   try {
-    await runEnhancedImport<IFileNode>({
+    const results = await runEnhancedImport<IFileNode>({
       abortSignal,
       request: {
         selectedFilePaths,
@@ -785,10 +804,6 @@ async function runRootFolderCacheImport(args: {
         chunkingWorkerPort: chunkingWorkerPort as never,
       },
       embedding: embeddingConfig,
-      ports: {
-        embeddingQueue: queuePort,
-        sql: sqlPort,
-      },
       progressHandlers: {
         emit: onProgress,
         update: (updater) => {
@@ -800,6 +815,11 @@ async function runRootFolderCacheImport(args: {
         },
       },
     });
+    await backfillEmbeddingSetAssignments(
+      { query: db.query.bind(db) },
+      collection.id,
+      results.map((result) => result.id)
+    );
   } finally {
     setImporting(false);
   }
@@ -925,11 +945,10 @@ export class WorkspaceCollectionSyncService {
   }
 
   private async ensureCollectionAccess(context: ResolvedSyncContext): Promise<void> {
-    if (isLocalProviderType(context.provider)) {
-      await this.deps.validateLocalRuntime(context.collection);
-      return;
+    if (!isLocalProviderType(context.provider)) {
+      await this.deps.validateHostedProviderAccess(context.collection.id);
     }
-    await this.deps.validateHostedProviderAccess(context.collection.id);
+    await this.deps.ensureEmbeddingRuntimeStarted();
   }
 
   private setScanningStatus(
@@ -1170,6 +1189,7 @@ export class WorkspaceCollectionSyncService {
         unchangedFiles: prepared.unchangedCount,
       };
       let sawCompleteProgress = false;
+      let latestImportProgress: EnhancedImportProgress | null = null;
 
       await runRootFolderCacheImport({
         abortSignal: signal,
@@ -1179,8 +1199,8 @@ export class WorkspaceCollectionSyncService {
         collection: context.collection,
         db: this.deps.db,
         fileRecordRepository: this.deps.fileRecordRepository,
-        loadEmbeddingQueue: this.deps.loadEmbeddingQueue,
         onProgress: (progress) => {
+          latestImportProgress = progress;
           if (progress.phase === 'complete') {
             sawCompleteProgress = true;
           }
@@ -1195,14 +1215,53 @@ export class WorkspaceCollectionSyncService {
           );
         },
         setImporting: this.deps.setImporting,
-        embeddingDeviceHint: this.deps.embeddingDeviceHint,
       });
       throwIfAborted(signal);
-      if (!sawCompleteProgress) {
-        this.setIdleStatus({
+
+      const chunkingProgress = latestImportProgress
+        ? toWorkspaceCollectionSyncChunkingProgress(latestImportProgress)
+        : null;
+      this.deps.setStatus(
+        mapBackfillProgressToStatus({
           collection: context.collection,
+          managedCollectionName: context.collection.name ?? null,
           rootPath: context.rootPath,
-          summary: prepared,
+          scanSummary,
+          chunkingProgress,
+          current: 0,
+          total: 0,
+        })
+      );
+      await this.deps.enqueueBackfill(context.collection.id, (progress) => {
+        if (this.isCancelled(currentRunId) || signal.aborted) {
+          return;
+        }
+        this.deps.setStatus(
+          mapBackfillProgressToStatus({
+            collection: context.collection,
+            managedCollectionName: context.collection.name ?? null,
+            rootPath: context.rootPath,
+            scanSummary,
+            chunkingProgress,
+            current: progress.current,
+            total: progress.total,
+            ...(progress.message ? { message: progress.message } : {}),
+          })
+        );
+      });
+      dispatchQueueDrainedEvent(context.collection.id);
+      throwIfAborted(signal);
+
+      this.setIdleStatus({
+        collection: context.collection,
+        rootPath: context.rootPath,
+        summary: prepared,
+      });
+      if (!sawCompleteProgress && latestImportProgress) {
+        this.deps.setStatus({
+          chunkingProgress: toWorkspaceCollectionSyncChunkingProgress(latestImportProgress),
+          importProgress: toWorkspaceCollectionSyncImportProgress(latestImportProgress),
+          scanSummary,
         });
       }
     } catch (error) {

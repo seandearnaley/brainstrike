@@ -7,6 +7,7 @@ import { createLogger } from '@brainstrike/utils/logger';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
 import type { EmbeddingRuntimeController } from './embedding-runtime-controller';
+import { dispatchQueueDrainedEvent } from './queue-events';
 import {
   calculateLatency,
   EMBEDDINGS_QUEUE,
@@ -165,17 +166,6 @@ interface LatencyRow {
 interface CoverageRow {
   chunksWithEmbeddingsForSet: number | string | null;
   totalChunks: number | string | null;
-}
-
-function dispatchQueueDrainedEvent(embeddingSetId: string): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  window.dispatchEvent(
-    new CustomEvent('brainstrike:queue-drained', {
-      detail: { embeddingSetId, queue: EMBEDDINGS_QUEUE },
-    })
-  );
 }
 
 // Default metrics when EmbeddingQueueProvider is not available

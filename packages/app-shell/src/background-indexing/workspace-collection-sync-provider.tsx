@@ -1,6 +1,4 @@
-import type { EmbeddingSet } from '@brainstrike/db';
 import {
-  JobQueue,
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
@@ -10,11 +8,10 @@ import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { useFileSystem, useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { createLogger } from '@brainstrike/utils/logger';
-import { createVectorQueueService } from '@brainstrike/vector-management';
+import { useSharedEmbeddingRuntime } from '@brainstrike/vector-management';
 import { type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { WorkspaceCollectionSyncService } from './workspace-collection-sync-service';
 
@@ -23,12 +20,10 @@ export const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed'
 
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
-  loadEmbeddingQueue?: (() => Promise<import('@brainstrike/queue').QueueAdapter>) | null;
 }
 
 export function WorkspaceCollectionSyncProvider({
   children,
-  loadEmbeddingQueue = null,
 }: WorkspaceCollectionSyncProviderProps) {
   const { fileSystemAdapter } = useAdapters();
   const { isAccessLoading, rootDirectoryHandle } = useFileSystem();
@@ -45,21 +40,11 @@ export function WorkspaceCollectionSyncProvider({
   const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
     (state) => state.indexingPolicyPreset
   );
-  const devicePreference = useVectorPreferencesStore((state) => state.devicePref);
   const setIsImporting = useVectorStatusUIStore((state) => state.setIsImporting);
   const setSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.setStatus);
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
-
-  const vectorQueueService = useMemo(() => {
-    if (!(db && chunkRepository)) {
-      return null;
-    }
-    return createVectorQueueService({
-      chunkRepository,
-      db,
-      jobQueue: new JobQueue(db),
-    });
-  }, [chunkRepository, db]);
+  const { controller: runtimeController, service: vectorQueueService } =
+    useSharedEmbeddingRuntime();
 
   const validateHostedProviderAccess = useCallback(
     async (embeddingSetId: string): Promise<void> => {
@@ -74,22 +59,12 @@ export function WorkspaceCollectionSyncProvider({
     [vectorQueueService]
   );
 
-  const validateLocalRuntime = useCallback(async (_collection: EmbeddingSet): Promise<void> => {
-    const embeddingHost = (
-      window as Window & {
-        embeddingHost?: {
-          ensureStarted?: () => Promise<{ lastError?: string | null; state: string }>;
-        };
-      }
-    ).embeddingHost;
-
-    if (embeddingHost?.ensureStarted) {
-      const status = await embeddingHost.ensureStarted();
-      if (status.state === 'error') {
-        throw new Error(status.lastError ?? 'Local embedding runtime is unavailable.');
-      }
+  const ensureEmbeddingRuntimeStarted = useCallback(async (): Promise<void> => {
+    const status = await runtimeController.ensureStarted();
+    if (status.state === 'error') {
+      throw new Error(status.lastError ?? 'Embedding runtime is unavailable.');
     }
-  }, []);
+  }, [runtimeController]);
 
   const service = useMemo(() => {
     if (
@@ -103,37 +78,48 @@ export function WorkspaceCollectionSyncProvider({
     ) {
       return null;
     }
-    if (!loadEmbeddingQueue) {
-      return null;
-    }
     return new WorkspaceCollectionSyncService({
       chunkRepository,
       db,
-      embeddingDeviceHint: devicePreference,
       embeddingSetsRepository,
+      enqueueBackfill: async (embeddingSetId, onProgress) => {
+        const unsubscribe = runtimeController.onBackfillProgress((progress) => {
+          if (progress.embeddingSetId !== embeddingSetId) {
+            return;
+          }
+          onProgress({
+            current: progress.current,
+            total: progress.total,
+            ...(progress.message ? { message: progress.message } : {}),
+          });
+        });
+        try {
+          await runtimeController.enqueueBackfill(embeddingSetId);
+        } finally {
+          unsubscribe();
+        }
+      },
       ensureChunkingWorker,
+      ensureEmbeddingRuntimeStarted,
       fileSystemAdapter,
       fileRecordRepository,
-      loadEmbeddingQueue,
       log: logger,
       setImporting: setIsImporting,
       setStatus: setSyncStatus,
       validateHostedProviderAccess,
-      validateLocalRuntime,
     });
   }, [
     chunkRepository,
     db,
-    devicePreference,
     embeddingSetsRepository,
+    ensureEmbeddingRuntimeStarted,
     ensureChunkingWorker,
     fileRecordRepository,
     fileSystemAdapter,
-    loadEmbeddingQueue,
+    runtimeController,
     setIsImporting,
     setSyncStatus,
     validateHostedProviderAccess,
-    validateLocalRuntime,
   ]);
 
   const triggerSync = useCallback(() => {
@@ -147,9 +133,7 @@ export function WorkspaceCollectionSyncProvider({
           currentFilePath: null,
           queuedFiles: 0,
           processedFiles: 0,
-          lastError: loadEmbeddingQueue
-            ? 'Background indexing runtime is unavailable.'
-            : 'Embedding queue loader is unavailable.',
+          lastError: 'Background indexing runtime is unavailable.',
         });
       } else {
         resetSyncStatus();
@@ -205,7 +189,6 @@ export function WorkspaceCollectionSyncProvider({
     enabled,
     indexingPolicyPreset,
     isAccessLoading,
-    loadEmbeddingQueue,
     managedCollectionId,
     resetSyncStatus,
     rootDirectoryHandle,

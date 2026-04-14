@@ -17,6 +17,7 @@ import type {
   EnhancedImportResult,
   SqlExecutorPort,
 } from '@brainstrike/file-import';
+import { backfillEmbeddingSetAssignments } from '@brainstrike/file-import';
 import {
   createBrowserEmbeddingQueuePort,
   type QueueProgressEventDetail,
@@ -76,40 +77,6 @@ interface EnhancedFileImportServiceReturn {
 type EnhancedImportParams = Parameters<typeof runEnhancedImport<IFileNode>>[0];
 type EmbeddingConfig = NonNullable<EnhancedImportParams['embedding']>;
 type ChunkingWorkerPort = import('@brainstrike/file-import').ChunkingWorkerPort;
-
-async function backfillEmbeddingSetAssignments(
-  sql: SqlExecutorPort | null,
-  embeddingSetId: string | null,
-  fileIds: string[]
-): Promise<void> {
-  if (!(sql && embeddingSetId) || fileIds.length === 0) {
-    return;
-  }
-
-  const uniqueIds = Array.from(new Set(fileIds.filter((id): id is string => Boolean(id))));
-  if (uniqueIds.length === 0) {
-    return;
-  }
-
-  const buildParams = () => [embeddingSetId, ...uniqueIds];
-  const placeholderList = uniqueIds.map((_, idx) => `$${idx + 2}`).join(', ');
-
-  await sql.query(
-    `UPDATE file_records
-       SET embedding_set_id = $1
-     WHERE id IN (${placeholderList})
-       AND (embedding_set_id IS NULL OR embedding_set_id IS DISTINCT FROM $1)`,
-    buildParams()
-  );
-
-  await sql.query(
-    `UPDATE file_chunks
-       SET embedding_set_id = $1
-     WHERE file_record_id IN (${placeholderList})
-       AND embedding_set_id IS NULL`,
-    buildParams()
-  );
-}
 
 function createEmbeddingConfig(
   chunkRepository: ReturnType<typeof useFileChunkRepository>,

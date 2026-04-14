@@ -27,6 +27,7 @@ export {
   useEmbeddingQueue,
   useEmbeddingQueueSafe,
 } from './embedding-queue-provider';
+export { EmbeddingRuntimeProvider, useSharedEmbeddingRuntime } from './embedding-runtime-provider';
 // Embedding set management
 export * from './embedding-set-management';
 // Embedding status bar (compact metrics display)

@@ -64,6 +64,54 @@ vi.mock('@brainstrike/db', async () => {
   };
 });
 
+vi.mock('../embedding-runtime-provider', () => ({
+  useSharedEmbeddingRuntime: () => ({
+    controller: {
+      cancelAllBackfills: vi.fn(async () => {}),
+      enqueueBackfill: vi.fn(async () => {}),
+      ensureStarted: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'stopped',
+        active: false,
+        lastError: null,
+      })),
+      getBackfillsInFlight: vi.fn(async () => []),
+      getStatus: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'stopped',
+        active: false,
+        lastError: null,
+      })),
+      onBackfillProgress: vi.fn(() => () => {}),
+      onStatus: vi.fn(() => () => {}),
+      reset: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'stopped',
+        active: false,
+        lastError: null,
+      })),
+      start: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'running',
+        active: false,
+        lastError: null,
+      })),
+      stop: vi.fn(async () => ({
+        runtimeKind: 'embedding-worker',
+        runtimeId: 'embedding-worker:test',
+        state: 'stopped',
+        active: false,
+        lastError: null,
+      })),
+    },
+    service: null,
+  }),
+}));
+
 describe('VectorStatus', () => {
   beforeEach(() => {
     process.env = { ...(process.env || {}), EMBED_QUEUE_ENABLED: 'false' };

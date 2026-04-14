@@ -22,7 +22,9 @@ const {
   deleteByFileRecordIdMock,
   getByIdMock,
   validateApiKeyForSetMock,
-  ensureStartedMock,
+  ensureChunkingWorkerMock,
+  ensureEmbeddingRuntimeStartedMock,
+  enqueueBackfillMock,
   fileSystemState,
   fileTreeContextState,
 } = vi.hoisted(() => ({
@@ -35,7 +37,9 @@ const {
   deleteByFileRecordIdMock: vi.fn(),
   getByIdMock: vi.fn(),
   validateApiKeyForSetMock: vi.fn(),
-  ensureStartedMock: vi.fn(),
+  ensureChunkingWorkerMock: vi.fn(),
+  ensureEmbeddingRuntimeStartedMock: vi.fn(),
+  enqueueBackfillMock: vi.fn(async () => {}),
   fileSystemState: {
     isAccessLoading: false,
     rootDirectoryHandle: {
@@ -109,21 +113,56 @@ vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
       isReady: () => true,
       transportKind: 'local',
     },
-    ensureStarted: ensureStartedMock,
+    ensureStarted: ensureChunkingWorkerMock,
   }),
 }));
 
 vi.mock('@brainstrike/file-import', () => ({
-  createBrowserEmbeddingQueuePort: vi.fn(() => ({
-    enqueueBatch: vi.fn(async () => {}),
-    resetProgress: vi.fn(),
-  })),
+  backfillEmbeddingSetAssignments: vi.fn(async () => undefined),
   runEnhancedImport: runEnhancedImportMock,
 }));
 
 vi.mock('@brainstrike/vector-management', () => ({
-  createVectorQueueService: vi.fn(() => ({
-    validateApiKeyForSet: validateApiKeyForSetMock,
+  useSharedEmbeddingRuntime: vi.fn(() => ({
+    controller: {
+      cancelAllBackfills: vi.fn(async () => {}),
+      enqueueBackfill: enqueueBackfillMock,
+      ensureStarted: ensureEmbeddingRuntimeStartedMock,
+      getBackfillsInFlight: vi.fn(async () => []),
+      getStatus: vi.fn(async () => ({
+        runtimeKind: 'embedding-host',
+        runtimeId: 'embedding-host:test',
+        state: 'running',
+        active: false,
+        lastError: null,
+      })),
+      onBackfillProgress: vi.fn(() => () => {}),
+      onStatus: vi.fn(() => () => {}),
+      reset: vi.fn(async () => ({
+        runtimeKind: 'embedding-host',
+        runtimeId: 'embedding-host:test',
+        state: 'running',
+        active: false,
+        lastError: null,
+      })),
+      start: vi.fn(async () => ({
+        runtimeKind: 'embedding-host',
+        runtimeId: 'embedding-host:test',
+        state: 'running',
+        active: false,
+        lastError: null,
+      })),
+      stop: vi.fn(async () => ({
+        runtimeKind: 'embedding-host',
+        runtimeId: 'embedding-host:test',
+        state: 'stopped',
+        active: false,
+        lastError: null,
+      })),
+    },
+    service: {
+      validateApiKeyForSet: validateApiKeyForSetMock,
+    },
   })),
 }));
 
@@ -165,9 +204,19 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     getByIdMock.mockResolvedValue(collection);
     validateApiKeyForSetMock.mockResolvedValue({ valid: true });
-    ensureStartedMock.mockResolvedValue({
+    ensureChunkingWorkerMock.mockResolvedValue({
       isReady: () => true,
-      transportKind: 'local',
+      transportKind: 'host-proxy',
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
+      terminate: vi.fn(),
+    });
+    ensureEmbeddingRuntimeStartedMock.mockResolvedValue({
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host:test',
+      state: 'running',
+      active: false,
+      lastError: null,
     });
     readFullTreeWithOptionsMock.mockResolvedValue([
       {
@@ -195,26 +244,15 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('starts background indexing when settings are enabled without requiring the DB tab', async () => {
     render(
-      <WorkspaceCollectionSyncProvider
-        loadEmbeddingQueue={async () => ({
-          add: vi.fn(),
-          addBulk: vi.fn(),
-          onProgress: vi.fn(() => () => {}),
-          pause: vi.fn(),
-          resume: vi.fn(),
-          drain: vi.fn(),
-          cancel: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
-        })}
-      >
+      <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />
       </WorkspaceCollectionSyncProvider>
     );
 
-    await waitFor(() => expect(ensureStartedMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(createWithContentMock).toHaveBeenCalledTimes(1));
+    expect(enqueueBackfillMock).toHaveBeenCalledWith('00000000-0000-0000-0000-000000000101');
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
@@ -230,19 +268,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     });
 
     render(
-      <WorkspaceCollectionSyncProvider
-        loadEmbeddingQueue={async () => ({
-          add: vi.fn(),
-          addBulk: vi.fn(),
-          onProgress: vi.fn(() => () => {}),
-          pause: vi.fn(),
-          resume: vi.fn(),
-          drain: vi.fn(),
-          cancel: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
-        })}
-      >
+      <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />
       </WorkspaceCollectionSyncProvider>
     );
@@ -255,19 +281,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('passes the balanced indexing policy into the background sync request', async () => {
     render(
-      <WorkspaceCollectionSyncProvider
-        loadEmbeddingQueue={async () => ({
-          add: vi.fn(),
-          addBulk: vi.fn(),
-          onProgress: vi.fn(() => () => {}),
-          pause: vi.fn(),
-          resume: vi.fn(),
-          drain: vi.fn(),
-          cancel: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
-        })}
-      >
+      <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />
       </WorkspaceCollectionSyncProvider>
     );
@@ -298,19 +312,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     };
 
     const { rerender } = render(
-      <WorkspaceCollectionSyncProvider
-        loadEmbeddingQueue={async () => ({
-          add: vi.fn(),
-          addBulk: vi.fn(),
-          onProgress: vi.fn(() => () => {}),
-          pause: vi.fn(),
-          resume: vi.fn(),
-          drain: vi.fn(),
-          cancel: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
-        })}
-      >
+      <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />
       </WorkspaceCollectionSyncProvider>
     );
@@ -326,19 +328,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       restorationProgress: null,
     };
     rerender(
-      <WorkspaceCollectionSyncProvider
-        loadEmbeddingQueue={async () => ({
-          add: vi.fn(),
-          addBulk: vi.fn(),
-          onProgress: vi.fn(() => () => {}),
-          pause: vi.fn(),
-          resume: vi.fn(),
-          drain: vi.fn(),
-          cancel: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
-        })}
-      >
+      <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />
       </WorkspaceCollectionSyncProvider>
     );
@@ -350,19 +340,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     fileSystemState.isAccessLoading = true;
 
     const { rerender } = render(
-      <WorkspaceCollectionSyncProvider
-        loadEmbeddingQueue={async () => ({
-          add: vi.fn(),
-          addBulk: vi.fn(),
-          onProgress: vi.fn(() => () => {}),
-          pause: vi.fn(),
-          resume: vi.fn(),
-          drain: vi.fn(),
-          cancel: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
-        })}
-      >
+      <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />
       </WorkspaceCollectionSyncProvider>
     );
@@ -374,19 +352,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     fileSystemState.isAccessLoading = false;
     rerender(
-      <WorkspaceCollectionSyncProvider
-        loadEmbeddingQueue={async () => ({
-          add: vi.fn(),
-          addBulk: vi.fn(),
-          onProgress: vi.fn(() => () => {}),
-          pause: vi.fn(),
-          resume: vi.fn(),
-          drain: vi.fn(),
-          cancel: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
-        })}
-      >
+      <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />
       </WorkspaceCollectionSyncProvider>
     );
@@ -398,19 +364,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     fileTreeContextState.current = null;
 
     render(
-      <WorkspaceCollectionSyncProvider
-        loadEmbeddingQueue={async () => ({
-          add: vi.fn(),
-          addBulk: vi.fn(),
-          onProgress: vi.fn(() => () => {}),
-          pause: vi.fn(),
-          resume: vi.fn(),
-          drain: vi.fn(),
-          cancel: vi.fn(),
-          isPaused: false,
-          isProcessing: false,
-        })}
-      >
+      <WorkspaceCollectionSyncProvider>
         <div data-testid="child" />
       </WorkspaceCollectionSyncProvider>
     );

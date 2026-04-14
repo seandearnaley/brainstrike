@@ -11,6 +11,7 @@ import {
 } from '@brainstrike/preferences/stores/panel-layout-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider, type PanelLayoutState } from '@brainstrike/ui';
+import { EmbeddingRuntimeProvider } from '@brainstrike/vector-management';
 import {
   type ReactElement,
   type ReactNode,
@@ -40,20 +41,18 @@ import type { NavigationItem } from './types';
 function FileTreeWrapper({
   children,
   chunkingMode,
-  loadEmbeddingQueue,
 }: {
   children: ReactNode;
   chunkingMode: 'host-proxy' | 'local';
-  loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
 }): ReactElement {
   const { rootDirectoryHandle } = useFileSystem();
   return (
     <ChunkingWorkerProvider autoStart={false} mode={chunkingMode}>
-      <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>
-        <WorkspaceCollectionSyncProvider loadEmbeddingQueue={loadEmbeddingQueue ?? null}>
-          {children}
-        </WorkspaceCollectionSyncProvider>
-      </FileTreeProvider>
+      <EmbeddingRuntimeProvider>
+        <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>
+          <WorkspaceCollectionSyncProvider>{children}</WorkspaceCollectionSyncProvider>
+        </FileTreeProvider>
+      </EmbeddingRuntimeProvider>
     </ChunkingWorkerProvider>
   );
 }
@@ -255,10 +254,7 @@ export function RootLayoutContent({
       >
         {/* FileTreeWrapper provides shared file tree state to all explorer panels.
             This ensures expand-all updates are seen by all panels for file content loading. */}
-        <FileTreeWrapper
-          chunkingMode={databaseTabChunkingMode}
-          loadEmbeddingQueue={loadEmbeddingQueue}
-        >
+        <FileTreeWrapper chunkingMode={databaseTabChunkingMode}>
           <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
             <IdeLayout
               consoleContent={consoleContent}
