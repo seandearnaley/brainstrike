@@ -93,7 +93,12 @@ function isPathWithinRoot(path: string, rootPath: string | null): boolean {
   if (!rootPath) {
     return true;
   }
-  return path === rootPath || path.startsWith(`${rootPath}/`);
+  return (
+    path === rootPath ||
+    (path.length > rootPath.length &&
+      path.charCodeAt(rootPath.length) === 47 &&
+      path.startsWith(rootPath))
+  );
 }
 
 function isQuerySelectionManifestReady(
@@ -296,7 +301,11 @@ export function getQuerySelectionMatchingCount(
       if (manifest.pathSet.has(filePath)) {
         continue;
       }
-      if (filePath.startsWith(`${directoryPath}/`)) {
+      if (
+        filePath.length > directoryPath.length &&
+        filePath.charCodeAt(directoryPath.length) === 47 &&
+        filePath.startsWith(directoryPath)
+      ) {
         totalMatchingCount += 1;
       }
     }

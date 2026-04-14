@@ -569,7 +569,9 @@ function getQueryDirectorySelectionState(args: {
   const isAncestorOfQueryRoot = Boolean(
     queryRootPath &&
       directoryPath !== queryRootPath &&
-      queryRootPath.startsWith(`${directoryPath}/`)
+      queryRootPath.length > directoryPath.length &&
+      queryRootPath.charCodeAt(directoryPath.length) === 47 &&
+      queryRootPath.startsWith(directoryPath)
   );
   const totalMatchingCount = getQuerySelectionMatchingCount(
     selectionModel.queryDescriptor,
@@ -626,7 +628,11 @@ function getCoveredQueryDirectorySelectionState(args: {
   );
   const queryRootPath = selectionModel.queryDescriptor?.rootPath ?? null;
   const isAncestorOfQueryRoot = Boolean(
-    queryRootPath && nodePath !== queryRootPath && queryRootPath.startsWith(`${nodePath}/`)
+    queryRootPath &&
+      nodePath !== queryRootPath &&
+      queryRootPath.length > nodePath.length &&
+      queryRootPath.charCodeAt(nodePath.length) === 47 &&
+      queryRootPath.startsWith(nodePath)
   );
 
   if (isKnownEmptyDirectory) {
@@ -772,7 +778,10 @@ function shouldIgnoreLoadedQueryChildDirectory(args: {
   if (
     !(
       queryRootPath &&
-      (parentDirectoryPath === queryRootPath || parentDirectoryPath.startsWith(`${queryRootPath}/`))
+      (parentDirectoryPath === queryRootPath ||
+        (parentDirectoryPath.length > queryRootPath.length &&
+          parentDirectoryPath.charCodeAt(queryRootPath.length) === 47 &&
+          parentDirectoryPath.startsWith(queryRootPath)))
     )
   ) {
     return false;
