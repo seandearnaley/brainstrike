@@ -10,6 +10,7 @@ import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 
 const logger = createLogger('FileExplorerLeftPanel');
+const FILE_EXPLORER_REFRESH_EVENT = 'brainstrike:file-explorer-refreshed';
 
 /**
  * Type for Zustand store with persist middleware.
@@ -539,6 +540,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setIsRefreshing(true);
     try {
       await refreshFileExplorer();
+      window.dispatchEvent(new CustomEvent(FILE_EXPLORER_REFRESH_EVENT));
       showToast({
         title: FileExplorerStrings.success.title,
         description: FileExplorerStrings.success.refreshSuccess,

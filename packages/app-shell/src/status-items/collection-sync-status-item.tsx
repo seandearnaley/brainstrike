@@ -1,0 +1,153 @@
+import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import { Badge, Popover, PopoverContent, PopoverTrigger, StatusBarItem } from '@brainstrike/ui';
+import { Database, Loader2, TriangleAlert } from 'lucide-react';
+
+function truncateMiddle(value: string, maxLength = 48): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  const segmentLength = Math.max(8, Math.floor((maxLength - 1) / 2));
+  return `${value.slice(0, segmentLength)}…${value.slice(-segmentLength)}`;
+}
+
+const selectCollectionSyncStatus = (
+  state: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
+) => ({
+  state: state.state,
+  managedCollectionName: state.managedCollectionName,
+  currentFilePath: state.currentFilePath,
+  queuedFiles: state.queuedFiles,
+  processedFiles: state.processedFiles,
+  lastError: state.lastError,
+  activeRootPath: state.activeRootPath,
+});
+
+function getStatusItemValue(
+  state: ReturnType<typeof selectCollectionSyncStatus>['state'],
+  enabled: boolean
+): 'Blocked' | 'Scanning' | 'Embedding' | 'Importing' | 'Ready' | 'Off' {
+  if (state === 'error') {
+    return 'Blocked';
+  }
+  if (state === 'scanning') {
+    return 'Scanning';
+  }
+  if (state === 'embedding') {
+    return 'Embedding';
+  }
+  if (state === 'importing') {
+    return 'Importing';
+  }
+  return enabled ? 'Ready' : 'Off';
+}
+
+function getStatusItemState(
+  state: ReturnType<typeof selectCollectionSyncStatus>['state'],
+  enabled: boolean
+) {
+  const isBusy = state === 'scanning' || state === 'importing' || state === 'embedding';
+  return {
+    isBusy,
+    status:
+      state === 'error' ? 'warning' : isBusy ? 'loading' : enabled ? 'connected' : 'disconnected',
+    value: getStatusItemValue(state, enabled),
+  } as const;
+}
+
+function isStatusItemVisible(args: {
+  enabled: boolean;
+  managedCollectionId: string | null;
+  syncStatus: ReturnType<typeof selectCollectionSyncStatus>;
+}): boolean {
+  return (
+    args.enabled ||
+    Boolean(args.managedCollectionId) ||
+    args.syncStatus.state !== 'disabled' ||
+    Boolean(args.syncStatus.lastError)
+  );
+}
+
+export function CollectionSyncStatusItem() {
+  const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
+  const managedCollectionId = useBackgroundIndexingPreferencesStore(
+    (state) => state.managedCollectionId
+  );
+  const syncStatus = useWorkspaceCollectionSyncStatusStore(selectCollectionSyncStatus);
+
+  if (!isStatusItemVisible({ enabled, managedCollectionId, syncStatus })) {
+    return null;
+  }
+
+  const label = syncStatus.managedCollectionName ?? 'Index cache';
+  const { isBusy, status, value } = getStatusItemState(syncStatus.state, enabled);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className="cursor-default"
+          data-testid="collection-sync-status-trigger"
+          type="button"
+        >
+          <StatusBarItem
+            icon={syncStatus.state === 'error' ? TriangleAlert : Database}
+            label={`Cache: ${label}`}
+            status={status}
+            testId="collection-sync-status-item"
+            value={value}
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="center" className="w-96 space-y-3" side="top">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="font-medium text-sm">Background index cache</div>
+            <Badge
+              variant={
+                syncStatus.state === 'error' ? 'destructive' : enabled ? 'secondary' : 'outline'
+              }
+            >
+              {isBusy ? <Loader2 className="mr-1 size-3 animate-spin" /> : null}
+              {value}
+            </Badge>
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Managed collection: {syncStatus.managedCollectionName ?? 'None selected'}
+          </p>
+        </div>
+
+        <dl className="space-y-2 text-sm">
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">Root</dt>
+            <dd className="max-w-[240px] truncate text-right">
+              {syncStatus.activeRootPath
+                ? truncateMiddle(syncStatus.activeRootPath)
+                : 'None selected'}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">Processed</dt>
+            <dd>{syncStatus.processedFiles}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted-foreground">Queued</dt>
+            <dd>{syncStatus.queuedFiles}</dd>
+          </div>
+          <div className="space-y-1">
+            <dt className="text-muted-foreground">Current file</dt>
+            <dd className="break-all text-xs">
+              {syncStatus.currentFilePath ? truncateMiddle(syncStatus.currentFilePath, 72) : 'Idle'}
+            </dd>
+          </div>
+        </dl>
+
+        {syncStatus.lastError ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-destructive text-xs">
+            {syncStatus.lastError}
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}

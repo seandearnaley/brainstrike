@@ -46,6 +46,12 @@ export interface IFileRecordRepository {
   findByContentHash(contentHash: string): Promise<FileRecord | null>;
   findById(id: string): Promise<FileRecord | null>;
   findByIds(ids: readonly string[]): Promise<FileRecord[]>;
+  findByManagedCacheIdentity(
+    embeddingSetId: string,
+    sourceRootPath: string,
+    relativePath: string
+  ): Promise<FileRecord | null>;
+  listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]>;
   update(id: string, updates: Partial<FileRecord>): Promise<void>;
   updateContent(
     id: string,

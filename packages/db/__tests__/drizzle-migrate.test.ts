@@ -147,6 +147,7 @@ describe('Drizzle Migration Runner', () => {
       expect(columnNames).toContain('content');
       expect(columnNames).toContain('content_hash');
       expect(columnNames).toContain('embedding_set_id');
+      expect(columnNames).toContain('source_root_path');
     });
 
     it('should create file_chunks with vector column', async () => {

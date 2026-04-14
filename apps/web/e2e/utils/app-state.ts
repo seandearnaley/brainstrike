@@ -10,6 +10,7 @@ const APP_STATE_KEYS = [
   'collection-browser.v1',
   'database-demo.v2',
   'import-settings.v1',
+  'background-indexing-preferences.v1',
   'token-preferences.v1',
 ] as const;
 

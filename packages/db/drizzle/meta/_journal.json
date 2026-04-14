@@ -50,6 +50,13 @@
       "when": 1769187466586,
       "tag": "0006_new_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776124562958,
+      "tag": "0007_lovely_white_queen",
+      "breakpoints": true
     }
   ]
 }

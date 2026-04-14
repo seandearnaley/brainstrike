@@ -23,6 +23,7 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'name',
   'path',
   'size',
+  'sourceRootPath',
   'createdAt',
   'updatedAt',
   'content',
@@ -110,6 +111,7 @@ export class DrizzleFileRecordRepository {
       name: record.name,
       path: record.path,
       size: record.size,
+      sourceRootPath: record.sourceRootPath ?? null,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt),
       embeddingSetId: record.embeddingSetId ?? null,
@@ -122,6 +124,7 @@ export class DrizzleFileRecordRepository {
       name: record.name,
       path: record.path,
       size: record.size,
+      sourceRootPath: record.sourceRootPath ?? null,
       createdAt: new Date(record.createdAt),
       updatedAt: new Date(record.updatedAt),
       content: record.content ?? null,
@@ -184,6 +187,35 @@ export class DrizzleFileRecordRepository {
     return rows.map((row) => this.fromRow(row));
   }
 
+  async findByManagedCacheIdentity(
+    embeddingSetId: string,
+    sourceRootPath: string,
+    relativePath: string
+  ): Promise<FileRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(fileRecords)
+      .where(
+        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.sourceRootPath} = ${sourceRootPath} AND ${fileRecords.path} = ${relativePath}`
+      )
+      .orderBy(sql`${fileRecords.updatedAt} DESC`)
+      .limit(1);
+
+    return row ? this.fromRow(row) : null;
+  }
+
+  async listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(fileRecords)
+      .where(
+        sql`${fileRecords.embeddingSetId} = ${embeddingSetId} AND ${fileRecords.sourceRootPath} IS NOT NULL`
+      )
+      .orderBy(sql`${fileRecords.updatedAt} DESC`);
+
+    return rows.map((row) => this.fromRow(row));
+  }
+
   async update(id: string, updates: Partial<FileRecord>): Promise<void> {
     const fields = Object.keys(updates).filter((k): k is keyof FileRecord =>
       ALLOWED_UPDATE_FIELDS.includes(k as keyof FileRecord)
@@ -233,6 +265,9 @@ export class DrizzleFileRecordRepository {
         break;
       case 'size':
         updateData.size = validateSize(value);
+        break;
+      case 'sourceRootPath':
+        updateData.sourceRootPath = validateNullableString(value, 'sourceRootPath');
         break;
       case 'createdAt':
         updateData.createdAt = validateDateString(value, 'createdAt');
@@ -420,6 +455,7 @@ export class DrizzleFileRecordRepository {
         name: request.name,
         path: request.path,
         size: request.size,
+        sourceRootPath: request.sourceRootPath ?? null,
         createdAt: now,
         updatedAt: now,
         content: request.content,
@@ -440,6 +476,7 @@ export class DrizzleFileRecordRepository {
         createdAt: now.toISOString(),
         updatedAt: now.toISOString(),
         contentHash: hash,
+        ...(request.sourceRootPath ? { sourceRootPath: request.sourceRootPath } : {}),
       });
 
       results[index] = {
@@ -522,6 +559,10 @@ export class DrizzleFileRecordRepository {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+
+    if (row.sourceRootPath !== null && row.sourceRootPath !== undefined) {
+      record.sourceRootPath = row.sourceRootPath;
+    }
 
     // Add optional fields if they exist
     if (row.content !== null && row.content !== undefined) {

@@ -4,6 +4,7 @@ import {
   TabbedFileEditorPanel,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui';
+import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import {
   type PanelTab,
   usePanelLayoutStore,
@@ -22,6 +23,7 @@ import {
 import { shallow } from 'zustand/shallow';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
+import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { ToolsPanel } from './tools-panel';
 import type { NavigationItem } from './types';
 
@@ -35,9 +37,25 @@ import type { NavigationItem } from './types';
  * which creates its own filterTreeFn. This wrapper just provides the shared
  * tree state without the filter function since it can't access the store context.
  */
-function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
+function FileTreeWrapper({
+  children,
+  chunkingMode,
+  loadEmbeddingQueue,
+}: {
+  children: ReactNode;
+  chunkingMode: 'host-proxy' | 'local';
+  loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
+}): ReactElement {
   const { rootDirectoryHandle } = useFileSystem();
-  return <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>{children}</FileTreeProvider>;
+  return (
+    <ChunkingWorkerProvider autoStart={false} mode={chunkingMode}>
+      <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>
+        <WorkspaceCollectionSyncProvider loadEmbeddingQueue={loadEmbeddingQueue ?? null}>
+          {children}
+        </WorkspaceCollectionSyncProvider>
+      </FileTreeProvider>
+    </ChunkingWorkerProvider>
+  );
 }
 
 export interface RootLayoutContentProps {
@@ -237,7 +255,10 @@ export function RootLayoutContent({
       >
         {/* FileTreeWrapper provides shared file tree state to all explorer panels.
             This ensures expand-all updates are seen by all panels for file content loading. */}
-        <FileTreeWrapper>
+        <FileTreeWrapper
+          chunkingMode={databaseTabChunkingMode}
+          loadEmbeddingQueue={loadEmbeddingQueue}
+        >
           <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
             <IdeLayout
               consoleContent={consoleContent}

@@ -135,4 +135,22 @@ describe('ElectronFileRecordRepository', () => {
     expect(query).toHaveBeenCalledWith('SELECT COUNT(*) as count FROM file_records');
     expect(result).toBe(2);
   });
+
+  it('findByManagedCacheIdentity uses cache identity SQL', async () => {
+    await repo.findByManagedCacheIdentity('set-1', '/workspace/a', 'src/index.ts');
+
+    expect(query).toHaveBeenCalledWith(
+      'SELECT * FROM file_records WHERE embedding_set_id = $1 AND source_root_path = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1',
+      ['set-1', '/workspace/a', 'src/index.ts']
+    );
+  });
+
+  it('listManagedCacheEntries filters by embedding set and source root metadata', async () => {
+    await repo.listManagedCacheEntries('set-1');
+
+    expect(query).toHaveBeenCalledWith(
+      'SELECT * FROM file_records WHERE embedding_set_id = $1 AND source_root_path IS NOT NULL ORDER BY updated_at DESC',
+      ['set-1']
+    );
+  });
 });

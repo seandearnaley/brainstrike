@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-01-23T16:57:51.141Z",
+  "generatedAt": "2026-04-13T23:56:03.387Z",
   "migrations": [
     {
       "version": "7",
@@ -43,6 +43,12 @@
       "name": "0006_new_speed",
       "sql": "CREATE TABLE \"view_filter_presets\" (\n\t\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"description\" text,\n\t\"icon\" text DEFAULT 'file' NOT NULL,\n\t\"includes\" text[] DEFAULT '{}' NOT NULL,\n\t\"excludes\" text[] DEFAULT '{}' NOT NULL,\n\t\"use_regex\" boolean DEFAULT false NOT NULL,\n\t\"is_default\" boolean DEFAULT false NOT NULL,\n\t\"sort_order\" integer DEFAULT 0 NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);\n--> statement-breakpoint\nCREATE INDEX \"idx_view_filter_presets_sort_order\" ON \"view_filter_presets\" USING btree (\"sort_order\");--> statement-breakpoint\nCREATE INDEX \"idx_view_filter_presets_is_default\" ON \"view_filter_presets\" USING btree (\"is_default\");",
       "hash": "6d65a54c09473bf5afb7063b2d5fd152d07be0aa1566ad99be5bf35d8d97442e"
+    },
+    {
+      "version": "7",
+      "name": "0007_lovely_white_queen",
+      "sql": "ALTER TABLE \"file_records\" ADD COLUMN \"source_root_path\" text;--> statement-breakpoint\nCREATE INDEX \"idx_file_records_source_root_path\" ON \"file_records\" USING btree (\"source_root_path\");",
+      "hash": "2ec92e78e70ef983ce84918694f028a973d60eadbac149733e6031b86f18dadb"
     }
   ]
 }
