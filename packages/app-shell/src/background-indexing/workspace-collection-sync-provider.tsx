@@ -7,7 +7,7 @@ import {
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import { useFileSystem } from '@brainstrike/file-explorer-ui';
+import { useFileSystem, useOptionalFileTreeContext } from '@brainstrike/file-explorer-ui';
 import { useChunkingWorkerContext } from '@brainstrike/file-import/chunking-worker-context';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
@@ -31,7 +31,8 @@ export function WorkspaceCollectionSyncProvider({
   loadEmbeddingQueue = null,
 }: WorkspaceCollectionSyncProviderProps) {
   const { fileSystemAdapter } = useAdapters();
-  const { rootDirectoryHandle } = useFileSystem();
+  const { isAccessLoading, rootDirectoryHandle } = useFileSystem();
+  const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
   const fileRecordRepository = useFileRecordRepository();
   const chunkRepository = useFileChunkRepository();
@@ -156,6 +157,44 @@ export function WorkspaceCollectionSyncProvider({
       return;
     }
 
+    if (!(enabled && managedCollectionId && rootDirectoryHandle)) {
+      void service.sync({
+        enabled,
+        indexingPolicyPreset,
+        managedCollectionId,
+        rootDirectoryHandle,
+      });
+      return;
+    }
+
+    if (isAccessLoading) {
+      setSyncStatus({
+        state: 'waiting',
+        managedCollectionId,
+        managedCollectionName: null,
+        activeRootPath: rootDirectoryHandle.path,
+        currentFilePath: null,
+        queuedFiles: 0,
+        processedFiles: 0,
+        lastError: null,
+      });
+      return;
+    }
+
+    if (fileTreeContext !== null && !fileTreeContext.isRestorationSettled) {
+      setSyncStatus({
+        state: 'waiting',
+        managedCollectionId,
+        managedCollectionName: null,
+        activeRootPath: rootDirectoryHandle.path,
+        currentFilePath: null,
+        queuedFiles: 0,
+        processedFiles: 0,
+        lastError: null,
+      });
+      return;
+    }
+
     void service.sync({
       enabled,
       indexingPolicyPreset,
@@ -165,10 +204,12 @@ export function WorkspaceCollectionSyncProvider({
   }, [
     enabled,
     indexingPolicyPreset,
+    isAccessLoading,
     loadEmbeddingQueue,
     managedCollectionId,
     resetSyncStatus,
     rootDirectoryHandle,
+    fileTreeContext?.isRestorationSettled,
     service,
     setSyncStatus,
   ]);

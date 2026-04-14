@@ -28,11 +28,13 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
     <div data-testid="file-tree-provider">{children}</div>
   ),
   useFileSystem: () => ({
+    isAccessLoading: false,
     rootDirectoryHandle: null,
     selectRootDirectory: vi.fn(),
     isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
     clearRootDirectory: vi.fn(),
   }),
+  useOptionalFileTreeContext: () => null,
   // Mock workspace filter function - returns identity function for tests
   useWorkspaceFilterFn: () => (tree: unknown[]) => tree,
 }));

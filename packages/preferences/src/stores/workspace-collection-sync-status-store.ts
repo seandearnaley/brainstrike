@@ -3,6 +3,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 export type WorkspaceCollectionSyncState =
   | 'disabled'
   | 'idle'
+  | 'waiting'
   | 'scanning'
   | 'importing'
   | 'chunking'

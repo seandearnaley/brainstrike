@@ -34,9 +34,12 @@ const selectCollectionSyncStatus = (
 function getStatusItemValue(
   state: ReturnType<typeof selectCollectionSyncStatus>['state'],
   enabled: boolean
-): 'Blocked' | 'Chunking' | 'Embedding' | 'Importing' | 'Ready' | 'Scanning' | 'Off' {
+): 'Blocked' | 'Chunking' | 'Embedding' | 'Importing' | 'Ready' | 'Scanning' | 'Waiting' | 'Off' {
   if (state === 'error') {
     return 'Blocked';
+  }
+  if (state === 'waiting') {
+    return 'Waiting';
   }
   if (state === 'scanning') {
     return 'Scanning';
@@ -58,7 +61,11 @@ function getStatusItemState(
   enabled: boolean
 ) {
   const isBusy =
-    state === 'scanning' || state === 'importing' || state === 'chunking' || state === 'embedding';
+    state === 'waiting' ||
+    state === 'scanning' ||
+    state === 'importing' ||
+    state === 'chunking' ||
+    state === 'embedding';
   return {
     isBusy,
     status:

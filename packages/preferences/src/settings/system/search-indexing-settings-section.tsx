@@ -56,6 +56,13 @@ function getStatusBadge(
         variant: 'outline' as const,
         iconClassName: 'size-3.5 animate-spin',
       };
+    case 'waiting':
+      return {
+        label: 'Waiting for restore',
+        icon: RefreshCw,
+        variant: 'outline' as const,
+        iconClassName: 'size-3.5 animate-spin',
+      };
     case 'importing':
       return {
         label: 'Importing cache files',

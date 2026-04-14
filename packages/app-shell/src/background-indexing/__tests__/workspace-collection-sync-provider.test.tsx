@@ -23,6 +23,8 @@ const {
   getByIdMock,
   validateApiKeyForSetMock,
   ensureStartedMock,
+  fileSystemState,
+  fileTreeContextState,
 } = vi.hoisted(() => ({
   runEnhancedImportMock: vi.fn(),
   readFullTreeWithOptionsMock: vi.fn(),
@@ -34,6 +36,26 @@ const {
   getByIdMock: vi.fn(),
   validateApiKeyForSetMock: vi.fn(),
   ensureStartedMock: vi.fn(),
+  fileSystemState: {
+    isAccessLoading: false,
+    rootDirectoryHandle: {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    },
+  },
+  fileTreeContextState: {
+    current: {
+      isRestorationSettled: true,
+      isRestoringExpandedPaths: false,
+      restorationProgress: null,
+    } as {
+      isRestorationSettled: boolean;
+      isRestoringExpandedPaths: boolean;
+      restorationProgress: null;
+    } | null,
+  },
 }));
 
 vi.mock('@brainstrike/db', () => ({
@@ -74,13 +96,10 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   useFileSystem: () => ({
-    rootDirectoryHandle: {
-      kind: 'directory',
-      name: 'workspace',
-      path: '/workspace/root',
-      platform: 'electron',
-    },
+    isAccessLoading: fileSystemState.isAccessLoading,
+    rootDirectoryHandle: fileSystemState.rootDirectoryHandle,
   }),
+  useOptionalFileTreeContext: () => fileTreeContextState.current,
   readFullTreeWithOptions: readFullTreeWithOptionsMock,
 }));
 
@@ -111,6 +130,18 @@ vi.mock('@brainstrike/vector-management', () => ({
 describe('WorkspaceCollectionSyncProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fileSystemState.isAccessLoading = false;
+    fileSystemState.rootDirectoryHandle = {
+      kind: 'directory',
+      name: 'workspace',
+      path: '/workspace/root',
+      platform: 'electron',
+    };
+    fileTreeContextState.current = {
+      isRestorationSettled: true,
+      isRestoringExpandedPaths: false,
+      restorationProgress: null,
+    };
     __resetBackgroundIndexingPreferencesStoreForTests();
     __resetWorkspaceCollectionSyncStatusStoreForTests();
 
@@ -257,5 +288,133 @@ describe('WorkspaceCollectionSyncProvider', () => {
         relativePath: 'pnpm-lock.yaml',
       })
     ).toBe(false);
+  });
+
+  it('waits for file explorer restoration to settle before starting background indexing', async () => {
+    fileTreeContextState.current = {
+      isRestorationSettled: false,
+      isRestoringExpandedPaths: true,
+      restorationProgress: null,
+    };
+
+    const { rerender } = render(
+      <WorkspaceCollectionSyncProvider
+        loadEmbeddingQueue={async () => ({
+          add: vi.fn(),
+          addBulk: vi.fn(),
+          onProgress: vi.fn(() => () => {}),
+          pause: vi.fn(),
+          resume: vi.fn(),
+          drain: vi.fn(),
+          cancel: vi.fn(),
+          isPaused: false,
+          isProcessing: false,
+        })}
+      >
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting')
+    );
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+
+    fileTreeContextState.current = {
+      isRestorationSettled: true,
+      isRestoringExpandedPaths: false,
+      restorationProgress: null,
+    };
+    rerender(
+      <WorkspaceCollectionSyncProvider
+        loadEmbeddingQueue={async () => ({
+          add: vi.fn(),
+          addBulk: vi.fn(),
+          onProgress: vi.fn(() => () => {}),
+          pause: vi.fn(),
+          resume: vi.fn(),
+          drain: vi.fn(),
+          cancel: vi.fn(),
+          isPaused: false,
+          isProcessing: false,
+        })}
+      >
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('waits for folder restore access loading to finish before starting background indexing', async () => {
+    fileSystemState.isAccessLoading = true;
+
+    const { rerender } = render(
+      <WorkspaceCollectionSyncProvider
+        loadEmbeddingQueue={async () => ({
+          add: vi.fn(),
+          addBulk: vi.fn(),
+          onProgress: vi.fn(() => () => {}),
+          pause: vi.fn(),
+          resume: vi.fn(),
+          drain: vi.fn(),
+          cancel: vi.fn(),
+          isPaused: false,
+          isProcessing: false,
+        })}
+      >
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting')
+    );
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+
+    fileSystemState.isAccessLoading = false;
+    rerender(
+      <WorkspaceCollectionSyncProvider
+        loadEmbeddingQueue={async () => ({
+          add: vi.fn(),
+          addBulk: vi.fn(),
+          onProgress: vi.fn(() => () => {}),
+          pause: vi.fn(),
+          resume: vi.fn(),
+          drain: vi.fn(),
+          cancel: vi.fn(),
+          isPaused: false,
+          isProcessing: false,
+        })}
+      >
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not deadlock when the shared file tree context is unavailable', async () => {
+    fileTreeContextState.current = null;
+
+    render(
+      <WorkspaceCollectionSyncProvider
+        loadEmbeddingQueue={async () => ({
+          add: vi.fn(),
+          addBulk: vi.fn(),
+          onProgress: vi.fn(() => () => {}),
+          pause: vi.fn(),
+          resume: vi.fn(),
+          drain: vi.fn(),
+          cancel: vi.fn(),
+          isPaused: false,
+          isProcessing: false,
+        })}
+      >
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
   });
 });
