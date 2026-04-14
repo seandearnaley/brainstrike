@@ -36,7 +36,7 @@ export function WorkspaceCollectionSyncProvider({
   const fileRecordRepository = useFileRecordRepository();
   const chunkRepository = useFileChunkRepository();
   const embeddingSetsRepository = useEmbeddingSetsRepository();
-  const { port: chunkingWorkerPort } = useChunkingWorkerContext();
+  const { ensureStarted: ensureChunkingWorker } = useChunkingWorkerContext();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
@@ -104,10 +104,10 @@ export function WorkspaceCollectionSyncProvider({
     }
     return new WorkspaceCollectionSyncService({
       chunkRepository,
-      chunkingWorkerPort,
       db,
       embeddingDeviceHint: devicePreference,
       embeddingSetsRepository,
+      ensureChunkingWorker,
       fileSystemAdapter,
       fileRecordRepository,
       loadEmbeddingQueue,
@@ -119,10 +119,10 @@ export function WorkspaceCollectionSyncProvider({
     });
   }, [
     chunkRepository,
-    chunkingWorkerPort,
     db,
     devicePreference,
     embeddingSetsRepository,
+    ensureChunkingWorker,
     fileRecordRepository,
     fileSystemAdapter,
     loadEmbeddingQueue,

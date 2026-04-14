@@ -62,7 +62,6 @@ interface RootFolderCacheMutableRecord {
 }
 
 export interface WorkspaceCollectionSyncServiceDependencies {
-  chunkingWorkerPort: ChunkingWorkerPort | null;
   chunkRepository: {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
     update: (chunk: {
@@ -77,6 +76,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   db: DbHandle;
   embeddingDeviceHint: EmbeddingDeviceHint;
   embeddingSetsRepository: IEmbeddingSetsRepository;
+  ensureChunkingWorker: () => Promise<ChunkingWorkerPort>;
   fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: Pick<
     IFileRecordRepository,
@@ -896,9 +896,8 @@ export class WorkspaceCollectionSyncService {
       await this.ensureCollectionAccess(context);
       throwIfAborted(signal);
 
-      if (!this.deps.chunkingWorkerPort) {
-        throw new Error('Chunking worker is unavailable.');
-      }
+      const chunkingWorkerPort = await this.deps.ensureChunkingWorker();
+      throwIfAborted(signal);
 
       this.setImportingStatus(context, prepared.changes.length);
 
@@ -906,7 +905,7 @@ export class WorkspaceCollectionSyncService {
         abortSignal: signal,
         changes: prepared.changes,
         chunkRepository: this.deps.chunkRepository,
-        chunkingWorkerPort: this.deps.chunkingWorkerPort,
+        chunkingWorkerPort,
         collection: context.collection,
         db: this.deps.db,
         fileRecordRepository: this.deps.fileRecordRepository,

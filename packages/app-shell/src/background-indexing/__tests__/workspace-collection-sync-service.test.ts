@@ -42,11 +42,6 @@ function createDeps(
   overrides: Partial<WorkspaceCollectionSyncServiceDependencies> = {}
 ): WorkspaceCollectionSyncServiceDependencies {
   return {
-    chunkingWorkerPort: {
-      isReady: () => true,
-      transportKind: 'local',
-      chunkFile: vi.fn(),
-    } as unknown as WorkspaceCollectionSyncServiceDependencies['chunkingWorkerPort'],
     chunkRepository: {
       deleteByFileRecordId: vi.fn(async () => undefined),
       update: vi.fn(async () => null),
@@ -73,6 +68,13 @@ function createDeps(
       requestDirectoryAccess: vi.fn(),
       exists: vi.fn(),
     },
+    ensureChunkingWorker: vi.fn(async () => ({
+      chunkBatch: vi.fn(),
+      isReady: () => true,
+      transportKind: 'local-worker' as const,
+      chunkFile: vi.fn(),
+      terminate: vi.fn(),
+    })),
     loadEmbeddingQueue: vi.fn(async () => ({
       add: vi.fn(),
       addBulk: vi.fn(),
@@ -170,6 +172,7 @@ describe('WorkspaceCollectionSyncService', () => {
     });
 
     expect(deps.validateLocalRuntime).not.toHaveBeenCalled();
+    expect(deps.ensureChunkingWorker).not.toHaveBeenCalled();
     expect(deps.loadEmbeddingQueue).not.toHaveBeenCalled();
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
     expect(deps.setStatus).toHaveBeenLastCalledWith(
@@ -210,6 +213,7 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
+    expect(deps.ensureChunkingWorker).toHaveBeenCalledTimes(1);
     expect(deps.chunkRepository.deleteByFileRecordId).toHaveBeenCalledWith('file-1');
     expect(deps.fileRecordRepository.update).toHaveBeenCalledWith(
       'file-1',
@@ -268,6 +272,40 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.setStatus).not.toHaveBeenLastCalledWith(
       expect.objectContaining({
         state: 'error',
+      })
+    );
+  });
+
+  it('starts the chunking worker lazily when no current port snapshot exists', async () => {
+    const chunkingWorkerPort = {
+      isReady: () => true,
+      transportKind: 'host-proxy' as const,
+      chunkBatch: vi.fn(),
+      chunkFile: vi.fn(),
+      terminate: vi.fn(),
+    };
+    const deps = createDeps({
+      ensureChunkingWorker: vi.fn(async () => chunkingWorkerPort),
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.ensureChunkingWorker).toHaveBeenCalledTimes(1);
+    expect(runEnhancedImportMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chunking: expect.objectContaining({
+          chunkingWorkerPort,
+        }),
       })
     );
   });

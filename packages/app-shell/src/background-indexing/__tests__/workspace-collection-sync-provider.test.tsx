@@ -90,6 +90,7 @@ vi.mock('@brainstrike/file-import/chunking-worker-context', () => ({
       isReady: () => true,
       transportKind: 'local',
     },
+    ensureStarted: ensureStartedMock,
   }),
 }));
 
@@ -105,9 +106,6 @@ vi.mock('@brainstrike/vector-management', () => ({
   createVectorQueueService: vi.fn(() => ({
     validateApiKeyForSet: validateApiKeyForSetMock,
   })),
-  useEmbeddingRuntimeController: () => ({
-    ensureStarted: ensureStartedMock,
-  }),
 }));
 
 describe('WorkspaceCollectionSyncProvider', () => {
@@ -135,7 +133,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     getByIdMock.mockResolvedValue(collection);
     validateApiKeyForSetMock.mockResolvedValue({ valid: true });
-    ensureStartedMock.mockResolvedValue({ state: 'running' });
+    ensureStartedMock.mockResolvedValue({
+      isReady: () => true,
+      transportKind: 'local',
+    });
     readFullTreeWithOptionsMock.mockResolvedValue([
       {
         name: 'index.ts',
@@ -179,6 +180,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       </WorkspaceCollectionSyncProvider>
     );
 
+    await waitFor(() => expect(ensureStartedMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(createWithContentMock).toHaveBeenCalledTimes(1));
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
