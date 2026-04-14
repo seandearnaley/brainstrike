@@ -40,6 +40,7 @@ describe('workspace-collection-sync-status-store', () => {
       scanSummary: {
         discoveredFiles: 42,
         changedFiles: 7,
+        excludedEntries: 5,
         unchangedFiles: 35,
       },
       queuedFiles: 12,
@@ -72,6 +73,7 @@ describe('workspace-collection-sync-status-store', () => {
       scanSummary: {
         discoveredFiles: 42,
         changedFiles: 7,
+        excludedEntries: 5,
         unchangedFiles: 35,
       },
       queuedFiles: 12,
@@ -102,6 +104,7 @@ describe('workspace-collection-sync-status-store', () => {
       scanSummary: {
         discoveredFiles: 42,
         changedFiles: 7,
+        excludedEntries: 5,
         unchangedFiles: 35,
       },
       importProgress: {

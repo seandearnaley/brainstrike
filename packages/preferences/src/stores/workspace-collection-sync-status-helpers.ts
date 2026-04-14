@@ -17,7 +17,11 @@ function createScanMetricRow(
   }
   return {
     label: 'Scan',
-    value: `${scanSummary.discoveredFiles} eligible • ${scanSummary.unchangedFiles} unchanged • ${scanSummary.changedFiles} to update`,
+    value: `${scanSummary.discoveredFiles} eligible • ${scanSummary.unchangedFiles} unchanged • ${scanSummary.changedFiles} to update${
+      scanSummary.excludedEntries > 0
+        ? ` • ${scanSummary.excludedEntries} excluded entr${scanSummary.excludedEntries === 1 ? 'y' : 'ies'}`
+        : ''
+    }`,
   };
 }
 

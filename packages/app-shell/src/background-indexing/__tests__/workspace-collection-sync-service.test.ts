@@ -167,6 +167,7 @@ describe('WorkspaceCollectionSyncService', () => {
 
     await service.sync({
       enabled: true,
+      indexingPolicyPreset: 'balanced',
       managedCollectionId: 'set-1',
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
@@ -179,6 +180,56 @@ describe('WorkspaceCollectionSyncService', () => {
       expect.objectContaining({
         state: 'idle',
         processedFiles: 1,
+      })
+    );
+  });
+
+  it('tracks policy-filtered entries in the scan summary', async () => {
+    readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
+      options?.onEntrySkipped?.({
+        entryType: 'directory',
+        reason: 'entry-policy',
+        relativePath: 'coverage',
+      });
+      return [
+        {
+          name: 'index.ts',
+          path: '/workspace/root/src/index.ts',
+          type: 'file',
+          handle: { platform: 'electron', path: `${ROOT_PATH}/${FILE_PATH}` },
+          rootFolderId: ROOT_PATH,
+        },
+      ];
+    });
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 1;',
+        })),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        entryPolicy: expect.any(Object),
+        onEntrySkipped: expect.any(Function),
+      })
+    );
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scanSummary: expect.objectContaining({
+          excludedEntries: 1,
+        }),
       })
     );
   });
@@ -209,6 +260,7 @@ describe('WorkspaceCollectionSyncService', () => {
 
     await service.sync({
       enabled: true,
+      indexingPolicyPreset: 'balanced',
       managedCollectionId: 'set-1',
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
@@ -257,6 +309,7 @@ describe('WorkspaceCollectionSyncService', () => {
 
     const syncPromise = service.sync({
       enabled: true,
+      indexingPolicyPreset: 'balanced',
       managedCollectionId: 'set-1',
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
@@ -296,6 +349,7 @@ describe('WorkspaceCollectionSyncService', () => {
 
     await service.sync({
       enabled: true,
+      indexingPolicyPreset: 'balanced',
       managedCollectionId: 'set-1',
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
@@ -398,6 +452,7 @@ describe('WorkspaceCollectionSyncService', () => {
 
     await service.sync({
       enabled: true,
+      indexingPolicyPreset: 'balanced',
       managedCollectionId: 'set-1',
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
@@ -408,6 +463,7 @@ describe('WorkspaceCollectionSyncService', () => {
         scanSummary: {
           discoveredFiles: 1,
           changedFiles: 1,
+          excludedEntries: 0,
           unchangedFiles: 0,
         },
         chunkingProgress: expect.objectContaining({

@@ -41,6 +41,9 @@ export function WorkspaceCollectionSyncProvider({
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
   );
+  const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
+    (state) => state.indexingPolicyPreset
+  );
   const devicePreference = useVectorPreferencesStore((state) => state.devicePref);
   const setIsImporting = useVectorStatusUIStore((state) => state.setIsImporting);
   const setSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.setStatus);
@@ -155,11 +158,13 @@ export function WorkspaceCollectionSyncProvider({
 
     void service.sync({
       enabled,
+      indexingPolicyPreset,
       managedCollectionId,
       rootDirectoryHandle,
     });
   }, [
     enabled,
+    indexingPolicyPreset,
     loadEmbeddingQueue,
     managedCollectionId,
     resetSyncStatus,

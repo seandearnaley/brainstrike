@@ -116,6 +116,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
+      indexingPolicyPreset: 'balanced',
       managedCollectionId: '00000000-0000-0000-0000-000000000101',
       mode: 'root-folder-cache',
       hasHydrated: true,
@@ -191,6 +192,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
   it('stops and resets status when background indexing is disabled', async () => {
     useBackgroundIndexingPreferencesStore.setState({
       enabled: false,
+      indexingPolicyPreset: 'balanced',
       managedCollectionId: null,
       mode: 'root-folder-cache',
       hasHydrated: true,
@@ -218,5 +220,42 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('disabled')
     );
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
+  });
+
+  it('passes the balanced indexing policy into the background sync request', async () => {
+    render(
+      <WorkspaceCollectionSyncProvider
+        loadEmbeddingQueue={async () => ({
+          add: vi.fn(),
+          addBulk: vi.fn(),
+          onProgress: vi.fn(() => () => {}),
+          pause: vi.fn(),
+          resume: vi.fn(),
+          drain: vi.fn(),
+          cancel: vi.fn(),
+          isPaused: false,
+          isProcessing: false,
+        })}
+      >
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(1));
+    const options = readFullTreeWithOptionsMock.mock.calls[0]?.[2];
+    expect(options?.entryPolicy).toBeDefined();
+    expect(
+      options?.entryPolicy?.shouldTraverseDirectory({
+        directoryName: 'coverage',
+        relativePath: 'coverage',
+      })
+    ).toBe(false);
+    expect(
+      options?.entryPolicy?.shouldIncludeFile({
+        fileName: 'pnpm-lock.yaml',
+        fileSize: 32,
+        relativePath: 'pnpm-lock.yaml',
+      })
+    ).toBe(false);
   });
 });

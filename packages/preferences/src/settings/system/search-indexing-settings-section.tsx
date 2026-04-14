@@ -14,6 +14,11 @@ import {
   SelectValue,
   Switch,
 } from '@brainstrike/ui';
+import {
+  BACKGROUND_INDEXING_POLICY_OPTIONS,
+  type BackgroundIndexingPolicyPreset,
+  getBackgroundIndexingPolicyOption,
+} from '@brainstrike/utils';
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useBackgroundIndexingPreferencesStore } from '../../stores/background-indexing-preferences-store';
@@ -102,7 +107,13 @@ export function SearchIndexingSettingsSection() {
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
   );
+  const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
+    (state) => state.indexingPolicyPreset
+  );
   const setEnabled = useBackgroundIndexingPreferencesStore((state) => state.setEnabled);
+  const setIndexingPolicyPreset = useBackgroundIndexingPreferencesStore(
+    (state) => state.setIndexingPolicyPreset
+  );
   const setManagedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.setManagedCollectionId
   );
@@ -175,6 +186,10 @@ export function SearchIndexingSettingsSection() {
     () => collections.find((collection) => collection.id === managedCollectionId) ?? null,
     [collections, managedCollectionId]
   );
+  const selectedPolicy = useMemo(
+    () => getBackgroundIndexingPolicyOption(indexingPolicyPreset),
+    [indexingPolicyPreset]
+  );
 
   const statusBadge = getStatusBadge(syncStatus.state);
   const StatusIcon = statusBadge.icon;
@@ -205,6 +220,31 @@ export function SearchIndexingSettingsSection() {
             checked={enabled}
             onCheckedChange={(value) => setEnabled(value === true)}
           />
+        </div>
+
+        <div className="space-y-2">
+          <Label className="font-medium text-sm" htmlFor="managed-cache-policy">
+            Indexing policy
+          </Label>
+          <Select
+            onValueChange={(value) =>
+              setIndexingPolicyPreset(value as BackgroundIndexingPolicyPreset)
+            }
+            value={indexingPolicyPreset}
+          >
+            <SelectTrigger aria-label="Indexing policy" id="managed-cache-policy">
+              <SelectValue placeholder="Select an indexing policy" />
+            </SelectTrigger>
+            <SelectContent>
+              {BACKGROUND_INDEXING_POLICY_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                  {option.recommended ? ' (Recommended)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-muted-foreground text-sm">{selectedPolicy.description}</p>
         </div>
 
         <div className="space-y-2">

@@ -12,6 +12,7 @@ export type WorkspaceCollectionSyncState =
 export interface WorkspaceCollectionSyncScanSummary {
   changedFiles: number;
   discoveredFiles: number;
+  excludedEntries: number;
   unchangedFiles: number;
 }
 

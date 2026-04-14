@@ -48,6 +48,24 @@ test.describe('Background indexing settings (web)', () => {
     await page.reload();
   });
 
+  test('lets users change the indexing policy from settings', async ({ page }) => {
+    const home = new HomePage(page);
+
+    await home.goto();
+    await openSearchIndexingSettings(page);
+
+    await expect(
+      page.getByText(/skipping common generated, cache, lock, and minified artifacts/i)
+    ).toBeVisible({ timeout: 15_000 });
+
+    await page.getByLabel('Indexing policy').click();
+    await page.getByRole('option', { name: /full root/i }).click();
+
+    await expect(
+      page.getByText(/indexes every non-binary text file under the selected root/i)
+    ).toBeVisible({ timeout: 15_000 });
+  });
+
   test('surfaces a blocking error when background indexing is enabled without a root folder', async ({
     page,
   }) => {

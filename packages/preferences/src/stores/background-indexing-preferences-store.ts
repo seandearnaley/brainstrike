@@ -1,3 +1,4 @@
+import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils/safe-storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -7,6 +8,7 @@ export type BackgroundIndexingMode = 'root-folder-cache';
 interface BackgroundIndexingPreferencesData {
   enabled: boolean;
   hasHydrated: boolean;
+  indexingPolicyPreset: BackgroundIndexingPolicyPreset;
   managedCollectionId: string | null;
   mode: BackgroundIndexingMode;
 }
@@ -14,6 +16,7 @@ interface BackgroundIndexingPreferencesData {
 interface BackgroundIndexingPreferencesActions {
   reset: () => void;
   setEnabled: (enabled: boolean) => void;
+  setIndexingPolicyPreset: (indexingPolicyPreset: BackgroundIndexingPolicyPreset) => void;
   setManagedCollectionId: (managedCollectionId: string | null) => void;
 }
 
@@ -66,6 +69,7 @@ const storage = createJSONStorage(() => createBackgroundIndexingPreferencesStora
 const DEFAULT_STATE: BackgroundIndexingPreferencesData = {
   enabled: false,
   hasHydrated: false,
+  indexingPolicyPreset: 'balanced',
   managedCollectionId: null,
   mode: 'root-folder-cache',
 };
@@ -75,10 +79,13 @@ export const useBackgroundIndexingPreferencesStore = create<BackgroundIndexingPr
     (set) => ({
       ...DEFAULT_STATE,
       setEnabled: (enabled: boolean) => set({ enabled }),
+      setIndexingPolicyPreset: (indexingPolicyPreset: BackgroundIndexingPolicyPreset) =>
+        set({ indexingPolicyPreset }),
       setManagedCollectionId: (managedCollectionId: string | null) => set({ managedCollectionId }),
       reset: () =>
         set({
           enabled: DEFAULT_STATE.enabled,
+          indexingPolicyPreset: DEFAULT_STATE.indexingPolicyPreset,
           managedCollectionId: DEFAULT_STATE.managedCollectionId,
           mode: DEFAULT_STATE.mode,
           hasHydrated: true,
@@ -86,13 +93,31 @@ export const useBackgroundIndexingPreferencesStore = create<BackgroundIndexingPr
     }),
     {
       name: STORE_NAME,
-      version: 1,
+      version: 2,
       storage,
       partialize: (state: BackgroundIndexingPreferencesStore) => ({
         enabled: state.enabled,
+        indexingPolicyPreset: state.indexingPolicyPreset,
         managedCollectionId: state.managedCollectionId,
         mode: state.mode,
       }),
+      migrate: (persistedState: unknown) => {
+        if (!(persistedState && typeof persistedState === 'object')) {
+          return {
+            ...DEFAULT_STATE,
+          };
+        }
+
+        const candidate = persistedState as Partial<BackgroundIndexingPreferencesData>;
+        return {
+          enabled: candidate.enabled ?? DEFAULT_STATE.enabled,
+          hasHydrated: false,
+          indexingPolicyPreset:
+            candidate.indexingPolicyPreset ?? DEFAULT_STATE.indexingPolicyPreset,
+          managedCollectionId: candidate.managedCollectionId ?? DEFAULT_STATE.managedCollectionId,
+          mode: candidate.mode ?? DEFAULT_STATE.mode,
+        } satisfies BackgroundIndexingPreferencesData;
+      },
       onRehydrateStorage: () => (_state, error) => {
         if (!error) {
           useBackgroundIndexingPreferencesStore.setState({ hasHydrated: true });

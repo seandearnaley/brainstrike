@@ -25,7 +25,11 @@ import {
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { EmbeddingDeviceHint, QueueAdapter } from '@brainstrike/queue';
 import type { IFileNode } from '@brainstrike/types';
-import { generateContentHash } from '@brainstrike/utils';
+import {
+  type BackgroundIndexingPolicyPreset,
+  createBackgroundIndexingEntryPolicy,
+  generateContentHash,
+} from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
@@ -93,6 +97,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
 
 export interface WorkspaceCollectionSyncRequest {
   enabled: boolean;
+  indexingPolicyPreset: BackgroundIndexingPolicyPreset;
   managedCollectionId: string | null;
   rootDirectoryHandle: RootDirectoryHandle | null;
 }
@@ -109,6 +114,7 @@ export type WorkspaceCollectionSyncState =
 interface WorkspaceCollectionSyncScanSummary {
   changedFiles: number;
   discoveredFiles: number;
+  excludedEntries: number;
   unchangedFiles: number;
 }
 
@@ -209,6 +215,7 @@ interface FileBatchPreparation {
 
 interface PreparedChangesSummary {
   changes: PreparedCacheChange[];
+  excludedEntries: number;
   totalFiles: number;
   unchangedCount: number;
 }
@@ -602,6 +609,7 @@ async function collectPreparedChangesInBatches(args: {
 
   return {
     changes,
+    excludedEntries: 0,
     totalFiles: fileNodes.length,
     unchangedCount,
   };
@@ -946,9 +954,13 @@ export class WorkspaceCollectionSyncService {
     abortSignal: AbortSignal;
   }): Promise<PreparedChangesSummary> {
     const { request, context, abortSignal } = args;
+    const entryPolicy = createBackgroundIndexingEntryPolicy({
+      preset: request.indexingPolicyPreset,
+    });
     const statusReporter = createScanningStatusReporter((path) => {
       this.setScanningStatus(context, path);
     });
+    let excludedEntries = 0;
 
     try {
       const tree = await readFullTreeWithOptions(
@@ -956,6 +968,12 @@ export class WorkspaceCollectionSyncService {
         request.rootDirectoryHandle as RootDirectoryHandle,
         {
           abortSignal,
+          entryPolicy,
+          onEntrySkipped: (entry) => {
+            if (entry.reason === 'entry-policy') {
+              excludedEntries += 1;
+            }
+          },
           updateProgress: (path?: string) => {
             statusReporter.report(path ?? null);
           },
@@ -982,7 +1000,10 @@ export class WorkspaceCollectionSyncService {
           : {}),
       });
       statusReporter.flush(null);
-      return prepared;
+      return {
+        ...prepared,
+        excludedEntries,
+      };
     } finally {
       statusReporter.dispose();
     }
@@ -990,7 +1011,10 @@ export class WorkspaceCollectionSyncService {
 
   private setScanSummary(
     context: ResolvedSyncContext,
-    prepared: Pick<PreparedChangesSummary, 'changes' | 'totalFiles' | 'unchangedCount'>
+    prepared: Pick<
+      PreparedChangesSummary,
+      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+    >
   ): void {
     this.deps.setStatus({
       managedCollectionId: context.collection.id,
@@ -999,6 +1023,7 @@ export class WorkspaceCollectionSyncService {
       scanSummary: {
         discoveredFiles: prepared.totalFiles,
         changedFiles: prepared.changes.length,
+        excludedEntries: prepared.excludedEntries,
         unchangedFiles: prepared.unchangedCount,
       },
       processedFiles: prepared.unchangedCount,
@@ -1010,7 +1035,10 @@ export class WorkspaceCollectionSyncService {
   private setIdleStatus(args: {
     collection: EmbeddingSet;
     rootPath: string;
-    summary?: Pick<PreparedChangesSummary, 'changes' | 'totalFiles' | 'unchangedCount'>;
+    summary?: Pick<
+      PreparedChangesSummary,
+      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+    >;
   }): void {
     this.deps.setStatus({
       state: 'idle',
@@ -1024,6 +1052,7 @@ export class WorkspaceCollectionSyncService {
             scanSummary: {
               discoveredFiles: args.summary.totalFiles,
               changedFiles: args.summary.changes.length,
+              excludedEntries: args.summary.excludedEntries,
               unchangedFiles: args.summary.unchangedCount,
             },
             processedFiles: args.summary.totalFiles,
@@ -1037,7 +1066,10 @@ export class WorkspaceCollectionSyncService {
 
   private setImportingStatus(
     context: ResolvedSyncContext,
-    summary: Pick<PreparedChangesSummary, 'changes' | 'totalFiles' | 'unchangedCount'>
+    summary: Pick<
+      PreparedChangesSummary,
+      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+    >
   ): void {
     this.deps.setStatus({
       state: 'importing',
@@ -1048,6 +1080,7 @@ export class WorkspaceCollectionSyncService {
       scanSummary: {
         discoveredFiles: summary.totalFiles,
         changedFiles: summary.changes.length,
+        excludedEntries: summary.excludedEntries,
         unchangedFiles: summary.unchangedCount,
       },
       importProgress: {
@@ -1133,6 +1166,7 @@ export class WorkspaceCollectionSyncService {
       const scanSummary: WorkspaceCollectionSyncScanSummary = {
         discoveredFiles: prepared.totalFiles,
         changedFiles: prepared.changes.length,
+        excludedEntries: prepared.excludedEntries,
         unchangedFiles: prepared.unchangedCount,
       };
       let sawCompleteProgress = false;

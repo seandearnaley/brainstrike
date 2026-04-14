@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { Badge, Popover, PopoverContent, PopoverTrigger, StatusBarItem } from '@brainstrike/ui';
+import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { Database, Loader2, TriangleAlert } from 'lucide-react';
 
 function truncateMiddle(value: string, maxLength = 48): string {
@@ -84,6 +85,9 @@ export function CollectionSyncStatusItem() {
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
   );
+  const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
+    (state) => state.indexingPolicyPreset
+  );
   const syncStatus = useWorkspaceCollectionSyncStatusStore(selectCollectionSyncStatus);
 
   if (!isStatusItemVisible({ enabled, managedCollectionId, syncStatus })) {
@@ -92,6 +96,7 @@ export function CollectionSyncStatusItem() {
 
   const label = syncStatus.managedCollectionName ?? 'Index cache';
   const { isBusy, status, value } = getStatusItemState(syncStatus.state, enabled);
+  const selectedPolicy = getBackgroundIndexingPolicyOption(indexingPolicyPreset);
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
 
@@ -128,6 +133,7 @@ export function CollectionSyncStatusItem() {
           <p className="text-muted-foreground text-xs">
             Managed collection: {syncStatus.managedCollectionName ?? 'None selected'}
           </p>
+          <p className="text-muted-foreground text-xs">Policy: {selectedPolicy.label}</p>
         </div>
 
         <dl className="space-y-2 text-sm">
