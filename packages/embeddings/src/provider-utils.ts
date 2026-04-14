@@ -1,8 +1,10 @@
+import {
+  canonicalizeProviderModelKey as canonicalizeSharedProviderModelKey,
+  formatProviderModelKey as formatSharedProviderModelKey,
+  parseProviderModelKey as parseSharedProviderModelKey,
+} from '@brainstrike/utils';
 import type { EmbeddingProviderType, HostedProviderType } from './provider-types';
 import { isLocalProviderType } from './provider-types';
-
-const PROVIDER_SEPARATOR = '::';
-const LEGACY_SEPARATOR = ':';
 
 export interface ParsedProviderModel {
   modelId: string;
@@ -10,37 +12,13 @@ export interface ParsedProviderModel {
 }
 
 export function formatProviderModelKey(provider: EmbeddingProviderType, modelId: string): string {
-  return `${provider}${PROVIDER_SEPARATOR}${modelId}`;
+  return formatSharedProviderModelKey(provider, modelId);
 }
 
 export function parseProviderModelKey(
   composite: string | null | undefined
 ): ParsedProviderModel | null {
-  if (!composite) {
-    return null;
-  }
-
-  if (composite.includes(PROVIDER_SEPARATOR)) {
-    const [provider, modelId] = composite.split(PROVIDER_SEPARATOR);
-    if (!(provider && modelId)) {
-      return null;
-    }
-    return {
-      provider: provider as EmbeddingProviderType,
-      modelId,
-    };
-  }
-
-  const legacyIndex = composite.indexOf(LEGACY_SEPARATOR);
-  if (legacyIndex > 0 && legacyIndex < composite.length - 1) {
-    const provider = composite.slice(0, legacyIndex) as EmbeddingProviderType;
-    const modelId = composite.slice(legacyIndex + 1);
-    if (provider && modelId) {
-      return { provider, modelId };
-    }
-  }
-
-  return null;
+  return parseSharedProviderModelKey<EmbeddingProviderType>(composite);
 }
 
 /**
@@ -55,13 +33,10 @@ export function canonicalizeProviderModelKey(
   modelKey: string | null | undefined,
   providerHint?: EmbeddingProviderType
 ): { provider: EmbeddingProviderType; modelId: string; composite: string } | null {
-  const parsed = parseProviderModelKey(modelKey);
-  const provider = parsed?.provider ?? providerHint ?? 'local';
-  const rawModelId = parsed?.modelId ?? modelKey ?? '';
-  const modelId = rawModelId.trim();
-  if (!modelId) {
-    return null;
-  }
-  const composite = formatProviderModelKey(provider, modelId);
-  return { provider, modelId, composite };
+  const options = providerHint
+    ? { providerHint, fallbackProvider: 'local' as const }
+    : { fallbackProvider: 'local' as const };
+  return canonicalizeSharedProviderModelKey<EmbeddingProviderType>(modelKey, {
+    ...options,
+  });
 }

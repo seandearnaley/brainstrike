@@ -11,6 +11,7 @@ export interface ModelPickerModel {
   contextWindow?: number;
   description?: string | null;
   id: string;
+  modelId?: string;
   name: string;
   pricePer1MTokensInput?: number;
   pricePer1MTokensOutput?: number;

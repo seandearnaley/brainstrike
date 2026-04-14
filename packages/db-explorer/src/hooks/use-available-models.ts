@@ -5,12 +5,14 @@ import type {
 } from '@brainstrike/agent/local-runtime';
 import { isLoadedRuntimeModelCatalogState } from '@brainstrike/agent/local-runtime';
 import type { DbModel, DbProvider } from '@brainstrike/preferences/stores/model-registry-store';
+import { formatProviderModelKey } from '@brainstrike/utils';
 import { useMemo } from 'react';
 
 interface AvailableModel {
   capabilities: DbModel['capabilities'];
   description: string;
   id: string;
+  modelId: string;
   name: string;
   pricePer1MTokensInput?: number;
   providerId: string;
@@ -68,6 +70,7 @@ function toRuntimeEmbeddingModels(catalog: LocalRuntimeModelCatalogMap | null): 
 
       runtimeModels.push({
         id: model.modelKey,
+        modelId: model.modelId,
         providerId: runtimeId,
         name: model.modelId,
         description:
@@ -113,7 +116,8 @@ export function useAvailableModels(
     const registryModels = models
       .filter((m) => m.isEnabled && m.capabilities.type === 'embedding')
       .map((m) => ({
-        id: m.providerId === 'local' ? m.id : `${m.providerId}::${m.id}`,
+        id: formatProviderModelKey(m.providerId, m.id),
+        modelId: m.id,
         providerId: m.providerId,
         name: m.name,
         description: m.description ?? '',

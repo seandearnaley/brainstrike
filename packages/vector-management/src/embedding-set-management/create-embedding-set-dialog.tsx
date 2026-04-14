@@ -1,4 +1,5 @@
 import type { IEmbeddingSetsRepository } from '@brainstrike/db';
+import { parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import {
   Button,
   Dialog,
@@ -49,6 +50,24 @@ interface CreateEmbeddingSetDialogProps {
   open: boolean;
   providers: ModelPickerProvider[];
   repository: IEmbeddingSetsRepository | null;
+}
+
+function resolveSelectedEmbeddingModel(
+  selectedModelInfo: ModelPickerModel | undefined
+): { dimensions: number; modelId: string; modelKey: string } | null {
+  if (!selectedModelInfo) {
+    return null;
+  }
+  const parsedModelKey = parseProviderModelKey(selectedModelInfo.id);
+  const modelId = selectedModelInfo.modelId ?? parsedModelKey?.modelId;
+  if (!modelId) {
+    return null;
+  }
+  return {
+    modelKey: selectedModelInfo.id,
+    modelId,
+    dimensions: selectedModelInfo.capabilities.defaultDimension ?? 1536,
+  };
 }
 
 // Helper to build metadata object with only non-empty fields
@@ -245,10 +264,16 @@ export function CreateEmbeddingSetDialog({
       return;
     }
 
-    // Reconstruct modelKey and dimensions from ModelPickerModel
-    const modelKey = selectedModelInfo.id; // id is the modelKey (e.g. "openai::text-embedding-3-small")
-    const modelId = selectedModelInfo.name; // name is the modelId (e.g. "text-embedding-3-small")
-    const dimensions = selectedModelInfo.capabilities.defaultDimension ?? 1536; // Fallback if missing
+    const selectedModel = resolveSelectedEmbeddingModel(selectedModelInfo);
+    if (!selectedModel) {
+      toast({
+        title: 'Error',
+        description: 'Selected model metadata is invalid',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const { modelKey, modelId, dimensions } = selectedModel;
     const distance = 'cosine'; // Default for now
 
     dispatch({ type: 'set_creating', creating: true });
