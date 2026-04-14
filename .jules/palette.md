@@ -19,3 +19,6 @@
 
 **Learning:** Icon-only action buttons in lists (like Edit/Delete in `CollectionPickerItem`) sometimes lack `aria-label` attributes and use `size="sm"` with custom width/height/padding classes instead of the standard `size="icon"` which is designed specifically for square icon buttons.
 **Action:** Always provide descriptive `aria-label` attributes for icon-only action buttons and prefer `size="icon"` over manually overriding `size="sm"` padding/dimensions when rendering purely icon-based buttons.
+## 2024-04-14 - Standardizing Icon Button Sizing
+**Learning:** Icon-only action buttons across various components often improperly combine base sizes (like `size="sm"` or `size="icon"`) with hardcoded utility classes (like `className="h-7 w-7 p-0"`) to achieve smaller dimensions, bypassing the design system.
+**Action:** Always prefer the dedicated size tokens (`size="icon-xs"`, `size="icon-sm"`) when rendering purely icon-based buttons to ensure correct, standardized dimensions and internal SVG scaling out of the box.

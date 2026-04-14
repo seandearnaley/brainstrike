@@ -178,10 +178,9 @@ const NavigationControls = memo(function NavigationControls({
       {!isMiniDensity && (
         <Button
           aria-label="Go to first page"
-          className="h-7 w-7 p-0"
           disabled={isFirstPage}
           onClick={onGoToFirstPage}
-          size="sm"
+          size="icon-xs"
           title="Go to first page"
           variant="ghost"
         >
@@ -190,10 +189,9 @@ const NavigationControls = memo(function NavigationControls({
       )}
       <Button
         aria-label="Go to previous page"
-        className="h-7 w-7 p-0"
         disabled={isFirstPage}
         onClick={onGoToPreviousPage}
-        size="sm"
+        size="icon-xs"
         title="Go to previous page"
         variant="ghost"
       >
@@ -229,10 +227,9 @@ const NavigationControls = memo(function NavigationControls({
 
       <Button
         aria-label="Go to next page"
-        className="h-7 w-7 p-0"
         disabled={isLastPage}
         onClick={onGoToNextPage}
-        size="sm"
+        size="icon-xs"
         title="Go to next page"
         variant="ghost"
       >
@@ -241,10 +238,9 @@ const NavigationControls = memo(function NavigationControls({
       {!isMiniDensity && (
         <Button
           aria-label="Go to last page"
-          className="h-7 w-7 p-0"
           disabled={isLastPage}
           onClick={onGoToLastPage}
-          size="sm"
+          size="icon-xs"
           title="Go to last page"
           variant="ghost"
         >
