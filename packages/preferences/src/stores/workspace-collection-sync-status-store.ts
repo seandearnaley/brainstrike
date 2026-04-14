@@ -5,17 +5,66 @@ export type WorkspaceCollectionSyncState =
   | 'idle'
   | 'scanning'
   | 'importing'
+  | 'chunking'
   | 'embedding'
   | 'error';
 
+export interface WorkspaceCollectionSyncScanSummary {
+  changedFiles: number;
+  discoveredFiles: number;
+  unchangedFiles: number;
+}
+
+export interface WorkspaceCollectionSyncImportProgress {
+  completed: number;
+  current: string | null;
+  errorCount: number;
+  total: number;
+}
+
+export interface WorkspaceCollectionSyncChunkingProgress {
+  chunksCreated: number;
+  currentFile: string | null;
+  filesProcessed: number;
+  strategyUsed: string | null;
+  totalFiles: number;
+}
+
+export interface WorkspaceCollectionSyncEmbeddingProgress {
+  chunksProcessed: number;
+  currentChunk: string | null;
+  modelName: string | null;
+  totalChunks: number;
+}
+
+export interface WorkspaceCollectionSyncQueueProgress {
+  failed: number;
+  lastError: string | null;
+  lastEvent: {
+    chunkId: string;
+    elapsedMs?: number;
+    errorMessage?: string;
+    model: string;
+    status: 'queued' | 'completed' | 'error';
+  } | null;
+  pending: number;
+  processed: number;
+  totalQueued: number;
+}
+
 export interface WorkspaceCollectionSyncStatusData {
   activeRootPath: string | null;
+  chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
   currentFilePath: string | null;
+  embeddingProgress: WorkspaceCollectionSyncEmbeddingProgress | null;
+  importProgress: WorkspaceCollectionSyncImportProgress | null;
   lastError: string | null;
   managedCollectionId: string | null;
   managedCollectionName: string | null;
   processedFiles: number;
   queuedFiles: number;
+  queueProgress: WorkspaceCollectionSyncQueueProgress | null;
+  scanSummary: WorkspaceCollectionSyncScanSummary | null;
   state: WorkspaceCollectionSyncState;
 }
 
@@ -32,6 +81,11 @@ const DEFAULT_STATE: WorkspaceCollectionSyncStatusData = {
   managedCollectionId: null,
   managedCollectionName: null,
   currentFilePath: null,
+  scanSummary: null,
+  importProgress: null,
+  chunkingProgress: null,
+  embeddingProgress: null,
+  queueProgress: null,
   queuedFiles: 0,
   processedFiles: 0,
   lastError: null,

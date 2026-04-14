@@ -102,17 +102,83 @@ export type WorkspaceCollectionSyncState =
   | 'idle'
   | 'scanning'
   | 'importing'
+  | 'chunking'
   | 'embedding'
   | 'error';
 
+interface WorkspaceCollectionSyncScanSummary {
+  changedFiles: number;
+  discoveredFiles: number;
+  unchangedFiles: number;
+}
+
+type WorkspaceCollectionSyncChunkingProgress = NonNullable<
+  NonNullable<WorkspaceCollectionSyncProgressUpdate['chunkingProgress']>
+>;
+type WorkspaceCollectionSyncEmbeddingProgress = NonNullable<
+  NonNullable<WorkspaceCollectionSyncProgressUpdate['embeddingProgress']>
+>;
+type WorkspaceCollectionSyncImportProgress = NonNullable<
+  NonNullable<WorkspaceCollectionSyncProgressUpdate['importProgress']>
+>;
+type WorkspaceCollectionSyncQueueProgress = NonNullable<
+  NonNullable<WorkspaceCollectionSyncProgressUpdate['queueProgress']>
+>;
+
+interface WorkspaceCollectionSyncProgressStatusBase {
+  activeRootPath: string;
+  chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
+  embeddingProgress: WorkspaceCollectionSyncEmbeddingProgress | null;
+  importProgress: WorkspaceCollectionSyncImportProgress;
+  lastError: string | null;
+  managedCollectionId: string;
+  managedCollectionName: string | null;
+  queueProgress: WorkspaceCollectionSyncQueueProgress | null;
+  scanSummary: WorkspaceCollectionSyncScanSummary;
+}
+
 export interface WorkspaceCollectionSyncProgressUpdate {
   activeRootPath?: string | null;
+  chunkingProgress?: {
+    chunksCreated: number;
+    currentFile: string | null;
+    filesProcessed: number;
+    strategyUsed: string | null;
+    totalFiles: number;
+  } | null;
   currentFilePath?: string | null;
+  embeddingProgress?: {
+    chunksProcessed: number;
+    currentChunk: string | null;
+    modelName: string | null;
+    totalChunks: number;
+  } | null;
+  importProgress?: {
+    completed: number;
+    current: string | null;
+    errorCount: number;
+    total: number;
+  } | null;
   lastError?: string | null;
   managedCollectionId?: string | null;
   managedCollectionName?: string | null;
   processedFiles?: number;
   queuedFiles?: number;
+  queueProgress?: {
+    failed: number;
+    lastError: string | null;
+    lastEvent: {
+      chunkId: string;
+      elapsedMs?: number;
+      errorMessage?: string;
+      model: string;
+      status: 'queued' | 'completed' | 'error';
+    } | null;
+    pending: number;
+    processed: number;
+    totalQueued: number;
+  } | null;
+  scanSummary?: WorkspaceCollectionSyncScanSummary | null;
   state?: WorkspaceCollectionSyncState;
 }
 
@@ -139,6 +205,12 @@ interface FileBatchPreparation {
   relativePath: string;
   request: FileContentRequest;
   size: number;
+}
+
+interface PreparedChangesSummary {
+  changes: PreparedCacheChange[];
+  totalFiles: number;
+  unchangedCount: number;
 }
 
 function isContentAccessible(content: string): boolean {
@@ -283,40 +355,127 @@ function toMutableRecord(change: PreparedCacheChange): RootFolderCacheMutableRec
 function mapEnhancedProgressToStatus(
   progress: EnhancedImportProgress,
   managedCollectionId: string,
-  managedCollectionName: string | null
+  managedCollectionName: string | null,
+  rootPath: string,
+  summary: WorkspaceCollectionSyncScanSummary
 ): WorkspaceCollectionSyncProgressUpdate {
-  if (progress.phase === 'complete') {
-    return {
-      state: 'idle',
-      managedCollectionId,
-      managedCollectionName,
-      processedFiles: progress.total,
-      queuedFiles: 0,
-      currentFilePath: null,
-      lastError: progress.errors[0]?.error ?? null,
-    };
-  }
-
-  if (progress.phase === 'embedding') {
-    return {
-      state: 'embedding',
-      managedCollectionId,
-      managedCollectionName,
-      processedFiles: progress.embeddingProgress?.chunksProcessed ?? progress.completed,
-      queuedFiles: progress.queueProgress?.pending ?? progress.total,
-      currentFilePath: progress.embeddingProgress?.currentChunk ?? progress.current ?? null,
-      lastError: progress.errors[0]?.error ?? null,
-    };
-  }
-
-  return {
-    state: 'importing',
+  const base = buildEnhancedProgressStatusBase(
+    progress,
     managedCollectionId,
     managedCollectionName,
-    processedFiles: progress.chunkingProgress?.filesProcessed ?? progress.completed,
-    queuedFiles: Math.max(0, progress.total - progress.completed),
-    currentFilePath: progress.chunkingProgress?.currentFile ?? progress.current ?? null,
+    rootPath,
+    summary
+  );
+
+  switch (progress.phase) {
+    case 'complete':
+      return {
+        ...base,
+        state: 'idle',
+        processedFiles: progress.total,
+        queuedFiles: base.queueProgress?.pending ?? 0,
+        currentFilePath: null,
+      };
+    case 'embedding':
+      return {
+        ...base,
+        state: 'embedding',
+        processedFiles: progress.embeddingProgress?.chunksProcessed ?? progress.completed,
+        queuedFiles: progress.queueProgress?.pending ?? 0,
+        currentFilePath: progress.embeddingProgress?.currentChunk ?? progress.current ?? null,
+      };
+    case 'chunking':
+      return {
+        ...base,
+        state: 'chunking',
+        processedFiles: progress.chunkingProgress?.filesProcessed ?? progress.completed,
+        queuedFiles: 0,
+        currentFilePath: progress.chunkingProgress?.currentFile ?? progress.current ?? null,
+      };
+    default:
+      return {
+        ...base,
+        state: 'importing',
+        processedFiles: progress.completed,
+        queuedFiles: Math.max(0, progress.total - progress.completed),
+        currentFilePath: progress.current ?? null,
+      };
+  }
+}
+
+function buildEnhancedProgressStatusBase(
+  progress: EnhancedImportProgress,
+  managedCollectionId: string,
+  managedCollectionName: string | null,
+  rootPath: string,
+  summary: WorkspaceCollectionSyncScanSummary
+): WorkspaceCollectionSyncProgressStatusBase {
+  return {
+    activeRootPath: rootPath,
+    managedCollectionId,
+    managedCollectionName,
+    scanSummary: summary,
+    importProgress: toWorkspaceCollectionSyncImportProgress(progress),
+    chunkingProgress: toWorkspaceCollectionSyncChunkingProgress(progress),
+    embeddingProgress: toWorkspaceCollectionSyncEmbeddingProgress(progress),
+    queueProgress: toWorkspaceCollectionSyncQueueProgress(progress),
     lastError: progress.errors[0]?.error ?? null,
+  };
+}
+
+function toWorkspaceCollectionSyncImportProgress(
+  progress: EnhancedImportProgress
+): WorkspaceCollectionSyncImportProgress {
+  return {
+    completed: progress.completed,
+    total: progress.total,
+    current: progress.current ?? null,
+    errorCount: progress.errors.length,
+  };
+}
+
+function toWorkspaceCollectionSyncChunkingProgress(
+  progress: EnhancedImportProgress
+): WorkspaceCollectionSyncChunkingProgress | null {
+  if (!progress.chunkingProgress) {
+    return null;
+  }
+  return {
+    filesProcessed: progress.chunkingProgress.filesProcessed,
+    totalFiles: progress.chunkingProgress.totalFiles,
+    currentFile: progress.chunkingProgress.currentFile ?? null,
+    chunksCreated: progress.chunkingProgress.chunksCreated,
+    strategyUsed: progress.chunkingProgress.strategyUsed ?? null,
+  };
+}
+
+function toWorkspaceCollectionSyncEmbeddingProgress(
+  progress: EnhancedImportProgress
+): WorkspaceCollectionSyncEmbeddingProgress | null {
+  if (!progress.embeddingProgress) {
+    return null;
+  }
+  return {
+    chunksProcessed: progress.embeddingProgress.chunksProcessed,
+    totalChunks: progress.embeddingProgress.totalChunks,
+    currentChunk: progress.embeddingProgress.currentChunk ?? null,
+    modelName: progress.embeddingProgress.modelName ?? null,
+  };
+}
+
+function toWorkspaceCollectionSyncQueueProgress(
+  progress: EnhancedImportProgress
+): WorkspaceCollectionSyncQueueProgress | null {
+  if (!progress.queueProgress) {
+    return null;
+  }
+  return {
+    pending: progress.queueProgress.pending,
+    processed: progress.queueProgress.processed,
+    failed: progress.queueProgress.failed,
+    totalQueued: progress.queueProgress.totalQueued,
+    lastError: progress.queueProgress.lastError,
+    lastEvent: progress.queueProgress.lastEvent ?? null,
   };
 }
 
@@ -350,7 +509,7 @@ async function collectPreparedChangesInBatches(args: {
   fileSystemAdapter: FileSystemAdapter;
   onCurrentFile: (path: string | null) => void;
   rootPath: string;
-}): Promise<{ changes: PreparedCacheChange[]; unchangedCount: number }> {
+}): Promise<PreparedChangesSummary> {
   const {
     abortSignal,
     existingEntries,
@@ -443,6 +602,7 @@ async function collectPreparedChangesInBatches(args: {
 
   return {
     changes,
+    totalFiles: fileNodes.length,
     unchangedCount,
   };
 }
@@ -653,16 +813,38 @@ export class WorkspaceCollectionSyncService {
     return runId !== this.runId;
   }
 
+  private createClearedProgressState(): Pick<
+    WorkspaceCollectionSyncProgressUpdate,
+    | 'chunkingProgress'
+    | 'currentFilePath'
+    | 'embeddingProgress'
+    | 'importProgress'
+    | 'lastError'
+    | 'processedFiles'
+    | 'queuedFiles'
+    | 'queueProgress'
+    | 'scanSummary'
+  > {
+    return {
+      currentFilePath: null,
+      scanSummary: null,
+      importProgress: null,
+      chunkingProgress: null,
+      embeddingProgress: null,
+      queueProgress: null,
+      queuedFiles: 0,
+      processedFiles: 0,
+      lastError: null,
+    };
+  }
+
   private setDisabledStatus(request: WorkspaceCollectionSyncRequest): void {
     this.deps.setStatus({
       state: 'disabled',
       managedCollectionId: request.managedCollectionId,
       managedCollectionName: null,
       activeRootPath: request.rootDirectoryHandle?.path ?? null,
-      currentFilePath: null,
-      queuedFiles: 0,
-      processedFiles: 0,
-      lastError: null,
+      ...this.createClearedProgressState(),
     });
   }
 
@@ -677,9 +859,6 @@ export class WorkspaceCollectionSyncService {
       managedCollectionId: args.managedCollectionId,
       managedCollectionName: args.managedCollectionName,
       activeRootPath: args.activeRootPath,
-      currentFilePath: null,
-      queuedFiles: 0,
-      processedFiles: 0,
       lastError: args.message,
     });
   }
@@ -745,16 +924,19 @@ export class WorkspaceCollectionSyncService {
     await this.deps.validateHostedProviderAccess(context.collection.id);
   }
 
-  private setScanningStatus(context: ResolvedSyncContext, currentFilePath: string | null): void {
+  private setScanningStatus(
+    context: ResolvedSyncContext,
+    currentFilePath: string | null,
+    options?: { resetProgress?: boolean }
+  ): void {
     this.deps.setStatus({
       state: 'scanning',
       managedCollectionId: context.collection.id,
       managedCollectionName: context.collection.name ?? null,
       activeRootPath: context.rootPath,
       currentFilePath,
-      queuedFiles: 0,
-      processedFiles: 0,
       lastError: null,
+      ...(options?.resetProgress ? this.createClearedProgressState() : {}),
     });
   }
 
@@ -762,7 +944,7 @@ export class WorkspaceCollectionSyncService {
     request: WorkspaceCollectionSyncRequest;
     context: ResolvedSyncContext;
     abortSignal: AbortSignal;
-  }): Promise<{ changes: PreparedCacheChange[]; unchangedCount: number }> {
+  }): Promise<PreparedChangesSummary> {
     const { request, context, abortSignal } = args;
     const statusReporter = createScanningStatusReporter((path) => {
       this.setScanningStatus(context, path);
@@ -806,10 +988,29 @@ export class WorkspaceCollectionSyncService {
     }
   }
 
+  private setScanSummary(
+    context: ResolvedSyncContext,
+    prepared: Pick<PreparedChangesSummary, 'changes' | 'totalFiles' | 'unchangedCount'>
+  ): void {
+    this.deps.setStatus({
+      managedCollectionId: context.collection.id,
+      managedCollectionName: context.collection.name ?? null,
+      activeRootPath: context.rootPath,
+      scanSummary: {
+        discoveredFiles: prepared.totalFiles,
+        changedFiles: prepared.changes.length,
+        unchangedFiles: prepared.unchangedCount,
+      },
+      processedFiles: prepared.unchangedCount,
+      queuedFiles: prepared.changes.length,
+      lastError: null,
+    });
+  }
+
   private setIdleStatus(args: {
     collection: EmbeddingSet;
-    processedFiles: number;
     rootPath: string;
+    summary?: Pick<PreparedChangesSummary, 'changes' | 'totalFiles' | 'unchangedCount'>;
   }): void {
     this.deps.setStatus({
       state: 'idle',
@@ -817,21 +1018,49 @@ export class WorkspaceCollectionSyncService {
       managedCollectionName: args.collection.name ?? null,
       activeRootPath: args.rootPath,
       currentFilePath: null,
-      queuedFiles: 0,
-      processedFiles: args.processedFiles,
       lastError: null,
+      ...(args.summary
+        ? {
+            scanSummary: {
+              discoveredFiles: args.summary.totalFiles,
+              changedFiles: args.summary.changes.length,
+              unchangedFiles: args.summary.unchangedCount,
+            },
+            processedFiles: args.summary.totalFiles,
+            queuedFiles: 0,
+          }
+        : {
+            queuedFiles: 0,
+          }),
     });
   }
 
-  private setImportingStatus(context: ResolvedSyncContext, queuedFiles: number): void {
+  private setImportingStatus(
+    context: ResolvedSyncContext,
+    summary: Pick<PreparedChangesSummary, 'changes' | 'totalFiles' | 'unchangedCount'>
+  ): void {
     this.deps.setStatus({
       state: 'importing',
       managedCollectionId: context.collection.id,
       managedCollectionName: context.collection.name ?? null,
       activeRootPath: context.rootPath,
       currentFilePath: null,
-      queuedFiles,
-      processedFiles: 0,
+      scanSummary: {
+        discoveredFiles: summary.totalFiles,
+        changedFiles: summary.changes.length,
+        unchangedFiles: summary.unchangedCount,
+      },
+      importProgress: {
+        completed: 0,
+        total: summary.changes.length,
+        current: null,
+        errorCount: 0,
+      },
+      chunkingProgress: null,
+      embeddingProgress: null,
+      queueProgress: null,
+      queuedFiles: summary.changes.length,
+      processedFiles: summary.unchangedCount,
       lastError: null,
     });
   }
@@ -875,7 +1104,7 @@ export class WorkspaceCollectionSyncService {
     const abortController = new AbortController();
     this.currentAbortController = abortController;
     const { signal } = abortController;
-    this.setScanningStatus(context, null);
+    this.setScanningStatus(context, null, { resetProgress: true });
 
     try {
       const prepared = await this.collectPreparedChanges({
@@ -883,12 +1112,13 @@ export class WorkspaceCollectionSyncService {
         context,
         abortSignal: signal,
       });
+      this.setScanSummary(context, prepared);
 
       if (prepared.changes.length === 0) {
         this.setIdleStatus({
           collection: context.collection,
-          processedFiles: prepared.unchangedCount,
           rootPath: context.rootPath,
+          summary: prepared,
         });
         return;
       }
@@ -899,7 +1129,13 @@ export class WorkspaceCollectionSyncService {
       const chunkingWorkerPort = await this.deps.ensureChunkingWorker();
       throwIfAborted(signal);
 
-      this.setImportingStatus(context, prepared.changes.length);
+      this.setImportingStatus(context, prepared);
+      const scanSummary: WorkspaceCollectionSyncScanSummary = {
+        discoveredFiles: prepared.totalFiles,
+        changedFiles: prepared.changes.length,
+        unchangedFiles: prepared.unchangedCount,
+      };
+      let sawCompleteProgress = false;
 
       await runRootFolderCacheImport({
         abortSignal: signal,
@@ -910,24 +1146,31 @@ export class WorkspaceCollectionSyncService {
         db: this.deps.db,
         fileRecordRepository: this.deps.fileRecordRepository,
         loadEmbeddingQueue: this.deps.loadEmbeddingQueue,
-        onProgress: (progress) =>
+        onProgress: (progress) => {
+          if (progress.phase === 'complete') {
+            sawCompleteProgress = true;
+          }
           this.deps.setStatus(
             mapEnhancedProgressToStatus(
               progress,
               context.collection.id,
-              context.collection.name ?? null
+              context.collection.name ?? null,
+              context.rootPath,
+              scanSummary
             )
-          ),
+          );
+        },
         setImporting: this.deps.setImporting,
         embeddingDeviceHint: this.deps.embeddingDeviceHint,
       });
       throwIfAborted(signal);
-
-      this.setIdleStatus({
-        collection: context.collection,
-        processedFiles: prepared.changes.length + prepared.unchangedCount,
-        rootPath: context.rootPath,
-      });
+      if (!sawCompleteProgress) {
+        this.setIdleStatus({
+          collection: context.collection,
+          rootPath: context.rootPath,
+          summary: prepared,
+        });
+      }
     } catch (error) {
       if (this.isCancelled(currentRunId) || isAbortError(error)) {
         return;

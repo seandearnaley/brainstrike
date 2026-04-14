@@ -131,6 +131,27 @@ describe('FileRecordRepository', () => {
     expect(found?.sourceRootPath).toBe('/workspace/a');
   });
 
+  it('preserves empty file content when creating managed cache entries', async () => {
+    const record = createTestRecord({
+      id: 'empty-cache',
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/empty.ts',
+      sourceRootPath: '/workspace/a',
+    });
+
+    await repo.createWithContent({
+      ...record,
+      content: '',
+      contentHash: 'hash-empty',
+      processedAt: record.createdAt,
+      tokenCount: 0,
+    });
+
+    const found = await repo.findById(record.id);
+    expect(found?.content).toBe('');
+    expect(found?.tokenCount).toBe(0);
+  });
+
   it('finds managed cache entries by embedding set, root path, and relative path', async () => {
     const primary = createTestRecord({
       id: 'cache-a',

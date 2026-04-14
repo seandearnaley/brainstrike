@@ -17,6 +17,11 @@ describe('workspace-collection-sync-status-store', () => {
       managedCollectionId: null,
       managedCollectionName: null,
       currentFilePath: null,
+      scanSummary: null,
+      importProgress: null,
+      chunkingProgress: null,
+      embeddingProgress: null,
+      queueProgress: null,
       queuedFiles: 0,
       processedFiles: 0,
       lastError: null,
@@ -32,6 +37,11 @@ describe('workspace-collection-sync-status-store', () => {
       managedCollectionId: 'set-1',
       managedCollectionName: 'Managed Cache',
       activeRootPath: '/workspace/a',
+      scanSummary: {
+        discoveredFiles: 42,
+        changedFiles: 7,
+        unchangedFiles: 35,
+      },
       queuedFiles: 12,
       currentFilePath: 'src/index.ts',
     });
@@ -39,6 +49,19 @@ describe('workspace-collection-sync-status-store', () => {
     store.setStatus({
       state: 'embedding',
       processedFiles: 4,
+      chunkingProgress: {
+        filesProcessed: 7,
+        totalFiles: 7,
+        currentFile: 'src/index.ts',
+        chunksCreated: 16,
+        strategyUsed: 'sentence',
+      },
+      embeddingProgress: {
+        chunksProcessed: 4,
+        totalChunks: 16,
+        currentChunk: 'export const value = 1;...',
+        modelName: 'Xenova/all-MiniLM-L6-v2',
+      },
     });
 
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
@@ -46,9 +69,27 @@ describe('workspace-collection-sync-status-store', () => {
       managedCollectionId: 'set-1',
       managedCollectionName: 'Managed Cache',
       activeRootPath: '/workspace/a',
+      scanSummary: {
+        discoveredFiles: 42,
+        changedFiles: 7,
+        unchangedFiles: 35,
+      },
       queuedFiles: 12,
       processedFiles: 4,
       currentFilePath: 'src/index.ts',
+      chunkingProgress: {
+        filesProcessed: 7,
+        totalFiles: 7,
+        currentFile: 'src/index.ts',
+        chunksCreated: 16,
+        strategyUsed: 'sentence',
+      },
+      embeddingProgress: {
+        chunksProcessed: 4,
+        totalChunks: 16,
+        currentChunk: 'export const value = 1;...',
+        modelName: 'Xenova/all-MiniLM-L6-v2',
+      },
     });
   });
 
@@ -58,6 +99,17 @@ describe('workspace-collection-sync-status-store', () => {
       managedCollectionId: 'set-1',
       managedCollectionName: 'Managed Cache',
       currentFilePath: 'src/index.ts',
+      scanSummary: {
+        discoveredFiles: 42,
+        changedFiles: 7,
+        unchangedFiles: 35,
+      },
+      importProgress: {
+        completed: 7,
+        total: 7,
+        current: null,
+        errorCount: 0,
+      },
       queuedFiles: 99,
       processedFiles: 2,
       lastError: 'boom',
@@ -71,6 +123,11 @@ describe('workspace-collection-sync-status-store', () => {
       managedCollectionId: null,
       managedCollectionName: null,
       currentFilePath: null,
+      scanSummary: null,
+      importProgress: null,
+      chunkingProgress: null,
+      embeddingProgress: null,
+      queueProgress: null,
       queuedFiles: 0,
       processedFiles: 0,
       lastError: null,

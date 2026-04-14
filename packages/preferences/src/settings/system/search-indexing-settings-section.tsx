@@ -17,6 +17,10 @@ import {
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useBackgroundIndexingPreferencesStore } from '../../stores/background-indexing-preferences-store';
+import {
+  getWorkspaceCollectionSyncCurrentActivity,
+  getWorkspaceCollectionSyncMetricRows,
+} from '../../stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '../../stores/workspace-collection-sync-status-store';
 
 interface CollectionOption {
@@ -49,7 +53,14 @@ function getStatusBadge(
       };
     case 'importing':
       return {
-        label: 'Importing cache entries',
+        label: 'Importing cache files',
+        icon: RefreshCw,
+        variant: 'outline' as const,
+        iconClassName: 'size-3.5 animate-spin',
+      };
+    case 'chunking':
+      return {
+        label: 'Chunking cache files',
         icon: RefreshCw,
         variant: 'outline' as const,
         iconClassName: 'size-3.5 animate-spin',
@@ -99,10 +110,13 @@ export function SearchIndexingSettingsSection() {
     state: state.state,
     managedCollectionName: state.managedCollectionName,
     currentFilePath: state.currentFilePath,
-    queuedFiles: state.queuedFiles,
-    processedFiles: state.processedFiles,
     lastError: state.lastError,
     activeRootPath: state.activeRootPath,
+    scanSummary: state.scanSummary,
+    importProgress: state.importProgress,
+    chunkingProgress: state.chunkingProgress,
+    embeddingProgress: state.embeddingProgress,
+    queueProgress: state.queueProgress,
   }));
 
   const [collections, setCollections] = useState<CollectionOption[]>([]);
@@ -164,6 +178,8 @@ export function SearchIndexingSettingsSection() {
 
   const statusBadge = getStatusBadge(syncStatus.state);
   const StatusIcon = statusBadge.icon;
+  const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
+  const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
 
   return (
     <Card>
@@ -247,17 +263,15 @@ export function SearchIndexingSettingsSection() {
                   {syncStatus.managedCollectionName ?? selectedCollection?.name ?? 'None selected'}
                 </span>
               </p>
-              <p className="text-muted-foreground">
-                Progress:{' '}
-                <span className="font-medium text-foreground">
-                  {syncStatus.processedFiles} processed
-                  {syncStatus.queuedFiles > 0 ? `, ${syncStatus.queuedFiles} queued` : ''}
-                </span>
-              </p>
-              {syncStatus.currentFilePath ? (
+              {metricRows.map((row) => (
+                <p className="text-muted-foreground" key={row.label}>
+                  {row.label}: <span className="font-medium text-foreground">{row.value}</span>
+                </p>
+              ))}
+              {currentActivity ? (
                 <p className="text-muted-foreground">
-                  Current file:{' '}
-                  <span className="font-medium text-foreground">{syncStatus.currentFilePath}</span>
+                  {currentActivity.label}:{' '}
+                  <span className="font-medium text-foreground">{currentActivity.value}</span>
                 </p>
               ) : null}
             </div>

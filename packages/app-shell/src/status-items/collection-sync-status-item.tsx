@@ -1,4 +1,8 @@
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+import {
+  getWorkspaceCollectionSyncCurrentActivity,
+  getWorkspaceCollectionSyncMetricRows,
+} from '@brainstrike/preferences/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { Badge, Popover, PopoverContent, PopoverTrigger, StatusBarItem } from '@brainstrike/ui';
 import { Database, Loader2, TriangleAlert } from 'lucide-react';
@@ -17,21 +21,27 @@ const selectCollectionSyncStatus = (
   state: state.state,
   managedCollectionName: state.managedCollectionName,
   currentFilePath: state.currentFilePath,
-  queuedFiles: state.queuedFiles,
-  processedFiles: state.processedFiles,
   lastError: state.lastError,
   activeRootPath: state.activeRootPath,
+  scanSummary: state.scanSummary,
+  importProgress: state.importProgress,
+  chunkingProgress: state.chunkingProgress,
+  embeddingProgress: state.embeddingProgress,
+  queueProgress: state.queueProgress,
 });
 
 function getStatusItemValue(
   state: ReturnType<typeof selectCollectionSyncStatus>['state'],
   enabled: boolean
-): 'Blocked' | 'Scanning' | 'Embedding' | 'Importing' | 'Ready' | 'Off' {
+): 'Blocked' | 'Chunking' | 'Embedding' | 'Importing' | 'Ready' | 'Scanning' | 'Off' {
   if (state === 'error') {
     return 'Blocked';
   }
   if (state === 'scanning') {
     return 'Scanning';
+  }
+  if (state === 'chunking') {
+    return 'Chunking';
   }
   if (state === 'embedding') {
     return 'Embedding';
@@ -46,7 +56,8 @@ function getStatusItemState(
   state: ReturnType<typeof selectCollectionSyncStatus>['state'],
   enabled: boolean
 ) {
-  const isBusy = state === 'scanning' || state === 'importing' || state === 'embedding';
+  const isBusy =
+    state === 'scanning' || state === 'importing' || state === 'chunking' || state === 'embedding';
   return {
     isBusy,
     status:
@@ -81,6 +92,8 @@ export function CollectionSyncStatusItem() {
 
   const label = syncStatus.managedCollectionName ?? 'Index cache';
   const { isBusy, status, value } = getStatusItemState(syncStatus.state, enabled);
+  const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
+  const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
 
   return (
     <Popover>
@@ -126,20 +139,18 @@ export function CollectionSyncStatusItem() {
                 : 'None selected'}
             </dd>
           </div>
-          <div className="flex justify-between gap-3">
-            <dt className="text-muted-foreground">Processed</dt>
-            <dd>{syncStatus.processedFiles}</dd>
-          </div>
-          <div className="flex justify-between gap-3">
-            <dt className="text-muted-foreground">Queued</dt>
-            <dd>{syncStatus.queuedFiles}</dd>
-          </div>
-          <div className="space-y-1">
-            <dt className="text-muted-foreground">Current file</dt>
-            <dd className="break-all text-xs">
-              {syncStatus.currentFilePath ? truncateMiddle(syncStatus.currentFilePath, 72) : 'Idle'}
-            </dd>
-          </div>
+          {metricRows.map((row) => (
+            <div className="flex justify-between gap-3" key={row.label}>
+              <dt className="text-muted-foreground">{row.label}</dt>
+              <dd className="max-w-[240px] text-right">{row.value}</dd>
+            </div>
+          ))}
+          {currentActivity ? (
+            <div className="space-y-1">
+              <dt className="text-muted-foreground">{currentActivity.label}</dt>
+              <dd className="break-all text-xs">{truncateMiddle(currentActivity.value, 72)}</dd>
+            </div>
+          ) : null}
         </dl>
 
         {syncStatus.lastError ? (

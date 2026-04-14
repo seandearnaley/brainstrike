@@ -88,7 +88,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       record.sourceRootPath || null,
       record.createdAt,
       record.updatedAt,
-      record.content || null,
+      record.content ?? null,
       record.contentHash || null,
       record.tokenCount || 0,
       record.processedAt || null,

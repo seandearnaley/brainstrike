@@ -124,6 +124,34 @@ describe('ElectronFileRecordRepository', () => {
     );
   });
 
+  it('createWithContent preserves empty string content for chunking-host reads', async () => {
+    const record = createTestRecord({
+      content: '',
+      contentHash: 'hash-empty',
+      processedAt: '2026-04-14T00:00:00.000Z',
+      tokenCount: 0,
+    });
+
+    await repo.createWithContent(record);
+
+    expect(query).toHaveBeenCalledWith(
+      'INSERT INTO file_records (id, name, path, size, source_root_path, created_at, updated_at, content, content_hash, token_count, processed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+      [
+        record.id,
+        record.name,
+        record.path,
+        record.size,
+        null,
+        record.createdAt,
+        record.updatedAt,
+        '',
+        'hash-empty',
+        0,
+        '2026-04-14T00:00:00.000Z',
+      ]
+    );
+  });
+
   it('delete uses correct SQL', async () => {
     await repo.delete('abc');
     expect(query).toHaveBeenCalledWith('DELETE FROM file_records WHERE id = $1', ['abc']);

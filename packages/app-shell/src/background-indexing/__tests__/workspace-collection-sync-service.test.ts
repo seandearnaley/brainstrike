@@ -309,4 +309,122 @@ describe('WorkspaceCollectionSyncService', () => {
       })
     );
   });
+
+  it('preserves detailed scan, chunking, embedding, and queue telemetry through idle completion', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+    });
+    runEnhancedImportMock.mockImplementationOnce(async (params) => {
+      params.progressHandlers.emit?.({
+        phase: 'chunking',
+        total: 1,
+        completed: 1,
+        current: 'src/index.ts',
+        errors: [],
+        chunkingProgress: {
+          filesProcessed: 1,
+          totalFiles: 1,
+          currentFile: 'src/index.ts',
+          chunksCreated: 3,
+          strategyUsed: 'sentence',
+        },
+      });
+      params.progressHandlers.emit?.({
+        phase: 'embedding',
+        total: 1,
+        completed: 1,
+        current: 'src/index.ts',
+        errors: [],
+        chunkingProgress: {
+          filesProcessed: 1,
+          totalFiles: 1,
+          currentFile: 'src/index.ts',
+          chunksCreated: 3,
+          strategyUsed: 'sentence',
+        },
+        embeddingProgress: {
+          chunksProcessed: 2,
+          totalChunks: 3,
+          currentChunk: 'export const value = 2;...',
+          modelName: 'Xenova/all-MiniLM-L6-v2',
+        },
+        queueProgress: {
+          pending: 1,
+          processed: 2,
+          failed: 0,
+          totalQueued: 3,
+          lastError: null,
+        },
+      });
+      params.progressHandlers.emit?.({
+        phase: 'complete',
+        total: 1,
+        completed: 1,
+        current: 'src/index.ts',
+        errors: [],
+        chunkingProgress: {
+          filesProcessed: 1,
+          totalFiles: 1,
+          currentFile: 'src/index.ts',
+          chunksCreated: 3,
+          strategyUsed: 'sentence',
+        },
+        embeddingProgress: {
+          chunksProcessed: 3,
+          totalChunks: 3,
+          currentChunk: 'export const value = 2;...',
+          modelName: 'Xenova/all-MiniLM-L6-v2',
+        },
+        queueProgress: {
+          pending: 0,
+          processed: 3,
+          failed: 0,
+          totalQueued: 3,
+          lastError: null,
+          lastEvent: {
+            chunkId: 'chunk-3',
+            status: 'completed',
+            model: 'Xenova/all-MiniLM-L6-v2',
+          },
+        },
+      });
+      return [];
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'idle',
+        scanSummary: {
+          discoveredFiles: 1,
+          changedFiles: 1,
+          unchangedFiles: 0,
+        },
+        chunkingProgress: expect.objectContaining({
+          filesProcessed: 1,
+          totalFiles: 1,
+          chunksCreated: 3,
+        }),
+        embeddingProgress: expect.objectContaining({
+          chunksProcessed: 3,
+          totalChunks: 3,
+        }),
+        queueProgress: expect.objectContaining({
+          processed: 3,
+          pending: 0,
+          totalQueued: 3,
+        }),
+      })
+    );
+  });
 });
