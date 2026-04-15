@@ -8,7 +8,7 @@ import {
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { encodeFileSelection } from '@brainstrike/utils';
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
 import { WorkspaceCollectionSyncService } from '../workspace-collection-sync-service';
@@ -27,6 +27,8 @@ const {
   ensureEmbeddingRuntimeStartedMock,
   enqueueBackfillMock,
   cancelBackfillMock,
+  dbState,
+  vectorQueueServiceState,
   fileSystemState,
   fileTreeContextState,
 } = vi.hoisted(() => ({
@@ -43,6 +45,24 @@ const {
   ensureEmbeddingRuntimeStartedMock: vi.fn(),
   enqueueBackfillMock: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
   cancelBackfillMock: vi.fn(async () => {}),
+  dbState: {
+    current: {
+      query: vi.fn(async () => ({ rows: [] })),
+      transaction: vi.fn(async (fn: (tx: { query: ReturnType<typeof vi.fn> }) => unknown) =>
+        fn({ query: vi.fn(async () => ({ rows: [] })) })
+      ),
+    } as {
+      query: ReturnType<typeof vi.fn>;
+      transaction: ReturnType<typeof vi.fn>;
+    } | null,
+  },
+  vectorQueueServiceState: {
+    current: {
+      validateApiKeyForSet: vi.fn(),
+    } as {
+      validateApiKeyForSet: ReturnType<typeof vi.fn>;
+    } | null,
+  },
   fileSystemState: {
     isAccessLoading: false,
     rootDirectoryHandle: {
@@ -76,10 +96,7 @@ vi.mock('@brainstrike/db', () => ({
       requeueFailed: vi.fn(),
     };
   }),
-  usePGliteDatabase: () => ({
-    query: vi.fn(async () => ({ rows: [] })),
-    transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
-  }),
+  usePGliteDatabase: () => dbState.current,
   useFileRecordRepository: () => ({
     listManagedCacheEntryMetadata: listManagedCacheEntryMetadataMock,
     createWithContent: createWithContentMock,
@@ -166,9 +183,7 @@ vi.mock('@brainstrike/vector-management', () => ({
         lastError: null,
       })),
     },
-    service: {
-      validateApiKeyForSet: validateApiKeyForSetMock,
-    },
+    service: vectorQueueServiceState.current ?? null,
   })),
 }));
 
@@ -190,6 +205,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
     };
     __resetBackgroundIndexingPreferencesStoreForTests();
     __resetWorkspaceCollectionSyncStatusStoreForTests();
+    dbState.current = {
+      query: vi.fn(async () => ({ rows: [] })),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
+    };
+    vectorQueueServiceState.current = {
+      validateApiKeyForSet: validateApiKeyForSetMock,
+    };
 
     useBackgroundIndexingPreferencesStore.setState({
       enabled: true,
@@ -286,6 +308,39 @@ describe('WorkspaceCollectionSyncProvider', () => {
           expect.objectContaining({
             state: 'error',
             lastError: 'Synthetic sync failure',
+          })
+        )
+      );
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('surfaces sync failures on the disabled-path sync branch as well', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: false,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+    });
+
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockRejectedValueOnce(new Error('Synthetic disabled sync failure'));
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            state: 'error',
+            lastError: 'Synthetic disabled sync failure',
           })
         )
       );
@@ -505,5 +560,163 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
     expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
+  });
+
+  it('reports an error when the shared runtime dependencies are unavailable while enabled', async () => {
+    dbState.current = null;
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'error',
+          lastError: 'Background indexing runtime is unavailable.',
+        })
+      )
+    );
+  });
+
+  it('resets status when the runtime is unavailable but background indexing is disabled', async () => {
+    dbState.current = null;
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: false,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: null,
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'disabled',
+          lastError: null,
+        })
+      )
+    );
+  });
+
+  it('re-runs background sync when the file explorer refresh event fires', async () => {
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('brainstrike:file-explorer-refreshed'));
+    });
+
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('surfaces cancel failures from provider cleanup', async () => {
+    const cancelSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'cancel')
+      .mockRejectedValueOnce(new Error('Synthetic cancel failure'));
+
+    try {
+      runEnhancedImportMock.mockImplementationOnce(
+        async () => await new Promise<never>(() => undefined)
+      );
+      const rendered = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+      rendered.unmount();
+
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            state: 'error',
+            lastError: 'Synthetic cancel failure',
+          })
+        )
+      );
+    } finally {
+      cancelSpy.mockRestore();
+    }
+  });
+
+  it('fails visibly when hosted-provider validation is unavailable', async () => {
+    vectorQueueServiceState.current = null;
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'error',
+          lastError: 'Vector queue service is unavailable.',
+        })
+      )
+    );
+  });
+
+  it('fails visibly when the managed collection API key is invalid', async () => {
+    validateApiKeyForSetMock.mockResolvedValueOnce({
+      valid: false,
+      message: 'Managed collection API key is missing.',
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'error',
+          lastError: 'Managed collection API key is missing.',
+        })
+      )
+    );
+  });
+
+  it('fails visibly when the shared embedding runtime cannot start', async () => {
+    ensureEmbeddingRuntimeStartedMock.mockResolvedValueOnce({
+      runtimeKind: 'embedding-host',
+      runtimeId: 'embedding-host:test',
+      state: 'error',
+      active: false,
+      lastError: 'Embedding runtime boot failed.',
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'error',
+          lastError: 'Embedding runtime boot failed.',
+        })
+      )
+    );
   });
 });
