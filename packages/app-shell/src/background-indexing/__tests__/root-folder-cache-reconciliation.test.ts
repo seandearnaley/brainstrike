@@ -159,7 +159,7 @@ describe('root-folder-cache-reconciliation', () => {
     });
   });
 
-  it('fails validation when db or collection metadata is unavailable', () => {
+  it('fails validation when db is unavailable', () => {
     expect(
       validateRootFolderCacheRequest({
         managedCollectionId: 'set-1',
@@ -169,18 +169,6 @@ describe('root-folder-cache-reconciliation', () => {
     ).toEqual({
       ok: false,
       reason: 'Database is not ready.',
-    });
-
-    expect(
-      validateRootFolderCacheRequest({
-        managedCollectionId: 'set-1',
-        rootPath: '/workspace/a',
-        dbReady: true,
-        collectionModelKey: null,
-      })
-    ).toEqual({
-      ok: false,
-      reason: 'Managed collection metadata is invalid.',
     });
   });
 });

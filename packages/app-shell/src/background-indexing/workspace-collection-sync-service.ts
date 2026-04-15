@@ -1357,7 +1357,6 @@ export class WorkspaceCollectionSyncService {
       managedCollectionId: request.managedCollectionId,
       rootPath,
       dbReady: Boolean(this.deps.db),
-      collectionModelKey: request.managedCollectionId ? '' : null,
     });
 
     if (!validation.ok) {

@@ -16,22 +16,21 @@ export async function backfillEmbeddingSetAssignments(
     return;
   }
 
-  const buildParams = () => [embeddingSetId, ...uniqueIds];
-  const placeholderList = uniqueIds.map((_, idx) => `$${idx + 2}`).join(', ');
+  const params = [embeddingSetId, uniqueIds];
 
   await sql.query(
     `UPDATE file_records
        SET embedding_set_id = $1
-     WHERE id IN (${placeholderList})
+     WHERE id::text = ANY($2::text[])
        AND (embedding_set_id IS NULL OR embedding_set_id IS DISTINCT FROM $1)`,
-    buildParams()
+    params
   );
 
   await sql.query(
     `UPDATE file_chunks
        SET embedding_set_id = $1
-     WHERE file_record_id IN (${placeholderList})
+     WHERE file_record_id::text = ANY($2::text[])
        AND embedding_set_id IS NULL`,
-    buildParams()
+    params
   );
 }

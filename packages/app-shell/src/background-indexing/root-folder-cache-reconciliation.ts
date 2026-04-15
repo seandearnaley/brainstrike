@@ -27,7 +27,6 @@ export interface RootFolderCacheReconciliationPlan {
 }
 
 export interface RootFolderCacheRequestValidation {
-  collectionModelKey?: string | null;
   dbReady: boolean;
   managedCollectionId: string | null;
   rootPath: string | null;
@@ -73,13 +72,6 @@ export function validateRootFolderCacheRequest(
     return {
       ok: false,
       reason: 'Database is not ready.',
-    };
-  }
-
-  if (input.collectionModelKey === null) {
-    return {
-      ok: false,
-      reason: 'Managed collection metadata is invalid.',
     };
   }
 
