@@ -22,6 +22,7 @@ import {
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { WorkspaceCollectionSyncState } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { IFileNode } from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,
@@ -113,16 +114,6 @@ export interface WorkspaceCollectionSyncRequest {
   managedCollectionId: string | null;
   rootDirectoryHandle: RootDirectoryHandle | null;
 }
-
-export type WorkspaceCollectionSyncState =
-  | 'disabled'
-  | 'idle'
-  | 'recovering'
-  | 'scanning'
-  | 'importing'
-  | 'chunking'
-  | 'embedding'
-  | 'error';
 
 interface WorkspaceCollectionSyncScanSummary {
   changedFiles: number;

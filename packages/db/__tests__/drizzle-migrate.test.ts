@@ -175,5 +175,19 @@ describe('Drizzle Migration Runner', () => {
       expect(fks.rows.length).toBeGreaterThan(0);
       expect(fks.rows[0]?.constraint_name).toContain('file_record_id');
     });
+
+    it('creates the managed-cache identity unique index for file records', async () => {
+      await runMigrations(db);
+
+      const indexes = await db.query<{ indexname: string }>(`
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = 'file_records'
+          AND indexname = 'idx_file_records_cache_identity'
+      `);
+
+      expect(indexes.rows).toHaveLength(1);
+      expect(indexes.rows[0]?.indexname).toBe('idx_file_records_cache_identity');
+    });
   });
 });

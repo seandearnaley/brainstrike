@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-13T23:56:03.387Z",
+  "generatedAt": "2026-04-15T04:54:57.933Z",
   "migrations": [
     {
       "version": "7",
@@ -47,8 +47,8 @@
     {
       "version": "7",
       "name": "0007_lovely_white_queen",
-      "sql": "ALTER TABLE \"file_records\" ADD COLUMN \"source_root_path\" text;--> statement-breakpoint\nCREATE INDEX \"idx_file_records_source_root_path\" ON \"file_records\" USING btree (\"source_root_path\");",
-      "hash": "2ec92e78e70ef983ce84918694f028a973d60eadbac149733e6031b86f18dadb"
+      "sql": "ALTER TABLE \"file_records\" ADD COLUMN \"source_root_path\" text;--> statement-breakpoint\nCREATE INDEX \"idx_file_records_source_root_path\" ON \"file_records\" USING btree (\"source_root_path\");--> statement-breakpoint\nCREATE UNIQUE INDEX \"idx_file_records_cache_identity\" ON \"file_records\" USING btree (\"embedding_set_id\",\"source_root_path\",\"path\") WHERE \"file_records\".\"embedding_set_id\" IS NOT NULL AND \"file_records\".\"source_root_path\" IS NOT NULL;\n",
+      "hash": "3936d5b922b640b77a752d186dfc6db52c05913a3e1072bf833b01f0fb09cd64"
     }
   ]
 }
