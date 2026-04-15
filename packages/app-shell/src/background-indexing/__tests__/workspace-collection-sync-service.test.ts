@@ -219,6 +219,28 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('does not treat legitimate file content containing error marker text as inaccessible', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]:
+            'export const marker = "Binary file - preview not available"; export const ok = true;',
+        })),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.fileRecordRepository.createWithContent).toHaveBeenCalledTimes(1);
+    expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
+  });
+
   it('clears stale chunk metadata before replacing an indexed file', async () => {
     const deps = createDeps({
       fileContentProcessor: {
@@ -599,6 +621,45 @@ describe('WorkspaceCollectionSyncService', () => {
       })
     );
     expect(deps.enqueueBackfill).not.toHaveBeenCalled();
+  });
+
+  it('times out when an attached backfill never drains', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDeps({
+        backfillDrainTimeoutMs: 500,
+        getBackfillsInFlight: vi.fn(async () => [
+          {
+            embeddingSetId: 'set-1',
+            requestId: 'background-indexing-backfill:test',
+            progress: { current: 1, total: 4 },
+          },
+        ]),
+      });
+      const service = new WorkspaceCollectionSyncService(deps) as unknown as {
+        waitForBackfillToDrain: (args: {
+          abortSignal: AbortSignal;
+          collectionId: string;
+          requestId: string;
+        }) => Promise<void>;
+      };
+      const abortController = new AbortController();
+
+      const drainPromise = service.waitForBackfillToDrain({
+        abortSignal: abortController.signal,
+        collectionId: 'set-1',
+        requestId: 'background-indexing-backfill:test',
+      });
+      const drainExpectation = expect(drainPromise).rejects.toThrow(
+        'Timed out waiting for background indexing backfill to drain for collection set-1.'
+      );
+
+      await vi.advanceTimersByTimeAsync(1000);
+
+      await drainExpectation;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('imports changed files in bounded batches instead of building a single full-run content map', async () => {

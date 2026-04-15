@@ -73,6 +73,30 @@ describe('background-indexing-policy', () => {
         relativePath: '.turbo',
       })
     ).toBe(false);
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: 'node_modules',
+        relativePath: 'node_modules',
+      })
+    ).toBe(false);
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: '.git',
+        relativePath: '.git',
+      })
+    ).toBe(false);
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: 'dist',
+        relativePath: 'dist',
+      })
+    ).toBe(false);
+    expect(
+      policy.shouldTraverseDirectory({
+        directoryName: '.next',
+        relativePath: '.next',
+      })
+    ).toBe(false);
   });
 
   it('full-root policy keeps non-binary text artifacts that balanced skips', () => {

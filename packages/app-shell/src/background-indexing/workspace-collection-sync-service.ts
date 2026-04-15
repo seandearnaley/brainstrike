@@ -42,6 +42,7 @@ const FILE_CONTENT_BATCH_SIZE = 24;
 const IMPORT_BATCH_SIZE = 24;
 const PROCESSOR_CONCURRENCY = 4;
 const SCANNING_STATUS_THROTTLE_MS = 100;
+const DEFAULT_BACKFILL_DRAIN_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface RootDirectoryHandle {
   _internal?: unknown;
@@ -65,6 +66,7 @@ interface RootFolderCacheMutableRecord {
 }
 
 export interface WorkspaceCollectionSyncServiceDependencies {
+  backfillDrainTimeoutMs?: number;
   cancelBackfill: (embeddingSetId: string) => Promise<void>;
   chunkRepository: {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
@@ -232,6 +234,16 @@ interface PreparedChangesSummary {
   unchangedCount: number;
 }
 
+interface DiscoveredPreparedFile {
+  compositeKey: string;
+  contentHash: string;
+  name: string;
+  relativePath: string;
+  request: FileContentRequest;
+  size: number;
+  sourceRootPath: string;
+}
+
 interface ActiveBackfillTracking {
   embeddingSetId: string;
   requestId: string;
@@ -239,13 +251,17 @@ interface ActiveBackfillTracking {
   unsubscribe: (() => void) | null;
 }
 
+const INACCESSIBLE_CONTENT_PREFIXES = ['File not accessible', 'File too large:'] as const;
+const INACCESSIBLE_CONTENT_VALUES = new Set([
+  'Binary file - preview not available',
+  'Error accessing file',
+]);
+
 function isContentAccessible(content: string): boolean {
-  return !(
-    content.startsWith('Error accessing file') ||
-    content.includes('Binary file') ||
-    content.includes('not accessible') ||
-    content.includes('File too large')
-  );
+  if (INACCESSIBLE_CONTENT_VALUES.has(content)) {
+    return false;
+  }
+  return !INACCESSIBLE_CONTENT_PREFIXES.some((prefix) => content.startsWith(prefix));
 }
 
 function flattenFileNodes(nodes: readonly IFileNode[]): IFileNode[] {
@@ -642,6 +658,72 @@ function buildBatchImportErrors(
   });
 }
 
+async function collectDiscoveredPreparedFiles(args: {
+  fileContents: Record<string, string>;
+  metadataByKey: Map<string, FileBatchPreparation>;
+  rootPath: string;
+}): Promise<Array<DiscoveredPreparedFile | null>> {
+  const discoveredFiles: Array<DiscoveredPreparedFile | null> = [];
+  for (const [compositeKey, content] of Object.entries(args.fileContents)) {
+    if (!isContentAccessible(content)) {
+      discoveredFiles.push(null);
+      continue;
+    }
+    const metadata = args.metadataByKey.get(compositeKey);
+    if (!metadata) {
+      discoveredFiles.push(null);
+      continue;
+    }
+    discoveredFiles.push({
+      compositeKey,
+      contentHash: await generateContentHash(content),
+      name: metadata.request.fileNode.name,
+      relativePath: metadata.relativePath,
+      request: metadata.request,
+      size: metadata.size > 0 ? metadata.size : content.length,
+      sourceRootPath: args.rootPath,
+    });
+  }
+  return discoveredFiles;
+}
+
+function applyDiscoveredPreparedFiles(args: {
+  changes: PreparedCacheChange[];
+  discoveredFiles: ReadonlyArray<DiscoveredPreparedFile | null>;
+  existingByIdentity: Map<string, ManagedCacheEntryMetadata>;
+  unchangedCount: number;
+}): number {
+  let unchangedCount = args.unchangedCount;
+  for (const discovered of args.discoveredFiles) {
+    if (!discovered) {
+      continue;
+    }
+    const identity = buildRootFolderCacheIdentityKey(
+      discovered.sourceRootPath,
+      discovered.relativePath
+    );
+    const existing = args.existingByIdentity.get(identity);
+    if (!existing) {
+      args.changes.push({
+        ...discovered,
+        id: crypto.randomUUID(),
+        mode: 'import',
+      });
+      continue;
+    }
+    if (existing.contentHash === discovered.contentHash) {
+      unchangedCount += 1;
+      continue;
+    }
+    args.changes.push({
+      ...discovered,
+      id: existing.fileRecordId,
+      mode: 'replace',
+    });
+  }
+  return unchangedCount;
+}
+
 function buildBatchedEnhancedImportProgress(args: {
   cumulativeChunksCreated: number;
   cumulativeCompleted: number;
@@ -741,55 +823,18 @@ async function collectPreparedChangesInBatches(args: {
     );
     throwIfAborted(abortSignal);
 
-    const discoveredFiles = await Promise.all(
-      Object.entries(fileContents).map(async ([compositeKey, content]) => {
-        if (!isContentAccessible(content)) {
-          return null;
-        }
-        const metadata = metadataByKey.get(compositeKey);
-        if (!metadata) {
-          return null;
-        }
-        return {
-          compositeKey,
-          contentHash: await generateContentHash(content),
-          name: metadata.request.fileNode.name,
-          relativePath: metadata.relativePath,
-          request: metadata.request,
-          size: metadata.size > 0 ? metadata.size : content.length,
-          sourceRootPath: rootPath,
-        };
-      })
-    );
+    const discoveredFiles = await collectDiscoveredPreparedFiles({
+      fileContents,
+      metadataByKey,
+      rootPath,
+    });
     throwIfAborted(abortSignal);
-
-    for (const discovered of discoveredFiles) {
-      if (!discovered) {
-        continue;
-      }
-      const identity = buildRootFolderCacheIdentityKey(
-        discovered.sourceRootPath,
-        discovered.relativePath
-      );
-      const existing = existingByIdentity.get(identity);
-      if (!existing) {
-        changes.push({
-          ...discovered,
-          id: crypto.randomUUID(),
-          mode: 'import',
-        });
-        continue;
-      }
-      if (existing.contentHash === discovered.contentHash) {
-        unchangedCount += 1;
-        continue;
-      }
-      changes.push({
-        ...discovered,
-        id: existing.fileRecordId,
-        mode: 'replace',
-      });
-    }
+    unchangedCount = applyDiscoveredPreparedFiles({
+      changes,
+      discoveredFiles,
+      existingByIdentity,
+      unchangedCount,
+    });
   }
 
   return {
@@ -1202,8 +1247,15 @@ export class WorkspaceCollectionSyncService {
     collectionId: string;
     requestId: string;
   }): Promise<void> {
+    const startedAt = Date.now();
+    const timeoutMs = this.deps.backfillDrainTimeoutMs ?? DEFAULT_BACKFILL_DRAIN_TIMEOUT_MS;
     while (true) {
       throwIfAborted(args.abortSignal);
+      if (Date.now() - startedAt > timeoutMs) {
+        throw new Error(
+          `Timed out waiting for background indexing backfill to drain for collection ${args.collectionId}.`
+        );
+      }
       const inFlight = await this.deps.getBackfillsInFlight();
       const matching = inFlight.find(
         (backfill) =>

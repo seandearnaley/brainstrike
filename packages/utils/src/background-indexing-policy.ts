@@ -53,12 +53,19 @@ export const BACKGROUND_INDEXING_POLICY_OPTIONS: readonly BackgroundIndexingPoli
 ] as const;
 
 const BALANCED_EXCLUDED_DIRECTORY_SEGMENTS = new Set([
+  '.git',
   '.turbo',
   '.cache',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
   '.vercel',
   '.parcel-cache',
   '.vite',
+  'node_modules',
   'coverage',
+  'dist',
+  'build',
   'playwright-report',
   'test-results',
   'reports',
