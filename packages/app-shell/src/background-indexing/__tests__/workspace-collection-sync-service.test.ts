@@ -241,6 +241,65 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not persist files whose second read resolves to an inaccessible marker value', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi
+          .fn()
+          .mockResolvedValueOnce({
+            [COMPOSITE_KEY]: 'export const value = 1;',
+          })
+          .mockResolvedValueOnce({
+            [COMPOSITE_KEY]: 'Binary file - preview not available',
+          }),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.fileRecordRepository.createWithContent).not.toHaveBeenCalled();
+    expect(deps.fileRecordRepository.update).not.toHaveBeenCalled();
+    expect(deps.enqueueBackfill).toHaveBeenCalledTimes(1);
+  });
+
+  it('recomputes the persisted content hash from the import-time file payload', async () => {
+    const initialContent = 'export const version = 1;';
+    const importTimeContent = 'export const version = 2;';
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi
+          .fn()
+          .mockResolvedValueOnce({
+            [COMPOSITE_KEY]: initialContent,
+          })
+          .mockResolvedValueOnce({
+            [COMPOSITE_KEY]: importTimeContent,
+          }),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.fileRecordRepository.createWithContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: importTimeContent,
+        contentHash: await generateContentHash(importTimeContent),
+      })
+    );
+  });
+
   it('clears stale chunk metadata before replacing an indexed file', async () => {
     const deps = createDeps({
       fileContentProcessor: {

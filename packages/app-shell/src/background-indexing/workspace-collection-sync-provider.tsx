@@ -45,6 +45,23 @@ export function WorkspaceCollectionSyncProvider({
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
   const { controller: runtimeController, service: vectorQueueService } =
     useSharedEmbeddingRuntime();
+
+  const reportAsyncError = useCallback(
+    (operation: string, error: unknown): void => {
+      logger.error(`Workspace collection sync ${operation} failed`, { error });
+      setSyncStatus({
+        state: 'error',
+        managedCollectionId,
+        managedCollectionName: null,
+        activeRootPath: rootDirectoryHandle?.path ?? null,
+        currentFilePath: null,
+        queuedFiles: 0,
+        processedFiles: 0,
+        lastError: error instanceof Error ? error.message : String(error),
+      });
+    },
+    [managedCollectionId, rootDirectoryHandle?.path, setSyncStatus]
+  );
   const isTreeRestorationReady =
     fileTreeContext === null ||
     (!(fileTreeContext.isLoading || fileTreeContext.isRestoringExpandedPaths) &&
@@ -137,12 +154,16 @@ export function WorkspaceCollectionSyncProvider({
     }
 
     if (!(enabled && managedCollectionId && rootDirectoryHandle)) {
-      void service.sync({
-        enabled,
-        indexingPolicyPreset,
-        managedCollectionId,
-        rootDirectoryHandle,
-      });
+      void service
+        .sync({
+          enabled,
+          indexingPolicyPreset,
+          managedCollectionId,
+          rootDirectoryHandle,
+        })
+        .catch((error) => {
+          reportAsyncError('sync', error);
+        });
       return;
     }
 
@@ -176,18 +197,23 @@ export function WorkspaceCollectionSyncProvider({
       return;
     }
 
-    void service.sync({
-      enabled,
-      indexingPolicyPreset,
-      managedCollectionId,
-      rootDirectoryHandle,
-    });
+    void service
+      .sync({
+        enabled,
+        indexingPolicyPreset,
+        managedCollectionId,
+        rootDirectoryHandle,
+      })
+      .catch((error) => {
+        reportAsyncError('sync', error);
+      });
   }, [
     enabled,
     indexingPolicyPreset,
     isAccessLoading,
     isTreeRestorationReady,
     managedCollectionId,
+    reportAsyncError,
     resetSyncStatus,
     rootDirectoryHandle,
     service,
@@ -197,10 +223,12 @@ export function WorkspaceCollectionSyncProvider({
   useEffect(() => {
     triggerSync();
     return () => {
-      void service?.cancel();
+      void service?.cancel().catch((error) => {
+        reportAsyncError('cancel', error);
+      });
       setIsImporting(false);
     };
-  }, [service, triggerSync, setIsImporting]);
+  }, [reportAsyncError, service, triggerSync, setIsImporting]);
 
   useEffect(() => {
     const handleRefresh = (): void => {

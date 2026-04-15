@@ -301,6 +301,8 @@ function buildImportProgress(
   };
 }
 
+// Background indexing only needs a stable approximate token count for progress
+// and coarse sizing; exact tokenization is intentionally deferred.
 function estimateTokenCount(content: string): number {
   return Math.ceil(content.length / 4);
 }
@@ -409,10 +411,10 @@ function dispatchQueueDrainedEvent(embeddingSetId: string): void {
   );
 }
 
-function toMutableRecord(
+async function toMutableRecord(
   change: PreparedCacheChange,
   content: string
-): RootFolderCacheMutableRecord {
+): Promise<RootFolderCacheMutableRecord> {
   const now = new Date().toISOString();
   return {
     id: change.id,
@@ -423,7 +425,7 @@ function toMutableRecord(
     updatedAt: now,
     processedAt: now,
     content,
-    contentHash: change.contentHash,
+    contentHash: await generateContentHash(content),
     tokenCount: estimateTokenCount(content),
   };
 }
@@ -724,6 +726,97 @@ function applyDiscoveredPreparedFiles(args: {
   return unchangedCount;
 }
 
+function createInaccessibleImportErrors(args: {
+  batch: readonly PreparedCacheChange[];
+  batchContents: Record<string, string>;
+}): ImportProgress['errors'] {
+  return args.batch.flatMap((change) => {
+    const content = args.batchContents[change.compositeKey];
+    if (content === undefined || isContentAccessible(content)) {
+      return [];
+    }
+    return [
+      {
+        file: change.relativePath,
+        error: content,
+      },
+    ];
+  });
+}
+
+async function processBackgroundImportEntry(args: {
+  change: PreparedCacheChange | undefined;
+  chunkRepository: {
+    deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
+  };
+  collectionId: string;
+  compositeKey: string;
+  content: string | undefined;
+  fileRecordRepository: Pick<IFileRecordRepository, 'createWithContent' | 'update'>;
+}): Promise<{
+  error?: { error: string; file: string };
+  result: FileImportResult;
+}> {
+  const { change, chunkRepository, collectionId, compositeKey, content, fileRecordRepository } =
+    args;
+  if (!(change && content !== undefined)) {
+    return {
+      error: {
+        file: compositeKey,
+        error: 'Background cache import descriptor is missing.',
+      },
+      result: {
+        id: compositeKey,
+        imported: false,
+        existed: false,
+        error: 'Background cache import descriptor is missing.',
+      },
+    };
+  }
+
+  try {
+    if (change.mode === 'replace') {
+      const replacementRecordUpdate = {
+        ...(await toMutableRecord(change, content)),
+        chunksCount: 0,
+        chunksProcessedAt: undefined,
+        chunkingStrategy: undefined,
+        embeddingSetId: collectionId,
+      } as unknown as Parameters<typeof fileRecordRepository.update>[1];
+      await chunkRepository.deleteByFileRecordId(change.id);
+      await fileRecordRepository.update(change.id, replacementRecordUpdate);
+    } else {
+      await fileRecordRepository.createWithContent({
+        ...(await toMutableRecord(change, content)),
+        createdAt: new Date().toISOString(),
+        embeddingSetId: collectionId,
+      });
+    }
+
+    return {
+      result: {
+        id: change.id,
+        imported: true,
+        existed: false,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      error: {
+        file: change.relativePath,
+        error: message,
+      },
+      result: {
+        id: change.id,
+        imported: false,
+        existed: false,
+        error: message,
+      },
+    };
+  }
+}
+
 function buildBatchedEnhancedImportProgress(args: {
   cumulativeChunksCreated: number;
   cumulativeCompleted: number;
@@ -937,10 +1030,16 @@ async function runRootFolderCacheImport(args: {
         batch
           .map((change) => {
             const content = batchContents[change.compositeKey];
-            return content !== undefined ? ([change.compositeKey, content] as const) : null;
+            return content !== undefined && isContentAccessible(content)
+              ? ([change.compositeKey, content] as const)
+              : null;
           })
           .filter((entry): entry is readonly [string, string] => entry !== null)
       );
+      const inaccessibleErrors = createInaccessibleImportErrors({
+        batch,
+        batchContents,
+      });
       const selectedFilePaths = new Set(Object.keys(fileContents));
       const batchResults = await runEnhancedImport<IFileNode>({
         abortSignal,
@@ -960,63 +1059,29 @@ async function runRootFolderCacheImport(args: {
         }): Promise<FileImportResult[]> => {
           const changeByKey = new Map(batch.map((change) => [change.compositeKey, change]));
           const results: FileImportResult[] = [];
-          const total = selectedKeys.size;
-          const errors: ImportProgress['errors'] = [];
+          const total = selectedKeys.size + inaccessibleErrors.length;
+          const errors: ImportProgress['errors'] = [...inaccessibleErrors];
 
-          emitImportProgress(createInitialImportProgress(total));
-
-          let completed = 0;
+          let completed = inaccessibleErrors.length;
+          emitImportProgress(
+            inaccessibleErrors.length > 0
+              ? buildImportProgress(total, completed, undefined, errors)
+              : createInitialImportProgress(total)
+          );
           for (const compositeKey of selectedKeys) {
             throwIfAborted(abortSignal, 'Background cache import was cancelled.');
-            const change = changeByKey.get(compositeKey);
-            const content = fileContents[compositeKey];
-            if (!(change && content !== undefined)) {
-              errors.push({
-                file: compositeKey,
-                error: 'Background cache import descriptor is missing.',
-              });
-              completed += 1;
-              emitImportProgress(buildImportProgress(total, completed, compositeKey, errors));
-              continue;
+            const outcome = await processBackgroundImportEntry({
+              change: changeByKey.get(compositeKey),
+              chunkRepository,
+              collectionId: collection.id,
+              compositeKey,
+              content: fileContents[compositeKey],
+              fileRecordRepository,
+            });
+            if (outcome.error) {
+              errors.push(outcome.error);
             }
-
-            try {
-              if (change.mode === 'replace') {
-                const replacementRecordUpdate = {
-                  ...toMutableRecord(change, content),
-                  chunksCount: 0,
-                  chunksProcessedAt: undefined,
-                  chunkingStrategy: undefined,
-                  embeddingSetId: collection.id,
-                } as unknown as Parameters<typeof fileRecordRepository.update>[1];
-                await chunkRepository.deleteByFileRecordId(change.id);
-                await fileRecordRepository.update(change.id, replacementRecordUpdate);
-              } else {
-                await fileRecordRepository.createWithContent({
-                  ...toMutableRecord(change, content),
-                  createdAt: new Date().toISOString(),
-                  embeddingSetId: collection.id,
-                });
-              }
-
-              results.push({
-                id: change.id,
-                imported: true,
-                existed: false,
-              });
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              errors.push({
-                file: change.relativePath,
-                error: message,
-              });
-              results.push({
-                id: change.id,
-                imported: false,
-                existed: false,
-                error: message,
-              });
-            }
+            results.push(outcome.result);
 
             completed += 1;
             const { path } = decodeFileSelection(compositeKey);

@@ -11,6 +11,7 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
+import { WorkspaceCollectionSyncService } from '../workspace-collection-sync-service';
 
 const {
   runEnhancedImportMock,
@@ -267,6 +268,30 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(useWorkspaceCollectionSyncStatusStore.getState().managedCollectionName).toBe(
       'Managed Cache'
     );
+  });
+
+  it('surfaces sync failures instead of leaving rejected background promises unhandled', async () => {
+    const syncSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'sync')
+      .mockRejectedValueOnce(new Error('Synthetic sync failure'));
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            state: 'error',
+            lastError: 'Synthetic sync failure',
+          })
+        )
+      );
+    } finally {
+      syncSpy.mockRestore();
+    }
   });
 
   it('stops and resets status when background indexing is disabled', async () => {
