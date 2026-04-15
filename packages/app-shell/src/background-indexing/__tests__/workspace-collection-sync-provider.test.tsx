@@ -53,10 +53,12 @@ const {
   },
   fileTreeContextState: {
     current: {
+      isLoading: false,
       isRestorationSettled: true,
       isRestoringExpandedPaths: false,
       restorationProgress: null,
     } as {
+      isLoading: boolean;
       isRestorationSettled: boolean;
       isRestoringExpandedPaths: boolean;
       restorationProgress: null;
@@ -180,6 +182,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       platform: 'electron',
     };
     fileTreeContextState.current = {
+      isLoading: false,
       isRestorationSettled: true,
       isRestoringExpandedPaths: false,
       restorationProgress: null,
@@ -314,6 +317,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
   it('waits for file explorer restoration to settle before starting background indexing', async () => {
     fileTreeContextState.current = {
+      isLoading: false,
       isRestorationSettled: false,
       isRestoringExpandedPaths: true,
       restorationProgress: null,
@@ -331,6 +335,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
 
     fileTreeContextState.current = {
+      isLoading: false,
       isRestorationSettled: true,
       isRestoringExpandedPaths: false,
       restorationProgress: null,
@@ -378,5 +383,102 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
 
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('waits for the shared tree to finish loading before starting background indexing', async () => {
+    fileTreeContextState.current = {
+      isLoading: true,
+      isRestorationSettled: true,
+      isRestoringExpandedPaths: false,
+      restorationProgress: null,
+    };
+
+    const { rerender } = render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting')
+    );
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+
+    fileTreeContextState.current = {
+      isLoading: false,
+      isRestorationSettled: true,
+      isRestoringExpandedPaths: false,
+      restorationProgress: null,
+    };
+    rerender(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('cancels an in-flight sync when restoration resumes after scanning has started', async () => {
+    type TreeReadResult = Array<{
+      handle: { path: string; platform: 'electron' };
+      name: string;
+      path: string;
+      rootFolderId: string;
+      type: 'file';
+    }>;
+
+    const resolveTreeReadRef: { current: ((value: TreeReadResult) => void) | null } = {
+      current: null,
+    };
+    const pendingTreeRead = new Promise<TreeReadResult>((resolve) => {
+      resolveTreeReadRef.current = resolve;
+    });
+    readFullTreeWithOptionsMock.mockReturnValueOnce(pendingTreeRead);
+
+    const { rerender } = render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() => expect(readFullTreeWithOptionsMock).toHaveBeenCalledTimes(1));
+
+    fileTreeContextState.current = {
+      isLoading: false,
+      isRestorationSettled: false,
+      isRestoringExpandedPaths: true,
+      restorationProgress: null,
+    };
+    rerender(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting')
+    );
+
+    const resolveTreeRead = resolveTreeReadRef.current;
+    if (resolveTreeRead === null) {
+      throw new Error('Expected tree read resolver to be set');
+    }
+    resolveTreeRead([
+      {
+        name: 'index.ts',
+        path: '/workspace/root/src/index.ts',
+        type: 'file',
+        handle: { platform: 'electron', path: '/workspace/root/src/index.ts' },
+        rootFolderId: '/workspace/root',
+      },
+    ]);
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
+
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    expect(ensureEmbeddingRuntimeStartedMock).not.toHaveBeenCalled();
   });
 });

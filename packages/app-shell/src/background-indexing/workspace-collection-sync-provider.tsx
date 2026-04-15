@@ -45,6 +45,10 @@ export function WorkspaceCollectionSyncProvider({
   const resetSyncStatus = useWorkspaceCollectionSyncStatusStore((state) => state.reset);
   const { controller: runtimeController, service: vectorQueueService } =
     useSharedEmbeddingRuntime();
+  const isTreeRestorationReady =
+    fileTreeContext === null ||
+    (!(fileTreeContext.isLoading || fileTreeContext.isRestoringExpandedPaths) &&
+      fileTreeContext.isRestorationSettled);
 
   const validateHostedProviderAccess = useCallback(
     async (embeddingSetId: string): Promise<void> => {
@@ -143,6 +147,7 @@ export function WorkspaceCollectionSyncProvider({
     }
 
     if (isAccessLoading) {
+      void service.cancel();
       setSyncStatus({
         state: 'waiting',
         managedCollectionId,
@@ -156,7 +161,8 @@ export function WorkspaceCollectionSyncProvider({
       return;
     }
 
-    if (fileTreeContext !== null && !fileTreeContext.isRestorationSettled) {
+    if (!isTreeRestorationReady) {
+      void service.cancel();
       setSyncStatus({
         state: 'waiting',
         managedCollectionId,
@@ -180,10 +186,10 @@ export function WorkspaceCollectionSyncProvider({
     enabled,
     indexingPolicyPreset,
     isAccessLoading,
+    isTreeRestorationReady,
     managedCollectionId,
     resetSyncStatus,
     rootDirectoryHandle,
-    fileTreeContext?.isRestorationSettled,
     service,
     setSyncStatus,
   ]);
