@@ -14,6 +14,7 @@ import type {
 } from '@brainstrike/ui';
 import type { LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
+import type { EmbeddingHostBackfillRequest } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 // Sandboxed preloads cannot depend on additional local modules at runtime.
@@ -90,8 +91,6 @@ interface EmbeddingHostBackfillProgress {
   readonly stage: string;
   readonly total: number;
 }
-
-type EmbeddingBackfillSource = 'background-indexing' | 'manual';
 
 interface EmbeddingHostBackfillInfo {
   readonly embeddingSetId: string;
@@ -441,7 +440,7 @@ contextBridge.exposeInMainWorld('power', {
 contextBridge.exposeInMainWorld('embeddingHost', {
   ensureStarted: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL),
-  enqueueBackfill: (request: { embeddingSetId: string; source?: EmbeddingBackfillSource }) =>
+  enqueueBackfill: (request: EmbeddingHostBackfillRequest) =>
     ipcRenderer.invoke(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL, request),
   cancelBackfill: (embeddingSetId: string): Promise<void> =>
     ipcRenderer.invoke(EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL, embeddingSetId),
