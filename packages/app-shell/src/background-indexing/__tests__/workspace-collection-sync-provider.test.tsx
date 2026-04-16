@@ -18,7 +18,7 @@ const {
   readFullTreeWithOptionsMock,
   processFilesMock,
   listManagedCacheEntryMetadataMock,
-  createWithContentMock,
+  applyManagedCacheBatchLocalMock,
   updateMock,
   deleteByFileRecordIdMock,
   getByIdMock,
@@ -36,7 +36,15 @@ const {
   readFullTreeWithOptionsMock: vi.fn(),
   processFilesMock: vi.fn(),
   listManagedCacheEntryMetadataMock: vi.fn(),
-  createWithContentMock: vi.fn(),
+  applyManagedCacheBatchLocalMock: vi.fn(
+    async (db: {
+      transaction?: (
+        fn: (tx: { query: ReturnType<typeof vi.fn> }) => Promise<void>
+      ) => Promise<void>;
+    }) => {
+      await db.transaction?.(async () => undefined);
+    }
+  ),
   updateMock: vi.fn(),
   deleteByFileRecordIdMock: vi.fn(),
   getByIdMock: vi.fn(),
@@ -96,10 +104,10 @@ vi.mock('@brainstrike/db', () => ({
       requeueFailed: vi.fn(),
     };
   }),
+  applyManagedCacheBatch: applyManagedCacheBatchLocalMock,
   usePGliteDatabase: () => dbState.current,
   useFileRecordRepository: () => ({
     listManagedCacheEntryMetadata: listManagedCacheEntryMetadataMock,
-    createWithContent: createWithContentMock,
     update: updateMock,
   }),
   useFileChunkRepository: () => ({
@@ -280,7 +288,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
     await waitFor(() => expect(ensureEmbeddingRuntimeStartedMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(createWithContentMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(applyManagedCacheBatchLocalMock).toHaveBeenCalledTimes(1));
     expect(enqueueBackfillMock).toHaveBeenCalledWith(
       '00000000-0000-0000-0000-000000000101',
       expect.objectContaining({

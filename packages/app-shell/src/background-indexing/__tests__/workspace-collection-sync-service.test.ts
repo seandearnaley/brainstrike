@@ -37,6 +37,7 @@ function createDeps(
   overrides: Partial<WorkspaceCollectionSyncServiceDependencies> = {}
 ): WorkspaceCollectionSyncServiceDependencies {
   return {
+    applyManagedCacheBatch: vi.fn(async () => undefined),
     chunkRepository: {
       deleteByFileRecordId: vi.fn(async () => undefined),
       insertMany: vi.fn(async () => []),
@@ -55,7 +56,6 @@ function createDeps(
       processFiles: vi.fn(),
     },
     fileRecordRepository: {
-      createWithContent: vi.fn(async () => undefined),
       findById: vi.fn(async () => null),
       findByIds: vi.fn(async () => []),
       listManagedCacheEntryMetadata: vi.fn(async () => []),
@@ -139,7 +139,6 @@ describe('WorkspaceCollectionSyncService', () => {
       } as unknown as WorkspaceCollectionSyncServiceDependencies['embeddingSetsRepository'],
       fileContentProcessor,
       fileRecordRepository: {
-        createWithContent: vi.fn(async () => undefined),
         findById: vi.fn(async () => null),
         findByIds: vi.fn(async () => []),
         listManagedCacheEntryMetadata: vi.fn(async () => [
@@ -243,7 +242,7 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
-    expect(deps.fileRecordRepository.createWithContent).toHaveBeenCalledTimes(1);
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledTimes(1);
     expect(runEnhancedImportMock).toHaveBeenCalledTimes(1);
   });
 
@@ -269,7 +268,7 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
-    expect(deps.fileRecordRepository.createWithContent).not.toHaveBeenCalled();
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
     expect(deps.fileRecordRepository.update).not.toHaveBeenCalled();
     expect(deps.enqueueBackfill).toHaveBeenCalledTimes(1);
   });
@@ -298,10 +297,18 @@ describe('WorkspaceCollectionSyncService', () => {
       rootDirectoryHandle: createRootHandle(ROOT_PATH),
     });
 
-    expect(deps.fileRecordRepository.createWithContent).toHaveBeenCalledWith(
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: importTimeContent,
-        contentHash: await generateContentHash(importTimeContent),
+        embeddingSetId: 'set-1',
+        changes: [
+          expect.objectContaining({
+            mode: 'import',
+            record: expect.objectContaining({
+              content: importTimeContent,
+              contentHash: await generateContentHash(importTimeContent),
+            }),
+          }),
+        ],
       })
     );
   });
@@ -314,7 +321,6 @@ describe('WorkspaceCollectionSyncService', () => {
         })),
       },
       fileRecordRepository: {
-        createWithContent: vi.fn(async () => undefined),
         findById: vi.fn(async () => null),
         findByIds: vi.fn(async () => []),
         listManagedCacheEntryMetadata: vi.fn(async () => [
@@ -340,16 +346,23 @@ describe('WorkspaceCollectionSyncService', () => {
     });
 
     expect(deps.ensureChunkingWorker).toHaveBeenCalledTimes(1);
-    expect(deps.chunkRepository.deleteByFileRecordId).toHaveBeenCalledWith('file-1');
-    expect(deps.fileRecordRepository.update).toHaveBeenCalledWith(
-      'file-1',
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        chunksCount: 0,
-        chunksProcessedAt: null,
-        chunkingStrategy: null,
         embeddingSetId: 'set-1',
+        changes: [
+          expect.objectContaining({
+            mode: 'replace',
+            record: expect.objectContaining({
+              id: 'file-1',
+              path: FILE_PATH,
+              sourceRootPath: ROOT_PATH,
+            }),
+          }),
+        ],
       })
     );
+    expect(deps.chunkRepository.deleteByFileRecordId).not.toHaveBeenCalled();
+    expect(deps.fileRecordRepository.update).not.toHaveBeenCalled();
   });
 
   it('imports with collection-assignment semantics and then backfills through the runtime pipeline', async () => {
@@ -638,7 +651,6 @@ describe('WorkspaceCollectionSyncService', () => {
         })),
       },
       fileRecordRepository: {
-        createWithContent: vi.fn(async () => undefined),
         findById: vi.fn(async () => null),
         findByIds: vi.fn(async () => []),
         listManagedCacheEntryMetadata: vi.fn(async () => [
@@ -775,7 +787,71 @@ describe('WorkspaceCollectionSyncService', () => {
     });
 
     expect(runEnhancedImportMock).toHaveBeenCalledTimes(2);
+    expect(deps.applyManagedCacheBatch).toHaveBeenCalledTimes(2);
     expect(batchSizes.every((size) => size <= 24)).toBe(true);
+  });
+
+  it('backs off drain polling instead of polling at a fixed interval', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = createDeps({
+        getBackfillsInFlight: vi
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              embeddingSetId: 'set-1',
+              requestId: 'background-indexing-backfill:test',
+              progress: { current: 1, total: 4 },
+            },
+          ])
+          .mockResolvedValueOnce([
+            {
+              embeddingSetId: 'set-1',
+              requestId: 'background-indexing-backfill:test',
+              progress: { current: 2, total: 4 },
+            },
+          ])
+          .mockResolvedValueOnce([
+            {
+              embeddingSetId: 'set-1',
+              requestId: 'background-indexing-backfill:test',
+              progress: { current: 3, total: 4 },
+            },
+          ])
+          .mockResolvedValueOnce([]),
+      });
+      const service = new WorkspaceCollectionSyncService(deps) as unknown as {
+        waitForBackfillToDrain: (args: {
+          abortSignal: AbortSignal;
+          collectionId: string;
+          requestId: string;
+        }) => Promise<void>;
+      };
+      const abortController = new AbortController();
+
+      const drainPromise = service.waitForBackfillToDrain({
+        abortSignal: abortController.signal,
+        collectionId: 'set-1',
+        requestId: 'background-indexing-backfill:test',
+      });
+
+      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(249);
+      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(1);
+      await drainPromise;
+      expect(deps.getBackfillsInFlight).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('preserves the last import/chunk summary when no explicit complete progress event is emitted', async () => {
@@ -981,7 +1057,6 @@ describe('WorkspaceCollectionSyncService', () => {
           })),
         },
         fileRecordRepository: {
-          createWithContent: vi.fn(async () => undefined),
           findById: vi.fn(async () => null),
           findByIds: vi.fn(async () => []),
           listManagedCacheEntryMetadata: vi.fn(async () => [

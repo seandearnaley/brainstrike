@@ -1,4 +1,5 @@
 import {
+  applyManagedCacheBatch as applyManagedCacheBatchLocally,
   useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
@@ -100,6 +101,23 @@ export function WorkspaceCollectionSyncProvider({
       return null;
     }
     return new WorkspaceCollectionSyncService({
+      applyManagedCacheBatch: async (args) => {
+        const electronDb = window.electronAPI?.db;
+        const electronApplyManagedCacheBatch = (
+          electronDb as
+            | (typeof electronDb & {
+                applyManagedCacheBatch?: (
+                  args: Parameters<typeof applyManagedCacheBatchLocally>[1]
+                ) => Promise<void>;
+              })
+            | undefined
+        )?.applyManagedCacheBatch;
+        if (typeof electronApplyManagedCacheBatch === 'function') {
+          await electronApplyManagedCacheBatch(args);
+          return;
+        }
+        await applyManagedCacheBatchLocally(db, args);
+      },
       cancelBackfill: async (embeddingSetId) => {
         await runtimeController.cancelBackfill(embeddingSetId);
       },

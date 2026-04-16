@@ -5,6 +5,7 @@ const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-updat
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
 
+import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import type {
@@ -58,6 +59,7 @@ const LLM_HOST_CANCEL_CHANNEL = 'llm-host:cancel' as const;
 const LLM_HOST_WARMUP_CHANNEL = 'llm-host:warmup' as const;
 const LLM_HOST_GENERATE_CHANNEL = 'llm-host:generate' as const;
 const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
+const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 
@@ -260,6 +262,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke('layout:load'),
   // Database operations
   db: {
+    applyManagedCacheBatch: (payload: ApplyManagedCacheBatchArgs) =>
+      ipcRenderer.invoke(DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL, payload),
     ping: () => ipcRenderer.invoke('db:ping'),
     diagnostics: () => ipcRenderer.invoke('db:diagnostics'),
     query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('db:query', sql, params),

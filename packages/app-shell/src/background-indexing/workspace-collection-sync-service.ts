@@ -1,12 +1,13 @@
 import type {
+  ApplyManagedCacheBatchArgs,
   ChunkingStrategy,
   DbHandle,
   EmbeddingSet,
   FileImportResult,
-  FileRecordUpdate,
   IEmbeddingSetsRepository,
   IFileRecordRepository,
   ImportProgress,
+  ManagedCacheBatchMutation,
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
 import { isLocalProviderType, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
@@ -41,7 +42,7 @@ import {
 } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
-import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
 import {
   buildRootFolderCacheIdentityKey,
   validateRootFolderCacheRequest,
@@ -54,6 +55,8 @@ const IMPORT_BATCH_SIZE = 24;
 const PROCESSOR_CONCURRENCY = 4;
 const SCANNING_STATUS_THROTTLE_MS = 100;
 const DEFAULT_BACKFILL_DRAIN_TIMEOUT_MS = 10 * 60 * 1000;
+const BACKFILL_DRAIN_POLL_BASE_MS = 250;
+const BACKFILL_DRAIN_POLL_MAX_MS = 2000;
 
 interface RootDirectoryHandle {
   _internal?: unknown;
@@ -76,7 +79,20 @@ interface RootFolderCacheMutableRecord {
   updatedAt: string;
 }
 
+type BackgroundManagedCacheBatchMutation =
+  | {
+      mode: 'import';
+      relativePath: string;
+      mutation: Extract<ManagedCacheBatchMutation, { mode: 'import' }>;
+    }
+  | {
+      mode: 'replace';
+      relativePath: string;
+      mutation: Extract<ManagedCacheBatchMutation, { mode: 'replace' }>;
+    };
+
 export interface WorkspaceCollectionSyncServiceDependencies {
+  applyManagedCacheBatch: (args: ApplyManagedCacheBatchArgs) => Promise<void>;
   backfillDrainTimeoutMs?: number;
   cancelBackfill: (embeddingSetId: string) => Promise<void>;
   chunkRepository: FileImportChunkRepository & {
@@ -92,7 +108,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   ensureEmbeddingRuntimeStarted: () => Promise<void>;
   fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: FileImportFileRecordRepository &
-    Pick<IFileRecordRepository, 'createWithContent' | 'listManagedCacheEntryMetadata'>;
+    Pick<IFileRecordRepository, 'listManagedCacheEntryMetadata'>;
   fileSystemAdapter: FileSystemAdapter;
   getBackfillsInFlight: () => Promise<
     Array<{
@@ -330,6 +346,11 @@ async function waitForAbortableDelay(ms: number, signal: AbortSignal): Promise<v
     };
     signal.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+function getBackfillDrainPollDelayMs(attempt: number): number {
+  const safeAttempt = Math.max(0, attempt);
+  return Math.min(BACKFILL_DRAIN_POLL_MAX_MS, BACKFILL_DRAIN_POLL_BASE_MS * 2 ** safeAttempt);
 }
 
 function dispatchQueueDrainedEvent(embeddingSetId: string): void {
@@ -659,94 +680,88 @@ function applyDiscoveredPreparedFiles(args: {
   return unchangedCount;
 }
 
-function createInaccessibleImportErrors(args: {
+async function buildBackgroundImportBatchMutations(args: {
   batch: readonly PreparedCacheChange[];
   batchContents: Record<string, string>;
-}): ImportProgress['errors'] {
-  return args.batch.flatMap((change) => {
+}): Promise<BackgroundManagedCacheBatchMutation[]> {
+  const mutations: BackgroundManagedCacheBatchMutation[] = [];
+  for (const change of args.batch) {
     const content = args.batchContents[change.compositeKey];
-    if (content === undefined || isContentAccessible(content)) {
-      return [];
+    if (content === undefined) {
+      continue;
     }
-    return [
-      {
-        file: change.relativePath,
-        error: content,
+    const mutableRecord = await toMutableRecord(change, content);
+    if (change.mode === 'replace') {
+      mutations.push({
+        mode: 'replace',
+        relativePath: change.relativePath,
+        mutation: {
+          mode: 'replace',
+          record: {
+            ...mutableRecord,
+          },
+        },
+      });
+      continue;
+    }
+    mutations.push({
+      mode: 'import',
+      relativePath: change.relativePath,
+      mutation: {
+        mode: 'import',
+        record: {
+          ...mutableRecord,
+          createdAt: new Date().toISOString(),
+        },
       },
-    ];
-  });
+    });
+  }
+  return mutations;
 }
 
-async function processBackgroundImportEntry(args: {
-  change: PreparedCacheChange | undefined;
-  chunkRepository: FileImportChunkRepository & {
-    deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
-  };
+async function applyBackgroundImportBatch(args: {
+  applyManagedCacheBatch: (args: ApplyManagedCacheBatchArgs) => Promise<void>;
+  batch: readonly PreparedCacheChange[];
+  batchContents: Record<string, string>;
   collectionId: string;
-  compositeKey: string;
-  content: string | undefined;
-  fileRecordRepository: FileImportFileRecordRepository &
-    Pick<IFileRecordRepository, 'createWithContent'>;
 }): Promise<{
-  error?: { error: string; file: string };
-  result: FileImportResult;
+  errors: Array<{ error: string; file: string }>;
+  results: FileImportResult[];
 }> {
-  const { change, chunkRepository, collectionId, compositeKey, content, fileRecordRepository } =
-    args;
-  if (!(change && content !== undefined)) {
-    return {
-      error: {
-        file: compositeKey,
-        error: 'Background cache import descriptor is missing.',
-      },
-      result: {
-        id: compositeKey,
-        imported: false,
-        existed: false,
-        error: 'Background cache import descriptor is missing.',
-      },
-    };
+  const mutations = await buildBackgroundImportBatchMutations({
+    batch: args.batch,
+    batchContents: args.batchContents,
+  });
+  if (mutations.length === 0) {
+    return { errors: [], results: [] };
   }
 
   try {
-    if (change.mode === 'replace') {
-      const replacementRecordUpdate: FileRecordUpdate = {
-        ...(await toMutableRecord(change, content)),
-        chunksCount: 0,
-        chunksProcessedAt: null,
-        chunkingStrategy: null,
-        embeddingSetId: collectionId,
-      };
-      await chunkRepository.deleteByFileRecordId(change.id);
-      await fileRecordRepository.update(change.id, replacementRecordUpdate);
-    } else {
-      await fileRecordRepository.createWithContent({
-        ...(await toMutableRecord(change, content)),
-        createdAt: new Date().toISOString(),
-        embeddingSetId: collectionId,
-      });
-    }
-
+    await args.applyManagedCacheBatch({
+      embeddingSetId: args.collectionId,
+      changes: mutations.map((entry) => entry.mutation),
+    });
     return {
-      result: {
-        id: change.id,
+      errors: [],
+      results: mutations.map((entry) => ({
+        id: entry.mutation.record.id,
         imported: true,
         existed: false,
-      },
+      })),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
-      error: {
-        file: change.relativePath,
+      errors: mutations.map((entry) => ({
+        file: entry.relativePath,
         error: message,
-      },
-      result: {
-        id: change.id,
+      })),
+      results: mutations.map((entry) => ({
+        id: entry.mutation.record.id,
         imported: false,
         existed: false,
         error: message,
-      },
+      })),
     };
   }
 }
@@ -873,6 +888,7 @@ async function collectPreparedChangesInBatches(args: {
 }
 
 async function runRootFolderCacheImport(args: {
+  applyManagedCacheBatch: (args: ApplyManagedCacheBatchArgs) => Promise<void>;
   abortSignal: AbortSignal;
   changes: readonly PreparedCacheChange[];
   chunkRepository: FileImportChunkRepository & {
@@ -882,12 +898,12 @@ async function runRootFolderCacheImport(args: {
   collection: EmbeddingSet;
   db: DbHandle;
   fileContentProcessor?: FileContentProcessor;
-  fileRecordRepository: FileImportFileRecordRepository &
-    Pick<IFileRecordRepository, 'createWithContent'>;
+  fileRecordRepository: FileImportFileRecordRepository;
   onProgress: (progress: EnhancedImportProgress) => void;
   setImporting: (importing: boolean) => void;
 }): Promise<void> {
   const {
+    applyManagedCacheBatch,
     abortSignal,
     changes,
     chunkRepository,
@@ -971,10 +987,6 @@ async function runRootFolderCacheImport(args: {
           })
           .filter((entry): entry is readonly [string, string] => entry !== null)
       );
-      const inaccessibleErrors = createInaccessibleImportErrors({
-        batch,
-        batchContents,
-      });
       const selectedFilePaths = new Set(Object.keys(fileContents));
       const batchResults = await runEnhancedImport<IFileNode>({
         abortSignal,
@@ -992,35 +1004,51 @@ async function runRootFolderCacheImport(args: {
           onProgress: (progress: ImportProgress) => void;
           selectedFilePaths: Set<string>;
         }): Promise<FileImportResult[]> => {
-          const changeByKey = new Map(batch.map((change) => [change.compositeKey, change]));
           const results: FileImportResult[] = [];
-          const total = selectedKeys.size + inaccessibleErrors.length;
-          const errors: ImportProgress['errors'] = [...inaccessibleErrors];
+          const total = batch.length;
+          const errors: ImportProgress['errors'] = [];
 
-          let completed = inaccessibleErrors.length;
-          emitImportProgress(
-            inaccessibleErrors.length > 0
-              ? buildImportProgress(total, completed, undefined, errors)
-              : createInitialImportProgress(total)
-          );
-          for (const compositeKey of selectedKeys) {
-            throwIfAborted(abortSignal, 'Background cache import was cancelled.');
-            const outcome = await processBackgroundImportEntry({
-              change: changeByKey.get(compositeKey),
-              chunkRepository,
+          let completed = 0;
+          emitImportProgress(createInitialImportProgress(total));
+          if (selectedKeys.size > 0) {
+            const selectedBatch = batch.filter((change) => selectedKeys.has(change.compositeKey));
+            const batchOutcome = await applyBackgroundImportBatch({
+              applyManagedCacheBatch,
+              batch: selectedBatch,
+              batchContents: fileContents,
               collectionId: collection.id,
-              compositeKey,
-              content: fileContents[compositeKey],
-              fileRecordRepository,
             });
-            if (outcome.error) {
-              errors.push(outcome.error);
+            errors.push(...batchOutcome.errors);
+            for (const result of batchOutcome.results) {
+              results.push(result);
+              completed += 1;
+              const matchingChange = selectedBatch.find((change) => change.id === result.id);
+              emitImportProgress(
+                buildImportProgress(total, completed, matchingChange?.relativePath, errors)
+              );
             }
-            results.push(outcome.result);
+          }
 
-            completed += 1;
-            const { path } = decodeFileSelection(compositeKey);
-            emitImportProgress(buildImportProgress(total, completed, path, errors));
+          for (const change of batch) {
+            if (!selectedKeys.has(change.compositeKey)) {
+              const content = batchContents[change.compositeKey];
+              const message =
+                content === undefined ? 'Background cache import descriptor is missing.' : content;
+              errors.push({
+                file: change.relativePath,
+                error: message,
+              });
+              results.push({
+                id: change.id,
+                imported: false,
+                existed: false,
+                error: message,
+              });
+              completed += 1;
+              emitImportProgress(
+                buildImportProgress(total, completed, change.relativePath, errors)
+              );
+            }
           }
 
           return results;
@@ -1060,7 +1088,7 @@ async function runRootFolderCacheImport(args: {
       await backfillEmbeddingSetAssignments(
         { query: db.query.bind(db) },
         collection.id,
-        batchResults.map((result) => result.id)
+        batchResults.filter((result) => result.imported).map((result) => result.id)
       );
       cumulativeCompleted += batch.length;
       cumulativeErrorCount += batchResults.filter((result) => !result.imported).length;
@@ -1249,6 +1277,7 @@ export class WorkspaceCollectionSyncService {
   }): Promise<void> {
     const startedAt = Date.now();
     const timeoutMs = this.deps.backfillDrainTimeoutMs ?? DEFAULT_BACKFILL_DRAIN_TIMEOUT_MS;
+    let attempt = 0;
     while (true) {
       throwIfAborted(args.abortSignal);
       if (Date.now() - startedAt > timeoutMs) {
@@ -1264,7 +1293,8 @@ export class WorkspaceCollectionSyncService {
       if (!matching) {
         return;
       }
-      await waitForAbortableDelay(250, args.abortSignal);
+      await waitForAbortableDelay(getBackfillDrainPollDelayMs(attempt), args.abortSignal);
+      attempt += 1;
     }
   }
 
@@ -1667,6 +1697,7 @@ export class WorkspaceCollectionSyncService {
     let latestImportProgress: EnhancedImportProgress | null = null;
 
     await runRootFolderCacheImport({
+      applyManagedCacheBatch: this.deps.applyManagedCacheBatch,
       abortSignal: args.abortSignal,
       changes: prepared.changes,
       chunkRepository: this.deps.chunkRepository,
