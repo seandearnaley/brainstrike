@@ -3,17 +3,14 @@ import type {
   FileChunk,
   FileImportResult,
   FileRecord,
+  FileRecordUpdate,
   IDatabase,
   ResolvedChunkingStrategy,
 } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getChunkingStrategy } from './chunking-strategy';
-import type {
-  FileImportChunkRepository,
-  FileImportFileRecordRepository,
-  FileImportFileRecordUpdate,
-} from './repository-ports';
+import type { FileImportChunkRepository, FileImportFileRecordRepository } from './repository-ports';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 export { getChunkingStrategy } from './chunking-strategy';
@@ -217,7 +214,7 @@ async function updateFileRecordWithChunkInfo(
   chunksCount: number,
   strategy: ResolvedChunkingStrategy
 ): Promise<void> {
-  const update: FileImportFileRecordUpdate = {
+  const update: FileRecordUpdate = {
     chunksProcessedAt: new Date().toISOString(),
     chunksCount,
     chunkingStrategy: strategy,

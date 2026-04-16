@@ -123,8 +123,6 @@ export interface WorkspaceCollectionSyncRequest {
   rootDirectoryHandle: RootDirectoryHandle | null;
 }
 
-type WorkspaceCollectionSyncProgressUpdate = WorkspaceCollectionSyncStatusPatch;
-
 interface WorkspaceCollectionSyncProgressStatusBase {
   activeRootPath: string;
   chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
@@ -371,7 +369,7 @@ function mapEnhancedProgressToStatus(
   managedCollectionName: string | null,
   rootPath: string,
   summary: WorkspaceCollectionSyncScanSummary
-): WorkspaceCollectionSyncProgressUpdate {
+): WorkspaceCollectionSyncStatusPatch {
   const base = buildEnhancedProgressStatusBase(
     progress,
     managedCollectionId,
@@ -447,7 +445,7 @@ function mapBackfillProgressToStatus(args: {
   scanSummary?: WorkspaceCollectionSyncScanSummary;
   state?: 'embedding' | 'recovering';
   total?: number;
-}): WorkspaceCollectionSyncProgressUpdate {
+}): WorkspaceCollectionSyncStatusPatch {
   const totalChunks = Math.max(0, args.total ?? 0);
   const processedChunks = Math.min(totalChunks, Math.max(0, args.current ?? 0));
   const currentMessage = args.message?.trim() ? args.message : null;
@@ -1096,7 +1094,7 @@ export class WorkspaceCollectionSyncService {
   }
 
   private createClearedProgressState(): Pick<
-    WorkspaceCollectionSyncProgressUpdate,
+    WorkspaceCollectionSyncStatusPatch,
     | 'backfillRequestId'
     | 'chunkingProgress'
     | 'currentFilePath'

@@ -1,12 +1,4 @@
-import type {
-  FileChunk,
-  FileChunkUpdate,
-  FileRecordUpdate,
-  IDatabase,
-  IFileRecordRepository,
-} from '@brainstrike/db';
-
-export type FileImportFileRecordUpdate = FileRecordUpdate;
+import type { FileChunk, FileChunkUpdate, IDatabase, IFileRecordRepository } from '@brainstrike/db';
 
 export interface FileImportChunkRepository {
   deleteByFileRecordId?(fileRecordId: string): Promise<unknown>;
