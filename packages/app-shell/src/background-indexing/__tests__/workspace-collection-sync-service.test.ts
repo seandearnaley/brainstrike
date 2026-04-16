@@ -273,6 +273,46 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.enqueueBackfill).toHaveBeenCalledTimes(1);
   });
 
+  it('reports a selected file as failed when the import batch is missing its content payload', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi
+          .fn()
+          .mockResolvedValueOnce({
+            [COMPOSITE_KEY]: 'export const value = 1;',
+          })
+          .mockResolvedValueOnce({}),
+      },
+    });
+    let importResults: Array<{ error?: string; id: string; imported: boolean }> = [];
+    runEnhancedImportMock.mockImplementationOnce(async (params) => {
+      importResults = await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      return [];
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+    expect(importResults).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        imported: false,
+        error: 'Background cache import descriptor is missing.',
+      }),
+    ]);
+  });
+
   it('recomputes the persisted content hash from the import-time file payload', async () => {
     const initialContent = 'export const version = 1;';
     const importTimeContent = 'export const version = 2;';

@@ -728,12 +728,30 @@ async function applyBackgroundImportBatch(args: {
   errors: Array<{ error: string; file: string }>;
   results: FileImportResult[];
 }> {
+  const skippedResults: FileImportResult[] = [];
+  const skippedErrors: Array<{ error: string; file: string }> = [];
+  for (const change of args.batch) {
+    if (args.batchContents[change.compositeKey] !== undefined) {
+      continue;
+    }
+    const message = 'Background cache import descriptor is missing.';
+    skippedErrors.push({
+      file: change.relativePath,
+      error: message,
+    });
+    skippedResults.push({
+      id: change.id,
+      imported: false,
+      existed: false,
+      error: message,
+    });
+  }
   const mutations = await buildBackgroundImportBatchMutations({
     batch: args.batch,
     batchContents: args.batchContents,
   });
   if (mutations.length === 0) {
-    return { errors: [], results: [] };
+    return { errors: skippedErrors, results: skippedResults };
   }
 
   try {
@@ -742,26 +760,35 @@ async function applyBackgroundImportBatch(args: {
       changes: mutations.map((entry) => entry.mutation),
     });
     return {
-      errors: [],
-      results: mutations.map((entry) => ({
-        id: entry.mutation.record.id,
-        imported: true,
-        existed: false,
-      })),
+      errors: skippedErrors,
+      results: [
+        ...skippedResults,
+        ...mutations.map((entry) => ({
+          id: entry.mutation.record.id,
+          imported: true,
+          existed: false,
+        })),
+      ],
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
-      errors: mutations.map((entry) => ({
-        file: entry.relativePath,
-        error: message,
-      })),
-      results: mutations.map((entry) => ({
-        id: entry.mutation.record.id,
-        imported: false,
-        existed: false,
-        error: message,
-      })),
+      errors: [
+        ...skippedErrors,
+        ...mutations.map((entry) => ({
+          file: entry.relativePath,
+          error: message,
+        })),
+      ],
+      results: [
+        ...skippedResults,
+        ...mutations.map((entry) => ({
+          id: entry.mutation.record.id,
+          imported: false,
+          existed: false,
+          error: message,
+        })),
+      ],
     };
   }
 }
@@ -1012,6 +1039,9 @@ async function runRootFolderCacheImport(args: {
           emitImportProgress(createInitialImportProgress(total));
           if (selectedKeys.size > 0) {
             const selectedBatch = batch.filter((change) => selectedKeys.has(change.compositeKey));
+            const selectedBatchById = new Map(
+              selectedBatch.map((change) => [change.id, change] as const)
+            );
             throwIfAborted(abortSignal, 'Background cache import was cancelled.');
             const batchOutcome = await applyBackgroundImportBatch({
               applyManagedCacheBatch,
@@ -1023,7 +1053,7 @@ async function runRootFolderCacheImport(args: {
             for (const result of batchOutcome.results) {
               results.push(result);
               completed += 1;
-              const matchingChange = selectedBatch.find((change) => change.id === result.id);
+              const matchingChange = selectedBatchById.get(result.id);
               emitImportProgress(
                 buildImportProgress(total, completed, matchingChange?.relativePath, errors)
               );

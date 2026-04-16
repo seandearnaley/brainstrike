@@ -161,6 +161,29 @@ describe('applyManagedCacheBatch', () => {
         ],
       })
     ).toThrow('Managed cache batch payload contains an invalid change record.');
+
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'replace',
+            record: {
+              id: 'file-4',
+              name: 'empty-hash.ts',
+              path: 'src/empty-hash.ts',
+              size: 1,
+              sourceRootPath: '/workspace/root',
+              updatedAt: '2026-04-16T00:00:00.000Z',
+              processedAt: '2026-04-16T00:00:00.000Z',
+              content: '',
+              contentHash: '',
+              tokenCount: 0,
+            },
+          },
+        ],
+      })
+    ).toThrow('Managed cache batch payload contains an invalid change record.');
   });
 
   it('rolls back replacement chunk deletion when a later import in the batch fails', async () => {
@@ -328,5 +351,48 @@ describe('applyManagedCacheBatch', () => {
         changes: oversizedReplacements,
       })
     ).rejects.toThrow('Managed cache batch replace exceeds the PostgreSQL parameter limit.');
+  });
+
+  it('rejects duplicate file record ids in a single batch with a clear error', async () => {
+    const now = new Date().toISOString();
+
+    await expect(
+      applyManagedCacheBatch(db, {
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'import',
+            record: {
+              id: 'duplicate-id',
+              name: 'first.ts',
+              path: 'src/first.ts',
+              size: 10,
+              sourceRootPath: '/workspace/root',
+              createdAt: now,
+              updatedAt: now,
+              processedAt: now,
+              content: 'export const first = true;',
+              contentHash: 'hash-first',
+              tokenCount: 5,
+            },
+          },
+          {
+            mode: 'replace',
+            record: {
+              id: 'duplicate-id',
+              name: 'second.ts',
+              path: 'src/second.ts',
+              size: 10,
+              sourceRootPath: '/workspace/root',
+              updatedAt: now,
+              processedAt: now,
+              content: 'export const second = true;',
+              contentHash: 'hash-second',
+              tokenCount: 5,
+            },
+          },
+        ],
+      })
+    ).rejects.toThrow('Managed cache batch contains duplicate file record id duplicate-id.');
   });
 });

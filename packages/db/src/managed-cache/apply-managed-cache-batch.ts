@@ -68,7 +68,7 @@ function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | 
       isNonEmptyString(candidate['updatedAt']) &&
       isNonEmptyString(candidate['processedAt']) &&
       typeof candidate['content'] === 'string' &&
-      typeof candidate['contentHash'] === 'string' &&
+      isNonEmptyString(candidate['contentHash']) &&
       isFiniteNonNegativeInteger(candidate['tokenCount'])
     )
   ) {
@@ -210,6 +210,16 @@ function assertBatchWithinParameterLimit(
     `Managed cache batch ${operation} exceeds the PostgreSQL parameter limit. ` +
       `Received ${count} rows; maximum supported ${operation} batch size is ${maxCount}.`
   );
+}
+
+function assertNoDuplicateMutationIds(changes: readonly ManagedCacheBatchMutation[]): void {
+  const seenIds = new Set<string>();
+  for (const change of changes) {
+    if (seenIds.has(change.record.id)) {
+      throw new Error(`Managed cache batch contains duplicate file record id ${change.record.id}.`);
+    }
+    seenIds.add(change.record.id);
+  }
 }
 
 function buildValuePlaceholders(rowCount: number, columnCount: number): string {
@@ -357,6 +367,7 @@ export async function applyManagedCacheBatch(
   if (!db.transaction) {
     throw new Error('Managed cache batch mutation requires transactional database support.');
   }
+  assertNoDuplicateMutationIds(args.changes);
 
   const imports = args.changes.flatMap((change) =>
     change.mode === 'import' ? [change.record] : []
