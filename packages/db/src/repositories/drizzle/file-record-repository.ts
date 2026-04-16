@@ -13,6 +13,7 @@ import type {
   FileImportRequest,
   FileImportResult,
   FileRecord,
+  FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../../models/file-record.js';
 import { fileRecords } from '../../schema/index.js';
@@ -262,7 +263,7 @@ export class DrizzleFileRecordRepository {
     });
   }
 
-  async update(id: string, updates: Partial<FileRecord>): Promise<void> {
+  async update(id: string, updates: FileRecordUpdate): Promise<void> {
     const fields = Object.keys(updates).filter((k): k is keyof FileRecord =>
       ALLOWED_UPDATE_FIELDS.includes(k as keyof FileRecord)
     );
@@ -281,7 +282,7 @@ export class DrizzleFileRecordRepository {
    */
   private buildUpdateData(
     fields: (keyof FileRecord)[],
-    updates: Partial<FileRecord>
+    updates: FileRecordUpdate
   ): Partial<typeof fileRecords.$inferInsert> {
     const updateData: Partial<typeof fileRecords.$inferInsert> = {};
 

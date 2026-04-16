@@ -19,6 +19,31 @@ export interface FileRecord {
   updatedAt: string; // ISO date string
 }
 
+type NullableFileRecordUpdateFields =
+  | 'chunksCount'
+  | 'chunksProcessedAt'
+  | 'chunkingStrategy'
+  | 'content'
+  | 'contentHash'
+  | 'embedding'
+  | 'embeddingSetId'
+  | 'processedAt'
+  | 'sourceRootPath'
+  | 'tokenCount';
+
+export type FileRecordUpdate = Omit<Partial<FileRecord>, NullableFileRecordUpdateFields> & {
+  chunksCount?: number | null;
+  chunksProcessedAt?: string | null;
+  chunkingStrategy?: ResolvedChunkingStrategy | null;
+  content?: string | null;
+  contentHash?: string | null;
+  embedding?: number[] | null;
+  embeddingSetId?: string | null;
+  processedAt?: string | null;
+  sourceRootPath?: string | null;
+  tokenCount?: number | null;
+};
+
 export interface ManagedCacheEntryMetadata {
   contentHash: string;
   embeddingSetId: string;

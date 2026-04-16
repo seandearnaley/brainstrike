@@ -39,6 +39,8 @@ function createDeps(
   return {
     chunkRepository: {
       deleteByFileRecordId: vi.fn(async () => undefined),
+      insertMany: vi.fn(async () => []),
+      update: vi.fn(async () => null),
     },
     cancelBackfill: vi.fn(async () => undefined),
     db: {
@@ -54,6 +56,8 @@ function createDeps(
     },
     fileRecordRepository: {
       createWithContent: vi.fn(async () => undefined),
+      findById: vi.fn(async () => null),
+      findByIds: vi.fn(async () => []),
       listManagedCacheEntryMetadata: vi.fn(async () => []),
       update: vi.fn(async () => undefined),
     },
@@ -136,6 +140,8 @@ describe('WorkspaceCollectionSyncService', () => {
       fileContentProcessor,
       fileRecordRepository: {
         createWithContent: vi.fn(async () => undefined),
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
         listManagedCacheEntryMetadata: vi.fn(async () => [
           {
             fileRecordId: 'file-1',
@@ -309,6 +315,8 @@ describe('WorkspaceCollectionSyncService', () => {
       },
       fileRecordRepository: {
         createWithContent: vi.fn(async () => undefined),
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
         listManagedCacheEntryMetadata: vi.fn(async () => [
           {
             fileRecordId: 'file-1',
@@ -337,7 +345,8 @@ describe('WorkspaceCollectionSyncService', () => {
       'file-1',
       expect.objectContaining({
         chunksCount: 0,
-        chunksProcessedAt: undefined,
+        chunksProcessedAt: null,
+        chunkingStrategy: null,
         embeddingSetId: 'set-1',
       })
     );
@@ -630,6 +639,8 @@ describe('WorkspaceCollectionSyncService', () => {
       },
       fileRecordRepository: {
         createWithContent: vi.fn(async () => undefined),
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
         listManagedCacheEntryMetadata: vi.fn(async () => [
           {
             fileRecordId: 'file-1',
@@ -971,6 +982,8 @@ describe('WorkspaceCollectionSyncService', () => {
         },
         fileRecordRepository: {
           createWithContent: vi.fn(async () => undefined),
+          findById: vi.fn(async () => null),
+          findByIds: vi.fn(async () => []),
           listManagedCacheEntryMetadata: vi.fn(async () => [
             {
               fileRecordId: 'file-1',

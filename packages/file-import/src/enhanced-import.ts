@@ -28,6 +28,7 @@ import {
 } from '@brainstrike/utils';
 import { processChunking } from './chunking';
 import { processEmbeddings } from './embedding';
+import type { FileImportChunkRepository, FileImportFileRecordRepository } from './repository-ports';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Enhanced');
@@ -189,8 +190,8 @@ export type BaseImportRunner<TFileNode = unknown> = (
 ) => Promise<FileImportResult[]>;
 
 interface ChunkingDependencies {
-  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
-  repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
+  chunkRepository: FileImportChunkRepository | null;
+  repository: FileImportFileRecordRepository | null;
 }
 
 interface ChunkingConfiguration {
@@ -209,7 +210,7 @@ interface ChunkingConfiguration {
 }
 
 interface EmbeddingConfiguration {
-  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
+  chunkRepository: FileImportChunkRepository | null;
   enabled: boolean;
   model?: string;
   onResolvedTargetSetId?: (id: string) => void;

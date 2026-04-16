@@ -8,6 +8,7 @@ import type {
   FileImportRequest,
   FileImportResult,
   FileRecord,
+  FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../models/file-record';
 
@@ -58,7 +59,7 @@ export interface IFileRecordRepository {
   ): Promise<FileRecord | null>;
   listManagedCacheEntries(embeddingSetId: string): Promise<FileRecord[]>;
   listManagedCacheEntryMetadata(embeddingSetId: string): Promise<ManagedCacheEntryMetadata[]>;
-  update(id: string, updates: Partial<FileRecord>): Promise<void>;
+  update(id: string, updates: FileRecordUpdate): Promise<void>;
   updateContent(
     id: string,
     content: string,
