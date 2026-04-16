@@ -224,6 +224,122 @@ test.describe('Chunking Host Renderer', () => {
     expect(finalTimeOrigin).toBe(initialTimeOrigin);
   });
 
+  test('oversized chunking requests skip at file level without poisoning the hidden chunking host', async ({
+    window,
+  }) => {
+    await waitForAppReadyInTest(window);
+    const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+
+    const oversizedOutcome = await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            chunkFile?: (request: {
+              fileRecordId: string;
+              content: string;
+              fileName: string;
+              filePath: string;
+              kind: 'chunk-file';
+              options: {
+                forceStrategy: boolean;
+                strategy: 'sentence';
+              };
+              requestId: string;
+            }) => Promise<{
+              chunks: unknown[];
+              skipped?: boolean;
+              skipReason?: string;
+            }>;
+          };
+        }
+      ).chunkingHost;
+      if (!api?.chunkFile) {
+        throw new Error('Chunking host bridge is not available');
+      }
+
+      const oversizedContent = 'x'.repeat(512 * 1024);
+      try {
+        const result = await api.chunkFile({
+          kind: 'chunk-file',
+          requestId: crypto.randomUUID(),
+          fileRecordId: 'chunking-host-oversized-request',
+          fileName: 'oversized-import.txt',
+          filePath: '/tmp/oversized-import.txt',
+          content: oversizedContent,
+          options: {
+            strategy: 'sentence',
+            forceStrategy: true,
+          },
+        });
+        return {
+          ok: true as const,
+          skipped: result.skipped ?? false,
+          skipReason: result.skipReason ?? null,
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    expect(oversizedOutcome.ok).toBe(true);
+    if (oversizedOutcome.ok) {
+      expect(oversizedOutcome.skipped).toBe(true);
+      expect(oversizedOutcome.skipReason).toContain('File too large');
+    }
+
+    const followupOutcome = await window.evaluate(async () => {
+      const api = (
+        globalThis.window as Window & {
+          chunkingHost?: {
+            chunkFile?: (request: {
+              fileRecordId: string;
+              content: string;
+              fileName: string;
+              filePath: string;
+              kind: 'chunk-file';
+              options: {
+                forceStrategy: boolean;
+                strategy: 'sentence';
+              };
+              requestId: string;
+            }) => Promise<{
+              chunks: unknown[];
+            }>;
+          };
+        }
+      ).chunkingHost;
+      if (!api?.chunkFile) {
+        throw new Error('Chunking host bridge is not available');
+      }
+
+      const result = await api.chunkFile({
+        kind: 'chunk-file',
+        requestId: crypto.randomUUID(),
+        fileRecordId: 'chunking-host-followup-request',
+        fileName: 'followup.txt',
+        filePath: '/tmp/followup.txt',
+        content: Array.from(
+          { length: 128 },
+          (_, index) => `Follow-up line ${index + 1} after oversized request.`
+        ).join('\n'),
+        options: {
+          strategy: 'sentence',
+          forceStrategy: true,
+        },
+      });
+
+      return result.chunks.length;
+    });
+
+    expect(followupOutcome).toBeGreaterThan(0);
+    await assertVisibleWindowResponsive(window);
+    const finalTimeOrigin = await window.evaluate(() => performance.timeOrigin);
+    expect(finalTimeOrigin).toBe(initialTimeOrigin);
+  });
+
   test('accepts non-legacy chunking strategies without reloading the visible window', async ({
     window,
   }) => {

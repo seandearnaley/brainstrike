@@ -36,7 +36,7 @@ function isOptionalStringArray(value: unknown): boolean {
 }
 
 function isContentString(value: unknown): boolean {
-  return typeof value === 'string' && value.length <= CHUNKING_CONFIG.maxChunkableSize;
+  return typeof value === 'string';
 }
 
 function isBoundedMetadataString(value: unknown): boolean {

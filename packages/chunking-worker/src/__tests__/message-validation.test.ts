@@ -111,7 +111,7 @@ describe('chunking worker message validation', () => {
     ).toBe(false);
   });
 
-  it('rejects chunk requests whose content exceeds the hard worker limit', () => {
+  it('accepts oversized chunk requests so runtime skip handling can decide the outcome', () => {
     expect(
       isChunkRequest({
         type: 'chunk',
@@ -124,7 +124,27 @@ describe('chunking worker message validation', () => {
           strategy: 'recursive',
         },
       })
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it('accepts oversized chunk batch entries so runtime skip handling can decide the outcome', () => {
+    expect(
+      isChunkBatchRequest({
+        type: 'chunk-batch',
+        requests: [
+          {
+            id: 'chunk-1',
+            fileRecordId: 'file-1',
+            content: 'x'.repeat(CHUNKING_CONFIG.maxChunkableSize + 1),
+            fileName: 'README.md',
+            filePath: '/tmp/README.md',
+            options: {
+              strategy: 'recursive',
+            },
+          },
+        ],
+      })
+    ).toBe(true);
   });
 
   it('rejects oversized chunk batches before they reach the worker runtime', () => {
