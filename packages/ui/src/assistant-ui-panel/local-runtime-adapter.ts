@@ -16,6 +16,7 @@ import type {
   LocalLlmToolCall,
   LocalLlmToolDefinition,
 } from '@brainstrike/agent/local-llm';
+import { acquireBackgroundWorkPauseReason } from '@brainstrike/utils';
 
 /**
  * JSON types compatible with assistant-ui's ReadonlyJSONObject.
@@ -750,6 +751,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
   return {
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Generator handles init, conversion, streaming, and errors
     async *run({ messages, abortSignal }) {
+      const releaseBackgroundPause = await acquireBackgroundWorkPauseReason('local-llm');
       try {
         // Convert messages to LocalLlmMessage format
         const localMessages = convertMessages(messages);
@@ -1012,6 +1014,8 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
             },
           ],
         };
+      } finally {
+        releaseBackgroundPause();
       }
     },
   };

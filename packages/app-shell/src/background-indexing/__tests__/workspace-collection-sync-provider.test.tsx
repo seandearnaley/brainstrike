@@ -7,7 +7,11 @@ import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
-import { encodeFileSelection } from '@brainstrike/utils';
+import {
+  __resetBackgroundWorkArbiterForTests,
+  acquireBackgroundWorkPauseReason,
+  encodeFileSelection,
+} from '@brainstrike/utils';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceCollectionSyncProvider } from '../workspace-collection-sync-provider';
@@ -204,6 +208,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       restorationProgress: null,
     };
     __resetBackgroundIndexingPreferencesStoreForTests();
+    __resetBackgroundWorkArbiterForTests();
     __resetWorkspaceCollectionSyncStatusStoreForTests();
     dbState.current = {
       query: vi.fn(async () => ({ rows: [] })),
@@ -427,6 +432,56 @@ describe('WorkspaceCollectionSyncProvider', () => {
     );
 
     await waitFor(() => expect(runEnhancedImportMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('pauses background indexing when the shared background-work arbiter is paused', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+      paused: true,
+    });
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+        expect.objectContaining({
+          state: 'paused',
+          pauseReasons: ['Paused manually'],
+        })
+      )
+    );
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+  });
+
+  it('auto-pauses background indexing when a foreground local-llm lease is active', async () => {
+    const release = await acquireBackgroundWorkPauseReason('local-llm');
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            state: 'paused',
+            pauseReasons: ['Paused for local assistant'],
+          })
+        )
+      );
+      expect(runEnhancedImportMock).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
   });
 
   it('waits for folder restore access loading to finish before starting background indexing', async () => {

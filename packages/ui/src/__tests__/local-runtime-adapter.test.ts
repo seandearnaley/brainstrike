@@ -6,6 +6,17 @@ import {
   disposeLocalBackend,
 } from '../../src/assistant-ui-panel/local-runtime-adapter';
 
+const { acquireBackgroundWorkPauseReasonMock, releaseBackgroundWorkPauseReasonMock } = vi.hoisted(
+  () => ({
+    acquireBackgroundWorkPauseReasonMock: vi.fn(),
+    releaseBackgroundWorkPauseReasonMock: vi.fn(),
+  })
+);
+
+vi.mock('@brainstrike/utils', () => ({
+  acquireBackgroundWorkPauseReason: acquireBackgroundWorkPauseReasonMock,
+}));
+
 function createRunOptions(): ChatModelRunOptions {
   return {
     messages: [
@@ -63,6 +74,9 @@ async function collectRun(
 describe('createLocalModelAdapter', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    releaseBackgroundWorkPauseReasonMock.mockReset();
+    acquireBackgroundWorkPauseReasonMock.mockReset();
+    acquireBackgroundWorkPauseReasonMock.mockResolvedValue(releaseBackgroundWorkPauseReasonMock);
   });
 
   afterEach(async () => {
@@ -129,6 +143,8 @@ describe('createLocalModelAdapter', () => {
 
     expect(warmup).toHaveBeenCalledTimes(1);
     expect(generate).toHaveBeenCalledTimes(1);
+    expect(acquireBackgroundWorkPauseReasonMock).toHaveBeenCalledWith('local-llm');
+    expect(releaseBackgroundWorkPauseReasonMock).toHaveBeenCalledTimes(1);
     expect(progress).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
@@ -211,6 +227,8 @@ describe('createLocalModelAdapter', () => {
     await collectRun(adapter.run(createRunOptions()));
 
     expect(warmup).toHaveBeenCalledTimes(1);
+    expect(acquireBackgroundWorkPauseReasonMock).toHaveBeenCalledTimes(2);
+    expect(releaseBackgroundWorkPauseReasonMock).toHaveBeenCalledTimes(2);
     expect(progress).toHaveBeenCalledWith(
       expect.objectContaining({
         stage: 'ready',

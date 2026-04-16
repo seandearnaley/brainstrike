@@ -383,6 +383,7 @@ function mapEnhancedProgressToStatus(
       return {
         ...base,
         state: 'idle',
+        pauseReasons: [],
         processedFiles: progress.total,
         queuedFiles: base.queueProgress?.pending ?? 0,
         currentFilePath: null,
@@ -391,6 +392,7 @@ function mapEnhancedProgressToStatus(
       return {
         ...base,
         state: 'embedding',
+        pauseReasons: [],
         processedFiles: progress.embeddingProgress?.chunksProcessed ?? progress.completed,
         queuedFiles: progress.queueProgress?.pending ?? 0,
         currentFilePath: progress.embeddingProgress?.currentChunk ?? progress.current ?? null,
@@ -399,6 +401,7 @@ function mapEnhancedProgressToStatus(
       return {
         ...base,
         state: 'chunking',
+        pauseReasons: [],
         processedFiles: progress.chunkingProgress?.filesProcessed ?? progress.completed,
         queuedFiles: 0,
         currentFilePath: progress.chunkingProgress?.currentFile ?? progress.current ?? null,
@@ -407,6 +410,7 @@ function mapEnhancedProgressToStatus(
       return {
         ...base,
         state: 'importing',
+        pauseReasons: [],
         processedFiles: progress.completed,
         queuedFiles: Math.max(0, progress.total - progress.completed),
         currentFilePath: progress.current ?? null,
@@ -452,6 +456,7 @@ function mapBackfillProgressToStatus(args: {
 
   return {
     state: args.state ?? 'embedding',
+    pauseReasons: [],
     managedCollectionId: args.collection.id,
     managedCollectionName: args.managedCollectionName,
     backfillRequestId: args.requestId ?? null,
@@ -1101,6 +1106,7 @@ export class WorkspaceCollectionSyncService {
     | 'embeddingProgress'
     | 'importProgress'
     | 'lastError'
+    | 'pauseReasons'
     | 'processedFiles'
     | 'queuedFiles'
     | 'queueProgress'
@@ -1117,6 +1123,7 @@ export class WorkspaceCollectionSyncService {
       queuedFiles: 0,
       processedFiles: 0,
       lastError: null,
+      pauseReasons: [],
     };
   }
 
@@ -1183,6 +1190,7 @@ export class WorkspaceCollectionSyncService {
       managedCollectionName: args.managedCollectionName,
       activeRootPath: args.activeRootPath,
       lastError: args.message,
+      pauseReasons: [],
     });
   }
 
@@ -1281,6 +1289,7 @@ export class WorkspaceCollectionSyncService {
       backfillRequestId: args.requestId,
       currentFilePath: null,
       lastError: null,
+      pauseReasons: [],
     });
   }
 
@@ -1355,6 +1364,7 @@ export class WorkspaceCollectionSyncService {
       activeRootPath: context.rootPath,
       currentFilePath,
       lastError: null,
+      pauseReasons: [],
       ...(options?.resetProgress ? this.createClearedProgressState() : {}),
     });
   }
@@ -1435,6 +1445,7 @@ export class WorkspaceCollectionSyncService {
       processedFiles: prepared.unchangedCount,
       queuedFiles: prepared.changes.length,
       lastError: null,
+      pauseReasons: [],
     });
   }
 
@@ -1454,6 +1465,7 @@ export class WorkspaceCollectionSyncService {
       currentFilePath: null,
       backfillRequestId: null,
       lastError: null,
+      pauseReasons: [],
       ...(args.summary
         ? {
             scanSummary: this.createScanSummary(args.summary),
@@ -1493,6 +1505,7 @@ export class WorkspaceCollectionSyncService {
       queuedFiles: summary.changes.length,
       processedFiles: summary.unchangedCount,
       lastError: null,
+      pauseReasons: [],
     });
   }
 

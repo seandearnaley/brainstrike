@@ -1,6 +1,7 @@
 import { useEmbeddingSetsRepository } from '@brainstrike/db';
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
@@ -70,6 +71,13 @@ function getStatusBadge(
         variant: 'secondary' as const,
         iconClassName: 'size-3.5 animate-spin',
       };
+    case 'paused':
+      return {
+        label: 'Paused',
+        icon: AlertTriangle,
+        variant: 'outline' as const,
+        iconClassName: 'size-3.5',
+      };
     case 'importing':
       return {
         label: 'Importing cache files',
@@ -131,12 +139,15 @@ export function SearchIndexingSettingsSection() {
   const setManagedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.setManagedCollectionId
   );
+  const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
+  const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
   const syncStatus = useWorkspaceCollectionSyncStatusStore((state) => ({
     state: state.state,
     backfillRequestId: state.backfillRequestId,
     managedCollectionName: state.managedCollectionName,
     currentFilePath: state.currentFilePath,
     lastError: state.lastError,
+    pauseReasons: state.pauseReasons,
     activeRootPath: state.activeRootPath,
     scanSummary: state.scanSummary,
     importProgress: state.importProgress,
@@ -336,6 +347,11 @@ export function SearchIndexingSettingsSection() {
               {syncStatus.lastError}
             </div>
           ) : null}
+          <div className="flex justify-end">
+            <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
+              {paused ? 'Resume background indexing' : 'Pause background indexing'}
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
