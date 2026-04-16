@@ -325,6 +325,8 @@ async function applyManagedCacheReplacements(
   }
 
   const replacementIds = replacements.map((record) => record.id);
+  // Legacy migrations still persist text ids while newer schema surfaces use uuid columns.
+  // Keep the text-form comparison here until that id contract is unified across both paths.
   await tx.query('DELETE FROM file_chunks WHERE file_record_id::text = ANY($1::text[])', [
     replacementIds,
   ]);
@@ -373,6 +375,8 @@ async function applyManagedCacheReplacements(
         token_count,
         processed_at
       )
+      -- Keep the text-form comparison aligned with the delete above until legacy text-id
+      -- surfaces are retired and the managed-cache path can require one native id type.
       WHERE file_records.id::text = replacement_values.id::text
       RETURNING file_records.id`,
     [...values, embeddingSetId]
