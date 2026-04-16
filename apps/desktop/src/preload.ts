@@ -4,7 +4,9 @@ const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
 const MCP_TOOLS_UPDATED_EVENT = 'mcp:tools:updated';
+const DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL = 'db:managed-cache:apply-batch' as const;
 
+import type { ApplyManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import type {
@@ -60,6 +62,24 @@ const LLM_HOST_GENERATE_CHANNEL = 'llm-host:generate' as const;
 const APP_LIFECYCLE_NOTE_RELOAD_INTENT_CHANNEL = 'app:lifecycle:note-reload-intent' as const;
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
+
+function disabledPreloadBridges(): Set<string> {
+  if (!DESKTOP_TEST_MODE) {
+    return new Set();
+  }
+  return new Set(
+    (process.env['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+  );
+}
+
+const disabledBridgeNames = disabledPreloadBridges();
+
+function shouldExposeBridge(name: string): boolean {
+  return !disabledBridgeNames.has(name);
+}
 
 type EmbeddingHostLifecycleState = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
 type ChunkingHostLifecycleState = EmbeddingHostLifecycleState;
@@ -231,66 +251,72 @@ function unwrapFileReadResult(result: unknown): string {
 }
 
 // Expose storage APIs to renderer
-contextBridge.exposeInMainWorld('electronAPI', {
-  storage: {
-    getItem: (key: string) => ipcRenderer.invoke('storage:getItem', key),
-    setItem: (key: string, value: string) => ipcRenderer.invoke('storage:setItem', key, value),
-    removeItem: (key: string) => ipcRenderer.invoke('storage:removeItem', key),
-    clear: () => ipcRenderer.invoke('storage:clear'),
-    getAllKeys: () => ipcRenderer.invoke('storage:getAllKeys'),
-  },
-  fileSystem: {
-    requestDirectoryAccess: () => ipcRenderer.invoke('fs:requestDirectoryAccess'),
-    readDirectory: (handle: DirectoryHandle) => ipcRenderer.invoke('fs:readDirectory', handle),
-    readFile: async (handle: FileHandle) => {
-      const result = await ipcRenderer.invoke('fs:readFile', handle);
-      return unwrapFileReadResult(result);
+if (shouldExposeBridge('electronAPI')) {
+  contextBridge.exposeInMainWorld('electronAPI', {
+    storage: {
+      getItem: (key: string) => ipcRenderer.invoke('storage:getItem', key),
+      setItem: (key: string, value: string) => ipcRenderer.invoke('storage:setItem', key, value),
+      removeItem: (key: string) => ipcRenderer.invoke('storage:removeItem', key),
+      clear: () => ipcRenderer.invoke('storage:clear'),
+      getAllKeys: () => ipcRenderer.invoke('storage:getAllKeys'),
     },
-    readFileByPath: async (absolutePath: string) => {
-      const result = await ipcRenderer.invoke('fs:readFileByPath', absolutePath);
-      return unwrapFileReadResult(result);
+    fileSystem: {
+      requestDirectoryAccess: () => ipcRenderer.invoke('fs:requestDirectoryAccess'),
+      readDirectory: (handle: DirectoryHandle) => ipcRenderer.invoke('fs:readDirectory', handle),
+      readFile: async (handle: FileHandle) => {
+        const result = await ipcRenderer.invoke('fs:readFile', handle);
+        return unwrapFileReadResult(result);
+      },
+      readFileByPath: async (absolutePath: string) => {
+        const result = await ipcRenderer.invoke('fs:readFileByPath', absolutePath);
+        return unwrapFileReadResult(result);
+      },
+      exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
+      restoreLastFolder: () => ipcRenderer.invoke('fs:restoreLastFolder'),
+      saveLastFolder: (folderPath: string) => ipcRenderer.invoke('fs:saveLastFolder', folderPath),
     },
-    exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
-    restoreLastFolder: () => ipcRenderer.invoke('fs:restoreLastFolder'),
-    saveLastFolder: (folderPath: string) => ipcRenderer.invoke('fs:saveLastFolder', folderPath),
-  },
-  // Panel layout persistence
-  saveLayout: (state: PanelPersistenceState): Promise<LayoutPersistenceResult> =>
-    ipcRenderer.invoke('layout:save', state),
-  loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke('layout:load'),
-  // Database operations
-  db: {
-    ping: () => ipcRenderer.invoke('db:ping'),
-    diagnostics: () => ipcRenderer.invoke('db:diagnostics'),
-    query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('db:query', sql, params),
-    exec: (sql: string) => ipcRenderer.invoke('db:exec', sql),
-    test: () => ipcRenderer.invoke('db:test'),
-    clearAll: (confirmationToken?: string) => ipcRenderer.invoke('db:clearAll', confirmationToken),
-    resetLocal: () => ipcRenderer.invoke('db:resetLocal'),
-  },
-  dbLive: {
-    start: (options: {
-      query: string;
-      params?: readonly unknown[];
-      key?: string;
-      mode?: 'query' | 'incremental';
-      offset?: number;
-      limit?: number;
-    }) => ipcRenderer.invoke('db:live-query:start', options),
-    stop: (id: number) => ipcRenderer.invoke('db:live-query:stop', id),
-    refresh: (payload: { id: number; offset?: number; limit?: number }) =>
-      ipcRenderer.invoke('db:live-query:refresh', payload),
-    onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => {
-      const listener = (_event: unknown, data: { id: number; results: unknown }) => callback(data);
-      ipcRenderer.on('db:live-query:update', listener);
-      return () => {
-        ipcRenderer.removeListener('db:live-query:update', listener);
-      };
+    // Panel layout persistence
+    saveLayout: (state: PanelPersistenceState): Promise<LayoutPersistenceResult> =>
+      ipcRenderer.invoke('layout:save', state),
+    loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke('layout:load'),
+    // Database operations
+    db: {
+      applyManagedCacheBatch: (payload: ApplyManagedCacheBatchArgs) =>
+        ipcRenderer.invoke(DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL, payload),
+      ping: () => ipcRenderer.invoke('db:ping'),
+      diagnostics: () => ipcRenderer.invoke('db:diagnostics'),
+      query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('db:query', sql, params),
+      exec: (sql: string) => ipcRenderer.invoke('db:exec', sql),
+      test: () => ipcRenderer.invoke('db:test'),
+      clearAll: (confirmationToken?: string) =>
+        ipcRenderer.invoke('db:clearAll', confirmationToken),
+      resetLocal: () => ipcRenderer.invoke('db:resetLocal'),
     },
-  },
-  // Database path (legacy - kept for compatibility)
-  getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
-});
+    dbLive: {
+      start: (options: {
+        query: string;
+        params?: readonly unknown[];
+        key?: string;
+        mode?: 'query' | 'incremental';
+        offset?: number;
+        limit?: number;
+      }) => ipcRenderer.invoke('db:live-query:start', options),
+      stop: (id: number) => ipcRenderer.invoke('db:live-query:stop', id),
+      refresh: (payload: { id: number; offset?: number; limit?: number }) =>
+        ipcRenderer.invoke('db:live-query:refresh', payload),
+      onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => {
+        const listener = (_event: unknown, data: { id: number; results: unknown }) =>
+          callback(data);
+        ipcRenderer.on('db:live-query:update', listener);
+        return () => {
+          ipcRenderer.removeListener('db:live-query:update', listener);
+        };
+      },
+    },
+    // Database path (legacy - kept for compatibility)
+    getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
+  });
+}
 
 // Secure Secrets API
 contextBridge.exposeInMainWorld('secrets', {
@@ -405,26 +431,29 @@ contextBridge.exposeInMainWorld('assistant', {
   getUrl: () => ipcRenderer.invoke('assistant:get-url'),
 });
 
-contextBridge.exposeInMainWorld('logging', {
-  getPreferences: (): Promise<LoggingSettingsPayload> =>
-    ipcRenderer.invoke('logging:get-preferences'),
-  setPreferences: (preferences: LoggingPreferences): Promise<LoggingSettingsPayload> =>
-    ipcRenderer.invoke('logging:set-preferences', preferences),
-  selectDestination: (): Promise<string | null> => ipcRenderer.invoke('logging:select-destination'),
-  openDestination: (target: string | null): Promise<boolean> =>
-    ipcRenderer.invoke('logging:open-destination', target ?? null),
-  getBufferedLogs: (): Promise<LogRecord[]> => ipcRenderer.invoke('logging:get-buffered-logs'),
-  ingestBufferedRecord: (record: LogRecord): void => {
-    ipcRenderer.send('logging:ingest-buffered-record', record);
-  },
-  onPreferencesUpdated: (callback: (preferences: LoggingPreferences) => void) => {
-    const listener = (_event: unknown, prefs: LoggingPreferences) => callback(prefs);
-    ipcRenderer.on('logging:preferences-updated', listener);
-    return () => {
-      ipcRenderer.removeListener('logging:preferences-updated', listener);
-    };
-  },
-});
+if (shouldExposeBridge('logging')) {
+  contextBridge.exposeInMainWorld('logging', {
+    getPreferences: (): Promise<LoggingSettingsPayload> =>
+      ipcRenderer.invoke('logging:get-preferences'),
+    setPreferences: (preferences: LoggingPreferences): Promise<LoggingSettingsPayload> =>
+      ipcRenderer.invoke('logging:set-preferences', preferences),
+    selectDestination: (): Promise<string | null> =>
+      ipcRenderer.invoke('logging:select-destination'),
+    openDestination: (target: string | null): Promise<boolean> =>
+      ipcRenderer.invoke('logging:open-destination', target ?? null),
+    getBufferedLogs: (): Promise<LogRecord[]> => ipcRenderer.invoke('logging:get-buffered-logs'),
+    ingestBufferedRecord: (record: LogRecord): void => {
+      ipcRenderer.send('logging:ingest-buffered-record', record);
+    },
+    onPreferencesUpdated: (callback: (preferences: LoggingPreferences) => void) => {
+      const listener = (_event: unknown, prefs: LoggingPreferences) => callback(prefs);
+      ipcRenderer.on('logging:preferences-updated', listener);
+      return () => {
+        ipcRenderer.removeListener('logging:preferences-updated', listener);
+      };
+    },
+  });
+}
 
 // Power state events (suspend/resume awareness for GPU keep-alive, etc.)
 contextBridge.exposeInMainWorld('power', {

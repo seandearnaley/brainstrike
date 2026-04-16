@@ -22,4 +22,14 @@ describe('desktop vite config alias contract', () => {
     expect(config).toContain("find: '@brainstrike/selection-rules'");
     expect(config).toContain('../../packages/selection-rules/src/index.ts');
   });
+
+  it('uses a dedicated strict dev-server port for the desktop renderer', () => {
+    const config = readDesktopViteConfig();
+
+    expect(config).toContain(
+      "import { DESKTOP_DEV_RENDERER_PORT } from './src/desktop-renderer-url';"
+    );
+    expect(config).toContain('port: DESKTOP_DEV_RENDERER_PORT');
+    expect(config).toContain('strictPort: true');
+  });
 });

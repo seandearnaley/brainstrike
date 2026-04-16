@@ -71,4 +71,29 @@ describe('SearchIndexingSettingsSection', () => {
 
     expect(await screen.findByText('Recovering in-flight backfill')).not.toBeNull();
   });
+
+  it('clears a stale managed collection selection when the collection list no longer contains it', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-stale',
+      mode: 'root-folder-cache',
+      hasHydrated: true,
+    });
+    findAllMock.mockResolvedValueOnce([
+      {
+        id: 'set-2',
+        name: 'Replacement Collection',
+        modelId: 'text-embedding-3-small',
+        modelKey: 'openai::text-embedding-3-small',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    render(<SearchIndexingSettingsSection />);
+
+    await waitFor(() => {
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBeNull();
+    });
+  });
 });

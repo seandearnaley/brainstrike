@@ -1,6 +1,7 @@
 import type { EventEmitter } from 'node:events';
 import { app, BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DESKTOP_DEV_RENDERER_PORT } from '../desktop-renderer-url';
 import { RendererHostLifecycle, type RendererHostStatusShape } from '../renderer-host-lifecycle';
 import { assignWindowRole, getWindowRoleByWebContentsId } from '../window-role';
 
@@ -149,7 +150,9 @@ describe('RendererHostLifecycle', () => {
     expect(status.state).toBe('starting');
     expect(hostWindow.loadURL).toHaveBeenCalledWith(
       expect.stringMatching(
-        /^http:\/\/localhost:8081\?mode=chunking-host&runtimeId=chunking-host%3A/
+        new RegExp(
+          `^http://localhost:${DESKTOP_DEV_RENDERER_PORT}\\?mode=chunking-host&runtimeId=chunking-host%3A`
+        )
       )
     );
   });

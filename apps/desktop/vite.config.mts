@@ -21,6 +21,7 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
+import { DESKTOP_DEV_RENDERER_PORT } from './src/desktop-renderer-url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -352,10 +353,10 @@ export default defineConfig({
     'process.versions': 'undefined',
   },
   server: {
-    // CRITICAL: keep desktop renderer dev URL deterministic (http://localhost:8081).
-    // Electron startup depends on this exact URL; auto-shifting ports causes long
-    // startup stalls and non-deterministic renderer boot behavior.
-    port: 8081,
+    // CRITICAL: keep desktop renderer dev URL deterministic and isolated from the
+    // web app's default/fallback dev-server ports. Repo-root `pnpm run dev` starts
+    // both apps, so desktop must not share the web port neighborhood.
+    port: DESKTOP_DEV_RENDERER_PORT,
     strictPort: true,
     headers: {
       'Content-Security-Policy': getDevCSP(),

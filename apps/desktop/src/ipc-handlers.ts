@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { JobQueue } from '@brainstrike/db';
+import { applyManagedCacheBatch, JobQueue, parseManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
 import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
@@ -18,6 +18,7 @@ import {
   type GpuMemoryReclaimConfig,
   type GpuMemoryReclaimMode,
 } from './backfill-maintenance-coordinator';
+import { DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL } from './db-shared';
 import { enqueueEmbeddingBackfill } from './embedding-backfill';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
@@ -1173,6 +1174,18 @@ export function registerIpcHandlers(
     const { getDatabaseDiagnostics } = await import('./db-main');
     return getDatabaseDiagnostics();
   });
+
+  registerHandler(
+    DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
+    async (_event: IpcMainInvokeEvent, payload: unknown) => {
+      const parsedPayload = parseManagedCacheBatchArgs(payload);
+      return withCorruptionRecovery(async () => {
+        const { getDatabase } = await import('./db-main');
+        const db = await getDatabase();
+        await applyManagedCacheBatch(db, parsedPayload);
+      }, DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL);
+    }
+  );
 
   // Database test handler for full connection validation
   registerHandler('db:test', async (_e: IpcMainInvokeEvent) => {
