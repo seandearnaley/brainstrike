@@ -52,9 +52,7 @@ function isFiniteNonNegativeInteger(value: unknown): value is number {
   return isFiniteNonNegativeNumber(value) && Number.isInteger(value);
 }
 
-function parseManagedCacheRecordBase(
-  record: unknown
-): ManagedCacheRecordBase | ManagedCacheImportRecord | null {
+function parseManagedCacheRecordBase(record: unknown): ManagedCacheRecordBase | null {
   if (!(record && typeof record === 'object')) {
     return null;
   }
@@ -65,7 +63,7 @@ function parseManagedCacheRecordBase(
       isNonEmptyString(candidate['id']) &&
       isNonEmptyString(candidate['name']) &&
       isNonEmptyString(candidate['path']) &&
-      isFiniteNonNegativeNumber(candidate['size']) &&
+      isFiniteNonNegativeInteger(candidate['size']) &&
       isNonEmptyString(candidate['sourceRootPath']) &&
       isNonEmptyString(candidate['updatedAt']) &&
       isNonEmptyString(candidate['processedAt']) &&
@@ -89,15 +87,22 @@ function parseManagedCacheRecordBase(
     contentHash: candidate['contentHash'],
     tokenCount: candidate['tokenCount'],
   };
-
-  if (isNonEmptyString(candidate['createdAt'])) {
-    return {
-      ...parsedBase,
-      createdAt: candidate['createdAt'],
-    };
-  }
-
   return parsedBase;
+}
+
+function parseManagedCacheImportRecord(record: unknown): ManagedCacheImportRecord | null {
+  const parsedBase = parseManagedCacheRecordBase(record);
+  if (!parsedBase) {
+    return null;
+  }
+  const candidate = record as Record<string, unknown>;
+  if (!isNonEmptyString(candidate['createdAt'])) {
+    return null;
+  }
+  return {
+    ...parsedBase,
+    createdAt: candidate['createdAt'],
+  };
 }
 
 function parseManagedCacheBatchMutation(change: unknown): ManagedCacheBatchMutation | null {
@@ -107,8 +112,8 @@ function parseManagedCacheBatchMutation(change: unknown): ManagedCacheBatchMutat
 
   const candidate = change as Record<string, unknown>;
   if (candidate['mode'] === 'import') {
-    const parsedRecord = parseManagedCacheRecordBase(candidate['record']);
-    if (!(parsedRecord && 'createdAt' in parsedRecord)) {
+    const parsedRecord = parseManagedCacheImportRecord(candidate['record']);
+    if (!parsedRecord) {
       return null;
     }
     return {
@@ -119,7 +124,7 @@ function parseManagedCacheBatchMutation(change: unknown): ManagedCacheBatchMutat
 
   if (candidate['mode'] === 'replace') {
     const parsedRecord = parseManagedCacheRecordBase(candidate['record']);
-    if (!(parsedRecord && !('createdAt' in parsedRecord))) {
+    if (!parsedRecord) {
       return null;
     }
     return {
@@ -306,7 +311,7 @@ async function applyManagedCacheReplacements(
   const embeddingSetParamIndex = values.length + 1;
 
   const result = await tx.query<{ id: string }>(
-    `UPDATE file_records AS file_records
+    `UPDATE file_records
        SET name = replacement_values.name,
            path = replacement_values.path,
            size = replacement_values.size,

@@ -73,6 +73,49 @@ describe('applyManagedCacheBatch', () => {
       ],
     });
 
+    expect(
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'replace',
+            record: {
+              id: 'file-2',
+              name: 'replace.ts',
+              path: 'src/replace.ts',
+              size: 16,
+              sourceRootPath: '/workspace/root',
+              createdAt: '2026-04-15T00:00:00.000Z',
+              updatedAt: '2026-04-16T00:00:00.000Z',
+              processedAt: '2026-04-16T00:00:00.000Z',
+              content: 'export const value = 3;',
+              contentHash: 'hash-3',
+              tokenCount: 6,
+            },
+          },
+        ],
+      })
+    ).toEqual({
+      embeddingSetId: 'set-1',
+      changes: [
+        {
+          mode: 'replace',
+          record: {
+            id: 'file-2',
+            name: 'replace.ts',
+            path: 'src/replace.ts',
+            size: 16,
+            sourceRootPath: '/workspace/root',
+            updatedAt: '2026-04-16T00:00:00.000Z',
+            processedAt: '2026-04-16T00:00:00.000Z',
+            content: 'export const value = 3;',
+            contentHash: 'hash-3',
+            tokenCount: 6,
+          },
+        },
+      ],
+    });
+
     expect(() =>
       parseManagedCacheBatchArgs({
         embeddingSetId: 'set-1',
@@ -90,6 +133,29 @@ describe('applyManagedCacheBatch', () => {
               content: 'export const value = 2;',
               contentHash: 'hash-2',
               tokenCount: 5,
+            },
+          },
+        ],
+      })
+    ).toThrow('Managed cache batch payload contains an invalid change record.');
+
+    expect(() =>
+      parseManagedCacheBatchArgs({
+        embeddingSetId: 'set-1',
+        changes: [
+          {
+            mode: 'replace',
+            record: {
+              id: 'file-3',
+              name: 'bad-size.ts',
+              path: 'src/bad-size.ts',
+              size: 1.5,
+              sourceRootPath: '/workspace/root',
+              updatedAt: '2026-04-16T00:00:00.000Z',
+              processedAt: '2026-04-16T00:00:00.000Z',
+              content: 'export const value = 4;',
+              contentHash: 'hash-4',
+              tokenCount: 4,
             },
           },
         ],
