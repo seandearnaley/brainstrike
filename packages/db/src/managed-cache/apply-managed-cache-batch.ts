@@ -38,6 +38,126 @@ interface QueryLike {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
 }
 
+const POSTGRES_PARAMETER_LIMIT = 65_535;
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isFiniteNonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isFiniteNonNegativeInteger(value: unknown): value is number {
+  return isFiniteNonNegativeNumber(value) && Number.isInteger(value);
+}
+
+function parseManagedCacheRecordBase(
+  record: unknown
+): ManagedCacheRecordBase | ManagedCacheImportRecord | null {
+  if (!(record && typeof record === 'object')) {
+    return null;
+  }
+
+  const candidate = record as Record<string, unknown>;
+  if (
+    !(
+      isNonEmptyString(candidate['id']) &&
+      isNonEmptyString(candidate['name']) &&
+      isNonEmptyString(candidate['path']) &&
+      isFiniteNonNegativeNumber(candidate['size']) &&
+      isNonEmptyString(candidate['sourceRootPath']) &&
+      isNonEmptyString(candidate['updatedAt']) &&
+      isNonEmptyString(candidate['processedAt']) &&
+      typeof candidate['content'] === 'string' &&
+      typeof candidate['contentHash'] === 'string' &&
+      isFiniteNonNegativeInteger(candidate['tokenCount'])
+    )
+  ) {
+    return null;
+  }
+
+  const parsedBase: ManagedCacheRecordBase = {
+    id: candidate['id'],
+    name: candidate['name'],
+    path: candidate['path'],
+    size: candidate['size'],
+    sourceRootPath: candidate['sourceRootPath'],
+    updatedAt: candidate['updatedAt'],
+    processedAt: candidate['processedAt'],
+    content: candidate['content'],
+    contentHash: candidate['contentHash'],
+    tokenCount: candidate['tokenCount'],
+  };
+
+  if (isNonEmptyString(candidate['createdAt'])) {
+    return {
+      ...parsedBase,
+      createdAt: candidate['createdAt'],
+    };
+  }
+
+  return parsedBase;
+}
+
+function parseManagedCacheBatchMutation(change: unknown): ManagedCacheBatchMutation | null {
+  if (!(change && typeof change === 'object')) {
+    return null;
+  }
+
+  const candidate = change as Record<string, unknown>;
+  if (candidate['mode'] === 'import') {
+    const parsedRecord = parseManagedCacheRecordBase(candidate['record']);
+    if (!(parsedRecord && 'createdAt' in parsedRecord)) {
+      return null;
+    }
+    return {
+      mode: 'import',
+      record: parsedRecord,
+    };
+  }
+
+  if (candidate['mode'] === 'replace') {
+    const parsedRecord = parseManagedCacheRecordBase(candidate['record']);
+    if (!(parsedRecord && !('createdAt' in parsedRecord))) {
+      return null;
+    }
+    return {
+      mode: 'replace',
+      record: parsedRecord,
+    };
+  }
+
+  return null;
+}
+
+export function parseManagedCacheBatchArgs(payload: unknown): ApplyManagedCacheBatchArgs {
+  if (!(payload && typeof payload === 'object')) {
+    throw new Error('Managed cache batch payload must be an object.');
+  }
+
+  const candidate = payload as Record<string, unknown>;
+  if (!isNonEmptyString(candidate['embeddingSetId'])) {
+    throw new Error('Managed cache batch payload requires a non-empty embeddingSetId.');
+  }
+  if (!Array.isArray(candidate['changes']) || candidate['changes'].length === 0) {
+    throw new Error('Managed cache batch payload requires at least one change.');
+  }
+
+  const changes = candidate['changes'].map((change) => {
+    const parsedChange = parseManagedCacheBatchMutation(change);
+    if (!parsedChange) {
+      throw new Error('Managed cache batch payload contains an invalid change record.');
+    }
+    return parsedChange;
+  });
+
+  return {
+    embeddingSetId: candidate['embeddingSetId'],
+    changes,
+  };
+}
+
 const IMPORT_COLUMNS = [
   'id',
   'name',
@@ -65,6 +185,27 @@ const REPLACE_VALUE_COLUMNS = [
   'token_count',
   'processed_at',
 ] as const;
+
+const MAX_MANAGED_CACHE_IMPORTS_PER_BATCH = Math.floor(
+  POSTGRES_PARAMETER_LIMIT / IMPORT_COLUMNS.length
+);
+const MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH = Math.floor(
+  POSTGRES_PARAMETER_LIMIT / REPLACE_VALUE_COLUMNS.length
+);
+
+function assertBatchWithinParameterLimit(
+  count: number,
+  maxCount: number,
+  operation: 'import' | 'replace'
+): void {
+  if (count <= maxCount) {
+    return;
+  }
+  throw new Error(
+    `Managed cache batch ${operation} exceeds the PostgreSQL parameter limit. ` +
+      `Received ${count} rows; maximum supported ${operation} batch size is ${maxCount}.`
+  );
+}
 
 function buildValuePlaceholders(rowCount: number, columnCount: number): string {
   const rows: string[] = [];
@@ -217,6 +358,12 @@ export async function applyManagedCacheBatch(
   );
   const replacements = args.changes.flatMap((change) =>
     change.mode === 'replace' ? [change.record] : []
+  );
+  assertBatchWithinParameterLimit(imports.length, MAX_MANAGED_CACHE_IMPORTS_PER_BATCH, 'import');
+  assertBatchWithinParameterLimit(
+    replacements.length,
+    MAX_MANAGED_CACHE_REPLACEMENTS_PER_BATCH,
+    'replace'
   );
 
   await db.transaction(async (tx) => {

@@ -102,12 +102,8 @@ export function WorkspaceCollectionSyncProvider({
     }
     return new WorkspaceCollectionSyncService({
       applyManagedCacheBatch: async (args) => {
-        const electronApplyManagedCacheBatch = (
-          window.electronAPI?.db as Record<string, unknown> | undefined
-        )?.['applyManagedCacheBatch'] as
-          | ((args: Parameters<typeof applyManagedCacheBatchLocally>[1]) => Promise<void>)
-          | undefined;
-        if (typeof electronApplyManagedCacheBatch === 'function') {
+        const electronApplyManagedCacheBatch = window.electronAPI?.db?.applyManagedCacheBatch;
+        if (electronApplyManagedCacheBatch) {
           await electronApplyManagedCacheBatch(args);
           return;
         }

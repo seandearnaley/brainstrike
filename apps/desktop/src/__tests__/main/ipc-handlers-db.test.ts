@@ -20,6 +20,7 @@ const {
   handlers,
   mockDb,
   applyManagedCacheBatchMock,
+  parseManagedCacheBatchArgsMock,
   getDatabaseMock,
   loggerWarn,
   loggerDebug,
@@ -45,6 +46,28 @@ const {
     },
   };
   const applyManagedCacheBatchMock = vi.fn(async () => undefined);
+  const parseManagedCacheBatchArgsMock = vi.fn((payload: unknown) => {
+    if (
+      !(
+        payload &&
+        typeof payload === 'object' &&
+        'embeddingSetId' in payload &&
+        'changes' in payload
+      )
+    ) {
+      throw new Error('Invalid managed cache batch payload.');
+    }
+    const candidate = payload as { changes?: unknown; embeddingSetId?: unknown };
+    if (
+      typeof candidate.embeddingSetId !== 'string' ||
+      candidate.embeddingSetId.length === 0 ||
+      !Array.isArray(candidate.changes) ||
+      candidate.changes.length === 0
+    ) {
+      throw new Error('Invalid managed cache batch payload.');
+    }
+    return payload;
+  });
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
   const loggerDebug = vi.fn();
@@ -102,6 +125,7 @@ const {
     handlers,
     mockDb,
     applyManagedCacheBatchMock,
+    parseManagedCacheBatchArgsMock,
     getDatabaseMock,
     loggerWarn,
     loggerDebug,
@@ -123,6 +147,7 @@ vi.mock('@brainstrike/db', async () => {
   return {
     ...actual,
     applyManagedCacheBatch: applyManagedCacheBatchMock,
+    parseManagedCacheBatchArgs: parseManagedCacheBatchArgsMock,
   };
 });
 

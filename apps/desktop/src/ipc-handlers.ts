@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { applyManagedCacheBatch, JobQueue } from '@brainstrike/db';
+import { applyManagedCacheBatch, JobQueue, parseManagedCacheBatchArgs } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
 import { AccessError, getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
@@ -113,39 +113,6 @@ const GPU_MEMORY_RECLAIM_DEFAULT_MINIMUM_INTERVAL_MS = 15_000;
 // Full BrowserWindow recreation introduced host lifecycle churn and renderer
 // instability under real backfill load.
 const GPU_MEMORY_RECLAIM_DEFAULT_MODE: GpuMemoryReclaimMode = 'reset';
-
-const managedCacheBatchRecordBaseSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  path: z.string().min(1),
-  size: z.number().finite().nonnegative(),
-  sourceRootPath: z.string().min(1),
-  updatedAt: z.string().min(1),
-  processedAt: z.string().min(1),
-  content: z.string(),
-  contentHash: z.string(),
-  tokenCount: z.number().int().nonnegative(),
-});
-
-const managedCacheBatchPayloadSchema = z.object({
-  embeddingSetId: z.string().min(1),
-  changes: z
-    .array(
-      z.discriminatedUnion('mode', [
-        z.object({
-          mode: z.literal('import'),
-          record: managedCacheBatchRecordBaseSchema.extend({
-            createdAt: z.string().min(1),
-          }),
-        }),
-        z.object({
-          mode: z.literal('replace'),
-          record: managedCacheBatchRecordBaseSchema,
-        }),
-      ])
-    )
-    .min(1),
-});
 
 interface EmbeddingBackfillRequest {
   gpuMemoryReclaimConfig: GpuMemoryReclaimConfig;
@@ -1212,7 +1179,7 @@ export function registerIpcHandlers(
     DB_APPLY_MANAGED_CACHE_BATCH_CHANNEL,
     async (_event: IpcMainInvokeEvent, payload: unknown) =>
       withCorruptionRecovery(async () => {
-        const parsedPayload = managedCacheBatchPayloadSchema.parse(payload);
+        const parsedPayload = parseManagedCacheBatchArgs(payload);
         const { getDatabase } = await import('./db-main');
         const db = await getDatabase();
         await applyManagedCacheBatch(db, parsedPayload);

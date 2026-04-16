@@ -26,6 +26,7 @@ export {
   type ApplyManagedCacheBatchArgs,
   applyManagedCacheBatch,
   type ManagedCacheBatchMutation,
+  parseManagedCacheBatchArgs,
 } from './managed-cache/apply-managed-cache-batch.js';
 // Legacy migration export
 export * from './migrations/bootstrap.js';
