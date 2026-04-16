@@ -220,6 +220,8 @@ export async function applyManagedCacheBatch(
   );
 
   await db.transaction(async (tx) => {
+    // Replacements must run first so stale chunks are cleared before any new rows in the same
+    // batch are inserted. Reordering these calls changes conflict behavior and atomicity.
     await applyManagedCacheReplacements(tx, args.embeddingSetId, replacements);
     await insertManagedCacheImports(tx, args.embeddingSetId, imports);
   });

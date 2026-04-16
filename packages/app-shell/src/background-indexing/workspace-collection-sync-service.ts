@@ -1012,6 +1012,7 @@ async function runRootFolderCacheImport(args: {
           emitImportProgress(createInitialImportProgress(total));
           if (selectedKeys.size > 0) {
             const selectedBatch = batch.filter((change) => selectedKeys.has(change.compositeKey));
+            throwIfAborted(abortSignal, 'Background cache import was cancelled.');
             const batchOutcome = await applyBackgroundImportBatch({
               applyManagedCacheBatch,
               batch: selectedBatch,

@@ -641,6 +641,49 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('re-checks cancellation before applying a batched managed-cache mutation', async () => {
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: 'export const value = 2;',
+        })),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    runEnhancedImportMock.mockImplementationOnce(async (params) => {
+      const selectedFilePaths = {
+        size: 1,
+        has: (key: string) => {
+          if (key === COMPOSITE_KEY) {
+            void service.cancel();
+          }
+          return true;
+        },
+      } as unknown as Set<string>;
+
+      await params.baseImportRunner({
+        selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      return [];
+    });
+
+    await expect(
+      service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      })
+    ).resolves.toBeUndefined();
+
+    expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+    expect(deps.enqueueBackfill).not.toHaveBeenCalled();
+  });
+
   it('enters recovering state when the managed collection already has an in-flight backfill', async () => {
     const unchangedContent = 'export const value = 1;';
     const unchangedHash = await generateContentHash(unchangedContent);
