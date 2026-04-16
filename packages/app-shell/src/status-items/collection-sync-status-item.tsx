@@ -2,6 +2,7 @@ import { useBackgroundIndexingPreferencesStore } from '@brainstrike/preferences/
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
+  shouldShowWorkspaceCollectionSyncPauseControl,
 } from '@brainstrike/preferences/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import {
@@ -142,6 +143,7 @@ export function CollectionSyncStatusItem() {
   const selectedPolicy = getBackgroundIndexingPolicyOption(indexingPolicyPreset);
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
+  const showPauseControl = shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state);
 
   return (
     <Popover>
@@ -207,11 +209,13 @@ export function CollectionSyncStatusItem() {
             {syncStatus.lastError}
           </div>
         ) : null}
-        <div className="flex justify-end">
-          <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
-            {paused ? 'Resume background indexing' : 'Pause background indexing'}
-          </Button>
-        </div>
+        {showPauseControl ? (
+          <div className="flex justify-end">
+            <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
+              {paused ? 'Resume background indexing' : 'Pause background indexing'}
+            </Button>
+          </div>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

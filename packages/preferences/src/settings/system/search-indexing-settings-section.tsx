@@ -26,6 +26,7 @@ import { useBackgroundIndexingPreferencesStore } from '../../stores/background-i
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
+  shouldShowWorkspaceCollectionSyncPauseControl,
 } from '../../stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '../../stores/workspace-collection-sync-status-store';
 
@@ -221,6 +222,7 @@ export function SearchIndexingSettingsSection() {
   const StatusIcon = statusBadge.icon;
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = getWorkspaceCollectionSyncCurrentActivity(syncStatus);
+  const showPauseControl = shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state);
 
   return (
     <Card>
@@ -347,11 +349,13 @@ export function SearchIndexingSettingsSection() {
               {syncStatus.lastError}
             </div>
           ) : null}
-          <div className="flex justify-end">
-            <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
-              {paused ? 'Resume background indexing' : 'Pause background indexing'}
-            </Button>
-          </div>
+          {showPauseControl ? (
+            <div className="flex justify-end">
+              <Button onClick={() => setPaused(!paused)} size="sm" type="button" variant="outline">
+                {paused ? 'Resume background indexing' : 'Pause background indexing'}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </CardContent>
     </Card>

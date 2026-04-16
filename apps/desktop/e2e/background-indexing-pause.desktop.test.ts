@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures/electron-fixture';
 
 test.describe('Background indexing pause controls', { tag: '@smoke' }, () => {
-  test('toggles pause from settings and the footer status popover', async ({
+  test('hide manual pause controls while background indexing is inactive', async ({
     window,
     homePage,
   }) => {
@@ -15,29 +15,9 @@ test.describe('Background indexing pause controls', { tag: '@smoke' }, () => {
 
     await expect(window.getByTestId('settings-category-search-indexing')).toBeVisible();
 
-    const indexingSwitch = window.getByRole('switch', { name: /background indexing/i });
-    await indexingSwitch.click();
-
-    const pauseButton = window.getByRole('button', { name: /pause background indexing/i });
-    await expect(pauseButton).toBeVisible();
-    await pauseButton.click();
-
-    await expect(
-      window.getByRole('button', { name: /resume background indexing/i }).first()
-    ).toBeVisible();
-
-    const statusTrigger = window.getByTestId('collection-sync-status-trigger');
-    await expect(statusTrigger).toBeVisible();
-    await statusTrigger.click();
-
-    const resumeFromFooter = window
-      .getByRole('button', { name: /resume background indexing/i })
-      .last();
-    await expect(resumeFromFooter).toBeVisible();
-    await resumeFromFooter.click();
-
-    await expect(
-      window.getByRole('button', { name: /pause background indexing/i }).first()
-    ).toBeVisible();
+    await expect(window.getByRole('button', { name: /pause background indexing/i })).toHaveCount(0);
+    await expect(window.getByRole('button', { name: /resume background indexing/i })).toHaveCount(
+      0
+    );
   });
 });

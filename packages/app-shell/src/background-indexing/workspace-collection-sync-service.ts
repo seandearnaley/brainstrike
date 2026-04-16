@@ -81,6 +81,9 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   cancelBackfill: (embeddingSetId: string) => Promise<void>;
   chunkRepository: FileImportChunkRepository & {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
+    getCoverageForSet: (
+      embeddingSetId: string
+    ) => Promise<{ chunksWithEmbeddingsForSet: number; totalChunks: number }>;
   };
   db: DbHandle;
   embeddingSetsRepository: IEmbeddingSetsRepository;
@@ -1478,6 +1481,124 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
+  private async collectionNeedsBackfill(collectionId: string): Promise<boolean> {
+    const coverage = await this.deps.chunkRepository.getCoverageForSet(collectionId);
+    return coverage.totalChunks > 0 && coverage.chunksWithEmbeddingsForSet < coverage.totalChunks;
+  }
+
+  private setEmbeddingPendingStatus(args: {
+    backfillRequestId: string;
+    chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
+    collection: EmbeddingSet;
+    rootPath: string;
+    summary: Pick<
+      PreparedChangesSummary,
+      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+    >;
+  }): void {
+    this.deps.setStatus({
+      state: 'embedding',
+      managedCollectionId: args.collection.id,
+      managedCollectionName: args.collection.name ?? null,
+      activeRootPath: args.rootPath,
+      backfillRequestId: args.backfillRequestId,
+      currentFilePath: null,
+      scanSummary: this.createScanSummary(args.summary),
+      chunkingProgress: args.chunkingProgress,
+      lastError: null,
+      pauseReasons: [],
+      processedFiles: args.summary.totalFiles,
+      queuedFiles: 0,
+    });
+  }
+
+  private async enqueueManagedBackfill(args: {
+    abortSignal: AbortSignal;
+    chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
+    collection: EmbeddingSet;
+    rootPath: string;
+    summary: Pick<
+      PreparedChangesSummary,
+      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+    >;
+  }): Promise<void> {
+    const pendingRequestId = `pending:${args.collection.id}:${Date.now()}`;
+    let resolvedRequestId = pendingRequestId;
+    let unsubscribeBackfillProgress: (() => void) | null = null;
+
+    unsubscribeBackfillProgress = this.deps.subscribeToBackfillProgress((progress) => {
+      if (progress.embeddingSetId !== args.collection.id) {
+        return;
+      }
+      resolvedRequestId = progress.requestId;
+      this.activeBackfill = {
+        embeddingSetId: args.collection.id,
+        requestId: progress.requestId,
+        rootPath: args.rootPath,
+        unsubscribe: unsubscribeBackfillProgress,
+      };
+      this.deps.setStatus(
+        mapBackfillProgressToStatus({
+          collection: args.collection,
+          managedCollectionName: args.collection.name ?? null,
+          rootPath: args.rootPath,
+          scanSummary: this.createScanSummary(args.summary),
+          chunkingProgress: args.chunkingProgress,
+          current: progress.current,
+          total: progress.total,
+          requestId: progress.requestId,
+          state: 'embedding',
+          ...(progress.message ? { message: progress.message } : {}),
+        })
+      );
+    });
+    this.activeBackfill = {
+      embeddingSetId: args.collection.id,
+      requestId: pendingRequestId,
+      rootPath: args.rootPath,
+      unsubscribe: unsubscribeBackfillProgress,
+    };
+
+    try {
+      const { requestId } = await this.deps.enqueueBackfill(args.collection.id, {
+        signal: args.abortSignal,
+        source: 'background-indexing',
+      });
+      resolvedRequestId = requestId;
+      this.activeBackfill = {
+        embeddingSetId: args.collection.id,
+        requestId,
+        rootPath: args.rootPath,
+        unsubscribe: unsubscribeBackfillProgress,
+      };
+      this.setEmbeddingPendingStatus({
+        backfillRequestId: requestId,
+        chunkingProgress: args.chunkingProgress,
+        collection: args.collection,
+        rootPath: args.rootPath,
+        summary: args.summary,
+      });
+      if (args.abortSignal.aborted) {
+        return;
+      }
+      await this.waitForBackfillToDrain({
+        abortSignal: args.abortSignal,
+        collectionId: args.collection.id,
+        requestId,
+      });
+      dispatchQueueDrainedEvent(args.collection.id);
+      throwIfAborted(args.abortSignal);
+    } finally {
+      if (
+        this.activeBackfill?.requestId === resolvedRequestId ||
+        resolvedRequestId === pendingRequestId
+      ) {
+        this.activeBackfill?.unsubscribe?.();
+        this.activeBackfill = null;
+      }
+    }
+  }
+
   private setImportingStatus(
     context: ResolvedSyncContext,
     summary: Pick<
@@ -1660,6 +1781,17 @@ export class WorkspaceCollectionSyncService {
     this.setScanSummary(args.context, prepared);
 
     if (prepared.changes.length === 0) {
+      if (await this.collectionNeedsBackfill(args.context.collection.id)) {
+        await this.ensureCollectionAccess(args.context);
+        throwIfAborted(args.abortSignal);
+        await this.enqueueManagedBackfill({
+          abortSignal: args.abortSignal,
+          chunkingProgress: null,
+          collection: args.context.collection,
+          rootPath: args.context.rootPath,
+          summary: prepared,
+        });
+      }
       this.setIdleStatus({
         collection: args.context.collection,
         rootPath: args.context.rootPath,
@@ -1712,60 +1844,15 @@ export class WorkspaceCollectionSyncService {
     const chunkingProgress = latestImportProgress
       ? toWorkspaceCollectionSyncChunkingProgress(latestImportProgress)
       : null;
-    const pendingRequestId = `pending:${args.context.collection.id}:${Date.now()}`;
-    let resolvedRequestId = pendingRequestId;
-    let unsubscribeBackfillProgress: (() => void) | null = null;
-    unsubscribeBackfillProgress = this.deps.subscribeToBackfillProgress((progress) => {
-      if (progress.embeddingSetId !== args.context.collection.id) {
-        return;
-      }
-      resolvedRequestId = progress.requestId;
-      this.activeBackfill = {
-        embeddingSetId: args.context.collection.id,
-        requestId: progress.requestId,
-        rootPath: args.context.rootPath,
-        unsubscribe: unsubscribeBackfillProgress,
-      };
-      this.deps.setStatus(
-        mapBackfillProgressToStatus({
-          collection: args.context.collection,
-          managedCollectionName: args.context.collection.name ?? null,
-          rootPath: args.context.rootPath,
-          scanSummary,
-          chunkingProgress,
-          current: progress.current,
-          total: progress.total,
-          requestId: progress.requestId,
-          state: 'embedding',
-          ...(progress.message ? { message: progress.message } : {}),
-        })
-      );
-    });
-    this.activeBackfill = {
-      embeddingSetId: args.context.collection.id,
-      requestId: pendingRequestId,
+    await this.enqueueManagedBackfill({
+      abortSignal: args.abortSignal,
+      chunkingProgress,
+      collection: args.context.collection,
       rootPath: args.context.rootPath,
-      unsubscribe: unsubscribeBackfillProgress,
-    };
-    try {
-      const { requestId } = await this.deps.enqueueBackfill(args.context.collection.id, {
-        signal: args.abortSignal,
-        source: 'background-indexing',
-      });
-      resolvedRequestId = requestId;
-      if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
-        return;
-      }
-      dispatchQueueDrainedEvent(args.context.collection.id);
-      throwIfAborted(args.abortSignal);
-    } finally {
-      if (
-        this.activeBackfill?.requestId === resolvedRequestId ||
-        resolvedRequestId === pendingRequestId
-      ) {
-        this.activeBackfill?.unsubscribe?.();
-        this.activeBackfill = null;
-      }
+      summary: prepared,
+    });
+    if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
+      return;
     }
 
     this.setIdleStatus({

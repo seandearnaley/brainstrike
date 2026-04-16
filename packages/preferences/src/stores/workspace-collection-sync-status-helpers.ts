@@ -163,6 +163,19 @@ export function getWorkspaceCollectionSyncCurrentActivity(
   };
 }
 
+export function shouldShowWorkspaceCollectionSyncPauseControl(
+  state: WorkspaceCollectionSyncStatusData['state']
+): boolean {
+  return (
+    state === 'paused' ||
+    state === 'recovering' ||
+    state === 'scanning' ||
+    state === 'importing' ||
+    state === 'chunking' ||
+    state === 'embedding'
+  );
+}
+
 function createPausedActivity(
   state: WorkspaceCollectionSyncStatusData['state'],
   pauseReasons: readonly string[]

@@ -73,6 +73,11 @@ describe('SearchIndexingSettingsSection', () => {
   });
 
   it('toggles the manual pause control', async () => {
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'embedding',
+      managedCollectionName: 'Managed Cache',
+    });
+
     render(<SearchIndexingSettingsSection />);
 
     const pauseButton = await screen.findByRole('button', {
@@ -93,5 +98,29 @@ describe('SearchIndexingSettingsSection', () => {
     await waitFor(() => {
       expect(useBackgroundIndexingPreferencesStore.getState().paused).toBe(false);
     });
+  });
+
+  it('hides the manual pause control when background indexing is idle', async () => {
+    useBackgroundIndexingPreferencesStore.setState({
+      managedCollectionId: 'set-1',
+    });
+    useWorkspaceCollectionSyncStatusStore.setState({
+      state: 'idle',
+      managedCollectionName: 'Managed Cache',
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    await screen.findByRole('combobox', { name: /managed collection/i });
+    expect(
+      screen.queryByRole('button', {
+        name: /pause background indexing/i,
+      })
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', {
+        name: /resume background indexing/i,
+      })
+    ).toBeNull();
   });
 });
