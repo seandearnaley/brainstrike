@@ -18,7 +18,7 @@ export interface ElectronAppContext {
 }
 
 interface LaunchElectronAppOptions {
-  readonly launchMode?: 'dev-server' | 'test-built';
+  readonly launchMode?: 'built' | 'dev-server' | 'test-built';
   readonly userDataDir?: string;
 }
 
@@ -322,7 +322,7 @@ function createLaunchOptions(
   _debugPort?: number,
   userDataDir?: string,
   launchTimeoutMs?: number,
-  launchMode: 'dev-server' | 'test-built' = 'test-built'
+  launchMode: 'built' | 'dev-server' | 'test-built' = 'test-built'
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
@@ -331,7 +331,7 @@ function createLaunchOptions(
   const baseArgs = [
     mainPath,
     ...(launchMode === 'test-built' ? ['--test-mode'] : []),
-    `--brainstrike-e2e-launch-mode=${launchMode}`,
+    `--brainstrike-desktop-launch-mode=${launchMode}`,
     '--disable-dialogs',
     // NOTE: Do NOT specify --remote-debugging-port here.
     // Playwright manages its own CDP connection via electron.launch().

@@ -38,6 +38,9 @@ export function WorkspaceCollectionSyncProvider({
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
     (state) => state.managedCollectionId
   );
+  const setManagedCollectionId = useBackgroundIndexingPreferencesStore(
+    (state) => state.setManagedCollectionId
+  );
   const indexingPolicyPreset = useBackgroundIndexingPreferencesStore(
     (state) => state.indexingPolicyPreset
   );
@@ -124,6 +127,14 @@ export function WorkspaceCollectionSyncProvider({
       fileRecordRepository,
       getBackfillsInFlight: async () => await runtimeController.getBackfillsInFlight(),
       log: logger,
+      onManagedCollectionMissing: (missingCollectionId) => {
+        if (
+          useBackgroundIndexingPreferencesStore.getState().managedCollectionId ===
+          missingCollectionId
+        ) {
+          setManagedCollectionId(null);
+        }
+      },
       setImporting: setIsImporting,
       setStatus: setSyncStatus,
       subscribeToBackfillProgress: (callback) => runtimeController.onBackfillProgress(callback),
@@ -138,6 +149,7 @@ export function WorkspaceCollectionSyncProvider({
     fileRecordRepository,
     fileSystemAdapter,
     runtimeController,
+    setManagedCollectionId,
     setIsImporting,
     setSyncStatus,
     validateHostedProviderAccess,

@@ -118,6 +118,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
     }>
   >;
   log?: typeof logger;
+  onManagedCollectionMissing?: (managedCollectionId: string) => void;
   setImporting: (importing: boolean) => void;
   setStatus: (progress: WorkspaceCollectionSyncStatusPatch) => void;
   subscribeToBackfillProgress: (
@@ -1366,9 +1367,23 @@ export class WorkspaceCollectionSyncService {
       return null;
     }
 
-    const collection = request.managedCollectionId
-      ? await this.deps.embeddingSetsRepository.getById(request.managedCollectionId)
+    const managedCollectionId = request.managedCollectionId;
+    const collection = managedCollectionId
+      ? await this.deps.embeddingSetsRepository.getById(managedCollectionId)
       : null;
+    if (!collection) {
+      if (managedCollectionId) {
+        this.deps.onManagedCollectionMissing?.(managedCollectionId);
+      }
+      this.setErrorStatus({
+        activeRootPath: rootPath,
+        managedCollectionId,
+        managedCollectionName: null,
+        message: 'Managed collection was not found. Select a new collection in Settings.',
+      });
+      return null;
+    }
+
     if (!(collection?.modelKey && collection.modelId && collection.dimensions > 0)) {
       this.setErrorStatus({
         activeRootPath: rootPath,

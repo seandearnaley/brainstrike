@@ -436,6 +436,28 @@ describe('WorkspaceCollectionSyncProvider', () => {
     expect(runEnhancedImportMock).not.toHaveBeenCalled();
   });
 
+  it('clears a stale managed collection id when the collection no longer exists', async () => {
+    getByIdMock.mockResolvedValueOnce(null);
+
+    render(
+      <WorkspaceCollectionSyncProvider>
+        <div data-testid="child" />
+      </WorkspaceCollectionSyncProvider>
+    );
+
+    await waitFor(() =>
+      expect(useBackgroundIndexingPreferencesStore.getState().managedCollectionId).toBeNull()
+    );
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+      expect.objectContaining({
+        state: 'error',
+        managedCollectionId: null,
+        lastError: 'No managed collection selected.',
+      })
+    );
+    expect(runEnhancedImportMock).not.toHaveBeenCalled();
+  });
+
   it('passes the balanced indexing policy into the background sync request', async () => {
     render(
       <WorkspaceCollectionSyncProvider>

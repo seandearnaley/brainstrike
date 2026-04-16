@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
+import { DESKTOP_DEV_RENDERER_PORT, DESKTOP_DEV_RENDERER_URL } from '../src/desktop-renderer-url';
 import { expect, test } from './fixtures/electron-fixture';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -5706,9 +5707,9 @@ test.describe('Embedding Host Renderer', () => {
     );
     test.setTimeout(900_000);
 
-    await waitForTcpPortOpen(8081, 5000).catch((error) => {
+    await waitForTcpPortOpen(DESKTOP_DEV_RENDERER_PORT, 5000).catch((error) => {
       throw new Error(
-        'Desktop dev renderer must already be running on http://localhost:8081 before this repro test starts.\n' +
+        `Desktop dev renderer must already be running on ${DESKTOP_DEV_RENDERER_URL} before this repro test starts.\n` +
           'Start it with `pnpm --filter @brainstrike/desktop dev:renderer` in a separate terminal.\n' +
           `error=${error instanceof Error ? error.message : String(error)}`
       );
@@ -5834,9 +5835,9 @@ test.describe('Embedding Host Renderer', () => {
     );
     test.setTimeout(900_000);
 
-    await waitForTcpPortOpen(8081, 5000).catch((error) => {
+    await waitForTcpPortOpen(DESKTOP_DEV_RENDERER_PORT, 5000).catch((error) => {
       throw new Error(
-        'Desktop dev renderer must already be running on http://localhost:8081 before this repro test starts.\n' +
+        `Desktop dev renderer must already be running on ${DESKTOP_DEV_RENDERER_URL} before this repro test starts.\n` +
           'Start it with `pnpm --filter @brainstrike/desktop dev:renderer` in a separate terminal.\n' +
           `error=${error instanceof Error ? error.message : String(error)}`
       );

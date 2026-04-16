@@ -75,6 +75,70 @@ describe('renderer main entry', () => {
     const rootEl = document.createElement('div');
     rootEl.id = 'root';
     document.body.appendChild(rootEl);
+    window.electronAPI = {
+      db: {
+        clearAll: vi.fn(),
+        diagnostics: vi.fn(),
+        exec: vi.fn(),
+        query: vi.fn(),
+        resetLocal: vi.fn(),
+        test: vi.fn(),
+      },
+      dbLive: {
+        onUpdate: vi.fn(),
+        refresh: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+      },
+      fileSystem: {
+        exists: vi.fn(),
+        readDirectory: vi.fn(),
+        readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
+        restoreLastFolder: vi.fn(),
+        saveLastFolder: vi.fn(),
+      },
+      getUserDataPath: vi.fn(),
+      loadLayout: vi.fn(),
+      saveLayout: vi.fn(),
+      storage: {
+        clear: vi.fn(),
+        getAllKeys: vi.fn(),
+        getItem: vi.fn(),
+        removeItem: vi.fn(),
+        setItem: vi.fn(),
+      },
+    } as never;
+    window.logging = {
+      getBufferedLogs: vi.fn(),
+      getPreferences: vi.fn(async () => ({
+        capabilities: {
+          canSelectDestination: true,
+          defaultDestination: null,
+          fileLoggingSupported: true,
+          reason: null,
+        },
+        preferences: {
+          consoleEnabled: true,
+          consoleLevel: 'info',
+          file: {
+            append: true,
+            destination: null,
+            enabled: false,
+            level: 'info',
+            mkdir: true,
+          },
+          includeTimestamp: true,
+          level: 'info',
+          redactPaths: [],
+        },
+      })),
+      ingestBufferedRecord: vi.fn(),
+      onPreferencesUpdated: vi.fn(),
+      openDestination: vi.fn(),
+      selectDestination: vi.fn(),
+      setPreferences: vi.fn(),
+    } as never;
   });
 
   it('should create root and render app', async () => {
@@ -136,5 +200,22 @@ describe('renderer main entry', () => {
 
     expect(mockCreateRoot).not.toHaveBeenCalled();
     expect(existingRoot.render).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a fatal startup screen when the desktop preload bridge is incomplete', async () => {
+    window.logging = undefined;
+
+    await import('../../renderer/main.tsx');
+
+    const renderArg = mockRender.mock.calls[0]?.[0];
+    expect(isReactElement(renderArg)).toBe(true);
+    if (!isReactElement(renderArg)) {
+      throw new Error('Expected startup failure render element');
+    }
+    expect(typeof renderArg.type).toBe('function');
+    if (typeof renderArg.type !== 'function') {
+      throw new Error('Expected startup failure to render a component');
+    }
+    expect(renderArg.type.name).toBe('DesktopStartupFailure');
   });
 });

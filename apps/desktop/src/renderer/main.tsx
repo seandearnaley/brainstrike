@@ -19,6 +19,10 @@ import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/wor
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
+import {
+  type DesktopBridgeValidationResult,
+  validateDesktopBridgeContract,
+} from './desktop-bridge-contract';
 import './log-buffer';
 import './styles.css';
 import { ChunkingHostApp } from './components/chunking-host-app';
@@ -309,6 +313,36 @@ function App() {
   );
 }
 
+function DesktopStartupFailure({
+  validation,
+}: {
+  validation: Exclude<DesktopBridgeValidationResult, { ok: true }>;
+}) {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center bg-[#0b1020] px-6 py-10 text-[#eef2ff]"
+      data-testid="desktop-startup-failure"
+    >
+      <div className="w-full max-w-3xl rounded-xl border border-red-400/30 bg-[#111827] p-6 shadow-2xl">
+        <h1 className="font-semibold text-2xl">Desktop startup failed</h1>
+        <p className="mt-3 text-slate-200 text-sm">{validation.message}</p>
+        <p className="mt-3 text-slate-300 text-sm">
+          Check the Electron startup logs. If this happens in development, the preload script or a
+          required preload dependency failed before the renderer mounted.
+        </p>
+        <div className="mt-4">
+          <h2 className="font-medium text-slate-200 text-sm">Missing bridges</h2>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-red-200 text-sm">
+            {validation.missing.map((entry) => (
+              <li key={entry}>{entry}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function isEmbeddingHostMode(): boolean {
   return new URLSearchParams(window.location.search).get('mode') === 'embedding-host';
 }
@@ -333,16 +367,34 @@ if (!existingRoot) {
   window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = root;
 }
 
+const bridgeValidation =
+  desktopRendererRole === 'visible-ui'
+    ? validateDesktopBridgeContract({
+        electronAPI: window.electronAPI,
+        logging: window.logging,
+      })
+    : ({ ok: true } as const);
+
+if (!bridgeValidation.ok) {
+  rendererLogger.error('Desktop preload bridge contract validation failed', {
+    missing: bridgeValidation.missing,
+  });
+}
+
 root.render(
-  isEmbeddingHostMode() ? (
-    <EmbeddingHostApp />
-  ) : isChunkingHostMode() ? (
-    <ChunkingHostApp />
-  ) : isLlmHostMode() ? (
-    <LlmHostApp />
+  bridgeValidation.ok ? (
+    isEmbeddingHostMode() ? (
+      <EmbeddingHostApp />
+    ) : isChunkingHostMode() ? (
+      <ChunkingHostApp />
+    ) : isLlmHostMode() ? (
+      <LlmHostApp />
+    ) : (
+      <StrictMode>
+        <App />
+      </StrictMode>
+    )
   ) : (
-    <StrictMode>
-      <App />
-    </StrictMode>
+    <DesktopStartupFailure validation={bridgeValidation} />
   )
 );

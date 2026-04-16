@@ -76,6 +76,7 @@ function createDeps(
       terminate: vi.fn(),
     })),
     ensureEmbeddingRuntimeStarted: vi.fn(async () => undefined),
+    onManagedCollectionMissing: vi.fn(),
     setImporting: vi.fn(),
     setStatus: vi.fn(),
     subscribeToBackfillProgress: vi.fn(() => () => {}),
@@ -1164,6 +1165,34 @@ describe('WorkspaceCollectionSyncService', () => {
       expect.objectContaining({
         state: 'error',
         lastError: 'Managed collection metadata is invalid.',
+      })
+    );
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+  });
+
+  it('clears stale managed-collection ids when the configured collection no longer exists', async () => {
+    const onManagedCollectionMissing = vi.fn();
+    const deps = createDeps({
+      embeddingSetsRepository: {
+        getById: vi.fn(async () => null),
+      } as unknown as WorkspaceCollectionSyncServiceDependencies['embeddingSetsRepository'],
+      onManagedCollectionMissing,
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-stale',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(onManagedCollectionMissing).toHaveBeenCalledWith('set-stale');
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: 'error',
+        managedCollectionId: 'set-stale',
+        lastError: 'Managed collection was not found. Select a new collection in Settings.',
       })
     );
     expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();

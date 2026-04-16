@@ -197,6 +197,22 @@ export function SearchIndexingSettingsSection() {
     };
   }, [repository]);
 
+  useEffect(() => {
+    if (!(managedCollectionId && !loadingCollections && !collectionsError)) {
+      return;
+    }
+    if (collections.some((collection) => collection.id === managedCollectionId)) {
+      return;
+    }
+    setManagedCollectionId(null);
+  }, [
+    collections,
+    collectionsError,
+    loadingCollections,
+    managedCollectionId,
+    setManagedCollectionId,
+  ]);
+
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === managedCollectionId) ?? null,
     [collections, managedCollectionId]
