@@ -326,4 +326,151 @@ describe('useEmbeddingRuntimeController', () => {
     );
     expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
   });
+
+  it('tracks and cancels local backfills per embedding set', async () => {
+    clearDesktopHostBridge();
+
+    const backfillMock = vi.fn(
+      async (
+        _embeddingSetId: string,
+        options: {
+          onProgress: (done: number, total: number) => void;
+          signal?: AbortSignal;
+        }
+      ) =>
+        await new Promise<void>((resolve, reject) => {
+          options.onProgress(1, 3);
+          options.signal?.addEventListener(
+            'abort',
+            () => {
+              const error = new Error('aborted');
+              error.name = 'AbortError';
+              reject(error);
+            },
+            { once: true }
+          );
+          // Keep pending until canceled.
+          void resolve;
+        })
+    );
+
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: {
+          backfill: backfillMock,
+        } as never,
+      })
+    );
+
+    let pendingBackfill: Promise<{ requestId: string }> | null = null;
+    await act(async () => {
+      const startedBackfill = result.current.enqueueBackfill('set-1', {
+        source: 'background-indexing',
+      });
+      void startedBackfill.catch(() => {});
+      pendingBackfill = startedBackfill;
+      await Promise.resolve();
+    });
+
+    await expect(result.current.getBackfillsInFlight()).resolves.toEqual([
+      expect.objectContaining({
+        embeddingSetId: 'set-1',
+        progress: { current: 1, total: 3 },
+        requestId: expect.stringContaining('background-indexing-backfill'),
+      }),
+    ]);
+
+    await act(async () => {
+      await result.current.cancelBackfill('set-1');
+    });
+
+    await expect(pendingBackfill).rejects.toMatchObject({ name: 'AbortError' });
+    expect(backfillMock).toHaveBeenCalledWith(
+      'set-1',
+      expect.objectContaining({
+        onProgress: expect.any(Function),
+        signal: expect.any(AbortSignal),
+      })
+    );
+    await expect(result.current.getBackfillsInFlight()).resolves.toEqual([]);
+  });
+
+  it('cancels all local backfills and emits local backfill progress events', async () => {
+    clearDesktopHostBridge();
+
+    const backfillMock = vi.fn(
+      async (
+        embeddingSetId: string,
+        options: {
+          onProgress: (done: number, total: number) => void;
+          signal?: AbortSignal;
+        }
+      ) =>
+        await new Promise<void>((resolve, reject) => {
+          options.onProgress(2, embeddingSetId === 'set-1' ? 4 : 6);
+          options.signal?.addEventListener(
+            'abort',
+            () => {
+              const error = new Error(`aborted:${embeddingSetId}`);
+              error.name = 'AbortError';
+              reject(error);
+            },
+            { once: true }
+          );
+          void resolve;
+        })
+    );
+
+    const { result } = renderHook(() =>
+      useEmbeddingRuntimeController({
+        db: null,
+        devicePreference: 'wasm',
+        reinitEveryN: 200,
+        service: {
+          backfill: backfillMock,
+        } as never,
+      })
+    );
+
+    const progressListener = vi.fn();
+    const unsubscribe = result.current.onBackfillProgress(progressListener);
+
+    let pendingOne: Promise<{ requestId: string }> | null = null;
+    let pendingTwo: Promise<{ requestId: string }> | null = null;
+    await act(async () => {
+      const startedOne = result.current.enqueueBackfill('set-1');
+      const startedTwo = result.current.enqueueBackfill('set-2');
+      void startedOne.catch(() => {});
+      void startedTwo.catch(() => {});
+      pendingOne = startedOne;
+      pendingTwo = startedTwo;
+      await Promise.resolve();
+    });
+
+    expect(progressListener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embeddingSetId: 'set-1',
+        current: 2,
+        total: 4,
+      })
+    );
+    expect(progressListener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        embeddingSetId: 'set-2',
+        current: 2,
+        total: 6,
+      })
+    );
+
+    await act(async () => {
+      await result.current.cancelAllBackfills();
+    });
+
+    await expect(pendingOne).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(pendingTwo).rejects.toMatchObject({ name: 'AbortError' });
+    unsubscribe();
+  });
 });
