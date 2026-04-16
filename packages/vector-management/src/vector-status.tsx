@@ -1,9 +1,4 @@
-import {
-  JobQueue,
-  useFileChunkRepository,
-  usePGliteDatabase,
-  useVectorEnabled,
-} from '@brainstrike/db';
+import { usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
 import { TransformersBackend } from '@brainstrike/embeddings/backend';
 import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
@@ -30,15 +25,14 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 const logger = createLogger('VectorStatus');
 
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
+import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
-import { useEmbeddingRuntimeController } from './vector-status/embedding-runtime-controller';
 import {
   EmbeddingSetSelector,
   useEmbeddingSetSelection,
 } from './vector-status/embedding-set-selector';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
-import { createVectorQueueService } from './vector-status/vector-queue-service';
 
 type QueueAddReturn = Awaited<ReturnType<QueueAdapter['add']>>;
 type QueueAddBulkReturn = Awaited<ReturnType<QueueAdapter['addBulk']>>;
@@ -599,7 +593,6 @@ interface VectorStatusWithDbContentProps {
 function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
-  const chunkRepository = useFileChunkRepository();
   const { toast } = useToast();
 
   // Self-contained collection selection - no longer depends on Database Explorer
@@ -623,47 +616,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     } catch {}
   }, [verboseOrtLogs]);
 
-  // Use repository from DbProvider if it has getCoverageForSet and clearEmbeddingsForSet
-  // Both DrizzleFileChunkRepository and ElectronFileChunkRepository now have these methods
-  const coverageRepository = useMemo(() => {
-    if (
-      chunkRepository &&
-      'getCoverageForSet' in chunkRepository &&
-      'clearEmbeddingsForSet' in chunkRepository
-    ) {
-      return chunkRepository as {
-        getCoverageForSet: (
-          setId: string
-        ) => Promise<{ totalChunks: number; chunksWithEmbeddingsForSet: number }>;
-        clearEmbeddingsForSet: (embeddingSetId: string) => Promise<number>;
-      };
-    }
-    return null;
-  }, [chunkRepository]);
-
-  const service = useMemo(() => {
-    if (!(db && coverageRepository)) {
-      // Log diagnostic info for debugging when service is null
-      logger.debug('VectorQueueService is null', {
-        hasDb: Boolean(db),
-        hasCoverageRepository: Boolean(coverageRepository),
-      });
-      return null;
-    }
-    logger.debug('VectorQueueService created successfully');
-    return createVectorQueueService({
-      db,
-      jobQueue: new JobQueue(db),
-      chunkRepository: coverageRepository,
-    });
-  }, [coverageRepository, db]);
-
-  const runtimeController = useEmbeddingRuntimeController({
-    db,
-    devicePreference: devicePref,
-    reinitEveryN,
-    service,
-  });
+  const { controller: runtimeController, service } = useSharedEmbeddingRuntime();
 
   const backfillRef = useRef<() => Promise<void>>(async () => {});
   const validateApiKeyRef = useRef<() => Promise<{ valid: boolean; message?: string }>>(
@@ -716,8 +669,6 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     if (!service) {
       logger.warn('invokeBackfillWithWorkerStart: service is null', {
         hasDb: Boolean(db),
-        hasChunkRepository: Boolean(chunkRepository),
-        hasCoverageRepository: Boolean(coverageRepository),
       });
       toast({
         title: 'Database Not Ready',
@@ -756,16 +707,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
     // Proceed with backfill
     await backfillRef.current();
-  }, [
-    toast,
-    isWebPlatform,
-    workerControls,
-    service,
-    db,
-    chunkRepository,
-    coverageRepository,
-    activeId,
-  ]);
+  }, [toast, isWebPlatform, workerControls, service, db, activeId]);
 
   const throughputTrend = useMemo(
     () => queueState.telemetryTrend.map((point) => point.throughput),

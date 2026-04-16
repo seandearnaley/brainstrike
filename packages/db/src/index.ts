@@ -44,6 +44,7 @@ export type {
   FileImportResult,
   FileRecord,
   ImportProgress,
+  ManagedCacheEntryMetadata,
 } from './models/file-record.js';
 export type {
   CancelParams,

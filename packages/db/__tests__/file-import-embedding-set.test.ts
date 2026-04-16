@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { migration001InitialSchema } from '../src/migrations/001-initial-schema.js';
 import { migration002AddVectorColumns } from '../src/migrations/002-add-vector-columns.js';
 import { migration012FileRecordsEmbeddingSet } from '../src/migrations/012-file-records-embedding-set.js';
+import { migration029FileRecordSourceRootPath } from '../src/migrations/029-file-record-source-root-path.js';
 import { MigrationRunner } from '../src/migrations/migration-runner.js';
 import type { FileImportRequest } from '../src/models/file-record.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
@@ -19,6 +20,7 @@ describe('File Import with embedding_set_id', () => {
     await runner.runMigration(migration001InitialSchema);
     await runner.runMigration(migration002AddVectorColumns);
     await runner.runMigration(migration012FileRecordsEmbeddingSet);
+    await runner.runMigration(migration029FileRecordSourceRootPath);
     repository = new FileRecordRepository(db);
   });
 
@@ -43,9 +45,6 @@ describe('File Import with embedding_set_id', () => {
     ];
 
     const results = await repository.bulkImport(requests);
-
-    // Debug: Log actual results to see error message
-    console.log('RESULTS:', JSON.stringify(results, null, 2));
 
     expect(results).toHaveLength(2);
     if (!results[0]?.imported) {

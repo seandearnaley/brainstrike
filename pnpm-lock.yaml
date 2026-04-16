@@ -733,6 +733,9 @@ importers:
       '@brainstrike/db-explorer':
         specifier: workspace:*
         version: link:../db-explorer
+      '@brainstrike/embeddings':
+        specifier: workspace:*
+        version: link:../embeddings
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../file-explorer-hooks
@@ -742,6 +745,9 @@ importers:
       '@brainstrike/file-import':
         specifier: workspace:*
         version: link:../file-import
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences

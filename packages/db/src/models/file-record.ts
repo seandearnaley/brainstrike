@@ -14,8 +14,18 @@ export interface FileRecord {
   path: string;
   processedAt?: string; // ISO date when file was processed/imported
   size: number;
+  sourceRootPath?: string; // Canonical root folder path for managed cache entries
   tokenCount?: number; // Number of tokens in content
   updatedAt: string; // ISO date string
+}
+
+export interface ManagedCacheEntryMetadata {
+  contentHash: string;
+  embeddingSetId: string;
+  fileRecordId: string;
+  relativePath: string;
+  sourceRootPath: string;
+  updatedAt: string;
 }
 
 export interface FileImportRequest {
@@ -24,6 +34,7 @@ export interface FileImportRequest {
   name: string;
   path: string;
   size: number;
+  sourceRootPath?: string; // Canonical root folder path for managed cache entries
 }
 
 export interface FileImportResult {

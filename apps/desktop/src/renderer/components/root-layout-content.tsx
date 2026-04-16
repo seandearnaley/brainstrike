@@ -4,10 +4,6 @@ import {
   type RootLayoutContentProps,
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell/root-layout-content';
-import {
-  toolsPanelSelectors,
-  useToolsPanelStore,
-} from '@brainstrike/app-shell/stores/tools-panel-store';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
@@ -72,15 +68,13 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
-  const activeToolsTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
-  const activeToolsTabRef = useRef(activeToolsTab);
-  activeToolsTabRef.current = activeToolsTab;
-  // Keep the queue tracker mounted after first DB visit so queue status/backfill
-  // state stays warm across tab switches instead of tearing down and restarting.
-  const queueTrackerMountedRef = useRef(activeToolsTab === 'database');
-  if (activeToolsTab === 'database') {
-    queueTrackerMountedRef.current = true;
-  }
+  const db = usePGliteDatabase();
+  const activeToolsTabRef = useRef<'database-ready' | 'initializing'>(
+    db ? 'database-ready' : 'initializing'
+  );
+  const queueTrackerMountedRef = useRef(Boolean(db));
+  activeToolsTabRef.current = db ? 'database-ready' : 'initializing';
+  queueTrackerMountedRef.current = Boolean(db);
 
   const navigationConfig = navigationItems as NavigationItem[];
   const loadEmbeddingQueue = useCallback(
@@ -104,11 +98,10 @@ export default function RootLayoutContent() {
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
 
   useEffect(() => {
-    logger.info('Desktop visible renderer tab changed', {
-      activeToolsTab,
-      queueTrackerMounted: queueTrackerMountedRef.current,
+    logger.info('Desktop database runtime availability changed', {
+      databaseReady: Boolean(db),
     });
-  }, [activeToolsTab]);
+  }, [db]);
 
   useEffect(() => {
     const performanceWithMemory = globalThis.performance as RendererMemoryPerformance | undefined;
@@ -146,7 +139,7 @@ export default function RootLayoutContent() {
 
   return (
     <TokenCacheWrapper>
-      {queueTrackerMountedRef.current ? (
+      {db ? (
         <Suspense fallback={null}>
           <LazyEmbeddingJobQueueTracker />
         </Suspense>

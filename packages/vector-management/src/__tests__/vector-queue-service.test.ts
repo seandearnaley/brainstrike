@@ -156,8 +156,10 @@ describe('vector-queue-service', () => {
     });
 
     const progressUpdates: Array<{ done: number; total: number }> = [];
-    const counts = await service.backfill('set-1', (done, total) => {
-      progressUpdates.push({ done, total });
+    const counts = await service.backfill('set-1', {
+      onProgress: (done: number, total: number) => {
+        progressUpdates.push({ done, total });
+      },
     });
 
     const metadataQuery = queries.find((entry) => entry.sql.includes('FROM embedding_sets'));
@@ -265,8 +267,10 @@ describe('vector-queue-service', () => {
     });
 
     const progressUpdates: Array<{ done: number; total: number }> = [];
-    await service.backfill('set-1', (done, total) => {
-      progressUpdates.push({ done, total });
+    await service.backfill('set-1', {
+      onProgress: (done: number, total: number) => {
+        progressUpdates.push({ done, total });
+      },
     });
 
     expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(3);
@@ -332,7 +336,7 @@ describe('vector-queue-service', () => {
       chunkRepository,
     });
 
-    await expect(service.backfill('set-1', vi.fn())).rejects.toThrow(
+    await expect(service.backfill('set-1', { onProgress: vi.fn() })).rejects.toThrow(
       "Backfill failed for embedding set 'set-1': 1 job(s) failed."
     );
   });
@@ -379,13 +383,67 @@ describe('vector-queue-service', () => {
       chunkRepository,
     });
 
-    const backfillPromise = service.backfill('set-1', vi.fn());
+    const backfillPromise = service.backfill('set-1', { onProgress: vi.fn() });
     const rejection = expect(backfillPromise).rejects.toThrow(
       'Backfill timed out while waiting for queue capacity below 64 jobs.'
     );
     await vi.advanceTimersByTimeAsync(30_500);
 
     await rejection;
+    expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('backfill aborts cleanly while waiting for queue capacity', async () => {
+    vi.useFakeTimers();
+    const abortController = new AbortController();
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 64, running: 0, failed: 0, succeeded: 0 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+    };
+
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                dimensions: 384,
+              },
+            ],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 1 }] } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository,
+    });
+
+    const backfillPromise = service.backfill('set-1', {
+      onProgress: vi.fn(),
+      signal: abortController.signal,
+    });
+    abortController.abort();
+
+    await expect(backfillPromise).rejects.toThrow('Embedding backfill was aborted.');
     expect(jobQueue.enqueueBatch).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
@@ -442,7 +500,7 @@ describe('vector-queue-service', () => {
       chunkRepository,
     });
 
-    const backfillPromise = service.backfill('set-1', vi.fn());
+    const backfillPromise = service.backfill('set-1', { onProgress: vi.fn() });
     const rejection = expect(backfillPromise).rejects.toThrow(
       "Backfill timed out while waiting for embedding set 'set-1' to drain."
     );
@@ -450,6 +508,70 @@ describe('vector-queue-service', () => {
 
     await rejection;
     expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('backfill aborts cleanly while waiting for drain', async () => {
+    vi.useFakeTimers();
+    const abortController = new AbortController();
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      enqueueBatch: vi.fn(async (jobs: MockEnqueueJob[]) => createMockEnqueuedJobs(jobs)),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+    };
+
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [
+              {
+                modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+                modelId: 'Xenova/all-MiniLM-L6-v2',
+                dimensions: 384,
+              },
+            ],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes('COUNT(*)::int AS count')) {
+          return { rows: [{ count: 1 }] } as { rows: unknown[] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          return {
+            rows: [{ id: '1', fileRecordId: '10', contentHash: 'hash-1' }],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes(`payload->>'embeddingSetId' = $2`)) {
+          return {
+            rows: [{ queued: 0, running: 1, failed: 0, succeeded: 0 }],
+          } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository,
+    });
+
+    const backfillPromise = service.backfill('set-1', {
+      onProgress: vi.fn(),
+      signal: abortController.signal,
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    abortController.abort();
+
+    await expect(backfillPromise).rejects.toThrow('Embedding backfill was aborted.');
     vi.useRealTimers();
   });
 

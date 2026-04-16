@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
 import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
+import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 
 /**
@@ -446,5 +447,16 @@ export function createApiKeysSettingsCategory(): SettingsCategory {
     keywords: ['api', 'keys', 'secrets', 'credentials', 'openai', 'anthropic', 'google'],
     icon: Key,
     content: <ApiKeysSettings />,
+  };
+}
+
+export function createSearchIndexingSettingsCategory(): SettingsCategory {
+  return {
+    id: 'search-indexing',
+    title: 'Search & Indexing',
+    description: 'Choose the managed cache collection and control root-folder background indexing.',
+    keywords: ['search', 'indexing', 'background', 'cache', 'collection', 'embeddings'],
+    icon: Search,
+    content: <SearchIndexingSettingsSection />,
   };
 }

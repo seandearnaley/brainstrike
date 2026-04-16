@@ -20,12 +20,23 @@ import {
   useRef,
   useState,
 } from 'react';
+import {
+  useFileExplorerStoreContext,
+  useFileExplorerStoreSelector,
+} from './file-explorer-provider';
 import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
+import {
+  type RestorationProgress,
+  useExpandedPathRestoration,
+} from './use-expanded-path-restoration';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
 import type { NormalizedFileTreeState } from './utils/normalized-file-tree';
 import { createEmptyNormalizedFileTreeState } from './utils/normalized-file-tree';
 
 type FileTreeContextType = CancellableFileTreeHook & {
+  isRestorationSettled: boolean;
+  isRestoringExpandedPaths: boolean;
+  restorationProgress: RestorationProgress | null;
   rootDirectoryHandle: DirectoryHandle | null;
 };
 
@@ -87,6 +98,8 @@ export function FileTreeProvider({
   rootDirectoryHandle,
   filterTreeFn,
 }: FileTreeProviderProps): React.ReactElement {
+  const store = useFileExplorerStoreContext();
+  const setExpandedPaths = useFileExplorerStoreSelector((state) => state.setExpandedPaths);
   // Create a single FileTreeIndex instance that persists across renders
   // Using useState with lazy initializer avoids reading ref during render
   const [index] = useState<FileTreeIndex>(() => new FileTreeIndex());
@@ -142,6 +155,14 @@ export function FileTreeProvider({
   }, [onNodesIndexed, filterTreeFn]);
 
   const fileTreeState = useFileTree(rootDirectoryHandle, options);
+  const restorationState = useExpandedPathRestoration({
+    currentRootFolderId: rootDirectoryHandle?.path ?? null,
+    fileTree: fileTreeState.fileTree,
+    isTreeLoading: fileTreeState.isLoading,
+    loadSpecificPaths: fileTreeState.loadSpecificPaths,
+    setExpandedPaths,
+    store,
+  });
   const fallbackNormalizedTreeRef = useRef<NormalizedFileTreeState>(
     createEmptyNormalizedFileTreeState()
   );
@@ -187,7 +208,9 @@ export function FileTreeProvider({
   );
 
   return (
-    <FileTreeContext.Provider value={{ ...fileTreeState, rootDirectoryHandle }}>
+    <FileTreeContext.Provider
+      value={{ ...fileTreeState, ...restorationState, rootDirectoryHandle }}
+    >
       <FileTreeNormalizedContext.Provider value={normalizedContextValue}>
         <FileTreeIndexContext.Provider value={indexContextValue}>
           {children}

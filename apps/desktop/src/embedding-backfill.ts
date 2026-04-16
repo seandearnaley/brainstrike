@@ -1,4 +1,5 @@
 import type { IDatabase, JobQueue } from '@brainstrike/db';
+import { canonicalizeProviderModelKey } from '@brainstrike/utils';
 import { createLogger } from '@brainstrike/utils/logger';
 
 export interface EmbeddingBackfillQueueCounts {
@@ -63,43 +64,6 @@ const EMBEDDING_BACKFILL_BACKLOG_POLL_MS = 100;
 const EMBEDDING_BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 30_000;
 const EMBEDDING_BACKFILL_DRAIN_TIMEOUT_MS = 300_000;
 const EMBEDDING_BACKFILL_PROGRESS_INTERVAL_MS = 250;
-const PROVIDER_SEPARATOR = '::';
-const LEGACY_SEPARATOR = ':';
-
-function canonicalizeProviderModelKey(
-  modelKey: string | null | undefined
-): { composite: string } | null {
-  if (!modelKey) {
-    return null;
-  }
-
-  const trimmed = modelKey.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  if (trimmed.includes(PROVIDER_SEPARATOR)) {
-    const separatorIndex = trimmed.indexOf(PROVIDER_SEPARATOR);
-    const provider = trimmed.slice(0, separatorIndex);
-    const modelId = trimmed.slice(separatorIndex + PROVIDER_SEPARATOR.length).trim();
-    if (!(provider && modelId)) {
-      return null;
-    }
-    return { composite: `${provider}${PROVIDER_SEPARATOR}${modelId}` };
-  }
-
-  const legacyIndex = trimmed.indexOf(LEGACY_SEPARATOR);
-  if (legacyIndex > 0 && legacyIndex < trimmed.length - 1) {
-    const provider = trimmed.slice(0, legacyIndex);
-    const modelId = trimmed.slice(legacyIndex + 1).trim();
-    if (!(provider && modelId)) {
-      return null;
-    }
-    return { composite: `${provider}${PROVIDER_SEPARATOR}${modelId}` };
-  }
-
-  return { composite: `local${PROVIDER_SEPARATOR}${trimmed}` };
-}
 
 function cooperativeYield(): Promise<void> {
   return new Promise((resolve) => {
@@ -362,7 +326,7 @@ async function resolveEmbeddingSetJobMetadata(
     throw new Error(`Embedding set ${embeddingSetId} is missing model_key metadata`);
   }
 
-  const canonical = canonicalizeProviderModelKey(rawKey);
+  const canonical = canonicalizeProviderModelKey(rawKey, { fallbackProvider: 'local' });
   if (!canonical) {
     logger.error('Failed to resolve embedding set metadata (invalid model_key)', {
       embeddingSetId,

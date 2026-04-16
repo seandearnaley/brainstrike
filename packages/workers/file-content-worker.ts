@@ -33,6 +33,22 @@ export interface FileContentWorkerOptions {
   maxFileSize?: number;
 }
 
+function createAbortError(): Error {
+  const error = new Error('The file content read was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(abortSignal?: AbortSignal): void {
+  if (abortSignal?.aborted) {
+    throw createAbortError();
+  }
+}
+
+function normalizeAbortError(error: unknown): Error {
+  return error instanceof Error ? error : createAbortError();
+}
+
 const logger = createLogger('FileContentWorker');
 
 function getKnownFileSize(request: FileReadRequest): number | null {
@@ -93,48 +109,114 @@ export function createFileContentWorker({
     return normalizeMaxFileSize(getFileSizeConfig().maxFileSize);
   };
 
-  async function runQueue(queue: FileReadRequest[], onProgress?: (e: ProgressEvent) => void) {
+  async function runQueue(
+    queue: FileReadRequest[],
+    onProgress?: (e: ProgressEvent) => void,
+    abortSignal?: AbortSignal
+  ) {
     const results: Record<string, string> = {};
     let index = 0;
     let active = 0;
     let completed = 0;
     const total = queue.length;
 
-    return new Promise<Record<string, string>>((resolve) => {
+    return new Promise<Record<string, string>>((resolve, reject) => {
+      let settled = false;
+      const finishResolve = (value: Record<string, string>): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        abortSignal?.removeEventListener('abort', handleAbort);
+        resolve(value);
+      };
+      const finishReject = (error: Error): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        abortSignal?.removeEventListener('abort', handleAbort);
+        reject(error);
+      };
+      const handleAbort = (): void => {
+        finishReject(createAbortError());
+      };
+      const yieldForQueueTurn = async (): Promise<void> => {
+        throwIfAborted(abortSignal);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        throwIfAborted(abortSignal);
+      };
+      const finalizeRequest = (request: FileReadRequest): void => {
+        if (settled) {
+          return;
+        }
+        active -= 1;
+        completed += 1;
+        onProgress?.({ key: request.compositeKey, loaded: completed, total });
+        if (completed === total) {
+          finishResolve(results);
+          return;
+        }
+        void next();
+      };
+      const handleRequestSuccess = (
+        request: FileReadRequest,
+        key: string,
+        content: string
+      ): void => {
+        if (settled) {
+          return;
+        }
+        results[key] = content;
+        finalizeRequest(request);
+      };
+      const handleRequestFailure = (request: FileReadRequest, error: unknown): void => {
+        if (settled) {
+          return;
+        }
+        const message = error instanceof FileContentError ? error.message : 'Error accessing file';
+        results[request.compositeKey] = message;
+        finalizeRequest(request);
+      };
+      const scheduleRequest = async (request: FileReadRequest): Promise<void> => {
+        active += 1;
+        try {
+          await yieldForQueueTurn();
+        } catch (error) {
+          active -= 1;
+          finishReject(normalizeAbortError(error));
+          return;
+        }
+        processRequest(request)
+          .then(({ key, content }) => {
+            handleRequestSuccess(request, key, content);
+          })
+          .catch((error) => {
+            handleRequestFailure(request, error);
+          });
+      };
       const next = async () => {
-        while (active < concurrency && index < queue.length) {
-          const req = queue[index] as FileReadRequest;
+        try {
+          throwIfAborted(abortSignal);
+        } catch (error) {
+          finishReject(normalizeAbortError(error));
+          return;
+        }
+        while (!settled && active < concurrency && index < queue.length) {
+          const request = queue[index] as FileReadRequest;
           index += 1;
-          active += 1;
-
-          // Yield to main thread to prevent blocking WorkerStorage communication
-          await new Promise((resolve) => setTimeout(resolve, 0));
-
-          processRequest(req)
-            .then(({ key, content }) => {
-              results[key] = content;
-            })
-            .catch((err) => {
-              const msg = err instanceof FileContentError ? err.message : 'Error accessing file';
-              results[req.compositeKey] = msg;
-            })
-            .finally(() => {
-              active -= 1;
-              completed += 1;
-              onProgress?.({ key: req.compositeKey, loaded: completed, total });
-              if (completed === total) {
-                resolve(results);
-              } else {
-                next(); // Don't await here to prevent blocking
-              }
-            });
+          await scheduleRequest(request);
         }
       };
 
-      if (queue.length === 0) {
-        resolve(results);
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', handleAbort, { once: true });
       }
-      next(); // Don't await here to start processing immediately
+      if (queue.length === 0) {
+        finishResolve(results);
+        return;
+      }
+      void next();
     });
   }
 
@@ -193,9 +275,12 @@ export function createFileContentWorker({
 
   return async function readFiles(
     requests: FileReadRequest[],
-    onProgress?: (e: ProgressEvent) => void
+    onProgress?: (e: ProgressEvent) => void,
+    options?: {
+      abortSignal?: AbortSignal;
+    }
   ): Promise<Record<string, string>> {
-    return runQueue(requests, onProgress);
+    return runQueue(requests, onProgress, options?.abortSignal);
   };
 }
 

@@ -9,10 +9,28 @@ import {
 import type { FileTree } from './utils/mock-fs';
 
 /**
+ * Helper to ensure the selection settings button is available in the current explorer state.
+ */
+async function openSelectionSettings(page: Page) {
+  const settingsButton = page.getByRole('button', { name: /Selection settings/i });
+  if (await settingsButton.isVisible().catch(() => false)) {
+    return settingsButton;
+  }
+
+  const selectRootButton = page.getByRole('button', { name: /^Select Root$/i });
+  if (await selectRootButton.isVisible().catch(() => false)) {
+    await selectRootButton.click();
+  }
+
+  await expect(settingsButton).toBeVisible();
+  return settingsButton;
+}
+
+/**
  * Helper to open the selection settings popover and set the max selection count
  */
 async function setMaxSelectionCount(page: Page, value: number | string): Promise<void> {
-  const settingsButton = page.getByRole('button', { name: /Selection settings/i });
+  const settingsButton = await openSelectionSettings(page);
   await settingsButton.click();
 
   // Wait for popover to be visible
@@ -531,7 +549,7 @@ test.describe('File Explorer', () => {
         tree: { 'a.ts': null, 'b.ts': null },
         execute: async ({ page }) => {
           // Try to set invalid value (too low)
-          const settingsButton = page.getByRole('button', { name: /Selection settings/i });
+          const settingsButton = await openSelectionSettings(page);
           await settingsButton.click();
 
           const input = page.getByLabel('Maximum selection count input');

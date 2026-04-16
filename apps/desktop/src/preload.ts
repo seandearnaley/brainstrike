@@ -14,6 +14,7 @@ import type {
 } from '@brainstrike/ui';
 import type { LogRecord } from '@brainstrike/utils/logger';
 import type { LoggingPreferences } from '@brainstrike/utils/logging-preferences';
+import type { EmbeddingHostBackfillRequest } from './embedding-host-shared';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 // Sandboxed preloads cannot depend on additional local modules at runtime.
@@ -31,6 +32,7 @@ const EMBEDDING_HOST_BACKFILL_PROGRESS_EVENT = 'embedding-host:backfill-progress
 const EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL =
   'embedding-host:get-backfills-in-flight' as const;
 const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL = 'embedding-host:cancel-all-backfills' as const;
+const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = 'embedding-host:cancel-backfill' as const;
 const CHUNKING_HOST_STATUS_EVENT = 'chunking-host:status' as const;
 const CHUNKING_HOST_REQUEST_EVENT = 'chunking-host:request' as const;
 const CHUNKING_HOST_PROGRESS_EVENT = 'chunking-host:progress' as const;
@@ -88,6 +90,12 @@ interface EmbeddingHostBackfillProgress {
   readonly requestId: string;
   readonly stage: string;
   readonly total: number;
+}
+
+interface EmbeddingHostBackfillInfo {
+  readonly embeddingSetId: string;
+  readonly progress: { current: number; total: number } | null;
+  readonly requestId: string;
 }
 
 interface ChunkingHostStatus {
@@ -432,11 +440,13 @@ contextBridge.exposeInMainWorld('power', {
 contextBridge.exposeInMainWorld('embeddingHost', {
   ensureStarted: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL),
-  enqueueBackfill: (embeddingSetId: string) =>
-    ipcRenderer.invoke(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL, embeddingSetId),
+  enqueueBackfill: (request: EmbeddingHostBackfillRequest) =>
+    ipcRenderer.invoke(EMBEDDING_HOST_ENQUEUE_BACKFILL_CHANNEL, request),
+  cancelBackfill: (embeddingSetId: string): Promise<void> =>
+    ipcRenderer.invoke(EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL, embeddingSetId),
   cancelAllBackfills: (): Promise<void> =>
     ipcRenderer.invoke(EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL),
-  getBackfillsInFlight: (): Promise<string[]> =>
+  getBackfillsInFlight: (): Promise<EmbeddingHostBackfillInfo[]> =>
     ipcRenderer.invoke(EMBEDDING_HOST_GET_BACKFILLS_IN_FLIGHT_CHANNEL),
   stop: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_STOP_CHANNEL),
   reset: (): Promise<EmbeddingHostStatus> => ipcRenderer.invoke(EMBEDDING_HOST_RESET_CHANNEL),

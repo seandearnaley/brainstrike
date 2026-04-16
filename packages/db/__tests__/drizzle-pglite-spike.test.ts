@@ -46,6 +46,7 @@ describe('Drizzle + PGlite Spike', () => {
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
         "name" text NOT NULL,
         "path" text NOT NULL,
+        "source_root_path" text,
         "size" integer NOT NULL,
         "created_at" timestamp with time zone DEFAULT now() NOT NULL,
         "updated_at" timestamp with time zone DEFAULT now() NOT NULL,

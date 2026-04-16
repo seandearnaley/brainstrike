@@ -4,8 +4,10 @@
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/db-explorer": "workspace:*",
+    "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",

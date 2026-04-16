@@ -71,6 +71,11 @@ export interface VectorQueueServiceDependencies {
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
 
+export interface BackfillOptions {
+  onProgress: BackfillProgressHandler;
+  signal?: AbortSignal;
+}
+
 export const EMBEDDINGS_QUEUE = 'embeddings';
 
 interface EmbeddingSetJobMetadata {
@@ -85,15 +90,41 @@ const BACKFILL_BACKLOG_POLL_MS = 100;
 const BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS = 30_000;
 const BACKFILL_DRAIN_TIMEOUT_MS = 300_000;
 
-function cooperativeYield(): Promise<void> {
+function createAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal, message = 'Embedding backfill was aborted.'): void {
+  if (signal?.aborted) {
+    throw createAbortError(message);
+  }
+}
+
+function cooperativeYield(signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
   return new Promise((resolve) => {
     setTimeout(resolve, 0);
   });
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      cleanup();
+      reject(createAbortError('Embedding backfill was aborted.'));
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -133,10 +164,12 @@ async function getEmbeddingSetQueueCounts(
 async function waitForEmbeddingSetDrain(
   db: VectorQueueDatabase,
   embeddingSetId: string,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal
 ): Promise<QueueCounts> {
   const startedAt = Date.now();
   while (true) {
+    throwIfAborted(signal);
     const counts = await getEmbeddingSetQueueCounts(db, embeddingSetId);
     if (counts.queued === 0 && counts.running === 0) {
       return counts;
@@ -146,7 +179,7 @@ async function waitForEmbeddingSetDrain(
         `Backfill timed out while waiting for embedding set '${embeddingSetId}' to drain.`
       );
     }
-    await sleep(BACKFILL_BACKLOG_POLL_MS);
+    await sleep(BACKFILL_BACKLOG_POLL_MS, signal);
   }
 }
 
@@ -164,10 +197,12 @@ async function waitForQueueCapacity(
   jobQueue: Pick<JobQueue, 'getQueueStats'>,
   maxQueueDepth: number,
   backlogPollMs: number,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal
 ): Promise<number> {
   const startedAt = Date.now();
   while (true) {
+    throwIfAborted(signal);
     const backlog = await getEmbeddingQueueBacklog(jobQueue);
     const capacity = maxQueueDepth - backlog;
     if (capacity > 0) {
@@ -178,7 +213,7 @@ async function waitForQueueCapacity(
         `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs.`
       );
     }
-    await sleep(backlogPollMs);
+    await sleep(backlogPollMs, signal);
   }
 }
 
@@ -216,7 +251,7 @@ export interface ReembedResult {
 }
 
 export interface VectorQueueService {
-  backfill(activeSetId: string, onProgress: BackfillProgressHandler): Promise<QueueCounts>;
+  backfill(activeSetId: string, options: BackfillOptions): Promise<QueueCounts>;
   clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
   /**
    * Re-embed workflow: clears existing embeddings and triggers backfill.
@@ -348,9 +383,12 @@ export function createVectorQueueService(
       }
     },
 
-    async backfill(activeSetId, onProgress) {
+    async backfill(activeSetId, options) {
+      const { onProgress, signal } = options;
       logger.info('Backfill requested', { embeddingSetId: activeSetId });
+      throwIfAborted(signal);
       const setMetadata = await resolveEmbeddingSetJobMetadata(db, activeSetId);
+      throwIfAborted(signal);
       const total = await countBackfillCandidates(db, activeSetId);
       logger.info('Embedding set metadata resolved for backfill', {
         embeddingSetId: activeSetId,
@@ -364,14 +402,17 @@ export function createVectorQueueService(
       onProgress(done, total);
 
       while (done < total) {
+        throwIfAborted(signal);
         const availableCapacity = await waitForQueueCapacity(
           jobQueue,
           BACKFILL_MAX_QUEUE_DEPTH,
           BACKFILL_BACKLOG_POLL_MS,
-          BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS
+          BACKFILL_QUEUE_CAPACITY_TIMEOUT_MS,
+          signal
         );
         const batchLimit = Math.min(BACKFILL_ENQUEUE_BATCH_SIZE, total - done, availableCapacity);
         const batch = await loadBackfillCandidateBatch(db, activeSetId, cursor, batchLimit);
+        throwIfAborted(signal);
         if (batch.length === 0) {
           break;
         }
@@ -390,7 +431,7 @@ export function createVectorQueueService(
         done = Math.min(total, done + inserted);
         onProgress(done, total);
         if (selected === batchLimit && done < total) {
-          await cooperativeYield();
+          await cooperativeYield(signal);
         }
       }
 
@@ -401,7 +442,8 @@ export function createVectorQueueService(
       const drainedCounts = await waitForEmbeddingSetDrain(
         db,
         activeSetId,
-        BACKFILL_DRAIN_TIMEOUT_MS
+        BACKFILL_DRAIN_TIMEOUT_MS,
+        signal
       );
       if (drainedCounts.failed > 0) {
         throw new Error(
@@ -437,7 +479,7 @@ export function createVectorQueueService(
       logger.info('Cleared existing embeddings', { embeddingSetId, clearedCount });
 
       // Step 2: Trigger backfill to regenerate embeddings
-      const queueCounts = await this.backfill(embeddingSetId, onProgress);
+      const queueCounts = await this.backfill(embeddingSetId, { onProgress });
 
       logger.info('Re-embed workflow complete', {
         embeddingSetId,

@@ -111,4 +111,133 @@ describe('FileRecordRepository', () => {
     const found = await repo.findById(record.id);
     expect(found).toEqual({ ...record, name: 'changed' });
   });
+
+  it('round-trips sourceRootPath metadata for managed cache entries', async () => {
+    const record = createTestRecord({
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/index.ts',
+      sourceRootPath: '/workspace/a',
+    });
+
+    await repo.createWithContent({
+      ...record,
+      content: 'export const value = 1;',
+      contentHash: 'hash-1',
+      processedAt: record.createdAt,
+      tokenCount: 5,
+    });
+
+    const found = await repo.findById(record.id);
+    expect(found?.sourceRootPath).toBe('/workspace/a');
+  });
+
+  it('preserves empty file content when creating managed cache entries', async () => {
+    const record = createTestRecord({
+      id: 'empty-cache',
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/empty.ts',
+      sourceRootPath: '/workspace/a',
+    });
+
+    await repo.createWithContent({
+      ...record,
+      content: '',
+      contentHash: 'hash-empty',
+      processedAt: record.createdAt,
+      tokenCount: 0,
+    });
+
+    const found = await repo.findById(record.id);
+    expect(found?.content).toBe('');
+    expect(found?.tokenCount).toBe(0);
+  });
+
+  it('finds managed cache entries by embedding set, root path, and relative path', async () => {
+    const primary = createTestRecord({
+      id: 'cache-a',
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/index.ts',
+      sourceRootPath: '/workspace/a',
+    });
+    const sameRelativePathDifferentRoot = createTestRecord({
+      id: 'cache-b',
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/index.ts',
+      sourceRootPath: '/workspace/b',
+    });
+
+    await repo.create(primary);
+    await repo.create(sameRelativePathDifferentRoot);
+
+    const found = await repo.findByManagedCacheIdentity(
+      '00000000-0000-0000-0000-000000000101',
+      '/workspace/a',
+      'src/index.ts'
+    );
+
+    expect(found?.id).toBe('cache-a');
+    expect(found?.sourceRootPath).toBe('/workspace/a');
+  });
+
+  it('lists managed cache entries for a collection across roots', async () => {
+    await repo.create(
+      createTestRecord({
+        id: 'cache-a',
+        embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/a',
+      })
+    );
+    await repo.create(
+      createTestRecord({
+        id: 'cache-b',
+        embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/b',
+      })
+    );
+    await repo.create(
+      createTestRecord({
+        id: 'other-set',
+        embeddingSetId: '00000000-0000-0000-0000-000000000202',
+        path: 'src/index.ts',
+        sourceRootPath: '/workspace/a',
+      })
+    );
+
+    const entries = await repo.listManagedCacheEntries('00000000-0000-0000-0000-000000000101');
+
+    expect(entries.map((entry) => entry.id).sort()).toEqual(['cache-a', 'cache-b']);
+  });
+
+  it('lists managed cache metadata without hydrating file content', async () => {
+    const record = createTestRecord({
+      id: 'cache-a',
+      embeddingSetId: '00000000-0000-0000-0000-000000000101',
+      path: 'src/index.ts',
+      sourceRootPath: '/workspace/a',
+    });
+
+    await repo.createWithContent({
+      ...record,
+      content: 'export const value = 1;',
+      contentHash: 'hash-1',
+      processedAt: record.createdAt,
+      tokenCount: 5,
+    });
+
+    const entries = await repo.listManagedCacheEntryMetadata(
+      '00000000-0000-0000-0000-000000000101'
+    );
+
+    expect(entries).toEqual([
+      expect.objectContaining({
+        fileRecordId: 'cache-a',
+        embeddingSetId: '00000000-0000-0000-0000-000000000101',
+        sourceRootPath: '/workspace/a',
+        relativePath: 'src/index.ts',
+        contentHash: 'hash-1',
+      }),
+    ]);
+  });
 });

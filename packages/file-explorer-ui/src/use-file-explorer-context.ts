@@ -13,23 +13,17 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils/logger';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
-import { getPathDepth } from '@brainstrike/utils/tree-operations';
-import {
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { useOptionalFileTreeContext } from './file-tree-provider';
+import {
+  type RestorationProgress,
+  useExpandedPathRestoration,
+} from './use-expanded-path-restoration';
 import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
@@ -52,94 +46,7 @@ const selectSetIsAccessLoading = (state: FileExplorerState) => state.setIsAccess
 const selectDisabledIncludeFilters = (state: FileExplorerState) => state.disabledIncludeFilters;
 const selectDisabledExcludeFilters = (state: FileExplorerState) => state.disabledExcludeFilters;
 
-/**
- * Module-level lock for restoration to prevent concurrent runs.
- * React's concurrent rendering can cause multiple effect instances to run
- * before any of them sets a ref, so we need a lock outside React's lifecycle.
- */
-const restorationLock = {
-  inProgress: false,
-  folderId: null as string | null,
-};
-
-/**
- * Reset the restoration lock state.
- * @internal Exported only for test cleanup. Do not use in production code.
- */
-export function __resetRestorationLock(): void {
-  restorationLock.inProgress = false;
-  restorationLock.folderId = null;
-}
-
-/**
- * Helper to get ALL ancestor directories of a file path.
- * For example, for "apps/web/src/App.tsx", returns ["apps", "apps/web", "apps/web/src"].
- * For absolute paths like "/Users/foo/bar.ts", returns ["/Users", "/Users/foo"].
- * All ancestors must be expanded for a nested file to be visible in the tree.
- *
- * @param filePath - Full path to a file (can be relative or absolute)
- * @returns Array of all ancestor directory paths, from root to immediate parent
- */
-function getAllAncestorDirectories(filePath: string): string[] {
-  // Check if path is absolute (starts with /)
-  const isAbsolute = filePath.startsWith('/');
-  const segments = filePath.split('/').filter(Boolean);
-  // Remove the filename (last segment)
-  segments.pop();
-
-  const ancestors: string[] = [];
-  for (let i = 1; i <= segments.length; i++) {
-    // Preserve leading slash for absolute paths
-    const prefix = isAbsolute ? '/' : '';
-    ancestors.push(prefix + segments.slice(0, i).join('/'));
-  }
-  return ancestors;
-}
-
-function getRestorationSkipReason(
-  currentRootFolderId: string | null,
-  isTreeLoading: boolean,
-  fileTreeLength: number
-): 'empty-tree' | 'no-folder-id' | 'still-loading' | null {
-  if (!currentRootFolderId) {
-    return 'no-folder-id';
-  }
-  if (isTreeLoading) {
-    return 'still-loading';
-  }
-  if (fileTreeLength === 0) {
-    return 'empty-tree';
-  }
-  return null;
-}
-
-function getParentDirectoriesForSelectedFiles(selectedFiles: Set<string>): Set<string> {
-  const parentDirectoriesOfSelectedFiles = new Set<string>();
-  for (const compositeKey of selectedFiles) {
-    try {
-      const { path } = decodeFileSelection(compositeKey);
-      const ancestors = getAllAncestorDirectories(path);
-      for (const ancestor of ancestors) {
-        parentDirectoriesOfSelectedFiles.add(ancestor);
-      }
-    } catch {
-      // Ignore invalid composite keys
-    }
-  }
-  return parentDirectoriesOfSelectedFiles;
-}
-
 type UseFileExplorerProps = Record<string, never>;
-
-/** Progress state for restoring expanded directories on app startup */
-export interface RestorationProgress {
-  /** Current directory path being restored */
-  currentPath: string | null;
-  /** Number of directories restored so far */
-  loaded: number;
-  /** Total number of directories to restore */
-  total: number;
-}
 
 interface UseFileExplorerReturn {
   applyFileFilters: (
@@ -246,6 +153,9 @@ interface UseFileExplorerReturn {
   /** Unfiltered tree from the file-system source */
   unfilteredFileTree?: IFileNode[];
 }
+
+export type { RestorationProgress } from './use-expanded-path-restoration';
+export { __resetRestorationLock } from './use-expanded-path-restoration';
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
   const store = useFileExplorerStoreContext();
@@ -445,17 +355,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const isInitialLoad = Boolean(rootDirectoryHandle) && isTreeLoading;
   const currentRootFolderId = getRootFolderId(rootDirectoryHandle);
 
-  // Track which folder we've already restored expanded paths for
-  const restoredForFolderRef = useRef<string | null>(null);
-  // Track if restoration is in progress to prevent duplicate runs
-  const isRestoringRef = useRef(false);
   // Track the stale clearing timer ID so we can cancel it from outside the effect
   const staleClearingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentRootFolderIdRef = useRef<string | null>(currentRootFolderId);
-  const restorationSkipReasonRef = useRef<string | null>(null);
-  // State for restoration progress - exposed to UI for feedback
-  const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
-  const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
 
   useLayoutEffect(() => {
     currentRootFolderIdRef.current = currentRootFolderId;
@@ -577,157 +479,19 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     setExpandedPaths,
   ]);
 
-  /**
-   * Auto-restore expanded directories from persisted state.
-   *
-   * When the app loads, the store restores expandedDirectoryPaths from storage,
-   * but the lazy-loaded tree only has root-level nodes. This effect loads
-   * children for previously expanded directories so the UI matches the persisted state.
-   *
-   * Algorithm:
-   * 1. Wait for root to finish loading (fileTree has items, not loading)
-   * 2. Get persisted expandedDirectoryPaths from store
-   * 3. Sort paths by depth (shallowest first - parents before children)
-   * 4. Load children for each directory in order
-   */
-  useEffect(() => {
-    const restorationSkipReason = getRestorationSkipReason(
-      currentRootFolderId,
-      isTreeLoading,
-      fileTree.length
-    );
-    if (restorationSkipReason) {
-      restorationSkipReasonRef.current = restorationSkipReason;
-      return;
-    }
-
-    restorationSkipReasonRef.current = null;
-
-    // Use module-level lock to prevent concurrent runs (React refs don't work in concurrent mode)
-    // Check if already restored for this folder
-    if (restorationLock.folderId === currentRootFolderId) {
-      logger.debug('[Restoration Effect] Skipped - already restored for this folder');
-      return;
-    }
-
-    // Check if restoration is in progress
-    if (restorationLock.inProgress) {
-      logger.debug('[Restoration Effect] Skipped - restoration in progress');
-      return;
-    }
-
-    // IMMEDIATELY acquire module-level lock to prevent concurrent runs
-    // This happens synchronously before any async operations
-    restorationLock.inProgress = true;
-    restorationLock.folderId = currentRootFolderId;
-    // Also update refs for backwards compatibility
-    restoredForFolderRef.current = currentRootFolderId;
-    isRestoringRef.current = true;
-
-    // Get persisted expanded paths AND selected files from store
-    const storeState = store.getState();
-    const expandedPaths = storeState.expandedDirectoryPaths;
-    const selectedFiles = storeState.selectedFilePaths;
-    const queryCoveredDirectories =
-      storeState.selectionModel.mode === 'query'
-        ? new Set(storeState.selectionModel.queryDescriptor?.coveredDirectoryPaths ?? [])
-        : new Set<string>();
-
-    // BST-308/BST-310: Include ALL ancestor directories of selected files in restoration.
-    // When files are restored from persistence, their ancestor directories must be loaded
-    // AND expanded so that file nodes (with handles and sizes) appear in the file tree.
-    // Without this, token counting and file size display fail for restored selections.
-    // CRITICAL: We need ALL ancestors, not just the immediate parent. For a file at
-    // "apps/web/src/App.tsx", we need "apps", "apps/web", and "apps/web/src" to all be
-    // loaded and expanded, otherwise the nested file won't be visible in the tree.
-    const parentDirectoriesOfSelectedFiles = getParentDirectoriesForSelectedFiles(selectedFiles);
-
-    // Merge expanded paths with parent directories of selected files
-    const allPathsToRestore = new Set([
-      ...expandedPaths,
-      ...parentDirectoriesOfSelectedFiles,
-      ...queryCoveredDirectories,
-    ]);
-
-    logger.debug('[Restoration Effect] Paths to restore', {
-      folderId: currentRootFolderId,
-      expandedPathCount: expandedPaths.size,
-      selectedFileCount: selectedFiles.size,
-      parentDirsOfSelectedFiles: parentDirectoriesOfSelectedFiles.size,
-      queryCoveredDirectoryCount: queryCoveredDirectories.size,
-      totalPathsToRestore: allPathsToRestore.size,
-      expandedPaths: [...expandedPaths].slice(0, 5),
-      parentDirs: [...parentDirectoriesOfSelectedFiles].slice(0, 5),
-    });
-
-    // Skip if no paths to restore
-    if (allPathsToRestore.size === 0) {
-      logger.debug('[Restoration Effect] Skipped - no paths to restore');
-      isRestoringRef.current = false;
-      restorationLock.inProgress = false;
-      return;
-    }
-
-    // Now safe to update state - we've locked restoration for this folder
-    setIsRestoringExpandedPaths(true);
-
-    logger.info('Restoring expanded directories and file parent directories', {
-      folderId: currentRootFolderId,
-      expandedPathCount: expandedPaths.size,
-      parentDirsOfSelectedFilesCount: parentDirectoriesOfSelectedFiles.size,
-      totalPathCount: allPathsToRestore.size,
-    });
-
-    // Sort paths by depth (shallowest first so parents load before children)
-    const sortedPaths = [...allPathsToRestore].sort((a, b) => getPathDepth(a) - getPathDepth(b));
-    const total = sortedPaths.length;
-
-    // Initialize progress
-    setRestorationProgress({ loaded: 0, total, currentPath: null });
-
-    // Use worker-based loading for optimal performance
-    // The worker batches I/O and only updates React state once at completion
-    const restoreExpansions = async () => {
-      try {
-        await loadSpecificPaths(sortedPaths, (loaded, progressTotal, currentPath) => {
-          setRestorationProgress({ loaded, total: progressTotal, currentPath });
-        });
-
-        // BST-310 FIX: After loading completes, expand parent directories of selected files.
-        // This ensures checkboxes render correctly - without expansion, file nodes exist
-        // in the tree but aren't visible, so their selection state can't be displayed.
-        if (parentDirectoriesOfSelectedFiles.size > 0) {
-          const currentExpandedPaths = store.getState().expandedDirectoryPaths;
-          const newExpandedPaths = new Set([
-            ...currentExpandedPaths,
-            ...parentDirectoriesOfSelectedFiles,
-            ...queryCoveredDirectories,
-          ]);
-          logger.debug('[Restoration Effect] Expanding parent directories of selected files', {
-            count: parentDirectoriesOfSelectedFiles.size,
-            previouslyExpanded: currentExpandedPaths.size,
-            newTotal: newExpandedPaths.size,
-          });
-          setExpandedPaths(newExpandedPaths);
-        }
-
-        logger.info('Restored expanded directories', {
-          totalPaths: total,
-        });
-      } catch (error) {
-        logger.warn('Failed to restore expanded directories', { error });
-      } finally {
-        // Release module-level lock
-        restorationLock.inProgress = false;
-        // Also update refs for backwards compatibility
-        isRestoringRef.current = false;
-        setIsRestoringExpandedPaths(false);
-        setRestorationProgress(null);
-      }
-    };
-
-    void restoreExpansions();
-  }, [currentRootFolderId, isTreeLoading, fileTree.length, store, loadSpecificPaths]);
+  const localRestorationState = useExpandedPathRestoration({
+    currentRootFolderId,
+    disabled: sharedTreeContext !== null,
+    fileTree,
+    isTreeLoading,
+    loadSpecificPaths,
+    setExpandedPaths,
+    store,
+  });
+  const isRestoringExpandedPaths =
+    sharedTreeContext?.isRestoringExpandedPaths ?? localRestorationState.isRestoringExpandedPaths;
+  const restorationProgress =
+    sharedTreeContext?.restorationProgress ?? localRestorationState.restorationProgress;
 
   return {
     fileTree: filteredTree,
