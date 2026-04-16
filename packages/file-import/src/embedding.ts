@@ -3,6 +3,7 @@ import { CHUNKING_CONFIG } from '@brainstrike/db';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import { createLogger } from '@brainstrike/utils/logger';
 import { buildEmbeddingText, type ChunkContext } from './embedding-context';
+import type { FileImportChunkRepository } from './repository-ports';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Embedding');
@@ -43,7 +44,7 @@ export async function initializeEmbeddingService(
 
 export async function processChunkEmbedding(
   chunk: FileChunk,
-  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null,
+  chunkRepository: FileImportChunkRepository | null,
   embeddingService: SimpleEmbeddingService | null,
   context?: ChunkContext
 ): Promise<boolean> {
@@ -108,7 +109,7 @@ export async function processChunkEmbedding(
 
 async function processChunkWithSetId(
   chunk: FileChunk,
-  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  chunkRepository: NonNullable<FileImportChunkRepository>,
   embeddingService: SimpleEmbeddingService,
   targetEmbeddingSetId?: string
 ): Promise<boolean> {
@@ -126,7 +127,7 @@ async function processChunkWithSetId(
 
 async function processChunksLoop(
   chunks: FileChunk[],
-  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  chunkRepository: NonNullable<FileImportChunkRepository>,
   embeddingService: SimpleEmbeddingService,
   embeddingModel: string,
   updateProgress: (
@@ -179,7 +180,7 @@ async function processChunksLoop(
 export async function processEmbeddings(
   chunks: FileChunk[],
   result: EnhancedImportResult,
-  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null,
+  chunkRepository: FileImportChunkRepository | null,
   embeddingService: SimpleEmbeddingService | null,
   embeddingModel: string | undefined,
   updateProgress: (

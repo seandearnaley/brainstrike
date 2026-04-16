@@ -3,6 +3,7 @@ import type {
   DbHandle,
   EmbeddingSet,
   FileImportResult,
+  FileRecordUpdate,
   IEmbeddingSetsRepository,
   IFileRecordRepository,
   ImportProgress,
@@ -19,10 +20,19 @@ import {
   backfillEmbeddingSetAssignments,
   type ChunkingWorkerPort,
   type EnhancedImportProgress,
+  type FileImportChunkRepository,
+  type FileImportFileRecordRepository,
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
-import type { WorkspaceCollectionSyncState } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import type {
+  WorkspaceCollectionSyncChunkingProgress,
+  WorkspaceCollectionSyncEmbeddingProgress,
+  WorkspaceCollectionSyncImportProgress,
+  WorkspaceCollectionSyncQueueProgress,
+  WorkspaceCollectionSyncScanSummary,
+  WorkspaceCollectionSyncStatusPatch,
+} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import type { IFileNode } from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,
@@ -69,7 +79,7 @@ interface RootFolderCacheMutableRecord {
 export interface WorkspaceCollectionSyncServiceDependencies {
   backfillDrainTimeoutMs?: number;
   cancelBackfill: (embeddingSetId: string) => Promise<void>;
-  chunkRepository: {
+  chunkRepository: FileImportChunkRepository & {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
   };
   db: DbHandle;
@@ -81,10 +91,8 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   ensureChunkingWorker: () => Promise<ChunkingWorkerPort>;
   ensureEmbeddingRuntimeStarted: () => Promise<void>;
   fileContentProcessor?: FileContentProcessor;
-  fileRecordRepository: Pick<
-    IFileRecordRepository,
-    'createWithContent' | 'listManagedCacheEntryMetadata' | 'update'
-  >;
+  fileRecordRepository: FileImportFileRecordRepository &
+    Pick<IFileRecordRepository, 'createWithContent' | 'listManagedCacheEntryMetadata'>;
   fileSystemAdapter: FileSystemAdapter;
   getBackfillsInFlight: () => Promise<
     Array<{
@@ -95,7 +103,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
   >;
   log?: typeof logger;
   setImporting: (importing: boolean) => void;
-  setStatus: (progress: WorkspaceCollectionSyncProgressUpdate) => void;
+  setStatus: (progress: WorkspaceCollectionSyncStatusPatch) => void;
   subscribeToBackfillProgress: (
     callback: (progress: {
       current: number;
@@ -115,26 +123,6 @@ export interface WorkspaceCollectionSyncRequest {
   rootDirectoryHandle: RootDirectoryHandle | null;
 }
 
-interface WorkspaceCollectionSyncScanSummary {
-  changedFiles: number;
-  discoveredFiles: number;
-  excludedEntries: number;
-  unchangedFiles: number;
-}
-
-type WorkspaceCollectionSyncChunkingProgress = NonNullable<
-  NonNullable<WorkspaceCollectionSyncProgressUpdate['chunkingProgress']>
->;
-type WorkspaceCollectionSyncEmbeddingProgress = NonNullable<
-  NonNullable<WorkspaceCollectionSyncProgressUpdate['embeddingProgress']>
->;
-type WorkspaceCollectionSyncImportProgress = NonNullable<
-  NonNullable<WorkspaceCollectionSyncProgressUpdate['importProgress']>
->;
-type WorkspaceCollectionSyncQueueProgress = NonNullable<
-  NonNullable<WorkspaceCollectionSyncProgressUpdate['queueProgress']>
->;
-
 interface WorkspaceCollectionSyncProgressStatusBase {
   activeRootPath: string;
   chunkingProgress: WorkspaceCollectionSyncChunkingProgress | null;
@@ -145,52 +133,6 @@ interface WorkspaceCollectionSyncProgressStatusBase {
   managedCollectionName: string | null;
   queueProgress: WorkspaceCollectionSyncQueueProgress | null;
   scanSummary: WorkspaceCollectionSyncScanSummary;
-}
-
-export interface WorkspaceCollectionSyncProgressUpdate {
-  activeRootPath?: string | null;
-  backfillRequestId?: string | null;
-  chunkingProgress?: {
-    chunksCreated: number;
-    currentFile: string | null;
-    filesProcessed: number;
-    strategyUsed: string | null;
-    totalFiles: number;
-  } | null;
-  currentFilePath?: string | null;
-  embeddingProgress?: {
-    chunksProcessed: number;
-    currentChunk: string | null;
-    modelName: string | null;
-    totalChunks: number;
-  } | null;
-  importProgress?: {
-    completed: number;
-    current: string | null;
-    errorCount: number;
-    total: number;
-  } | null;
-  lastError?: string | null;
-  managedCollectionId?: string | null;
-  managedCollectionName?: string | null;
-  processedFiles?: number;
-  queuedFiles?: number;
-  queueProgress?: {
-    failed: number;
-    lastError: string | null;
-    lastEvent: {
-      chunkId: string;
-      elapsedMs?: number;
-      errorMessage?: string;
-      model: string;
-      status: 'queued' | 'completed' | 'error';
-    } | null;
-    pending: number;
-    processed: number;
-    totalQueued: number;
-  } | null;
-  scanSummary?: WorkspaceCollectionSyncScanSummary | null;
-  state?: WorkspaceCollectionSyncState;
 }
 
 interface PreparedCacheChange {
@@ -427,7 +369,7 @@ function mapEnhancedProgressToStatus(
   managedCollectionName: string | null,
   rootPath: string,
   summary: WorkspaceCollectionSyncScanSummary
-): WorkspaceCollectionSyncProgressUpdate {
+): WorkspaceCollectionSyncStatusPatch {
   const base = buildEnhancedProgressStatusBase(
     progress,
     managedCollectionId,
@@ -503,7 +445,7 @@ function mapBackfillProgressToStatus(args: {
   scanSummary?: WorkspaceCollectionSyncScanSummary;
   state?: 'embedding' | 'recovering';
   total?: number;
-}): WorkspaceCollectionSyncProgressUpdate {
+}): WorkspaceCollectionSyncStatusPatch {
   const totalChunks = Math.max(0, args.total ?? 0);
   const processedChunks = Math.min(totalChunks, Math.max(0, args.current ?? 0));
   const currentMessage = args.message?.trim() ? args.message : null;
@@ -737,13 +679,14 @@ function createInaccessibleImportErrors(args: {
 
 async function processBackgroundImportEntry(args: {
   change: PreparedCacheChange | undefined;
-  chunkRepository: {
+  chunkRepository: FileImportChunkRepository & {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
   };
   collectionId: string;
   compositeKey: string;
   content: string | undefined;
-  fileRecordRepository: Pick<IFileRecordRepository, 'createWithContent' | 'update'>;
+  fileRecordRepository: FileImportFileRecordRepository &
+    Pick<IFileRecordRepository, 'createWithContent'>;
 }): Promise<{
   error?: { error: string; file: string };
   result: FileImportResult;
@@ -767,13 +710,13 @@ async function processBackgroundImportEntry(args: {
 
   try {
     if (change.mode === 'replace') {
-      const replacementRecordUpdate = {
+      const replacementRecordUpdate: FileRecordUpdate = {
         ...(await toMutableRecord(change, content)),
         chunksCount: 0,
-        chunksProcessedAt: undefined,
-        chunkingStrategy: undefined,
+        chunksProcessedAt: null,
+        chunkingStrategy: null,
         embeddingSetId: collectionId,
-      } as unknown as Parameters<typeof fileRecordRepository.update>[1];
+      };
       await chunkRepository.deleteByFileRecordId(change.id);
       await fileRecordRepository.update(change.id, replacementRecordUpdate);
     } else {
@@ -932,14 +875,15 @@ async function collectPreparedChangesInBatches(args: {
 async function runRootFolderCacheImport(args: {
   abortSignal: AbortSignal;
   changes: readonly PreparedCacheChange[];
-  chunkRepository: {
+  chunkRepository: FileImportChunkRepository & {
     deleteByFileRecordId: (fileRecordId: string) => Promise<unknown>;
   };
   chunkingWorkerPort: ChunkingWorkerPort;
   collection: EmbeddingSet;
   db: DbHandle;
   fileContentProcessor?: FileContentProcessor;
-  fileRecordRepository: Pick<IFileRecordRepository, 'createWithContent' | 'update'>;
+  fileRecordRepository: FileImportFileRecordRepository &
+    Pick<IFileRecordRepository, 'createWithContent'>;
   onProgress: (progress: EnhancedImportProgress) => void;
   setImporting: (importing: boolean) => void;
 }): Promise<void> {
@@ -968,7 +912,7 @@ async function runRootFolderCacheImport(args: {
   const embeddingConfig = {
     enabled: false,
     service: null,
-    chunkRepository: chunkRepository as never,
+    chunkRepository,
     resolveTargetEmbeddingSetId: () => collection.id,
   };
   const processor =
@@ -1084,10 +1028,10 @@ async function runRootFolderCacheImport(args: {
         chunking: {
           enabled: true,
           deps: {
-            repository: fileRecordRepository as never,
-            chunkRepository: chunkRepository as never,
+            repository: fileRecordRepository,
+            chunkRepository,
           },
-          chunkingWorkerPort: chunkingWorkerPort as never,
+          chunkingWorkerPort,
         },
         embedding: embeddingConfig,
         progressHandlers: {
@@ -1150,7 +1094,7 @@ export class WorkspaceCollectionSyncService {
   }
 
   private createClearedProgressState(): Pick<
-    WorkspaceCollectionSyncProgressUpdate,
+    WorkspaceCollectionSyncStatusPatch,
     | 'backfillRequestId'
     | 'chunkingProgress'
     | 'currentFilePath'

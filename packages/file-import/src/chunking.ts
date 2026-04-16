@@ -3,12 +3,14 @@ import type {
   FileChunk,
   FileImportResult,
   FileRecord,
+  FileRecordUpdate,
   IDatabase,
   ResolvedChunkingStrategy,
 } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils/logger';
 import { getChunkingStrategy } from './chunking-strategy';
+import type { FileImportChunkRepository, FileImportFileRecordRepository } from './repository-ports';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 export { getChunkingStrategy } from './chunking-strategy';
@@ -16,8 +18,8 @@ export { getChunkingStrategy } from './chunking-strategy';
 const logger = createLogger('FileImport:Chunking');
 
 interface ChunkingDeps {
-  chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
-  repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
+  chunkRepository: FileImportChunkRepository | null;
+  repository: FileImportFileRecordRepository | null;
 }
 
 interface ChunkingOptions {
@@ -196,7 +198,7 @@ function hasTransactionalInsert(repo: unknown): repo is RepoWithTransactionalIns
 
 async function insertChunksWithTransaction(
   tx: IDatabase,
-  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  chunkRepository: NonNullable<FileImportChunkRepository>,
   chunks: FileChunk[]
 ): Promise<void> {
   if (hasTransactionalInsert(chunkRepository)) {
@@ -207,17 +209,18 @@ async function insertChunksWithTransaction(
 }
 
 async function updateFileRecordWithChunkInfo(
-  repository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileRecordRepository>>,
+  repository: NonNullable<FileImportFileRecordRepository>,
   fileId: string,
   chunksCount: number,
   strategy: ResolvedChunkingStrategy
 ): Promise<void> {
-  await repository.update(fileId, {
+  const update: FileRecordUpdate = {
     chunksProcessedAt: new Date().toISOString(),
     chunksCount,
     chunkingStrategy: strategy,
     updatedAt: new Date().toISOString(),
-  });
+  };
+  await repository.update(fileId, update);
 }
 
 interface ChunkingSkipResult {
@@ -552,7 +555,7 @@ async function processFileChunkingHostProxyPath(
     await options.runInTransaction(async (tx) => {
       await insertChunksWithTransaction(tx, preparation.chunkRepository, chunks);
       await options.enqueueJobsForChunksTx?.(tx, chunks, result.id);
-      return undefined as unknown as undefined;
+      return;
     });
   } else {
     await preparation.chunkRepository.insertMany(chunks);
@@ -590,8 +593,8 @@ async function processFileChunkingWorkerPath(
   content: string,
   result: FileImportResult,
   strategy: ChunkingStrategy,
-  repository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileRecordRepository>>,
-  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  repository: NonNullable<FileImportFileRecordRepository>,
+  chunkRepository: NonNullable<FileImportChunkRepository>,
   fileName: string,
   filePath: string,
   options: ChunkingOptions,
@@ -656,7 +659,7 @@ async function processFileChunkingWorkerPath(
     await options.runInTransaction(async (tx) => {
       await insertChunksWithTransaction(tx, chunkRepository, chunks);
       await options.enqueueJobsForChunksTx?.(tx, chunks, result.id);
-      return undefined as unknown as undefined;
+      return;
     });
   } else {
     await chunkRepository.insertMany(chunks);

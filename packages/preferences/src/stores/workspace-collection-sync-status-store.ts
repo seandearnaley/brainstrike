@@ -72,9 +72,11 @@ export interface WorkspaceCollectionSyncStatusData {
   state: WorkspaceCollectionSyncState;
 }
 
+export type WorkspaceCollectionSyncStatusPatch = Partial<WorkspaceCollectionSyncStatusData>;
+
 interface WorkspaceCollectionSyncStatusActions {
   reset: () => void;
-  setStatus: (patch: Partial<WorkspaceCollectionSyncStatusData>) => void;
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
 }
 
 export type WorkspaceCollectionSyncStatusStore = WorkspaceCollectionSyncStatusData &
@@ -100,7 +102,7 @@ const DEFAULT_STATE: WorkspaceCollectionSyncStatusData = {
 export const useWorkspaceCollectionSyncStatusStore = create<WorkspaceCollectionSyncStatusStore>()(
   (set) => ({
     ...DEFAULT_STATE,
-    setStatus: (patch: Partial<WorkspaceCollectionSyncStatusData>) => set(() => patch),
+    setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => set(() => patch),
     reset: () =>
       set({
         ...DEFAULT_STATE,

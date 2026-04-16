@@ -3,6 +3,7 @@ import type {
   FileImportRequest,
   FileImportResult,
   FileRecord,
+  FileRecordUpdate,
   ManagedCacheEntryMetadata,
 } from '../models/file-record.js';
 import type { IDatabase, IFileRecordRepository } from './interfaces.js';
@@ -251,7 +252,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       });
   }
 
-  async update(id: string, updates: Partial<FileRecord>): Promise<void> {
+  async update(id: string, updates: FileRecordUpdate): Promise<void> {
     const fields = Object.keys(updates).filter((k): k is keyof FileRecord =>
       ALLOWED_UPDATE_FIELDS.includes(k as keyof FileRecord)
     );

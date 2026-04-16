@@ -43,6 +43,7 @@ export type {
   FileImportRequest,
   FileImportResult,
   FileRecord,
+  FileRecordUpdate,
   ImportProgress,
   ManagedCacheEntryMetadata,
 } from './models/file-record.js';
