@@ -7,6 +7,11 @@ function buildDefaultDesktopDevRendererUrl(): string {
   return `http://localhost:${DEFAULT_DESKTOP_DEV_RENDERER_PORT}`;
 }
 
+interface ResolvedDesktopDevRendererConfig {
+  port: number;
+  url: string;
+}
+
 function warnInvalidDesktopDevRendererUrl(configuredUrl: string): void {
   logger.warn(
     'Ignoring invalid BRAINSTRIKE_DESKTOP_DEV_SERVER_URL override; expected an absolute URL with an explicit port.',
@@ -16,41 +21,38 @@ function warnInvalidDesktopDevRendererUrl(configuredUrl: string): void {
   );
 }
 
-function resolveDesktopDevRendererPort(): number {
+function resolveDesktopDevRendererConfig(): ResolvedDesktopDevRendererConfig {
   const configuredUrl = process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim();
   if (!configuredUrl) {
-    return DEFAULT_DESKTOP_DEV_RENDERER_PORT;
+    return {
+      port: DEFAULT_DESKTOP_DEV_RENDERER_PORT,
+      url: buildDefaultDesktopDevRendererUrl(),
+    };
   }
 
   try {
     const parsedUrl = new URL(configuredUrl);
     const parsedPort = Number.parseInt(parsedUrl.port, 10);
     if (Number.isFinite(parsedPort) && parsedPort > 0) {
-      return parsedPort;
+      return {
+        port: parsedPort,
+        url: configuredUrl,
+      };
     }
     warnInvalidDesktopDevRendererUrl(configuredUrl);
-    return DEFAULT_DESKTOP_DEV_RENDERER_PORT;
+    return {
+      port: DEFAULT_DESKTOP_DEV_RENDERER_PORT,
+      url: buildDefaultDesktopDevRendererUrl(),
+    };
   } catch {
     warnInvalidDesktopDevRendererUrl(configuredUrl);
-    return DEFAULT_DESKTOP_DEV_RENDERER_PORT;
+    return {
+      port: DEFAULT_DESKTOP_DEV_RENDERER_PORT,
+      url: buildDefaultDesktopDevRendererUrl(),
+    };
   }
 }
 
-export const DESKTOP_DEV_RENDERER_PORT = resolveDesktopDevRendererPort();
-export const DESKTOP_DEV_RENDERER_URL = (() => {
-  const configuredUrl = process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim();
-  if (!configuredUrl) {
-    return buildDefaultDesktopDevRendererUrl();
-  }
-
-  try {
-    const parsedUrl = new URL(configuredUrl);
-    if (parsedUrl.port) {
-      return configuredUrl;
-    }
-  } catch {
-    return buildDefaultDesktopDevRendererUrl();
-  }
-
-  return buildDefaultDesktopDevRendererUrl();
-})();
+const resolvedDesktopDevRendererConfig = resolveDesktopDevRendererConfig();
+export const DESKTOP_DEV_RENDERER_PORT = resolvedDesktopDevRendererConfig.port;
+export const DESKTOP_DEV_RENDERER_URL = resolvedDesktopDevRendererConfig.url;
